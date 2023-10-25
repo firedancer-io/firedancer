@@ -386,6 +386,16 @@ fd_topo_tile_kind_str( ulong kind ) {
   }
 }
 
+/* Given a tile name produced by fd_topo_tile_kind_str, return the tile
+   kind ID.  Returns ULONG_MAX if there is no such tile. */
+FD_FN_CONST static inline ulong
+fd_topo_tile_kind_from_cstr( char * name ) {
+  for( ulong i=0; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
+    if( !strcmp( name, fd_topo_tile_kind_str( i ) ) ) return i;
+  }
+  return ULONG_MAX;
+}
+
 /* Given a link, count the number of consumers of that link among all
    the tiles in the topology. */
 FD_FN_PURE static inline ulong

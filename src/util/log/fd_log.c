@@ -471,7 +471,7 @@ fd_log_wait_until( long then ) {
 /* LOG APIS ***********************************************************/
 
 char       fd_log_private_path[ 1024 ]; /* "" outside boot/halt, init at boot */
-static int fd_log_private_fileno = -1;  /* -1 outside boot/halt, init at boot */
+       int fd_log_private_fileno = -1;  /* -1 outside boot/halt, init at boot */
 static int fd_log_private_dedup;        /*  0 outside boot/halt, init at boot */
 
 void
@@ -508,9 +508,10 @@ int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private
 /* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
    between different _processes_ that share the same fd. */
 
-static int * fd_log_private_shared_lock; /* NULL outside boot/halt, init at boot */
-
 static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /* location of lock if boot mmap fails */
+
+int   fd_log_private_shared_memfd = -1; /* -1 outside boot/halt, init at boot */
+int * fd_log_private_shared_lock  = fd_log_private_shared_lock_local; /* Local lock outside boot/halt, init at boot */
 
 void
 fd_log_private_fprintf_0( int          fd,
@@ -996,23 +997,53 @@ fd_log_private_boot( int  *   pargc,
      finished booting the log.  If this cannot be done, warn the caller
      and just try to use a local lock. */
 
-  void * shmem = mmap( NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, (off_t)0 );
-  if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO,
-                              "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANONYMOUS,-1,(off_t)0) (%i-%s); "
-                              "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
-                              errno, fd_io_strerror( errno ) );
-    shmem = fd_log_private_shared_lock_local;
-  } else {
-    if( FD_UNLIKELY( mlock( shmem, sizeof(int) ) ) ) {
+  int    memfd = fd_env_strip_cmdline_int( pargc, pargv, "--log-lock-memfd", NULL, -1 );
+  void * shmem = NULL;
+
+  fd_log_private_shared_lock = fd_log_private_shared_lock_local;
+
+  if( FD_LIKELY( -1==memfd ) ) {
+    memfd = memfd_create( "fd_log_lock_page", 0U );
+    if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) {
       fd_log_private_fprintf_0( STDERR_FILENO,
-                                "mlock(%p,sizeof(int)) (%i-%s); "
-                                "unable to lock log file shared lock in memory\n",
-                                shmem, errno, fd_io_strerror( errno ) );
+                                "ftruncate(memfd,4096) failed (%i-%s); "
+                                "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
+                                errno, fd_io_strerror( errno ) );
+      close( memfd );
+      shmem = fd_log_private_shared_lock_local;
+      memfd = -1;
+    } else if( FD_UNLIKELY( -1==memfd ) ) {
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s); "
+                                "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
+                                errno, fd_io_strerror( errno ) );
       shmem = fd_log_private_shared_lock_local;
     }
   }
-  fd_log_private_shared_lock = shmem;
+
+  if( FD_LIKELY( -1!=memfd ) ) {
+    shmem = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, memfd, (off_t)0 );
+    if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED,memfd,(off_t)0) (%i-%s); "
+                                "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
+                                errno, fd_io_strerror( errno ) );
+      shmem = fd_log_private_shared_lock_local;
+      memfd = -1;
+    } else {
+      if( FD_UNLIKELY( mlock( shmem, 4096 ) ) ) {
+        fd_log_private_fprintf_0( STDERR_FILENO,
+                                  "mlock(%p,4096) (%i-%s); "
+                                  "unable to lock log file shared lock in memory\n",
+                                  shmem, errno, fd_io_strerror( errno ) );
+        shmem = fd_log_private_shared_lock_local;
+        memfd = -1;
+      }
+    }
+  }
+
+  fd_log_private_shared_memfd = memfd;
+  fd_log_private_shared_lock  = shmem;
 
   /* Init our our application logical ids */
   /* FIXME: CONSIDER EXPLICIT SPECIFICATION OF RANGE OF THREADS
@@ -1158,39 +1189,46 @@ fd_log_private_boot( int  *   pargc,
 
   /* Hook up the permanent log */
 
-  char const * log_path    = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-path", "FD_LOG_PATH", NULL );
-  ulong        log_path_sz = log_path ? (strlen( log_path )+1UL) : 0UL;
-
-  if( !log_path_sz ) { /* Use default log path */
-    char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    fd_log_wallclock_cstr( fd_log_wallclock(), tag );
-    for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
-    ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
-                               FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
-                               fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
-    if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
-  }
-  else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
-  else if( log_path_sz<=1024UL ) fd_memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
-  else                          { fd_log_private_fprintf_0( STDERR_FILENO, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
-
-  int log_fileno;
-  if( fd_log_private_path[0]=='\0' ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"\"\nNo log\n" );
-    log_fileno = -1;
-  } else if( !strcmp( fd_log_private_path, "-" ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"-\"\nLog to stdout\n" );
-    log_fileno = STDOUT_FILENO;
+  int log_fd      = fd_env_strip_cmdline_int( pargc, pargv, "--log-fd", NULL, -1 );
+  if( -1!=log_fd ) {
+    /* Log filedescriptor was set up before boot, user wishes to log there directly. */
+    fd_log_private_path[0] = '\0';
+    FD_VOLATILE( fd_log_private_fileno ) = log_fd;
   } else {
-    if( !log_path_sz ) fd_log_private_fprintf_0( STDERR_FILENO, "--log-path not specified; using autogenerated path\n" );
-    log_fileno = open( fd_log_private_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
-    if( log_fileno==-1 ) {
-      fd_log_private_fprintf_0( STDERR_FILENO, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
-      exit(1);
+    char const * log_path    = fd_env_strip_cmdline_cstr( pargc, pargv, "--log-path", "FD_LOG_PATH", NULL );
+    ulong        log_path_sz = log_path ? (strlen( log_path )+1UL) : 0UL;
+
+    if( !log_path_sz ) { /* Use default log path */
+      char tag[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
+      fd_log_wallclock_cstr( fd_log_wallclock(), tag );
+      for( ulong b=0UL; tag[b]; b++ ) if( tag[b]==' ' || tag[b]=='-' || tag[b]=='.' || tag[b]==':' ) tag[b] = '_';
+      ulong len; fd_cstr_printf( fd_log_private_path, 1024UL, &len, "/tmp/fd-%i.%i.%i_%lu_%s_%s_%s",
+                                FD_VERSION_MAJOR, FD_VERSION_MINOR, FD_VERSION_PATCH,
+                                fd_log_group_id(), fd_log_user(), fd_log_host(), tag );
+      if( len==1023UL ) { fd_log_private_fprintf_0( STDERR_FILENO, "default log path too long; unable to boot\n" ); exit(1); }
     }
-    fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+    else if( log_path_sz==1UL    ) fd_log_private_path[0] = '\0'; /* User disabled */
+    else if( log_path_sz<=1024UL ) fd_memcpy( fd_log_private_path, log_path, log_path_sz ); /* User specified */
+    else                          { fd_log_private_fprintf_0( STDERR_FILENO, "--log-path too long; unable to boot\n" ); exit(1); } /* Invalid */
+
+    int log_fileno;
+    if( fd_log_private_path[0]=='\0' ) {
+      fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"\"\nNo log\n" );
+      log_fileno = -1;
+    } else if( !strcmp( fd_log_private_path, "-" ) ) {
+      fd_log_private_fprintf_0( STDERR_FILENO, "--log-path \"-\"\nLog to stdout\n" );
+      log_fileno = STDOUT_FILENO;
+    } else {
+      if( !log_path_sz ) fd_log_private_fprintf_0( STDERR_FILENO, "--log-path not specified; using autogenerated path\n" );
+      log_fileno = open( fd_log_private_path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
+      if( log_fileno==-1 ) {
+        fd_log_private_fprintf_0( STDERR_FILENO, "fopen failed (--log-path \"%s\"); unable to boot\n", fd_log_private_path );
+        exit(1);
+      }
+      fd_log_private_fprintf_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+    }
+    FD_VOLATILE( fd_log_private_fileno ) = log_fileno;
   }
-  FD_VOLATILE( fd_log_private_fileno ) = log_fileno;
 
 #if !FD_LOG_UNCLEAN_EXIT
   if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }

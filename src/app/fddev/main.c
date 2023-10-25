@@ -85,18 +85,17 @@ main( int     argc,
   if( FD_UNLIKELY( argc >= MAX_ARGC ) ) FD_LOG_ERR(( "too many arguments (%i)", argc ));
   char ** argv = _argv;
 
-  /* initialize logging */
-  fd_boot( &argc, &argv );
-  fd_log_thread_set( "main" );
-
   argc--; argv++;
 
+  config_t config = fdctl_boot( &argc, &argv );
+  fd_log_thread_set( "main" );
+
   /* load configuration and command line parsing */
-  config_t config = config_parse( &argc, &argv );
   if( FD_UNLIKELY( config.is_live_cluster ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
+
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   config.development.sandbox = config.development.sandbox && !no_sandbox;
 

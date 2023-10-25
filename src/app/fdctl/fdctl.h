@@ -14,6 +14,12 @@ struct configure_stage;
 
 typedef union {
   struct {
+    ulong tile_kind;
+    ulong kind_id;
+    int   pipe_fd;
+  } run1;
+
+  struct {
     long dt_min;
     long dt_max;
     long duration;
@@ -60,8 +66,11 @@ typedef struct {
   void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
-#define ACTIONS_CNT (7UL)
+#define ACTIONS_CNT (9UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
+
+config_t fdctl_boot( int *    pargc,
+                     char *** pargv );
 
 int
 main1( int     argc,
@@ -91,6 +100,19 @@ run_cmd_perm( args_t *         args,
 void
 run_cmd_fn( args_t *         args,
             config_t * const config );
+
+void
+run1_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args );
+
+void
+run1_cmd_fn( args_t *         args,
+             config_t * const config );
+
+void
+run_solana_cmd_fn( args_t *         args,
+                   config_t * const config );
 
 void
 monitor_cmd_args( int *    pargc,

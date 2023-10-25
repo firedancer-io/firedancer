@@ -16,13 +16,24 @@ noarg
 # that descriptor 2 is always STDERR.
 write: (eq (arg 0) 2)
 
-# supervisor: wait for any child tile process to exit
+# supervisor: poll for any child tile process to exit
 #
 # Tiles should not exit on their own, so after booting them the pidns
 # process simply waits for any child to exit, and if this happens
 # terminates the whole process group with a diagnostic message.
-wait4: (and (eq (arg 0) "(unsigned int)-1")
-            (eq (arg 2) __WCLONE)
+#
+# Pipe file descriptors are used with poll() to detect proces exit
+# (the pipe will SIGHUP) rather than waitpid() so that we can wait for
+# grandchildren and the parent process, rather than just direct
+# children.
+poll: (and (eq (arg 2) "(unsigned int)-1"))
+
+# supervisor: get exited process exit status
+#
+# Once the parent or a child process has exited, the pidns will wait4()
+# it to get the exit status and print diagnostic information before
+# terminating the rest of the process group.
+wait4: (and (eq (arg 2) "(int)__WALL | (int)WNOHANG")
             (eq (arg 3) 0))
 
 # supervisor: exit when a child process exits
