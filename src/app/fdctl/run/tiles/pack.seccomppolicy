@@ -1,8 +1,17 @@
 noarg
 
-# logging
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 3 is the logfile.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) 3))
 
-# logging: 'WARNING' and above fsync immediately
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
 fsync: (eq (arg 0) 3)

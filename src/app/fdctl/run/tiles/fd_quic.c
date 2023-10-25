@@ -1,9 +1,11 @@
 #include "tiles.h"
 
+#include "generated/quic_seccomp.h"
 #include "../../../../tango/quic/fd_quic.h"
 #include "../../../../tango/xdp/fd_xsk_aio.h"
 #include "../../../../tango/xdp/fd_xsk.h"
 #include "../../../../tango/ip/fd_netlink.h"
+#include "../../../../tango/ip/fd_ip.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -89,6 +91,7 @@ typedef struct {
 
   fd_mux_context_t * mux;
 
+  fd_ip_t *        ip;
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
 
@@ -185,6 +188,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   ulong scratch_top = 0UL;
   SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
   SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() );
   SCRATCH_ALLOC( pubq_align(),   pubq_footprint( tile->quic.depth ) );
   SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() );
@@ -757,8 +761,10 @@ privileged_init( fd_topo_t *      topo,
   (void)topo;
   (void)tile;
 
-  /* initialize fd_netlink */
-  (void)fd_nl_get();
+  ulong scratch_top = (ulong)scratch;
+  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  ctx->ip = fd_ip_join( fd_ip_new( SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
+  if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
@@ -767,8 +773,6 @@ privileged_init( fd_topo_t *      topo,
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
-  ulong scratch_top = (ulong)scratch;
-  SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
   fd_quic_ssl_mem_function_ctx = fd_alloc_join( fd_alloc_new( SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() ), 1UL ), tile->kind_id );
   if( FD_UNLIKELY( !fd_quic_ssl_mem_function_ctx ) )
     FD_LOG_ERR(( "fd_alloc_join failed" ));
@@ -806,8 +810,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
+  fd_ip_arp_fetch( ctx->ip );
+  fd_ip_route_fetch( ctx->ip );
   fd_quic_limits_t limits = quic_limits( tile );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) ), &limits ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) ), &limits, ctx->ip ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
@@ -887,47 +893,48 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long allow_syscalls[] = {
-  __NR_write,     /* logging */
-  __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
-  __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
-  __NR_sendto,    /* allows to make requests on netlink socket */
-  __NR_recvfrom,  /* allows to receive responses on netlink socket */
-};
+static ulong
+populate_allowed_seccomp( void *               scratch,
+                          ulong                out_cnt,
+                          struct sock_filter * out ) {
+  ulong scratch_top = (ulong)scratch;
+  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+
+  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
+  FD_TEST( netlink_fd >= 0 );
+  populate_sock_filter_policy_quic( out_cnt, out, (unsigned int)netlink_fd );
+  return sock_filter_policy_quic_instr_cnt;
+}
 
 static ulong
-allow_fds( void * scratch,
-           ulong  out_fds_cnt,
-           int *  out_fds ) {
-  (void)scratch;
+populate_allowed_fds( void * scratch,
+                      ulong  out_fds_cnt,
+                      int *  out_fds ) {
+  ulong scratch_top = (ulong)scratch;
+  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+
   if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  fd_nl_t * nl = fd_nl_get();
-  if( nl->init == 0 ) {
-    FD_LOG_ERR(( "netlink not initialized" ));
-  }
-  out_fds[ 0 ] = 2;      /* stderr */
-  out_fds[ 1 ] = 3;      /* logfile */
-  out_fds[ 2 ] = nl->fd; /* netlink socket */
+  out_fds[ 0 ] = 2;                                /* stderr */
+  out_fds[ 1 ] = 3;                                /* logfile */
+  out_fds[ 2 ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
   return 3;
 }
 
 fd_tile_config_t fd_tile_quic = {
-  .mux_flags               = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                   = 1UL,
-  .mux_ctx                 = mux_ctx,
-  .mux_during_housekeeping = during_housekeeping,
-  .mux_before_credit       = before_credit,
-  .mux_before_frag         = before_frag,
-  .mux_during_frag         = during_frag,
-  .mux_after_frag          = after_frag,
-  .mux_cnc_diag_write      = cnc_diag_write,
-  .allow_syscalls_cnt      = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls          = allow_syscalls,
-  .allow_fds               = allow_fds,
-  .loose_footprint         = loose_footprint,
-  .scratch_align           = scratch_align,
-  .scratch_footprint       = scratch_footprint,
-  .privileged_init         = privileged_init,
-  .unprivileged_init       = unprivileged_init,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+  .burst                    = 1UL,
+  .mux_ctx                  = mux_ctx,
+  .mux_during_housekeeping  = during_housekeeping,
+  .mux_before_credit        = before_credit,
+  .mux_before_frag          = before_frag,
+  .mux_during_frag          = during_frag,
+  .mux_after_frag           = after_frag,
+  .mux_cnc_diag_write       = cnc_diag_write,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .loose_footprint          = loose_footprint,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
 };

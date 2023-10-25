@@ -64,6 +64,7 @@ fn main() {
             .wrap_static_fns_path(out_dir.join(&format!("gen_{lib}.c")))
             .allowlist_recursively(false)
             .default_non_copy_union_style(bindgen::NonCopyUnionStyle::ManuallyDrop)
+            .clang_arg("-DFD_HAS_FFI=1")
             .clang_arg(format!("-I{prefix}/"))
             .clang_arg("-std=c17")
             .header(&format!("wrapper_{lib}.h"))

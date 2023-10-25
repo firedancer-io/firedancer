@@ -5,6 +5,8 @@
 
 #include "../../../../disco/mux/fd_mux.h"
 
+#include <linux/filter.h>
+
 typedef struct {
   ulong                         mux_flags;
   ulong                         burst;
@@ -19,14 +21,13 @@ typedef struct {
   fd_mux_cnc_diag_write_fn      * mux_cnc_diag_write;
   fd_mux_cnc_diag_clear_fn      * mux_cnc_diag_clear;
 
-  ushort allow_syscalls_cnt;
-  long * allow_syscalls;
-  ulong (*allow_fds          )( void * scratch, ulong out_fds_sz, int * out_fds );
-  ulong (*loose_footprint    )( fd_topo_tile_t * tile );
-  ulong (*scratch_align      )( void );
-  ulong (*scratch_footprint  )( fd_topo_tile_t * tile );
-  void  (*privileged_init    )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  void  (*unprivileged_init  )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
+  ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
+  ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
+  ulong (*loose_footprint         )( fd_topo_tile_t * tile );
+  ulong (*scratch_align           )( void );
+  ulong (*scratch_footprint       )( fd_topo_tile_t * tile );
+  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
+  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
 } fd_tile_config_t;
 
 FD_FN_CONST ulong

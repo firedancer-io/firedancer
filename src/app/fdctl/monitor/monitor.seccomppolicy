@@ -1,21 +1,58 @@
+# The monitor is a binary that can run alongside Firedancer and print
+# certain diagnostics about the status and peformance of the validator.
 unsigned int drain_output_fd
 
-# logging
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# Unlike the rest of Firedancer, the monitor actually uses STDOUT, for
+# printing its diagnostics.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 1 is always STDOUT, 2 is always STDERR and descriptor
+# 3 is the logfile.
 write: (or (eq (arg 0) 1)
            (eq (arg 0) 2) 
            (eq (arg 0) 3))
 
-# logging: 'WARNING' and above fsync immediately
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
 fsync: (eq (arg 0) 3)
 
-# fd_log_wait_until
+# monitor: wait until we need to print again
+#
+# The monitor calls fd_log_wait_until() to wait until the diagnostic
+# output screen should be refreshed, and that function can call
+# nanosleep depending on the amount of time left to wait.
 nanosleep
 
-# fd_log_wait_until
+# monitor: wait until we need to print again
+#
+# The monitor calls fd_log_wait_until() to wait until the diagnostic
+# output screen should be refreshed, and that function can call
+# sched_yield depending on the amount of time left to wait.
 sched_yield
 
-# exit process
+# monitor: exit the process
+#
+# If the monitor is signalled with SIGINT or SIGTERM it will exit
+# itself by calling exit_group()
 exit_group
 
-# read from firedancer stdout to interpose their log messages
+# monitor: splice log output from a firedancer child process
+#
+# The monitor supports a development mode where it can be run as the
+# supervisor process of Firedancer.  In this mode, it will pass a custom
+# pipe for Firedancer to write log message to, and interpose the logging
+# output with the pretty printed diagnostics.
+#
+# This is not needed in production environments.
+#
+# arg0 is the file descriptor we wish to read from.  The monitor will
+# ensure this is always the stderr pipe that it created the Firedancer
+# child process with.
 read: (eq (arg 0) drain_output_fd)

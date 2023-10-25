@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include "generated/main_seccomp.h"
+#include "generated/pidns_seccomp.h"
+
 #include "tiles/tiles.h"
 #include "../configure/configure.h"
 
@@ -106,17 +109,21 @@ tile_main( void * _args ) {
     config->privileged_init( &args->config->topo, tile, scratch_mem );
 
   int allow_fds[ 32 ];
-  ulong allow_fds_cnt = config->allow_fds( scratch_mem,
-                                           sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
-                                           allow_fds );
+  ulong allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
+                                                      sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                                                      allow_fds );
 
+  struct sock_filter seccomp_filter[ 128UL ];
+  ulong seccomp_filter_cnt = config->populate_allowed_seccomp( scratch_mem,
+                                                               sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
+                                                               seccomp_filter );
   fd_sandbox( args->config->development.sandbox,
               args->config->uid,
               args->config->gid,
               allow_fds_cnt,
               allow_fds,
-              config->allow_syscalls_cnt,
-              config->allow_syscalls );
+              seccomp_filter_cnt,
+              seccomp_filter );
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
@@ -410,8 +417,6 @@ main_pid_namespace( void * args ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_BANK || tile->kind == FD_TOPO_TILE_KIND_STORE ) ) continue;
 
-    // if( tile->kind == FD_TOPO_TILE_KIND_PACK ) continue;
-
     child_pids[ child_cnt ] = clone_tile( config, tile, tile_to_cpu[ i ], floating_cpu_set );
     strncpy( child_names[ child_cnt ], fd_topo_tile_kind_str( tile->kind ), 32 );
     child_cnt++;
@@ -420,24 +425,21 @@ main_pid_namespace( void * args ) {
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  long allow_syscalls[] = {
-    __NR_write,      /* logging */
-    __NR_wait4,      /* wait for children */
-    __NR_exit_group, /* exit process */
-  };
+  struct sock_filter seccomp_filter[ 128UL ];
+  populate_sock_filter_policy_pidns( 128UL, seccomp_filter );
 
   int allow_fds[] = {
     2, /* stderr */
     3, /* logfile */
   };
-
+ 
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
               sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
               allow_fds,
-              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-              allow_syscalls );
+              sock_filter_policy_pidns_instr_cnt,
+              seccomp_filter );
 
   /* we are now the init process of the pid namespace. if the init process
      dies, all children are terminated. If any child dies, we terminate the
@@ -475,7 +477,7 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 static void
 parent_signal( int sig ) {
   (void)sig;
-  if( pid_namespace ) kill( pid_namespace, SIGKILL );
+  if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
   fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( 0 );
 }
@@ -511,12 +513,9 @@ run_firedancer( config_t * const config ) {
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), flags, config );
 
-  long allow_syscalls[] = {
-    __NR_write,      /* logging */
-    __NR_wait4,      /* wait for children */
-    __NR_exit_group, /* exit process */
-    __NR_kill,       /* kill the pid namespaced child process */
-  };
+  struct sock_filter seccomp_filter[ 128UL ];
+  FD_TEST( pid_namespace >= 0 );
+  populate_sock_filter_policy_main( 128UL, seccomp_filter, (unsigned int)pid_namespace );
 
   int allow_fds[] = {
     2, /* stderr */
@@ -528,8 +527,8 @@ run_firedancer( config_t * const config ) {
               config->gid,
               sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
               allow_fds,
-              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-              allow_syscalls );
+              sock_filter_policy_main_instr_cnt,
+              seccomp_filter );
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */
@@ -537,7 +536,7 @@ run_firedancer( config_t * const config ) {
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
   if( FD_UNLIKELY( pid2 == -1 ) ) {
     fd_log_private_fprintf_nolock_0( STDERR_FILENO, "error waiting for child process to exit\nLog at \"%s\"\n", fd_log_private_path );
-    exit_group( 1 );
+    exit_group( errno );
   }
   if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
   else exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );

@@ -1,5 +1,6 @@
 #include "../fdctl.h"
 
+#include "generated/monitor_seccomp.h"
 #include "helper.h"
 #include "../run/run.h"
 #include "../run/tiles/tiles.h"
@@ -369,15 +370,6 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  long allow_syscalls[] = {
-    __NR_write,        /* logging */
-    __NR_fsync,        /* logging, WARNING and above fsync immediately */
-    __NR_nanosleep,    /* fd_log_wait_until */
-    __NR_sched_yield,  /* fd_log_wait_until */
-    __NR_exit_group,   /* exit process */
-    __NR_read,         /* read from firedancer stdout to interpose their log messages */
-  };
-
   int allow_fds[] = {
     1, /* stdout */
     2, /* stderr */
@@ -386,14 +378,15 @@ monitor_cmd_fn( args_t *         args,
   };
 
   ulong num_fds = sizeof(allow_fds)/sizeof(allow_fds[0]);
-  ushort num_syscalls = sizeof(allow_syscalls)/sizeof(allow_syscalls[0]);
-
   ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
-  ushort allow_syscalls_cnt = args->monitor.drain_output_fd >= 0 ? num_syscalls : (ushort)(num_syscalls - 1);
 
   /* join all workspaces needed by the toplogy before sandboxing, so
      we can access them later */
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+
+  struct sock_filter seccomp_filter[ 128UL ];
+  uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
+  populate_sock_filter_policy_monitor( 128UL, seccomp_filter, drain_output_fd );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,
@@ -401,8 +394,8 @@ monitor_cmd_fn( args_t *         args,
               config->gid,
               allow_fds_sz,
               allow_fds,
-              allow_syscalls_cnt,
-              allow_syscalls );
+              sock_filter_policy_monitor_instr_cnt,
+              seccomp_filter );
 
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );

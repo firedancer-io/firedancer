@@ -1,5 +1,7 @@
 #include "tiles.h"
 
+#include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
+#include "generated/net_seccomp.h"
 #include "../../../../tango/quic/fd_quic.h"
 #include "../../../../tango/xdp/fd_xdp.h"
 #include "../../../../tango/xdp/fd_xsk_private.h"
@@ -322,17 +324,25 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long allow_syscalls[] = {
-  __NR_write,   /* logging */
-  __NR_fsync,   /* logging, WARNING and above fsync immediately */
-  __NR_sendto,  /* XDP requires calling sendto to notify the driver there are new entries in the TX ring */
-  __NR_recvmsg, /* XDP requires calling recvmsg to notify the driver there are new entries in the fill ring */
-};
+static ulong
+populate_allowed_seccomp( void *               scratch,
+                          ulong                out_cnt,
+                          struct sock_filter * out ) {
+  ulong scratch_top = (ulong)scratch;
+  fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+
+  /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
+     two "allow" FD arguments to the net policy, so we just make them both the same. */
+  int allow_fd2 = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : init_ctx->xsk->xsk_fd;
+  FD_TEST( init_ctx->xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
+  populate_sock_filter_policy_net( out_cnt, out, (unsigned int)init_ctx->xsk->xsk_fd, (unsigned int)allow_fd2 );
+  return sock_filter_policy_net_instr_cnt;
+}
 
 static ulong
-allow_fds( void * scratch,
-           ulong  out_fds_cnt,
-           int *  out_fds ) {
+populate_allowed_fds( void * scratch,
+                      ulong  out_fds_cnt,
+                      int *  out_fds ) {
   ulong scratch_top = (ulong)scratch;
   fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
@@ -345,18 +355,17 @@ allow_fds( void * scratch,
 }
 
 fd_tile_config_t fd_tile_net = {
-  .mux_flags           = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst               = 1UL,
-  .mux_ctx             = mux_ctx,
-  .mux_before_credit   = before_credit,
-  .mux_before_frag     = before_frag,
-  .mux_during_frag     = during_frag,
-  .mux_after_frag      = after_frag,
-  .allow_syscalls_cnt  = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls      = allow_syscalls,
-  .allow_fds           = allow_fds,
-  .scratch_align       = scratch_align,
-  .scratch_footprint   = scratch_footprint,
-  .privileged_init     = privileged_init,
-  .unprivileged_init   = unprivileged_init,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+  .burst                    = 1UL,
+  .mux_ctx                  = mux_ctx,
+  .mux_before_credit        = before_credit,
+  .mux_before_frag          = before_frag,
+  .mux_during_frag          = during_frag,
+  .mux_after_frag           = after_frag,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
 };

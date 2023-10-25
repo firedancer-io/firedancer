@@ -1,5 +1,6 @@
 #include "tiles.h"
 
+#include "generated/shred_seccomp.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/shred/fd_fec_resolver.h"
@@ -777,46 +778,53 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shred_listen_port = tile->shred.shred_listen_port;
   ctx->cluster_nodes_mvcc = tile->extra[ 0 ];
 
+  fd_ip_arp_fetch( ctx->ip );
+  fd_ip_route_fetch( ctx->ip );
   warmup_arp_cache( ctx );
 
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-static long allow_syscalls[] = {
-  __NR_write,     /* logging */
-  __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_sendto,    /* fd_ip requires send and recv for ARP */
-  __NR_recvfrom,  /* fd_ip requires send and recv for ARP */
-};
+static ulong
+populate_allowed_seccomp( void *               scratch,
+                          ulong                out_cnt,
+                          struct sock_filter * out ) {
+  ulong scratch_top = (ulong)scratch;
+  fd_shred_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+
+  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
+  FD_TEST( netlink_fd >= 0 );
+  populate_sock_filter_policy_shred( out_cnt, out, (unsigned int)netlink_fd );
+  return sock_filter_policy_shred_instr_cnt;
+}
 
 static ulong
-allow_fds( void * scratch,
-           ulong  out_fds_cnt,
-           int *  out_fds ) {
+populate_allowed_fds( void * scratch,
+                      ulong  out_fds_cnt,
+                      int *  out_fds ) {
   ulong scratch_top = (ulong)scratch;
   fd_shred_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  out_fds[ 0 ] = 2; /* stderr */
-  out_fds[ 1 ] = 3; /* logfile */
-  out_fds[ 2 ] = fd_ip_netlink_get( ctx->ip )->fd;
+  out_fds[ 0 ] = 2;                                /* stderr */
+  out_fds[ 1 ] = 3;                                /* logfile */
+  out_fds[ 2 ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
   return 3;
 }
 
 fd_tile_config_t fd_tile_shred = {
-  .mux_flags               = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                   = 4UL,
-  .mux_ctx                 = mux_ctx,
-  .mux_during_housekeeping = during_housekeeping,
-  .mux_before_frag         = before_frag,
-  .mux_during_frag         = during_frag,
-  .mux_after_frag          = after_frag,
-  .allow_syscalls_cnt      = sizeof(allow_syscalls)/sizeof(allow_syscalls[ 0 ]),
-  .allow_syscalls          = allow_syscalls,
-  .allow_fds               = allow_fds,
-  .scratch_align           = scratch_align,
-  .scratch_footprint       = scratch_footprint,
-  .privileged_init         = privileged_init,
-  .unprivileged_init       = unprivileged_init,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
+  .burst                    = 4UL,
+  .mux_ctx                  = mux_ctx,
+  .mux_during_housekeeping  = during_housekeeping,
+  .mux_before_frag          = before_frag,
+  .mux_during_frag          = during_frag,
+  .mux_after_frag           = after_frag,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
 };

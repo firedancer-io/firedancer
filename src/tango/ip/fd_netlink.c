@@ -113,21 +113,6 @@ fd_nda_type_to_label( uint nda_type ) {
 }
 
 
-FD_TL fd_nl_t fd_nl_gbl = {0};
-
-
-fd_nl_t *
-fd_nl_get( void ) {
-  if( FD_UNLIKELY( fd_nl_gbl.init == 0 ) ) {
-    if( fd_nl_init( &fd_nl_gbl, 1 ) ) {
-      FD_LOG_ERR(( "Unable to initialize netlink" ));
-    }
-  }
-
-  return &fd_nl_gbl;
-}
-
-
 int
 fd_nl_create_socket( void ) {
   int fd = socket( AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK, NETLINK_ROUTE );

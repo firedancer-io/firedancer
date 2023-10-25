@@ -1190,7 +1190,7 @@ fd_log_private_boot( int  *   pargc,
   }
   FD_VOLATILE( fd_log_private_fileno ) = log_fileno;
 
-#ifndef FD_LOG_UNCLEAN_EXIT
+#if !FD_LOG_UNCLEAN_EXIT
   if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
 #endif
 

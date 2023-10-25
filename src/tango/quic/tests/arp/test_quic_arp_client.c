@@ -246,8 +246,6 @@ main( int argc, char ** argv ) {
     .stream_cnt       = { 2, 2, 2, 2 },
     .inflight_pkt_cnt = 1024,
     .tx_buf_sz        = 1<<14,
-    .routing_entries  = 32,
-    .arp_entries      = 32
   };
 #endif
 
