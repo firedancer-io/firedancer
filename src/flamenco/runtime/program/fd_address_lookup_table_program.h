@@ -3,6 +3,10 @@
 
 #include "../context/fd_exec_instr_ctx.h"
 
+#define FD_ADDRLUT_STATUS_ACTIVATED    (0)
+#define FD_ADDRLUT_STATUS_DEACTIVATING (1)
+#define FD_ADDRLUT_STATUS_DEACTIVATED  (2)
+
 FD_PROTOTYPES_BEGIN
 
 int
