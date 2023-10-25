@@ -118,61 +118,6 @@ usage( char const * progname ) {
       " --retrace     <bool>       Immediately replay captured traces\n" );
 }
 
-#define SORT_NAME sort_pubkey_hash_pair
-#define SORT_KEY_T fd_pubkey_hash_pair_t
-#define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
-#include "../../util/tmpl/fd_sort.c"
-
-int
-accounts_hash( global_state_t *state ) {
-  fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-  ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-  FD_LOG_NOTICE(( "NIA %lu", num_iter_accounts ));
-
-  ulong zero_accounts = 0;
-  ulong num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( state->slot_ctx->valloc, 8UL, num_iter_accounts*sizeof(fd_pubkey_hash_pair_t));
-  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
-       !fd_funk_rec_map_iter_done( rec_map, iter );
-       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-    if ( !fd_acc_mgr_is_key( rec->pair.key ) )
-      continue;
-
-    if (num_pairs % 1000000 == 0) {
-      FD_LOG_NOTICE(( "PAIRS: %lu", num_pairs ));
-    }
-
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    if ((metadata->magic != FD_ACCOUNT_META_MAGIC) || (metadata->hlen != sizeof(fd_account_meta_t))) {
-      FD_LOG_ERR(("invalid magic on metadata"));
-    }
-
-    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0)) {
-      zero_accounts++;
-      continue;
-    }
-
-
-    fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
-    fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
-    num_pairs++;
-  }
-
-  FD_LOG_WARNING(("num_iter_accounts %ld zero_accounts %lu", num_iter_accounts, zero_accounts));
-  FD_LOG_NOTICE(( "HASHING ACCOUNTS" ));
-  fd_hash_t accounts_hash;
-  fd_hash_account_deltas(pairs, num_pairs, &accounts_hash, state->slot_ctx);
-
-  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
-  FD_LOG_WARNING(("num_iter_accounts %ld", num_iter_accounts));
-
-  return 0;
-}
-
 int
 replay( global_state_t * state,
         int              justverify,
@@ -210,12 +155,12 @@ replay( global_state_t * state,
   if (mm.end_slot < state->end_slot)
     state->end_slot = mm.end_slot;
 
-  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->bank.slot);
+  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
-  ulong prev_slot = state->slot_ctx->bank.slot;
-  for ( ulong slot = state->slot_ctx->bank.slot+1; slot < state->end_slot; ++slot ) {
-    state->slot_ctx->bank.prev_slot = prev_slot;
-    state->slot_ctx->bank.slot      = slot;
+  ulong prev_slot = state->slot_ctx->slot_bank.slot;
+  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
+    state->slot_ctx->slot_bank.prev_slot = prev_slot;
+    state->slot_ctx->slot_bank.slot      = slot;
 
     FD_LOG_INFO(("reading slot %ld", slot));
 
@@ -241,14 +186,14 @@ replay( global_state_t * state,
     if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
     val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
 
-   
+
     if ( justverify ) {
       fd_block_info_t block_info;
       int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), state->slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      
+
       fd_hash_t poh_hash;
-      fd_memcpy( poh_hash.hash, state->slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
+      fd_memcpy( poh_hash.hash, state->slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify( &block_info, &poh_hash );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
@@ -256,11 +201,11 @@ replay( global_state_t * state,
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
       if( known_bank_hash ) {
-        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
           FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
               slot,
               known_bank_hash->hash,
-              state->slot_ctx->bank.banks_hash.hash ));
+              state->slot_ctx->slot_bank.banks_hash.hash ));
           if( state->abort_on_mismatch ) {
             fd_solcap_writer_fini( state->slot_ctx->capture );
             kill(getpid(), SIGTRAP);
@@ -272,8 +217,8 @@ replay( global_state_t * state,
       if (NULL != state->capitalization_file) {
         slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
         if (NULL != c) {
-          if (state->slot_ctx->bank.capitalization != c->capitalization)
-            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->bank.capitalization, c->capitalization,  state->slot_ctx->bank.capitalization - c->capitalization  ));
+          if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
+            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
         }
       }
     }
@@ -433,6 +378,7 @@ main( int     argc,
 
   state.local_wksp = local_wksp;
   state.slot_ctx->valloc = fd_libc_alloc_virtual();
+  state.epoch_ctx->valloc = fd_libc_alloc_virtual();
 
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
@@ -467,8 +413,8 @@ main( int     argc,
   }
 
   {
-    FD_LOG_NOTICE(("reading banks record"));
-    fd_funk_rec_key_t id = fd_runtime_banks_key();
+    FD_LOG_NOTICE(("reading epoch bank record"));
+    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
@@ -477,19 +423,35 @@ main( int     argc,
     ctx2.data = val;
     ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
     ctx2.valloc  = state.slot_ctx->valloc;
-    FD_TEST( fd_firedancer_banks_decode(&state.slot_ctx->bank, &ctx2 )==FD_BINCODE_SUCCESS );
+    FD_TEST( fd_epoch_bank_decode(&state.epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
+
+    FD_LOG_NOTICE(( "decoded epoch" ));
+  }
+
+  {
+    FD_LOG_NOTICE(("reading slot bank record"));
+    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
+    fd_bincode_decode_ctx_t ctx2;
+    ctx2.data = val;
+    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx2.valloc  = state.slot_ctx->valloc;
+    FD_TEST( fd_slot_bank_decode(&state.slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
 
     FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                    (long)state.slot_ctx->bank.slot,
-                    state.slot_ctx->bank.banks_hash.hash,
-                    state.slot_ctx->bank.poh.hash ));
+                    (long)state.slot_ctx->slot_bank.slot,
+                    state.slot_ctx->slot_bank.banks_hash.hash,
+                    state.slot_ctx->slot_bank.poh.hash ));
 
-    state.slot_ctx->bank.collected_fees = 0;
-    state.slot_ctx->bank.collected_rent = 0;
+    state.slot_ctx->slot_bank.collected_fees = 0;
+    state.slot_ctx->slot_bank.collected_rent = 0;
 
     FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
-                    (long)state.slot_ctx->bank.slot,
-                    state.slot_ctx->bank.capitalization));
+                    (long)state.slot_ctx->slot_bank.slot,
+                    state.slot_ctx->slot_bank.capitalization));
   }
 
   ulong tcnt = fd_tile_cnt();
@@ -512,7 +474,7 @@ main( int     argc,
     if (NULL != confirm_hash) {
       uchar h[32];
       fd_base58_decode_32( confirm_hash,  h);
-      FD_TEST(memcmp(h, &state.slot_ctx->bank.banks_hash, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->slot_bank.banks_hash, sizeof(h)) == 0);
     }
 
     if (NULL != confirm_parent) {
@@ -533,14 +495,12 @@ main( int     argc,
     if (NULL != confirm_last_block) {
       uchar h[32];
       fd_base58_decode_32( confirm_last_block,  h);
-      FD_TEST(memcmp(h, &state.slot_ctx->bank.poh, sizeof(h)) == 0);
+      FD_TEST(memcmp(h, &state.slot_ctx->slot_bank.poh, sizeof(h)) == 0);
     }
 
   }
   if (strcmp(state.cmd, "verifyonly") == 0)
     replay(&state, 1, tpool, tcnt);
-  if (strcmp(state.cmd, "accounts_hash") == 0)
-    accounts_hash(&state);
 
   fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.slot_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );

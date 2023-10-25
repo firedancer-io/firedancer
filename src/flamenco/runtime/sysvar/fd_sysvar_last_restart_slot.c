@@ -11,7 +11,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_sol_sysvar_last_restart_slot_t const * sysvar = &slot_ctx->bank.last_restart_slot;
+  fd_sol_sysvar_last_restart_slot_t const * sysvar = &slot_ctx->slot_bank.last_restart_slot;
 
   ulong sz = fd_sol_sysvar_last_restart_slot_size( sysvar );
   uchar enc[ sz ];
@@ -28,7 +28,7 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  fd_sysvar_owner_id.key,
                  &fd_sysvar_last_restart_slot_id,
                  enc, sz,
-                 slot_ctx->bank.slot,
+                 slot_ctx->slot_bank.slot,
                  NULL );
 }
 
@@ -61,10 +61,10 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* Set this every slot? */
   uchar data[ 8 ];
-  memcpy( data, &slot_ctx->bank.last_restart_slot, 8 );
+  memcpy( data, &slot_ctx->slot_bank.last_restart_slot, 8 );
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key,
                  &fd_sysvar_last_restart_slot_id,
                  data, /* sz */ 8UL,
-                 slot_ctx->bank.slot,
+                 slot_ctx->slot_bank.slot,
                  NULL );
 }

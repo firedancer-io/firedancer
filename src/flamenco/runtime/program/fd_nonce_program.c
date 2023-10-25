@@ -162,7 +162,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
 
 //                let (next_durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
 
-  fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->bank.recent_block_hashes.hashes;
+  fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->slot_bank.recent_block_hashes.hashes;
   if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
     ctx.txn_ctx->custom_err = 6;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -196,7 +196,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
 
   state.discriminant = fd_nonce_state_versions_enum_current;
   fd_memcpy(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash));
-  state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature(&ctx.slot_ctx->bank);
+  state.inner.current.inner.initialized.fee_calculator.lamports_per_signature = fd_runtime_lamports_per_signature(&ctx.slot_ctx->slot_bank);
 
 //                self.set_state(&Versions::new(
 //                    State::Initialized(new_data),
@@ -270,10 +270,10 @@ int fd_withdraw_nonce_account(
   }
   case fd_nonce_state_enum_initialized: {
     if (  from_rec->const_meta->info.lamports == requested_lamports ) {
-      if (deq_fd_block_block_hash_entry_t_cnt(ctx.slot_ctx->bank.recent_block_hashes.hashes) == 0)
+      if (deq_fd_block_block_hash_entry_t_cnt(ctx.slot_ctx->slot_bank.recent_block_hashes.hashes) == 0)
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-      fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head(ctx.slot_ctx->bank.recent_block_hashes.hashes);
+      fd_block_block_hash_entry_t *re = deq_fd_block_block_hash_entry_t_peek_head(ctx.slot_ctx->slot_bank.recent_block_hashes.hashes);
       fd_hash_t                    durable_nonce;
       fd_durable_nonce_from_blockhash(&re->blockhash, &durable_nonce);
       if (!memcmp(state.inner.current.inner.initialized.durable_nonce.hash, durable_nonce.hash, sizeof(state.inner.current.inner.initialized.durable_nonce.hash)))
@@ -398,7 +398,7 @@ int fd_initialize_nonce_account(
     if ( me_rec->const_meta->info.lamports < minimum_rent_exempt_balance )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
 
-    fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->bank.recent_block_hashes.hashes;
+    fd_block_block_hash_entry_t * hashes = ctx.slot_ctx->slot_bank.recent_block_hashes.hashes;
     if ( deq_fd_block_block_hash_entry_t_cnt( hashes ) == 0) {
       ctx.txn_ctx->custom_err = 6;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;

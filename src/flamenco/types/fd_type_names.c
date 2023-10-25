@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 179
+#define FD_TYPE_NAME_COUNT 181
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -85,7 +85,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_config_keys_pair",
  "fd_stake_config",
  "fd_feature_entry",
- "fd_firedancer_banks",
+ "fd_firedancer_bank",
+ "fd_epoch_bank",
+ "fd_slot_bank",
  "fd_prev_epoch_inflation_rewards",
  "fd_reward_type",
  "fd_reward_info",

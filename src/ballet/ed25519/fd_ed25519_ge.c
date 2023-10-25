@@ -1,5 +1,4 @@
 #include "fd_ed25519_private.h"
-#include "fd_ed25519_ge.h"
 
 #if FD_ED25519_FE_IMPL == 0
 #include "ref/fd_ed25519_ge.c"

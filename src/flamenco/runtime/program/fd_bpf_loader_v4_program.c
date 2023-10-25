@@ -495,7 +495,7 @@ _process_retract( fd_exec_instr_ctx_t ctx ) {
 
   /* Solana Labs reads from the clock sysvar here
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L504 */
-  ulong current_slot = ctx.slot_ctx->bank.slot;
+  ulong current_slot = ctx.slot_ctx->slot_bank.slot;
   if( state->slot + DEPLOYMENT_COOLDOWN_IN_SLOTS > current_slot ) {
     // TODO Log: "Program was deployed recently, cooldown stil in effect"
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

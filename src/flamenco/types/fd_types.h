@@ -1114,7 +1114,7 @@ typedef struct fd_feature_entry fd_feature_entry_t;
 #define FD_FEATURE_ENTRY_FOOTPRINT sizeof(fd_feature_entry_t)
 #define FD_FEATURE_ENTRY_ALIGN (8UL)
 
-struct __attribute__((aligned(16UL))) fd_firedancer_banks {
+struct __attribute__((aligned(16UL))) fd_firedancer_bank {
   fd_stakes_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
@@ -1140,9 +1140,46 @@ struct __attribute__((aligned(16UL))) fd_firedancer_banks {
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
 };
-typedef struct fd_firedancer_banks fd_firedancer_banks_t;
-#define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
-#define FD_FIREDANCER_BANKS_ALIGN (16UL)
+typedef struct fd_firedancer_bank fd_firedancer_bank_t;
+#define FD_FIREDANCER_BANK_FOOTPRINT sizeof(fd_firedancer_bank_t)
+#define FD_FIREDANCER_BANK_ALIGN (16UL)
+
+struct __attribute__((aligned(16UL))) fd_epoch_bank {
+  fd_stakes_t stakes;
+  ulong lamports_per_signature;
+  ulong hashes_per_tick;
+  ulong ticks_per_slot;
+  uint128 ns_per_slot;
+  ulong genesis_creation_time;
+  double slots_per_year;
+  ulong max_tick_height;
+  fd_inflation_t inflation;
+  fd_epoch_schedule_t epoch_schedule;
+  fd_rent_t rent;
+};
+typedef struct fd_epoch_bank fd_epoch_bank_t;
+#define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
+#define FD_EPOCH_BANK_ALIGN (16UL)
+
+struct __attribute__((aligned(16UL))) fd_slot_bank {
+  fd_recent_block_hashes_t recent_block_hashes;
+  fd_clock_timestamp_votes_t timestamp_votes;
+  ulong slot;
+  ulong prev_slot;
+  fd_hash_t poh;
+  fd_hash_t banks_hash;
+  fd_fee_rate_governor_t fee_rate_governor;
+  ulong capitalization;
+  ulong block_height;
+  ulong max_tick_height;
+  ulong collected_fees;
+  ulong collected_rent;
+  fd_vote_accounts_t epoch_stakes;
+  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+};
+typedef struct fd_slot_bank fd_slot_bank_t;
+#define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
+#define FD_SLOT_BANK_ALIGN (16UL)
 
 struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
   ulong validator_rewards;
@@ -3163,16 +3200,38 @@ ulong fd_feature_entry_size(fd_feature_entry_t const * self);
 ulong fd_feature_entry_footprint( void );
 ulong fd_feature_entry_align( void );
 
-void fd_firedancer_banks_new(fd_firedancer_banks_t* self);
-int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_firedancer_banks_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_firedancer_banks_decode_unsafe(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_firedancer_banks_walk(void * w, fd_firedancer_banks_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self);
-ulong fd_firedancer_banks_footprint( void );
-ulong fd_firedancer_banks_align( void );
+void fd_firedancer_bank_new(fd_firedancer_bank_t* self);
+int fd_firedancer_bank_decode(fd_firedancer_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_firedancer_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_firedancer_bank_decode_unsafe(fd_firedancer_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_firedancer_bank_encode(fd_firedancer_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_firedancer_bank_destroy(fd_firedancer_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_firedancer_bank_walk(void * w, fd_firedancer_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_firedancer_bank_size(fd_firedancer_bank_t const * self);
+ulong fd_firedancer_bank_footprint( void );
+ulong fd_firedancer_bank_align( void );
+
+void fd_epoch_bank_new(fd_epoch_bank_t* self);
+int fd_epoch_bank_decode(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_epoch_bank_decode_unsafe(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_epoch_bank_destroy(fd_epoch_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_epoch_bank_walk(void * w, fd_epoch_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_epoch_bank_size(fd_epoch_bank_t const * self);
+ulong fd_epoch_bank_footprint( void );
+ulong fd_epoch_bank_align( void );
+
+void fd_slot_bank_new(fd_slot_bank_t* self);
+int fd_slot_bank_decode(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_slot_bank_destroy(fd_slot_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_slot_bank_size(fd_slot_bank_t const * self);
+ulong fd_slot_bank_footprint( void );
+ulong fd_slot_bank_align( void );
 
 void fd_prev_epoch_inflation_rewards_new(fd_prev_epoch_inflation_rewards_t* self);
 int fd_prev_epoch_inflation_rewards_decode(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_decode_ctx_t * ctx);

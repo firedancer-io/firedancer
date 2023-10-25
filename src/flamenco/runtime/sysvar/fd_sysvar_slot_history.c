@@ -43,7 +43,7 @@ int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
   int err = fd_slot_history_encode( history, &ctx );
   if (0 != err)
     return err;
-  return fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_history_id, enc, sz, slot_ctx->bank.slot, NULL );
+  return fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_history_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -58,8 +58,8 @@ void fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   history.bits.len = slot_history_max_entries;
 
   /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( &history, slot_ctx->bank.slot );
-  history.next_slot = slot_ctx->bank.slot + 1;
+  fd_sysvar_slot_history_set( &history, slot_ctx->slot_bank.slot );
+  history.next_slot = slot_ctx->slot_bank.slot + 1;
 
   fd_sysvar_slot_history_write_history( slot_ctx, &history );
   fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
@@ -87,8 +87,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
     FD_LOG_ERR(("fd_slot_history_decode failed"));
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, slot_ctx->bank.slot );
-  history->next_slot = slot_ctx->bank.slot + 1;
+  fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
+  history->next_slot = slot_ctx->slot_bank.slot + 1;
 
   ulong sz = fd_slot_history_size( history );
   if( sz < slot_history_min_account_size )
@@ -105,7 +105,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( fd_slot_history_encode( history, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &slot_ctx->bank.rent, sz );
+  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, sz );
 
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );

@@ -143,10 +143,11 @@ wb_exch_adj_hex( wb_t x ) {
 
    Note: gcc knows a __m256i may alias. */
 
-static inline wb_t wb_ld(  uchar const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
-static inline wb_t wb_ldu( uchar const * p   ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-static inline void wb_st(  uchar * p, wb_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
-static inline void wb_stu( uchar * p, wb_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
+static inline wb_t wb_ld( uchar const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
+static inline void wb_st( uchar * p, wb_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
+
+static inline wb_t wb_ldu( void const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
+static inline void wb_stu( void * p, wb_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
 
 /* Sadly, no maskload_epi8, so we can't provide a wb_ldif or wb_stif.
    TODO: consider emulating this? */

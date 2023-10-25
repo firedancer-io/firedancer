@@ -18,12 +18,11 @@ void
 update_rewards( fd_exec_slot_ctx_t * slot_ctx, ulong prev_epoch );
 
 void
-begin_partitioned_rewards( fd_firedancer_banks_t * self,
-                           fd_exec_slot_ctx_t *    slot_ctx,
+begin_partitioned_rewards( fd_exec_slot_ctx_t *    slot_ctx,
                            ulong                   parent_epoch );
 
 void
-distribute_partitioned_epoch_rewards( fd_firedancer_banks_t * self, fd_exec_slot_ctx_t * slot_ctx );
+distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

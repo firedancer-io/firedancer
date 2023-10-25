@@ -115,7 +115,7 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
   }
 
   /* Allocate variable-length implicit state */
-  ulong blockhash_cnt = deq_fd_block_block_hash_entry_t_cnt( slot_ctx->bank.recent_block_hashes.hashes );
+  ulong blockhash_cnt = deq_fd_block_block_hash_entry_t_cnt( slot_ctx->slot_bank.recent_block_hashes.hashes );
   {
     if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return NULL;
     FD_SCRATCH_ALLOC_INIT( state_layout, fd_scratch_prepare( 1UL ) );
@@ -142,11 +142,11 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
   {
     ulong i=0;
     for( deq_fd_block_block_hash_entry_t_iter_t iter =
-         deq_fd_block_block_hash_entry_t_iter_init( slot_ctx->bank.recent_block_hashes.hashes );
-         deq_fd_block_block_hash_entry_t_iter_done( slot_ctx->bank.recent_block_hashes.hashes, iter );
-         iter = deq_fd_block_block_hash_entry_t_iter_next( slot_ctx->bank.recent_block_hashes.hashes, iter ),
+         deq_fd_block_block_hash_entry_t_iter_init( slot_ctx->slot_bank.recent_block_hashes.hashes );
+         deq_fd_block_block_hash_entry_t_iter_done( slot_ctx->slot_bank.recent_block_hashes.hashes, iter );
+         iter = deq_fd_block_block_hash_entry_t_iter_next( slot_ctx->slot_bank.recent_block_hashes.hashes, iter ),
          i++ ) {
-      fd_block_block_hash_entry_t const * elem = deq_fd_block_block_hash_entry_t_iter_ele( slot_ctx->bank.recent_block_hashes.hashes, iter );
+      fd_block_block_hash_entry_t const * elem = deq_fd_block_block_hash_entry_t_iter_ele( slot_ctx->slot_bank.recent_block_hashes.hashes, iter );
       fd_soltrace_RecentBlockhash * bh = &input->state.blockhash[i];
       bh->lamports_per_signature = elem->fee_calculator.lamports_per_signature;
       fd_memcpy( bh->hash, elem->blockhash.uc, 32UL );
@@ -186,7 +186,7 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
       FD_BORROWED_ACCOUNT_DECL(acc_rec);
       int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &id->id, acc_rec );
       if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        if( FD_UNLIKELY( *fd_features_ptr_const( &slot_ctx->epoch_ctx->features, id ) <= slot_ctx->bank.slot ) ) {
+        if( FD_UNLIKELY( *fd_features_ptr_const( &slot_ctx->epoch_ctx->features, id ) <= slot_ctx->slot_bank.slot ) ) {
           FD_LOG_ERR(( "Feature %32J activated at slot %lu according to cache, "
                        "but corresponding feature account does not exist",
                        id->id.uc ));
@@ -267,19 +267,19 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
 
   /* Capture implicit state */
   fd_soltrace_ImplicitState * state = &input->state;
-  state->prev_slot = slot_ctx->bank.prev_slot;
+  state->prev_slot = slot_ctx->slot_bank.prev_slot;
   state->fee_rate_governor = (fd_soltrace_FeeRateGovernor) {
-    .target_lamports_per_signature = slot_ctx->bank.fee_rate_governor.target_lamports_per_signature,
-    .target_signatures_per_slot    = slot_ctx->bank.fee_rate_governor.target_signatures_per_slot,
-    .min_lamports_per_signature    = slot_ctx->bank.fee_rate_governor.min_lamports_per_signature,
-    .max_lamports_per_signature    = slot_ctx->bank.fee_rate_governor.max_lamports_per_signature,
-    .burn_percent                  = slot_ctx->bank.fee_rate_governor.burn_percent,
+    .target_lamports_per_signature = slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature,
+    .target_signatures_per_slot    = slot_ctx->slot_bank.fee_rate_governor.target_signatures_per_slot,
+    .min_lamports_per_signature    = slot_ctx->slot_bank.fee_rate_governor.min_lamports_per_signature,
+    .max_lamports_per_signature    = slot_ctx->slot_bank.fee_rate_governor.max_lamports_per_signature,
+    .burn_percent                  = slot_ctx->slot_bank.fee_rate_governor.burn_percent,
   };
   for( ulong i=0UL; i<blockhash_cnt; i++ ) {
     state->blockhash[ i ].lamports_per_signature =
-        slot_ctx->bank.recent_block_hashes.hashes[i].fee_calculator.lamports_per_signature;
+        slot_ctx->slot_bank.recent_block_hashes.hashes[i].fee_calculator.lamports_per_signature;
     fd_memcpy( state->blockhash[ i ].hash,
-               slot_ctx->bank.recent_block_hashes.hashes[i].blockhash.uc,
+               slot_ctx->slot_bank.recent_block_hashes.hashes[i].blockhash.uc,
                32UL );
   }
 
@@ -329,7 +329,7 @@ static fd_rent_t const default_rent = {
 static void
 fd_txntrace_load_defaults( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_memcpy( &slot_ctx->bank.rent, &default_rent, sizeof(fd_rent_t) );
+  fd_memcpy( &slot_ctx->epoch_ctx->epoch_bank.rent, &default_rent, sizeof(fd_rent_t) );
   fd_sysvar_rent_init( slot_ctx );
 
 }
@@ -385,7 +385,7 @@ fd_txntrace_load_sysvars( fd_exec_slot_ctx_t *             slot_ctx,
 
     uchar const * pubkey = sysvar->pubkey;
     if( 0==memcmp( pubkey, fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) {
-      FD_TEST( 0==fd_sysvar_rent_read( slot_ctx, &slot_ctx->bank.rent ) );
+      FD_TEST( 0==fd_sysvar_rent_read( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.rent ) );
     }
 
   }
@@ -405,13 +405,13 @@ fd_txntrace_load_state( fd_exec_slot_ctx_t *              slot_ctx,
   }
   fd_features_restore( slot_ctx );  /* populate feature cache */
 
-  fd_firedancer_banks_t * bank = &slot_ctx->bank;
-  bank->prev_slot = state->prev_slot;
-  memcpy( bank->banks_hash.uc, state->bank_hash, 32UL );
-  bank->capitalization = state->capitalization;
-  bank->block_height = state->block_height;
+  fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
+  slot_bank->prev_slot = state->prev_slot;
+  memcpy( slot_bank->banks_hash.uc, state->bank_hash, 32UL );
+  slot_bank->capitalization = state->capitalization;
+  slot_bank->block_height = state->block_height;
 
-  bank->fee_rate_governor = (fd_fee_rate_governor_t) {
+  slot_bank->fee_rate_governor = (fd_fee_rate_governor_t) {
     .target_lamports_per_signature = state->fee_rate_governor.target_lamports_per_signature,
     .target_signatures_per_slot    = state->fee_rate_governor.target_signatures_per_slot,
     .min_lamports_per_signature    = state->fee_rate_governor.min_lamports_per_signature,
@@ -420,11 +420,11 @@ fd_txntrace_load_state( fd_exec_slot_ctx_t *              slot_ctx,
   };
 
   void * mem = fd_scratch_alloc( deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint() );
-  bank->recent_block_hashes.hashes = deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem ) );
-  FD_TEST( !!bank->recent_block_hashes.hashes );
+  slot_bank->recent_block_hashes.hashes = deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem ) );
+  FD_TEST( !!slot_bank->recent_block_hashes.hashes );
   for( ulong i=0UL; i < state->blockhash_count; i++ ) {
     fd_block_block_hash_entry_t * entry =
-      deq_fd_block_block_hash_entry_t_push_tail_nocopy( bank->recent_block_hashes.hashes );
+      deq_fd_block_block_hash_entry_t_push_tail_nocopy( slot_bank->recent_block_hashes.hashes );
     entry->fee_calculator.lamports_per_signature = state->blockhash[i].lamports_per_signature;
     memcpy( entry->blockhash.uc, state->blockhash[i].hash, 32UL );
   }

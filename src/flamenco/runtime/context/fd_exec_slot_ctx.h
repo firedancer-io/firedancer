@@ -44,8 +44,8 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
   
-  fd_pubkey_t const * leader;   /* Current leader */
-  fd_firedancer_banks_t bank;
+  fd_pubkey_t const *  leader;   /* Current leader */
+  fd_slot_bank_t       slot_bank;
 };
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 #define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )

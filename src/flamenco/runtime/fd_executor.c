@@ -19,6 +19,7 @@
 #include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
+#include "program/fd_bpf_upgradeable_loader_program.h"
 
 #include "../../ballet/base58/fd_base58.h"
 
@@ -211,13 +212,13 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
     return -1;
   }
 
-  FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->bank.collected_fees, slot_ctx->bank.collected_fees + fee, fee));
+  FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->slot_bank.collected_fees, slot_ctx->slot_bank.collected_fees + fee, fee));
   FD_LOG_DEBUG(( "calling set_lamports to charge the fee %lu", fee));
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
   rec->meta->info.lamports -= fee;
-  slot_ctx->bank.collected_fees += fee;
+  slot_ctx->slot_bank.collected_fees += fee;
 
   /* todo rent exempt check */
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) )
@@ -314,7 +315,7 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
   char filename[ 128UL ];
   /* 118 (20+1+88+9) chars + null terminator */
   snprintf( filename, sizeof(filename), "%lu-%64J.txntrace",
-            slot_ctx->bank.slot, sig );
+            slot_ctx->slot_bank.slot, sig );
 
   /* Create file */
   int dump_fd = openat( slot_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
@@ -338,6 +339,7 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
@@ -354,7 +356,30 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       //   FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
       }
     }
+    fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
+    if (meta == NULL) {
+      continue;
+    }
+    if (memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0) {
+      fd_bpf_upgradeable_loader_state_t program_loader_state;
+      int err = 0;
+      if (FD_UNLIKELY(!read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err )))
+        continue;
+
+      fd_bincode_destroy_ctx_t ctx_d = { .valloc = txn_ctx->valloc };
+
+      if( !fd_bpf_upgradeable_loader_state_is_program( &program_loader_state ) ) {
+        fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
+        continue;
+      }
+
+      fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
+      fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[j] );
+      fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
+      j++;
+    }
   }
+  txn_ctx->executable_cnt = j;
 }
 
 static void
@@ -413,6 +438,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     .custom_err         = UINT_MAX,
     .instr_stack_sz     = 0,
     .accounts_cnt       = 0,
+    .executable_cnt     = 0,
     .return_data        = return_data,
   };
 
@@ -528,7 +554,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "account mgr modify failed for %32J", txn_ctx.accounts[i].uc ));
       }
-      writable_new->meta->slot = txn_ctx.slot_ctx->bank.slot;
+      writable_new->meta->slot = txn_ctx.slot_ctx->slot_bank.slot;
       memset(writable_new->meta->hash, 0xFF, sizeof(fd_hash_t));
     }
   }
@@ -590,8 +616,10 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       if (!after_exempt) {
         uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
           (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
-        if (before_exempt || (b->meta->dlen != b->starting_dlen))
+        if (before_exempt && (b->meta->dlen != b->starting_dlen) && b->meta->dlen != 0) {
+          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+        }
       }
 
       if (b->starting_lamports != ULONG_MAX)

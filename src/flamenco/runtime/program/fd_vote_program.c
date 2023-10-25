@@ -1748,8 +1748,8 @@ vote_state_withdraw(
 
   // TODO: is there a better way to add to dirty list?
   if ( FD_UNLIKELY( lamports == 0 ) ) {
-    vote_account->meta->slot = ctx.slot_ctx->bank.slot;
-    to_account->meta->slot = ctx.slot_ctx->bank.slot;
+    vote_account->meta->slot = ctx.slot_ctx->slot_bank.slot;
+    to_account->meta->slot = ctx.slot_ctx->slot_bank.slot;
   }
   return OK;
 }
@@ -2541,7 +2541,7 @@ set_state( fd_borrowed_account_t *     self,
 
   int err = 0;
 
-  ulong re  = fd_rent_exempt( &ctx.slot_ctx->bank, serialized_sz );
+  ulong re  = fd_rent_exempt( &ctx.epoch_ctx->epoch_bank.rent, serialized_sz );
   bool  cbr = fd_account_can_data_be_resized( &ctx, self->const_meta, serialized_sz, &err );
   if ( ( ( self->const_meta->dlen < serialized_sz && self->const_meta->info.lamports < re ) ) ||
        !cbr ) {
@@ -2745,7 +2745,7 @@ void
 fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx,
                                fd_pubkey_t const *  vote_acc,
                                ulong                timestamp ) {
-  fd_vote_record_timestamp_vote_with_slot( slot_ctx, vote_acc, timestamp, slot_ctx->bank.slot );
+  fd_vote_record_timestamp_vote_with_slot( slot_ctx, vote_acc, timestamp, slot_ctx->slot_bank.slot );
 }
 
 void
@@ -2753,10 +2753,10 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          ulong                timestamp,
                                          ulong                slot ) {
-  fd_clock_timestamp_vote_t_mapnode_t * root = slot_ctx->bank.timestamp_votes.votes_root;
-  fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->bank.timestamp_votes.votes_pool;
+  fd_clock_timestamp_vote_t_mapnode_t * root = slot_ctx->slot_bank.timestamp_votes.votes_root;
+  fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
   if ( NULL == pool )
-    pool = slot_ctx->bank.timestamp_votes.votes_pool =
+    pool = slot_ctx->slot_bank.timestamp_votes.votes_pool =
         fd_clock_timestamp_vote_t_map_alloc( slot_ctx->valloc, 10000 );
 
   fd_clock_timestamp_vote_t timestamp_vote = {
@@ -2774,7 +2774,7 @@ fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
     FD_TEST( node != NULL );
     node->elem = timestamp_vote;
     fd_clock_timestamp_vote_t_map_insert( pool, &root, node );
-    slot_ctx->bank.timestamp_votes.votes_root = root;
+    slot_ctx->slot_bank.timestamp_votes.votes_root = root;
   }
 }
 

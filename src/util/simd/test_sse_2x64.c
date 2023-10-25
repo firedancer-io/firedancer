@@ -1,7 +1,4 @@
 #include "../fd_util.h"
-
-#if FD_HAS_SSE
-
 #include "fd_sse.h"
 #include <math.h>
 
@@ -65,7 +62,7 @@ main( int     argc,
     FD_TEST( vd_test( vd_sqrt( vd_mul(x,x) ),  fabs(x0),     fabs(x1) ) );
 
     vd_t expected;
-    
+
     expected = vd( 1./sqrt(x0+4.), 1./sqrt(x1+4.) );
     FD_TEST( !vc_any( vd_gt( vd_abs( vd_div( vd_sub( vd_rsqrt_fast( vd_add( x, vd_bcast(4.) ) ), expected ), expected ) ),
                              vd_bcast( 1./1024. ) ) ) );
@@ -119,11 +116,15 @@ main( int     argc,
     FD_TEST( vi_test( vd_to_vi_fast( x, vi( 0, 1, 2, 3), 0 ), (int)rint(x0), (int)rint(x1), 2, 3 ) );
     FD_TEST( vi_test( vd_to_vi_fast( x, vi( 0, 1, 2, 3), 1 ), 0, 1, (int)rint(x0), (int)rint(x1) ) );
 
-    FD_TEST( vu_test( vd_to_vu( x, vu(0U,1U,2U,3U), 0 ), (uint)x0,(uint)x1, 2U,3U ) );
-    FD_TEST( vu_test( vd_to_vu( x, vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)x0,(uint)x1 ) );
+    /* The behaviour when converting from negative double to uint is highly
+       dependent on the compiler version and the flags used ( e.g. gcc 8.5
+       vs 9.3 with -march=native ).  Refer also to vd_to_vu_fast.  In order
+       to make the test portable, negative values need to be excluded. */
+    FD_TEST( vu_test( vd_to_vu( vd_abs( x ), vu(0U,1U,2U,3U), 0 ), (uint)fabs(x0),(uint)fabs(x1), 2U,3U ) );
+    FD_TEST( vu_test( vd_to_vu( vd_abs( x ), vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)fabs(x0),(uint)fabs(x1) ) );
 
-    FD_TEST( vu_test( vd_to_vu_fast( x, vu(0U,1U,2U,3U), 0 ), (uint)rint(x0),(uint)rint(x1), 2U,3U ) );
-    FD_TEST( vu_test( vd_to_vu_fast( x, vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)rint(x0),(uint)rint(x1) ) );
+    FD_TEST( vu_test( vd_to_vu_fast( vd_abs( x ), vu(0U,1U,2U,3U), 0 ), (uint)rint(fabs(x0)),(uint)rint(fabs(x1)), 2U,3U ) );
+    FD_TEST( vu_test( vd_to_vu_fast( vd_abs( x ), vu(0U,1U,2U,3U), 1 ), 0U,1U, (uint)rint(fabs(x0)),(uint)rint(fabs(x1)) ) );
 
     FD_TEST( vl_test( vd_to_vl( x ), (long)x0, (long)x1 ) );
 
@@ -407,16 +408,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
-#else
-
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_SSE capability" ));
-  fd_halt();
-  return 0;
-}
-
-#endif

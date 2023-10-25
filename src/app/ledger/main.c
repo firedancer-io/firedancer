@@ -122,7 +122,7 @@ void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char co
 
       int read_result = FD_ACC_MGR_SUCCESS;
       fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec->const_rec, &read_result);
-      
+
       /* Skip if we previously inserted a newer version */
       if( read_result == FD_ACC_MGR_SUCCESS ) {
         if( acc_meta->slot > slot ) break;
@@ -295,7 +295,7 @@ ingest_txnstatus( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
-                fd_wksp_t *       funk_wksp,  
+                fd_wksp_t *       funk_wksp,
                 char const *      file,
                 ulong             end_slot,
                 char const *      verifypoh,
@@ -316,7 +316,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   if (end_slot > last_slot)
     end_slot = last_slot;
 
-  ulong start_slot = slot_ctx->bank.slot;
+  ulong start_slot = slot_ctx->slot_bank.slot;
   if ( last_slot < start_slot ) {
     FD_LOG_ERR(("rocksdb blocks are older than snapshot. first=%lu last=%lu wanted=%lu",
                 fd_rocksdb_first_slot(&rocks_db, &err), last_slot, start_slot));
@@ -324,7 +324,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_LOG_NOTICE(("ingesting rocksdb from start=%lu to end=%lu", start_slot, end_slot));
 
-  fd_hash_t oldhash = slot_ctx->bank.poh;
+  fd_hash_t oldhash = slot_ctx->slot_bank.poh;
 
   /* Write database-wide slot meta */
 
@@ -420,9 +420,9 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       fd_block_info_t block_info;
       int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      
+
       fd_hash_t poh_hash;
-      fd_memcpy( poh_hash.hash, slot_ctx->bank.poh.hash, sizeof(fd_hash_t) );
+      fd_memcpy( poh_hash.hash, slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify( &block_info, &poh_hash );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     }
@@ -440,7 +440,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   fd_rocksdb_destroy(&rocks_db);
 
   /* Verify messes with the poh */
-  slot_ctx->bank.poh = oldhash;
+  slot_ctx->slot_bank.poh = oldhash;
 
   FD_LOG_NOTICE(("ingested %lu blocks", blk_cnt));
 }
@@ -543,6 +543,7 @@ main( int     argc,
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
   /* TODO leave */
 
+  epoch_ctx->valloc = fd_alloc_virtual( alloc );
   slot_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
@@ -592,6 +593,12 @@ main( int     argc,
 
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
+
+      fd_hash_t accounts_hash;
+      fd_accounts_hash(slot_ctx, &accounts_hash);
+      FD_LOG_WARNING(("main snapshot accounts_hash %32J", accounts_hash.hash));
+
+      // TODO: regexp the hash out of the filename and compare..
     }
 
     if( incremental ) {
@@ -619,6 +626,12 @@ main( int     argc,
 
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
+
+      fd_hash_t accounts_hash;
+      fd_accounts_hash(slot_ctx, &accounts_hash);
+      FD_LOG_WARNING(("incremental accounts_hash %32J", accounts_hash.hash));
+
+      // TODO: regexp the hash out of the filename and compare..
     }
 
     if (snapshot_used) {
@@ -634,9 +647,9 @@ main( int     argc,
         .valloc     = slot_ctx->valloc
       };
 
-      fd_recent_block_hashes_decode( &slot_ctx->bank.recent_block_hashes, &ctx );
+      fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
 
-      fd_runtime_save_banks( slot_ctx );
+      fd_runtime_save_slot_bank( slot_ctx );
     }
 
     if( genesis ) {
@@ -727,14 +740,14 @@ main( int     argc,
       }
 
       /* sort and update bank hash */
-      int result = fd_update_hash_bank( slot_ctx, &slot_ctx->bank.banks_hash, slot_ctx->signature_cnt );
+      int result = fd_update_hash_bank( slot_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
       if (result != FD_EXECUTOR_INSTR_SUCCESS) {
         return result;
       }
 
-      slot_ctx->bank.slot = 0UL;
+      slot_ctx->slot_bank.slot = 0UL;
 
-      FD_TEST( fd_runtime_save_banks( slot_ctx )==FD_RUNTIME_EXECUTE_SUCCESS );
+      FD_TEST( fd_runtime_save_slot_bank( slot_ctx )==FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
@@ -748,14 +761,14 @@ main( int     argc,
     if( rocksdb_dir ) {
       ingest_rocksdb( slot_ctx, wksp, rocksdb_dir, end_slot, verifypoh, txnstatus, tpool, tcnt-1 );
 
-      fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->bank.slot );
+      fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->slot_bank.slot );
 
       if( known_bank_hash ) {
-        if( FD_UNLIKELY( 0!=memcmp( slot_ctx->bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
+        if( FD_UNLIKELY( 0!=memcmp( slot_ctx->slot_bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
           FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-              slot_ctx->bank.slot,
+              slot_ctx->slot_bank.slot,
               known_bank_hash->hash,
-              slot_ctx->bank.banks_hash.hash ));
+              slot_ctx->slot_bank.banks_hash.hash ));
         }
       }
     }
@@ -812,7 +825,7 @@ main( int     argc,
         FD_LOG_ERR(("error processing account hash"));
 
       if( memcmp(acc_hash.uc, metadata->hash, 32) != 0 ) {
-        FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
+        FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->slot_bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
       }
 
       fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
