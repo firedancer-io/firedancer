@@ -205,16 +205,23 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
   }
   for( ushort i = 0; i < instrs_cnt; ++i ) {
     fd_instr_info_t const * instr = &instrs[i];
-    // FIXME fd_acc_mgr api shouldn't be used.. change the way account metadata is retrieved
-    int err = 0;
-    uchar * raw_program_data = (uchar *)fd_acc_mgr_view_raw(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *) &instr->program_id_pubkey, NULL, &err);
-    fd_account_meta_t * program_m = (fd_account_meta_t *)raw_program_data;
     
-    uchar * raw_owner_data = (uchar *)fd_acc_mgr_view_raw(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *) &program_m->info.owner, NULL, &err);
-    fd_account_meta_t * owner_m = (fd_account_meta_t *)raw_owner_data;
-    
-    ulong owner_data_len = owner_m->dlen;
-    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, owner_data_len);      
+    fd_borrowed_account_t * p = NULL;
+    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &instr->program_id_pubkey, &p );    
+    if ( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+    fd_account_meta_t const * p_meta = p->const_meta ? p->const_meta : p->meta;
+
+    fd_borrowed_account_t * o = NULL;
+    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
+    if ( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+    ulong o_dlen = (NULL != o->meta) ? o->meta->dlen : (NULL != o->const_meta) ? o->const_meta->dlen : 0UL;
+    total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, o_dlen);
   }
 
   if ( total_accounts_data_size > txn_ctx->loaded_accounts_data_size_limit ) {
