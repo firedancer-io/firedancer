@@ -1580,7 +1580,7 @@
       "name": "gossip_bitvec_u8",
       "type": "struct",
       "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner" },
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner", "flat": true },
         { "name": "len", "type": "ulong" }
       ]
     },
@@ -1593,7 +1593,7 @@
       "name": "gossip_bitvec_u64",
       "type": "struct",
       "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner" },
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner", "flat": true },
         { "name": "len", "type": "ulong" }
       ]
     },
@@ -1747,7 +1747,7 @@
         { "name": "major", "type": "ushort" },
         { "name": "minor", "type": "ushort" },
         { "name": "patch", "type": "ushort" },
-        { "name": "commit", "type": "option", "element": "uint" }
+        { "name": "commit", "type": "option", "element": "uint", "flat": true }
       ]
     },
     {
@@ -1759,7 +1759,7 @@
         { "name": "major", "type": "ushort" },
         { "name": "minor", "type": "ushort" },
         { "name": "patch", "type": "ushort" },
-        { "name": "commit", "type": "option", "element": "uint" },
+        { "name": "commit", "type": "option", "element": "uint", "flat": true },
         { "name": "feature_set", "type": "uint" }
       ]
     },

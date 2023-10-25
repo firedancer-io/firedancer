@@ -14535,12 +14535,11 @@ void fd_gossip_bitvec_u8_decode_unsafe(fd_gossip_bitvec_u8_t* self, fd_bincode_d
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
     if( o ) {
-      self->bits = (fd_gossip_bitvec_u8_inner_t*)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_BITVEC_U8_INNER_ALIGN, FD_GOSSIP_BITVEC_U8_INNER_FOOTPRINT );
-      fd_gossip_bitvec_u8_inner_new( self->bits );
-      fd_gossip_bitvec_u8_inner_decode_unsafe( self->bits, ctx );
-    } else
-      self->bits = NULL;
+      fd_gossip_bitvec_u8_inner_new( &self->bits );
+      fd_gossip_bitvec_u8_inner_decode_unsafe( &self->bits, ctx );
+    }
   }
   fd_bincode_uint64_decode_unsafe(&self->len, ctx);
 }
@@ -14548,10 +14547,9 @@ void fd_gossip_bitvec_u8_new(fd_gossip_bitvec_u8_t* self) {
   fd_memset(self, 0, sizeof(fd_gossip_bitvec_u8_t));
 }
 void fd_gossip_bitvec_u8_destroy(fd_gossip_bitvec_u8_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if( NULL != self->bits ) {
-    fd_gossip_bitvec_u8_inner_destroy( self->bits, ctx );
-    fd_valloc_free( ctx->valloc, self->bits );
-    self->bits = NULL;
+  if( self->has_bits ) {
+    fd_gossip_bitvec_u8_inner_destroy( &self->bits, ctx );
+    self->has_bits = 0;
   }
 }
 
@@ -14560,10 +14558,10 @@ ulong fd_gossip_bitvec_u8_align( void ){ return FD_GOSSIP_BITVEC_U8_ALIGN; }
 
 void fd_gossip_bitvec_u8_walk(void * w, fd_gossip_bitvec_u8_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u8", level++);
-  if( !self->bits ) {
+  if( !self->has_bits ) {
     fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u8_inner", level );
   } else {
-    fd_gossip_bitvec_u8_inner_walk( w, self->bits, fun, "bits", level );
+    fd_gossip_bitvec_u8_inner_walk( w, &self->bits, fun, "bits", level );
   }
   fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u8", level--);
@@ -14571,8 +14569,8 @@ void fd_gossip_bitvec_u8_walk(void * w, fd_gossip_bitvec_u8_t const * self, fd_t
 ulong fd_gossip_bitvec_u8_size(fd_gossip_bitvec_u8_t const * self) {
   ulong size = 0;
   size += sizeof(char);
-  if( NULL !=  self->bits ) {
-    size += fd_gossip_bitvec_u8_inner_size( self->bits );
+  if( self->has_bits ) {
+    size += fd_gossip_bitvec_u8_inner_size( &self->bits );
   }
   size += sizeof(ulong);
   return size;
@@ -14580,14 +14578,11 @@ ulong fd_gossip_bitvec_u8_size(fd_gossip_bitvec_u8_t const * self) {
 
 int fd_gossip_bitvec_u8_encode(fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if( self->bits != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+    err = fd_gossip_bitvec_u8_inner_encode( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_gossip_bitvec_u8_inner_encode( self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode(&self->len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -14696,12 +14691,11 @@ void fd_gossip_bitvec_u64_decode_unsafe(fd_gossip_bitvec_u64_t* self, fd_bincode
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
     if( o ) {
-      self->bits = (fd_gossip_bitvec_u64_inner_t*)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_BITVEC_U64_INNER_ALIGN, FD_GOSSIP_BITVEC_U64_INNER_FOOTPRINT );
-      fd_gossip_bitvec_u64_inner_new( self->bits );
-      fd_gossip_bitvec_u64_inner_decode_unsafe( self->bits, ctx );
-    } else
-      self->bits = NULL;
+      fd_gossip_bitvec_u64_inner_new( &self->bits );
+      fd_gossip_bitvec_u64_inner_decode_unsafe( &self->bits, ctx );
+    }
   }
   fd_bincode_uint64_decode_unsafe(&self->len, ctx);
 }
@@ -14709,10 +14703,9 @@ void fd_gossip_bitvec_u64_new(fd_gossip_bitvec_u64_t* self) {
   fd_memset(self, 0, sizeof(fd_gossip_bitvec_u64_t));
 }
 void fd_gossip_bitvec_u64_destroy(fd_gossip_bitvec_u64_t* self, fd_bincode_destroy_ctx_t * ctx) {
-  if( NULL != self->bits ) {
-    fd_gossip_bitvec_u64_inner_destroy( self->bits, ctx );
-    fd_valloc_free( ctx->valloc, self->bits );
-    self->bits = NULL;
+  if( self->has_bits ) {
+    fd_gossip_bitvec_u64_inner_destroy( &self->bits, ctx );
+    self->has_bits = 0;
   }
 }
 
@@ -14721,10 +14714,10 @@ ulong fd_gossip_bitvec_u64_align( void ){ return FD_GOSSIP_BITVEC_U64_ALIGN; }
 
 void fd_gossip_bitvec_u64_walk(void * w, fd_gossip_bitvec_u64_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_bitvec_u64", level++);
-  if( !self->bits ) {
+  if( !self->has_bits ) {
     fun( w, NULL, "bits", FD_FLAMENCO_TYPE_NULL, "gossip_bitvec_u64_inner", level );
   } else {
-    fd_gossip_bitvec_u64_inner_walk( w, self->bits, fun, "bits", level );
+    fd_gossip_bitvec_u64_inner_walk( w, &self->bits, fun, "bits", level );
   }
   fun( w, &self->len, "len", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_bitvec_u64", level--);
@@ -14732,8 +14725,8 @@ void fd_gossip_bitvec_u64_walk(void * w, fd_gossip_bitvec_u64_t const * self, fd
 ulong fd_gossip_bitvec_u64_size(fd_gossip_bitvec_u64_t const * self) {
   ulong size = 0;
   size += sizeof(char);
-  if( NULL !=  self->bits ) {
-    size += fd_gossip_bitvec_u64_inner_size( self->bits );
+  if( self->has_bits ) {
+    size += fd_gossip_bitvec_u64_inner_size( &self->bits );
   }
   size += sizeof(ulong);
   return size;
@@ -14741,14 +14734,11 @@ ulong fd_gossip_bitvec_u64_size(fd_gossip_bitvec_u64_t const * self) {
 
 int fd_gossip_bitvec_u64_encode(fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  if( self->bits != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_bits, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_bits ) {
+    err = fd_gossip_bitvec_u64_inner_encode( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_gossip_bitvec_u64_inner_encode( self->bits, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint64_encode(&self->len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16103,11 +16093,10 @@ void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_commit = !!o;
     if( o ) {
-      self->commit = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );
-      fd_bincode_uint32_decode_unsafe( self->commit, ctx );
-    } else
-      self->commit = NULL;
+      fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
+    }
   }
 }
 void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self) {
@@ -16116,9 +16105,8 @@ void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self) {
 }
 void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
-  if( NULL != self->commit ) {
-    fd_valloc_free( ctx->valloc, self->commit );
-    self->commit = NULL;
+  if( self->has_commit ) {
+    self->has_commit = 0;
   }
 }
 
@@ -16132,10 +16120,10 @@ void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * 
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
   fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
   fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
-  if( !self->commit ) {
+  if( !self->has_commit ) {
     fun( w, NULL, "commit", FD_FLAMENCO_TYPE_NULL, "uint", level );
   } else {
-    fun( w, self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_legacy_version", level--);
 }
@@ -16147,7 +16135,7 @@ ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
   size += sizeof(ushort);
   size += sizeof(ushort);
   size += sizeof(char);
-  if( NULL !=  self->commit ) {
+  if( self->has_commit ) {
     size += sizeof(uint);
   }
   return size;
@@ -16165,14 +16153,11 @@ int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint16_encode(&self->patch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if( self->commit != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_commit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_commit ) {
+    err = fd_bincode_uint32_encode( &self->commit, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint32_encode( self->commit, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }
@@ -16220,11 +16205,10 @@ void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decod
   {
     uchar o;
     fd_bincode_option_decode_unsafe( &o, ctx );
+    self->has_commit = !!o;
     if( o ) {
-      self->commit = fd_valloc_malloc( ctx->valloc, 8, sizeof(uint) );
-      fd_bincode_uint32_decode_unsafe( self->commit, ctx );
-    } else
-      self->commit = NULL;
+      fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
+    }
   }
   fd_bincode_uint32_decode_unsafe(&self->feature_set, ctx);
 }
@@ -16234,9 +16218,8 @@ void fd_gossip_version_new(fd_gossip_version_t* self) {
 }
 void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
-  if( NULL != self->commit ) {
-    fd_valloc_free( ctx->valloc, self->commit );
-    self->commit = NULL;
+  if( self->has_commit ) {
+    self->has_commit = 0;
   }
 }
 
@@ -16250,10 +16233,10 @@ void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
   fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
   fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
-  if( !self->commit ) {
+  if( !self->has_commit ) {
     fun( w, NULL, "commit", FD_FLAMENCO_TYPE_NULL, "uint", level );
   } else {
-    fun( w, self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
+    fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
   fun( w, &self->feature_set, "feature_set", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version", level--);
@@ -16266,7 +16249,7 @@ ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
   size += sizeof(ushort);
   size += sizeof(ushort);
   size += sizeof(char);
-  if( NULL !=  self->commit ) {
+  if( self->has_commit ) {
     size += sizeof(uint);
   }
   size += sizeof(uint);
@@ -16285,14 +16268,11 @@ int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint16_encode(&self->patch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  if( self->commit != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+  err = fd_bincode_option_encode( self->has_commit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_commit ) {
+    err = fd_bincode_uint32_encode( &self->commit, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint32_encode( self->commit, ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_option_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint32_encode(&self->feature_set, ctx);
   if ( FD_UNLIKELY(err) ) return err;

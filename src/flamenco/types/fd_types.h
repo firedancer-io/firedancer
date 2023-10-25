@@ -1893,7 +1893,8 @@ typedef struct fd_gossip_bitvec_u8_inner fd_gossip_bitvec_u8_inner_t;
 #define FD_GOSSIP_BITVEC_U8_INNER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8 {
-  fd_gossip_bitvec_u8_inner_t* bits;
+  fd_gossip_bitvec_u8_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
@@ -1909,7 +1910,8 @@ typedef struct fd_gossip_bitvec_u64_inner fd_gossip_bitvec_u64_inner_t;
 #define FD_GOSSIP_BITVEC_U64_INNER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64 {
-  fd_gossip_bitvec_u64_inner_t* bits;
+  fd_gossip_bitvec_u64_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
@@ -2075,7 +2077,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_legacy_version {
   ushort major;
   ushort minor;
   ushort patch;
-  uint* commit;
+  uint commit;
+  uchar has_commit;
 };
 typedef struct fd_gossip_legacy_version fd_gossip_legacy_version_t;
 #define FD_GOSSIP_LEGACY_VERSION_FOOTPRINT sizeof(fd_gossip_legacy_version_t)
@@ -2087,7 +2090,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_version {
   ushort major;
   ushort minor;
   ushort patch;
-  uint* commit;
+  uint commit;
+  uchar has_commit;
   uint feature_set;
 };
 typedef struct fd_gossip_version fd_gossip_version_t;

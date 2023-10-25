@@ -893,10 +893,8 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
   filter->filter.keys_len = nkeys;
   filter->filter.keys = keys;
   fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
-  struct fd_gossip_bitvec_u64_inner bitsbits;
-  bitvec->bits = &bitsbits;
   bitvec->len = FD_BLOOM_NUM_BITS;
-  bitsbits.vec_len = FD_BLOOM_NUM_BITS/64U;
+  bitvec->bits.vec_len = FD_BLOOM_NUM_BITS/64U;
 
   /* The "value" in the request is always my own contact info */
   fd_crds_value_t * value = &req->value;
@@ -909,7 +907,7 @@ fd_gossip_random_pull( fd_gossip_global_t * glob, fd_pending_event_arg_t * arg, 
     /* Update the filter mask specific part */
     filter->mask = (nmaskbits == 0 ? ~0UL : ((i << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
     filter->filter.num_bits_set = num_bits_set[i];
-    bitsbits.vec = bits + (i*CHUNKSIZE);
+    bitvec->bits.vec = bits + (i*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
   }
 }
@@ -1277,7 +1275,7 @@ fd_gossip_handle_pull_req(fd_gossip_global_t * glob, fd_gossip_network_addr_t * 
   ulong nkeys = filter->filter.keys_len;
   ulong * keys = filter->filter.keys;
   fd_gossip_bitvec_u64_t * bitvec = &filter->filter.bits;
-  ulong * bitvec2 = bitvec->bits->vec;
+  ulong * bitvec2 = bitvec->bits.vec;
   ulong expire = (ulong)(now / (long)1e6) - FD_GOSSIP_PULL_TIMEOUT;
   ulong hits = 0;
   ulong misses = 0;
