@@ -1549,7 +1549,7 @@
         { "name": "deactivation_slot", "type": "ulong" },
         { "name": "last_extended_slot", "type": "ulong" },
         { "name": "last_extended_slot_start_index", "type": "uchar" },
-        { "name": "authority", "type": "option", "element": "pubkey" },
+        { "name": "authority", "type": "option", "element": "pubkey", "flat": true },
         { "name": "_padding", "type": "ushort" }
       ],
       "comment": ""
