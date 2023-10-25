@@ -1,8 +1,0 @@
-coverage:
-  status:
-    project: off
-    patch: off
-comment: false
-flag_management:
-  default_rules:
-    carryforward: true

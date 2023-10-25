@@ -1,9 +1,6 @@
 name: Functional Tests
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_call:
   workflow_dispatch:
 jobs:
   functional-tests:
@@ -31,3 +28,23 @@ jobs:
 
       - name: Run single transfer
         run: ./src/test/single-transfer.sh
+
+  script-tests:
+    runs-on:
+      group: github-v1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.73.0
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Build
+        run: make -j -Otarget
+
+      - name: Run functional tests
+        run: make -j -Otarget run-script-test 
+
