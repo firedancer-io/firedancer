@@ -35,10 +35,10 @@ static void populate_sock_filter_policy_main( ulong out_cnt, struct sock_filter 
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 4, 0 ),
     /* allow wait4 based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_wait4, /* check_wait4 */ 5, 0 ),
-    /* simply allow exit_group */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, /* RET_ALLOW */ 13, 0 ),
     /* allow kill based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, /* check_kill */ 9, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, /* check_kill */ 10, 0 ),
+    /* simply allow exit_group */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, /* RET_ALLOW */ 12, 0 ),
     /* none of the syscalls matched */
     { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 10 },
 //  check_write:
@@ -52,7 +52,7 @@ static void populate_sock_filter_policy_main( ulong out_cnt, struct sock_filter 
 //  lbl_1:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __WCLONE, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 4 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __WALL, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 4 ),
 //  lbl_2:
     /* load syscall argument 3 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),

@@ -79,13 +79,13 @@ tile_snap( tile_snap_t * snap_cur,     /* Snaphot for each tile, indexed [0,tile
     snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
     ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
     FD_COMPILER_MFENCE();
-    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_PID         ];
-    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP    ];
-    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT   ];
-    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ];
-    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ];
-    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ];
-    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ];
+    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_LOG_GROUP_ID ];
+    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP     ];
+    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT    ];
+    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT  ];
+    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ   ];
+    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT  ];
+    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ   ];
     FD_COMPILER_MFENCE();
   }
 }
@@ -396,6 +396,7 @@ monitor_cmd_fn( args_t *         args,
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
+              0,
               allow_fds_sz,
               allow_fds,
               sock_filter_policy_monitor_instr_cnt,

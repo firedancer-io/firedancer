@@ -15,7 +15,7 @@ unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR and descriptor 3 is the logfile.
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 

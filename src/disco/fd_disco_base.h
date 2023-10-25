@@ -54,7 +54,7 @@ FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
 #define FD_APP_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
 #define FD_APP_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
 
-#define FD_APP_CNC_DIAG_PID         (128UL)
+#define FD_APP_CNC_DIAG_LOG_GROUP_ID (128UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */

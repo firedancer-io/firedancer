@@ -19,6 +19,19 @@
 
 static int namespace_original_fd = 0;
 
+int
+getpid1( void ) {
+  char pid[ 12 ] = {0};
+  long count = readlink( "/proc/self", pid, sizeof(pid) );
+  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count >= sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  char * endptr;
+  ulong result = strtoul( pid, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || result > INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+
+  return (int)result;
+}
+
 void
 enter_network_namespace( const char * interface ) {
   char path[ PATH_MAX ];

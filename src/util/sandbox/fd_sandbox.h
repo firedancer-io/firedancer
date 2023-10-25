@@ -32,6 +32,13 @@
    only step that will be performed is switching UID and GID to the
    provided ones.  All other arguments are ignored.
 
+   The rlimit_nofile argument determines what RLIMIT_NOFILE is set to.
+   This should almost always be zero.  It does not affect already open
+   descriptors, and only is in effect for future syscalls.  It is
+   only needed for cases where poll() or similar syscalls are used which
+   require RLIMIT_NOFILE values to be increased for no particular
+   reason.
+
    The seccomp_filter argument is a list of BPF instructions which will
    get loaded into the kernel seccomp filter.  You should never
    construct such a filter by hand.  ALWAYS generate filters from a
@@ -86,8 +93,10 @@
 
     * The capability bounding set is cleared.
 
-    * The RLIMIT_NOFILE rlimit is set to zero, so no new files can be
-      opened.
+    * The RLIMIT_NOFILE rlimit is set to the parameter rlimit_nofile, so
+      no new files can be opened above this limit.  This is an
+      additional layer, as usually open() syscalls will be prevented as
+      well.
 
     * CLONE_NEWNS, the mount namespace is unshared.  The process is
       given a new global mount namespace, a temporary directory with
@@ -113,6 +122,7 @@ void
 fd_sandbox( int                  full_sandbox,
             uint                 uid,
             uint                 gid,
+            ulong                rlimit_nofile,
             ulong                allow_fds_cnt,
             int *                allow_fds,
             ulong                seccomp_filter_cnt,

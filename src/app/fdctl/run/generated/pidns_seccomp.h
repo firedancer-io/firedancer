@@ -21,20 +21,22 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_pidns_instr_cnt = 17;
+static const unsigned int sock_filter_policy_pidns_instr_cnt = 18;
 
 static void populate_sock_filter_policy_pidns( ulong out_cnt, struct sock_filter * out ) {
-  FD_TEST( out_cnt >= 17 );
-  struct sock_filter filter[17] = {
+  FD_TEST( out_cnt >= 18 );
+  struct sock_filter filter[18] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 13 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 14 ),
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 3, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 4, 0 ),
+    /* allow poll based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_poll, /* check_poll */ 5, 0 ),
     /* allow wait4 based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_wait4, /* check_wait4 */ 4, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_wait4, /* check_wait4 */ 6, 0 ),
     /* simply allow exit_group */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, /* RET_ALLOW */ 10, 0 ),
     /* none of the syscalls matched */
@@ -43,15 +45,15 @@ static void populate_sock_filter_policy_pidns( ulong out_cnt, struct sock_filter
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
-//  check_wait4:
-    /* load syscall argument 0 in accumulator */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, (unsigned int)-1, /* lbl_1 */ 0, /* RET_KILL_PROCESS */ 4 ),
-//  lbl_1:
+//  check_poll:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __WCLONE, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 2 ),
-//  lbl_2:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, (unsigned int)-1, /* RET_ALLOW */ 5, /* RET_KILL_PROCESS */ 4 ),
+//  check_wait4:
+    /* load syscall argument 2 in accumulator */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, (int)__WALL | (int)WNOHANG, /* lbl_1 */ 0, /* RET_KILL_PROCESS */ 2 ),
+//  lbl_1:
     /* load syscall argument 3 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),

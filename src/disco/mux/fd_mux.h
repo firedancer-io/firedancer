@@ -450,7 +450,6 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 
 int
 fd_mux_tile( fd_cnc_t *              cnc,         /* Local join to the mux's command-and-control */
-             ulong                   pid,         /* Tile PID for diagnostic purposes */
              ulong                   flags,       /* Any of FD_MUX_FLAG_* specifying how to run the mux */
              ulong                   in_cnt,      /* Number of input mcaches to multiplex, inputs are indexed [0,in_cnt) */
              fd_frag_meta_t const ** in_mcache,   /* in_mcache[in_idx] is the local join to input in_idx's mcache */

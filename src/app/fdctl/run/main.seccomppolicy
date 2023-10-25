@@ -22,21 +22,23 @@ write: (eq (arg 0) 2)
 # supervisor: wait for the child process to exit
 #
 # The boot process needs to know when the child exits so that it can
-# quit itself.  The child is created with WCLONE so this is required.
+# quit itself.
 wait4: (and (eq (arg 0) pid_namespace) 
-            (eq (arg 2) __WCLONE) 
+            (eq (arg 2) __WALL) 
             (eq (arg 3) 0))
+
+# supervisor: kill the child process
+#
+# Since the supervisor is the foreground process for the terminal,
+# signals like SIGINT (Ctrl+C) will go there if the user wishes to
+# kill Firedancer.  The child would terminate without being killed
+# because it waits for SIGHUP from a pipe the main process owns, but
+# we kill() it for cleanliness if we can so that the child processes
+# die before main does.
+kill: (eq (arg 1) SIGKILL)
 
 # supervisor: exit when the child process exits
 #
 # When the wait4 above completes, the child process has exited and the
 # parent will now need to exit itself.
 exit_group
-
-# supervisor: kill the child process
-#
-# Since the supervisor is the foreground process for the terminal,
-# signals like SIGINT (Ctrl+C) will go there if the user wishes to
-# kill Firedancer.  The child process must be killed as part of the
-# shutdown sequence.
-kill: (eq (arg 1) SIGKILL)

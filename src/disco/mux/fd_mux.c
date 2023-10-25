@@ -87,7 +87,6 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 
 int
 fd_mux_tile( fd_cnc_t *              cnc,
-             ulong                   pid,
              ulong                   flags,
              ulong                   in_cnt,
              fd_frag_meta_t const ** in_mcache,
@@ -157,7 +156,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) { FD_LOG_WARNING(( "already booted" )); return 1; }
 
     cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
-    cnc_diag[FD_APP_CNC_DIAG_PID] = pid;
+    cnc_diag[FD_APP_CNC_DIAG_LOG_GROUP_ID] = fd_log_group_id();
 
     /* in_backp==1, backp_cnt==0 indicates waiting for initial credits,
        cleared during first housekeeping if credits available */
