@@ -337,22 +337,22 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   if( route_entry->nh_ip_addr ) {
     next_ip_addr = route_entry->nh_ip_addr; /* use next hop */
   } else {
-    uint host_mask = ~route_entry->dst_netmask;
-    if( ( ip_addr & host_mask ) == ( 0xffffffff & host_mask ) ) {
-      /* Local address, and subnet broadcast - send to ff:ff:ff:ff:ff:ff */
+    //uint host_mask = ~route_entry->dst_netmask;
+    //if( ( ip_addr & host_mask ) == ( 0xffffffff & host_mask ) ) {
+    //  /* Local address, and subnet broadcast - send to ff:ff:ff:ff:ff:ff */
 
-      /* broadcast */
-      out_dst_mac[0] = 0xffU;
-      out_dst_mac[1] = 0xffU;
-      out_dst_mac[2] = 0xffU;
-      out_dst_mac[3] = 0xffU;
-      out_dst_mac[4] = 0xffU;
-      out_dst_mac[5] = 0xffU;
+    //  /* broadcast */
+    //  out_dst_mac[0] = 0xffU;
+    //  out_dst_mac[1] = 0xffU;
+    //  out_dst_mac[2] = 0xffU;
+    //  out_dst_mac[3] = 0xffU;
+    //  out_dst_mac[4] = 0xffU;
+    //  out_dst_mac[5] = 0xffU;
 
-      *out_ifindex = route_entry->oif;
+    //  *out_ifindex = route_entry->oif;
 
-      return FD_IP_BROADCAST;
-    }
+    //  return FD_IP_BROADCAST;
+    //}
 
     /* else local unicast */
 
