@@ -228,7 +228,7 @@ check () {
     echo "[!] Found missing system packages"
     echo "[?] This is fixed by the following command:"
     echo "        ${PACKAGE_INSTALL_CMD[@]}"
-    if [[ "$FD_AUTO_INSTALL_PACKAGES" == "1" ]]; then
+    if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
       choice=y
     else
       read -r -p "[?] Install missing system packages? (y/N) " choice
