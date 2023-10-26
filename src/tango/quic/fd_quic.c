@@ -1281,7 +1281,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Pick a new conn ID for ourselves, which the peer will address us
          with in the future (via dest conn ID). */
 
-      fd_quic_conn_id_t new_conn_id = {8u,{0},{0}};
+      fd_quic_conn_id_t new_conn_id = { .seq_nbr = 0UL, .sz = FD_QUIC_CONN_ID_SZ, .conn_id = {0} };
 
       fd_quic_crypto_rand( new_conn_id.conn_id, 8u );
 
@@ -1702,11 +1702,20 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   if( !( conn->server | conn->established ) ) {
     /* switch to the source connection id for future replies */
 
-    /* replace peer 0 connection id */
-    conn->peer[0].conn_id.sz = initial->src_conn_id_len;
+    /* add connection id */
+    ulong idx = conn->peer_cnt;
+    if( FD_UNLIKELY( idx >= FD_QUIC_MAX_CONN_ID_PER_CONN ) ) {
+      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    conn->peer[idx].conn_id.sz = initial->src_conn_id_len;
 
     /* we have already validated src_conn_id_len */
-    fd_memcpy( conn->peer[0].conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
+    fd_memcpy( conn->peer[idx].conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
+
+    conn->cur_peer_idx = (ushort)idx;
+    conn->peer_cnt     = (ushort)(idx+1);
 
     /* don't repeat this procedure */
     conn->established = 1;
@@ -1983,7 +1992,7 @@ ulong fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer->conn_id;
+  fd_quic_conn_id_t * orig_dst_conn_id = &conn->orig_dst_conn_id;
 
   /* Validate the Retry Integrity Tag. TODO can we make this more efficient? */
   fd_quic_retry_pseudo_t retry_pseudo_pkt = {
@@ -2628,7 +2637,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   uchar const * orig_ptr = cur_ptr;
 
   /* extract the dst connection id */
-  fd_quic_conn_id_t dst_conn_id = { FD_QUIC_CONN_ID_SZ, {0}, {0} }; /* initialize assuming fixed-length conn id */
+  fd_quic_conn_id_t dst_conn_id = { .seq_nbr = 0UL,
+                                    .sz = FD_QUIC_CONN_ID_SZ,
+                                    .conn_id = {0} }; /* initialize assuming fixed-length conn id */
 
   fd_quic_common_hdr_t common_hdr[1];
   ulong rc = fd_quic_decode_common_hdr( common_hdr, cur_ptr, cur_sz );
@@ -2887,8 +2898,16 @@ fd_quic_process_packet( fd_quic_t *   quic,
     /* short header packet
        only one_rtt packets currently have short headers */
 
+    if( FD_UNLIKELY( (uint)(*cur_ptr) != FD_QUIC_CONN_ID_SZ ) ) {
+      /* we only use connection ids of length FD_QUIC_CONN_ID_SZ
+         silently ignore */
+      return;
+    }
+
     /* extract destination connection id to look up connection */
-    fd_quic_conn_id_t dst_conn_id = { 8u, {0}, {0} }; /* our connection ids are 8 bytes */
+    fd_quic_conn_id_t dst_conn_id = { .seq_nbr = 0UL,
+                                      .sz = FD_QUIC_CONN_ID_SZ,
+                                      .conn_id = {0} }; /* initialize assuming fixed-length conn id */
     fd_memcpy( &dst_conn_id.conn_id, cur_ptr+1, FD_QUIC_CONN_ID_SZ );
 
     /* find connection id */
@@ -3485,7 +3504,7 @@ fd_quic_pkt_hdr_populate( fd_quic_pkt_hdr_t * pkt_hdr,
   fd_quic_conn_id_t *  peer_conn_id = &peer->conn_id;
 
   /* our current conn_id */
-  fd_quic_conn_id_t *  conn_id      = &conn->our_conn_id[conn->cur_conn_id_idx];
+  fd_quic_conn_id_t *  conn_id      = &conn->our_conn_id[conn->cur_peer_idx];
 
   switch( enc_level ) {
     case fd_quic_enc_level_initial_id:
@@ -4945,9 +4964,11 @@ fd_quic_create_conn_id( fd_quic_t * quic ) {
      be delivered to the same endpoint by flow control */
   /* TODO load balancing / flow steering */
 
-  fd_quic_conn_id_t conn_id = { 8u, {0}, {0} };
+  fd_quic_conn_id_t conn_id = { .seq_nbr = 0UL,
+                                .sz      = FD_QUIC_CONN_ID_SZ,
+                                .conn_id = {0} };
 
-  fd_quic_crypto_rand( conn_id.conn_id, 8u );
+  fd_quic_crypto_rand( conn_id.conn_id, conn_id.sz );
 
   return conn_id;
 }
@@ -5166,7 +5187,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->local_conn_id       = 0; /* TODO probably set it here, or is it only valid for servers? */
   conn->peer_cnt            = 0;
   conn->our_conn_id_cnt     = 0; /* set later */
-  conn->cur_conn_id_idx     = 0;
   conn->cur_peer_idx        = 0;
   conn->token_len           = 0;
 
@@ -5290,6 +5310,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer[ peer_idx ].net.udp_port = dst_udp_port;
   memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
   conn->peer_cnt                      = 1;
+
+  conn->orig_dst_conn_id = *peer_conn_id;
 
   /* do routing */
   uchar  arp_mac_addr[6]  = {0};
@@ -6527,12 +6549,59 @@ fd_quic_frame_handle_new_conn_id_frame(
   (void)p;
   (void)p_sz;
 
+  TODO( "ensure seq_nbr is updated everywhere" );
+
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
   /* ack-eliciting */
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
-  FD_DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
+  /* local copies */
+  fd_quic_conn_t *     conn            = context.conn;
+  ulong                retire_prior_to = data->retire_prior_to;
+  ulong                peer_cnt        = conn->peer_cnt;
+  ulong                cur_peer_idx    = conn->cur_peer_idx;
+  fd_quic_endpoint_t * peer            = conn->peer;
+
+  /* save current peer info */
+  fd_quic_endpoint_t cur_peer = peer[conn->cur_peer_idx];
+
+  /* iterate over peers, deleting retired */
+  for( ulong j = 0; j < peer_cnt; ) {
+    ulong k = peer_cnt - 1; /* peer_cnt > 1 */
+    if( peer[j].conn_id.seq_nbr < retire_prior_to ) {
+      /* delete this seq_nbr */
+      if( j != k ) {
+        /* copy valid peer over the deleted one */
+        peer[j] = peer[k];
+        if( cur_peer_idx >= j ) {
+          cur_peer_idx--; /* may end up invalid. Fixed later */
+        }
+      } /* else the valid one is the last one */
+      peer_cnt--;
+
+      /* don't increment j */
+    } else {
+      j++; /* valid not removed, so increment */
+    }
+  }
+
+  /* add new one */
+  if( FD_UNLIKELY( peer_cnt >= FD_QUIC_MAX_CONN_ID_PER_CONN ||
+                   data->conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) {
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  /* use the current peer as a base */
+  cur_peer.conn_id.sz = data->conn_id_len;
+  fd_memcpy( cur_peer.conn_id.conn_id, data->conn_id, data->conn_id_len );
+  cur_peer.conn_id.seq_nbr = conn->conn_id_seq_nbr++;
+
+  conn->peer[peer_cnt] = cur_peer;
+  conn->peer_cnt       = (ushort)( peer_cnt + 1UL );
+  conn->cur_peer_idx   = (ushort)( cur_peer_idx < FD_QUIC_MAX_CONN_ID_PER_CONN ? cur_peer_idx : 0 );
+
   return 0;
 }
 
@@ -6542,20 +6611,59 @@ fd_quic_frame_handle_retire_conn_id_frame(
       fd_quic_retire_conn_id_frame_t * data,
       uchar const *                    p,
       ulong                            p_sz ) {
-  (void)vp_context;
-  (void)data;
   (void)p;
   (void)p_sz;
-  FD_DEBUG(
-    printf( "%s:%d  retire_conn_id requested\n", __func__, (int)(__LINE__) ); fflush( stdout );
-    )
 
-  // fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
+  fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
-  // /* ack-eliciting */
-  // context.pkt->ack_flag |= ACK_FLAG_RQD;
+  /* ack-eliciting */
+  context.pkt->ack_flag |= ACK_FLAG_RQD;
 
-  return FD_QUIC_PARSE_FAIL;
+  /* local copies */
+  fd_quic_conn_t *     conn            = context.conn;
+  ulong                retire_seq_nbr  = data->seq_nbr;
+  ulong                peer_cnt        = conn->peer_cnt;
+  ulong                cur_peer_idx    = conn->cur_peer_idx;
+  fd_quic_endpoint_t * peer            = conn->peer;
+
+  /* save current peer info */
+  fd_quic_endpoint_t cur_peer = peer[conn->cur_peer_idx];
+
+  /* iterate over peers, deleting retired */
+  for( ulong j = 0; j < peer_cnt; ) {
+    ulong k = peer_cnt - 1; /* peer_cnt > 1 */
+    if( peer[j].conn_id.seq_nbr == retire_seq_nbr ) {
+      /* delete this seq_nbr */
+      if( j != k ) {
+        /* copy valid peer over the deleted one */
+        peer[j] = peer[k];
+        if( cur_peer_idx >= j ) {
+          cur_peer_idx--; /* may end up invalid. Fixed later */
+        }
+      } /* else the valid one is the last one */
+      peer_cnt--;
+
+      /* j now valid, so don't increment */
+    } else {
+      j++; /* Valid. Not removed, so increment */
+    }
+  }
+
+  /* none left is a protocol violation */
+  if( FD_UNLIKELY( peer_cnt == 0 ) ) {
+    /* add back current */
+    conn->peer[0]      = cur_peer;
+    conn->cur_peer_idx = 0;
+    conn->peer_cnt     = 1;
+
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  conn->peer_cnt     = (ushort)peer_cnt;
+  conn->cur_peer_idx = (ushort)( cur_peer_idx < FD_QUIC_MAX_CONN_ID_PER_CONN ? cur_peer_idx : 0 );
+
+  return 0;
 }
 
 static ulong

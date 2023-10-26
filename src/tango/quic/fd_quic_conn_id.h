@@ -18,17 +18,12 @@ extern ulong fd_quic_conn_id_hash_seed;
 /* Firedancer connection ids will sized thus */
 #define FD_QUIC_CONN_ID_SZ 8
 
-/* pad fd_quic_conn_id struct */
-#define FD_QUIC_CONN_ID_PAD (24 - 1 - FD_QUIC_MAX_CONN_ID_SZ)
-
 // have to support variable length connection ids
 // in various parts of the protocol
 struct fd_quic_conn_id {
+  ulong seq_nbr;
   uchar sz;
   uchar conn_id[FD_QUIC_MAX_CONN_ID_SZ];
-
-  /* explicitly pad for alignment */
-  uchar pad[FD_QUIC_CONN_ID_PAD];
 };
 typedef struct fd_quic_conn_id fd_quic_conn_id_t;
 

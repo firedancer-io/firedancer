@@ -115,8 +115,8 @@ struct fd_quic_conn {
   ushort             our_conn_id_cnt;     /* number of connection ids */
   ushort             peer_cnt;            /* number of peer endpoints */
 
-  ushort             cur_conn_id_idx;     /* currently used conn id */
   ushort             cur_peer_idx;        /* currently used peer endpoint */
+  ulong              conn_id_seq_nbr;     /* the first unused conn_id sequence number */
 
   /* initial source connection id */
   fd_quic_conn_id_t  initial_source_conn_id;
