@@ -512,7 +512,7 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            initial_max_streams_bidi );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  FD_QUIC_ACK_EXP          );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  FD_QUIC_ACK_DELAY_EXP    );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       FD_QUIC_MAX_ACK_DELAY    );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      ); /* TODO */
