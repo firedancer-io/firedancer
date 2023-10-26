@@ -11,6 +11,7 @@
 
 struct fd_block_info {
   ulong microblock_batch_cnt;
+  ulong microblock_cnt;
   ulong signature_cnt;
   fd_microblock_batch_info_t * microblock_batch_infos;
 

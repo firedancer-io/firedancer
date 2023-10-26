@@ -3,12 +3,12 @@
 #include "../fd_account.h"
 
 void
-fd_convert_txn_instr_to_instr( fd_txn_t const *                 txn_descriptor,
-                               fd_rawtxn_b_t const *            txn_raw,
-                               fd_txn_instr_t const *           txn_instr,
-                               fd_pubkey_t const *              accounts,
-                               fd_borrowed_account_t *          borrowed_accounts,
-                               fd_instr_info_t *                instr ) {
+fd_convert_txn_instr_to_instr( fd_txn_t const *          txn_descriptor,
+                               fd_rawtxn_b_t const *     txn_raw,
+                               fd_txn_instr_t const *    txn_instr,
+                               fd_pubkey_t const *       accounts,
+                               fd_borrowed_account_t *   borrowed_accounts,
+                               fd_instr_info_t *         instr ) {
   instr->program_id = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];
   instr->acct_cnt = txn_instr->acct_cnt;

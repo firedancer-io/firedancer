@@ -72,12 +72,19 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx, 
-                          fd_slot_meta_t * m, 
                           fd_block_info_t const * block_info );
 
 int
 fd_runtime_block_verify( fd_block_info_t const * block_info,
-                         fd_hash_t * poh_hash );
+                         fd_hash_t const * in_poh_hash,
+                         fd_hash_t * out_poh_hash );
+int
+fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
+                               fd_hash_t const * in_poh_hash,
+                               fd_hash_t * out_poh_hash,
+                               fd_valloc_t valloc,
+                               fd_tpool_t * tpool,
+                               ulong max_workers );
 
 int
 fd_runtime_block_prepare( void const * buf,
@@ -85,10 +92,12 @@ fd_runtime_block_prepare( void const * buf,
                           fd_valloc_t valloc,
                           fd_block_info_t * out_block_info );
 
-int fd_runtime_block_eval( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_slot_meta_t * m,
-                           const void * block,
-                           ulong blocklen );
+int
+fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             const void * block,
+                             ulong blocklen,
+                             fd_tpool_t * tpool,
+                             ulong max_workers );
 
 ulong
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,
@@ -99,7 +108,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx );
 
 ulong
 fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
-                                                 fd_hash_t * blockhash );
+                                                 fd_hash_t const * blockhash );
 
 fd_funk_rec_key_t
 fd_runtime_block_key( ulong slot );

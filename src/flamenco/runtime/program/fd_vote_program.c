@@ -762,10 +762,10 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   case fd_vote_instruction_enum_vote_switch: {
     fd_vote_t * vote;
     if ( instruction.discriminant == fd_vote_instruction_enum_vote ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::VoteSwitch instruction" ) );
+      FD_LOG_DEBUG( ( "executing VoteInstruction::VoteSwitch instruction" ) );
       vote = &instruction.inner.vote;
     } else if ( instruction.discriminant == fd_vote_instruction_enum_vote_switch ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::VoteSwitch instruction" ) );
+      FD_LOG_DEBUG( ( "executing VoteInstruction::VoteSwitch instruction" ) );
       vote = &instruction.inner.vote_switch.vote;
     } else {
       FD_LOG_ERR( ( "invalid fallthrough detected: %d", instruction.discriminant ) );

@@ -16,7 +16,6 @@ struct __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN))) fd_exec_epoch_ctx {
 
   fd_epoch_leaders_t * leaders;  /* Current epoch only */
   fd_features_t        features;
-  // ulong                rent_epoch;
   fd_epoch_bank_t      epoch_bank;
 };
 typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;

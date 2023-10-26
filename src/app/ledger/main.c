@@ -423,7 +423,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
       fd_hash_t poh_hash;
       fd_memcpy( poh_hash.hash, slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
-      ret = fd_runtime_block_verify( &block_info, &poh_hash );
+      ret = fd_runtime_block_verify( &block_info, &poh_hash, &poh_hash );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     }
 

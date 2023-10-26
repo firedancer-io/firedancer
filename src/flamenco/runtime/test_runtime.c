@@ -162,7 +162,7 @@ replay( global_state_t * state,
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 
-    FD_LOG_INFO(("reading slot %ld", slot));
+    FD_LOG_DEBUG(("reading slot %ld", slot));
 
     fd_slot_meta_t m;
 
@@ -194,10 +194,10 @@ replay( global_state_t * state,
 
       fd_hash_t poh_hash;
       fd_memcpy( poh_hash.hash, state->slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
-      ret = fd_runtime_block_verify( &block_info, &poh_hash );
+      ret = fd_runtime_block_verify_tpool( &block_info, &poh_hash, &poh_hash, state->slot_ctx->valloc, tpool, max_workers );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
-      FD_TEST (fd_runtime_block_eval( state->slot_ctx, &m, val, fd_funk_val_sz(rec) ) == FD_RUNTIME_EXECUTE_SUCCESS);
+      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, val, fd_funk_val_sz(rec), tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
       if( known_bank_hash ) {
@@ -518,6 +518,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "pass" ));
 
+  if( tpool != NULL ) {
+    fd_tpool_fini( tpool );
+  }
   fd_halt();
 
   return 0;
