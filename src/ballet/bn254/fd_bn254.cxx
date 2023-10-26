@@ -21,6 +21,7 @@ fd_bn254_Fq_sol_to_libff(uchar const * sol, libff::alt_bn128_Fq * X) {
   uchar * t = (uchar *)(bi.data);
   for (ulong i = 0; i < FD_BN254_FIELD_FOOTPRINT; ++i)
     t[FD_BN254_FIELD_FOOTPRINT-1U-i] = sol[i];
+  t[FD_BN254_FIELD_FOOTPRINT-1U] &= (uchar)(~((1<<6) | (1<<7)));
   new (X) libff::alt_bn128_Fq(bi);
 }
 
@@ -105,6 +106,9 @@ void
 fd_bn254_g1_compress( fd_bn254_point_g1 const * in, fd_bn254_point_g1_compressed * out ) {
   /* Just pick off the X coordinate */
   fd_memcpy(out->v, in->v, FD_BN254_FIELD_FOOTPRINT);
+  /* Use the flag to indicate whether Y is negative */
+  if ((in->v[FD_BN254_FIELD_FOOTPRINT*2U - 1U] & 1))
+    out->v[0] |= (uchar)(1<<7);
 }
 
 void
@@ -120,7 +124,7 @@ fd_bn254_g1_decompress( fd_bn254_point_g1_compressed const * in, fd_bn254_point_
   X2.square();
   libff::alt_bn128_Fq X3_plus_b = X*X2 + libff::alt_bn128_coeff_b;
   libff::alt_bn128_Fq Y(X3_plus_b.sqrt());
-  if ((Y.as_bigint().data[0] & 1))
+  if (!(in->v[0] & (uchar)(1<<7)))
     Y = -Y;
   fd_bn254_Fq_libff_to_sol(&X, out->v);
   fd_bn254_Fq_libff_to_sol(&Y, out->v + FD_BN254_FIELD_FOOTPRINT);
@@ -139,6 +143,9 @@ void
 fd_bn254_g2_compress( fd_bn254_point_g2 const * in, fd_bn254_point_g2_compressed * out ) {
   /* Just pick off the X coordinate */
   fd_memcpy(out->v, in->v, 2U*FD_BN254_FIELD_FOOTPRINT);
+  /* Use the flag to indicate whether Y.c0 is negative */
+  if ((in->v[FD_BN254_FIELD_FOOTPRINT*3U - 1U] & 1))
+    out->v[0] |= (uchar)(1<<7);
 }
 
 void
@@ -154,7 +161,7 @@ fd_bn254_g2_decompress( fd_bn254_point_g2_compressed const * in, fd_bn254_point_
   X2.square();
   libff::alt_bn128_Fq2 X3_plus_b = X*X2 + libff::alt_bn128_twist_coeff_b;
   libff::alt_bn128_Fq2 Y(X3_plus_b.sqrt());
-  if ((Y.c0.as_bigint().data[0] & 1))
+  if ((in->v[0] & (uchar)(1<<7)))
     Y = -Y;
   fd_bn254_Fq2_libff_to_sol(&X, out->v);
   fd_bn254_Fq2_libff_to_sol(&Y, out->v + 2U*FD_BN254_FIELD_FOOTPRINT);
