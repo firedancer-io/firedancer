@@ -68,6 +68,16 @@ struct fd_quic_ack {
 # define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
 
+/* ack_delay has an exponent (that we advertize to peers)
+   from this is derived a scaling factor
+   The scale factor converts one nanosecond into 2^N microseconds
+   These are defined here: */
+#define FD_QUIC_ACK_DELAY_EXP 3UL
+#define FD_QUIC_ACK_SCALE_FACTOR ( 1e-3f / ((float)(1UL<<FD_QUIC_ACK_DELAY_EXP)) )
+
+/* the maximum ack delay in milliseconds */
+#define FD_QUIC_MAX_ACK_DELAY 10
+
 struct fd_quic_conn {
   fd_quic_t *        quic;
   void *             context;             /* user context */

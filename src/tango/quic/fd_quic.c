@@ -512,8 +512,8 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            initial_max_streams_bidi );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        ); /* TODO */
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                       ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  FD_QUIC_ACK_EXP          );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       FD_QUIC_MAX_ACK_DELAY    );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      ); /* TODO */
 
@@ -3100,10 +3100,11 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         /* max datagram size */
         ulong tx_max_datagram_sz = peer_tp->max_udp_payload_size;
         if( tx_max_datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
-          tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
+          /* TODO this might actually be a protocol violation */
+          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
         }
-        if( tx_max_datagram_sz > FD_QUIC_INITIAL_PAYLOAD_SZ_MAX ) {
-          tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
+        if( tx_max_datagram_sz > FD_QUIC_MAX_PAYLOAD_SZ ) {
+          tx_max_datagram_sz = FD_QUIC_MAX_PAYLOAD_SZ;
         }
         conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
 
@@ -3928,10 +3929,14 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       while( ack_head ) {
         if( !(ack_head->flags & FD_QUIC_ACK_FLAGS_SENT ) ) {
 
+          /* ack delay is scaled */
+          float ack_delay = (float)( fd_quic_now( quic ) - ack_head->pkt_rcvd )
+                          * (float)FD_QUIC_ACK_SCALE_FACTOR;
+
           /* put ack frame */
           frame.ack.type            = 0x02u; /* type 0x02 is the base ack, 0x03 indicates ECN */
           frame.ack.largest_ack     = ack_head->pkt_number.offset_hi - 1u;
-          frame.ack.ack_delay       = fd_quic_now( quic ) - ack_head->pkt_rcvd;
+          frame.ack.ack_delay       = (ulong)( ack_delay );
           frame.ack.ack_range_count = 0; /* no fragments */
           frame.ack.first_ack_range = ack_head->pkt_number.offset_hi - ack_head->pkt_number.offset_lo - 1u;
 
