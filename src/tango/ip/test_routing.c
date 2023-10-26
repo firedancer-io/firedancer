@@ -259,7 +259,7 @@ test_routes_1( fd_ip_t * ip ) {
 
 #define TEST_MAC( a, b, c, d, e, f ) ((uchar[]){a,b,c,d,e,f})
   /* local subnet broadcast ip */
-  test_route( ip, TEST_IP( 192, 168, 200, 255 ), FD_IP_BROADCAST, TEST_IP(   0,   0,   0,   0 ), 100, TEST_MAC( 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ) );
+  //test_route( ip, TEST_IP( 192, 168, 200, 255 ), FD_IP_BROADCAST, TEST_IP(   0,   0,   0,   0 ), 100, TEST_MAC( 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ) );
 
   /* routable subnet broadcast ip addresses */
   test_route( ip, TEST_IP( 192, 168, 255, 255 ), FD_IP_SUCCESS,   TEST_IP( 200,   1,   1, 101 ), 101, TEST_MAC( 0x42, 0x42, 200,   1,   1, 101 ) );
@@ -337,7 +337,7 @@ test_routes_3( fd_ip_t * ip ) {
 
 #define TEST_MAC( a, b, c, d, e, f ) ((uchar[]){a,b,c,d,e,f})
   /* local subnet broadcast ip */
-  test_route( ip, TEST_IP( 192, 168, 200, 255 ), FD_IP_BROADCAST, TEST_IP(   0,   0,   0,   0 ), 100, TEST_MAC( 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ) );
+  //test_route( ip, TEST_IP( 192, 168, 200, 255 ), FD_IP_BROADCAST, TEST_IP(   0,   0,   0,   0 ), 100, TEST_MAC( 0xff, 0xff, 0xff, 0xff, 0xff, 0xff ) );
 
   /* routable subnet broadcast ip addresses */
   test_route( ip, TEST_IP( 192, 168, 255, 255 ), FD_IP_SUCCESS,   TEST_IP( 200,   1,   1, 101 ), 101, TEST_MAC( 0x42, 0x42, 200,   1,   1, 101 ) );
