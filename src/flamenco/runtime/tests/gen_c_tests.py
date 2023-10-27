@@ -77,8 +77,9 @@ def read_test_cases(path):
         if file.endswith(".json"):
             with open(path+'/'+file, "r") as f:
                 print(file)
-                s = f.read().rstrip(", \n")
-                data = json.loads('[' + s + ']')
+                data = []
+                for line in f:
+                    data.append(json.loads(line))
                 tests = tests + sorted(data, key=lambda k: cmp_key(k))
 #    return tests.sort(key=lambda k: cmp_key(k))
     return tests
@@ -327,15 +328,22 @@ def main():
                 signer_pubkeys.add(account["pubkey"])
             accounts.append(
                 AccountMeta(
-                    pubkey=Pubkey.from_bytes(base58.b58decode(account["pubkey"])),
+                    pubkey=Pubkey.from_string(account["pubkey"]),
                     is_signer=bool(account["is_signer"]),
                     is_writable=bool(account["is_writable"]),
                 )
             )
 
+        program_txn_idx = test_case["program_indices"][-1]
+        try:
+            program_id = test_case["transaction_accounts"][program_txn_idx]["pubkey"]
+        except IndexError as e:
+            print(f'Have {len(test_case["transaction_accounts"])} transaction accounts, but program index is {program_txn_idx}', file=sys.stderr)
+            raise e
+
         instruction = Instruction(
             accounts=accounts,
-            program_id=Pubkey.from_string(test_case["program_id"]),
+            program_id=Pubkey.from_string(program_id),
             data=bytes.fromhex(test_case["instruction_data"]),
         )
 
