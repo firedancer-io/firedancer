@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "fd_netlink.h"
+#include "../../util/cstr/fd_cstr.h"
 
 void
 fd_dump_nla_err( struct nlmsghdr * nlh, uint ip_addr, uint ifindex );
@@ -110,6 +111,96 @@ fd_nda_type_to_label( uint nda_type ) {
   FD_NL_NDA_TYPE(FD_NDA_MATCH,)
   return "NDA_UNKNOWN";
 # undef FD_NDA_MATCH
+}
+
+/* writes hex from data, length data_sz, into buffer buf, capacity buf_sz.
+   returns length written in out_len
+   always leaves a valid nul-terminated string at buf, unless buf_sz == 0,
+   in which case there isn't space to put a '\0', and the function simply
+   returns without doing anything
+   This function is intended for small strings, and so arbitrarily limits
+   the data to 20 bytes of input, or 40 bytes of hex output characters
+   plus overhead */
+void
+fd_nl_write_hex( char *  buf,
+                 ulong   buf_sz,
+                 ulong * out_len,
+                 uchar * data,
+                 ulong   data_sz ) {
+  if( FD_UNLIKELY( buf_sz == 0 ) ) {
+    if( FD_LIKELY( out_len ) ) *out_len = 0;
+    return;
+  }
+
+  char * p    = buf;
+  ulong  p_sz = buf_sz;
+
+  ulong lcl_out_len = 0;
+  fd_cstr_printf( p, p_sz, &lcl_out_len, "0x" );
+
+  p_sz -= lcl_out_len;
+  p    += lcl_out_len;
+
+  for( ulong j = 0; j < data_sz && p_sz > 0; ++j ) {
+    if( j > 20 ) {
+      fd_cstr_printf( p, p_sz, &lcl_out_len, "..." );
+      p_sz -= lcl_out_len;
+      p    += lcl_out_len;
+
+      if( FD_LIKELY( out_len ) ) *out_len = (ulong)( p - buf );
+      return;
+    }
+
+    fd_cstr_printf( p, p_sz, &lcl_out_len, "%02x", data[j] );
+    p_sz -= lcl_out_len;
+    p    += lcl_out_len;
+  }
+
+  if( FD_LIKELY( out_len ) ) *out_len = (ulong)( p - buf );
+  return;
+}
+
+void
+fd_nl_dump_rat( struct rtattr * rat, long ratmsglen ) {
+  char  buf[2048] = {0};
+  ulong buf_sz    = sizeof(buf);
+
+  /* write attributes into a string, and then output */
+
+  /* current pointer and remaining length */
+  char * p    = buf;
+  ulong  p_sz = buf_sz;
+
+  ulong out_len = 0;
+  fd_cstr_printf( buf, buf_sz, &out_len, "netlink diagnostic rtattr: " );
+
+  ulong skip = fd_ulong_min( p_sz, out_len );
+
+  p_sz -= skip;
+  p    += skip;
+
+  while( RTA_OK( rat, ratmsglen ) ) {
+    uchar * rta_data    = RTA_DATA( rat );
+    ulong   rta_data_sz = RTA_PAYLOAD( rat );
+    uint    rta_type    = (uint)rat->rta_type;
+
+    /* write attribute name */
+    fd_cstr_printf( p, p_sz, &out_len, " %s(%u): ", fd_nda_type_to_label( rta_type ),
+        rta_type );
+
+    p    += out_len;
+    p_sz -= out_len;
+
+    /* write value in hex */
+    fd_nl_write_hex( p, p_sz, &out_len, rta_data, rta_data_sz );
+
+    p    += out_len;
+    p_sz -= out_len;
+
+    rat = RTA_NEXT( rat, ratmsglen );
+  }
+
+  FD_LOG_WARNING(( "%s", buf ));
 }
 
 
@@ -565,6 +656,8 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
            NUD_PROBE        being reprobed, so it's probably valid
            NUD_PERMANENT    a static entry, so use it */
 
+    struct rtattr * saved_rat       = rat;
+    long            saved_ratmsglen = ratmsglen;
     while( RTA_OK( rat, ratmsglen ) ) {
       uchar * rta_data    = RTA_DATA( rat );
       ulong   rta_data_sz = RTA_PAYLOAD( rat );
@@ -574,6 +667,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
           if( rta_data_sz != 4 ) {
             FD_LOG_WARNING(( "Neighbor entry has IP address with other than"
                   " 4 byte address" ));
+            fd_nl_dump_rat( saved_rat, saved_ratmsglen );
           } else {
             uint dst_ip_addr;
             memcpy( &dst_ip_addr, rta_data, 4 );
@@ -587,6 +681,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
           if( rta_data_sz != 6 ) {
             FD_LOG_WARNING(( "Neighbor entry has LL address with other than"
                   " 6 byte MAC address" ));
+            fd_nl_dump_rat( saved_rat, saved_ratmsglen );
           } else {
             memcpy( &entry->mac_addr[0], rta_data, 6 );
 
