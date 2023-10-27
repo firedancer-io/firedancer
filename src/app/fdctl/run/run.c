@@ -296,9 +296,6 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
 
-  if( FD_UNLIKELY( !config->consensus.poh_speed_test ) )
-    ADD1("--no-poh-speed-test" );
-
   /* ledger */
   ADD( "--ledger", config->ledger.path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
