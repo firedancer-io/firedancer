@@ -1700,16 +1700,19 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   /* check if reply conn id needs to change */
   if( !( conn->server | conn->established ) ) {
-    /* switch to the source connection id for future replies */
+    /* we're the client and haven't established the peer connection id yet */
 
-    /* add connection id */
-    ulong idx = conn->peer_cnt;
-    if( FD_UNLIKELY( idx >= FD_QUIC_MAX_CONN_ID_PER_CONN ) ) {
+    if( FD_UNLIKELY( conn->peer_cnt > 1 ) ) {
+      /* some unexpected behavior */
       fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
       return FD_QUIC_PARSE_FAIL;
     }
 
-    conn->peer[idx].conn_id.sz = initial->src_conn_id_len;
+    /* set connection id 0
+       the connection id sequence numbers are carefully specified */
+    ulong idx = 0;
+    conn->peer[idx].conn_id.seq_nbr = 0;
+    conn->peer[idx].conn_id.sz      = initial->src_conn_id_len;
 
     /* we have already validated src_conn_id_len */
     fd_memcpy( conn->peer[idx].conn_id.conn_id, initial->src_conn_id, initial->src_conn_id_len );
@@ -5310,6 +5313,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer[ peer_idx ].net.udp_port = dst_udp_port;
   memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
   conn->peer_cnt                      = 1;
+  conn->cur_peer_idx                  = 0;
 
   conn->orig_dst_conn_id = *peer_conn_id;
 
@@ -6549,8 +6553,6 @@ fd_quic_frame_handle_new_conn_id_frame(
   (void)p;
   (void)p_sz;
 
-  TODO( "ensure seq_nbr is updated everywhere" );
-
   fd_quic_frame_context_t context = *(fd_quic_frame_context_t*)vp_context;
 
   /* ack-eliciting */
@@ -6574,9 +6576,9 @@ fd_quic_frame_handle_new_conn_id_frame(
       if( j != k ) {
         /* copy valid peer over the deleted one */
         peer[j] = peer[k];
-        if( cur_peer_idx >= j ) {
-          cur_peer_idx--; /* may end up invalid. Fixed later */
-        }
+
+        /* index may end up invalid. Fixed later */
+        cur_peer_idx -= (ulong)( cur_peer_idx >= j );
       } /* else the valid one is the last one */
       peer_cnt--;
 
@@ -6637,9 +6639,9 @@ fd_quic_frame_handle_retire_conn_id_frame(
       if( j != k ) {
         /* copy valid peer over the deleted one */
         peer[j] = peer[k];
-        if( cur_peer_idx >= j ) {
-          cur_peer_idx--; /* may end up invalid. Fixed later */
-        }
+
+        /* index may end up invalid. Fixed later */
+        cur_peer_idx -= (ulong)( cur_peer_idx >= j );
       } /* else the valid one is the last one */
       peer_cnt--;
 
@@ -6651,7 +6653,7 @@ fd_quic_frame_handle_retire_conn_id_frame(
 
   /* none left is a protocol violation */
   if( FD_UNLIKELY( peer_cnt == 0 ) ) {
-    /* add back current */
+    /* add back current, to have a chance at closing */
     conn->peer[0]      = cur_peer;
     conn->cur_peer_idx = 0;
     conn->peer_cnt     = 1;
