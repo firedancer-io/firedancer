@@ -6544,11 +6544,11 @@ fd_quic_frame_handle_streams_blocked_frame(
 }
 
 static ulong
-fd_quic_frame_handle_new_conn_id_frame(
-    void *                        vp_context,
-    fd_quic_new_conn_id_frame_t * data,
-    uchar const *                 p,
-    ulong                         p_sz ) {
+fd_quic_frame_handle_new_connection_id_frame(
+    void *                              vp_context,
+    fd_quic_new_connection_id_frame_t * data,
+    uchar const *                       p,
+    ulong                               p_sz ) {
   (void)data;
   (void)p;
   (void)p_sz;
@@ -6608,11 +6608,11 @@ fd_quic_frame_handle_new_conn_id_frame(
 }
 
 static ulong
-fd_quic_frame_handle_retire_conn_id_frame(
-      void *                           vp_context,
-      fd_quic_retire_conn_id_frame_t * data,
-      uchar const *                    p,
-      ulong                            p_sz ) {
+fd_quic_frame_handle_retire_connection_id_frame(
+      void *                                 vp_context,
+      fd_quic_retire_connection_id_frame_t * data,
+      uchar const *                          p,
+      ulong                                  p_sz ) {
   (void)p;
   (void)p_sz;
 
