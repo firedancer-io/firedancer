@@ -3,6 +3,7 @@
 #include "run/tiles/tiles.h"
 #include "../../disco/fd_disco_base.h"
 #include "../../util/wksp/fd_wksp_private.h"
+#include "../../util/shmem/fd_shmem_private.h"
 
 #include <stdio.h>
 #include <sys/stat.h>
@@ -84,6 +85,8 @@ fd_topo_leave_workspaces( fd_topo_t * topo ) {
   }
 }
 
+extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
+
 void
 fd_topo_create_workspaces( char *      app_name,
                            fd_topo_t * topo ) {
@@ -97,7 +100,19 @@ fd_topo_create_workspaces( char *      app_name,
     ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
 
     int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
+    if( FD_UNLIKELY( err && errno == ENOMEM ) ) {
+      char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+      snprintf1( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) );
+      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
+                   "with %lu %s pages. The memory needed should already be successfully "
+                   "reserved by the `large-pages` configure step, so there are two "
+                   "likely reasons. You might have workspaces leftover in the same "
+                   "directory from an older release of Firedancer which can be removed "
+                   "with `fdctl configure fini workspace`, or another process on the "
+                   "system is using the pages we reserved.",
+                   name, mount_path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
+    }
+    else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
     void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
 
