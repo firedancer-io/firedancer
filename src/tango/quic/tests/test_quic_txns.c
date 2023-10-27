@@ -233,10 +233,10 @@ read_pkt( uchar * out_buf, ulong * out_buf_sz ) {
 
   buf[j] = '\0';
 
-  /* base64 decode */
-  int base64_sz = fd_base64_decode( buf, out_buf );
+  /* base64 decode (TODO bounds check) */
+  long base64_sz = fd_base64_decode( out_buf, buf, j );
 
-  if( base64_sz == -1 ) {
+  if( base64_sz == -1L ) {
     FD_LOG_WARNING(( "Failed to base64 decode input line" ));
     FD_LOG_HEXDUMP_NOTICE(( "data", buf, j ));
     return 1;
@@ -253,7 +253,7 @@ main( int argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("normal"),
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
                                             1UL << 15,
                                             fd_shmem_cpu_idx( 0 ),
                                             "wksp",
