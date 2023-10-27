@@ -390,7 +390,7 @@ monitor_cmd_fn( args_t *         args,
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
-  populate_sock_filter_policy_monitor( 128UL, seccomp_filter, drain_output_fd );
+  populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (unsigned int)fd_log_private_logfile_fd(), drain_output_fd );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,

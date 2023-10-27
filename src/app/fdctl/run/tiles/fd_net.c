@@ -335,7 +335,7 @@ populate_allowed_seccomp( void *               scratch,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : init_ctx->xsk->xsk_fd;
   FD_TEST( init_ctx->xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (unsigned int)init_ctx->xsk->xsk_fd, (unsigned int)allow_fd2 );
+  populate_sock_filter_policy_net( out_cnt, out, (unsigned int)fd_log_private_logfile_fd(), (unsigned int)init_ctx->xsk->xsk_fd, (unsigned int)allow_fd2 );
   return sock_filter_policy_net_instr_cnt;
 }
 
@@ -347,11 +347,15 @@ populate_allowed_fds( void * scratch,
   fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 4 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  out_fds[ 0 ] = 2; /* stderr */
-  out_fds[ 1 ] = 3; /* logfile */
-  out_fds[ 2 ] = init_ctx->xsk->xsk_fd;
-  out_fds[ 3 ] = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : -1;
-  return init_ctx->lo_xsk ? 4 : 3;
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = init_ctx->xsk->xsk_fd;
+  if( FD_UNLIKELY( init_ctx->lo_xsk ) )
+    out_fds[ out_cnt++ ] = init_ctx->lo_xsk->xsk_fd;
+  return out_cnt;
 }
 
 fd_tile_config_t fd_tile_net = {

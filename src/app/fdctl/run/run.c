@@ -428,15 +428,16 @@ main_pid_namespace( void * args ) {
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_pidns( 128UL, seccomp_filter );
 
-  int allow_fds[] = {
-    2, /* stderr */
-    3, /* logfile */
-  };
+  int allow_fds[2];
+  ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
  
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
-              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds_cnt,
               allow_fds,
               sock_filter_policy_pidns_instr_cnt,
               seccomp_filter );
@@ -478,7 +479,8 @@ static void
 parent_signal( int sig ) {
   (void)sig;
   if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
-  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  if( -1!=fd_log_private_logfile_fd() )
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( 0 );
 }
 
@@ -517,15 +519,16 @@ run_firedancer( config_t * const config ) {
   FD_TEST( pid_namespace >= 0 );
   populate_sock_filter_policy_main( 128UL, seccomp_filter, (unsigned int)pid_namespace );
 
-  int allow_fds[] = {
-    2, /* stderr */
-    3, /* logfile */
-  };
+  int allow_fds[2];
+  ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
-              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds_cnt,
               allow_fds,
               sock_filter_policy_main_instr_cnt,
               seccomp_filter );
