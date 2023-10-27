@@ -1,0 +1,73 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: "$1" unexpected exit code "$2"
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_quic_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+echo Init
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1 # Try to clean up any leftover wksp from previous tests
+"$BIN"/fd_wksp_ctl new "$WKSP" "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" > /dev/null 2>&1 || init setup $?
+
+echo Testing no-op
+
+"$BIN"/fd_quic_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_quic_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_quic_ctl help || fail help $?
+
+echo Testing new-quic
+
+"$BIN"/fd_quic_ctl new-quic          && fail new-quic $?
+"$BIN"/fd_quic_ctl new-quic bad/name && fail new-quic $?
+
+QUIC=$("$BIN"/fd_quic_ctl new-quic "$WKSP"  || fail new-quic $?)
+
+echo Testing metrics
+
+"$BIN"/fd_quic_ctl metrics         && fail metrics $?
+"$BIN"/fd_quic_ctl metrics bad     && fail metrics $?
+"$BIN"/fd_quic_ctl metrics "$QUIC" || fail metrics $?
+
+echo Testing delete-quic
+
+"$BIN"/fd_quic_ctl delete-quic         && fail delete-quic $?
+"$BIN"/fd_quic_ctl delete-quic bad     && fail delete-quic $?
+"$BIN"/fd_quic_ctl delete-quic "$QUIC" || fail delete-quic $?
+
+echo Fini
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
+
+echo pass
+echo Log N/A
+exit 0
+
