@@ -877,7 +877,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* should not occur
      implies logic error */
   if( FD_UNLIKELY( stream == conn->unused_streams ) ) {
-    FD_LOG_ERR(( "max_concur_streams not reached, yet no free streams found" ));
+    FD_LOG_WARNING(( "max_concur_streams not reached, yet no free streams found" ));
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
   }
 
   /* remove from unused list */
@@ -922,7 +923,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* add to map of stream ids */
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_ERR(( "Stream map full" ));
+    FD_LOG_WARNING(( "Stream map full" ));
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
   }
 
   entry->stream = stream;
@@ -1423,7 +1425,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
           uchar retry_pseudo_buf[FD_QUIC_MAX_FOOTPRINT(retry_pseudo)];
           if( FD_UNLIKELY( retry_pseudo_footprint > sizeof(retry_pseudo_buf) ) ) {
-            FD_LOG_ERR(( "retry_pseudo_footprint is larger than allocated size" ));
+            return FD_QUIC_PARSE_FAIL;
           }
           fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
           fd_quic_retry_integrity_tag_encrypt( retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag );
@@ -1451,9 +1453,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                 quic->config.net.listen_udp_port,
                 dst_udp_port,
                 1 ) == FD_QUIC_FAILED ) ) {
-            FD_LOG_WARNING(("Failed to tx retry pkt"));
             quic->metrics.conn_err_retry_fail_cnt++;
-            return FD_QUIC_FAILED;
+            return FD_QUIC_PARSE_FAIL;
           };
           return (initial->pkt_num_pnoff + initial->len);
         }
@@ -2521,7 +2522,11 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
 
       if( FD_UNLIKELY( !cur_ack ) ) {
         /* this shouldn't be possible */
-        FD_LOG_ERR(( "unable to obtain ack" ));
+
+        /* terminate the connection, and allow it to be be recycled and
+           reinitialized */
+
+        fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
         return;
       }
     }
