@@ -314,14 +314,14 @@ FD_TEMPL_DEF_STRUCT_END(streams_blocked_frame)
    }
    Figure 39: NEW_CONNECTION_ID Frame Format */
 
-FD_TEMPL_DEF_STRUCT_BEGIN(new_conn_id_frame)
+FD_TEMPL_DEF_STRUCT_BEGIN(new_connection_id_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x18,0x18 )
   FD_TEMPL_MBR_ELEM_VARINT ( seq_nbr,               ulong              )
   FD_TEMPL_MBR_ELEM_VARINT ( retire_prior_to,       ulong              )
   FD_TEMPL_MBR_ELEM        ( conn_id_len,           uchar              )
   FD_TEMPL_MBR_ELEM_VAR_RAW( conn_id,               0,160, conn_id_len )
   FD_TEMPL_MBR_ELEM_FIXED  ( stateless_reset_token, uchar, 16          )
-FD_TEMPL_DEF_STRUCT_END(new_conn_id_frame)
+FD_TEMPL_DEF_STRUCT_END(new_connection_id_frame)
 
 
 /* Retire Connection ID Frame
@@ -332,10 +332,10 @@ FD_TEMPL_DEF_STRUCT_END(new_conn_id_frame)
    }
    Figure 40: RETIRE_CONNECTION_ID Frame Format */
 
-FD_TEMPL_DEF_STRUCT_BEGIN(retire_conn_id_frame)
+FD_TEMPL_DEF_STRUCT_BEGIN(retire_connection_id_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x19,0x19 )
   FD_TEMPL_MBR_ELEM_VARINT( seq_nbr, ulong )
-FD_TEMPL_DEF_STRUCT_END(retire_conn_id_frame)
+FD_TEMPL_DEF_STRUCT_END(retire_connection_id_frame)
 
 
 /* Path Challenge Frame
