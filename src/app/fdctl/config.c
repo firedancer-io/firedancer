@@ -745,10 +745,14 @@ config_parse( int *    pargc,
     }
   }
 
-  const char * live_genesis_hashes[ 6 ] = {
-    "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", // devnet
-    "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY", // testnet
-    "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", // mainnet
+  char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+  char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
+  char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+
+  char const * live_genesis_hashes[ 6 ] = {
+    DEVNET_GENESIS_HASH,
+    TESTNET_GENESIS_HASH,
+    MAINNET_BETA_GENESIS_HASH,
     "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve", // pythtest
     "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq", // pythnet
     NULL,
@@ -761,7 +765,9 @@ config_parse( int *    pargc,
     }
   }
 
-  if( FD_UNLIKELY( result.is_live_cluster ) )
+  int allowed_cluster = !strcmp( result.consensus.expected_genesis_hash, TESTNET_GENESIS_HASH );
+
+  if( FD_UNLIKELY( result.is_live_cluster && !allowed_cluster ) )
     FD_LOG_EMERG(( "Attempted to start against a live cluster. Firedancer is not "
                    "ready for production deployment, has not been tested, and is "
                    "missing consensus critical functionality. Joining a live Solana "
