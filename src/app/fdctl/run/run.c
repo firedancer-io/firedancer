@@ -551,9 +551,16 @@ run_cmd_fn( args_t *         args,
   (void)args;
 
   if( FD_UNLIKELY( !config->gossip.entrypoints_cnt ) )
-    FD_LOG_ERR(( "No entrypoints specified in configuration file, but one is needed to determine "
-                 "how to connect to the Solana cluster. If you want to start a new cluster in a "
-                 "development environment, use `fdctl dev` instead of `fdctl run`" ));
+    FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
+                 "at least one is needed to determine how to connect to the Solana cluster. If "
+                 "you want to start a new cluster in a development environment, use `fddev` instead "
+                 "of `fdctl`." ));
+
+  for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( config->gossip.entrypoints[ i ], "" ) ) )
+      FD_LOG_ERR(( "One of the entrypoints in your configuration file under [gossip.entrypoints] is "
+                   "empty. Please remove the empty entrypoint or set it correctly. "));
+  }
 
   run_firedancer( config );
 }
