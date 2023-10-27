@@ -13,6 +13,7 @@
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "../../ballet/ed25519/fd_ed25519_ge.h"
 
 #include <stdio.h>
 
@@ -150,7 +151,7 @@ fd_vm_prepare_instruction(
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
     fd_borrowed_account_t borrowed_account;
     fd_memcpy(borrowed_account.pubkey, &caller_instr->acct_pubkeys[instruction_account->index_in_caller], sizeof(fd_pubkey_t));
-    
+
     if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, borrowed_account.pubkey) ) ) {
       return 1;
     }
@@ -659,7 +660,7 @@ fd_vm_syscall_sol_log_data(
     total += untranslated_fields[i].len;
     void const * translated_addr = fd_vm_translate_vm_to_host_const( ctx, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
     char encoded[1024];
-    ulong encoded_len = fd_base64_encode( (const uchar *) translated_addr, (int)untranslated_fields[i].len, encoded);
+    ulong encoded_len = fd_base64_encode( encoded, (const uchar *) translated_addr, untranslated_fields[i].len );
     if ( i !=0 ) {
       sprintf( msg + msg_len, " ");
       ++ msg_len;
@@ -1014,7 +1015,7 @@ fd_vm_syscall_pda_fini( fd_vm_exec_context_t const * ctx,
 
   /* A PDA is valid if is not an Ed25519 curve point */
   FD_LOG_WARNING(( "FD_VM_SCDS KEY VALIDATE: %32J", pda->key));
-  if( FD_UNLIKELY(fd_ed25519_validate_public_key( pda->key ) != 0) ) return NULL;
+  if( FD_UNLIKELY(fd_ed25519_point_validate( pda->key ) != 0) ) return NULL;
 
   pdas->idx++;
   return (fd_pubkey_t const *)pda;
@@ -1984,7 +1985,7 @@ fd_vm_syscall_sol_create_program_address(
 
   /* Return failure if PDA overlaps with a valid curve point */
 
-  if( FD_UNLIKELY( fd_ed25519_validate_public_key( &result ) ) )
+  if( FD_UNLIKELY( fd_ed25519_point_validate( result.key ) ) )
     goto fini;
 
   /* Translate output address
@@ -2075,7 +2076,7 @@ fd_vm_syscall_sol_try_find_program_address(
 
     /* PDA is valid if it's not a curve point */
 
-    if( FD_LIKELY( !fd_ed25519_validate_public_key( &result ) ) ) {
+    if( FD_LIKELY( !fd_ed25519_point_validate( result.key ) ) ) {
 
       /* Delayed translation and overlap check */
 

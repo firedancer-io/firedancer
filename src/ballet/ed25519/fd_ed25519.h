@@ -108,16 +108,6 @@ fd_ed25519_verify( void const *  msg,
 FD_FN_CONST char const *
 fd_ed25519_strerror( int err );
 
-/* fd_ed25519_validate_public_key validates a crompressed Ed25519 public
-   key.  public_key is assumed to point to first byte of a 32-byte
-   memory region that holds a (compressed) public key.  Returns
-   public_key if it decompresses to a valid Edwards curve point.
-   Returns NULL if given key is not the y-coordinate of a curve point. */
-
-FD_FN_PURE void const *
-fd_ed25519_validate_public_key( void const * public_key );
-
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_ed25519_h */

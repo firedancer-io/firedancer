@@ -2,11 +2,15 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
 #include "fd_base64.h"
+
+/* fuzz_base64_dec verifies that Base64 decoding is safe against
+   untrusted inputs. */
 
 int
 LLVMFuzzerInitialize( int  *   argc,
@@ -18,20 +22,19 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
-#define get_encoded_len(bytes) ( ( ( ( bytes*4UL + 2UL) / 3UL ) + 3UL ) & ~3UL )
-#define MAX_DATA_SZ 4096UL
-#define MAX_ENCODED_SZ ( get_encoded_len( MAX_DATA_SZ )+1UL )
-
 int
 LLVMFuzzerTestOneInput( uchar const * data,
-                        ulong         size ) {
-  if( FD_UNLIKELY( size > MAX_ENCODED_SZ ) ) return -1;
+                        ulong         data_sz ) {
 
-  uchar decoded[ MAX_DATA_SZ ];
-  int decoded_sz = fd_base64_decode( ( const char * ) data, decoded );
-  if( FD_UNLIKELY( decoded_sz>=0 ) ) {
-    __builtin_trap();
-  }
+  ulong dec_sz = FD_BASE64_DEC_SZ( data_sz );
+  assert( dec_sz < data_sz+4UL );
 
+  uchar * dec = malloc( data_sz );
+  assert( dec );
+
+  long dec_res = fd_base64_decode( dec, (char const *)data, data_sz );
+  assert( dec_res>=0L || dec_res==-1L );
+
+  free( dec );
   return 0;
 }

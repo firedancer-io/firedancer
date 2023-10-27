@@ -9,6 +9,7 @@
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include <string.h>
+#include "../../../ballet/ed25519/fd_ed25519_ge.h"
 
 struct fd_addrlut {
   fd_address_lookup_table_state_t state;
@@ -222,7 +223,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
     fd_sha256_fini( sha, derived_tbl_key->key );
   } while(0);
-  if( FD_UNLIKELY( !fd_ed25519_validate_public_key( derived_tbl_key->key ) ) )
+  if( FD_UNLIKELY( !fd_ed25519_point_validate( derived_tbl_key->key ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
 
   /* https://github.com/solana-labs/solana/blob/56ccffdaa5394f179dce6c0383918e571aca8bff/programs/address-lookup-table/src/processor.rs#L120-L127 */

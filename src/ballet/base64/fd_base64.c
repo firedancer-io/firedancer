@@ -1,10 +1,14 @@
 #include "fd_base64.h"
 
+static const char base64_alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
 /* Inverse lookup table of ASCII byte => Base64 code point.
 
-   Simple Base64 decode. Could do better here, but I'm lazy.
-   One obvious optimization is to provide multiple LUTs for each
-   limb of the encoded word, then AND them together. */
+   Simple Base64 decode. Could do better here, but it's good
+   enough for now.  One obvious optimization is to provide
+   multiple LUTs for each limb of the encoded word, then AND
+   them together. */
 
 static uchar const invlut[ 0x100 ] = {
   /* 0x00 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -114,11 +118,11 @@ fd_base64_decode( uchar *      out,
 }
 
 ulong
-fd_base64_encode( const uchar * data,
-                  int           data_len,
-                  char *        encoded ) {
-  static const char base64_alphabet[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+fd_base64_encode( char *       encoded,
+                  void const * _data,
+                  ulong        data_len ) {
+
+  uchar const * data = fd_type_pun_const( _data );
 
   uint encoded_len = 0;
   uint accumulator = 0;
@@ -144,9 +148,6 @@ fd_base64_encode( const uchar * data,
   while( encoded_len % 4 != 0 ) {
     encoded[ encoded_len++ ] = '=';
   }
-
-  // Null-terminate the encoded string
-  encoded[ encoded_len ] = '\0';
 
   return encoded_len;
 }

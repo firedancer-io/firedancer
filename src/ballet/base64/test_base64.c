@@ -1,6 +1,9 @@
 #include "fd_base64.h"
 #include "../fd_ballet.h"
 
+/* test_base64 verifies Base64 encoding and decoding against a hardcoded
+   test vector and runs benchmarks. */
+
 struct fd_base64_test_vec {
   ulong        raw_len;
   char const * raw;
@@ -77,10 +80,23 @@ main( int     argc,
   for( fd_base64_test_vec_t const * test = test_vector;
        test->raw_len != ULONG_MAX;
        test++ ) {
-    uchar raw[ 128UL ];
-    long  raw_sz = fd_base64_decode( raw, test->enc, test->enc_len );
-    FD_TEST( 0==memcmp( raw, test->raw, test->raw_len ) );
-    FD_TEST( raw_sz==(long)test->raw_len );
+
+    /* decode */
+    do {
+      uchar raw[ 128UL ];
+      long  raw_sz = fd_base64_decode( raw, test->enc, test->enc_len );
+      FD_TEST( raw_sz==(long)test->raw_len );
+      FD_TEST( 0==memcmp( raw, test->raw, test->raw_len ) );
+    } while(0);
+
+    /* encode */
+    do {
+      char  enc[ 128UL ];
+      ulong enc_sz = fd_base64_encode( enc, test->raw, test->raw_len );
+      FD_TEST( enc_sz==test->enc_len );
+      FD_TEST( 0==memcmp( enc, test->enc, test->enc_len ) );
+    } while(0);
+
   }
 
   for( char const * const * corrupt = test_corrupt; *corrupt; corrupt++ ) {
