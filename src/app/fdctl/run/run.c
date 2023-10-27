@@ -288,7 +288,7 @@ solana_labs_main( void * args ) {
     ADD1( "--no-wait-for-vote-to-start-leader");
   for( uint * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
   for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
-    ADD( "--known_validator", config->consensus.known_validators[ i ] );
+    ADD( "--known-validator", config->consensus.known_validators[ i ] );
 
   ADD( "--snapshot-archive-format", config->ledger.snapshot_archive_format );
   if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
