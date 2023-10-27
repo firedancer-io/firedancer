@@ -152,25 +152,30 @@ int
 main( int argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  const char * payload = fd_env_strip_cmdline_cstr( &argc, &argv, "--payload-base64-encoded", NULL, NULL );
+
+  char const * payload_b64    = fd_env_strip_cmdline_cstr( &argc, &argv, "--payload-base64-encoded", NULL, NULL );
+  ulong        payload_b64_sz = strlen( payload_b64 );
 
   fd_aio_pkt_info_t pkt;
-  uchar buf[1300];
-  if( !payload ) {
+  if( !payload_b64 ) {
+    FD_LOG_NOTICE(( "Payload not specified, using hardcoded txn payload" ));
     pkt.buf =    ( void * )transaction;
     pkt.buf_sz = ( ushort )transaction_sz;
   } else {
-    int buf_sz = fd_base64_decode( payload, buf );
-    if ( buf_sz == -1 ) {
-      FD_LOG_NOTICE(( "bad input %s", payload ));
-      return -1;
-    }
-    FD_LOG_NOTICE(( "transaction size %d!", buf_sz ));
-    pkt.buf = (void *)buf;
-    pkt.buf_sz = ( ushort ) buf_sz;
+    static uchar buf[ 1UL << 15UL ];
+    if( FD_UNLIKELY( FD_BASE64_DEC_SZ( payload_b64_sz ) > sizeof(buf) ) )
+      FD_LOG_ERR(( "Input payload is too large (max %lu bytes)", sizeof(buf) ));
+
+    long res = fd_base64_decode( buf, payload_b64, payload_b64_sz );
+    if( FD_UNLIKELY( res<0 ) )
+      FD_LOG_ERR(( "Bad input payload" ));
+
+    FD_LOG_NOTICE(( "transaction size %ld!", res ));
+    pkt.buf    = (void *)buf;
+    pkt.buf_sz = (ushort)res;
   }
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("normal"),
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
                                             1UL << 15,
                                             fd_shmem_cpu_idx( 0 ),
                                             "wksp",

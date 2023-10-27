@@ -150,7 +150,7 @@ txn_cmd_fn( args_t *         args,
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("normal"),
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
                                             1UL << 10,
                                             fd_shmem_cpu_idx( 0 ),
                                             "wksp",
@@ -179,15 +179,22 @@ txn_cmd_fn( args_t *         args,
 
   fd_aio_pkt_info_t pkt[ MAX_TXN_COUNT ];
 
-  uchar buf[1300];
   if( FD_LIKELY( !args->txn.payload_base64 ) ) {
+    FD_LOG_INFO(( "Transaction payload not specified, using hardcoded sample payload" ));
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )sample_transaction;
       pkt[ i ].buf_sz = (ushort )sample_transaction_sz;
     }
   } else {
-    int buf_sz = fd_base64_decode( args->txn.payload_base64, buf );
-    if( FD_UNLIKELY( buf_sz == -1 ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
+    ulong payload_b64_sz = strlen( args->txn.payload_base64 );
+
+    static uchar buf[ 1UL << 15UL ];
+    if( FD_UNLIKELY( FD_BASE64_DEC_SZ( payload_b64_sz ) > sizeof(buf) ) )
+      FD_LOG_ERR(( "Input payload is too large (max %lu bytes)", sizeof(buf) ));
+
+    long buf_sz = fd_base64_decode( buf, args->txn.payload_base64, payload_b64_sz );
+    if( FD_UNLIKELY( buf_sz<0L ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
+
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )buf;
       pkt[ i ].buf_sz = (ushort )buf_sz;
