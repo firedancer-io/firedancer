@@ -3,7 +3,7 @@
 
 #define SORT_NAME sort_pubkey
 #define SORT_KEY_T fd_shred_dest_weighted_t
-#define SORT_BEFORE(a,b) memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )
+#define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )<0)
 #include "../../util/tmpl/fd_sort.c"
 
 void *
@@ -65,6 +65,7 @@ fd_stake_ci_stake_msg_init( fd_stake_ci_t * info,
 
 static inline void
 log_summary( char const * msg, fd_stake_ci_t * info ) {
+#if 0
   fd_per_epoch_info_t const * ei = info->epoch_info;
   FD_LOG_NOTICE(( "Dumping stake contact information because %s", msg ));
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -75,6 +76,10 @@ log_summary( char const * msg, fd_stake_ci_t * info ) {
       FD_LOG_NOTICE(( "    %16lx  %20lu " FD_IP4_ADDR_FMT " %hu ", *(ulong *)dest->pubkey.uc, dest->stake_lamports, FD_IP4_ADDR_FMT_ARGS( dest->ip4 ), dest->port ));
     }
   }
+#else
+  (void)msg;
+  (void)info;
+#endif
 }
 
 void
@@ -202,7 +207,7 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
 
   /* The staked nodes are sorted properly because we use the index from
      sdest.  We need to sort the unstaked nodes by pubkey though. */
-  sort_pubkey_inplace( info->shred_dest + staked_cnt, j - staked_cnt );
+  sort_pubkey_inplace( info->shred_dest_temp + staked_cnt, j - staked_cnt );
 
   fd_shred_dest_delete( fd_shred_dest_leave( ei->sdest ) );
 
