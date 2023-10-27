@@ -23,7 +23,7 @@
 #endif
 static const unsigned int sock_filter_policy_net_instr_cnt = 40;
 
-static void populate_sock_filter_policy_net( ulong out_cnt, struct sock_filter * out, unsigned int xsk_fd, unsigned int lo_xsk_fd) {
+static void populate_sock_filter_policy_net( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd) {
   FD_TEST( out_cnt >= 40 );
   struct sock_filter filter[40] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
@@ -48,11 +48,11 @@ static void populate_sock_filter_policy_net( ulong out_cnt, struct sock_filter *
 //  lbl_1:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 3, /* RET_ALLOW */ 27, /* RET_KILL_PROCESS */ 26 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 27, /* RET_KILL_PROCESS */ 26 ),
 //  check_fsync:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 3, /* RET_ALLOW */ 25, /* RET_KILL_PROCESS */ 24 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 25, /* RET_KILL_PROCESS */ 24 ),
 //  check_sendto:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),

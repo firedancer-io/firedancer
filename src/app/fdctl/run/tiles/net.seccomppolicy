@@ -1,10 +1,13 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
 # xsk_fd: This is the file descriptor for the kernel XDP socket we
 #         created for the primary network device.
 #
 # lo_xsk_fd: This is the file descriptor for the kernel XDP socket we
 #            created for the loopback network device.  This is currently
 #            needed because Solana sends packets to itself on loopback.
-unsigned int xsk_fd, unsigned int lo_xsk_fd
+unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -14,13 +17,13 @@ unsigned int xsk_fd, unsigned int lo_xsk_fd
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR and descriptor 3 is the logfile.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) 3))
+           (eq (arg 0) logfile_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.  The boot process ensures that
 # descriptor 3 is always the logfile.
-fsync: (eq (arg 0) 3)
+fsync: (eq (arg 0) logfile_fd)
 
 # XDP: we need to call sendto to notify the kernel there are new entries
 #      in the TX ring

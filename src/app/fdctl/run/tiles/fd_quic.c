@@ -902,7 +902,7 @@ populate_allowed_seccomp( void *               scratch,
 
   int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
   FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_quic( out_cnt, out, (unsigned int)netlink_fd );
+  populate_sock_filter_policy_quic( out_cnt, out, (unsigned int)fd_log_private_logfile_fd(), (unsigned int)netlink_fd );
   return sock_filter_policy_quic_instr_cnt;
 }
 
@@ -914,10 +914,13 @@ populate_allowed_fds( void * scratch,
   fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  out_fds[ 0 ] = 2;                                /* stderr */
-  out_fds[ 1 ] = 3;                                /* logfile */
-  out_fds[ 2 ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
-  return 3;
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
+  return out_cnt;
 }
 
 fd_tile_config_t fd_tile_quic = {

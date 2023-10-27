@@ -1,8 +1,11 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
 # netlink_fd: The QUIC tile uses netlink to talk to the kernel and fetch
 #             the ARP table to fill in ethernet headers on outgoing
 #             packets.  This is the file descriptor of the netlink
 #             socket.
-unsigned int netlink_fd
+unsigned int logfile_fd, unsigned int netlink_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -10,15 +13,14 @@ unsigned int netlink_fd
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR and descriptor 3 is the logfile.
+# that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) 3))
+           (eq (arg 0) logfile_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
-# arg 0 is the file descriptor to fsync.  The boot process ensures that
-# descriptor 3 is always the logfile.
-fsync: (eq (arg 0) 3)
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
 
 # openssl: RAND_bytes requires getpid
 #
