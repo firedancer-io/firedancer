@@ -107,6 +107,102 @@ main( int     argc,
       FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, gaddr ));
       SHIFT( 1 );
 
+    } else if( 0==strcmp( cmd, "metrics" ) ) {
+
+      if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "%i: %s: too few arguments\n\tDo %s help for help", cnt, cmd, bin ));
+
+      char const * gaddr = argv[0];
+
+      void * _quic = fd_wksp_map( gaddr );
+      if( FD_UNLIKELY( !_quic ) )
+        FD_LOG_ERR(( "%i: %s: fd_wksp_map( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+
+      fd_quic_t * quic = fd_quic_join( _quic );
+      if( FD_UNLIKELY( !quic ) ) {
+        fd_wksp_unmap( _quic );
+        FD_LOG_ERR(( "%i: %s: fd_quic_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
+      }
+
+      /* Copy metrics from tile.  Ensure that reads are done such that
+         they are atomic at ulong alignment. */
+
+      FD_COMPILER_MFENCE();
+      fd_quic_metrics_t metrics[1];
+      for( ulong i=0UL; i < sizeof(metrics)/8UL; i++ )
+        metrics->ul[ i ] = FD_VOLATILE_CONST( quic->metrics.ul[ i ] );
+      FD_COMPILER_MFENCE();
+
+      /* Display metrics */
+
+      printf( "Metrics for QUIC tile %s\n", gaddr );
+      printf( "\n\t  net_rx_pkt_cnt          %20lu"
+              "\n\t  net_rx_byte_cnt         %20lu"
+              "\n\t  net_tx_pkt_cnt          %20lu"
+              "\n\t  net_tx_byte_cnt         %20lu"
+              "\n",
+              metrics->net_rx_pkt_cnt,
+              metrics->net_rx_byte_cnt,
+              metrics->net_tx_pkt_cnt,
+              metrics->net_tx_byte_cnt );
+
+      printf( "\n\t  conn_active_cnt         %20ld"
+              "\n\t  conn_created_cnt        %20lu"
+              "\n\t  conn_closed_cnt         %20lu"
+              "\n\t  conn_aborted_cnt        %20lu"
+              "\n\t  conn_retry_cnt          %20lu"
+              "\n",
+              metrics->conn_active_cnt,
+              metrics->conn_created_cnt,
+              metrics->conn_closed_cnt,
+              metrics->conn_aborted_cnt,
+              metrics->conn_retry_cnt );
+
+      printf( "\n\t  conn_err_no_slots_cnt   %20lu"
+              "\n\t  conn_err_tls_fail_cnt   %20lu"
+              "\n\t  conn_err_retry_fail_cnt %20lu"
+              "\n",
+              metrics->conn_err_no_slots_cnt,
+              metrics->conn_err_tls_fail_cnt,
+              metrics->conn_err_retry_fail_cnt );
+
+      printf( "\n\t  hs_created_cnt          %20lu"
+              "\n\t  hs_err_alloc_fail_cnt   %20lu"
+              "\n",
+              metrics->hs_created_cnt,
+              metrics->hs_err_alloc_fail_cnt );
+
+      printf( "\n\t  stream_opened_cnt       %20lu"
+              "\n\t  stream_closed_cnt       %20lu"
+              "\n\t  stream_active_cnt       %20ld"
+              "\n\t  stream_rx_event_cnt     %20lu"
+              "\n\t  stream_rx_byte_cnt      %20lu"
+              "\n",
+
+                metrics->stream_opened_cnt[0]
+              + metrics->stream_opened_cnt[1]
+              + metrics->stream_opened_cnt[2]
+              + metrics->stream_opened_cnt[3],
+
+                metrics->stream_closed_cnt[0]
+              + metrics->stream_closed_cnt[1]
+              + metrics->stream_closed_cnt[2]
+              + metrics->stream_closed_cnt[3],
+
+                (long)
+                metrics->stream_active_cnt[0]
+              + metrics->stream_active_cnt[1]
+              + metrics->stream_active_cnt[2]
+              + metrics->stream_active_cnt[3],
+
+                metrics->stream_rx_event_cnt,
+                metrics->stream_rx_byte_cnt );
+
+      puts("");
+      fd_wksp_unmap( fd_quic_leave( quic ) );
+
+      FD_LOG_NOTICE(( "%i: %s %s: success", cnt, cmd, gaddr ));
+      SHIFT( 1 );
+
     } else {
 
       FD_LOG_ERR(( "%i: %s: unknown command\n\t"
