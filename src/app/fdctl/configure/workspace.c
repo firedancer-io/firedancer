@@ -53,6 +53,8 @@ init( config_t * const config ) {
 
 static void
 fini( config_t * const config ) {
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
 
@@ -77,6 +79,8 @@ fini( config_t * const config ) {
 
 static configure_result_t
 check( config_t * const config ) {
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
 
