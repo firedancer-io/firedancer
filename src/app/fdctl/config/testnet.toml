@@ -1,0 +1,16 @@
+[gossip]
+    entrypoints = [
+        "entrypoint.testnet.solana.com:8001",
+        "entrypoint2.testnet.solana.com:8001",
+        "entrypoint3.testnet.solana.com:8001",
+    ]
+
+[consensus]
+    expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+    known_validators = [
+        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", # Solana Labs
+        "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",  # MonkeDAO
+        "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN", # Certus One
+        "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",  # SerGo
+        "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv", # Algo|Stake
+    ]
