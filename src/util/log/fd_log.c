@@ -498,6 +498,8 @@ void fd_log_level_stderr_set ( int level ) { FD_VOLATILE( fd_log_private_level_s
 void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_flush   ) = level; }
 void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_core    ) = level; }
 
+int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private_fileno ); }
+
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
 
