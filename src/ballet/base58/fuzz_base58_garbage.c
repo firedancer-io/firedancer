@@ -18,20 +18,43 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
+/* touch reads every byte in the given memory region.  This is done to
+   allow ASan to crash the program if uninitialized data is given to
+   this function. */
+
+static void __attribute__((noinline))
+touch( void * in,
+       ulong  in_sz ) {
+  uchar * _in = in;
+  ulong   x   = 0UL;
+  for( ulong i=0UL; i<in_sz; i++ ) {
+    x ^= _in[i];
+  }
+  FD_COMPILER_UNPREDICTABLE( x );
+}
+
 int
 LLVMFuzzerTestOneInput( uchar const * data,
-                        ulong         size ) {
-  if( FD_UNLIKELY( size < 64UL ) ) return -1;
+                        ulong         data_sz ) {
 
-  #define MAKE_FUZZ_TEST(n)                                                           \
-  uchar dec##n[ n ];                                                                  \
-  if( FD_UNLIKELY( fd_base58_decode_##n( ( char const * ) data, dec##n )!=NULL ) ) {  \
-    __builtin_trap();                                                                 \
-  }
+  /* Input must be a cstr */
+  char * cstr = malloc( data_sz+1UL );
+  FD_TEST( cstr );
+  memcpy( cstr, data, data_sz );
+  cstr[ data_sz ]='\0';
 
-  MAKE_FUZZ_TEST(32)
-  MAKE_FUZZ_TEST(64)
-  #undef MAKE_FUZZ_TEST
+  do {
+    uchar out[32];
+    if( fd_base58_decode_32( cstr, out ) )
+      touch( out, sizeof(out) );
+  } while(0);
 
+  do {
+    uchar out[64];
+    if( fd_base58_decode_64( cstr, out ) )
+      touch( out, sizeof(out) );
+  } while(0);
+
+  free( cstr );
   return 0;
 }
