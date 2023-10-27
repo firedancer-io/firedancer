@@ -314,7 +314,7 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
     } else {
       FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
 
-      exec_result = FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+      exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
   }
 

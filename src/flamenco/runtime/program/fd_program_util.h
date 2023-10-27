@@ -106,7 +106,7 @@ fd_instr_ctx_get_index_of_instruction_account_in_transaction(
   return FD_PROGRAM_OK;
 }
 
-static FD_FN_UNUSED int
+static int
 fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
                                  fd_exec_txn_ctx_t const * transaction_context,
                                  uchar                     index_in_transaction,

@@ -535,9 +535,8 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       // no-op
     } else {
-
+      acc_idx_seen[acc_idx] = 1;
       input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(fd_pubkey_t);
-
 
       ulong lamports = FD_LOAD(ulong, input_cursor);
       input_cursor += sizeof(ulong);

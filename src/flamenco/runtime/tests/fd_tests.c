@@ -345,6 +345,7 @@ int fd_executor_run_test(
       .txn_descriptor  = txn_descriptor,
       ._txn_raw        = &raw_txn_b,
       .instr_stack_sz = 0,
+      .compute_meter   = 200000,
     };
 
     uint use_sysvar_instructions = 0;

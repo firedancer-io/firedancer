@@ -177,8 +177,9 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) )
+      if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) ) {
         return 0UL;
+      }
       host_addr = (ulong)ctx->stack.data + start_addr;
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
@@ -198,9 +199,7 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
   }
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (ctx->instr_ctx.slot_ctx->slot_bank.slot == 179244909) {
   fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
-}
 #endif
   return host_addr;
 }

@@ -1150,6 +1150,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         _bin,
                       ulong                elf_sz,
                       fd_sbpf_syscalls_t * syscalls ) {
+  fd_sbpf_loader_seterr( 0, 0 );
+
   int err;
   fd_sbpf_elf_t * elf = (fd_sbpf_elf_t *)_bin;
 
