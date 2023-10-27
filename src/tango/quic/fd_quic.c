@@ -308,13 +308,6 @@ fd_quic_join( void * shquic ) {
     return NULL;
   }
 
-  /* Clear join-lifetime memory regions */
-
-  quic->cert_object     = NULL;
-  quic->cert_key_object = NULL;
-
-  memset( &quic->cb, 0, sizeof( fd_quic_callbacks_t  ) );
-
   return quic;
 }
 
