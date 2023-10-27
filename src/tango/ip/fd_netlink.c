@@ -200,7 +200,7 @@ fd_nl_dump_rat( struct rtattr * rat, long ratmsglen ) {
     rat = RTA_NEXT( rat, ratmsglen );
   }
 
-  FD_LOG_WARNING(( "%s", buf ));
+  FD_LOG_NOTICE(( "%s", buf ));
 }
 
 
