@@ -1,8 +1,0 @@
-noarg
-
-# logging
-write: (or (eq (arg 0) 2)
-           (eq (arg 0) 3))
-
-# logging: 'WARNING' and above fsync immediately
-fsync: (eq (arg 0) 3)
