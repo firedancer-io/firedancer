@@ -694,7 +694,7 @@ main( int     argc,
       // The hash is generated from the raw data... don't mess with this..
       fd_hash_t genesis_hash;
       fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
-      FD_LOG_NOTICE(( "Genesis Hash: %32J", genesis_hash ));
+      FD_LOG_NOTICE(( "Genesis Hash: %32J", &genesis_hash ));
 
       free(buf);
 
@@ -727,7 +727,7 @@ main( int     argc,
         if( a->account.data_len )
           memcpy( rec->data, a->account.data, a->account.data_len );
 
-        err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &a->key, rec->meta, 0UL );
+        err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &a->key, rec->meta, slot_ctx );
         if( FD_UNLIKELY( err ) )
           FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
       }

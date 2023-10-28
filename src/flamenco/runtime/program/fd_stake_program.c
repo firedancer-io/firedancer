@@ -138,17 +138,16 @@ set_state( fd_borrowed_account_t const * self, fd_stake_state_v2_t const * state
 
 static void
 write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
-
   ulong                   data_sz  = fd_stake_config_size( stake_config );
   fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
   fd_account_meta_t *     acc_meta = NULL;
   uchar *                 acc_data = NULL;
-  fd_borrowed_account_t * acc      = NULL;
-  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, acc_key, 1, data_sz, acc );
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, acc_key, 1, data_sz, rec );
   FD_TEST( !err );
 
-  acc_meta                  = acc->meta;
-  acc_data                  = acc->data;
+  acc_meta                  = rec->meta;
+  acc_data                  = rec->data;
   acc_meta->dlen            = data_sz;
   acc_meta->info.lamports   = 960480UL;
   acc_meta->info.rent_epoch = 0UL;

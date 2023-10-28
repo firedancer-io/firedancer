@@ -136,6 +136,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       fd_account_meta_t meta = { .dlen = acc->account.data_len };
       fd_borrowed_account_t stake_account = {
         .const_data = acc->account.data,
+        .const_meta = &meta,
         .data = acc->account.data,
         .meta = &meta
       };
