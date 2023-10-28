@@ -8,7 +8,7 @@
 int
 fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
                         fd_bincode_decode_ctx_t * ctx ) {
-  static FD_TLS fd_txn_parse_counters_t counters[1];
+  static FD_TL fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   ulong sz;
   ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );
@@ -40,7 +40,7 @@ fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 void
 fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
                                fd_bincode_decode_ctx_t * ctx ) {
-  static FD_TLS fd_txn_parse_counters_t counters[1];
+  static FD_TL fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   ulong sz;
   ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz, 0 );

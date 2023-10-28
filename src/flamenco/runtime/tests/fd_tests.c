@@ -74,7 +74,7 @@ fd_account_pretty_print( uchar const             owner[ static 32 ],
 /* copied from test_funk_txn.c */
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  static FD_TLS ulong tag = 0UL;
+  static FD_TL ulong tag = 0UL;
   xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
   xid->ul[2] = ++tag;
@@ -135,7 +135,7 @@ log_test_fail( fd_executor_test_t *             test,
                fd_executor_test_suite_t const * suite,
                char const *                     fmt,
                ... ) {
-  static FD_TLS char buf[ 0x2000 ];
+  static FD_TL char buf[ 0x2000 ];
   va_list ap;
   va_start( ap, fmt );
   vsnprintf( buf, sizeof(buf), fmt, ap );

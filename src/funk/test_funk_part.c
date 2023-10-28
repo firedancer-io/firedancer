@@ -5,7 +5,7 @@
 
 static fd_funk_txn_xid_t *
 fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
-  static FD_TLS ulong tag = 0UL;
+  static FD_TL ulong tag = 0UL;
   xid->ul[0] = fd_log_app_id();
   xid->ul[1] = fd_log_thread_id();
   xid->ul[2] = ++tag;
@@ -19,7 +19,7 @@ fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
 
 static fd_funk_rec_key_t *
 fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
-  static FD_TLS ulong tag = 0UL;
+  static FD_TL ulong tag = 0UL;
   key->ul[0] = fd_log_app_id();
   key->ul[1] = fd_log_thread_id();
   key->ul[2] = ++tag;
@@ -78,7 +78,7 @@ main( int     argc,
   fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag ),
                                                 wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "Unable to create funk" ));
-  
+
   fd_funk_txn_t * txn = NULL;
 #define MAX_TEST_REC 16U
   fd_funk_rec_key_t recs[MAX_TEST_REC];

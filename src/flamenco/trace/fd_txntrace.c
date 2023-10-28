@@ -636,7 +636,7 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
 
 /* Diff ***************************************************************/
 
-static FD_TLS char diff_cstr[ 2048UL ];
+static FD_TL char diff_cstr[ 2048UL ];
 
 char const *
 fd_txntrace_diff_cstr( void ) {

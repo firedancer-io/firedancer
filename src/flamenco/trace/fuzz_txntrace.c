@@ -51,7 +51,7 @@ LLVMFuzzerInitialize( int  *   pargc,
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
 
 # define SCRATCH_DEPTH (64UL)
-  static FD_TLS ulong fmem[ SCRATCH_DEPTH ];
+  static FD_TL ulong fmem[ SCRATCH_DEPTH ];
   fd_scratch_attach( smem, fmem, smax, SCRATCH_DEPTH );
 
   return 0;
