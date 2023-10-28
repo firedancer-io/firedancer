@@ -85,14 +85,6 @@ fd_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t const * self,
 /* impl InstructionContext                                            */
 /**********************************************************************/
 
-static FD_FN_UNUSED int
-fd_instr_ctx_check_number_of_instruction_accounts( fd_instr_info_t const * self,
-                                                   uchar                   expected_at_least ) {
-  if ( FD_UNLIKELY( self->acct_cnt < expected_at_least ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
-  return FD_PROGRAM_OK;
-}
 
 static FD_FN_UNUSED int
 fd_instr_ctx_get_index_of_instruction_account_in_transaction(

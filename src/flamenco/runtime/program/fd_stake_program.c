@@ -2279,8 +2279,10 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       fd_sol_sysvar_clock_t clock = { 0 };
       rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 1, &clock );
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-      rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 3 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
       fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
@@ -2324,8 +2326,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 2 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( ctx.instr->acct_cnt < 2 )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     bool require_custodian_for_locked_stake_authorize =
         FD_FEATURE_ACTIVE( ctx.slot_ctx, require_custodian_for_locked_stake_authorize );
@@ -2370,8 +2372,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 2 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     fd_sol_sysvar_clock_t clock = { 0 };
     rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 2, &clock );
@@ -2381,8 +2383,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &stake_history );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 5 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 5 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     // FIXME FD_LIKELY
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L176-L188
@@ -2445,8 +2447,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 2 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     rc = split( &ctx, transaction_context, instruction_context, 0, lamports, 1, signers );
     break;
@@ -2465,8 +2467,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 2 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     fd_sol_sysvar_clock_t clock = { 0 };
     rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 2, &clock );
@@ -2493,8 +2495,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   case fd_stake_instruction_enum_withdraw: {
     ulong lamports = instruction.inner.withdraw;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 2 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     fd_borrowed_account_t * me = NULL;
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
@@ -2508,8 +2510,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &stake_history );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 5 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 5 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     uchar custodian_index           = 5;
     ulong new_rate_activation_epoch = ULONG_MAX;
@@ -2589,8 +2591,9 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
     // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L279-L307
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_stake_checked_instructions ) ) ) {
-      rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 4 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       uchar staker_txn_i = FD_TXN_ACCT_ADDR_MAX;
       rc                 = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
@@ -2650,8 +2653,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 1, &clock );
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-      int rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 4 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       uchar authorized_txn_i = FD_TXN_ACCT_ADDR_MAX;
       rc                     = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
@@ -2704,15 +2707,16 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_stake_checked_instructions ) ) ) {
-      rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 2 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       fd_sol_sysvar_clock_t clock = { 0 };
       rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 2, &clock );
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-      rc = fd_instr_ctx_check_number_of_instruction_accounts( ctx.instr, 4 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       uchar authorized_txn_i = FD_TXN_ACCT_ADDR_MAX;
       rc                     = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
@@ -2816,8 +2820,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 3 );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     fd_sol_sysvar_clock_t clock;
     rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
@@ -2843,8 +2847,9 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
     // FIXME FD_LIKELY
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, stake_redelegate_instruction ) ) ) {
-      rc = fd_instr_ctx_check_number_of_instruction_accounts( instruction_context, 3 );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+
+      if( FD_UNLIKELY( ctx.instr->acct_cnt < 3 ) )
+        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
       // FIXME FD_LIKELY
       if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx.slot_ctx, reduce_stake_warmup_cooldown ) ) ) {
