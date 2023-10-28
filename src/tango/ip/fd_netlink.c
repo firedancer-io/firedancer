@@ -668,6 +668,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
             FD_LOG_WARNING(( "Neighbor entry has IP address with other than"
                   " 4 byte address" ));
             fd_nl_dump_rat( saved_rat, saved_ratmsglen );
+            entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
           } else {
             uint dst_ip_addr;
             memcpy( &dst_ip_addr, rta_data, 4 );
@@ -678,10 +679,13 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
           break;
 
         case NDA_LLADDR:
-          if( rta_data_sz != 6 ) {
-            FD_LOG_WARNING(( "Neighbor entry has LL address with other than"
-                  " 6 byte MAC address" ));
-            fd_nl_dump_rat( saved_rat, saved_ratmsglen );
+          if( FD_UNLIKELY( rta_data_sz != 6 ) ) {
+            if( rta_data_sz != 0 ) {
+              FD_LOG_WARNING(( "Neighbor entry has LL address with other than"
+                    " 6 byte MAC address" ));
+              fd_nl_dump_rat( saved_rat, saved_ratmsglen );
+            }
+            entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
           } else {
             memcpy( &entry->mac_addr[0], rta_data, 6 );
 
@@ -691,7 +695,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
 
       }
 
-      if( entry->flags & FD_NL_RT_FLAGS_UNSUPPORTED ) {
+      if( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) {
         break;
       }
 
