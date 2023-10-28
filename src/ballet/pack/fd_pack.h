@@ -10,7 +10,7 @@
 #include "fd_est_tbl.h"
 
 
-#define FD_PACK_ALIGN     (32UL)
+#define FD_PACK_ALIGN     (128UL)
 
 #define FD_PACK_MAX_BANK_TILES 63UL
 
@@ -75,15 +75,16 @@ fd_pack_footprint( ulong pack_depth,
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
    pack_depth, bank_tile_cnt, and max_txn_per_microblock are as above.
-   rng is a local join to a random number generator used to perturb
-   estimates.
+   The pack object will produce at most max_microblocks_per_block
+   non-empty microblocks in a block.  rng is a local join to a random
+   number generator used to perturb estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
 void * fd_pack_new( void * mem,
     ulong pack_depth, ulong bank_tile_cnt, ulong max_txn_per_microblock,
-    fd_rng_t * rng );
+    ulong max_microblocks_per_block, fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */

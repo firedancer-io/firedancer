@@ -61,7 +61,4 @@ fd_base64_decode( uchar *      out,
 
 FD_PROTOTYPES_END
 
-FD_PROTOTYPES_END
-
 #endif /* HEADER_fd_src_ballet_base64_fd_base64_h */
-

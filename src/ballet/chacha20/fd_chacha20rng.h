@@ -45,9 +45,6 @@ struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
 };
 typedef struct fd_chacha20rng_private fd_chacha20rng_t;
 
-#define FD_CHACHA20RNG_ALIGN     alignof(fd_chacha20rng_t)
-#define FD_CHACHA20RNG_FOOTPRINT sizeof (fd_chacha20rng_t)
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_chacha20rng_{align,footprint} give the needed alignment and

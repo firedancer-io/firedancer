@@ -12,8 +12,6 @@ main( int     argc,
   fd_chacha20rng_t _rng[1];
   FD_TEST( alignof( fd_chacha20rng_t )==fd_chacha20rng_align()     );
   FD_TEST( sizeof ( _rng             )==fd_chacha20rng_footprint() );
-  FD_TEST( FD_CHACHA20RNG_ALIGN       ==fd_chacha20rng_align()     );
-  FD_TEST( FD_CHACHA20RNG_FOOTPRINT   ==fd_chacha20rng_footprint() );
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_MOD ) );
   FD_TEST( (ulong)rng == (ulong)_rng );

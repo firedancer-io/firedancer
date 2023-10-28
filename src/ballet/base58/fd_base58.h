@@ -41,9 +41,6 @@ FD_PROTOTYPES_BEGIN
 char * fd_base58_encode_32( uchar const * bytes, ulong * opt_len, char * out );
 char * fd_base58_encode_64( uchar const * bytes, ulong * opt_len, char * out );
 
-void fd_base58_print_32( uchar const * bytes );
-void fd_base58_print_64( uchar const * bytes );
-
 /* fd_base58_decode_{32, 64}: Converts the base58 encoded number stored
    in the cstr `encoded` to a 32 or 64 byte number, which is written to
    out in big endian.  out must have room for 32 and 64 bytes respective

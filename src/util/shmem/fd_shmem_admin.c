@@ -528,14 +528,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
     sub_mem += sub_sz;
   }
 
-#if 0
-  err = fd_shmem_numa_validate( mem, page_sz, page_cnt, cpu_idx ); /* logs details */
-  if( FD_UNLIKELY( err ) )
-    FD_LOG_WARNING(( "mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
-                     sz>>10, flags, err, strerror( err ) ));
-#else
   err = 0;
-#endif
 
 # undef ERROR
 

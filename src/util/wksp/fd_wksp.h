@@ -722,9 +722,10 @@ fd_wksp_t *
 fd_wksp_attach( char const * name );
 
 /* fd_wksp_detach detaches from the given workspace.  All but the last
-   detach should be a reasonably fast O(1) call. */
+   detach should be a reasonably fast O(1) call.  Returns non-zero on
+   failure. */
 
-void
+int
 fd_wksp_detach( fd_wksp_t * wksp );
 
 /* fd_wksp_containing maps a fd_wksp local addr to the corresponding
