@@ -97,6 +97,8 @@ dynamic_port_range = "8900-9000"
     # `GOOGLE_APPLICATION_CREDENTIALS` environment variable must be set
     # to access BigTable.
     #
+    # This option does not currently work, and it should not be enabled.
+    #
     # This option is passed to the Solana Labs client with the
     # `--enable-rpc-bigtable-ledger-storage` argument.
     bigtable_storage = false
