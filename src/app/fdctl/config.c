@@ -780,6 +780,10 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
+  if( FD_UNLIKELY( result.ledger.bigtable_storage ) ) {
+    FD_LOG_ERR(( "BigTable storage is not yet supported." ));
+  }
+
   if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.regular_transaction_listen_port + 6 ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
                  "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
