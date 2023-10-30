@@ -711,7 +711,7 @@ config_parse( int *    pargc,
   if( FD_UNLIKELY( getuid() != 0 && result.uid != getuid() ) )
     FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), result.uid ));
   if( FD_UNLIKELY( getgid() != 0 && result.gid != getgid() ) )
-    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getuid(), result.uid ));
+    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), result.gid ));
 
   replace( result.scratch_directory, "{user}", result.user );
   replace( result.scratch_directory, "{name}", result.name );
