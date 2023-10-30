@@ -96,11 +96,11 @@ user = "firedancer"
     vote_account_path = "/home/firedancer/vote-keypair.json"
 
     known_validators = [
-        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", # Solana Labs
-        "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",  # MonkeDAO
-        "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN", # Certus One
-        "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",  # SerGo
-        "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv", # Algo|Stake
+        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on",
+        "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",
+        "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN",
+        "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
+        "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
 
 [layout]

@@ -39,9 +39,9 @@ Once your configuration file is specified you can use it by either
 setting the `FIREDANCER_CONFIG_TOML` environment variable, or by
 passing it to your command with the `--config` option.
 
-::: note NOTE
+::: tip NOTE
 
-The same configuration file must be supplied to all commands, esepcially
+The same configuration file must be supplied to all commands, especially
 when configuring and later running the validator. Using a different file
 for different commands may cause them to fail.
 
