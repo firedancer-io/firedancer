@@ -42,13 +42,27 @@ FD_PROTOTYPES_BEGIN
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr );
 
+/* fd_borrowed_account_acquire_{read,write}_is_safe returns 1 if
+   fd_borrowed_account_acquire_{read,write} will be successful for the
+   given borrowed account.  If a lock is already held, returns 0. */
+
+FD_FN_PURE static inline int
+fd_borrowed_account_acquire_write_is_safe( fd_borrowed_account_t const * rw ) {
+  return (!rw->refcnt_excl) & (!rw->refcnt_shared);
+}
+
+FD_FN_PURE static inline int
+fd_borrowed_account_acquire_read_is_safe( fd_borrowed_account_t const * rw ) {
+  return (!rw->refcnt_excl);
+}
+
 /* fd_borrowed_account_acquire_write acquires write/exclusive access.
    Causes all other write or read acquire attempts will fail.  Returns 1
    on success, 0 on failure. */
 
 static inline int
 fd_borrowed_account_acquire_write( fd_borrowed_account_t * rw ) {
-  if( FD_UNLIKELY( (!!rw->refcnt_excl) | (!!rw->refcnt_shared ) ) )
+  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( rw ) ) )
     return 0;
   rw->refcnt_excl = (ushort)1;
   return 1;
@@ -68,14 +82,14 @@ fd_borrowed_account_release_write( fd_borrowed_account_t * rw ) {
 
 static inline int
 fd_borrowed_account_acquire_read( fd_borrowed_account_t * rw ) {
-  if( FD_UNLIKELY( !!rw->refcnt_excl ) )
+  if( FD_UNLIKELY( !fd_borrowed_account_acquire_read_is_safe( rw ) ) )
     return 0;
   rw->refcnt_shared = (ushort)( rw->refcnt_shared + 1U );
   return 1;
 }
 
 /* fd_borrowed_account_release_read releases a read/shared access
-handle. */
+   handle. */
 
 static inline void
 fd_borrowed_account_release_read( fd_borrowed_account_t * rw ) {
