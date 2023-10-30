@@ -21,7 +21,7 @@ where `mode` is one of:
  - `init` Configures the provided stages if they are not already
    configured.
  - `check` Check if each stage is already configured. The command will
-   exit with an error code if they are not. `check` never requires 
+   exit with an error code if they are not. `check` never requires
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
@@ -117,7 +117,7 @@ network interface `[tiles.net.interface]` and the loopback interface
 port before they reach the kernel. Matching packets are routed directly
 to Firedancer.
 
-::: warning 
+::: warning
 
 Packets intercepted by the BPF program will not appear under standard
 network monitoring tools like `tcpdump`.
@@ -137,14 +137,6 @@ objects (BPF maps) so that it functions correctly.
 The stage must be rerun any time the system is rebooted, any time
 Firedancer is updated, or any time the configuration file changes. The
 `init` mode requires `root` or both `CAP_SYS_ADMIN` and `CAP_NET_RAW`.
-
-::: tip TIP
-
-It is possible to run Firedancer without running most of the stages of
-`fdctl configure` if you are sure that your environment has been set up
-correctly. 
-
-:::
 
 ## ethtool
 In addition to XDP, Firedancer uses recieve side scaling (RSS) to
@@ -199,3 +191,11 @@ other dependencies.
 The `check` mode will always fail, as the workspace always needs
 to be reinitialized. The fini mode will remove existing workspaces from
 the shared memory mount points.
+
+::: tip TIP
+
+It is possible to run Firedancer without rerunning most of the stages of
+`fdctl configure`, except `workspace`, if you are sure that your
+environment has been set up correctly.
+
+:::
