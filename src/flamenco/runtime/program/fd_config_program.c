@@ -128,7 +128,7 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   /* Disallow duplicate keys
      https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L105-L115
 
-     THIS IS O(n) NEEDS TO BE FIXED */
+     THIS IS O(n^2) NEEDS TO BE FIXED */
   if( FD_FEATURE_ACTIVE( ctx.slot_ctx, dedupe_config_program_signers ) ) {
     for( ulong i = 0; i < instruction.keys_len; i++ ) {
       for( ulong j = 0; j < instruction.keys_len; j++ ) {
