@@ -104,6 +104,23 @@ fd_caps_check_capability( fd_caps_ctx_t * ctx,
   fd_caps_private_add_error( ctx, "%s ... process requires capability `%s` to %s", name, fd_caps_str( capability ), reason );
 }
 
+FD_FN_CONST static char *
+fd_caps_resource_str( fd_rlimit_res_t resource ) {
+  switch( resource ) {
+    case RLIMIT_CPU:     return "RLIMIT_CPU";
+    case RLIMIT_FSIZE:   return "RLIMIT_FSIZE";
+    case RLIMIT_DATA:    return "RLIMIT_DATA";
+    case RLIMIT_STACK:   return "RLIMIT_STACK";
+    case RLIMIT_CORE:    return "RLIMIT_CORE";
+    case RLIMIT_RSS:     return "RLIMIT_RSS";
+    case RLIMIT_NOFILE:  return "RLIMIT_NOFILE";
+    case RLIMIT_AS:      return "RLIMIT_AS";
+    case RLIMIT_NPROC:   return "RLIMIT_NPROC";
+    case RLIMIT_MEMLOCK: return "RLIMIT_MEMLOCK";
+    default:             return "UNKNOWN";
+  }
+}
+
 void
 fd_caps_check_resource( fd_caps_ctx_t * ctx,
                         char const *    name,
@@ -150,6 +167,6 @@ fd_caps_check_resource( fd_caps_ctx_t * ctx,
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
     if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) )
-      FD_LOG_ERR(( "setrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), fd_caps_resource_str( resource ) ));
   }
 }
