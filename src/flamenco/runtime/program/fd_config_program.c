@@ -86,7 +86,7 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   /* Check that all accounts in the instruction ConfigKeys map have signed
      https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L58-L103 */
   ulong new_signer_count = 0;
-  for ( ulong i = 0; i < instruction.keys_len; i++ ) {
+  for( ulong i = 0; i < instruction.keys_len; i++ ) {
     fd_config_keys_pair_t* elem = &instruction.keys[i];
     /* Skip account if it is not a signer */
     if( elem->signer == 0 ) {
@@ -135,19 +135,19 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     /* Check that the new signer key list is a superset of the current one */
     if( config_account_state.keys_len > 0 ) {
       uchar key_present_in_stored_signers = 0;
-      for ( ulong i = 0; i < config_account_state.keys_len; i++ ) {
+      for( ulong i = 0; i < config_account_state.keys_len; i++ ) {
         /* Skip the account if it is not a signer */
-        if ( config_account_state.keys[i].signer == 0 ) {
-            continue;
+        if( config_account_state.keys[i].signer == 0 ) {
+          continue;
         }
 
-        if ( memcmp( &config_account_state.keys[i].key, &elem->key, sizeof(fd_pubkey_t) ) == 0 ) {
-            key_present_in_stored_signers = 1;
-            break;
+        if( memcmp( &config_account_state.keys[i].key, &elem->key, sizeof(fd_pubkey_t) ) == 0 ) {
+          key_present_in_stored_signers = 1;
+          break;
         }
       }
 
-      if ( !key_present_in_stored_signers) {
+      if( !key_present_in_stored_signers) {
         ret = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         goto config_program_execute_instruction_cleanup;
       }
@@ -161,14 +161,14 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
      THIS IS O(n) NEEDS TO BE FIXED */
   if( FD_FEATURE_ACTIVE( ctx.slot_ctx, dedupe_config_program_signers ) ) {
     for( ulong i = 0; i < instruction.keys_len; i++ ) {
-       for( ulong j = 0; j < instruction.keys_len; j++ ) {
-          if( i == j ) continue;
+      for( ulong j = 0; j < instruction.keys_len; j++ ) {
+        if( i == j ) continue;
 
-          if( memcmp( &instruction.keys[i].key, &instruction.keys[j].key, sizeof(fd_pubkey_t) ) == 0 ) {
-            ret = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-            goto config_program_execute_instruction_cleanup;
-          }
+        if( memcmp( &instruction.keys[i].key, &instruction.keys[j].key, sizeof(fd_pubkey_t) ) == 0 ) {
+          ret = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          goto config_program_execute_instruction_cleanup;
         }
+      }
     }
   }
 
@@ -225,9 +225,9 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 config_program_execute_instruction_cleanup:
   destroy_ctx.valloc = ctx.valloc;
 
-  if (cleanup_config_account_state)
+  if( cleanup_config_account_state )
     fd_config_keys_destroy( &config_account_state, &destroy_ctx );
-  if (cleanup_instruction)
+  if( cleanup_instruction )
     fd_config_keys_destroy( &instruction, &destroy_ctx );
   return ret;
 
