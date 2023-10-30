@@ -81,3 +81,17 @@ By default Firedancer has set the count of each tile so that the system
 can handle transactions from a 25GiB NIC at line rate. Except for the
 warning noted above, it is suggested to run as many tiles as possible
 so that the Solana network can run faster.
+
+## Ledger
+By default, Firedancer stores the ledger in a scratch directory, defined
+in the `ledger` section in the configuration TOML. The default path is
+defined as `/home/{user}/.firedancer/{name}/ledger` where `name` and
+`user` gets replaced by what is in the configuration file. Assuming you
+have `name = fd1` (which is the default) and `user = firedancer` in the TOML
+file, this resolves to `/home/firedancer/.firedancer/fd1/ledger`. You
+can specify a custom path for the ledger by setting `ledger.path`:
+
+```toml
+[ledger]
+    path = "/data/ledger"
+```

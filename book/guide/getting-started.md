@@ -115,6 +115,13 @@ on the local machine. The `identity_path` and `vote_account_path` should
 be Solana Labs style keys, which can be generated with the Solana Labs
 CLI.
 
+::: tip NOTE
+
+This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
+To customize this path, refer to the [configuration guide](/guide/configuring.md#ledger).
+
+:::
+
 ### Initialization
 
 The validator uses some Linux features that must be enabled and
