@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Check date of last commit
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - id: should_run
         continue-on-error: true
         name: check latest commit is less than a day
@@ -30,7 +30,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_asan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
 
@@ -53,7 +53,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_ubsan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
 
@@ -76,7 +76,7 @@ jobs:
     env:
       MACHINE: linux_clang_x86_64_fuzz_asan
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
       - run: sudo apt update && sudo apt install -y zip
@@ -124,7 +124,7 @@ jobs:
       - name: Install LLVM
         run: sudo apt-get update && sudo apt-get install -y llvm
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - uses: ./.github/actions/deps
 
@@ -184,7 +184,7 @@ jobs:
       matrix:
         language: [cpp, python]  # https://aka.ms/codeql-docs/language-support
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
