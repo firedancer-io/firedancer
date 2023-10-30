@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-
+#include <limits.h>
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "context/fd_exec_instr_ctx.h"
@@ -13,6 +13,7 @@ FD_PROTOTYPES_BEGIN
 /* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
  * misnomer, because the instruction hasn't necessarily been executed succesfully yet */
 /* Instruction error codes */
+#define FD_EXECUTOR_INSTR_ERR_FATAL                              ( INT_MIN ) /* Unrecoverable error */
 #define FD_EXECUTOR_INSTR_SUCCESS                                ( 0 )  /* Instruction executed successfully */
 #define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        ( -1 ) /* The program instruction returned an error */
 #define FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        ( -2 ) /* The arguments provided to a program were invalid */
