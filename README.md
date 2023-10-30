@@ -14,7 +14,8 @@ chain attacks in build tooling or dependencies.
 
 ## Documentation
 If you are an operator or looking to run the validator, see the Getting
-Started guide in the [Firedancer docs](https://firedancer-io.github.io/)
+Started guide in the [Firedancer
+docs](https://firedancer-io.github.io/firedancer/)
 
 ## Developing
 The below describes building Frankendancer from scratch and running it
