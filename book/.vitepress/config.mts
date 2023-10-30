@@ -6,6 +6,7 @@ export default defineConfig({
   title: "Firedancer",
   description: "Firedancer",
 
+  base: '/firedancer/',
   lastUpdated: true,
 
   head: [
@@ -15,7 +16,7 @@ export default defineConfig({
     ['meta', { name: 'og:locale', content: 'en' }],
     ['meta', { name: 'og:site_name', content: 'Firedancer' }],
   ],
-  
+
   themeConfig: {
     logo: { src: '/fire.svg', width: 24, height: 24 },
 
