@@ -1,5 +1,24 @@
 # Getting Started
 
+## Hardware Requirements
+
+Firedancer currently uses a lot of components from Solana. Hence,
+the hardware requirements are similar to that of [existing Solana
+validators](https://docs.solana.com/running-validator/validator-reqs).
+
+### Minimum Specs
+
+- 12-Core CPU @ >2.5GHz
+- 64GB RAM
+- 512GB SSD
+
+### Recommended Specs
+
+- 32-Core CPU @ >3GHz with AVX512 support
+- 128GB RAM with ECC Memory
+- 1TB NVMe SSD with separate disk for OS
+- 1 Gigabit/s Network Bandwidth
+
 ## Installing
 
 ### Prerequisites
