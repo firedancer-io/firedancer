@@ -472,9 +472,7 @@
       "fields": [
         { "name": "bank",                                  "type": "deserializable_versioned_bank" },
         { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
-        { "name": "lamports_per_signature",                "type": "ulong" },
-        { "name": "bank_incremental_snapshot_persistence", "type": "bank_incremental_snapshot_persistence", "flags": "ignore_underflow" },
-        { "name": "epoch_accounts_hash",                   "type": "hash", "flags": "ignore_underflow" }
+        { "name": "lamports_per_signature",                "type": "ulong" }
       ]
     },
     {

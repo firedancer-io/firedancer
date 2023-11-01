@@ -3435,31 +3435,21 @@ int fd_solana_manifest_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bank_incremental_snapshot_persistence_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_hash_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_solana_manifest_decode_unsafe(fd_solana_manifest_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_deserializable_versioned_bank_decode_unsafe(&self->bank, ctx);
   fd_solana_accounts_db_fields_decode_unsafe(&self->accounts_db, ctx);
   fd_bincode_uint64_decode_unsafe(&self->lamports_per_signature, ctx);
-  fd_bank_incremental_snapshot_persistence_decode_unsafe(&self->bank_incremental_snapshot_persistence, ctx);
-  fd_hash_decode_unsafe(&self->epoch_accounts_hash, ctx);
 }
 void fd_solana_manifest_new(fd_solana_manifest_t* self) {
   fd_memset(self, 0, sizeof(fd_solana_manifest_t));
   fd_deserializable_versioned_bank_new(&self->bank);
   fd_solana_accounts_db_fields_new(&self->accounts_db);
-  fd_bank_incremental_snapshot_persistence_new(&self->bank_incremental_snapshot_persistence);
-  fd_hash_new(&self->epoch_accounts_hash);
 }
 void fd_solana_manifest_destroy(fd_solana_manifest_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_deserializable_versioned_bank_destroy(&self->bank, ctx);
   fd_solana_accounts_db_fields_destroy(&self->accounts_db, ctx);
-  fd_bank_incremental_snapshot_persistence_destroy(&self->bank_incremental_snapshot_persistence, ctx);
-  fd_hash_destroy(&self->epoch_accounts_hash, ctx);
 }
 
 ulong fd_solana_manifest_footprint( void ){ return FD_SOLANA_MANIFEST_FOOTPRINT; }
@@ -3470,8 +3460,6 @@ void fd_solana_manifest_walk(void * w, fd_solana_manifest_t const * self, fd_typ
   fd_deserializable_versioned_bank_walk(w, &self->bank, fun, "bank", level);
   fd_solana_accounts_db_fields_walk(w, &self->accounts_db, fun, "accounts_db", level);
   fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fd_bank_incremental_snapshot_persistence_walk(w, &self->bank_incremental_snapshot_persistence, fun, "bank_incremental_snapshot_persistence", level);
-  fd_hash_walk(w, &self->epoch_accounts_hash, fun, "epoch_accounts_hash", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_solana_manifest", level--);
 }
 ulong fd_solana_manifest_size(fd_solana_manifest_t const * self) {
@@ -3479,8 +3467,6 @@ ulong fd_solana_manifest_size(fd_solana_manifest_t const * self) {
   size += fd_deserializable_versioned_bank_size(&self->bank);
   size += fd_solana_accounts_db_fields_size(&self->accounts_db);
   size += sizeof(ulong);
-  size += fd_bank_incremental_snapshot_persistence_size(&self->bank_incremental_snapshot_persistence);
-  size += fd_hash_size(&self->epoch_accounts_hash);
   return size;
 }
 
@@ -3491,10 +3477,6 @@ int fd_solana_manifest_encode(fd_solana_manifest_t const * self, fd_bincode_enco
   err = fd_solana_accounts_db_fields_encode(&self->accounts_db, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bank_incremental_snapshot_persistence_encode(&self->bank_incremental_snapshot_persistence, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_hash_encode(&self->epoch_accounts_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

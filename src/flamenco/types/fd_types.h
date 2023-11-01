@@ -585,8 +585,6 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_deserializable_versioned_bank_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
-  fd_bank_incremental_snapshot_persistence_t bank_incremental_snapshot_persistence;
-  fd_hash_t epoch_accounts_hash;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
