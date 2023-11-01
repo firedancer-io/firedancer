@@ -594,9 +594,9 @@ main( int     argc,
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
 
-      fd_hash_t accounts_hash;
-      fd_accounts_hash(slot_ctx, &accounts_hash);
-      FD_LOG_WARNING(("main snapshot accounts_hash %32J", accounts_hash.hash));
+//      fd_hash_t accounts_hash;
+//      fd_accounts_hash(slot_ctx, &accounts_hash);
+//      FD_LOG_WARNING(("main snapshot accounts_hash %32J", accounts_hash.hash));
 
       // TODO: regexp the hash out of the filename and compare..
     }
@@ -627,9 +627,9 @@ main( int     argc,
       SnapshotParser_destroy(&parser);
       snapshot_used = 1;
 
-      fd_hash_t accounts_hash;
-      fd_accounts_hash(slot_ctx, &accounts_hash);
-      FD_LOG_WARNING(("incremental accounts_hash %32J", accounts_hash.hash));
+//      fd_hash_t accounts_hash;
+//      fd_accounts_hash(slot_ctx, &accounts_hash);
+//      FD_LOG_WARNING(("incremental accounts_hash %32J", accounts_hash.hash));
 
       // TODO: regexp the hash out of the filename and compare..
     }
