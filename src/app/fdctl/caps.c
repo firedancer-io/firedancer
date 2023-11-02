@@ -105,17 +105,24 @@ fd_caps_check_capability( fd_caps_ctx_t * ctx,
 FD_FN_CONST static char *
 fd_caps_resource_str( fd_rlimit_res_t resource ) {
   switch( resource ) {
-    case RLIMIT_CPU:     return "RLIMIT_CPU";
-    case RLIMIT_FSIZE:   return "RLIMIT_FSIZE";
-    case RLIMIT_DATA:    return "RLIMIT_DATA";
-    case RLIMIT_STACK:   return "RLIMIT_STACK";
-    case RLIMIT_CORE:    return "RLIMIT_CORE";
-    case RLIMIT_RSS:     return "RLIMIT_RSS";
-    case RLIMIT_NOFILE:  return "RLIMIT_NOFILE";
-    case RLIMIT_AS:      return "RLIMIT_AS";
-    case RLIMIT_NPROC:   return "RLIMIT_NPROC";
-    case RLIMIT_MEMLOCK: return "RLIMIT_MEMLOCK";
-    default:             return "UNKNOWN";
+    case RLIMIT_CPU:        return "RLIMIT_CPU";
+    case RLIMIT_FSIZE:      return "RLIMIT_FSIZE";
+    case RLIMIT_DATA:       return "RLIMIT_DATA";
+    case RLIMIT_STACK:      return "RLIMIT_STACK";
+    case RLIMIT_CORE:       return "RLIMIT_CORE";
+    case RLIMIT_RSS:        return "RLIMIT_RSS";
+    case RLIMIT_NOFILE:     return "RLIMIT_NOFILE";
+    case RLIMIT_AS:         return "RLIMIT_AS";
+    case RLIMIT_NPROC:      return "RLIMIT_NPROC";
+    case RLIMIT_MEMLOCK:    return "RLIMIT_MEMLOCK";
+    case RLIMIT_LOCKS:      return "RLIMIT_LOCKS";
+    case RLIMIT_SIGPENDING: return "RLIMIT_SIGPENDING";
+    case RLIMIT_MSGQUEUE:   return "RLIMIT_MSGQUEUE";
+    case RLIMIT_NICE:       return "RLIMIT_NICE";
+    case RLIMIT_RTPRIO:     return "RLIMIT_RTPRIO";
+    case RLIMIT_RTTIME:     return "RLIMIT_RTTIME";
+    case RLIMIT_NLIMITS:    return "RLIMIT_NLIMITS";
+    default:                return "UNKNOWN";
   }
 }
 
