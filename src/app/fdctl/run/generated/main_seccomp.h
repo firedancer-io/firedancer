@@ -9,7 +9,7 @@
 #include <linux/seccomp.h>
 #include <linux/bpf.h>
 #include <sys/syscall.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include <stddef.h>
 
 #if defined(__i386__)
