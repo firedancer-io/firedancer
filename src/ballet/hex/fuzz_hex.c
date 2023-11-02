@@ -18,8 +18,8 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
-// checks if given encoding of sz chars is valid, sz must be even
-// returns sz on success, index of first invalid char on failure
+/* checks if given encoding of sz chars is valid, sz must be even
+   returns sz on success, index of first invalid char on failure */
 static inline ulong
 check_hex_encoding( char const * enc, ulong sz  ) {
   ulong i;
@@ -42,7 +42,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( FD_UNLIKELY( size > MAX_DATA_SZ ) ) return -1;
   char const * encoded = ( char  const * ) data;
 
-  size = size & ~1UL; // ignore last char of encoding if size is odd
+  size = size & ~1UL; /* ignore last char of encoding if size is odd */
 
   uchar decoded[ MAX_DECODED_SZ ];
   ulong decoded_sz = fd_hex_decode( decoded, encoded, size/2UL );

@@ -577,6 +577,24 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_WARN_UNUSED __attribute__ ((warn_unused_result))
 
+/* FD_FALLTHRU tells the compiler that a case in a switch falls through
+   to the next case. This avoids the compiler complaining, in cases where
+   it is an intentional fall through.
+   The "while(0)" avoids a compiler complaint in the event the case
+   has no statement, example:
+     switch( return_code ) {
+       case RETURN_CASE_1: FD_FALLTHRU;
+       case RETURN_CASE_2: FD_FALLTHRU;
+       case RETURN_CASE_3:
+         case_123();
+       default:
+         case_other();
+     }
+
+   See C++17 [[fallthrough]] and gcc __attribute__((fallthrough)) */
+
+#define FD_FALLTHRU while(0) __attribute__((fallthrough))
+
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
    var for optimizations going forward (i.e. the variable has changed in

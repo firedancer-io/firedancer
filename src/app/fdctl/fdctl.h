@@ -1,9 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_fdctl_h
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
-#include "../../util/fd_util.h"
-#include "../../util/net/fd_ip4.h"
-
+#include "topology.h"
 #include "config.h"
 #include "caps.h"
 #include "utility.h"
@@ -27,13 +25,18 @@ typedef union {
     int                      command;
     struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
   } configure;
-  struct {
-    int tile;
-  } run1;
+
   struct {
     int monitor;
     int no_configure;
+    int no_solana_labs;
   } dev;
+
+  struct {
+    char tile_name[ 32 ];
+    int no_configure;
+  } dev1;
+
   struct {
     const char * payload_base64;
     ulong  count;
@@ -51,7 +54,8 @@ typedef struct {
     void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
-extern action_t ACTIONS[ 5 ];
+#define ACTIONS_CNT (8UL)
+extern action_t ACTIONS[ ACTIONS_CNT ];
 
 int
 main1( int     argc,
@@ -101,5 +105,9 @@ keygen_cmd_fn( args_t *         args,
 void
 ready_cmd_fn( args_t *         args,
               config_t * const config );
+
+void
+info_cmd_fn( args_t *         args,
+             config_t * const config );
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */

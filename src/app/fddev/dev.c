@@ -18,6 +18,9 @@ dev_cmd_args( int *    pargc,
               args_t * args ) {
   args->dev.monitor = fd_env_strip_cmdline_contains( pargc, pargv, "--monitor" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
+  args->dev.no_solana_labs = fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana-labs" ) ||
+                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" ) ||
+                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-labs" );
 }
 
 void
@@ -47,7 +50,8 @@ parent_signal( int sig ) {
     if( kill( firedancer_pid, SIGINT ) ) err = 1;
   if( FD_LIKELY( monitor_pid ) )
     if( kill( monitor_pid, SIGKILL ) ) err = 1;
-  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  if( -1!=fd_log_private_logfile_fd() )
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( err );
 }
 
@@ -115,33 +119,13 @@ update_config_for_dev( config_t * const config ) {
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
-  if( FD_LIKELY( config->consensus.expected_shred_version==(ushort)0 ) ) {
+  ulong shred_id = fd_topo_find_tile( &config->topo, FD_TOPO_TILE_KIND_SHRED, 0UL );
+  if( FD_UNLIKELY( shred_id == ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile" ));
+  fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
+  if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
     char genesis_path[ PATH_MAX ];
     snprintf1( genesis_path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
-    config->consensus.expected_shred_version = compute_shred_version( genesis_path );
-
-    ulong i=0UL;
-    for( ; i<config->shmem.workspaces_cnt; i++ ) {
-      if( FD_UNLIKELY( config->shmem.workspaces[ i ].kind == wksp_shred ) ) break;
-    }
-    FD_TEST( i!=config->shmem.workspaces_cnt );
-
-    char name[ PATH_MAX ];
-    snprintf1( name, sizeof( name ), "%s_shred.wksp", config->name );
-
-    fd_wksp_t * wksp = fd_wksp_attach( name );
-    if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "could not attach to workspace `%s`", name ));
-
-    void * laddr = fd_wksp_laddr( wksp, wksp->gaddr_lo );
-    if( FD_UNLIKELY( !laddr ) ) FD_LOG_ERR(( "could not get gaddr_low from workspace `%s`", name ));
-
-    uchar const * pod = fd_pod_join( laddr );
-    if( FD_UNLIKELY( !pod ) ) FD_LOG_ERR(( "fd_pod_join to pod at gaddr_lo failed" ));
-
-    ulong * shred_version = fd_wksp_pod_map( pod, "shred_version" );
-    *shred_version = (ulong)config->consensus.expected_shred_version;
-    fd_wksp_pod_unmap( shred_version );
-    fd_wksp_detach( wksp );
+    shred->shred.expected_shred_version = compute_shred_version( genesis_path );
   }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
@@ -164,6 +148,7 @@ dev_cmd_fn( args_t *         args,
   }
 
   update_config_for_dev( config );
+  if( FD_UNLIKELY( args->dev.no_solana_labs ) ) config->development.no_solana_labs = 1;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* if we entered a network namespace during configuration, leave it

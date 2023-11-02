@@ -1,13 +1,41 @@
-unsigned int xsk_fd, unsigned int lo_xsk_fd
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# xsk_fd: This is the file descriptor for the kernel XDP socket we
+#         created for the primary network device.
+#
+# lo_xsk_fd: This is the file descriptor for the kernel XDP socket we
+#            created for the loopback network device.  This is currently
+#            needed because Solana sends packets to itself on loopback.
+unsigned int logfile_fd, unsigned int xsk_fd, unsigned int lo_xsk_fd
 
-# logging
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 3 is the logfile.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) 3))
+           (eq (arg 0) logfile_fd))
 
-# logging: 'WARNING' and above fsync immediately
-fsync: (eq (arg 0) 3)
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)
 
-# XDP requires calling sendto to notify the driver there are new entries in the TX ring
+# XDP: we need to call sendto to notify the kernel there are new entries
+#      in the TX ring
+#
+# The kernel has no mechanism to continously poll the TX queue to see if
+# there are new packets for the driver to send, so instead we must
+# notify it.  The sendto syscall has been overloaded by Linux for this
+# purpose.
+#
+# arg 0 is the file descriptor of the XSK that the kernel should poll
+# for entries.  There are two possible XSKs, since we can send packets
+# on a network device or the loopback device.
 sendto: (and (or (eq (arg 0) xsk_fd) 
                  (eq (arg 0) lo_xsk_fd))
              (eq (arg 1) 0) 
@@ -16,6 +44,19 @@ sendto: (and (or (eq (arg 0) xsk_fd)
              (eq (arg 4) 0) 
              (eq (arg 5) 0))
 
+# XDP: We use XDP_USE_NEED_WAKEUP so we must notify the kernel when
+#      there are new entries in the fill ring
+#
+# The kernel by default continously polls the fill ring of an XSK for
+# new entries, so it can reuse these to put new incoming packets into.
+# When using XDP_USE_NEED_WAKEUP, the kernel no longer does this as an
+# optimization, and so if the fill ring becomes empty, we must notify
+# the kernel when we replenish it.  The recvmsg syscall has been
+# overloaded by Linux for this purpose.
+#
+# arg 0 is the file descriptor of the XSK that the kernel should poll
+# for entries.  There are two possible XSKs, since we can recieve
+# packets on a network device or the loopback device.
 recvmsg: (and (or (eq (arg 0) xsk_fd) 
                   (eq (arg 0) lo_xsk_fd))
               (eq (arg 1) 0)

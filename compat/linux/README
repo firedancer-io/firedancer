@@ -1,0 +1,6 @@
+This directory contains copies of selected Linux uapi headers.
+
+These are included as Firedancer is expected to be compiled on a
+wide variety of systems, including those for older kernels.
+However, Firedancer will try to use modern Linux features when
+available, which may not be available in the user's system headers.

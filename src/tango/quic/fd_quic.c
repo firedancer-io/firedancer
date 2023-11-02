@@ -9,6 +9,7 @@
 #include "templ/fd_quic_transport_params.h"
 #include "templ/fd_quic_parse_util.h"
 #include "tls/fd_quic_tls.h"
+#include "../ip/fd_ip.h"
 
 #include <errno.h>
 #include <string.h>
@@ -54,8 +55,9 @@ struct fd_quic_layout {
   ulong conn_footprint;  /* sizeof a conn                    */
   ulong conn_map_off;    /* offset of conn map mem region    */
   ulong event_queue_off; /* offset of event queue mem region */
-  int   lg_slot_cnt;     /* see conn_map_new */
+  int   lg_slot_cnt;     /* see conn_map_new                 */
   ulong tls_off;         /* offset of fd_quic_tls_t          */
+  ulong ip_off;          /* offset of fd_ip_t                */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -136,7 +138,8 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
 
 FD_QUIC_API void *
 fd_quic_new( void * mem,
-             fd_quic_limits_t const * limits ) {
+             fd_quic_limits_t const * limits,
+             fd_ip_t * ip ) {
 
   /* Argument checks */
 
@@ -176,6 +179,12 @@ fd_quic_new( void * mem,
 
   /* Set limits */
   memcpy( &quic->limits, limits, sizeof( fd_quic_limits_t ) );
+
+  if( !ip ) {
+    FD_LOG_WARNING(( "NULL fd_ip" ));
+    return NULL;
+  }
+  quic->ip = ip;
 
   FD_COMPILER_MFENCE();
   quic->magic = FD_QUIC_MAGIC;
@@ -502,10 +511,17 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      ); /* TODO */
 
+
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
   return quic;
+}
+
+/* get pointer to fd_ip_t */
+fd_ip_t *
+fd_quic_get_ip( fd_quic_t * quic ) {
+  return quic->ip;
 }
 
 /* fd_quic_enc_level_to_pn_space maps of encryption level in [0,4) to
@@ -571,7 +587,7 @@ fd_quic_conn_error( fd_quic_conn_t * conn, uint reason ) {
   fd_quic_reschedule_conn( conn, 0 );
 }
 
-/* returns the enc level we should use for the next tx quic packet
+/* returns the encoding level we should use for the next tx quic packet
    or all 1's if nothing to tx */
 uint
 fd_quic_tx_enc_level( fd_quic_conn_t * conn ) {
@@ -861,7 +877,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* should not occur
      implies logic error */
   if( FD_UNLIKELY( stream == conn->unused_streams ) ) {
-    FD_LOG_ERR(( "max_concur_streams not reached, yet no free streams found" ));
+    FD_LOG_WARNING(( "max_concur_streams not reached, yet no free streams found" ));
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
   }
 
   /* remove from unused list */
@@ -906,7 +923,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* add to map of stream ids */
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_ERR(( "Stream map full" ));
+    FD_LOG_WARNING(( "Stream map full" ));
+    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
   }
 
   entry->stream = stream;
@@ -1253,15 +1271,31 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* Save peer's network endpoint */
 
-      /* FIXME: For now, just directly replying back to the source MAC
-                address. Works for all symmetric setups, which is the
-                case for most Solana validator deployments. */
-      ulong  dst_mac_addr = fd_ulong_load_6( pkt->eth->src );
-      uint   dst_ip_addr  = 0;
-      ushort dst_udp_port = pkt->udp->net_sport;
+      uchar  dst_mac_addr_u6[6] = {0};
+      uint   dst_ip_addr        = FD_LOAD( uint, pkt->ip4->saddr_c );
+      ushort dst_udp_port       = pkt->udp->net_sport;
 
-      /* copy to avoid aligment issues */
-      memcpy( &dst_ip_addr, pkt->ip4->saddr_c, 4 );
+      /* Do route and arp query. If these fail, assume the source mac
+         works, which will be true in symmetric setups */
+      uchar  arp_mac_addr[6]  = {0};
+      uint   arp_next_ip_addr = 0;
+      uint   arp_ifindex      = 0;
+      uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
+      int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
+                                         &arp_next_ip_addr,
+                                         &arp_ifindex,
+                                         fd_quic_get_ip( quic ),
+                                         arp_host_dst_ip );
+      if( arp_rtn == FD_IP_SUCCESS ) {
+        memcpy( dst_mac_addr_u6, arp_mac_addr, 6 );
+      } else {
+        memcpy( dst_mac_addr_u6, pkt->eth->src, 6 );
+      }
+
+      /* TODO in the case of FD_IP_PROBE_RQD, we should initiate an ARP probe
+         But in this case, we don't want to keep a full connection state
+         Change this to allow a small queue of pending ARP requests to
+         be processed out-of-band */
 
       /* For now, only supporting QUIC v1.
          QUIC v2 is an active IETF draft as of 2023-Mar:
@@ -1382,46 +1416,45 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           // bytes directly: prepending the ODCID and removing the retry_pkt integrity tag
 
           // TODO zero-copy?
-          memcpy(&retry_pseudo_pkt.odcid, &orig_dst_conn_id.conn_id, orig_dst_conn_id.sz);
-          memcpy(&retry_pseudo_pkt.dst_conn_id, &retry_pkt.dst_conn_id, retry_pkt.dst_conn_id_len);
-          memcpy(&retry_pseudo_pkt.src_conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len);
-          memcpy(&retry_pseudo_pkt.retry_token, &retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ);
+          memcpy( &retry_pseudo_pkt.odcid, &orig_dst_conn_id.conn_id, orig_dst_conn_id.sz );
+          memcpy( &retry_pseudo_pkt.dst_conn_id, &retry_pkt.dst_conn_id, retry_pkt.dst_conn_id_len );
+          memcpy( &retry_pseudo_pkt.src_conn_id, &retry_pkt.src_conn_id, retry_pkt.src_conn_id_len );
+          memcpy( &retry_pseudo_pkt.retry_token, &retry_pkt.retry_token, FD_QUIC_RETRY_TOKEN_SZ );
 
-          ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo(&retry_pseudo_pkt);
+          ulong retry_pseudo_footprint = fd_quic_encode_footprint_retry_pseudo( &retry_pseudo_pkt );
+
           uchar retry_pseudo_buf[FD_QUIC_MAX_FOOTPRINT(retry_pseudo)];
           if( FD_UNLIKELY( retry_pseudo_footprint > sizeof(retry_pseudo_buf) ) ) {
-            FD_LOG_ERR(( "retry_pseudo_footprint is larger than allocated size" ));
+            return FD_QUIC_PARSE_FAIL;
           }
-          fd_quic_encode_retry_pseudo(retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt);
-          fd_quic_retry_integrity_tag_encrypt(retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag);
+          fd_quic_encode_retry_pseudo( retry_pseudo_buf, retry_pseudo_footprint, &retry_pseudo_pkt );
+          fd_quic_retry_integrity_tag_encrypt( retry_pseudo_buf, (int) retry_pseudo_footprint, retry_pkt.retry_integrity_tag );
 
-          ulong tx_buf_sz = fd_quic_encode_footprint_retry(&retry_pkt);
+          ulong tx_buf_sz = fd_quic_encode_footprint_retry( &retry_pkt );
           uchar tx_buf[tx_buf_sz];
-          fd_quic_encode_retry(tx_buf, tx_buf_sz, &retry_pkt);
-          uchar *tx_ptr = tx_buf + tx_buf_sz;
-          ulong tx_sz = 0;  // no space remaining after encoding
-          uchar encode_buf[2048];  // space for lower-layer headers, same size as crypt_scratch
-          if (FD_UNLIKELY( fd_quic_tx_buffered_raw(
-            quic,
-            // these are state variable's normally updated on a conn, but irrelevant in retry so we
-            // just size it exactly as the encoded retry packet
-            &tx_ptr,
-            tx_buf,
-            tx_buf_sz,
-            &tx_sz,
-            // encode buffer
-            encode_buf,
-            2048,
-            pkt->eth->dst,
-            &pkt->ip4->net_id,
-            dst_ip_addr,
-            quic->config.net.listen_udp_port,
-            dst_udp_port,
-            1
-          ) == FD_QUIC_FAILED)) {
-            FD_LOG_WARNING(("Failed to tx retry pkt"));
+          fd_quic_encode_retry( tx_buf, tx_buf_sz, &retry_pkt );
+          uchar * tx_ptr  = tx_buf + tx_buf_sz;
+          ulong   tx_sz   = 0;  // no space remaining after encoding
+          uchar   encode_buf[2048];  // space for lower-layer headers, same size as crypt_scratch
+          if( FD_UNLIKELY( fd_quic_tx_buffered_raw(
+                quic,
+                // these are state variable's normally updated on a conn, but irrelevant in retry so we
+                // just size it exactly as the encoded retry packet
+                &tx_ptr,
+                tx_buf,
+                tx_buf_sz,
+                &tx_sz,
+                // encode buffer
+                encode_buf,
+                sizeof( encode_buf ),
+                dst_mac_addr_u6,
+                &pkt->ip4->net_id,
+                dst_ip_addr,
+                quic->config.net.listen_udp_port,
+                dst_udp_port,
+                1 ) == FD_QUIC_FAILED ) ) {
             quic->metrics.conn_err_retry_fail_cnt++;
-            return FD_QUIC_FAILED;
+            return FD_QUIC_PARSE_FAIL;
           };
           return (initial->pkt_num_pnoff + initial->len);
         }
@@ -1467,7 +1500,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn = fd_quic_conn_create( quic,
           &new_conn_id,  /* our_conn_id */
           &peer_conn_id,
-          dst_mac_addr,
           dst_ip_addr,
           dst_udp_port,
           1,            /* server */
@@ -1526,8 +1558,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
     } else {
-      /* not accepting incoming connections */
-      FD_DEBUG( FD_LOG_WARNING( ( "this endpoint is not a QUIC server: ignoring incoming packet" ) ) );
+      /* connection may have been torn down */
       return FD_QUIC_PARSE_FAIL;
     }
   }
@@ -2302,17 +2333,35 @@ fd_quic_schedule_conn( fd_quic_conn_t * conn ) {
   conn->in_service         = 1;
 }
 
+/* get the service interval, while ensuring the value
+   is sufficient */
+ulong
+fd_quic_get_service_interval( fd_quic_t * quic ) {
+  ulong min_service_interval = (ulong)10e6;
+  ulong service_interval = quic->config.service_interval;
+  if( FD_UNLIKELY( service_interval < min_service_interval ) ) {
+    service_interval = quic->config.service_interval = min_service_interval;
+  }
+  return service_interval;
+}
+
 void
 fd_quic_reschedule_conn( fd_quic_conn_t * conn,
                          ulong            timeout ) {
   fd_quic_t *       quic  = conn->quic;
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  timeout = fd_ulong_min( timeout, conn->next_service_time );
-  timeout = fd_ulong_max( timeout, fd_quic_now(quic) + 1UL );
+  ulong now = fd_quic_now(quic);
+
+  ulong service_interval = fd_quic_get_service_interval( quic );
+
+  timeout = fd_ulong_min( timeout, now + service_interval );
+  timeout = fd_ulong_max( timeout, now + 1UL );
 
   /* scheduled? */
   if( conn->in_service ) {
+    timeout = fd_ulong_min( timeout, conn->next_service_time );
+
     /* in the queue, but already scheduled sooner */
     if( timeout >= conn->sched_service_time ) {
       return;
@@ -2345,9 +2394,8 @@ fd_quic_reschedule_conn( fd_quic_conn_t * conn,
     return;
   }
 
-  if( timeout < conn->next_service_time ) {
-    conn->next_service_time = timeout;
-  }
+  /* since we're not in the service queue, just set the next_service_time */
+  conn->next_service_time = timeout;
 }
 
 /* generate acks and add to queue for future tx */
@@ -2384,7 +2432,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   } else {
     /* not ack-eliciting */
     /* if it's been too long, we can send a ping */
-    ack_time = now + quic->config.service_interval; /* randomize */
+    ack_time = now + fd_quic_get_service_interval( quic ); /* randomize */
   }
 
   /* algo:
@@ -2474,7 +2522,11 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
 
       if( FD_UNLIKELY( !cur_ack ) ) {
         /* this shouldn't be possible */
-        FD_LOG_ERR(( "unable to obtain ack" ));
+
+        /* terminate the connection, and allow it to be be recycled and
+           reinitialized */
+
+        fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
         return;
       }
     }
@@ -3159,6 +3211,16 @@ fd_quic_service( fd_quic_t * quic ) {
 
   ulong now = fd_quic_now( quic );
 
+  /* do we need to update the arp or routing tables? */
+  fd_ip_t * ip = fd_quic_get_ip( quic );
+  long ip_upd_period_ns = (long)5e9; /* every 5 seconds seems reasonable */
+  if( FD_UNLIKELY( (long)( now - state->ip_table_upd ) > ip_upd_period_ns ) ) {
+    fd_ip_arp_fetch( ip );
+    fd_ip_route_fetch( ip );
+
+    state->ip_table_upd = now;
+  }
+
   /* service events */
   fd_quic_conn_t * conn = NULL;
   while( service_queue_cnt( state->service_queue ) ) {
@@ -3173,7 +3235,7 @@ fd_quic_service( fd_quic_t * quic ) {
     }
 
     /* set an initial next_service_time */
-    conn->next_service_time = now + quic->config.service_interval;
+    conn->next_service_time = now + fd_quic_get_service_interval( quic );
 
     /* remove event, later reinserted at new time */
     service_queue_remove_min( state->service_queue );
@@ -3227,20 +3289,21 @@ fd_quic_service( fd_quic_t * quic ) {
    returns 0 if successful, or 1 otherwise */
 uint
 fd_quic_tx_buffered_raw(
-    fd_quic_t * quic,
-    uchar **    tx_ptr_ptr,
-    uchar *     tx_buf,
-    ulong       tx_buf_sz,
-    ulong *     tx_sz,
-    uchar *     crypt_scratch,
-    ulong       crypt_scratch_sz,
-    uchar *     dst_mac_addr,
-    ushort *    ipv4_id,
-    uint        dst_ipv4_addr,
-    ushort      src_udp_port,
-    ushort      dst_udp_port,
-    int         flush
+    fd_quic_t *      quic,
+    uchar **         tx_ptr_ptr,
+    uchar *          tx_buf,
+    ulong            tx_buf_sz,
+    ulong *          tx_sz,
+    uchar *          crypt_scratch,
+    ulong            crypt_scratch_sz,
+    uchar *          dst_mac_addr,
+    ushort *         ipv4_id,
+    uint             dst_ipv4_addr,
+    ushort           src_udp_port,
+    ushort           dst_udp_port,
+    int              flush
 ) {
+
   /* TODO leave space at front of tx_buf for header
           then encode directly into it to avoid 1 copy */
   uchar *tx_ptr = *tx_ptr_ptr;
@@ -3356,9 +3419,9 @@ fd_quic_tx_buffered_raw(
   return FD_QUIC_SUCCESS; /* success */
 }
 
-uint fd_quic_tx_buffered(fd_quic_t *quic,
-                         fd_quic_conn_t *conn,
-                         int flush)
+uint fd_quic_tx_buffered( fd_quic_t *      quic,
+                          fd_quic_conn_t * conn,
+                          int              flush )
 {
   fd_quic_endpoint_t *peer = &conn->peer[conn->cur_peer_idx];
   return fd_quic_tx_buffered_raw(
@@ -3374,7 +3437,7 @@ uint fd_quic_tx_buffered(fd_quic_t *quic,
       peer->net.ip_addr,
       conn->host.udp_port,
       peer->net.udp_port,
-      flush);
+      flush );
 }
 
 struct fd_quic_pkt_hdr {
@@ -4517,8 +4580,128 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 }
 
 void
+fd_quic_send_arp( fd_quic_t *      quic,
+                  fd_quic_conn_t * conn,
+                  uint             next_hop_ip_addr,
+                  uint             ifindex ) {
+  fd_ip_t * ip   = fd_quic_get_ip( quic );
+  ulong     wait = (ulong)1e6; /* default wait for next arp action is 1ms */
+
+  ulong now = fd_quic_now( quic );
+
+  /* prepare kernel ARP table, else ARP reply will be ignored by the kernel */
+  int arp_table_rtn = fd_ip_update_arp_table( ip, next_hop_ip_addr, ifindex );
+  switch( arp_table_rtn ) {
+    case FD_IP_RETRY:   wait = (ulong)50e3; __attribute__((fallthrough));
+    case FD_IP_SUCCESS: (void)0;            __attribute__((fallthrough));
+    case FD_IP_PROBE_RQD:
+      fd_quic_reschedule_conn( conn, now + wait );
+      break;
+
+    case FD_IP_ERROR:
+      fd_quic_reschedule_conn( conn, now + (ulong)100e6 );
+      return;
+
+    default:
+      FD_LOG_WARNING(( "Unhandled return value from fd_ip_update_arp_table: %d",
+            arp_table_rtn ));
+      fd_quic_reschedule_conn( conn, now + (ulong)100e6 );
+      /* try sending anyway */
+  }
+
+  /* need ip_addr in host order */
+  uint host_ip_addr = fd_uint_bswap( quic->config.net.ip_addr );
+
+  /* load an ARP packet */
+  uchar buf[1024];
+  ulong arp_len = 0;
+  if( fd_ip_arp_gen_arp_probe( buf,
+                               sizeof( buf ),
+                               &arp_len,
+                               next_hop_ip_addr,
+                               host_ip_addr,
+                               quic->config.link.src_mac_addr ) ) {
+    FD_LOG_WARNING(( "fd_ip_arp_gen_arp_probe failed" ));
+    return;
+  }
+
+  /* send it */
+  fd_aio_pkt_info_t aio_buf = { .buf = buf, .buf_sz = (ushort)arp_len };
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, 1 /* flush */ );
+  if( aio_rc == FD_AIO_ERR_AGAIN ) {
+    /* transient condition */
+    return;
+  } else if( aio_rc != FD_AIO_SUCCESS ) {
+    FD_LOG_WARNING(( "Fatal error reported by aio peer" ));
+    /* fallthrough to reset buffer */
+  }
+}
+
+void
 fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
+  /* are we handling ARP? */
+  int   arp_status        = conn->arp_status;
+  ulong arp_update_period = (ulong)( 500e6 );
+  if( FD_UNLIKELY( arp_status == FD_ARP_STATUS_WAITING  ||
+                   arp_status == FD_ARP_STATUS_REQUIRED ||
+                   now        >  conn->arp_update + arp_update_period ) ) {
+    /* get ip */
+    fd_ip_t * ip = fd_quic_get_ip( quic );
+
+    /* get current peer info */
+    fd_quic_endpoint_t *peer = &conn->peer[conn->cur_peer_idx];
+
+    /* ensure we have an updated arp table */
+    if( arp_status == FD_ARP_STATUS_WAITING ) {
+      fd_ip_arp_fetch( ip );
+    }
+
+    /* do routing */
+    uint   dst_ip_addr      = peer->net.ip_addr;
+    uchar  arp_mac_addr[6]  = {0};
+    uint   arp_next_ip_addr = 0;
+    uint   arp_ifindex      = 0;
+    uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
+    int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
+                                       &arp_next_ip_addr,
+                                       &arp_ifindex,
+                                       ip,
+                                       arp_host_dst_ip );
+    if( FD_LIKELY( arp_rtn == FD_IP_SUCCESS ) ) {
+      memcpy( peer->mac_addr, arp_mac_addr, 6 );
+      conn->arp_status = FD_ARP_STATUS_RESOLVED;
+      conn->arp_update = now;
+    } else {
+      switch( arp_rtn ) {
+        case FD_IP_PROBE_RQD:
+          conn->arp_status = FD_ARP_STATUS_WAITING;
+
+          /* send ARP */
+          fd_quic_send_arp( quic, conn, arp_next_ip_addr, arp_ifindex );
+
+          /* may have no MAC address, but may resolve later udpsock, for example,
+          so continue */
+          break;
+
+        case FD_IP_NO_ROUTE:
+          FD_LOG_WARNING(( "No route to host 0x%08x", dst_ip_addr ));
+
+          /* wait for a period and retry */
+          fd_quic_reschedule_conn( conn, now + (ulong)1e9 );
+          return;
+        default:
+          FD_LOG_WARNING(( "Unexpected routing for host 0x%08x. Code: %x",
+                           dst_ip_addr,
+                           arp_rtn ));
+
+          /* wait for a period and retry */
+          fd_quic_reschedule_conn( conn, now + (ulong)1e9 );
+          return;
+      }
+    }
+  }
+
 
   /* handle expiry on pkt_meta */
   fd_quic_pkt_meta_retry( quic, conn, 0 /* don't force */ );
@@ -4598,6 +4781,9 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
     default:
       return;
   }
+
+  /* check routing and arp for this connection */
+
 }
 
 void
@@ -4761,7 +4947,6 @@ fd_quic_connect( fd_quic_t *  quic,
       quic,
       &our_conn_id,
       &peer_conn_id,
-      fd_ulong_load_6( quic->config.link.dst_mac_addr ),
       dst_ip_addr,
       dst_udp_port,
       0, /* client */
@@ -4896,7 +5081,6 @@ fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      fd_quic_conn_id_t const * our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
-                     ulong                     dst_mac_addr,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
                      int                       server,
@@ -5082,8 +5266,36 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer[ peer_idx ].conn_id      = *peer_conn_id;
   conn->peer[ peer_idx ].net.ip_addr  = dst_ip_addr;
   conn->peer[ peer_idx ].net.udp_port = dst_udp_port;
-  memcpy( &conn->peer[ peer_idx ].mac_addr, &dst_mac_addr, 6 );
-  conn->peer_cnt                    = 1;
+  memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
+  conn->peer_cnt                      = 1;
+
+  /* do routing */
+  uchar  arp_mac_addr[6]  = {0};
+  uint   arp_next_ip_addr = 0;
+  uint   arp_ifindex      = 0;
+  uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
+  int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
+                                     &arp_next_ip_addr,
+                                     &arp_ifindex,
+                                     fd_quic_get_ip( quic ),
+                                     arp_host_dst_ip );
+  switch( arp_rtn ) {
+    case FD_IP_SUCCESS:
+      memcpy( &conn->peer[peer_idx].mac_addr, arp_mac_addr, 6 );
+      conn->arp_status = FD_ARP_STATUS_RESOLVED;
+      break;
+    case FD_IP_PROBE_RQD:
+      conn->arp_status = FD_ARP_STATUS_REQUIRED;
+      break;
+
+    case FD_IP_NO_ROUTE:
+      FD_LOG_WARNING(( "No route to address 0x%08x", dst_ip_addr ));
+      break;
+
+    default:
+      FD_LOG_WARNING(( "Unexpected routing for ip address 0x%08x. Code: %x",
+            dst_ip_addr, arp_rtn ));
+  }
 
   /* initialize other ack members */
   fd_memset( conn->acks_tx,     0, sizeof( conn->acks_tx ) );
@@ -5669,17 +5881,17 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 }
 
 /* process ack range
-   applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
+   applies to pkt_number in [largest_ack - ack_range, largest_ack] */
 void
 fd_quic_process_ack_range( fd_quic_conn_t * conn,
                            uint             enc_level,
                            ulong            largest_ack,
-                           ulong            first_ack_range ) {
+                           ulong            ack_range ) {
   /* loop thru all packet metadata, and process individual metadata */
 
   /* inclusive range */
   ulong hi = largest_ack;
-  ulong lo = largest_ack - first_ack_range;
+  ulong lo = largest_ack - ack_range;
 
   /* start at oldest sent */
   fd_quic_pkt_meta_pool_t * pool     = &conn->pkt_meta_pool;
@@ -5734,6 +5946,12 @@ fd_quic_frame_handle_ack_frame(
 
   uint enc_level = context.pkt->enc_level;
 
+  if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
+    /* this is a protocol violation, so inform the peer */
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   /* ack packets are not ack-eliciting (they are acked with other things) */
 
   /* process ack range
@@ -5745,31 +5963,59 @@ fd_quic_frame_handle_ack_frame(
 
   ulong ack_range_count = data->ack_range_count;
 
-  ulong cur_pkt_number = data->largest_ack - data->first_ack_range - 1u;
+  /* cur_pkt_number holds the packet number of the lowest processed
+     and acknowledged packet
+     This should always be a valid packet number >= 0 */
+  ulong cur_pkt_number = data->largest_ack - data->first_ack_range;
 
   /* walk thru ack ranges */
-  for( ulong j = 0; j < ack_range_count; ++j ) {
+  for( ulong j = 0UL; j < ack_range_count; ++j ) {
     if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
 
     fd_quic_ack_range_frag_t ack_range[1];
     ulong rc = fd_quic_decode_ack_range_frag( ack_range, p, (ulong)( p_end - p ) );
-    if( rc == FD_QUIC_PARSE_FAIL ) return FD_QUIC_PARSE_FAIL;
+    if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) return FD_QUIC_PARSE_FAIL;
 
-    /* the number of packet numbers to skip (they are not being acked) */
-    cur_pkt_number -= ack_range->gap;
+    /* ensure we have ulong local vars, regardless of ack_range definition */
+    ulong gap    = (ulong)ack_range->gap;
+    ulong length = (ulong)ack_range->length;
+
+    /* sanity check before unsigned arithmetic */
+    if( FD_UNLIKELY( ( gap    > ( ~0x3UL ) ) |
+                     ( length > ( ~0x3UL ) ) ) ) {
+      /* This is an unreasonably large value, so fail with protocol violation
+         It's also likely impossible due to the encoding method */
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return FD_QUIC_PARSE_FAIL;
+    }
+
+    /* The number of packet numbers to skip (they are not being acked) is
+       ack_range->gap + 2
+       This is +1 to get from the lowest acked packet to the highest unacked packet
+       and +1 because the count of packets in the gap is (ack_range->gap+1) */
+    ulong skip = gap + 2UL;
+
+    /* verify the skip and length values are valid */
+    if( FD_UNLIKELY( skip + length > cur_pkt_number ) ) {
+      /* this is a protocol violation, so inform the peer */
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return FD_QUIC_PARSE_FAIL;
+    }
 
     /* process ack range */
-    fd_quic_process_ack_range( context.conn, enc_level, cur_pkt_number, ack_range->length );
+    fd_quic_process_ack_range( context.conn, enc_level, cur_pkt_number - skip, length );
 
-    /* adjust for next range */
-    cur_pkt_number -= ack_range->length - 1u;
+    /* Find the next lowest processed and acknowledged packet number
+       This should get us to the next lowest processed and acknowledged packet
+       number */
+    cur_pkt_number -= skip + length;
 
     p += rc;
   }
 
   /* ECN counts
      we currently ignore them, but we must process them to get to the following bytes */
-  if( data->type & 1u ) {
+  if( data->type & 1U ) {
     if( FD_UNLIKELY(  p_end <= p ) ) return FD_QUIC_PARSE_FAIL;
 
     fd_quic_ecn_counts_frag_t ecn_counts[1];
@@ -5964,7 +6210,7 @@ fd_quic_frame_handle_stream_frame(
       }
 
       /* bidirectional? */
-      uint bidir = ( stream_id >> 1u ) & 1u;
+      uint bidir = !( ( stream_id >> 1u ) & 1u );
 
       /* if unidir, we can't send - since peer initiated */
       /* if bidir we can only send up to the peer's advertised limit */
@@ -6389,8 +6635,6 @@ fd_quic_frame_handle_conn_close_0_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  FD_LOG_NOTICE(( "Closing with error code: %lu", data->error_code ));
-
   fd_quic_frame_handle_conn_close_frame( vp_context );
 
   return reason_phrase_length;
@@ -6408,8 +6652,6 @@ fd_quic_frame_handle_conn_close_1_frame(
   if( FD_UNLIKELY( reason_phrase_length > p_sz ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
-
-  FD_LOG_NOTICE(( "Closing with error code: %lu", data->error_code ));
 
   fd_quic_frame_handle_conn_close_frame( vp_context );
 

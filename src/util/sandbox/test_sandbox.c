@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 
 #include "../fd_util.h"
+#include "generated/test_sandbox_seccomp.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -208,13 +209,11 @@ mountns_null( void ) {
 void
 seccomp_default_filter( void ) {
   int fds[ 4 ] = { 0, 1, 2, 3 };
-  long allow_syscalls[ 3 ] = {
-    __NR_write,     /* logging */
-    __NR_fsync,     /* logging, WARNING and above fsync immediately */
-    __NR_exit_group /* returns from main */
-  };
 
-  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 3UL, allow_syscalls ); );
+  struct sock_filter seccomp_filter[ 128UL ];
+  populate_sock_filter_policy_test_sandbox( 128UL, seccomp_filter );
+
+  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); );
 
   pid_t pid = fork();
   if ( pid ) {
@@ -222,7 +221,8 @@ seccomp_default_filter( void ) {
     FD_TEST( -1 != waitpid( pid, &wstatus, WUNTRACED ) );
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
-    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, 3UL, allow_syscalls );
+
+    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
   }
@@ -276,14 +276,23 @@ main( int     argc,
 
   fd_log_private_boot( &argc, &argv );
 
+  FD_LOG_NOTICE(( "check_open_fds.." ));
   check_open_fds();
+  FD_LOG_NOTICE(( "resource_limits.." ));
   resource_limits();
+  FD_LOG_NOTICE(( "not_dumpable.." ));
   not_dumpable();
+  FD_LOG_NOTICE(( "no_capabilities.." ));
   no_capabilities();
+  FD_LOG_NOTICE(( "change_userns.." ));
   change_userns();
+  FD_LOG_NOTICE(( "netns.." ));
   netns();
+  FD_LOG_NOTICE(( "mountns_null.." ));
   mountns_null();
+  FD_LOG_NOTICE(( "seccomp_default_filter.." ));
   seccomp_default_filter();
+  FD_LOG_NOTICE(( "test_protected_pages.." ));
   test_protected_pages();
   FD_LOG_NOTICE(( "pass" ));
   return 0;

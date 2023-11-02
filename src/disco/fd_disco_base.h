@@ -18,8 +18,16 @@
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
 #define FD_TPU_MTU (1232UL)
 
+/* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
+   asserted in fd_shred_tile.c). */
+#define FD_SHRED_STORE_MTU (41792UL)
+
 /* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
 #define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
+/* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust
+   shims, so if the value changes, this acts as a reminder to change it
+   in the Rust code. */
+FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
 
 #define SCRATCH_ALLOC( a, s ) (__extension__({                    \
     ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \

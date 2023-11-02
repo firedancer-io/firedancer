@@ -71,7 +71,7 @@ read_key( char const * key_path,
     if( FD_UNLIKELY( errno == ENOENT ) ) {
       FD_LOG_ERR((
           "The [consensus.identity_path] in your configuration expects a "
-          "keyfile at %s but there is no such file. Either update the "
+          "keyfile at `%s` but there is no such file. Either update the "
           "configuration file to point to your validator identity "
           "keypair, or generate a new validator identity key by running "
           "`fdctl keygen`", key_path ));
@@ -125,7 +125,7 @@ read_key( char const * key_path,
 }
 
 uchar const *
-load_key_into_protected_memory( char const * key_path ) {
+load_key_into_protected_memory( char const * key_path, int public_key_only ) {
   /* Load the signing key. Since this is key material, we load it into
      its own page that's non-dumpable, readonly, and protected by guard
      pages. */
@@ -133,11 +133,14 @@ load_key_into_protected_memory( char const * key_path ) {
 
   read_key( key_path, key_page );
 
+  if( public_key_only ) explicit_bzero( key_page, 32UL );
+
   /* For good measure, make the key page read-only */
   if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
     FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  return key_page;
+  if( public_key_only ) return key_page+32UL;
+  else                  return key_page;
 }
 
 

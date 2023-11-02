@@ -110,6 +110,26 @@ str_to_ip_addr( char const * in ) {
 }
 
 
+static char const *
+get_state_str( uint state ) {
+  char const * state_str = "N/A";
+  switch( state ) {
+#   define CASE(X) case X: state_str = #X; break
+    CASE(NUD_NONE);
+    CASE(NUD_REACHABLE);
+    CASE(NUD_INCOMPLETE);
+    CASE(NUD_PROBE);
+    CASE(NUD_DELAY);
+    CASE(NUD_STALE);
+    CASE(NUD_PERMANENT);
+    CASE(NUD_NOARP);
+    default: break;
+  }
+
+  return state_str;
+}
+
+
 int
 main( int argc, char **argv ) {
   fd_boot( &argc, &argv );
@@ -133,14 +153,35 @@ main( int argc, char **argv ) {
   get_mac_addr( src_mac_addr, intf, fd );
 
   fd_nl_t nl;
-  fd_nl_init( &nl, 312 );
+  fd_nl_init( &nl, 4242 );
 
-  /* attempt to update kernel ARP table with an unresolved entry */
-  if( fd_nl_update_arp_table( &nl, dst_ip_addr, ifindex ) ) {
-    FD_LOG_WARNING(( "fd_nl_update_arp_table returned error" ));
-    return 1;
-  }
+  /* load arp entries */
+# define ARP_TABLE_CAP 32
+  fd_nl_arp_entry_t arp_table[ARP_TABLE_CAP];
 
+  long arp_table_sz = 0;
+
+  do {
+    arp_table_sz = fd_nl_load_arp_table( &nl, arp_table, ARP_TABLE_CAP );
+    FD_TEST( arp_table_sz != FD_IP_ERROR );
+  } while( arp_table_sz < 0 );
+
+  /* should be no arp entry for the ip
+
+     need to create one in NONE state, then move it to INCOMPLETE
+     then we send an ARP probe, and the kernel should take over */
+
+  /* create ARP entry */
+  int rc = fd_nl_update_arp_table( &nl, arp_table, ARP_TABLE_CAP, dst_ip_addr, ifindex );
+  FD_LOG_WARNING(( "1 fd_nl_update_arp_table rc = %d", rc ));
+  FD_TEST( rc == FD_IP_RETRY );
+
+  /* move entry to state INCOMPLETE */
+  rc = fd_nl_update_arp_table( &nl, arp_table, ARP_TABLE_CAP, dst_ip_addr, ifindex );
+  FD_LOG_WARNING(( "2 fd_nl_update_arp_table rc = %d", rc ));
+  FD_TEST( rc == FD_IP_PROBE_RQD );
+
+  /* now send a probe */
   uchar buf[2048];
   ulong buf_sz  = sizeof( buf );
   ulong arp_len = 0;
@@ -157,6 +198,63 @@ main( int argc, char **argv ) {
   if( sendto( fd, buf, arp_len, 0, (void*)&dst_nic, sizeof( dst_nic ) ) == -1 ) {
     FD_LOG_NOTICE(( "sendto failed with: %d %s", errno, strerror( errno ) ));
   }
+
+  /* wait */
+  fd_log_sleep( (long)( 20. * 1e6 ) ); /* sleep for  20ms */
+
+  /* reload ARP table */
+  do {
+    arp_table_sz = fd_nl_load_arp_table( &nl, arp_table, ARP_TABLE_CAP );
+    FD_TEST( ARP_TABLE_CAP != FD_IP_ERROR );
+  } while( arp_table_sz < 0 );
+
+  /* query the table */
+  fd_nl_arp_entry_t * entry = fd_nl_arp_query( arp_table, (ulong)arp_table_sz, dst_ip_addr );
+  FD_TEST( entry );
+
+  FD_LOG_NOTICE(( "entry state: %d (%s)", (int)entry->state, get_state_str( entry->state ) ));
+
+  uint old_state = entry->state;
+  uint attempts  = 15;
+  uint retries   = 3;
+  while( retries && attempts ) {
+    fd_log_sleep( (long)( 10. * 1e6 ) ); /* sleep for  10ms */
+
+    /* reload ARP table */
+    do {
+      arp_table_sz = fd_nl_load_arp_table( &nl, arp_table, ARP_TABLE_CAP );
+      FD_TEST( ARP_TABLE_CAP != FD_IP_ERROR );
+    } while( arp_table_sz < 0 );
+
+    fd_nl_arp_entry_t * entry = fd_nl_arp_query( arp_table, (ulong)arp_table_sz, dst_ip_addr );
+    FD_TEST( entry );
+
+    if( entry->state & ( NUD_STALE | NUD_DELAY ) ) {
+      /* send an ARP probe via the given local interface */
+      if( sendto( fd, buf, arp_len, 0, (void*)&dst_nic, sizeof( dst_nic ) ) == -1 ) {
+        FD_LOG_NOTICE(( "sendto failed with: %d %s", errno, strerror( errno ) ));
+      }
+
+      /* the reply ensures the kernel moves the state to NUD_REACHABLE */
+
+      /* count attempts */
+      attempts--;
+    }
+
+    /* count the number of transitions from stale|delay to reachable */
+
+    if( entry->state == NUD_REACHABLE && old_state & ( NUD_STALE | NUD_DELAY ) ) {
+      retries--;
+    }
+
+    if( entry->state != old_state ) {
+      FD_LOG_NOTICE(( "entry state: %d (%s)", (int)entry->state, get_state_str( entry->state ) ));
+    }
+
+    old_state = entry->state;
+  }
+
+  FD_LOG_NOTICE(( "pass" ));
 
   close( fd );
 

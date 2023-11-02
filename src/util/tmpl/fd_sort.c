@@ -90,7 +90,8 @@
 #define SORT_IDX_T ulong
 #endif
 
-/* SORT_BEFORE(a,b) evaluates to 1 if a<b is strictly true. */
+/* SORT_BEFORE(a,b) evaluates to 1 if a<b is strictly true.  SAFETY TIP:
+   This is not a 3-way comparison function! */
 
 #ifndef SORT_BEFORE
 #define SORT_BEFORE(a,b) (a)<(b)

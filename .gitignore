@@ -38,3 +38,8 @@ deps-bundle.tar.zst
 
 # Logs
 *.log
+
+# VitePress docs
+/book/.vitepress/cache
+/book/.vitepress/dist
+/book/node_modules

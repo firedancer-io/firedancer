@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_tango_ip_fd_ip_h
 #define HEADER_fd_src_tango_ip_fd_ip_h
 
+#include "fd_ip_enum.h"
 #include "fd_netlink.h"
 #include "../../util/fd_util.h"
 
@@ -24,12 +25,6 @@
    In particular we need to choose which next hop IP is required
 
    */
-
-#define FD_IP_NO_ROUTE -1
-#define FD_IP_SUCCESS   0
-#define FD_IP_PROBE_RQD 1
-#define FD_IP_MULTICAST 2
-#define FD_IP_BROADCAST 3
 
 /* magic */
 #define FD_IP_MAGIC (0x37ad94a6ec098fc1UL)
@@ -171,9 +166,9 @@ fd_ip_arp_fetch( fd_ip_t * ip );
    searches for an IP address in the table
 
    if found, *arp is set to point to the entry and the function
-       returns 0
+       returns FD_IP_SUCCESS
 
-   otherwise, the function returns 1 */
+   otherwise, the function returns FD_IP_ERROR */
 
 int
 fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
@@ -186,10 +181,10 @@ fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
 
    writes ARP packet into buf
 
-   if successful, returns 0
+   if successful, returns FD_IP_SUCCESS
 
    if unable to generate ARP, if the dest capacity (dest_cap) is not enough space
-     then the function returns 1
+     then the function returns FD_IP_ERROR
 
    args
      buf          the buffer used to accept the raw ethernet packet
@@ -199,8 +194,8 @@ fd_ip_arp_query( fd_ip_t * ip, fd_ip_arp_entry_t ** arp, uint ip_addr );
      src_mac_addr the MAC address of the source (caller)
 
    returns
-     0 on success
-     1 on failure (buf_cap not large enough) */
+     FD_IP_SUCCESS on success
+     FD_IP_ERROR   on failure (buf_cap not large enough) */
 
 int
 fd_ip_arp_gen_arp_probe( uchar *       buf,
@@ -225,9 +220,9 @@ fd_ip_route_fetch( fd_ip_t * ip );
    the provided IP address is looked up in the routing table
 
    if an appropriate entry is found, *route is set to point to it
-     and 0 is returned
+     and FD_IP_SUCCESS is returned
 
-   otherwise, 1 is returned */
+   otherwise, FD_IP_ERROR is returned */
 
 int
 fd_ip_route_query( fd_ip_t *              ip,
@@ -259,12 +254,13 @@ fd_ip_route_query( fd_ip_t *              ip,
       If match, sets mac and ifindex and returns 0
 
     returns
-      FD_IP_NO_ROUTE  -1  No route to destination
-      FD_IP_SUCCESS    0  Route (and arp if necessary) found. out_* have been set
-      FD_IP_PROBE_RQD  1  Route, but we need to send an ARP probe to resolve the MAC address
-                            Resolve the supplied out_next_ip_addr by sending a probe packet
-      FD_IP_MULTICAST  2  Multicast
-      FD_IP_BROADCAST  3  Local broadcast */
+      FD_IP_NO_ROUTE    No route to destination
+      FD_IP_SUCCESS     Route (and arp if necessary) found. out_* have been set
+      FD_IP_PROBE_RQD   Route, but we need to send an ARP probe to resolve the MAC address
+                          Resolve the supplied out_next_ip_addr by sending a probe packet
+                        Delay between probes
+      FD_IP_MULTICAST   Multicast
+      FD_IP_BROADCAST   Local broadcast */
 int
 fd_ip_route_ip_addr( uchar *   out_dst_mac,
                      uint *    out_next_ip_addr,
@@ -280,10 +276,18 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
    The kernel ignores unsolicited ARP responses, so this function
    allows our ARP requests to update the kernel ARP table
 
-   It only adds an entry in the case one does not already exist
-   The entry added is in state "INCOMPLETE", and gets updated to a
-   resolved address when the matching response arrives
-   */
+   It creates or updates an entry depending on the current state
+   If there is no entry, it creates one in state NONE
+   Otherwise, it moves NONE to INCOMPLETE and moves DELAY to PROBE
+   This should give the kernel what it needs to handle the rest of
+   the transitions correctly
+
+   return values:
+     FD_IP_SUCCESS   Call successful, nothing to do
+     FD_IP_PROBE     Call successful, caller should send an ARP probe
+     FD_IP_RETRY     Call successful, caller should try this call again soon
+                       or immediately
+     FD_IP_ERROR     Call unsuccessful */
 int
 fd_ip_update_arp_table( fd_ip_t * ip,
                         uint      ip_addr,

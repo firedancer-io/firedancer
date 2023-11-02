@@ -92,6 +92,8 @@ fd_shred_dest_new( void                           * mem,
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
+  /* We reserved enough space in _wsample for both the staked and
+     unstaked info */
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
   ulong * unstaked = (ulong *)fd_ulong_align_up( ((ulong)_wsample + fd_wsample_footprint( staked_cnt, 1 )), alignof(ulong) );
 
@@ -421,3 +423,15 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
   fd_ulong_store_if( !!opt_max_dest_cnt, opt_max_dest_cnt, max_dest_cnt );
   return out;
 }
+
+fd_shred_dest_idx_t
+fd_shred_dest_pubkey_to_idx( fd_shred_dest_t   * sdest,
+                             fd_pubkey_t const * pubkey     ) {
+  if( FD_UNLIKELY( !memcmp( pubkey, null_pubkey.uc, 32UL ) ) ) return FD_SHRED_DEST_NO_DEST;
+
+  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
+  pubkey_to_idx_t * query = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *pubkey, default_res );
+
+  return (fd_shred_dest_idx_t)query->idx;
+}
+

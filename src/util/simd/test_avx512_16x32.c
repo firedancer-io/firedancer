@@ -87,7 +87,10 @@ main( int     argc,
     /* Test arithmetic ops */
 
     WWI_TEST( wwi_neg(x), -x0, -x1, -x2, -x3, -x4, -x5, -x6, -x7, -x8, -x9, -xa, -xb, -xc, -xd, -xe, -xf );
-    WWI_TEST( wwi_abs(x),  x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7,  x8,  x9,  xa,  xb,  xc,  xd,  xe,  xf );
+    WWI_TEST( wwi_abs(x), (int)fd_int_abs(x0), (int)fd_int_abs(x1), (int)fd_int_abs(x2), (int)fd_int_abs(x3),
+                          (int)fd_int_abs(x4), (int)fd_int_abs(x5), (int)fd_int_abs(x6), (int)fd_int_abs(x7),
+                          (int)fd_int_abs(x8), (int)fd_int_abs(x9), (int)fd_int_abs(xa), (int)fd_int_abs(xb),
+                          (int)fd_int_abs(xc), (int)fd_int_abs(xd), (int)fd_int_abs(xe), (int)fd_int_abs(xf) );
 
     WWI_TEST( wwi_min(x,y), fd_int_min(x0,y0), fd_int_min(x1,y1), fd_int_min(x2,y2), fd_int_min(x3,y3),
                             fd_int_min(x4,y4), fd_int_min(x5,y5), fd_int_min(x6,y6), fd_int_min(x7,y7),

@@ -13,8 +13,8 @@ MACHINES=$(ls -1 config/linux_clang_combi_* | xargs -I{} basename {} .mk)
 
 # Build and run tests for all feature combinations
 for MACHINE in $MACHINES; do
-    # Todo: enable highend once this runs on an AVX512-enabled machine
-    if [[ $MACHINE == linux_clang_combi_lowend || $MACHINE == linux_clang_combi_highend ]]; then
+    # Todo: enable lowend once it builds
+    if [[ $MACHINE == linux_clang_combi_lowend ]]; then
       continue
     fi
     export MACHINE

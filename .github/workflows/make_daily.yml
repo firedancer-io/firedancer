@@ -1,0 +1,208 @@
+# Kick off a daily battery of extended tests.
+# Only runs if latest commit was made within today.
+
+name: Make Daily
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+jobs:
+  # Ensures that cron job is skipped if no commit was made on that day.
+  check-date:
+    runs-on: ubuntu-latest
+    name: Check date of last commit
+    steps:
+      - uses: actions/checkout@v3
+      - id: should_run
+        continue-on-error: true
+        name: check latest commit is less than a day
+        if: ${{ github.event_name == 'schedule' }}
+        run: test -z $(git rev-list --after="24 hours" ${{ github.sha }}) && echo "::set-output name=should_run::false"
+    outputs:
+      should_run: ${{ github.event_name != 'schedule' || steps.should_run.outputs.should_run }}
+
+  # Tests with AddressSanitizer
+  make-test-asan:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_x86_64_asan
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/deps
+
+      - name: Build unit tests
+        run: make -j -Otarget unit-test
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+
+  # Tests with UndefinedBehaviorSanitizer
+  make-test-ubsan:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_x86_64_ubsan
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/deps
+
+      - name: Build unit tests
+        run: make -j -Otarget unit-test
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+
+  # Build fuzz artifacts, check default corpus
+  make-fuzz:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    runs-on:
+      group: github-v1
+    env:
+      MACHINE: linux_clang_x86_64_fuzz_asan
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/deps
+      - run: sudo apt update && sudo apt install -y zip
+
+      - uses: firedancer-io/fuzzbot-builder@main
+        name: Build fuzz tests
+        with:
+          command: make -j -Otarget fuzz-test
+
+      - name: List Artifacts
+        run: |
+          ls build/linux/clang/x86_64_fuzz_asan/fuzz-test
+
+      - uses: firedancer-io/clusterfuzz-action@main
+        if: ${{ github.ref == 'refs/heads/main' }}
+        name: Upload fuzz targets to ClusterFuzz
+        with:
+          bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
+          artifact-dir: build/linux/clang/x86_64_fuzz_asan/fuzz-test
+          object-prefix: main/libfuzzer-asan/firedancer
+          project-id: isol-clusterfuzz
+          service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: Run fuzz tests
+        run: make -k -j -Otarget run-fuzz-test
+
+  # Tests with coverage reporting
+  make-test-coverage:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    runs-on:
+      group: github-v1
+    permissions:
+      pages: write     # to deploy to Pages
+      id-token: write  # to verify the deployment originates from an appropriate source
+    environment:
+      name: github-pages
+      url: ${{ steps.pages-deploy.outputs.page_url }}
+    env:
+      CC: clang
+      EXTRAS: llvm-cov
+    steps:
+
+      # The next steps require llvm-profdata
+      - name: Install LLVM
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      - uses: actions/checkout@v3
+
+      - uses: ./.github/actions/deps
+
+      - name: Build unit tests
+        run: make -j -Otarget unit-test
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+
+      - name: Make coverage report
+        run: |
+          make cov-report
+          mv build/native/clang/cov/html coverage-report
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: build/native/clang/cov/cov.lcov
+          name: codecov-make-linux_clang-14_native
+          fail_ci_if_error: false
+          functionalities: search
+
+      - name: Prepare GitHub Pages site dir
+        run: |
+          mkdir _site
+          ln -s coverage-report _site/coverage-report
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: pages-deploy
+        uses: actions/deploy-pages@v2
+
+  # Build and analyze with CodeQL
+  codeql:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    name: Analyze
+    runs-on:
+      group: github-v1
+    env:
+      CC: clang
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [cpp, python]  # https://aka.ms/codeql-docs/language-support
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - uses: dtolnay/rust-toolchain@1.69.0
+
+    - uses: ./.github/actions/deps
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: ${{ matrix.language }}
+
+    - name: Build
+      run: make -j -Otarget
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        category: "/language:${{matrix.language}}"
+        threads: 0

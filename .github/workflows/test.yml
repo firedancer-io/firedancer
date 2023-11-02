@@ -2,7 +2,7 @@
 # - Build on GCC and Clang
 # - Test on GCC
 
-name: Unit Tests
+name: Tests
 on:
   pull_request:
   push:
@@ -12,6 +12,9 @@ on:
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   make-test:
     strategy:
@@ -27,12 +30,12 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.69.0
+      - uses: dtolnay/rust-toolchain@1.73.0
 
       - uses: ./.github/actions/deps
 
-      - name: Build everything
-        run: make -j -Otarget all rust
+      - name: Build unit tests
+        run: make -j unit-test
 
       - uses: ./.github/actions/hugepages
 
@@ -47,14 +50,12 @@ jobs:
     strategy:
       matrix:
         # add lowend once its fixed
-        # highend cannot be tested on the hosted runners due to lack of AVX-512
         feature_set: [modern]
-        sanitizer: [asan, ubsan]
     runs-on:
       group: github-v1
     env:
       MACHINE: linux_clang_combi_${{ matrix.feature_set }}
-      EXTRAS: ${{ matrix.sanitizer }}
+      EXTRAS: asan ubsan
     steps:
       - run: lscpu
 
@@ -71,9 +72,35 @@ jobs:
           sudo prlimit --pid $$ --memlock=-1:-1
           ./test.sh -j --page-sz gigantic
 
+  test-fuzz-regressions:
+    name: Test Fuzz Regressions on ${{ matrix.feature_set }}
+    needs: test-with-sanitizers
+    strategy:
+      matrix:
+        feature_set: [modern]
+    runs-on:
+      group: rhel85-icelake
+    env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      EXTRAS: fuzz asan ubsan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Build Fuzz Tests
+        run: make -j -Otarget fuzz-test
+
+      - name: Run Fuzz Tests Against Corpora
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          make -k -j -Otarget run-fuzz-test
+
   make-fuzz:
     # Only build fuzzers if sanitizer tests pass
-    needs: test-with-sanitizers
+    # This could be done on a workflow_run trigger
+    needs: test-fuzz-regressions
     name: Build Fuzzers for ${{ matrix.feature_set }} feature set
     strategy:
       matrix:
@@ -112,5 +139,3 @@ jobs:
           project-id: isol-clusterfuzz
           qualifier: ${{ matrix.feature_set }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
-
-

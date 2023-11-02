@@ -93,9 +93,10 @@ main( int     argc,
 
   /* load configuration and command line parsing */
   config_t config = config_parse( &argc, &argv );
-  if( config.is_live_cluster )
-    FD_LOG_ERR(( "fddev is for development and test environments but your configuration "
-                 "targets a live cluster. use fdctl if this is a production environment" ));
+  if( FD_UNLIKELY( config.is_live_cluster ) )
+    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+                 "configuration targets a live cluster. Use `fdctl` if this is a "
+                 "production environment" ));
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   config.development.sandbox = config.development.sandbox && !no_sandbox;
 
@@ -136,5 +137,6 @@ main( int     argc,
 
   /* run the command */
   action->fn( &args, &config );
+
   return 0;
 }

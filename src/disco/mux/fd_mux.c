@@ -583,7 +583,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       /* We have successfully loaded the metadata.  Decide whether it
           is interesting downstream and publish or filter accordingly. */
 
-      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, &sig, &chunk, &sz, &filter, &mux );
+      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, &sig, &chunk, &sz, &filter, &mux );
     }
 
     now = fd_tickcount();

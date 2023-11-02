@@ -207,6 +207,7 @@ struct fd_pack_private {
   ulong      pack_depth;
   ulong      bank_tile_cnt;
   ulong      max_txn_per_microblock;
+  ulong      max_microblocks_per_block;
 
   ulong      pending_txn_cnt;
   ulong      microblock_cnt; /* How many microblocks have we
@@ -306,7 +307,8 @@ fd_pack_new( void *     mem,
              ulong      pack_depth,
              ulong      bank_tile_cnt,
              ulong      max_txn_per_microblock,
-             fd_rng_t * rng                     ) {
+             ulong      max_microblocks_per_block,
+             fd_rng_t * rng                       ) {
 
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
   ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
@@ -329,6 +331,7 @@ fd_pack_new( void *     mem,
   pack->pack_depth                  = pack_depth;
   pack->bank_tile_cnt               = bank_tile_cnt;
   pack->max_txn_per_microblock      = max_txn_per_microblock;
+  pack->max_microblocks_per_block   = max_microblocks_per_block;
   pack->pending_txn_cnt             = 0UL;
   pack->microblock_cnt              = 0UL;
   pack->rng                         = rng;
@@ -465,11 +468,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     trp_pool_ele_release( pack->pool, ord );
     return;
   }
-  /* Throw out transactions ... */
-  /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
-  /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
   fd_txn_acct_iter_t ctrl[1];
   int writes_to_sysvar = 0;
@@ -477,8 +475,18 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
       i=fd_txn_acct_iter_next( i, ctrl ) ) {
     writes_to_sysvar |= fd_pack_unwritable_contains( accts+i );
   }
-  /*           ... try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar )                                     ) { trp_pool_ele_release( pack->pool, ord ); return; }
+
+  fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
+
+  /* Throw out transactions ... */
+  /*           ... that are unfunded */
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that are so big they'll never run */
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that try to write to a sysvar */
+  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  /*           ... that we already know about */
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
 
   /* TODO: Add recent blockhash based expiry here */
 
@@ -698,6 +706,8 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
                                            (ulong)((float)pack->max_txn_per_microblock * vote_fraction) );
 
+  if( FD_UNLIKELY( pack->microblock_cnt >= pack->max_microblocks_per_block ) ) return 0UL;
+
   ulong cu_limit  = total_cus - vote_cus;
   ulong txn_limit = pack->max_txn_per_microblock - vote_reserved_txns;
   ulong scheduled = 0UL;
@@ -730,7 +740,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   scheduled                   += status.txns_scheduled;
   pack->cumulative_block_cost += status.cus_scheduled;
 
-  pack->microblock_cnt++;
+  pack->microblock_cnt += (ulong)(scheduled>0UL);
   pack->outstanding_microblock_mask |= 1UL << bank_tile;
 
   return scheduled;

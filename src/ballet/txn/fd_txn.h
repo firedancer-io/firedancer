@@ -695,7 +695,7 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
   return 0;
 }
 
-/* fd_txn_is_writable: Is the account at the supplied index a signer
+/* fd_txn_is_signer: Is the account at the supplied index a signer
 
      Accounts ordered:
                                           Index Range                                 |   Signer?    |  Writeable?

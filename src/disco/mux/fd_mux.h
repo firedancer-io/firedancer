@@ -221,7 +221,8 @@ typedef void (fd_mux_during_frag_fn)( void * ctx,
    is not invoked if the mux is backpressured, as it would not read a
    frag in the first place.  It is also not invoked if
    fd_mux_during_frag sets opt_filter to non-zero, indicating to filter
-   the frag.
+   the frag. in_idx will be the index of the in that the frag was
+   received from.
 
    You should not read the frag data directly here, as it might still
    get overrun, instead it should be copied out of the frag during the
@@ -243,6 +244,7 @@ typedef void (fd_mux_during_frag_fn)( void * ctx,
    be trusted. */
 
 typedef void (fd_mux_after_frag_fn)( void *             ctx,
+                                     ulong              in_idx,
                                      ulong *            opt_sig,
                                      ulong *            opt_chunk,
                                      ulong *            opt_sz,
@@ -269,10 +271,10 @@ typedef void (fd_mux_after_frag_fn)( void *             ctx,
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 
-typedef void (fd_mux_cnc_diag_write)( void *  ctx,
-                                      ulong * cnc_app );
+typedef void (fd_mux_cnc_diag_write_fn)( void *  ctx,
+                                         ulong * cnc_app );
 
-typedef void (fd_mux_cnc_diag_clear)( void * ctx );
+typedef void (fd_mux_cnc_diag_clear_fn)( void * ctx );
 
 /* fd_mux_callbacks_t will be invoked during mux tile execution, and can
    be used to alter behavior of the mux tile from the default of copying
@@ -289,8 +291,8 @@ typedef struct {
   fd_mux_during_frag_fn * during_frag;
   fd_mux_after_frag_fn  * after_frag;
 
-  fd_mux_cnc_diag_write * cnc_diag_write;
-  fd_mux_cnc_diag_clear * cnc_diag_clear;
+  fd_mux_cnc_diag_write_fn * cnc_diag_write;
+  fd_mux_cnc_diag_clear_fn * cnc_diag_clear;
 } fd_mux_callbacks_t;
 
 FD_PROTOTYPES_BEGIN

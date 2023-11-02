@@ -14,7 +14,9 @@ fini_perm( fd_caps_ctx_t *  caps,
 }
 
 static configure_result_t
-check_page_size( char * name, ulong size, uint expected ) {
+check_page_size( char * name,
+                 ulong  size,
+                 ulong  expected ) {
   char page_path[ PATH_MAX ];
   snprintf1( page_path,
              PATH_MAX,
@@ -55,8 +57,10 @@ check( config_t * const config ) {
      able to clean up the workspace later */
   if( FD_UNLIKELY( !result1 || !result2 ) ) CONFIGURE_OK();
 
-  uint expected[ 2 ] = { 0 };
-  expected_pages( config, expected );
+  ulong expected[ 2 ] = {
+    fd_topo_huge_page_cnt( &config->topo ),
+    fd_topo_gigantic_page_cnt( &config->topo )
+  };
 
   CHECK( check_page_size( "huge", 2048, expected[ 0 ] ) );
   CHECK( check_page_size( "gigantic", 1048576, expected[ 1 ] ) );

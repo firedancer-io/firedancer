@@ -381,7 +381,7 @@ ppp: $(DEPFILES:.d=.i)
 endif
 
 run-script-test:
-	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) scripts/script-tests.sh
+	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) contrib/script-tests.sh
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/generate_filters.py {} \;
