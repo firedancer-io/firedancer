@@ -4,9 +4,6 @@
 #include <ctype.h>
 #include <stdio.h>
 
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-#pragma GCC diagnostic ignored "-Wformat"
-
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
 
 /* STATE_{...} identify the state of the YAML writer.  This is used
@@ -140,7 +137,7 @@ fd_flamenco_yaml_walk( void *       _self,
   (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
-    FD_LOG_WARNING(( "indent level %u exceeds max %ld",
+    FD_LOG_WARNING(( "indent level %d exceeds max %d",
                      level, FD_FLAMENCO_YAML_MAX_INDENT ));
     return;
   }

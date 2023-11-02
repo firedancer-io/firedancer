@@ -29,7 +29,7 @@
       "name": "feature",
       "type": "struct",
       "fields": [
-        { "name": "activated_at", "type": "option", "element": "ulong" }
+        { "name": "activated_at", "type": "option", "element": "ulong", "flat": true }
       ],
       "comment": "sdk/program/src/feature.rs#L22"
     },
@@ -470,9 +470,9 @@
       "type": "struct",
       "alignment": "16",
       "fields": [
-        { "name": "bank",                     "type": "deserializable_versioned_bank" },
-        { "name": "accounts_db",              "type": "solana_accounts_db_fields" },
-        { "name": "lamports_per_signature",   "type": "ulong" }
+        { "name": "bank",                                  "type": "deserializable_versioned_bank" },
+        { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
+        { "name": "lamports_per_signature",                "type": "ulong" }
       ]
     },
     {
@@ -677,7 +677,7 @@
           { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":64 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
@@ -880,7 +880,7 @@
       ]
     },
     {
-      "name": "firedancer_banks",
+      "name": "firedancer_bank",
       "type": "struct",
       "alignment": "16",
       "fields": [
@@ -904,6 +904,49 @@
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
+        { "name": "collected_fees",        "type": "ulong" },
+        { "name": "collected_rent",        "type": "ulong" },
+        { "name": "epoch_stakes",          "type": "vote_accounts" },
+        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
+      ]
+    },
+    {
+      "name": "epoch_bank",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "stakes",                "type": "stakes" },
+        { "name": "lamports_per_signature","type": "ulong" },
+        { "name": "hashes_per_tick",       "type": "ulong" },
+        { "name": "ticks_per_slot",        "type": "ulong" },
+        { "name": "ns_per_slot",           "type": "uint128" },
+        { "name": "genesis_creation_time", "type": "ulong" },
+        { "name": "slots_per_year",        "type": "double" },
+        { "name": "max_tick_height",       "type": "ulong" },
+        { "name": "inflation",             "type": "inflation" },
+        { "name": "epoch_schedule",        "type": "epoch_schedule" },
+        { "name": "rent",                  "type": "rent" },
+        { "name": "eah_start_slot",        "type": "ulong" },
+        { "name": "eah_stop_slot",         "type": "ulong" },
+        { "name": "eah_interval",          "type": "ulong" }
+      ]
+    },
+    {
+      "name": "slot_bank",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "recent_block_hashes",   "type": "recent_block_hashes" },
+        { "name": "timestamp_votes",       "type": "clock_timestamp_votes" },
+        { "name": "slot",                  "type": "ulong" },
+        { "name": "prev_slot",             "type": "ulong" },
+        { "name": "poh",                   "type": "hash" },
+        { "name": "banks_hash",            "type": "hash" },
+        { "name": "epoch_account_hash",    "type": "hash" },
+        { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
+        { "name": "capitalization",        "type": "ulong" },
+        { "name": "block_height",          "type": "ulong" },
+        { "name": "max_tick_height",       "type": "ulong" },
         { "name": "collected_fees",        "type": "ulong" },
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
@@ -1359,7 +1402,8 @@
         { "name": "request_units_deprecated", "type": "compute_budget_program_instruction_request_units_deprecated" },
         { "name": "request_heap_frame", "type": "uint" },
         { "name": "set_compute_unit_limit", "type": "uint" },
-        { "name": "set_compute_unit_price", "type": "ulong" }
+        { "name": "set_compute_unit_price", "type": "ulong" },
+        { "name": "set_loaded_accounts_data_size_limit", "type": "uint" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L25"
     },
@@ -1510,7 +1554,7 @@
         { "name": "deactivation_slot", "type": "ulong" },
         { "name": "last_extended_slot", "type": "ulong" },
         { "name": "last_extended_slot_start_index", "type": "uchar" },
-        { "name": "authority", "type": "option", "element": "pubkey" },
+        { "name": "authority", "type": "option", "element": "pubkey", "flat": true },
         { "name": "_padding", "type": "ushort" }
       ],
       "comment": ""
@@ -1541,7 +1585,7 @@
       "name": "gossip_bitvec_u8",
       "type": "struct",
       "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner" },
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u8_inner", "flat": true },
         { "name": "len", "type": "ulong" }
       ]
     },
@@ -1554,7 +1598,7 @@
       "name": "gossip_bitvec_u64",
       "type": "struct",
       "fields": [
-        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner" },
+        { "name": "bits", "type": "option", "element": "gossip_bitvec_u64_inner", "flat": true },
         { "name": "len", "type": "ulong" }
       ]
     },
@@ -1708,7 +1752,7 @@
         { "name": "major", "type": "ushort" },
         { "name": "minor", "type": "ushort" },
         { "name": "patch", "type": "ushort" },
-        { "name": "commit", "type": "option", "element": "uint" }
+        { "name": "commit", "type": "option", "element": "uint", "flat": true }
       ]
     },
     {
@@ -1720,7 +1764,7 @@
         { "name": "major", "type": "ushort" },
         { "name": "minor", "type": "ushort" },
         { "name": "patch", "type": "ushort" },
-        { "name": "commit", "type": "option", "element": "uint" },
+        { "name": "commit", "type": "option", "element": "uint", "flat": true },
         { "name": "feature_set", "type": "uint" }
       ]
     },
@@ -1846,6 +1890,33 @@
         { "name": "pong",      "type": "gossip_ping" }
       ],
       "comment": "UDP payloads of the Solana gossip protocol"
+    },
+    {
+      "name": "addrlut_create",
+      "type": "struct",
+      "fields": [
+        { "name": "recent_slot", "type": "ulong" },
+        { "name": "bump_seed",   "type": "uchar" }
+      ]
+    },
+    {
+      "name": "addrlut_extend",
+      "type": "struct",
+      "fields": [
+        { "name": "new_addrs", "type": "vector", "element": "pubkey" }
+      ]
+    },
+    {
+      "name": "addrlut_instruction",
+      "type": "enum",
+      "variants": [
+        { "name": "create_lut", "type": "addrlut_create" },
+        { "name": "freeze_lut" },
+        { "name": "extend_lut", "type": "addrlut_extend" },
+        { "name": "deactivate_lut" },
+        { "name": "close_lut" }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
     }
   ]
 }

@@ -24,24 +24,11 @@ print("", file=header)
 
 print(f'#include "{sys.argv[1]}"', file=body)
 
-print("", file=body)
-print("/* FIXME: Temporary scaffolding */", file=body)
-print("#pragma GCC diagnostic push", file=body)
-print("#pragma GCC diagnostic ignored \"-Wunused-parameter\"", file=body)
-print("#pragma GCC diagnostic ignored \"-Wunused-variable\"", file=body)
-print("#if FD_USING_GCC==1 /* Clang doesn't understand these options */", file=body)
-print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=const\"", file=body)
-print("#pragma GCC diagnostic ignored \"-Wsuggest-attribute=pure\"", file=body)
-print("#endif", file=body)
-print("", file=body)
-print("#ifdef _DISABLE_OPTIMIZATION", file=body)
-print("#pragma GCC optimize (\"O0\")", file=body)
-print("#endif", file=body)
-print("", file=body)
+print('#pragma GCC diagnostic ignored "-Wunused-parameter"', file=body)
+print('#pragma GCC diagnostic ignored "-Wunused-variable"', file=body)
 
 print('#define SOURCE_fd_src_flamenco_types_fd_types_c', file=body)
 print('#include "fd_types_custom.c"', file=body)
-print("", file=body)
 
 preambletypes = set()
 postambletypes = set()
@@ -1052,6 +1039,7 @@ class OptionMember:
     def __init__(self, container, json):
         self.name = json["name"]
         self.element = json["element"]
+        self.flat = json.get("flat", False)
 
     def emitPreamble(self):
         pass
@@ -1060,24 +1048,35 @@ class OptionMember:
         pass
 
     def emitMember(self):
-        if self.element in simpletypes:
-            print(f'  {self.element}* {self.name};', file=header)
+        if self.flat:
+            if self.element in simpletypes:
+                print(f'  {self.element} {self.name};', file=header)
+            else:
+                print(f'  {namespace}_{self.element}_t {self.name};', file=header)
+            print(f'  uchar has_{self.name};', file=header)
         else:
-            print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+            if self.element in simpletypes:
+                print(f'  {self.element}* {self.name};', file=header)
+            else:
+                print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
 
     def emitNew(self):
         pass
 
     def emitDestroy(self):
-        print(f'  if (NULL != self->{self.name}) {{', file=body)
-        if self.element in simpletypes:
-            pass
+        if self.flat:
+            print(f'  if( self->has_{self.name} ) {{', file=body)
+            if self.element not in simpletypes:
+                print(f'    {namespace}_{self.element}_destroy( &self->{self.name}, ctx );', file=body)
+            print(f'    self->has_{self.name} = 0;', file=body)
+            print('  }', file=body)
         else:
-            print(f'    {namespace}_{self.element}_destroy(self->{self.name}, ctx);', file=body)
-
-        print(f'    fd_valloc_free( ctx->valloc, self->{self.name});', file=body)
-        print(f'    self->{self.name} = NULL;', file=body)
-        print('  }', file=body)
+            print(f'  if( NULL != self->{self.name} ) {{', file=body)
+            if self.element not in simpletypes:
+                print(f'    {namespace}_{self.element}_destroy( self->{self.name}, ctx );', file=body)
+            print(f'    fd_valloc_free( ctx->valloc, self->{self.name} );', file=body)
+            print(f'    self->{self.name} = NULL;', file=body)
+            print('  }', file=body)
 
     def emitDecodePreflight(self):
         print('  {', file=body)
@@ -1099,66 +1098,106 @@ class OptionMember:
         print('  {', file=body)
         print('    uchar o;', file=body)
         print('    fd_bincode_option_decode_unsafe( &o, ctx );', file=body)
-        print('    if( o ) {', file=body)
-        if self.element in simpletypes:
-            print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof({self.element}) );', file=body)
-            print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name}, ctx );', file=body)
+        if self.flat:
+            print(f'    self->has_{self.name} = !!o;', file=body)
+            print('    if( o ) {', file=body)
+            if self.element in simpletypes:
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( &self->{self.name}, ctx );', file=body)
+            else:
+                el = f'{namespace}_{self.element}'
+                el = el.upper()
+                print(f'      {namespace}_{self.element}_new( &self->{self.name} );', file=body)
+                print(f'      {namespace}_{self.element}_decode_unsafe( &self->{self.name}, ctx );', file=body)
+            print('    }', file=body)
         else:
-            el = f'{namespace}_{self.element}'
-            el = el.upper()
-            print(f'      self->{self.name} = ({namespace}_{self.element}_t*)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT );', file=body)
-            print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
-            print(f'      {namespace}_{self.element}_decode_unsafe( self->{self.name}, ctx );', file=body)
-        print('    } else', file=body)
-        print(f'      self->{self.name} = NULL;', file=body)
+            print('    if( o ) {', file=body)
+            if self.element in simpletypes:
+                print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof({self.element}) );', file=body)
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name}, ctx );', file=body)
+            else:
+                el = f'{namespace}_{self.element}'
+                el = el.upper()
+                print(f'      self->{self.name} = ({namespace}_{self.element}_t*)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT );', file=body)
+                print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
+                print(f'      {namespace}_{self.element}_decode_unsafe( self->{self.name}, ctx );', file=body)
+            print('    } else', file=body)
+            print(f'      self->{self.name} = NULL;', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
-        print(f'  if (self->{self.name} != NULL) {{', file=body)
-        print('    err = fd_bincode_option_encode(1, ctx);', file=body)
-        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-
-        if self.element in simpletypes:
-            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode(self->{self.name}, ctx);', file=body)
+        if self.flat:
+            print(f'  err = fd_bincode_option_encode( self->has_{self.name}, ctx );', file=body)
+            print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
+            print(f'  if( self->has_{self.name} ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( &self->{self.name}, ctx );', file=body)
+            else:
+                print(f'    err = {namespace}_{self.element}_encode( &self->{self.name}, ctx );', file=body)
+            print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+            print('  }', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_encode(self->{self.name}, ctx);', file=body)
-        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print('  } else {', file=body)
-        print('    err = fd_bincode_option_encode(0, ctx);', file=body)
-        print('    if ( FD_UNLIKELY(err) ) return err;', file=body)
-        print('  }', file=body)
+            print(f'  if( self->{self.name} != NULL ) {{', file=body)
+            print('    err = fd_bincode_option_encode( 1, ctx );', file=body)
+            print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+            if self.element in simpletypes:
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}, ctx );', file=body)
+            else:
+                print(f'    err = {namespace}_{self.element}_encode( self->{self.name}, ctx );', file=body)
+            print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+            print('  } else {', file=body)
+            print('    err = fd_bincode_option_encode( 0, ctx );', file=body)
+            print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
+            print('  }', file=body)
 
     def emitSize(self, inner):
         print('  size += sizeof(char);', file=body)
-        print(f'  if (NULL !=  self->{self.name}) {{', file=body)
-        if self.element in simpletypes:
-            print(f'    size += sizeof({self.element});', file=body)
+        if self.flat:
+            print(f'  if( self->has_{self.name} ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'    size += sizeof({self.element});', file=body)
+            else:
+                print(f'    size += {namespace}_{self.element}_size( &self->{self.name} );', file=body)
+            print('  }', file=body)
         else:
-            print(f'    size += {namespace}_{self.element}_size(self->{self.name});', file=body)
-        print('  }', file=body)
+            print(f'  if( NULL !=  self->{self.name} ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'    size += sizeof({self.element});', file=body)
+            else:
+                print(f'    size += {namespace}_{self.element}_size( self->{self.name} );', file=body)
+            print('  }', file=body)
 
     emitWalkMap = {
-        "char" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
-        "char*" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );', file=body),
-        "double" :    lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",    level );', file=body),
-        "long" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG,   "long",      level );', file=body),
-        "uint" :      lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",      level );', file=body),
-        "uint128" :   lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );', file=body),
-        "uchar" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
-        "uchar[32]" : lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
-        "ulong" :     lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
-        "ushort" :    lambda n: print(f'  fun( w, self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body),
-       }
+        "char" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
+        "char*" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_CSTR, "char*", level );', file=body),
+        "double" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level );', file=body),
+        "long" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level );', file=body),
+        "uint" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level );', file=body),
+        "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
+        "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+        "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+        "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body),
+        "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body),
+    }
 
     def emitWalk(self, inner):
-        print(f'''  if( !self->{self.name} ) {{
-    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );
-  }} else {{''', file=body)
-        if self.element in OptionMember.emitWalkMap:
-            OptionMember.emitWalkMap[self.element](self.name)
+        if self.flat:
+            print(f'  if( !self->has_{self.name} ) {{', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
+            print( '  } else {', file=body)
+            if self.element in OptionMember.emitWalkMap:
+                OptionMember.emitWalkMap[self.element](self.name, '&')
+            else:
+                print(f'    {namespace}_{self.element}_walk( w, &self->{self.name}, fun, "{self.name}", level );', file=body)
+            print( '  }', file=body)
         else:
-            print(f'  {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
-        print(f'  }}', file=body)
+            print(f'  if( !self->{self.name} ) {{', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_NULL, "{self.element}", level );', file=body)
+            print( '  } else {', file=body)
+            if self.element in OptionMember.emitWalkMap:
+                OptionMember.emitWalkMap[self.element](self.name, '')
+            else:
+                print(f'    {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
+            print( '  }', file=body)
 
 
 class ArrayMember:

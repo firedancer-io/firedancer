@@ -8,7 +8,8 @@
 
 /* sdk/program/src/feature.rs#L22 */
 struct __attribute__((aligned(8UL))) fd_feature {
-  ulong* activated_at;
+  ulong activated_at;
+  uchar has_activated_at;
 };
 typedef struct fd_feature fd_feature_t;
 #define FD_FEATURE_FOOTPRINT sizeof(fd_feature_t)
@@ -1114,7 +1115,7 @@ typedef struct fd_feature_entry fd_feature_entry_t;
 #define FD_FEATURE_ENTRY_FOOTPRINT sizeof(fd_feature_entry_t)
 #define FD_FEATURE_ENTRY_ALIGN (8UL)
 
-struct __attribute__((aligned(16UL))) fd_firedancer_banks {
+struct __attribute__((aligned(16UL))) fd_firedancer_bank {
   fd_stakes_t stakes;
   fd_recent_block_hashes_t recent_block_hashes;
   fd_clock_timestamp_votes_t timestamp_votes;
@@ -1140,9 +1141,50 @@ struct __attribute__((aligned(16UL))) fd_firedancer_banks {
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
 };
-typedef struct fd_firedancer_banks fd_firedancer_banks_t;
-#define FD_FIREDANCER_BANKS_FOOTPRINT sizeof(fd_firedancer_banks_t)
-#define FD_FIREDANCER_BANKS_ALIGN (16UL)
+typedef struct fd_firedancer_bank fd_firedancer_bank_t;
+#define FD_FIREDANCER_BANK_FOOTPRINT sizeof(fd_firedancer_bank_t)
+#define FD_FIREDANCER_BANK_ALIGN (16UL)
+
+struct __attribute__((aligned(16UL))) fd_epoch_bank {
+  fd_stakes_t stakes;
+  ulong lamports_per_signature;
+  ulong hashes_per_tick;
+  ulong ticks_per_slot;
+  uint128 ns_per_slot;
+  ulong genesis_creation_time;
+  double slots_per_year;
+  ulong max_tick_height;
+  fd_inflation_t inflation;
+  fd_epoch_schedule_t epoch_schedule;
+  fd_rent_t rent;
+  ulong eah_start_slot;
+  ulong eah_stop_slot;
+  ulong eah_interval;
+};
+typedef struct fd_epoch_bank fd_epoch_bank_t;
+#define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
+#define FD_EPOCH_BANK_ALIGN (16UL)
+
+struct __attribute__((aligned(16UL))) fd_slot_bank {
+  fd_recent_block_hashes_t recent_block_hashes;
+  fd_clock_timestamp_votes_t timestamp_votes;
+  ulong slot;
+  ulong prev_slot;
+  fd_hash_t poh;
+  fd_hash_t banks_hash;
+  fd_hash_t epoch_account_hash;
+  fd_fee_rate_governor_t fee_rate_governor;
+  ulong capitalization;
+  ulong block_height;
+  ulong max_tick_height;
+  ulong collected_fees;
+  ulong collected_rent;
+  fd_vote_accounts_t epoch_stakes;
+  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+};
+typedef struct fd_slot_bank fd_slot_bank_t;
+#define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
+#define FD_SLOT_BANK_ALIGN (16UL)
 
 struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
   ulong validator_rewards;
@@ -1635,6 +1677,7 @@ union fd_compute_budget_program_instruction_inner {
   uint request_heap_frame;
   uint set_compute_unit_limit;
   ulong set_compute_unit_price;
+  uint set_loaded_accounts_data_size_limit;
 };
 typedef union fd_compute_budget_program_instruction_inner fd_compute_budget_program_instruction_inner_t;
 
@@ -1816,7 +1859,8 @@ struct __attribute__((aligned(8UL))) fd_lookup_table_meta {
   ulong deactivation_slot;
   ulong last_extended_slot;
   uchar last_extended_slot_start_index;
-  fd_pubkey_t* authority;
+  fd_pubkey_t authority;
+  uchar has_authority;
   ushort _padding;
 };
 typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
@@ -1854,7 +1898,8 @@ typedef struct fd_gossip_bitvec_u8_inner fd_gossip_bitvec_u8_inner_t;
 #define FD_GOSSIP_BITVEC_U8_INNER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8 {
-  fd_gossip_bitvec_u8_inner_t* bits;
+  fd_gossip_bitvec_u8_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
@@ -1870,7 +1915,8 @@ typedef struct fd_gossip_bitvec_u64_inner fd_gossip_bitvec_u64_inner_t;
 #define FD_GOSSIP_BITVEC_U64_INNER_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64 {
-  fd_gossip_bitvec_u64_inner_t* bits;
+  fd_gossip_bitvec_u64_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
@@ -2036,7 +2082,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_legacy_version {
   ushort major;
   ushort minor;
   ushort patch;
-  uint* commit;
+  uint commit;
+  uchar has_commit;
 };
 typedef struct fd_gossip_legacy_version fd_gossip_legacy_version_t;
 #define FD_GOSSIP_LEGACY_VERSION_FOOTPRINT sizeof(fd_gossip_legacy_version_t)
@@ -2048,7 +2095,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_version {
   ushort major;
   ushort minor;
   ushort patch;
-  uint* commit;
+  uint commit;
+  uchar has_commit;
   uint feature_set;
 };
 typedef struct fd_gossip_version fd_gossip_version_t;
@@ -2194,6 +2242,37 @@ struct fd_gossip_msg {
 typedef struct fd_gossip_msg fd_gossip_msg_t;
 #define FD_GOSSIP_MSG_FOOTPRINT sizeof(fd_gossip_msg_t)
 #define FD_GOSSIP_MSG_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_addrlut_create {
+  ulong recent_slot;
+  uchar bump_seed;
+};
+typedef struct fd_addrlut_create fd_addrlut_create_t;
+#define FD_ADDRLUT_CREATE_FOOTPRINT sizeof(fd_addrlut_create_t)
+#define FD_ADDRLUT_CREATE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_addrlut_extend {
+  ulong new_addrs_len;
+  fd_pubkey_t* new_addrs;
+};
+typedef struct fd_addrlut_extend fd_addrlut_extend_t;
+#define FD_ADDRLUT_EXTEND_FOOTPRINT sizeof(fd_addrlut_extend_t)
+#define FD_ADDRLUT_EXTEND_ALIGN (8UL)
+
+union fd_addrlut_instruction_inner {
+  fd_addrlut_create_t create_lut;
+  fd_addrlut_extend_t extend_lut;
+};
+typedef union fd_addrlut_instruction_inner fd_addrlut_instruction_inner_t;
+
+/* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13 */
+struct fd_addrlut_instruction {
+  uint discriminant;
+  fd_addrlut_instruction_inner_t inner;
+};
+typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
+#define FD_ADDRLUT_INSTRUCTION_FOOTPRINT sizeof(fd_addrlut_instruction_t)
+#define FD_ADDRLUT_INSTRUCTION_ALIGN (8UL)
 
 
 FD_PROTOTYPES_BEGIN
@@ -3131,16 +3210,38 @@ ulong fd_feature_entry_size(fd_feature_entry_t const * self);
 ulong fd_feature_entry_footprint( void );
 ulong fd_feature_entry_align( void );
 
-void fd_firedancer_banks_new(fd_firedancer_banks_t* self);
-int fd_firedancer_banks_decode(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_firedancer_banks_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_firedancer_banks_decode_unsafe(fd_firedancer_banks_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_firedancer_banks_encode(fd_firedancer_banks_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_firedancer_banks_destroy(fd_firedancer_banks_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_firedancer_banks_walk(void * w, fd_firedancer_banks_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_firedancer_banks_size(fd_firedancer_banks_t const * self);
-ulong fd_firedancer_banks_footprint( void );
-ulong fd_firedancer_banks_align( void );
+void fd_firedancer_bank_new(fd_firedancer_bank_t* self);
+int fd_firedancer_bank_decode(fd_firedancer_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_firedancer_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_firedancer_bank_decode_unsafe(fd_firedancer_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_firedancer_bank_encode(fd_firedancer_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_firedancer_bank_destroy(fd_firedancer_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_firedancer_bank_walk(void * w, fd_firedancer_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_firedancer_bank_size(fd_firedancer_bank_t const * self);
+ulong fd_firedancer_bank_footprint( void );
+ulong fd_firedancer_bank_align( void );
+
+void fd_epoch_bank_new(fd_epoch_bank_t* self);
+int fd_epoch_bank_decode(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_epoch_bank_decode_unsafe(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_epoch_bank_destroy(fd_epoch_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_epoch_bank_walk(void * w, fd_epoch_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_epoch_bank_size(fd_epoch_bank_t const * self);
+ulong fd_epoch_bank_footprint( void );
+ulong fd_epoch_bank_align( void );
+
+void fd_slot_bank_new(fd_slot_bank_t* self);
+int fd_slot_bank_decode(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_slot_bank_destroy(fd_slot_bank_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_slot_bank_size(fd_slot_bank_t const * self);
+ulong fd_slot_bank_footprint( void );
+ulong fd_slot_bank_align( void );
 
 void fd_prev_epoch_inflation_rewards_new(fd_prev_epoch_inflation_rewards_t* self);
 int fd_prev_epoch_inflation_rewards_decode(fd_prev_epoch_inflation_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -3775,11 +3876,13 @@ FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecat
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame(fd_compute_budget_program_instruction_t const * self);
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit(fd_compute_budget_program_instruction_t const * self);
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price(fd_compute_budget_program_instruction_t const * self);
+FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_loaded_accounts_data_size_limit(fd_compute_budget_program_instruction_t const * self);
 enum {
 fd_compute_budget_program_instruction_enum_request_units_deprecated = 0,
 fd_compute_budget_program_instruction_enum_request_heap_frame = 1,
 fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
 fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
+fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit = 4,
 }; 
 void fd_config_keys_new(fd_config_keys_t* self);
 int fd_config_keys_decode(fd_config_keys_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -4435,6 +4538,52 @@ fd_gossip_msg_enum_push_msg = 2,
 fd_gossip_msg_enum_prune_msg = 3,
 fd_gossip_msg_enum_ping = 4,
 fd_gossip_msg_enum_pong = 5,
+}; 
+void fd_addrlut_create_new(fd_addrlut_create_t* self);
+int fd_addrlut_create_decode(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_create_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_create_decode_unsafe(fd_addrlut_create_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_create_encode(fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_create_destroy(fd_addrlut_create_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_create_walk(void * w, fd_addrlut_create_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_create_size(fd_addrlut_create_t const * self);
+ulong fd_addrlut_create_footprint( void );
+ulong fd_addrlut_create_align( void );
+
+void fd_addrlut_extend_new(fd_addrlut_extend_t* self);
+int fd_addrlut_extend_decode(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_extend_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_extend_decode_unsafe(fd_addrlut_extend_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_extend_encode(fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_extend_destroy(fd_addrlut_extend_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_extend_walk(void * w, fd_addrlut_extend_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_extend_size(fd_addrlut_extend_t const * self);
+ulong fd_addrlut_extend_footprint( void );
+ulong fd_addrlut_extend_align( void );
+
+void fd_addrlut_instruction_new_disc(fd_addrlut_instruction_t* self, uint discriminant);
+void fd_addrlut_instruction_new(fd_addrlut_instruction_t* self);
+int fd_addrlut_instruction_decode(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_instruction_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_addrlut_instruction_decode_unsafe(fd_addrlut_instruction_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_addrlut_instruction_encode(fd_addrlut_instruction_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_addrlut_instruction_destroy(fd_addrlut_instruction_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_addrlut_instruction_walk(void * w, fd_addrlut_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_addrlut_instruction_size(fd_addrlut_instruction_t const * self);
+ulong fd_addrlut_instruction_footprint( void );
+ulong fd_addrlut_instruction_align( void );
+
+FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_freeze_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_extend_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_deactivate_lut(fd_addrlut_instruction_t const * self);
+FD_FN_PURE uchar fd_addrlut_instruction_is_close_lut(fd_addrlut_instruction_t const * self);
+enum {
+fd_addrlut_instruction_enum_create_lut = 0,
+fd_addrlut_instruction_enum_freeze_lut = 1,
+fd_addrlut_instruction_enum_extend_lut = 2,
+fd_addrlut_instruction_enum_deactivate_lut = 3,
+fd_addrlut_instruction_enum_close_lut = 4,
 }; 
 FD_PROTOTYPES_END
 
