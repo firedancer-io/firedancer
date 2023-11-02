@@ -7,6 +7,8 @@
 #include "pb_encode.h"
 #include "pb_common.h"
 
+#pragma GCC diagnostic ignored "-Wnonnull"
+
 /* Use the GCC warn_unused_result attribute to check that all return values
  * are propagated correctly. On other compilers and gcc before 3.4.0 just
  * ignore the annotation.

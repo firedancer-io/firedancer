@@ -1,5 +1,4 @@
 #include "fd_types_meta.h"
-#include "../fd_flamenco.h"
 #include "fd_types.h"
 
 /* This test program ensures that fd_types_walk generates a correct
@@ -179,14 +178,14 @@ test_vote_account_walk( void ) {
       FD_LOG_WARNING(( "Mismatch at step %lu", i ));
       FD_LOG_WARNING(( "Expected\n"
                        "  level: %u\n"
-                       "  type:  %#lx\n"
+                       "  type:  %#x\n"
                        "  name:  %s\n",
                        expect->level,
                        expect->type,
                        expect->name ));
       FD_LOG_WARNING(( "Actual\n"
                        "  level: %u\n"
-                       "  type:  %#lx\n"
+                       "  type:  %#x\n"
                        "  name:  %s\n",
                        recorder->steps[i].level,
                        recorder->steps[i].type,
@@ -202,7 +201,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   static uchar scratch_mem [ 1<<25 ];  /* 32 MiB */
   static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
@@ -213,7 +211,6 @@ main( int     argc,
   FD_LOG_NOTICE(( "pass" ));
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_scratch_detach( NULL );
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }
