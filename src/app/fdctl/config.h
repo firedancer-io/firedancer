@@ -1,6 +1,9 @@
 #ifndef HEADER_fd_src_app_fdctl_config_h
 #define HEADER_fd_src_app_fdctl_config_h
 
+#include "topology.h"
+
+#include "../../disco/fd_disco_base.h"
 #include "../../ballet/base58/fd_base58.h"
 
 #include <net/if.h>
@@ -12,38 +15,14 @@
 /* Maximum size of the string describing the CPU affinity of Firedancer */
 #define AFFINITY_SZ 256
 
-typedef enum {
-  wksp_netmux_inout,
-  wksp_quic_verify,
-  wksp_verify_dedup,
-  wksp_dedup_pack,
-  wksp_pack_bank,
-  wksp_bank_shred,
-  wksp_net,
-  wksp_netmux,
-  wksp_quic,
-  wksp_verify,
-  wksp_dedup,
-  wksp_pack,
-  wksp_bank,
-} workspace_kind_t;
-
-FD_FN_CONST char *
-workspace_kind_str( workspace_kind_t kind );
-
-typedef struct {
-  workspace_kind_t kind;
-  char * name;
-  ulong page_size;
-  ulong num_pages;
-} workspace_config_t;
-
 /* config_t represents all available configuration options that could be
    set in a user defined configuration toml file. For information about
    the options, see the `default.toml` file provided. */
 typedef struct {
   char name[ NAME_SZ ];
   char user[ 256 ];
+
+  fd_topo_t topo;
 
   int is_live_cluster;
 
@@ -102,8 +81,13 @@ typedef struct {
     int    only_known;
     int    pubsub_enable_block_subscription;
     int    pubsub_enable_vote_subscription;
-    int    incremental_snapshots;
   } rpc;
+
+  struct {
+    int  incremental_snapshots;
+    uint full_snapshot_interval_slots;
+    uint incremental_snapshot_interval_slots;
+  } snapshots;
 
   struct {
     char affinity[ AFFINITY_SZ ];
@@ -115,13 +99,11 @@ typedef struct {
   struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
-
-    ulong workspaces_cnt;
-    workspace_config_t workspaces[ 256 ];
   } shmem;
 
   struct {
     int sandbox;
+    int no_solana_labs;
     struct {
       int  enabled;
       char interface0     [ 256 ];
@@ -148,7 +130,7 @@ typedef struct {
     } net;
 
     struct {
-      ushort transaction_listen_port;
+      ushort regular_transaction_listen_port;
       ushort quic_transaction_listen_port;
 
       uint max_concurrent_connections;
@@ -156,6 +138,7 @@ typedef struct {
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;
+      uint idle_timeout_millis;
 
     } quic;
 
@@ -165,16 +148,18 @@ typedef struct {
     } verify;
 
     struct {
+      uint signature_cache_size;
+    } dedup;
+
+    struct {
       uint max_pending_transactions;
     } pack;
 
     struct {
-      uint receive_buffer_size;
-    } bank;
+      uint   max_pending_shred_sets;
+      ushort shred_listen_port;
+    } shred;
 
-    struct {
-      uint signature_cache_size;
-    } dedup;
   } tiles;
 } config_t;
 

@@ -151,9 +151,10 @@ FD_PROTOTYPES_BEGIN
    get if querying the join atomically with respect to join operations
    immediately afterward).  On failure, *opt_info is ignored.
 
-   fd_shmem_leave is just the inverse of this.  It cannot fail from the
-   caller's POV (but will log extensive details if there is any
-   wonkiness under the hood).
+   fd_shmem_leave is just the inverse of this.  It can fail for a few
+   reasons, including if the mmap cannot be close()'d for any reason.
+   IT will log extensive details if there is any wokiness udner the
+   hood.  The caller may wish to proceed even if it fails.
 
    IMPORTANT!  It is safe to have join/leave functions themselves call
    fd_shmem_join/fd_shmem_leave to join additional regions as necessary.
@@ -173,7 +174,7 @@ fd_shmem_join( char const *               name,
                void *                     context,
                fd_shmem_join_info_t *     opt_info );
 
-void
+int
 fd_shmem_leave( void *                    join,
                 fd_shmem_joinleave_func_t leave_func,
                 void *                    context );

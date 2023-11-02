@@ -1,9 +1,15 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include "generated/main_seccomp.h"
+#include "generated/pidns_seccomp.h"
+
+#include "tiles/tiles.h"
 #include "../configure/configure.h"
 
+#include "../../../disco/mux/fd_mux.h"
 #include "../../../util/wksp/fd_wksp_private.h"
+#include "../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
 #include <sched.h>
@@ -13,24 +19,27 @@
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
+#define NAME "run"
+
 void
 run_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config ) {
   (void)args;
 
-  ulong limit = memlock_max_bytes( config );
-  check_res( security, "run", RLIMIT_MEMLOCK, limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
-  check_res( security, "run", RLIMIT_NICE, 40, "call `setpriority(2)` to increase thread priorities" );
-  check_res( security, "run", RLIMIT_NOFILE, 1024000, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
-  check_cap( security, "run", CAP_NET_RAW, "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
-  check_cap( security, "run", CAP_SYS_ADMIN, "initialize XDP by calling `bpf_obj_get`" );
+  ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
+
+  fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
+  fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
+  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  1024000,     "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+  fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
+  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "initialize XDP by calling `bpf_obj_get`" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    check_cap( security, "run", CAP_SETUID, "switch uid by calling `setuid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "switch uid by calling `setuid(2)`" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    check_cap( security, "run", CAP_SETGID, "switch gid by calling `setgid(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "switch gid by calling `setgid(2)`" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, "run", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
@@ -51,35 +60,6 @@ install_tile_signals( void ) {
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-typedef struct {
-  char * app_name;
-  ulong idx;
-  ushort * tile_to_cpu;
-  cpu_set_t * floating_cpu_set;
-  int sandbox;
-  pid_t child_pids[ FD_TILE_MAX + 1 ];
-  char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
-  uid_t uid;
-  gid_t gid;
-} tile_spawner_t;
-
-const uchar *
-workspace_pod_join( char * app_name,
-                    char * workspace_name ) {
-  char name[ FD_WKSP_CSTR_MAX ];
-  snprintf( name, FD_WKSP_CSTR_MAX, "%s_%s.wksp", app_name, workspace_name );
-
-  fd_wksp_t * wksp = fd_wksp_attach( name );
-  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "could not attach to workspace `%s`", name ));
-
-  void * laddr = fd_wksp_laddr( wksp, wksp->gaddr_lo );
-  if( FD_UNLIKELY( !laddr ) ) FD_LOG_ERR(( "could not get gaddr_low from workspace `%s`", name ));
-
-  uchar const * pod = fd_pod_join( laddr );
-  if( FD_UNLIKELY( !pod ) ) FD_LOG_ERR(( "fd_pod_join to pod at gaddr_lo failed" ));
-  return pod;
-}
-
 static int
 getpid1( void ) {
   char pid[ 12 ] = {0};
@@ -97,49 +77,128 @@ int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
 
-  fd_log_private_tid_set( args->idx );
-  fd_log_thread_set( args->tile->name );
+  fd_topo_tile_t * tile = args->tile;
+
+  fd_log_private_tid_set( tile->id );
+  fd_log_thread_set( fd_topo_tile_kind_str( tile->kind ) );
 
   int pid = getpid1(); /* need to read /proc since we are in a PID namespace now */
-  FD_LOG_NOTICE(( "booting tile %s(%lu) pid(%d)", args->tile->name, args->tile_idx, pid ));
+  fd_log_private_group_id_set( (ulong)pid );
+  FD_LOG_NOTICE(( "booting tile %s(%lu) pid(%d)", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, pid ));
 
   install_tile_signals();
-  fd_tile_args_t tile_args = {
-    .pid = pid,
-    .tile_idx = args->tile_idx,
-    .idx = args->idx,
-    .app_name = args->app_name,
-    .tile_name = args->tile->name,
-  };
 
-  FD_TEST( tile_args.wksp_pod );
-  FD_TEST( args->tile->allow_workspaces_cnt <= sizeof(tile_args.wksp_pod) );
-  for( ulong i=0; i<args->tile->allow_workspaces_cnt; i++ ) {
-    /* preload pods before sandboxing, so workspace memory is already mapped */
-    tile_args.wksp_pod[ i ] = workspace_pod_join( args->app_name, workspace_kind_str( args->tile->allow_workspaces[ i ] ) );
+  /* calling fd_tempo_tick_per_ns requires nanosleep, it is cached with
+     a FD_ONCE.  We do this for all tiles before sandboxing so that we
+     don't need to allow the nanosleep syscall. */
+  fd_tempo_tick_per_ns( NULL );
+
+  /* preload shared memory before sandboxing, so it is already mapped */
+  fd_topo_join_tile_workspaces( args->config->name, &args->config->topo, tile );
+
+  fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+
+  void * scratch_mem   = NULL;
+  if( FD_LIKELY( config->scratch_align ) ) {
+    scratch_mem = (uchar*)args->config->topo.workspaces[ tile->wksp_id ].wksp + tile->user_mem_offset;
+    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch_mem, config->scratch_align() ) ) )
+      FD_LOG_ERR(( "scratch_mem is not aligned to %lu", config->scratch_align() ));
   }
 
-  if( FD_UNLIKELY( args->tile->init ) ) args->tile->init( &tile_args );
+  if( FD_UNLIKELY( config->privileged_init ) )
+    config->privileged_init( &args->config->topo, tile, scratch_mem );
 
   int allow_fds[ 32 ];
-  ulong allow_fds_sz = args->tile->allow_fds( &tile_args,
-                                              sizeof(allow_fds)/sizeof(allow_fds[0]),
-                                              allow_fds );
+  ulong allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
+                                                      sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+                                                      allow_fds );
 
-  fd_sandbox( args->sandbox,
-              args->uid,
-              args->gid,
-              allow_fds_sz,
+  struct sock_filter seccomp_filter[ 128UL ];
+  ulong seccomp_filter_cnt = config->populate_allowed_seccomp( scratch_mem,
+                                                               sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
+                                                               seccomp_filter );
+  fd_sandbox( args->config->development.sandbox,
+              args->config->uid,
+              args->config->gid,
+              allow_fds_cnt,
               allow_fds,
-              args->tile->allow_syscalls_cnt,
-              args->tile->allow_syscalls );
-  args->tile->run( &tile_args );
+              seccomp_filter_cnt,
+              seccomp_filter );
+
+  /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
+  fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
+  FD_TEST( tile->cnc );
+
+  if( FD_UNLIKELY( config->unprivileged_init ) )
+    config->unprivileged_init( &args->config->topo, tile, scratch_mem );
+
+  const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
+  ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
+
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    in_mcache[ i ] = args->config->topo.links[ tile->in_link_id[ i ] ].mcache;
+    FD_TEST( in_mcache[ i ] );
+    in_fseq[ i ]   = tile->in_link_fseq[ i ];
+    FD_TEST( in_fseq[ i ] );
+  }
+
+  ulong out_cnt_reliable = 0;
+  ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
+  for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &args->config->topo.tiles[ i ];
+    for( ulong j=0; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] == tile->out_link_id_primary && tile->in_link_reliable[ j ] ) ) {
+        out_fseq[ out_cnt_reliable ] = tile->in_link_fseq[ j ];
+        FD_TEST( out_fseq[ out_cnt_reliable ] );
+        out_cnt_reliable++;
+        /* Need to test this, since each link may connect to many outs,
+           you could construct a topology which has more than this
+           consumers of links. */
+        FD_TEST( out_cnt_reliable<FD_TOPO_MAX_LINKS );
+      }
+    }
+  }
+
+  fd_mux_callbacks_t callbacks = {
+    .during_housekeeping = config->mux_during_housekeeping,
+    .before_credit       = config->mux_before_credit,
+    .after_credit        = config->mux_after_credit,
+    .before_frag         = config->mux_before_frag,
+    .during_frag         = config->mux_during_frag,
+    .after_frag          = config->mux_after_frag,
+    .cnc_diag_write      = config->mux_cnc_diag_write,
+    .cnc_diag_clear      = config->mux_cnc_diag_clear,
+  };
+
+  void * ctx = NULL;
+  if( FD_LIKELY( config->mux_ctx ) ) ctx = config->mux_ctx( scratch_mem );
+
+  fd_rng_t rng[1];
+  fd_mux_tile( tile->cnc,
+               (ulong)pid,
+               config->mux_flags,
+               tile->in_cnt,
+               in_mcache,
+               in_fseq,
+               tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,
+               out_cnt_reliable,
+               out_fseq,
+               config->burst,
+               0,
+               0,
+               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
+               ctx,
+               &callbacks );
+
   return 0;
 }
 
-static void
-clone_tile( tile_spawner_t * spawn, fd_tile_config_t * tile, ulong idx ) {
-  ushort cpu_idx = spawn->tile_to_cpu[ spawn->idx ];
+static pid_t
+clone_tile( config_t *       config,
+            fd_topo_tile_t * tile,
+            ushort           cpu_idx,
+            cpu_set_t *      floating_cpu_set ) {
   cpu_set_t cpu_set[1];
   if( FD_LIKELY( cpu_idx<65535UL ) ) {
       /* set the thread affinity before we clone the new process to ensure
@@ -148,7 +207,7 @@ clone_tile( tile_spawner_t * spawn, fd_tile_config_t * tile, ulong idx ) {
       CPU_ZERO( cpu_set );
       CPU_SET( cpu_idx, cpu_set );
   } else {
-      memcpy( cpu_set, spawn->floating_cpu_set, sizeof(cpu_set_t) );
+      memcpy( cpu_set, floating_cpu_set, sizeof(cpu_set_t) );
   }
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) {
@@ -159,30 +218,22 @@ clone_tile( tile_spawner_t * spawn, fd_tile_config_t * tile, ulong idx ) {
                      "(possibly catastrophically so). Update [layout.affinity] in the configuraton "
                      "to specify a set of allowed cpus that have been reserved for this thread "
                      "group on this host to eliminate this warning.",
-                     errno, fd_io_strerror( errno ), spawn->idx, cpu_idx ));
+                     errno, fd_io_strerror( errno ), tile->id, cpu_idx ));
   }
 
   void * stack = fd_tile_private_stack_new( 1, cpu_idx );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
 
   tile_main_args_t args = {
-    .app_name = spawn->app_name,
-    .tile_idx = idx,
-    .idx  = spawn->idx,
-    .tile = tile,
-    .sandbox = spawn->sandbox,
-    .uid = spawn->uid,
-    .gid = spawn->gid,
+    .config = config,
+    .tile   = tile,
   };
 
   /* also spawn tiles into pid namespaces so they cannot signal each other or the parent */
-  int flags = spawn->sandbox ? CLONE_NEWPID : 0;
+  int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t pid = clone( tile_main, (uchar *)stack + (8UL<<20), flags, &args );
   if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  spawn->child_pids[ spawn->idx ] = pid;
-  strncpy( spawn->child_names[ spawn->idx ], tile->name, 32 );
-  spawn->idx++;
+  return pid;
 }
 
 extern void solana_validator_main( const char ** args );
@@ -191,6 +242,7 @@ int
 solana_labs_main( void * args ) {
   config_t * const config = args;
 
+  fd_log_private_group_id_set( (ulong)getpid1() );
   fd_sandbox( 0, config->uid, config->gid, 0, NULL, 0, NULL );
 
   uint idx = 0;
@@ -202,20 +254,6 @@ solana_labs_main( void * args ) {
 #define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%u", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
 #define ADDH( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%hu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
 
-  char scratch_identity[ PATH_MAX ];
-  snprintf1( scratch_identity, PATH_MAX, "%s/identity.json", config->scratch_directory );
-
-  char * identity_path;
-  if( FD_LIKELY( strcmp( config->consensus.identity_path, "" ) ) ) {
-    identity_path = config->consensus.identity_path;
-  } else {
-    if( FD_UNLIKELY( config->is_live_cluster ) ) {
-      FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
-    } else {
-      identity_path = scratch_identity;
-    }
-  }
-
   ADD1( "fdctl" );
   ADD( "--log", "-" );
   ADD( "--firedancer-app-name", config->name );
@@ -223,18 +261,19 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
 
-  ADDU( "--tpu-port", config->tiles.quic.transaction_listen_port );
+  ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
+  ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
   char ip_addr[16];
   snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
   ADD( "--gossip-host", ip_addr );
 
   /* consensus */
-  ADD( "--identity", identity_path );
+  ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
     ADD( "--vote-account", config->consensus.vote_account_path );
   if( !config->consensus.snapshot_fetch ) ADD1( "--no-snapshot-fetch" );
-  if( !config->consensus.genesis_fetch ) ADD1( "--no-genesis-fetch" );
+  if( !config->consensus.genesis_fetch  ) ADD1( "--no-genesis-fetch"  );
   if( !config->consensus.poh_speed_test ) ADD1( "--no-poh-speed-test" );
   if( strcmp( config->consensus.expected_genesis_hash, "" ) )
     ADD( "--expected-genesis-hash", config->consensus.expected_genesis_hash );
@@ -249,16 +288,13 @@ solana_labs_main( void * args ) {
     ADD1( "--no-wait-for-vote-to-start-leader");
   for( uint * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
   for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
-    ADD( "--known_validator", config->consensus.known_validators[ i ] );
+    ADD( "--known-validator", config->consensus.known_validators[ i ] );
 
   ADD( "--snapshot-archive-format", config->ledger.snapshot_archive_format );
   if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
 
   if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
-
-  if( FD_UNLIKELY( !config->consensus.poh_speed_test ) )
-    ADD1("--no-poh-speed-test" );
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );
@@ -285,7 +321,11 @@ solana_labs_main( void * args ) {
   if( config->rpc.only_known ) ADD1( "--only-known-rpc" );
   if( config->rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
   if( config->rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );
-  if( config->rpc.incremental_snapshots ) ADD1( "--incremental-snapshots" );
+
+  /* snapshots */
+  if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
+  ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+  ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
 
   argv[ idx ] = NULL;
 
@@ -301,8 +341,8 @@ solana_labs_main( void * args ) {
   return 0;
 }
 
-static void
-clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
+static pid_t
+clone_solana_labs( config_t * const config ) {
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
@@ -310,14 +350,13 @@ clone_solana_labs( tile_spawner_t * spawner, config_t * const config ) {
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t pid = clone( solana_labs_main, (uchar *)stack + (8UL<<20), flags, config );
   if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  spawner->child_pids[ spawner->idx ] = pid;
-  strncpy( spawner->child_names[ spawner->idx ], "solana-labs", 32 );
-  spawner->idx++;
+  return pid;
 }
 
 static int
 main_pid_namespace( void * args ) {
   fd_log_thread_set( "pidns" );
+  fd_log_private_group_id_set( (ulong)getpid1() );
 
   config_t * const config = args;
 
@@ -335,92 +374,70 @@ main_pid_namespace( void * args ) {
   if( FD_LIKELY( config->development.sandbox ) )
     if( FD_UNLIKELY( setpgid( 0, 0 ) ) ) FD_LOG_ERR(( "setpgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  /* bank and store tiles are not real tiles yet */
+  ulong tile_cnt = config->topo.tile_cnt
+    - fd_topo_tile_kind_cnt( &config->topo, FD_TOPO_TILE_KIND_BANK )
+    - fd_topo_tile_kind_cnt( &config->topo, FD_TOPO_TILE_KIND_STORE );
+
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
-  ulong tile_cnt = 0;
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    switch( config->shmem.workspaces[ i ].kind ) {
-      case wksp_netmux_inout:
-      case wksp_quic_verify:
-      case wksp_verify_dedup:
-      case wksp_dedup_pack:
-      case wksp_pack_bank:
-      case wksp_bank_shred:
-        break;
-      case wksp_net:
-        tile_cnt += config->layout.net_tile_count;
-        break;
-      case wksp_netmux:
-        tile_cnt++;
-        break;
-      case wksp_quic:
-      case wksp_verify:
-        tile_cnt += config->layout.verify_tile_count;
-        break;
-      case wksp_dedup:
-        tile_cnt++;
-        break;
-      case wksp_pack:
-        tile_cnt++;
-        break;
-      case wksp_bank:
-        /* not included here, not a real pinned tile*/
-        break;
-    }
-  }
-  if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "at least %lu tiles required for this config", tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "only %lu tiles required for this config", tile_cnt ));
+  if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                                                               "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                                                               "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                                                               config->topo.tile_cnt, affinity_tile_cnt ));
+  if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                                                                   "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                                                                   "individual tile counts in the [layout] section of the configuration file.",
+                                                                    config->topo.tile_cnt, affinity_tile_cnt ));
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
   if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  tile_spawner_t spawner = {
-    .app_name = config->name,
-    .idx = 0,
-    .tile_to_cpu = tile_to_cpu,
-    .floating_cpu_set = floating_cpu_set,
-    .sandbox = config->development.sandbox,
-    .uid = config->uid,
-    .gid = config->gid,
-  };
+  pid_t child_pids[ FD_TILE_MAX + 1 ];
+  char  child_names[ FD_TILE_MAX + 1 ][ 32 ];
 
-  clone_solana_labs( &spawner, config );
+  ulong child_cnt = 0UL;
+  if( FD_LIKELY( !config->development.no_solana_labs ) ) {
+    child_pids[ child_cnt ]  = clone_solana_labs( config );
+    strncpy( child_names[ child_cnt ], "solana-labs", 32 );
+    child_cnt++;
+  }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )  {
     enter_network_namespace( config->tiles.net.interface );
     close_network_namespace_original_fd();
   }
 
-  for( ulong i=0; i<config->layout.net_tile_count; i++ ) clone_tile( &spawner, &net, i );
-  clone_tile( &spawner, &netmux, 0 );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &quic, i );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) clone_tile( &spawner, &verify, i );
-  clone_tile( &spawner, &dedup, 0 );
-  clone_tile( &spawner, &pack , 0 );
+  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_BANK || tile->kind == FD_TOPO_TILE_KIND_STORE ) ) continue;
+
+    child_pids[ child_cnt ] = clone_tile( config, tile, tile_to_cpu[ i ], floating_cpu_set );
+    strncpy( child_names[ child_cnt ], fd_topo_tile_kind_str( tile->kind ), 32 );
+    child_cnt++;
+  }
 
   if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  long allow_syscalls[] = {
-    __NR_write,      /* logging */
-    __NR_wait4,      /* wait for children */
-    __NR_exit_group, /* exit process */
-  };
+  struct sock_filter seccomp_filter[ 128UL ];
+  populate_sock_filter_policy_pidns( 128UL, seccomp_filter );
 
-  int allow_fds[] = {
-    2, /* stderr */
-    3, /* logfile */
-  };
-
+  int allow_fds[2];
+  ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+ 
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
-              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds_cnt,
               allow_fds,
-              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-              allow_syscalls );
+              sock_filter_policy_pidns_instr_cnt,
+              seccomp_filter );
 
   /* we are now the init process of the pid namespace. if the init process
      dies, all children are terminated. If any child dies, we terminate the
@@ -435,9 +452,9 @@ main_pid_namespace( void * args ) {
 
   char * name = "unknown";
   ulong tile_idx = ULONG_MAX;
-  for( ulong i=0; i<spawner.idx; i++ ) {
-    if( spawner.child_pids[ i ] == exited_pid ) {
-      name = spawner.child_names[ i ];
+  for( ulong i=0; i<child_cnt; i++ ) {
+    if( FD_UNLIKELY( child_pids[ i ] == exited_pid ) ) {
+      name = child_names[ i ];
       tile_idx = i;
       break;
     }
@@ -458,8 +475,9 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 static void
 parent_signal( int sig ) {
   (void)sig;
-  if( pid_namespace ) kill( pid_namespace, SIGKILL );
-  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
+  if( -1!=fd_log_private_logfile_fd() )
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( 0 );
 }
 
@@ -477,6 +495,9 @@ install_parent_signals( void ) {
 
 void
 run_firedancer( config_t * const config ) {
+  /* dump the topology we are using to the output log */
+  fd_topo_print_log( &config->topo );
+
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
 
@@ -491,25 +512,23 @@ run_firedancer( config_t * const config ) {
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_namespace = clone( main_pid_namespace, (uchar *)stack + (8UL<<20), flags, config );
 
-  long allow_syscalls[] = {
-    __NR_write,      /* logging */
-    __NR_wait4,      /* wait for children */
-    __NR_exit_group, /* exit process */
-    __NR_kill,       /* kill the pid namespaced child process */
-  };
+  struct sock_filter seccomp_filter[ 128UL ];
+  FD_TEST( pid_namespace >= 0 );
+  populate_sock_filter_policy_main( 128UL, seccomp_filter, (unsigned int)pid_namespace );
 
-  int allow_fds[] = {
-    2, /* stderr */
-    3, /* logfile */
-  };
+  int allow_fds[2];
+  ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
-              sizeof(allow_fds)/sizeof(allow_fds[ 0 ]),
+              allow_fds_cnt,
               allow_fds,
-              sizeof(allow_syscalls)/sizeof(allow_syscalls[0]),
-              allow_syscalls );
+              sock_filter_policy_main_instr_cnt,
+              seccomp_filter );
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */
@@ -517,7 +536,7 @@ run_firedancer( config_t * const config ) {
   pid_t pid2 = wait4( pid_namespace, &wstatus, (int)__WCLONE, NULL );
   if( FD_UNLIKELY( pid2 == -1 ) ) {
     fd_log_private_fprintf_nolock_0( STDERR_FILENO, "error waiting for child process to exit\nLog at \"%s\"\n", fd_log_private_path );
-    exit_group( 1 );
+    exit_group( errno );
   }
   if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
   else exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
@@ -529,9 +548,16 @@ run_cmd_fn( args_t *         args,
   (void)args;
 
   if( FD_UNLIKELY( !config->gossip.entrypoints_cnt ) )
-    FD_LOG_ERR(( "No entrypoints specified in configuration file, but one is needed to determine "
-                 "how to connect to the Solana cluster. If you want to start a new cluster in a "
-                 "development environment, use `fdctl dev` instead of `fdctl run`" ));
+    FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
+                 "at least one is needed to determine how to connect to the Solana cluster. If "
+                 "you want to start a new cluster in a development environment, use `fddev` instead "
+                 "of `fdctl`." ));
+
+  for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( config->gossip.entrypoints[ i ], "" ) ) )
+      FD_LOG_ERR(( "One of the entrypoints in your configuration file under [gossip.entrypoints] is "
+                   "empty. Please remove the empty entrypoint or set it correctly. "));
+  }
 
   run_firedancer( config );
 }

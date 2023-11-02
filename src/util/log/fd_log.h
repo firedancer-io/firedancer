@@ -636,6 +636,11 @@ void fd_log_private_host_set ( char const * host  ); /* Not thread safe */
 void fd_log_private_group_set( char const * group ); /* Not thread safe */
 void fd_log_private_user_set ( char const * user  ); /* Not thread safe */
 
+/* This is exposed to allow the user to know the expected file descriptor
+   for filtering and security, it should never be used to actually write
+   logs and that should be done by the functions in fd_log.h */
+int fd_log_private_logfile_fd( void );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_log_fd_log_h */

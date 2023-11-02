@@ -341,8 +341,16 @@ fd_udpsock_send( void *                    ctx,
 
   /* Set up iovecs */
 
+  ulong iov_idx = 0UL;
   for( ulong i=0UL; i<send_cnt; i++ ) {
     if( FD_LIKELY( batch[i].buf_sz >= sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) {
+      /* skip packets that aren't IP (like ARP) */
+      /* TODO consider doing something with ARP probes here
+         it's an indication that the ARP table doesn't have an ARP entry for
+         the given IP */
+      fd_eth_hdr_t * eth = (fd_eth_hdr_t *)( (ulong)batch[i].buf );
+      if( FD_UNLIKELY( eth->net_type != htons( 0x0800 ) ) ) continue;
+
       fd_ip4_hdr_t * ip4 = (fd_ip4_hdr_t *)( (ulong)batch[i].buf + sizeof(fd_eth_hdr_t) );
       fd_ip4_hdr_bswap( ip4 );  /* convert to host byte order */
       uint daddr = 0;
@@ -352,19 +360,17 @@ fd_udpsock_send( void *                    ctx,
       ushort dport = udp->net_dport;
 
       void * payload = (void *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
-      sock->tx_iov[i].iov_base = payload;
-      sock->tx_iov[i].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
-      struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[i].msg_hdr.msg_name;
+      sock->tx_iov[iov_idx].iov_base = payload;
+      sock->tx_iov[iov_idx].iov_len  = batch[i].buf_sz - (ulong)( (ulong)payload - (ulong)batch[i].buf );
+      struct sockaddr_in * addr = (struct sockaddr_in *)sock->tx_msg[iov_idx].msg_hdr.msg_name;
       addr->sin_addr = (struct in_addr) { .s_addr = daddr };
       addr->sin_port = (ushort)fd_ushort_bswap( (ushort)dport );
 
-      sock->rx_msg[i].msg_len = !!ip4->ttl;
-    } else {
-      sock->rx_msg[i].msg_len = 0;
+      iov_idx++;
     }
   }
   int fd  = sock->fd;
-  int res = sendmmsg( fd, sock->tx_msg, (uint)send_cnt, flush ? 0 : MSG_DONTWAIT );
+  int res = sendmmsg( fd, sock->tx_msg, (uint)iov_idx, flush ? 0 : MSG_DONTWAIT );
   if( FD_UNLIKELY( res<0 ) ) {
     *opt_batch_idx = 0UL;
     if( FD_LIKELY( (errno==EAGAIN) | (errno==EWOULDBLOCK) ) )
@@ -374,8 +380,8 @@ fd_udpsock_send( void *                    ctx,
   }
   ulong sent_cnt = (ulong)res;
 
-  if( FD_UNLIKELY( send_cnt<sent_cnt ) ) {
-    *opt_batch_idx = send_cnt;
+  if( FD_UNLIKELY( iov_idx < sent_cnt ) ) {
+    *opt_batch_idx = iov_idx;
     return FD_AIO_ERR_AGAIN;
   }
   return FD_AIO_SUCCESS;

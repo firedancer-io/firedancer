@@ -54,7 +54,6 @@ typedef struct fd_quic_ack        fd_quic_ack_t;
        all preceding acks. ack ids are only increasing
    enc_level of acks is implied by the list it's in */
 
-
 struct fd_quic_ack {
   /* stores data about what was ack'ed */
   ulong           tx_pkt_number; /* the packet number this ack range was or will be transmitted in */
@@ -68,7 +67,6 @@ struct fd_quic_ack {
 # define FD_QUIC_ACK_FLAGS_SENT      (1u<<0u)
 # define FD_QUIC_ACK_FLAGS_MANDATORY (1u<<1u)
 };
-
 
 struct fd_quic_conn {
   fd_quic_t *        quic;
@@ -183,7 +181,6 @@ struct fd_quic_conn {
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
 
-
   /* sent packet metadata */
   /* TODO */
   /* 3 linked lists of packet metadata for tracking what data was sent
@@ -286,6 +283,14 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
+
+  /* are we waiting for routing/ARP to complete? */
+# define FD_ARP_STATUS_NONE     0
+# define FD_ARP_STATUS_RESOLVED 1
+# define FD_ARP_STATUS_REQUIRED 2
+# define FD_ARP_STATUS_WAITING  3
+  int   arp_status;
+  ulong arp_update; /* last time ARP was updated */
 };
 
 FD_PROTOTYPES_BEGIN
@@ -298,7 +303,6 @@ fd_quic_conn_align( void );
 FD_FN_PURE ulong
 fd_quic_conn_footprint( fd_quic_limits_t const * );
 
-
 /* called by fd_quic_new to initialize the connection objects
    used by fd_quic */
 fd_quic_conn_t *
@@ -306,11 +310,9 @@ fd_quic_conn_new( void *                   mem,
                   fd_quic_t *              quic,
                   fd_quic_limits_t const * limits );
 
-
 /* set the user-defined context value on the connection */
 void
 fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
-
 
 /* get the user-defined context value from a connection */
 void *
@@ -321,7 +323,7 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn );
    completed, 0 otherwise.  Will return 1 even if the conn has died
    since handshake. */
 
-FD_QUIC_API FD_FN_CONST inline int
+FD_QUIC_API FD_FN_PURE inline int
 fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
   return conn->handshake_complete;
 }

@@ -498,6 +498,8 @@ void fd_log_level_stderr_set ( int level ) { FD_VOLATILE( fd_log_private_level_s
 void fd_log_level_flush_set  ( int level ) { FD_VOLATILE( fd_log_private_level_flush   ) = level; }
 void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_core    ) = level; }
 
+int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private_fileno ); }
+
 /* Buffer size used for vsnprintf calls (this is also one more than the
    maximum size that this can passed to fd_io_write) */
 
@@ -1001,6 +1003,14 @@ fd_log_private_boot( int  *   pargc,
                               "log messages generated from clones (if any) may not be well sequenced; attempting to continue\n",
                               errno, fd_io_strerror( errno ) );
     shmem = fd_log_private_shared_lock_local;
+  } else {
+    if( FD_UNLIKELY( mlock( shmem, sizeof(int) ) ) ) {
+      fd_log_private_fprintf_0( STDERR_FILENO,
+                                "mlock(%p,sizeof(int)) (%i-%s); "
+                                "unable to lock log file shared lock in memory\n",
+                                shmem, errno, fd_io_strerror( errno ) );
+      shmem = fd_log_private_shared_lock_local;
+    }
   }
   fd_log_private_shared_lock = shmem;
 
@@ -1182,7 +1192,9 @@ fd_log_private_boot( int  *   pargc,
   }
   FD_VOLATILE( fd_log_private_fileno ) = log_fileno;
 
+#if !FD_LOG_UNCLEAN_EXIT
   if( atexit( fd_log_private_cleanup ) ) { fd_log_private_fprintf_0( STDERR_FILENO, "atexit failed; unable to boot\n" ); exit(1); }
+#endif
 
   /* At this point, logging online */
   if( fd_log_build_info_sz>1UL ) FD_LOG_INFO(( "fd_log: build info:\n%s", fd_log_build_info ));

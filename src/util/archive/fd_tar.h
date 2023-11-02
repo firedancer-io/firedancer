@@ -151,9 +151,9 @@ struct fd_tar_reader {
     fd_tar_meta_t header;
   };
 
-  ulong  pos;      /* Number of bytes consumed */
-  ushort buf_ctr;  /* Write cursor in file header */
-  ulong  file_sz;  /* Number of file bytes left */
+  ulong pos;      /* Number of bytes consumed */
+  ulong buf_ctr;  /* Write cursor in file header */
+  ulong file_sz;  /* Number of file bytes left */
 
   /* Callback parameters */
   fd_tar_read_vtable_t cb_vt;

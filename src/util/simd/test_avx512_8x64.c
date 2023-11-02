@@ -1,44 +1,4 @@
-#include "../fd_util.h"
-#include "fd_avx512.h"
-
-FD_STATIC_ASSERT( WW_WIDTH       ==16, unit_test );
-FD_STATIC_ASSERT( WW_FOOTPRINT   ==64, unit_test );
-FD_STATIC_ASSERT( WW_ALIGN       ==64, unit_test );
-FD_STATIC_ASSERT( WW_LG_WIDTH    == 4, unit_test );
-FD_STATIC_ASSERT( WW_LG_FOOTPRINT== 6, unit_test );
-FD_STATIC_ASSERT( WW_LG_ALIGN    == 6, unit_test );
-
-#define WWL_TEST( x, x0,x1,x2,x3,x4,x5,x6,x7 ) do {                                                                 \
-    long _t[8] WW_ATTR;                                                                                             \
-    long _u[8] WW_ATTR;                                                                                             \
-    wwl_st( _t, (x) );                                                                                              \
-    _u[0] = (x0); _u[1] = (x1); _u[2] = (x2); _u[3] = (x3); _u[4] = (x4); _u[5] = (x5); _u[6] = (x6); _u[7] = (x7); \
-    for( int _lane=0; _lane<8; _lane++ )                                                                            \
-      if( FD_UNLIKELY( _t[_lane]!=_u[_lane] ) )                                                                     \
-        FD_LOG_ERR(( "FAIL: %s @ lane %i\n\t"                                                                       \
-                     "  got 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL\n\t"    \
-                     "  exp 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL 0x%016lxL",       \
-                     #x, _lane,                                                                                     \
-                     (ulong)_t[0], (ulong)_t[1], (ulong)_t[2], (ulong)_t[3],                                        \
-                     (ulong)_t[4], (ulong)_t[5], (ulong)_t[6], (ulong)_t[7],                                        \
-                     (ulong)_u[0], (ulong)_u[1], (ulong)_u[2], (ulong)_u[3],                                        \
-                     (ulong)_u[4], (ulong)_u[5], (ulong)_u[6], (ulong)_u[7] ));                                     \
-  } while(0)
-
-#define WWV_TEST( x, x0,x1,x2,x3,x4,x5,x6,x7 ) do {                                                                      \
-    ulong _t[8] WW_ATTR;                                                                                                 \
-    ulong _u[8] WW_ATTR;                                                                                                 \
-    wwv_st( _t, (x) );                                                                                                   \
-    _u[0] = (x0); _u[1] = (x1); _u[2] = (x2); _u[3] = (x3); _u[4] = (x4); _u[5] = (x5); _u[6] = (x6); _u[7] = (x7);      \
-    for( int _lane=0; _lane<8; _lane++ )                                                                                 \
-      if( FD_UNLIKELY( _t[_lane]!=_u[_lane] ) )                                                                          \
-        FD_LOG_ERR(( "FAIL: %s @ lane %i\n\t"                                                                            \
-                     "  got 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL\n\t" \
-                     "  exp 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL 0x%016lxUL",    \
-                     #x, _lane,                                                                                          \
-                     _t[0], _t[1], _t[2], _t[3], _t[4], _t[5], _t[6], _t[7],                                             \
-                     _u[0], _u[1], _u[2], _u[3], _u[4], _u[5], _u[6], _u[7] ));                                          \
-  } while(0)
+#include "test_avx512.h"
 
 int
 main( int     argc,
@@ -107,7 +67,7 @@ main( int     argc,
     wwl_stu( _m+i0, y );
     WWL_TEST( wwl_ldu( _m+i0 ), y0, y1, y2, y3, y4, y5, y6, y7 );
 
-    /* Test unary ops */
+    /* Test arithmetic ops */
 
     WWL_TEST( wwl_neg(x), -x0, -x1, -x2, -x3, -x4, -x5, -x6, -x7 );
     WWL_TEST( wwl_abs(x), (long)fd_long_abs(x0), (long)fd_long_abs(x1), (long)fd_long_abs(x2), (long)fd_long_abs(x3),
@@ -125,7 +85,7 @@ main( int     argc,
                                ((long)(int)x4)*((long)(int)y4), ((long)(int)x5)*((long)(int)y5),
                                ((long)(int)x6)*((long)(int)y6), ((long)(int)x7)*((long)(int)y7) );
 
-    /* Test binary ops */
+    /* Test bit ops */
 
     i0 = y0 & 63L; i1 = y1 & 63L; i2 = y2 & 63L; i3 = y3 & 63L; i4 = y4 & 63L; i5 = y5 & 63L; i6 = y6 & 63L; i7 = y7 & 63L;
     i = wwl( i0, i1, i2, i3, i4, i5, i6, i7 );
@@ -202,7 +162,9 @@ main( int     argc,
 
     /* Test conversions */
 
-    WWV_TEST( wwl_to_wwv(x), (ulong)x0, (ulong)x1, (ulong)x2, (ulong)x3, (ulong)x4, (ulong)x5, (ulong)x6, (ulong)x7 );
+    WWI_TEST( wwl_to_wwi(x),  (int)x0,0,  (int)x1,0,  (int)x2,0,  (int)x3,0,  (int)x4,0,  (int)x5,0,  (int)x6,0,  (int)x7,0 );
+    WWU_TEST( wwl_to_wwu(x), (uint)x0,0, (uint)x1,0, (uint)x2,0, (uint)x3,0, (uint)x4,0, (uint)x5,0, (uint)x6,0, (uint)x7,0 );
+    WWV_TEST( wwl_to_wwv(x), (ulong)x0,  (ulong)x1,  (ulong)x2,  (ulong)x3,  (ulong)x4,  (ulong)x5,  (ulong)x6,  (ulong)x7  );
 
     /* Test misc operations */
 
@@ -231,6 +193,9 @@ main( int     argc,
     WWL_TEST( wwl_slide( x, y, 5 ), x5,x6,x7,y0,y1,y2,y3,y4 );
     WWL_TEST( wwl_slide( x, y, 6 ), x6,x7,y0,y1,y2,y3,y4,y5 );
     WWL_TEST( wwl_slide( x, y, 7 ), x7,y0,y1,y2,y3,y4,y5,y6 );
+
+    wwl_unpack( x, t0,t1,t2,t3,t4,t5,t6,t7 );
+    WWL_TEST( wwl( t0,t1,t2,t3,t4,t5,t6,t7 ), x0,x1,x2,x3,x4,x5,x6,x7 );
 
     wwl_t r0 = x;            wwl_t r1 = y;            wwl_t r2 = z;            wwl_t r3 = t;
     wwl_t r4 = wwl_not( x ); wwl_t r5 = wwl_not( y ); wwl_t r6 = wwl_not( z ); wwl_t r7 = wwl_not( t );
@@ -309,7 +274,7 @@ main( int     argc,
     wwv_stu( _m+i0, y );
     WWV_TEST( wwv_ldu( _m+i0 ), y0, y1, y2, y3, y4, y5, y6, y7 );
 
-    /* Test unary ops */
+    /* Test arithmetic ops */
 
     WWV_TEST( wwv_neg(x), -x0, -x1, -x2, -x3, -x4, -x5, -x6, -x7 );
     WWV_TEST( wwv_abs(x),  x0,  x1,  x2,  x3,  x4,  x5,  x6,  x7 );
@@ -326,7 +291,7 @@ main( int     argc,
                                ((ulong)(uint)x4)*((ulong)(uint)y4), ((ulong)(uint)x5)*((ulong)(uint)y5),
                                ((ulong)(uint)x6)*((ulong)(uint)y6), ((ulong)(uint)x7)*((ulong)(uint)y7) );
 
-    /* Test binary ops */
+    /* Test bit ops */
 
     i0 = y0 & 63UL; i1 = y1 & 63UL; i2 = y2 & 63UL; i3 = y3 & 63UL; i4 = y4 & 63UL; i5 = y5 & 63UL; i6 = y6 & 63UL; i7 = y7 & 63UL;
     i = wwv( i0, i1, i2, i3, i4, i5, i6, i7 );
@@ -399,7 +364,9 @@ main( int     argc,
 
     /* Test conversions */
 
-    WWL_TEST( wwv_to_wwl(x), (long)x0, (long)x1, (long)x2, (long)x3, (long)x4, (long)x5, (long)x6, (long)x7 );
+    WWI_TEST( wwv_to_wwi(x),  (int)x0,0,  (int)x1,0,  (int)x2,0,  (int)x3,0,  (int)x4,0,  (int)x5,0,  (int)x6,0,  (int)x7,0 );
+    WWU_TEST( wwv_to_wwu(x), (uint)x0,0, (uint)x1,0, (uint)x2,0, (uint)x3,0, (uint)x4,0, (uint)x5,0, (uint)x6,0, (uint)x7,0 );
+    WWL_TEST( wwv_to_wwl(x), (long)x0,   (long)x1,   (long)x2,   (long)x3,   (long)x4,   (long)x5,   (long)x6,   (long)x7   );
 
     /* Test misc operations */
 
@@ -428,6 +395,9 @@ main( int     argc,
     WWV_TEST( wwv_slide( x, y, 5 ), x5,x6,x7,y0,y1,y2,y3,y4 );
     WWV_TEST( wwv_slide( x, y, 6 ), x6,x7,y0,y1,y2,y3,y4,y5 );
     WWV_TEST( wwv_slide( x, y, 7 ), x7,y0,y1,y2,y3,y4,y5,y6 );
+
+    wwv_unpack( x, t0,t1,t2,t3,t4,t5,t6,t7 );
+    WWV_TEST( wwv( t0,t1,t2,t3,t4,t5,t6,t7 ), x0,x1,x2,x3,x4,x5,x6,x7 );
 
     wwv_t r0 = x;            wwv_t r1 = y;            wwv_t r2 = z;            wwv_t r3 = t;
     wwv_t r4 = wwv_not( x ); wwv_t r5 = wwv_not( y ); wwv_t r6 = wwv_not( z ); wwv_t r7 = wwv_not( t );

@@ -29,7 +29,7 @@ esac
 # Figure out how to escalate privileges
 SUDO=""
 if [[ ! "$(id -u)" -eq "0" ]]; then
-  SUDO="sudo "
+  SUDO="sudo"
 fi
 
 # Install prefix
@@ -108,10 +108,11 @@ fetch () {
   checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -127,11 +128,16 @@ check_fedora_pkgs () {
     return 0
   fi
 
-  PACKAGE_INSTALL_CMD="${SUDO}dnf install -y ${MISSING_RPMS[*]}"
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( dnf install -y ${MISSING_RPMS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" dnf install -y ${MISSING_RPMS[*]} )
+  fi
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov )
+
 
   echo "[~] Checking for required DEB packages"
 
@@ -147,11 +153,15 @@ check_debian_pkgs () {
     return 0
   fi
 
-  PACKAGE_INSTALL_CMD="${SUDO}apt-get install -y ${MISSING_DEBS[*]}"
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( apt-get install -y ${MISSING_DEBS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" apt-get install -y ${MISSING_DEBS[*]} )
+  fi
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers )
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev )
 
   echo "[~] Checking for required APK packages"
 
@@ -167,11 +177,15 @@ check_alpine_pkgs () {
     return 0
   fi
 
-  PACKAGE_INSTALL_CMD="${SUDO}apk add ${MISSING_APKS[*]}"
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( apk add ${MISSING_APKS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" apk add ${MISSING_APKS[*]} )
+  fi
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
 
   echo "[~] Checking for required brew formulae"
 
@@ -187,7 +201,7 @@ check_macos_pkgs () {
     return 0
   fi
 
-  PACKAGE_INSTALL_CMD="brew install ${MISSING_FORMULAE[*]}"
+  PACKAGE_INSTALL_CMD=( brew install ${MISSING_FORMULAE[*]} )
 }
 
 check () {
@@ -210,12 +224,11 @@ check () {
       ;;
   esac
 
-  if [[ ! -z "${PACKAGE_INSTALL_CMD+}" ]]; then
+  if [[ ! -z "${PACKAGE_INSTALL_CMD[@]}" ]]; then
     echo "[!] Found missing system packages"
     echo "[?] This is fixed by the following command:"
-    echo "        ${PACKAGE_INSTALL_CMD}"
-    FD_AUTO_INSTALL_PACKAGES=1
-    if [[ "$FD_AUTO_INSTALL_PACKAGES" == "1" ]]; then
+    echo "        ${PACKAGE_INSTALL_CMD[@]}"
+    if [[ "${FD_AUTO_INSTALL_PACKAGES:-}" == "1" ]]; then
       choice=y
     else
       read -r -p "[?] Install missing system packages? (y/N) " choice
@@ -303,6 +316,7 @@ install_openssl () {
   echo "[+] Configuring OpenSSL"
   ./config \
     -static \
+    -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
     enable-quic \
@@ -409,6 +423,23 @@ install_rocksdb () {
   make install
 }
 
+install_libff () {
+  cd ./opt/git/libff
+  git submodule init
+  git submodule update
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
+    -DCMAKE_INSTALL_LIBDIR="lib"
+  local NJOBS
+  NJOBS=$(( $(nproc) / 2 ))
+  NJOBS=$((NJOBS>0 ? NJOBS : 1))
+  make -j $NJOBS
+  make install
+}
+
 install () {
   CC="$(command -v gcc)"
   cc="$CC"
@@ -420,6 +451,7 @@ install () {
   #( install_secp256k1 )
   ( install_openssl   )
   #( install_rocksdb   )
+  #( install_libff     )
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.

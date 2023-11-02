@@ -108,7 +108,8 @@ fd_quic_t *
 fd_quic_new_anonymous( fd_wksp_t *              wksp,
                        fd_quic_limits_t const * limits,
                        int                      role ) {
-  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits );
+  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
+  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits, ip );
   FD_TEST( shquic );
 
   fd_quic_t * quic = fd_quic_join( shquic );

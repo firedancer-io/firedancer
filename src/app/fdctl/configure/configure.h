@@ -52,8 +52,8 @@ typedef struct configure_stage {
   const char *       name;
   int                always_recreate;
   int                (*enabled)  ( config_t * const config );
-  void               (*init_perm)( security_t * security, config_t * const config );
-  void               (*fini_perm)( security_t * security, config_t * const config );
+  void               (*init_perm)( fd_caps_ctx_t * caps, config_t * const config );
+  void               (*fini_perm)( fd_caps_ctx_t * caps, config_t * const config );
   void               (*init)     ( config_t * const config );
   void               (*fini)     ( config_t * const config );
   configure_result_t (*check)    ( config_t * const config );
@@ -108,9 +108,6 @@ void enter_network_namespace( const char * interface );
 void leave_network_namespace( void );
 
 void close_network_namespace_original_fd( void );
-
-void
-expected_pages( config_t * const  config, uint out[2] );
 
 /* Checks if a directory exists and is configured with the given uid,
    gid, and access mode. */

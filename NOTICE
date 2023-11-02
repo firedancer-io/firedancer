@@ -228,3 +228,57 @@ PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIG
 HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+=======================================================================
+
+The SipHash implementation in src/ballet/siphash13 is derived from
+https://github.com/antirez/siphash
+
+Copyright (c) 2012-2016 Jean-Philippe Aumasson
+<jeanphilippe.aumasson@gmail.com>
+Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+Copyright (c) 2017 Salvatore Sanfilippo <antirez@gmail.com>
+Modified 2023 by Firedancer Contributors
+
+To the extent possible under law, the author(s) have dedicated all copyright
+and related and neighboring rights to this software to the public domain
+worldwide. This software is distributed without any warranty.
+
+You should have received a copy of the CC0 Public Domain Dedication along
+with this software. If not, see
+<http://creativecommons.org/publicdomain/zero/1.0/>.
+
+=======================================================================
+
+The directory compat/linux/include contains a copy of select Linux
+kernel headers that provide the syscall interface.  These headers are
+exempt from the GPL licensing restrictions that cover the rest of
+the kernel sources.
+
+From
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/LICENSES/exceptions/Linux-syscall-note:
+
+SPDX-Exception-Identifier: Linux-syscall-note
+SPDX-URL: https://spdx.org/licenses/Linux-syscall-note.html
+SPDX-Licenses: GPL-2.0, GPL-2.0+, GPL-1.0+, LGPL-2.0, LGPL-2.0+, LGPL-2.1, LGPL-2.1+, GPL-2.0-only, GPL-2.0-or-later
+Usage-Guide:
+  This exception is used together with one of the above SPDX-Licenses
+  to mark user space API (uapi) header files so they can be included
+  into non GPL compliant user space application code.
+  To use this exception add it with the keyword WITH to one of the
+  identifiers in the SPDX-Licenses tag:
+    SPDX-License-Identifier: <SPDX-License> WITH Linux-syscall-note
+License-Text:
+
+   NOTE! This copyright does *not* cover user programs that use kernel
+ services by normal system calls - this is merely considered normal use
+ of the kernel, and does *not* fall under the heading of "derived work".
+ Also note that the GPL below is copyrighted by the Free Software
+ Foundation, but the instance of code that it refers to (the Linux
+ kernel) is copyrighted by me and others who actually wrote it.
+
+ Also note that the only valid version of the GPL as far as the kernel
+ is concerned is _this_ particular version of the license (ie v2, not
+ v2.2 or v3.x or whatever), unless explicitly otherwise stated.
+
+			Linus Torvalds

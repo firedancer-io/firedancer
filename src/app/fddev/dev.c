@@ -3,6 +3,8 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
+#include "../../util/wksp/fd_wksp_private.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -16,11 +18,14 @@ dev_cmd_args( int *    pargc,
               args_t * args ) {
   args->dev.monitor = fd_env_strip_cmdline_contains( pargc, pargv, "--monitor" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
+  args->dev.no_solana_labs = fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana-labs" ) ||
+                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" ) ||
+                             fd_env_strip_cmdline_contains( pargc, pargv, "--no-labs" );
 }
 
 void
 dev_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
@@ -28,10 +33,10 @@ dev_cmd_perm( args_t *         args,
     };
     for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
       configure_args.configure.stages[ i ] = STAGES[ i ];
-    configure_cmd_perm( &configure_args, security, config );
+    configure_cmd_perm( &configure_args, caps, config );
   }
 
-  run_cmd_perm( NULL, security, config );
+  run_cmd_perm( NULL, caps, config );
 }
 
 pid_t firedancer_pid, monitor_pid;
@@ -45,7 +50,8 @@ parent_signal( int sig ) {
     if( kill( firedancer_pid, SIGINT ) ) err = 1;
   if( FD_LIKELY( monitor_pid ) )
     if( kill( monitor_pid, SIGKILL ) ) err = 1;
-  fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
+  if( -1!=fd_log_private_logfile_fd() )
+    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
   exit_group( err );
 }
 
@@ -61,11 +67,66 @@ install_parent_signals( void ) {
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static ushort
+compute_shred_version( char const * genesis_path ) {
+  /* Compute the shred version and the genesis hash */
+  fd_sha256_t _sha[ 1 ];  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_sha256_init( sha );
+  uchar buffer[ 4096 ];
+
+  FILE * genesis_file = fopen( genesis_path, "r" );
+  if( FD_UNLIKELY( !genesis_file ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) return (ushort)0;
+
+    FD_LOG_ERR(( "Opening genesis file (%s) failed (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+  }
+
+  while( !feof( genesis_file ) ) {
+    ulong read = fread( buffer, 1UL, sizeof(buffer), genesis_file );
+    if( FD_UNLIKELY( ferror( genesis_file ) ) )
+      FD_LOG_ERR(( "fread failed `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+    fd_sha256_append( sha, buffer, read );
+  }
+
+  if( FD_UNLIKELY( fclose( genesis_file ) ) )
+    FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  union {
+    uchar  c[ 32 ];
+    ushort s[ 16 ];
+  } hash;
+  fd_sha256_fini( sha, hash.c );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+
+  ushort xor = 0;
+  for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
+
+  xor = fd_ushort_bswap( xor );
+  return fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
+}
+
 void
 update_config_for_dev( config_t * const config ) {
   /* when starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
+
+  /* We have to wait until we get a snapshot before we can join a second
+     validator to this one, so make this smaller than the default.  */
+  config->snapshots.full_snapshot_interval_slots = 200U;
+
+  /* Automatically compute the shred version from genesis if it
+     exists and we don't know it.  If it doesn't exist, we'll keep it
+     set to zero and get from gossip. */
+  ulong shred_id = fd_topo_find_tile( &config->topo, FD_TOPO_TILE_KIND_SHRED, 0UL );
+  if( FD_UNLIKELY( shred_id == ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile" ));
+  fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
+  if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
+    char genesis_path[ PATH_MAX ];
+    snprintf1( genesis_path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
+    shred->shred.expected_shred_version = compute_shred_version( genesis_path );
+  }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
     snprintf1( config->consensus.vote_account_path,
@@ -87,6 +148,7 @@ dev_cmd_fn( args_t *         args,
   }
 
   update_config_for_dev( config );
+  if( FD_UNLIKELY( args->dev.no_solana_labs ) ) config->development.no_solana_labs = 1;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* if we entered a network namespace during configuration, leave it

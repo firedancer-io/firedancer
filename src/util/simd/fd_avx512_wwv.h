@@ -129,8 +129,17 @@ static inline wwv_t wwv_ror_vector( wwv_t a, wwv_t b ) {
 
 /* Conversions */
 
-#define wwv_to_wwl(x)     (x) /* wwl( (long)x0, (long)x1, ... (long)x7 ) */
-#define wwv_to_wwl_raw(x) (x) /* reinterp raw bits as a wwl */
+/* wwv_to_wwi(x) returns [  (int)x0,0,  (int)x1,0, ...  (int)x7,0 ]
+   wwv_to_wwu(x) returns [ (uint)x0,0, (uint)x1,0, ... (uint)x7,0 ]
+   wwv_to_wwv(x) returns [ (ulong)x0,  (ulong)x1,  ... (ulong)x7  ] */
+
+#define wwv_to_wwi(x) wwv_and( (x), wwv_bcast( (ulong)UINT_MAX ) )
+#define wwv_to_wwu(x) wwv_and( (x), wwv_bcast( (ulong)UINT_MAX ) )
+#define wwv_to_wwl(x) (x)
+
+#define wwv_to_wwi_raw(x) (x)
+#define wwv_to_wwu_raw(x) (x)
+#define wwv_to_wwl_raw(x) (x)
 
 /* Misc operations */
 
@@ -160,33 +169,58 @@ static inline wwv_t wwv_ror_vector( wwv_t a, wwv_t b ) {
 
 #define wwv_slide(x,y,imm) _mm512_alignr_epi64( (y), (x), (imm) )
 
+/* wwv_unpack unpacks the wwv x into its ulong components x0,x1,...x7. */
+
+#define wwv_unpack( x, x0,x1,x2,x3,x4,x5,x6,x7 ) do {                       \
+    __m512i _wwv_unpack_x  = (x);                                           \
+    __m256i _wwv_unpack_xl = _mm512_extracti64x4_epi64( _wwv_unpack_x, 0 ); \
+    __m256i _wwv_unpack_xh = _mm512_extracti64x4_epi64( _wwv_unpack_x, 1 ); \
+    (x0) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 0 );                \
+    (x1) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 1 );                \
+    (x2) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 2 );                \
+    (x3) = (ulong)_mm256_extract_epi64( _wwv_unpack_xl, 3 );                \
+    (x4) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 0 );                \
+    (x5) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 1 );                \
+    (x6) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 2 );                \
+    (x7) = (ulong)_mm256_extract_epi64( _wwv_unpack_xh, 3 );                \
+  } while(0)
+
 /* wwv_transpose_8x8 sets wwv_t's c0,c1,...c7 to the columns of an 8x8
    ulong matrix given the rows of the matrix in wwv_t's r0,r1,...r7.
    In-place operation fine. */
 
-#define wwv_transpose_8x8( r0,r1,r2,r3,r4,r5,r6,r7, c0,c1,c2,c3,c4,c5,c6,c7 ) do {            \
-    wwv_t _r0 = (r0);                            wwv_t _r1 = (r1);                            \
-    wwv_t _r2 = (r2);                            wwv_t _r3 = (r3);                            \
-    wwv_t _r4 = (r4);                            wwv_t _r5 = (r5);                            \
-    wwv_t _r6 = (r6);                            wwv_t _r7 = (r7);                            \
-                                                                                              \
-    /* Transpose 4x4 blocks */                                                                \
-    wwv_t _t0 = wwv_pack_halves( _r0,0, _r4,0 ); wwv_t _t4 = wwv_pack_halves( _r0,1, _r4,1 ); \
-    wwv_t _t1 = wwv_pack_halves( _r1,0, _r5,0 ); wwv_t _t5 = wwv_pack_halves( _r1,1, _r5,1 ); \
-    wwv_t _t2 = wwv_pack_halves( _r2,0, _r6,0 ); wwv_t _t6 = wwv_pack_halves( _r2,1, _r6,1 ); \
-    wwv_t _t3 = wwv_pack_halves( _r3,0, _r7,0 ); wwv_t _t7 = wwv_pack_halves( _r3,1, _r7,1 ); \
-                                                                                              \
-    /* Transpose 2x2 blocks */                                                                \
-    wwv_t const _pa = wwv(0UL,1UL, 8UL, 9UL,4UL,5UL,12UL,13UL);                               \
-    wwv_t const _pb = wwv(2UL,3UL,10UL,11UL,6UL,7UL,14UL,15UL);                               \
-    _r0 = wwv_select( _pa, _t0, _t2 );           _r2 = wwv_select( _pb, _t0, _t2 );           \
-    _r1 = wwv_select( _pa, _t1, _t3 );           _r3 = wwv_select( _pb, _t1, _t3 );           \
-    _r4 = wwv_select( _pa, _t4, _t6 );           _r6 = wwv_select( _pb, _t4, _t6 );           \
-    _r5 = wwv_select( _pa, _t5, _t7 );           _r7 = wwv_select( _pb, _t5, _t7 );           \
-                                                                                              \
-    /* Transpose 1x1 blocks */                                                                \
-    (c0) = _mm512_unpacklo_epi64( _r0, _r1 );    (c1) = _mm512_unpackhi_epi64( _r0, _r1 );    \
-    (c2) = _mm512_unpacklo_epi64( _r2, _r3 );    (c3) = _mm512_unpackhi_epi64( _r2, _r3 );    \
-    (c4) = _mm512_unpacklo_epi64( _r4, _r5 );    (c5) = _mm512_unpackhi_epi64( _r4, _r5 );    \
-    (c6) = _mm512_unpacklo_epi64( _r6, _r7 );    (c7) = _mm512_unpackhi_epi64( _r6, _r7 );    \
+#define wwv_transpose_8x8( r0,r1,r2,r3,r4,r5,r6,r7, c0,c1,c2,c3,c4,c5,c6,c7 ) do {                \
+    wwv_t _wwv_transpose_r0 = (r0); wwv_t _wwv_transpose_r1 = (r1);                               \
+    wwv_t _wwv_transpose_r2 = (r2); wwv_t _wwv_transpose_r3 = (r3);                               \
+    wwv_t _wwv_transpose_r4 = (r4); wwv_t _wwv_transpose_r5 = (r5);                               \
+    wwv_t _wwv_transpose_r6 = (r6); wwv_t _wwv_transpose_r7 = (r7);                               \
+                                                                                                  \
+    /* Outer 4x4 transpose of 2x2 blocks */                                                       \
+    wwv_t _wwv_transpose_t0 = _mm512_shuffle_i64x2( _wwv_transpose_r0, _wwv_transpose_r2, 0x88 ); \
+    wwv_t _wwv_transpose_t1 = _mm512_shuffle_i64x2( _wwv_transpose_r1, _wwv_transpose_r3, 0x88 ); \
+    wwv_t _wwv_transpose_t2 = _mm512_shuffle_i64x2( _wwv_transpose_r0, _wwv_transpose_r2, 0xdd ); \
+    wwv_t _wwv_transpose_t3 = _mm512_shuffle_i64x2( _wwv_transpose_r1, _wwv_transpose_r3, 0xdd ); \
+    wwv_t _wwv_transpose_t4 = _mm512_shuffle_i64x2( _wwv_transpose_r4, _wwv_transpose_r6, 0x88 ); \
+    wwv_t _wwv_transpose_t5 = _mm512_shuffle_i64x2( _wwv_transpose_r5, _wwv_transpose_r7, 0x88 ); \
+    wwv_t _wwv_transpose_t6 = _mm512_shuffle_i64x2( _wwv_transpose_r4, _wwv_transpose_r6, 0xdd ); \
+    wwv_t _wwv_transpose_t7 = _mm512_shuffle_i64x2( _wwv_transpose_r5, _wwv_transpose_r7, 0xdd ); \
+                                                                                                  \
+    /**/  _wwv_transpose_r0 = _mm512_shuffle_i64x2( _wwv_transpose_t0, _wwv_transpose_t4, 0x88 ); \
+    /**/  _wwv_transpose_r1 = _mm512_shuffle_i64x2( _wwv_transpose_t1, _wwv_transpose_t5, 0x88 ); \
+    /**/  _wwv_transpose_r2 = _mm512_shuffle_i64x2( _wwv_transpose_t2, _wwv_transpose_t6, 0x88 ); \
+    /**/  _wwv_transpose_r3 = _mm512_shuffle_i64x2( _wwv_transpose_t3, _wwv_transpose_t7, 0x88 ); \
+    /**/  _wwv_transpose_r4 = _mm512_shuffle_i64x2( _wwv_transpose_t0, _wwv_transpose_t4, 0xdd ); \
+    /**/  _wwv_transpose_r5 = _mm512_shuffle_i64x2( _wwv_transpose_t1, _wwv_transpose_t5, 0xdd ); \
+    /**/  _wwv_transpose_r6 = _mm512_shuffle_i64x2( _wwv_transpose_t2, _wwv_transpose_t6, 0xdd ); \
+    /**/  _wwv_transpose_r7 = _mm512_shuffle_i64x2( _wwv_transpose_t3, _wwv_transpose_t7, 0xdd ); \
+                                                                                                  \
+    /* Inner 2x2 transpose of 1x1 blocks */                                                       \
+    /**/  (c0)              = _mm512_unpacklo_epi64( _wwv_transpose_r0, _wwv_transpose_r1 );      \
+    /**/  (c1)              = _mm512_unpackhi_epi64( _wwv_transpose_r0, _wwv_transpose_r1 );      \
+    /**/  (c2)              = _mm512_unpacklo_epi64( _wwv_transpose_r2, _wwv_transpose_r3 );      \
+    /**/  (c3)              = _mm512_unpackhi_epi64( _wwv_transpose_r2, _wwv_transpose_r3 );      \
+    /**/  (c4)              = _mm512_unpacklo_epi64( _wwv_transpose_r4, _wwv_transpose_r5 );      \
+    /**/  (c5)              = _mm512_unpackhi_epi64( _wwv_transpose_r4, _wwv_transpose_r5 );      \
+    /**/  (c6)              = _mm512_unpacklo_epi64( _wwv_transpose_r6, _wwv_transpose_r7 );      \
+    /**/  (c7)              = _mm512_unpackhi_epi64( _wwv_transpose_r6, _wwv_transpose_r7 );      \
   } while(0)

@@ -11,6 +11,7 @@
 
 extern configure_stage_t netns;
 extern configure_stage_t genesis;
+extern configure_stage_t keygen;
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &netns,
@@ -20,6 +21,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &xdp,
   &xdp_leftover,
   &ethtool,
+  &keygen,
   &workspace_leftover,
   &workspace,
   &genesis,
@@ -91,9 +93,10 @@ main( int     argc,
 
   /* load configuration and command line parsing */
   config_t config = config_parse( &argc, &argv );
-  if( config.is_live_cluster )
-    FD_LOG_ERR(( "fddev is for development and test environments but your configuration "
-                 "targets a live cluster. use fdctl if this is a production environment" ));
+  if( FD_UNLIKELY( config.is_live_cluster ) )
+    FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
+                 "configuration targets a live cluster. Use `fdctl` if this is a "
+                 "production environment" ));
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   config.development.sandbox = config.development.sandbox && !no_sandbox;
 
@@ -125,16 +128,15 @@ main( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    security_t security = {
-      .idx = 0,
-    };
-    action->perm( &args, &security, &config );
-    if( FD_UNLIKELY( security.idx ) ) {
+    fd_caps_ctx_t caps = {0};
+    action->perm( &args, &caps, &config );
+    if( FD_UNLIKELY( caps.err_cnt ) ) {
       execve_as_root( orig_argc, orig_argv );
     }
   }
 
   /* run the command */
   action->fn( &args, &config );
+
   return 0;
 }

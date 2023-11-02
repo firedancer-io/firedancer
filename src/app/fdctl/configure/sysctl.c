@@ -6,10 +6,10 @@
 #include <linux/capability.h>
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_cap( security, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
+  fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
 }
 
 static const char * params[] = {
@@ -18,6 +18,7 @@ static const char * params[] = {
   "/proc/sys/net/core/wmem_max",
   "/proc/sys/net/core/wmem_default",
   "/proc/sys/vm/max_map_count",
+  "/proc/sys/net/core/bpf_jit_enable",
 };
 
 static uint limits[] = {
@@ -26,6 +27,7 @@ static uint limits[] = {
   134217728,
   134217728,
   1000000,
+  1,
 };
 
 static const char * ERR_MSG = "system might not support configuring sysctl,";

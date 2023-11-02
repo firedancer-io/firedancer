@@ -12,11 +12,14 @@ jobs:
     env:
       CC: gcc
     steps:
+      - name: Install ausearch for debugging seccomp/bad syscalls
+        run: sudo apt update && sudo apt install -y auditd
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.69.0
+      - uses: dtolnay/rust-toolchain@1.73.0
 
       - uses: ./.github/actions/deps
 
@@ -24,5 +27,4 @@ jobs:
         run: make -j -Otarget fddev unit-test
 
       - name: Run functional tests
-        run: |
-          ./src/test/single-transaction.sh
+        run: ./src/test/single-transaction.sh

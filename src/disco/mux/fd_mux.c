@@ -95,6 +95,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
              fd_frag_meta_t *        mcache,
              ulong                   out_cnt,
              ulong **                _out_fseq,
+             ulong                   burst,
              ulong                   cr_max,
              long                    lazy,
              fd_rng_t *              rng,
@@ -486,6 +487,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       .depth = depth,
       .cr_avail = &cr_avail,
       .seq = &seq,
+      .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
     };
 
     if( FD_LIKELY( callbacks->before_credit ) ) callbacks->before_credit( ctx, &mux );
@@ -498,7 +500,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        different threads of execution.  We only count the transition
        from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( cr_avail<=cr_filt ) ) {
+    if( FD_UNLIKELY( cr_avail<cr_filt+burst ) ) {
       cnc_diag_backp_cnt += (ulong)!cnc_diag_in_backp;
       cnc_diag_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -581,7 +583,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       /* We have successfully loaded the metadata.  Decide whether it
           is interesting downstream and publish or filter accordingly. */
 
-      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, &sig, &chunk, &sz, &filter );
+      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, &sig, &chunk, &sz, &filter, &mux );
     }
 
     now = fd_tickcount();
@@ -640,7 +642,7 @@ fd_mux_publish( fd_mux_context_t * ctx,
                 ulong              tsorig,
                 ulong              tspub ) {
   fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
-  (*ctx->cr_avail)--;
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
   *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
 }
 

@@ -3,8 +3,13 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_X86
 ifdef FD_HAS_DOUBLE
 
-.PHONY: fddev
-$(call make-bin-rust,fddev,main dev dev1 txn configure/netns configure/genesis,fd_fdctl fd_disco fd_ballet fd_tango fd_util fd_quic solana_validator_fd)
+.PHONY: fddev run monitor
+$(call make-bin-rust,fddev,main dev dev1 txn configure/netns configure/keygen configure/genesis,fd_fdctl fd_disco fd_flamenco fd_reedsol fd_ballet fd_tango fd_util fd_quic solana_validator solana_genesis)
+
+solana/target/$(RUST_PROFILE)/libsolana_genesis.a: cargo
+
+$(OBJDIR)/lib/libsolana_genesis.a: solana/target/$(RUST_PROFILE)/libsolana_genesis.a
+	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/libsolana_genesis.a $@
 
 ifeq (run,$(firstword $(MAKECMDGOALS)))
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
