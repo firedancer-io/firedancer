@@ -14,6 +14,19 @@
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile.h"
 
+/* Workarounds for less gifted stdlibs (musl).  musl depends on strict
+   aliasing volations for cpu_set_t. */
+
+#if !defined(__GLIBC__) && defined(__CPU_op_S)
+// Old:
+//   #define __CPU_op_S(i, size, set, op) ( (i)/8U >= (size) ? 0 :
+//   (((unsigned long *)(set))[(i)/8/sizeof(long)] op (1UL<<((i)%(8*sizeof(long))))) )
+// New:
+     #undef __CPU_op_S
+     #define __CPU_op_S(i, size, set, op) ( (i)/8U >= (size) ? 0 : \
+     (((set)->__bits)[(i)/8/sizeof(long)] op (1UL<<((i)%(8*sizeof(long))))) )
+#endif
+
 /* Operating system shims ********************************************/
 
 struct fd_tile_private_cpu_config {
