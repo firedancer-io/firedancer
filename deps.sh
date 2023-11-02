@@ -102,6 +102,7 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
+  checkout_repo ucontext  https://github.com/kaniini/libucontext    "v1.2"
   #checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   #checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   #checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
@@ -112,7 +113,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov )
+  local REQUIRED_RPMS=( git perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -136,8 +137,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov )
-
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential llvm lcov )
 
   echo "[~] Checking for required DEB packages"
 
@@ -161,7 +161,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev )
+  local REQUIRED_APKS=( git perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev )
 
   echo "[~] Checking for required APK packages"
 
@@ -244,6 +244,19 @@ check () {
         ;;
     esac
   fi
+}
+
+install_ucontext () {
+  cd ./opt/git/ucontext
+
+  echo "[+] Building libucontext"
+  "${MAKE[@]}" FREESTANDING=yes
+  make check
+  echo "[+] Successfully built libucontext"
+
+  echo "[+] Installing libucontext to $PREFIX"
+  make DESTDIR="$PREFIX" FREESTANDING=yes install
+  echo "[+] Successfully installed libucontext"
 }
 
 install_zlib () {
@@ -445,11 +458,12 @@ install () {
   cc="$CC"
   export CC
   export cc
+  ( install_ucontext  )
   #( install_zlib      )
   #( install_bzip2     )
   #( install_zstd      )
   #( install_secp256k1 )
-  ( install_openssl   )
+  #( install_openssl   )
   #( install_rocksdb   )
   #( install_libff     )
 

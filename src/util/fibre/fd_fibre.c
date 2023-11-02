@@ -44,8 +44,8 @@ fd_fibre_init( void * mem ) {
 
   ucontext_t * ctx = &fibre->ctx;
 
-  if( getcontext( ctx ) == -1 ) {
-    fprintf( stderr, "getcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
+  if( libucontext_getcontext( ctx ) == -1 ) {
+    fprintf( stderr, "libucontext_getcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
     fflush( stderr );
     fd_fibre_abort();
   }
@@ -108,7 +108,7 @@ fd_fibre_start( void * mem, ulong stack_sz, fd_fibre_fn_t fn, void * arg ) {
   fibre->ctx.uc_stack.ss_size = stack_sz;
 
   /* make a new context */
-  makecontext( &fibre->ctx, (void(*)(void))fd_fibre_run_fn, 1, fibre );
+  libucontext_makecontext( &fibre->ctx, (void(*)(void))fd_fibre_run_fn, 1, fibre );
 
   return fibre;
 }
@@ -144,8 +144,8 @@ fd_fibre_swap( fd_fibre_t * swap_to ) {
   fd_fibre_current = swap_to;
 
   /* switch to new fibre */
-  if( swapcontext( &fibre_pop->ctx, &swap_to->ctx ) == -1 ) {
-    fprintf( stderr, "swapcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
+  if( libucontext_swapcontext( &fibre_pop->ctx, &swap_to->ctx ) == -1 ) {
+    fprintf( stderr, "libucontext_swapcontext failed with %d %s\n", errno, fd_io_strerror( errno ) );
     fflush( stdout );
     fd_fibre_abort();
   }

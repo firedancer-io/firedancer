@@ -1,13 +1,13 @@
 BASEDIR?=build
 
 SHELL:=bash
-CPPFLAGS:=-isystem ./opt/include -isystem ./compat/linux/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
+CPPFLAGS:=-isystem ./opt/include -isystem ./opt/usr/include -isystem ./compat/linux/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -lrt -ldl -L./opt/lib
+LDFLAGS:=-lm -lrt -ldl -lucontext -L./opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
