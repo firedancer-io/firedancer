@@ -144,6 +144,7 @@ struct fd_quic_conn {
   fd_quic_stream_t **      streams;           /* array of stream pointers */
   fd_quic_stream_t         send_streams[1];   /* sentinel of list of streams needing action */
   fd_quic_stream_t         unused_streams[1]; /* sentinel of list of unused streams */
+  fd_quic_stream_t         stream_dead[1];    /* sentinel indicating a dead stream */
   fd_quic_stream_map_t *   stream_map;        /* map stream_id -> stream */
 
   /* packet number info
