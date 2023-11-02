@@ -14,4 +14,5 @@ endif
 
 ifdef FD_USING_GCC
 CPPFLAGS+=-Wimplicit-fallthrough=2
+CFLAGS+=-Wstrict-prototypes
 endif
