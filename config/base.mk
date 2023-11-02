@@ -1,7 +1,7 @@
 BASEDIR?=build
 
 SHELL:=bash
-CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
+CPPFLAGS:=-isystem ./opt/include -isystem ./compat/linux/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++
@@ -40,6 +40,6 @@ FD_HAS_MAIN:=1
 # Parameters passed to libFuzzer tests
 FUZZFLAGS:=-max_total_time=600 -timeout=10 -runs=10
 
-# Obtain compiler version so that decisions can be made on disabling/enabling 
+# Obtain compiler version so that decisions can be made on disabling/enabling
 # certain flags
 CC_MAJOR_VERSION=$(shell $(CC) -dumpversion | cut -f1 -d.)
