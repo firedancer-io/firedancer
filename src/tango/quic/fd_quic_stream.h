@@ -55,10 +55,13 @@ struct fd_quic_stream {
   /* send and receive state
      mask made up of the following:
        FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
-       FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX) */
+       FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX)
+       FD_QUIC_STREAM_STATE_DEAD        stream is dead and waiting to be
+	                                  reclaimed */
   uint state;
 # define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
 # define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
+# define FD_QUIC_STREAM_STATE_DEAD   (1u<<2u)
 
 # define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
 
