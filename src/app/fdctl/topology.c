@@ -275,15 +275,11 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       }
       case FD_TOPO_TILE_KIND_SHRED: {
         void * shred_version = SCRATCH_ALLOC( 8UL, 8UL );
-        void * mvcc = SCRATCH_ALLOC( fd_mvcc_align(), fd_mvcc_footprint( 16UL + 50000UL*46UL ) ); /* max of 50k validators */
         if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
           *(ulong*)shred_version = 0UL;
           INSERT_POD( "shred_version", shred_version );
-          INSERT_POD( "cluster_nodes", fd_mvcc_new( mvcc, 16UL + 50000UL*46UL ) );
         } else if ( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
           tile->extra[ 0 ] = shred_version;
-          tile->extra[ 1 ] = fd_mvcc_join( mvcc );
-          if( FD_UNLIKELY( !tile->extra[ 1 ] ) ) FD_LOG_ERR(( "fd_mvcc_join failed" ));
         }
         break;
       }
