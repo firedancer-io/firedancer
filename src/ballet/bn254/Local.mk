@@ -6,6 +6,6 @@ $(call make-unit-test,test_bn254,test_bn254,fd_ballet fd_util)
 
 else
 
-$(warning bn254 disabled due to lack of libff)
+$(info bn254 disabled due to lack of libff)
 
 endif

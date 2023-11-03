@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 181
+#define FD_TYPE_NAME_COUNT 184
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -42,8 +42,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_bank_hash_info",
  "fd_slot_account_pair",
  "fd_slot_map_pair",
- "fd_solana_accounts_db_fields",
- "fd_solana_manifest",
  "fd_rust_duration",
  "fd_poh_config",
  "fd_string_pubkey_pair",
@@ -182,4 +180,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_addrlut_create",
  "fd_addrlut_extend",
  "fd_addrlut_instruction",
+ "fd_serializable_stake_rewards",
+ "fd_start_block_height_and_rewards",
+ "fd_serializable_epoch_reward_status",
+ "fd_solana_accounts_db_fields",
+ "fd_solana_manifest",
 };
