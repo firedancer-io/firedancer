@@ -264,10 +264,6 @@ solana_labs_main( void * args ) {
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
-  char ip_addr[16];
-  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
-  ADD( "--gossip-host", ip_addr );
-
   /* consensus */
   ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
@@ -309,8 +305,13 @@ solana_labs_main( void * args ) {
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
   if( !config->gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
-  if( strcmp( config->gossip.host, "" ) )
+  if( strcmp( config->gossip.host, "" ) ) {
     ADD( "--gossip-host", config->gossip.host );
+  } else {
+    char ip_addr[16];
+    snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
+    ADD( "--gossip-host", ip_addr );
+  }
 
   /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
