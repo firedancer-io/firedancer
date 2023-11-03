@@ -87,6 +87,7 @@ typedef struct {
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
+    char path[ PATH_MAX ];
   } snapshots;
 
   struct {
