@@ -1464,7 +1464,7 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx, ulong r
 
   sort_validator_stake_pair_inplace( validator_stakes, num_validator_stakes );
 
-  ulong enforce_fix = slot_ctx->epoch_ctx->features.no_overflow_rent_distribution;
+  ulong enforce_fix = FD_FEATURE_ACTIVE(slot_ctx, no_overflow_rent_distribution);
 
   ulong rent_distributed_in_initial_round = 0;
 
