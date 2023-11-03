@@ -58,7 +58,7 @@ fd_disco_netmux_sig( ulong  ip_addr,
   return (((ulong)ip_addr)<<32UL) | (((ulong)port)<<16UL) | ((src_tile&0xFUL)<<12UL) | ((hdr_sz_i&0xFUL)<<4UL) | (dst_idx&0xFUL);
 }
 
-FD_FN_CONST static inline ulong  fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (sig>>32UL) & 0xFFFFUL; }
+FD_FN_CONST static inline uint   fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (uint)((sig>>32UL) & 0xFFFFFFFFUL); }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_port    ( ulong sig ) { return (sig>>16UL) & 0xFFFFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_src_tile( ulong sig ) { return (sig>>12UL) & 0xFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_dst_idx ( ulong sig ) { return (sig>> 0UL) & 0xFUL; }
