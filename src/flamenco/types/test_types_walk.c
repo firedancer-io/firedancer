@@ -179,14 +179,14 @@ test_vote_account_walk( void ) {
       FD_LOG_WARNING(( "Mismatch at step %lu", i ));
       FD_LOG_WARNING(( "Expected\n"
                        "  level: %u\n"
-                       "  type:  %#lx\n"
+                       "  type:  %#x\n"
                        "  name:  %s\n",
                        expect->level,
                        expect->type,
                        expect->name ));
       FD_LOG_WARNING(( "Actual\n"
                        "  level: %u\n"
-                       "  type:  %#lx\n"
+                       "  type:  %#x\n"
                        "  name:  %s\n",
                        recorder->steps[i].level,
                        recorder->steps[i].type,
