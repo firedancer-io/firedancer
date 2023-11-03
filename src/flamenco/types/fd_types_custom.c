@@ -256,7 +256,7 @@ fd_gossip_ip6_addr_walk( void *                       w,
 
   char buf[ 40 ];
   sprintf( buf,
-           "%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+           "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
            self->us[ 0 ], self->us[ 1 ], self->us[ 2 ], self->us[ 3 ],
            self->us[ 4 ], self->us[ 5 ], self->us[ 6 ], self->us[ 7 ] );
   fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
