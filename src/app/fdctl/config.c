@@ -637,6 +637,67 @@ validate_ports( config_t * result ) {
                  result->dynamic_port_range ));
 }
 
+/* These CLUSTER_* values must be ordered from least important to most
+   important network.  Eg, it's important that if a config has the
+   MAINNET_BETA genesis hash, but has a bunch of entrypoints that we
+   recognize as TESTNET, we classify it as MAINNET_BETA so we can be
+   maximally restrictive.  This is done by a high-to-low comparison. */
+#define FD_CONFIG_CLUSTER_UNKNOWN      (0UL)
+#define FD_CONFIG_CLUSTER_PYTHTEST     (1UL)
+#define FD_CONFIG_CLUSTER_TESTNET      (2UL)
+#define FD_CONFIG_CLUSTER_DEVNET       (3UL)
+#define FD_CONFIG_CLUSTER_PYTHNET      (4UL)
+#define FD_CONFIG_CLUSTER_MAINNET_BETA (5UL)
+
+FD_FN_PURE static ulong
+determine_cluster( ulong  entrypoints_cnt,
+                   char   entrypoints[16][256],
+                   char * expected_genesis_hash ) {
+  char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+  char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
+  char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+  char const * PYTHTEST_GENESIS_HASH = "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve";
+  char const * PYTHNET_GENESIS_HASH = "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq";
+
+  char const * DEVNET_ENTRYPOINT_URI = "devnet.solana.com";
+  char const * TESTNET_ENTRYPOINT_URI = "testnet.solana.com";
+  char const * MAINNET_BETA_ENTRYPOINT_URI = "mainnet-beta.solana.com";
+  char const * PYTHTEST_ENTRYPOINT_URI = "pythtest.pyth.network";
+  char const * PYTHNET_ENTRYPOONT_URI = "pythnet.pyth.network";
+
+  ulong cluster = FD_CONFIG_CLUSTER_UNKNOWN;
+  if( FD_LIKELY( expected_genesis_hash ) ) {
+    if( FD_UNLIKELY( !strcmp( expected_genesis_hash, DEVNET_GENESIS_HASH ) ) )            cluster = FD_CONFIG_CLUSTER_DEVNET;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, TESTNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_TESTNET;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, MAINNET_BETA_GENESIS_HASH ) ) ) cluster = FD_CONFIG_CLUSTER_MAINNET_BETA;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHTEST_GENESIS_HASH ) ) )     cluster = FD_CONFIG_CLUSTER_PYTHTEST;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_PYTHNET;
+  }
+
+  for( ulong i=0; i<entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( strstr( entrypoints[ i ], DEVNET_ENTRYPOINT_URI ) ) )            cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_DEVNET );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], TESTNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_TESTNET );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], MAINNET_BETA_ENTRYPOINT_URI ) ) ) cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_MAINNET_BETA );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHTEST_ENTRYPOINT_URI ) ) )     cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHTEST );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHNET_ENTRYPOONT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHNET );
+  }
+
+  return cluster;
+}
+
+FD_FN_CONST static char *
+cluster_to_cstr( ulong cluster ) {
+  switch( cluster ) {
+    case FD_CONFIG_CLUSTER_UNKNOWN:      return "unknown";
+    case FD_CONFIG_CLUSTER_PYTHTEST:     return "pythtest";
+    case FD_CONFIG_CLUSTER_TESTNET:      return "testnet";
+    case FD_CONFIG_CLUSTER_DEVNET:       return "devnet";
+    case FD_CONFIG_CLUSTER_PYTHNET:      return "pythnet";
+    case FD_CONFIG_CLUSTER_MAINNET_BETA: return "mainnet-beta";
+    default:                             return "unknown";
+  }
+}
+
 config_t
 config_parse( int *    pargc,
               char *** pargv ) {
@@ -744,42 +805,19 @@ config_parse( int *    pargc,
   replace( result.consensus.vote_account_path, "{user}", result.user );
   replace( result.consensus.vote_account_path, "{name}", result.name );
 
-  result.is_live_cluster = 0;
-  for( ulong i=0; i<result.gossip.entrypoints_cnt; i++ ) {
-    if( strstr( result.gossip.entrypoints[ i ], "solana.com" ) ||
-        strstr( result.gossip.entrypoints[ i ], "pyth.network" ) ) {
-      result.is_live_cluster = 1;
-      break;
-    }
-  }
+  ulong cluster = determine_cluster( result.gossip.entrypoints_cnt,
+                                     result.gossip.entrypoints,
+                                     result.consensus.expected_genesis_hash );
+  result.is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
-  char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-  char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
-  char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
-
-  char const * live_genesis_hashes[ 6 ] = {
-    DEVNET_GENESIS_HASH,
-    TESTNET_GENESIS_HASH,
-    MAINNET_BETA_GENESIS_HASH,
-    "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve", // pythtest
-    "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq", // pythnet
-    NULL,
-  };
-
-  for( ulong i=0; live_genesis_hashes[ i ]; i++ ) {
-    if( !strcmp( result.consensus.expected_genesis_hash, live_genesis_hashes[ i ] ) ) {
-      result.is_live_cluster = 1;
-      break;
-    }
-  }
-
-  int allowed_cluster = !strcmp( result.consensus.expected_genesis_hash, TESTNET_GENESIS_HASH );
-
-  if( FD_UNLIKELY( result.is_live_cluster && !allowed_cluster ) )
-    FD_LOG_EMERG(( "Attempted to start against a live cluster. Firedancer is not "
+  if( FD_UNLIKELY( result.is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
+    FD_LOG_EMERG(( "Attempted to start against live cluster `%s`. Firedancer is not "
                    "ready for production deployment, has not been tested, and is "
                    "missing consensus critical functionality. Joining a live Solana "
-                   "cluster may destabilize the network. Please do not attempt." ));
+                   "cluster may destabilize the network. Please do not attempt. You "
+                   "can start against the testnet cluster by specifying the testnet "
+                   "entrypoints from https://docs.solana.com/clusters under "
+                   "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
 
   if( FD_LIKELY( result.is_live_cluster) ) {
     if( FD_UNLIKELY( !result.development.sandbox ) )
