@@ -554,9 +554,29 @@ quic_tx_aio_send( void *                    _ctx,
     void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
     fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
 
+    uchar const * packet = dst;
+    uchar const * packet_end = packet + batch[i].buf_sz;
+    uchar const * iphdr = packet + 14U;
+
+    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+    uint ip_dstaddr = 0;
+    ushort udp_dstport = 0;
+    if( FD_LIKELY( test_ethip==0x080011 ) ) {
+      /* IPv4 is variable-length, so lookup IHL to find start of UDP */
+      uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+      uchar const * udp = iphdr + iplen;
+
+      /* Ignore if UDP header is too short */
+      if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
+
+      /* Extract IP dest addr and UDP dest port */
+      ip_dstaddr    =                  *(uint   *)( iphdr+16UL );
+      udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
+    }
+
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( 0, 0, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
+    ulong sig = fd_disco_netmux_sig( ip_dstaddr, udp_dstport, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mcache_publish( ctx->net_out_mcache,
