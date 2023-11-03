@@ -326,6 +326,7 @@ solana_labs_main( void * args ) {
   if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
   ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
+  ADD( "--snapshots", config->snapshots.path );
 
   argv[ idx ] = NULL;
 

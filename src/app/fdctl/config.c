@@ -188,6 +188,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
   ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
   ENTRY_UINT  ( ., snapshots,           incremental_snapshot_interval_slots                       );
+  ENTRY_STR   ( ., snapshots,           path                                                      );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
@@ -721,6 +722,13 @@ config_parse( int *    pargc,
     replace( result.ledger.path, "{name}", result.name );
   } else {
     snprintf1( result.ledger.path, sizeof(result.ledger.path), "%s/ledger", result.scratch_directory );
+  }
+
+  if( FD_UNLIKELY( strcmp( result.snapshots.path, "" ) ) ) {
+    replace( result.snapshots.path, "{user}", result.user );
+    replace( result.snapshots.path, "{name}", result.name );
+  } else {
+    strncpy( result.snapshots.path, result.ledger.path, sizeof(result.snapshots.path) );
   }
 
   if( FD_UNLIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
