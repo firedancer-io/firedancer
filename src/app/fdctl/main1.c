@@ -1,14 +1,23 @@
 #include "fdctl.h"
 
 action_t ACTIONS[ ACTIONS_CNT ] = {
-  { .name = "run",       .args = NULL,               .fn = run_cmd_fn,       .perm = run_cmd_perm },
-  { .name = "configure", .args = configure_cmd_args, .fn = configure_cmd_fn, .perm = configure_cmd_perm },
-  { .name = "monitor",   .args = monitor_cmd_args,   .fn = monitor_cmd_fn,   .perm = monitor_cmd_perm },
-  { .name = "keygen",    .args = NULL,               .fn = keygen_cmd_fn,    .perm = NULL },
-  { .name = "ready",     .args = NULL,               .fn = ready_cmd_fn,     .perm = NULL },
-  { .name = "info",      .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
-  { .name = "mem",       .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
-  { .name = "topo",      .args = NULL,               .fn = info_cmd_fn,      .perm = NULL },
+  { .name = "run",       .args = NULL,               .fn = run_cmd_fn,       .perm = run_cmd_perm,        .description = "Start up a Firedancer validator" },
+  { .name = "configure", .args = configure_cmd_args, .fn = configure_cmd_fn, .perm = configure_cmd_perm,  .description = "Configure the local host so it can run Firedancer correctly" },
+  { .name = "monitor",   .args = monitor_cmd_args,   .fn = monitor_cmd_fn,   .perm = monitor_cmd_perm,    .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
+  { .name = "keygen",    .args = keygen_cmd_args,    .fn = keygen_cmd_fn,    .perm = NULL,                .description = "Generate new keypairs for use with the validator" },
+  { .name = "ready",     .args = NULL,               .fn = ready_cmd_fn,     .perm = NULL,                .description = "Wait for all tiles to be running" },
+  { .name = "mem",       .args = NULL,               .fn = mem_cmd_fn,       .perm = NULL,                .description = "Print workspace memory and tile topology information" },
+  { .name = "help",      .args = NULL,               .fn = help_cmd_fn,      .perm = NULL,                .description = "Print this help message" },
+};
+
+struct action_alias {
+  const char * name;
+  const char * alias;
+};
+
+struct action_alias ALIASES[] = {
+  { .name = "info", .alias = "mem" },
+  { .name = "topo", .alias = "mem" },
 };
 
 int
@@ -23,16 +32,30 @@ main1( int     argc,
   /* load configuration and command line parsing */
   config_t config = config_parse( &argc, &argv );
 
-  if( FD_UNLIKELY( !argc ) ) FD_LOG_ERR(( "no subcommand specified" ));
+  if( FD_UNLIKELY( !argc ) ) {
+    help_cmd_fn( NULL, &config );
+    FD_LOG_ERR(( "no subcommand specified" ));
+  }
+
+  const char * command = argv[ 0 ];
+  for ( ulong i=0; i <sizeof(ALIASES)/sizeof(ALIASES[ 0 ]); i++ ) {
+    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ALIASES[ i ].name ) ) ) {
+      command = ALIASES[ i ].alias;
+      break;
+    }
+  }
 
   action_t * action = NULL;
-  for( ulong i=0; i<sizeof(ACTIONS)/sizeof(ACTIONS[ 0 ]); i++ ) {
-    if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ].name ) ) ) {
+  for( ulong i=0; i<ACTIONS_CNT; i++ ) {
+    if( FD_UNLIKELY( !strcmp( command, ACTIONS[ i ].name ) ) ) {
       action = &ACTIONS[ i ];
       break;
     }
   }
-  if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", argv[ 0 ] ));
+  if( FD_UNLIKELY( !action ) ) {
+    help_cmd_fn( NULL, &config );
+    FD_LOG_ERR(( "unknown subcommand `%s`", argv[ 0 ] ));
+  }
 
   argc--; argv++;
 
