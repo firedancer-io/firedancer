@@ -729,7 +729,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%6s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, fd_topo_wksp_kind_str( wksp->kind ), wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, fd_topo_wksp_kind_str( wksp->kind ), wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nLINKS\n" );
@@ -738,7 +738,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
 
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
-    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 
 #define PRINTIN( ... ) do {                                                            \
@@ -785,7 +785,7 @@ fd_topo_print_log( fd_topo_t * topo ) {
       snprintf1( out_link_id, 24, "%lu", tile->out_link_id_primary );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%6s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
