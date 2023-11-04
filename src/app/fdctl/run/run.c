@@ -31,7 +31,8 @@ run_cmd_perm( args_t *         args,
 
   fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  1024000,     "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
+                                                                       "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
   fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
   fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "initialize XDP by calling `bpf_obj_get`" );
   if( FD_LIKELY( getuid() != config->uid ) )

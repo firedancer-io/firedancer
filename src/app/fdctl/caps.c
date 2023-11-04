@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "caps.h"
 
+#include "configure/configure.h"
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <unistd.h>
@@ -134,6 +136,17 @@ fd_caps_check_resource( fd_caps_ctx_t * ctx,
                                 fd_caps_str( CAP_SYS_RESOURCE ),
                                 reason );
   } else {
+    if( FD_UNLIKELY( resource==RLIMIT_NOFILE ) ) {
+      /* If we have CAP_SYS_RESOURCE, it may not be enough to increase
+         RLIMIT_NOFILE.  Will still result in EPERM if /proc/sys/fs/nr_open
+         is below the desired number. */
+      uint file_nr = read_uint_file( "/proc/sys/fs/nr_open", "system might not support configuring sysctl," );
+      if( FD_UNLIKELY( file_nr < limit ) )
+        FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu "
+                     "to raise RLIMIT_NOFILE, but it is %u. Please either increase "
+                     "the sysctl or run `fdctl configure init sysctl` which will do "
+                     "it for you.", limit, file_nr ));
+    }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
     if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) )
