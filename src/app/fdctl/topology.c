@@ -534,9 +534,10 @@ fd_topo_validate( fd_topo_t * topo ) {
 
   /* Tile ins are valid */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
-      if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] >= topo->link_cnt ) )
-        FD_LOG_ERR(( "tile %lu has invalid in link %lu", i, topo->tiles[ i ].in_link_id[ j ] ));
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] >= topo->link_cnt ) )
+        FD_LOG_ERR(( "tile %s:%lu has invalid in link %lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->in_link_id[ j ] ));
     }
   }
 

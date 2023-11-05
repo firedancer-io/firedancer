@@ -82,6 +82,10 @@ can handle transactions from a 25GiB NIC at line rate. Except for the
 warning noted above, it is suggested to run as many tiles as possible
 so that the Solana network can run faster.
 
+The `affinity` string in the `layout` section specifies which cores the
+tiles will get assigned to. `bank` and `store` tiles are currently
+managed by Solana Labs and will not get a pinned core.
+
 ## Ledger
 By default, Firedancer stores the ledger in a scratch directory, defined
 in the `ledger` section in the configuration TOML. The default path is

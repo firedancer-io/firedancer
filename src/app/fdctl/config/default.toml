@@ -397,14 +397,43 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
+    #
+    # Firedancer currently assigns tiles to cores sequentially and you
+    # can't assign individual tiles.  To see the number and ordering of
+    # tiles, you can run `fdctl mem`.  The affinity must have at least
+    # as many cores as there are tiles to run the system, otherwise
+    # Firedancer will exit with an error when run.
+    #
+    # Currently, `bank` and `shred` tiles are managed by the Solana Labs
+    # validator and are not full Firedancer tiles.  They do not pin a
+    # core and instead float between the unassigned cores, like the rest
+    # of the Solana Labs threads.
     affinity = "0-15"
+
+    # If set to true, all of the tiles for the transaction processing
+    # unit which are needed when we are leader can be turned off.  This
+    # includes QUIC, verify, dedup, pack, and bank tiles.  This option
+    # is preferred to setting tile counts to zero, as it can disable
+    # additional parts of the pipeline.
+    #
+    # Turning this option on is useful for RPC nodes that need to replay
+    # shreds and maintain the state of the ledger, but are not staked
+    # and so don't vote and can't become leader.
+    #
+    # If this option is turned on, Firedancer will make sure no
+    # [consensus.vote_account_path] is specified above.  It is up to the
+    # operator to ensure the key is not staked, if it is the validator
+    # will skip all leader slots it is assigned.
+    never_leader = false
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
     # there are less net tiles than queues, some queues will not get
     # drained and packets will be lost, and if there are more tiles than
     # queues, some tiles will spin a CPU core doing nothing since no
-    # packets will ever arrive.
+    # packets will ever arrive.   The `ethtool` stage of `fdctl
+    # configure` will check that these numbers match and configure the
+    # device correctly if they don't.
     #
     # See the comments for the [tiles.net] section below for more
     # information.
