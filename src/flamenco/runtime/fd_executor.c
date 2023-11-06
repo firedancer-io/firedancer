@@ -259,7 +259,18 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
 
   // TODO: I BELIEVE we charge for the fee BEFORE we create the funk_txn fork
   // since we collect reguardless of the success of the txn execution...
-  rec->meta->info.lamports -= fee;
+  if( FD_FEATURE_ACTIVE( slot_ctx, checked_arithmetic_in_fee_validation ) ) {
+    ulong x;
+    bool cf = __builtin_usubl_overflow( rec->meta->info.lamports, fee, &x );
+    if (cf) {
+      // Sature_sub failure
+      FD_LOG_WARNING(( "Not enough lamps" ));
+      return -1;
+    }
+    rec->meta->info.lamports = x;
+  } else {
+    rec->meta->info.lamports -= fee;
+  }
   slot_ctx->slot_bank.collected_fees += fee;
 
   /* todo rent exempt check */
