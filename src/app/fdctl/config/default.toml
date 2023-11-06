@@ -21,7 +21,8 @@ name = "fd1"
 # that they cannot attempt to send signals, ptrace, or otherwise
 # interfere with the process.  You should under no circumstances use a
 # superuser or privileged user here, and Firedancer will not allow you
-# to use the root user.
+# to use the root user.  It is also not a good idea to use a user that
+# has access to `sudo` or has other entries in the sudoers file.
 #
 # When running in a development environment (with `fddev`), Firedancer
 # will automatically determine a user to run as if none is provided.  By
