@@ -34,8 +34,12 @@ typedef union {
 
   struct {
     char tile_name[ 32 ];
-    int no_configure;
+    int  no_configure;
   } dev1;
+
+  struct {
+    ulong key_type;
+  } keygen;
 
   struct {
     const char * payload_base64;
@@ -48,13 +52,15 @@ typedef union {
 typedef struct fd_caps_ctx fd_caps_ctx_t;
 
 typedef struct {
-    const char * name;
-    void       (*args)( int * pargc, char *** pargv, args_t * args );
-    void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
-    void       (*fn  )( args_t * args, config_t * const config );
+  const char * name;
+  const char * description;
+
+  void       (*args)( int * pargc, char *** pargv, args_t * args );
+  void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
+  void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
-#define ACTIONS_CNT (8UL)
+#define ACTIONS_CNT (7UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
 int
@@ -99,6 +105,11 @@ monitor_cmd_fn( args_t *         args,
                 config_t * const config );
 
 void
+keygen_cmd_args( int *    pargc,
+                 char *** pargv,
+                 args_t * args );
+
+void
 keygen_cmd_fn( args_t *         args,
                config_t * const config );
 
@@ -107,7 +118,11 @@ ready_cmd_fn( args_t *         args,
               config_t * const config );
 
 void
-info_cmd_fn( args_t *         args,
+mem_cmd_fn( args_t *         args,
+            config_t * const config );
+
+void
+help_cmd_fn( args_t *         args,
              config_t * const config );
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */

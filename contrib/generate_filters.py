@@ -43,7 +43,7 @@ class ReloCondJump(object):
 
     def __str__(self):
         return "BPF_JUMP( %s, %s, %s )" % (self.code, self.t_label, self.f_label)
-    
+
     def relocate(self, instr_idx):
         self.t_label = replace_label(self.t_label, instr_idx=instr_idx)
         self.f_label = replace_label(self.f_label, instr_idx=instr_idx)
@@ -53,7 +53,7 @@ def replace_label(label, instr_idx):
     maybe_relo = relo_abs_mapping.get(label)
     if maybe_relo is not None:
         return f"/* {label} */ {maybe_relo - instr_idx - 1}"
-    
+
     return label
 
 # ReloCondJump contains a inconditional jump instruction that is not yet realized.
@@ -65,7 +65,7 @@ class ReloJump(object):
 
     def __str__(self):
         return "{ BPF_JMP | BPF_JA, 0, 0, %s }" % (self.label)
-    
+
     def relocate(self, instr_idx):
         self.label = replace_label(self.label, instr_idx=instr_idx)
 
@@ -88,7 +88,7 @@ def append_prelude(filter):
     filter.append(CommentedLiteral("BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) )", pre_comment="loading syscall number in accumulator"))
 
 
-# codegen generates by appending to filt the bpf code for the policy_lines. 
+# codegen generates by appending to filt the bpf code for the policy_lines.
 def codegen(policy_lines, filt):
     append_prelude(filt)
 
@@ -111,7 +111,7 @@ def codegen(policy_lines, filt):
             sys.exit(1)
 
     # append the last jump to the syscall jump table
-    filt.append(ReloJump("RET_KILL_PROCESS", pre_comment="none of the syscalls matched")) 
+    filt.append(ReloJump("RET_KILL_PROCESS", pre_comment="none of the syscalls matched"))
     # write all of the expression checks
 
     for syscall, expr in syscall_to_expression.items():
@@ -147,7 +147,7 @@ def expression(name, expr, filt):
     elif type(expr) == edn_format.Symbol:
         # Treat the symbol as the desired effect
         filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+name), str(expr), 0))
-    
+
 
 # eval_ walks through the expression tree and lays instructions down
 def eval_(expr, filt, label_t, label_f):
@@ -197,7 +197,7 @@ def eval_(expr, filt, label_t, label_f):
             argno = expr[1]
             if type(argno) is not int:
                 raise("arg 0 of arg should be int")
-            
+
             if 0 > argno or argno > 5:
                 raise("argno should be between 0 and 5")
 
@@ -233,12 +233,12 @@ def eval_bit_and(filt, op1, op2, label_t, label_f):
     else:
     # Note: In the case where both are expressions: the res of the first eval must be sent to scratch
         raise("unsupported")
-    
+
     # if labels were pushed down, it's expected that an action will be taken on the truthiness of the value
     # otherwise, accu will still contain the computed result.
     if label_t and label_f:
         filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, 0", label_f, label_t))
-    
+
 def eval_equal(filt, op1, op2, label_t, label_f):
     op1_type, op2_type = type(op1), type(op2)
 
@@ -264,7 +264,7 @@ def eval_equal(filt, op1, op2, label_t, label_f):
         # This is unsupported because I didn't pick a calling convention and this means that accu and x should be saved to scratch.
         # It's very easy to achieve but there's no need for it yet. It's basically register allocation over BPF scratch.
         raise("unsupported")
-    
+
 
 def resplit_lines(lines):
     i = 0
@@ -320,7 +320,7 @@ if __name__ == '__main__':
 #include <linux/seccomp.h>
 #include <linux/bpf.h>
 #include <sys/syscall.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include <stddef.h>
 
 #if defined(__i386__)
@@ -333,7 +333,7 @@ if __name__ == '__main__':
 # error "Target architecture is unsupported by seccomp."
 #endif
 """);
-            
+
             filter_body = []
             policy_lines = list(filter(lambda line: not line.startswith("#"), f.readlines()))
             policy_lines = resplit_lines(policy_lines)
@@ -375,5 +375,5 @@ if __name__ == '__main__':
                         of.write(f"{padding}/* {comment} */\n\n")
             of.write("  };\n")
             of.write("  fd_memcpy( out, filter, sizeof( filter ) );\n")
-            of.write("}\n\n")                
+            of.write("}\n\n")
             of.write("#endif\n")

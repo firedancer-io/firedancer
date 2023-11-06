@@ -99,6 +99,8 @@ will not decrease them if the minimum is already met.
 | /proc/sys/net/core/wmem_max       | 134217728   | Solana Labs network performance tuning.
 | /proc/sys/net/core/wmem_default   | 134217728   | Solana Labs network performance tuning.
 | /proc/sys/vm/max_map_count        | 1000000     | Solana Labs accounts database requires mapping many files.
+| /proc/sys/fs/file-max             | 1024000     | Solana Labs accounts database requires opening many files.
+| /proc/sys/fs/nr_open              | 1024000     | Solana Labs accounts database requires opening many files.
 | /proc/sys/net/core/bpf_jit_enable | 1           | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
 
 The `init` mode requires either `root` privileges, or to be run with

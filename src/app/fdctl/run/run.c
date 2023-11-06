@@ -31,7 +31,8 @@ run_cmd_perm( args_t *         args,
 
   fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  1024000,     "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
+                                                                       "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
   fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `bind(2)` to bind to a socket with `SOCK_RAW`" );
   fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "initialize XDP by calling `bpf_obj_get`" );
   if( FD_LIKELY( getuid() != config->uid ) )
@@ -264,10 +265,6 @@ solana_labs_main( void * args ) {
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
-  char ip_addr[16];
-  snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
-  ADD( "--gossip-host", ip_addr );
-
   /* consensus */
   ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
@@ -309,8 +306,13 @@ solana_labs_main( void * args ) {
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
   if( !config->gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
-  if( strcmp( config->gossip.host, "" ) )
+  if( strcmp( config->gossip.host, "" ) ) {
     ADD( "--gossip-host", config->gossip.host );
+  } else {
+    char ip_addr[16];
+    snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
+    ADD( "--gossip-host", ip_addr );
+  }
 
   /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
@@ -326,6 +328,7 @@ solana_labs_main( void * args ) {
   if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
   ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
   ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
+  ADD( "--snapshots", config->snapshots.path );
 
   argv[ idx ] = NULL;
 

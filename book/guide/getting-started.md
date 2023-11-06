@@ -1,5 +1,25 @@
 # Getting Started
 
+## Hardware Requirements
+
+Because Firedancer currently depends on the Solana Labs validator, the
+hardware requirements are at least [what's
+recommended](https://docs.solana.com/running-validator/validator-reqs)
+for that validator. Firedancer hopes to reduce these over time.
+
+**Minimum**
+
+- 12-Core CPU @ >2.5GHz
+- 64GB RAM
+- 512GB SSD
+
+**Recommended**
+
+- 32-Core CPU @ >3GHz with AVX512 support
+- 128GB RAM with ECC Memory
+- 1TB NVMe SSD with separate disk for OS
+- 1 Gigabit/s Network Bandwidth
+
 ## Installing
 
 ### Prerequisites
@@ -52,8 +72,8 @@ $ make -j fdctl solana
 The Firedancer production validator is built as a single binary `fdctl`
 short for Firedancer control. You can start, stop, and monitor the
 Firedancer instance from this one program. The `solana` CLI binary can
-be built with make as well for convenience so you can run RPC commands like
-`solana transfer`.
+be built with make as well for convenience so you can run RPC commands
+like `solana transfer`.
 
 :::
 
@@ -113,12 +133,15 @@ user = "firedancer"
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
 be Solana Labs style keys, which can be generated with the Solana Labs
-CLI.
+CLI. Currently, `testnet` is the only live cluster that Firedancer can
+be run against and trying to start against `devnet` or `mainnet-beta`
+entrypoints will result in an error.
 
 ::: tip NOTE
 
 This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
-To customize this path, refer to the [configuration guide](/guide/configuring.md#ledger).
+To customize this path, refer to the [configuration
+guide](/guide/configuring.md#ledger).
 
 :::
 

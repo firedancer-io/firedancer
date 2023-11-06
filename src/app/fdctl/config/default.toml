@@ -220,6 +220,18 @@ dynamic_port_range = "8900-9000"
     # 100 by default).
     incremental_snapshot_interval_slots = 100
 
+    # Absolute directory path for storing snapshots.  If no path is
+    # provided, it defaults to the [ledger.path] option from above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # The snapshot path constructed here is passed to the Solana Labs
+    # client with the `--snapshots` argument.
+    path = ""
+
 [consensus]
     # Absolute path to a `keypair.json` file containing the identity of
     # the validator.  When connecting to dev, test, or mainnet it is
