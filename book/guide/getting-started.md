@@ -199,9 +199,15 @@ Many `fdctl` commands require elevated privileges, including
 initializing and running the validator. This is because of high
 performance features it uses like kernel bypass networking.
 
-It is recommended that you run these commands as `sudo` although in some
-cases it is possible to run with capabilities instead. You can see what
-capabilities are needed and why by running the command unprivileged.
+It is recommended that you run these commands as `root` although in some
+cases it is possible to run as a non-root user with capabilities
+instead. You can see what capabilities are needed and why by running the
+command unprivileged.
+
+For additional layers of defense against local privilege escalation, it
+is not suggested to `setcap(8)` the `fdctl` binary as this can create a
+larger attack surface. You should also not run Firedancer as a user that
+is present in the sudoers file, although it is OK to start it as one.
 
 ```sh [bash]
 $ ./build/native/gcc/bin/fdctl run
