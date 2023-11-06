@@ -98,6 +98,10 @@
    transaction. */
 #define FD_TXN_MTU                  (1232UL)
 
+/* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
+   transaction, using fd_txn_parse() verification rules. */
+#define FD_TXN_MIN_SERIALIZED_SZ     (134UL)
+
 
 /* A Solana transaction instruction, i.e. one command or step to execute in a
    transaction.
