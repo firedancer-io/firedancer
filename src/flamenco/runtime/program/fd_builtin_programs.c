@@ -78,7 +78,7 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   if( FD_FEATURE_ACTIVE( slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "solana_bpf_loader_v4_program",             28UL );
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
   }
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key,   "address_lookup_table_program",          28UL );
