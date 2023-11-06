@@ -234,6 +234,11 @@
 #define FD_LOG_HEXDUMP_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
 #define FD_LOG_HEXDUMP_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
 
+/* FD_LOG_STDOUT(()) is used for writing formatted messages to STDOUT, it does not
+   take a lock and might interleave with other messages to the same pipe.  It
+   should only be used for command output. */
+#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_nolock_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
+
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
    optimized for the case where c will is non-zero.  This is mostly
@@ -600,6 +605,12 @@ fd_log_private_2( int          level,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
+void
+fd_log_private_raw_2( char const * file,
+                      int          line,
+                      char const * func,
+                      char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
+
 char const *
 fd_log_private_hexdump_msg( char const * tag,
                             void const * mem,
@@ -610,9 +621,40 @@ fd_log_private_boot( int *    pargc,
                      char *** pargv );
 
 void
+fd_log_private_boot_custom( int *        lock,
+                            ulong        app_id,
+                            char const * app,
+                            ulong        thread_id,
+                            char const * thread,
+                            ulong        host_id,
+                            char const * host,
+                            ulong        cpu_id,
+                            char const * cpu,
+                            ulong        group_id,
+                            char const * group,
+                            ulong        tid,
+                            ulong        user_id,
+                            char const * user,
+                            int          dedup,
+                            int          colorize,
+                            int          level_logfile,
+                            int          level_stderr,
+                            int          level_flush,
+                            int          level_core,
+                            int          log_fd,
+                            char const * log_path );
+
+
+void
 fd_log_private_halt( void );
 
 ulong fd_log_private_main_stack_sz( void ); /* Returns ulimit -s (if reasonable) on success, 0 on failure (logs details) */
+
+ulong
+fd_log_private_tid_default( void );
+
+ulong
+fd_log_private_cpu_id_default( void );
 
 void
 fd_log_private_stack_discover( ulong   stack_sz,  /* Size the stack is expected to be */

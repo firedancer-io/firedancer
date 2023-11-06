@@ -6,18 +6,28 @@
 # The process does almost nothing except spawn the child, and then sit
 # waiting for it to exit like a supervisor.
 
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
 # pid_namespace: This is the PID of the child process that we created.
 #                There is always exactly one such process.
-unsigned int pid_namespace
+unsigned int logfile_fd, unsigned int pid_namespace
 
-# logging: write diagnostic messages to a pipe
+# logging: all log messages are written to a file and/or pipe
 #
-# The boot process will write simple error messages to STDERR if the
-# child pidns process terminate.
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR.
-write: (eq (arg 0) 2)
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)
 
 # supervisor: wait for the child process to exit
 #

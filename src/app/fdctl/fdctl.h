@@ -69,12 +69,13 @@ typedef struct {
 #define ACTIONS_CNT (9UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
-config_t fdctl_boot( int *    pargc,
-                     char *** pargv );
+config_t fdctl_boot( int *        pargc,
+                     char ***     pargv,
+                     char const * log_path);
 
 int
 main1( int     argc,
-      char ** _argv );
+       char ** _argv );
 
 void
 generate_keypair( const char * keyfile,

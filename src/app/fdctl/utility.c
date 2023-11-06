@@ -283,7 +283,7 @@ snprintf1( char * s,
 }
 
 void
-self_exe( char * path ) {
+current_executable_path( char path[ static PATH_MAX ] ) {
   long count = readlink( "/proc/self/exe", path, PATH_MAX );
   if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self/exe) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( count >= PATH_MAX ) ) FD_LOG_ERR(( "readlink(/proc/self/exe) returned truncated path" ));

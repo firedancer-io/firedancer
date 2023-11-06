@@ -32,46 +32,105 @@ struct action_alias ALIASES[] = {
 extern int * fd_log_private_shared_lock;
 
 static void
-main_boot_memfd( int        boot_memfd,
-                 config_t * config ) {
-  uchar * bytes = mmap( NULL, sizeof( config_t ), PROT_READ, MAP_PRIVATE, boot_memfd, 0 );
-  if( FD_UNLIKELY( bytes == MAP_FAILED ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) );
-    exit_group( 1 );
-  }
+copy_config_from_fd( int        config_fd,
+                     config_t * config ) {
+  uchar * bytes = mmap( NULL, sizeof( config_t ), PROT_READ, MAP_PRIVATE, config_fd, 0 );
+  if( FD_UNLIKELY( bytes == MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_memcpy( config, bytes, sizeof( config_t ) );
-  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) );
-    exit_group( 1 );
-  }
-  if( FD_UNLIKELY( close( boot_memfd ) ) ) {
-    fd_log_private_fprintf_0( STDERR_FILENO, "close() failed (%i-%s)", errno, fd_io_strerror( errno ) );
-    exit_group( 1 );
-  }
+  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( config_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-config_t fdctl_boot( int *    pargc,
-                     char *** pargv ) {
-  int boot_memfd = fd_env_strip_cmdline_int( pargc, pargv, "--boot-memfd", NULL, -1 );
-  if( FD_UNLIKELY( boot_memfd >= 0 ) ) {
-    config_t config;
-    main_boot_memfd( boot_memfd, &config );
-
-    /* Parent must have already opened the log file. No main command
-        line args are provided in memfd case.  For now the file descriptors
-        are assumed constant. */
-    int boot_argc = 4;
-    char * _boot_argv[ 5 ] = { "--log-lock-memfd", "3", "--log-fd", "4", NULL };
-    char ** boot_argv = _boot_argv;
-    fd_boot( &boot_argc, &boot_argv );
-
-    return config;
+static int *
+map_log_memfd( int log_memfd ) {
+  void * shmem = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, log_memfd, (off_t)0 );
+  if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
+    FD_LOG_ERR(( "mmap(NULL,sizeof(int),PROT_READ|PROT_WRITE,MAP_SHARED,memfd,(off_t)0) (%i-%s); ", errno, fd_io_strerror( errno ) ));
   } else {
-    fd_boot( pargc, pargv );
-
-    /* load configuration and command line parsing */
-    return config_parse( pargc, pargv );
+    if( FD_UNLIKELY( mlock( shmem, 4096 ) ) ) {
+      FD_LOG_ERR(( "mlock(%p,4096) (%i-%s); unable to lock log file shared lock in memory\n", shmem, errno, fd_io_strerror( errno ) ));
+    }
   }
+  return shmem;
+}
+
+/* Try to allocate an anonymous page of memory in a file descriptor
+   (memfd) for fd_log_private_shared_lock such that the log can strictly
+   sequence messages written by clones of the caller made after the
+   caller has finished booting the log.  Must be a file descriptor so
+   we can pass it through `execve` calls. */
+static int
+init_log_memfd( void ) {
+  int memfd = memfd_create( "fd_log_lock_page", 0U );
+  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return memfd;
+}
+
+static int
+should_colorize( void ) {
+  char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
+  if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
+
+  cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
+  if( cstr && !strcmp( cstr, "xterm-256color" ) ) return 1;
+  return 0;
+}
+
+config_t
+fdctl_boot( int *        pargc,
+            char ***     pargv,
+            char const * log_path ) {
+  fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
+  fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
+
+  int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
+
+  config_t config = {0};
+  char * thread = "";
+  if( FD_UNLIKELY( config_fd >= 0 ) ) {
+    copy_config_from_fd( config_fd, &config );
+  } else {
+    config_parse( pargc, pargv, &config );
+    config.log.lock_fd = init_log_memfd();
+    config.log.log_fd  = -1;
+    thread = "main";
+    if( FD_UNLIKELY( log_path ) )
+      strncpy( config.log.path, log_path, sizeof( config.log.path ) - 1 );
+  }
+
+  int * log_lock = map_log_memfd( config.log.lock_fd );
+  int pid = getpid1(); /* Need to read /proc since we might be in a PID namespace now */;
+
+  log_path = config.log.path;
+  if( FD_LIKELY( config.log.path[ 0 ]=='\0' ) ) log_path = NULL;
+
+  fd_log_private_boot_custom( log_lock,
+                              0UL,
+                              config.name,
+                              0UL,    /* Thread ID will be initialized later */
+                              thread, /* Thread will be initialized later */
+                              0UL,
+                              config.hostname,
+                              fd_log_private_cpu_id_default(),
+                              NULL,
+                              (ulong)pid,
+                              NULL,
+                              (ulong)pid,
+                              config.uid,
+                              config.user,
+                              1,
+                              config.log.colorize1,
+                              config.log.level_logfile1,
+                              config.log.level_stderr1,
+                              config.log.level_flush1,
+                              5,
+                              config.log.log_fd,
+                              log_path );
+  config.log.log_fd = fd_log_private_logfile_fd();
+  fd_shmem_private_boot( pargc, pargv );;
+  fd_tile_private_boot( 0, NULL );
+  return config;
 }
 
 int
@@ -80,8 +139,7 @@ main1( int     argc,
   char ** argv = _argv;
   argc--; argv++;
 
-  config_t config = fdctl_boot( &argc, &argv );
-  fd_log_thread_set( "main" );
+  config_t config = fdctl_boot( &argc, &argv, NULL );
 
   if( FD_UNLIKELY( !argc ) ) {
     help_cmd_fn( NULL, &config );

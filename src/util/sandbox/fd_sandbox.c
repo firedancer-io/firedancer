@@ -218,14 +218,14 @@ unshare_user( uint uid, uint gid ) {
    You should call `unthreaded` before creating any threads in the
    process, and then install the seccomp profile afterwards. */
 static void
-sandbox_unthreaded( ulong rlimit_nofile,
+sandbox_unthreaded( ulong rlimit_file_cnt,
                     ulong allow_fds_cnt,
                     int * allow_fds,
                     uint  uid,
                     uint  gid ) {
   check_fds( allow_fds_cnt, allow_fds );
   unshare_user( uid, gid );
-  struct rlimit limit = { .rlim_cur = rlimit_nofile, .rlim_max = rlimit_nofile };
+  struct rlimit limit = { .rlim_cur = rlimit_file_cnt, .rlim_max = rlimit_file_cnt };
   FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));
   setup_mountns();
   drop_capabilities();
@@ -236,13 +236,13 @@ void
 fd_sandbox( int                  full_sandbox,
             uint                 uid,
             uint                 gid,
-            ulong                rlimit_nofile,
+            ulong                rlimit_file_cnt,
             ulong                allow_fds_cnt,
             int *                allow_fds,
             ulong                seccomp_filter_cnt,
             struct sock_filter * seccomp_filter ) {
   if( FD_LIKELY( full_sandbox ) ) {
-    sandbox_unthreaded( rlimit_nofile, allow_fds_cnt, allow_fds, uid, gid );
+    sandbox_unthreaded( rlimit_file_cnt, allow_fds_cnt, allow_fds, uid, gid );
     FD_TESTV( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
     FD_TEST( seccomp_filter_cnt <= USHORT_MAX );
     FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case tile doesn't use logfile */

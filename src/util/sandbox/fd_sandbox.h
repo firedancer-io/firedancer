@@ -32,7 +32,7 @@
    only step that will be performed is switching UID and GID to the
    provided ones.  All other arguments are ignored.
 
-   The rlimit_nofile argument determines what RLIMIT_NOFILE is set to.
+   The rlimit_file_cnt argument determines what RLIMIT_NOFILE is set to.
    This should almost always be zero.  It does not affect already open
    descriptors, and only is in effect for future syscalls.  It is
    only needed for cases where poll() or similar syscalls are used which
@@ -93,8 +93,8 @@
 
     * The capability bounding set is cleared.
 
-    * The RLIMIT_NOFILE rlimit is set to the parameter rlimit_nofile, so
-      no new files can be opened above this limit.  This is an
+    * The RLIMIT_NOFILE rlimit is set to the parameter rlimit_file_cnt,
+      so no new files can be opened above this limit.  This is an
       additional layer, as usually open() syscalls will be prevented as
       well.
 
@@ -122,7 +122,7 @@ void
 fd_sandbox( int                  full_sandbox,
             uint                 uid,
             uint                 gid,
-            ulong                rlimit_nofile,
+            ulong                rlimit_file_cnt,
             ulong                allow_fds_cnt,
             int *                allow_fds,
             ulong                seccomp_filter_cnt,
