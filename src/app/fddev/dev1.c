@@ -13,7 +13,7 @@ void
 dev1_cmd_args( int *    pargc,
                char *** pargv,
                args_t * args) {
-  char * usage = "usage: dev11 <tile>";
+  char * usage = "usage: dev1 <tile>";
   if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
 
   strncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) - 1 );
@@ -30,8 +30,6 @@ dev1_cmd_perm( args_t *         args,
                config_t * const config ) {
   dev_cmd_perm( args, caps, config );
 }
-
-extern int fd_log_private_shared_memfd;
 
 void
 dev1_cmd_fn( args_t *         args,
@@ -51,7 +49,7 @@ dev1_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( fd_log_private_shared_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int result;
   if( !strcmp( args->dev1.tile_name, "solana" ) ||

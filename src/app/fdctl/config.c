@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fdctl.h"
 
 #include "run/run.h"
@@ -13,6 +14,7 @@
 #include <net/if.h>
 #include <linux/if.h>
 #include <arpa/inet.h>
+#include <sys/mman.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
@@ -33,26 +35,26 @@ static int parse_key_value( config_t *   config,
                             const char * section,
                             const char * key,
                             char * value ) {
-#define ENTRY_STR(edot, esection, ekey) do {                                         \
-    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
-      ulong len = strlen( value );                                                   \
-      if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) { \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return 1;                                                                    \
-      }                                                                              \
-      if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )           \
-        FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));    \
-      strncpy( config->esection edot ekey, value + 1, len - 2 );                     \
-      config->esection edot ekey[ len - 2 ] = '\0';                                  \
-      return 1;                                                                      \
-    }                                                                                \
+#define ENTRY_STR(edot, esection, ekey) do {                                          \
+    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {     \
+      ulong len = strlen( value );                                                    \
+      if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {  \
+        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));         \
+        return 1;                                                                     \
+      }                                                                               \
+      if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )            \
+        FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));     \
+      strncpy( config->esection edot ekey, value + 1, len - 2 );                      \
+      config->esection edot ekey[ len - 2 ] = '\0';                                   \
+      return 1;                                                                       \
+    }                                                                                 \
   } while( 0 )
 
 #define ENTRY_VSTR(edot, esection, ekey) do {                                                        \
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {                    \
       ulong len = strlen( value );                                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {                 \
-        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                        \
+        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                       \
         return 1;                                                                                    \
       }                                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey[ 0 ] ) + 2 ) )                      \
@@ -70,7 +72,7 @@ static int parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return 1;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       char * src = value;                                                         \
       char * dst = value;                                                         \
@@ -147,6 +149,12 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( , ,                     user                                                      );
   ENTRY_STR   ( , ,                     scratch_directory                                         );
   ENTRY_STR   ( , ,                     dynamic_port_range                                        );
+
+  ENTRY_STR   ( ., log,                 path                                                      );
+  ENTRY_STR   ( ., log,                 colorize                                                  );
+  ENTRY_STR   ( ., log,                 level_logfile                                             );
+  ENTRY_STR   ( ., log,                 level_stderr                                              );
+  ENTRY_STR   ( ., log,                 level_flush                                               );
 
   ENTRY_STR   ( ., ledger,              path                                                      );
   ENTRY_STR   ( ., ledger,              accounts_path                                             );
@@ -545,26 +553,26 @@ topo_initialize( config_t * config ) {
 
   topo->tile_cnt = tile_cnt;
 
-#define TILE_IN( kind, kind_id, link, link_id, reliable ) do {                               \
-    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
-    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
-      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
-    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
-    tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );       \
-    tile->in_link_reliable[ tile->in_cnt ] = reliable;                                       \
-    tile->in_cnt++;                                                                          \
+#define TILE_IN( kind, kind_id, link, link_id, reliable ) do {                              \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                               \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                               \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id )); \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                        \
+    tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );      \
+    tile->in_link_reliable[ tile->in_cnt ] = reliable;                                      \
+    tile->in_cnt++;                                                                         \
   } while(0)
 
   /* TILE_OUT is used for specifying additional, non-primary outs for
      the tile.  The primary output link is specified with the TILE macro
      above and will not appear as a TILE_OUT. */
-#define TILE_OUT( kind, kind_id, link, link_id ) do {                                        \
-    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
-    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
-      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
-    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
-    tile->out_link_id[ tile->out_cnt ] = fd_topo_find_link( topo, link, link_id );           \
-    tile->out_cnt++;                                                                         \
+#define TILE_OUT( kind, kind_id, link, link_id ) do {                                       \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                               \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                               \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id )); \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                        \
+    tile->out_link_id[ tile->out_cnt ] = fd_topo_find_link( topo, link, link_id );          \
+    tile->out_cnt++;                                                                        \
   } while(0)
 
   for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -685,6 +693,19 @@ determine_cluster( ulong  entrypoints_cnt,
   return cluster;
 }
 
+FD_FN_CONST static int
+parse_log_level( char const * level ) {
+  if( FD_UNLIKELY( !strcmp( level, "DEBUG" ) ) )    return 0;
+  if( FD_UNLIKELY( !strcmp( level, "INFO"  ) ) )    return 1;
+  if( FD_UNLIKELY( !strcmp( level, "NOTICE"  ) ) )  return 2;
+  if( FD_UNLIKELY( !strcmp( level, "WARNING"  ) ) ) return 3;
+  if( FD_UNLIKELY( !strcmp( level, "ERR" ) ) )      return 4;
+  if( FD_UNLIKELY( !strcmp( level, "CRIT" ) ) )     return 5;
+  if( FD_UNLIKELY( !strcmp( level, "ALERT" ) ) )    return 6;
+  if( FD_UNLIKELY( !strcmp( level, "EMERG" ) ) )    return 7;
+  return -1;
+}
+
 FD_FN_CONST static char *
 cluster_to_cstr( ulong cluster ) {
   switch( cluster ) {
@@ -698,11 +719,11 @@ cluster_to_cstr( ulong cluster ) {
   }
 }
 
-config_t
-config_parse( int *    pargc,
-              char *** pargv ) {
-  config_t result = {0};
-  config_parse1( default_config, &result );
+void
+config_parse( int *      pargc,
+              char ***   pargv,
+              config_t * config ) {
+  config_parse1( default_config, config );
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -712,26 +733,30 @@ config_parse( int *    pargc,
       NULL );
 
   if( FD_LIKELY( user_config ) ) {
-    config_parse_file( user_config, &result );
+    config_parse_file( user_config, config );
   }
 
   int netns = fd_env_strip_cmdline_contains( pargc, pargv, "--netns" );
   if( FD_UNLIKELY( netns ) ) {
-    result.development.netns.enabled = 1;
-    strncpy( result.tiles.net.interface,
-             result.development.netns.interface0,
-             sizeof(result.tiles.net.interface) );
-    result.tiles.net.interface[ sizeof(result.tiles.net.interface) - 1 ] = '\0';
+    config->development.netns.enabled = 1;
+    strncpy( config->tiles.net.interface,
+             config->development.netns.interface0,
+             sizeof(config->tiles.net.interface) );
+    config->tiles.net.interface[ sizeof(config->tiles.net.interface) - 1 ] = '\0';
   }
 
-  if( FD_UNLIKELY( !strcmp( result.user, "" ) ) ) {
+  if( FD_UNLIKELY( !strcmp( config->user, "" ) ) ) {
     const char * user = default_user();
-    if( FD_UNLIKELY( strlen( user ) >= sizeof( result.user ) ) )
+    if( FD_UNLIKELY( strlen( user ) >= sizeof( config->user ) ) )
       FD_LOG_ERR(( "user name `%s` is too long", user ));
-    strncpy( result.user, user, 256 );
+    strncpy( config->user, user, 256 );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.tiles.net.interface, "" ) && !result.development.netns.enabled ) ) {
+  if( FD_UNLIKELY( -1==gethostname( config->hostname, FD_LOG_NAME_MAX ) ) )
+    FD_LOG_ERR(( "could not get hostname (%i-%s)", errno, fd_io_strerror( errno ) ));
+  config->hostname[ FD_LOG_NAME_MAX-1UL ] = '\0';
+
+  if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
     if( FD_UNLIKELY( ifindex == -1 ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
@@ -741,171 +766,195 @@ config_parse( int *    pargc,
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, result.tiles.net.interface ) ) )
+    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
-  ulong cluster = determine_cluster( result.gossip.entrypoints_cnt,
-                                     result.gossip.entrypoints,
-                                     result.consensus.expected_genesis_hash );
-  result.is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
+  ulong cluster = determine_cluster( config->gossip.entrypoints_cnt,
+                                     config->gossip.entrypoints,
+                                     config->consensus.expected_genesis_hash );
+  config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
-  if( FD_UNLIKELY( result.development.netns.enabled ) ) {
-    if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.tiles.net.interface ) ) )
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
                    "[development.netns.interface0] is the same as [net.interface]" ));
 
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( result.development.netns.interface0_addr, &result.tiles.net.ip_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", result.development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( result.development.netns.interface0_mac, result.tiles.net.mac_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", result.development.netns.interface0_mac ));
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
+    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( config->development.netns.interface0_mac, config->tiles.net.mac_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", config->development.netns.interface0_mac ));
   } else {
-    if( FD_UNLIKELY( !if_nametoindex( result.tiles.net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.net.interface ));
-    uint iface_ip = listen_address( result.tiles.net.interface );
-    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && result.is_live_cluster ) )
+    if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
+    uint iface_ip = listen_address( config->tiles.net.interface );
+    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && config->is_live_cluster ) )
       FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
                    "but it has IPv4 address " FD_IP4_ADDR_FMT " "
                    "which is part of a private network and will not be routable for other Solana network nodes.", 
-                   result.tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+                   config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
 
-    result.tiles.net.ip_addr = iface_ip;
-    mac_address( result.tiles.net.interface, result.tiles.net.mac_addr );
+    config->tiles.net.ip_addr = iface_ip;
+    mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
   }
 
-  uint uid = username_to_uid( result.user );
-  result.uid = uid;
-  result.gid = uid;
+  uint uid = username_to_uid( config->user );
+  config->uid = uid;
+  config->gid = uid;
 
-  if( result.uid == 0 || result.gid == 0 )
+  if( config->uid == 0 || config->gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
 
-  if( FD_UNLIKELY( getuid() != 0 && result.uid != getuid() ) )
-    FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), result.uid ));
-  if( FD_UNLIKELY( getgid() != 0 && result.gid != getgid() ) )
-    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), result.gid ));
+  if( FD_UNLIKELY( getuid() != 0 && config->uid != getuid() ) )
+    FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), config->uid ));
+  if( FD_UNLIKELY( getgid() != 0 && config->gid != getgid() ) )
+    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), config->gid ));
 
-  replace( result.scratch_directory, "{user}", result.user );
-  replace( result.scratch_directory, "{name}", result.name );
+  replace( config->log.path, "{user}", config->user );
+  replace( config->log.path, "{name}", config->name );
+  if( FD_LIKELY( !strcmp( "auto", config->log.colorize ) ) )       config->log.colorize1 = 2;
+  else if( FD_LIKELY( !strcmp( "true", config->log.colorize ) ) )  config->log.colorize1 = 1;
+  else if( FD_LIKELY( !strcmp( "false", config->log.colorize ) ) ) config->log.colorize1 = 0;
+  else FD_LOG_ERR(( "[log.colorize] must be one of \"auto\", \"true\", or \"false\"" ));
 
-  if( FD_UNLIKELY( strcmp( result.ledger.path, "" ) ) ) {
-    replace( result.ledger.path, "{user}", result.user );
-    replace( result.ledger.path, "{name}", result.name );
-  } else {
-    snprintf1( result.ledger.path, sizeof(result.ledger.path), "%s/ledger", result.scratch_directory );
+  if( FD_LIKELY( 2==config->log.colorize1 ) ) {
+    char const * cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "COLORTERM", NULL );
+    int truecolor = cstr && !strcmp( cstr, "truecolor" );
+
+    cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
+    int xterm256color = cstr && !strcmp( cstr, "xterm-256color" );
+
+    config->log.colorize1 = truecolor || xterm256color;
   }
 
-  if( FD_UNLIKELY( strcmp( result.snapshots.path, "" ) ) ) {
-    replace( result.snapshots.path, "{user}", result.user );
-    replace( result.snapshots.path, "{name}", result.name );
+  config->log.level_logfile1 = parse_log_level( config->log.level_logfile );
+  config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
+  config->log.level_flush1   = parse_log_level( config->log.level_flush );
+  if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
+  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_logfile ));
+  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_logfile ));
+
+  replace( config->scratch_directory, "{user}", config->user );
+  replace( config->scratch_directory, "{name}", config->name );
+
+  if( FD_UNLIKELY( strcmp( config->ledger.path, "" ) ) ) {
+    replace( config->ledger.path, "{user}", config->user );
+    replace( config->ledger.path, "{name}", config->name );
   } else {
-    strncpy( result.snapshots.path, result.ledger.path, sizeof(result.snapshots.path) );
+    snprintf1( config->ledger.path, sizeof(config->ledger.path), "%s/ledger", config->scratch_directory );
   }
 
-  if( FD_UNLIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
-    snprintf1( result.consensus.identity_path,
-               sizeof(result.consensus.identity_path),
+  if( FD_UNLIKELY( strcmp( config->snapshots.path, "" ) ) ) {
+    replace( config->snapshots.path, "{user}", config->user );
+    replace( config->snapshots.path, "{name}", config->name );
+  } else {
+    strncpy( config->snapshots.path, config->ledger.path, sizeof(config->snapshots.path) );
+  }
+
+  if( FD_UNLIKELY( !strcmp( config->consensus.identity_path, "" ) ) ) {
+    snprintf1( config->consensus.identity_path,
+               sizeof(config->consensus.identity_path),
                "%s/identity.json",
-               result.scratch_directory );
+               config->scratch_directory );
   } else {
-    replace( result.consensus.identity_path, "{user}", result.user );
-    replace( result.consensus.identity_path, "{name}", result.name );
+    replace( config->consensus.identity_path, "{user}", config->user );
+    replace( config->consensus.identity_path, "{name}", config->name );
   }
 
-  replace( result.consensus.vote_account_path, "{user}", result.user );
-  replace( result.consensus.vote_account_path, "{name}", result.name );
+  replace( config->consensus.vote_account_path, "{user}", config->user );
+  replace( config->consensus.vote_account_path, "{name}", config->name );
 
-  if( FD_UNLIKELY( result.is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
-    FD_LOG_EMERG(( "Attempted to start against live cluster `%s`. Firedancer is not "
-                   "ready for production deployment, has not been tested, and is "
-                   "missing consensus critical functionality. Joining a live Solana "
-                   "cluster may destabilize the network. Please do not attempt. You "
-                   "can start against the testnet cluster by specifying the testnet "
-                   "entrypoints from https://docs.solana.com/clusters under "
-                   "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
+  if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
+    FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
+                 "ready for production deployment, has not been tested, and is "
+                 "missing consensus critical functionality. Joining a live Solana "
+                 "cluster may destabilize the network. Please do not attempt. You "
+                 "can start against the testnet cluster by specifying the testnet "
+                 "entrypoints from https://docs.solana.com/clusters under "
+                 "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
 
-  if( FD_LIKELY( result.is_live_cluster) ) {
-    if( FD_UNLIKELY( !result.development.sandbox ) )
+  if( FD_LIKELY( config->is_live_cluster) ) {
+    if( FD_UNLIKELY( !config->development.sandbox ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
-    if( FD_UNLIKELY( result.development.netns.enabled ) )
+    if( FD_UNLIKELY( config->development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
-  if( FD_UNLIKELY( result.ledger.bigtable_storage ) ) {
+  if( FD_UNLIKELY( config->ledger.bigtable_storage ) ) {
     FD_LOG_ERR(( "BigTable storage is not yet supported." ));
   }
 
-  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.regular_transaction_listen_port + 6 ) )
+  if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port != config->tiles.quic.regular_transaction_listen_port + 6 ) )
     FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
                  "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
-                 result.tiles.quic.quic_transaction_listen_port,
-                 result.tiles.quic.regular_transaction_listen_port ));
+                 config->tiles.quic.quic_transaction_listen_port,
+                 config->tiles.quic.regular_transaction_listen_port ));
 
-  if( FD_LIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
-    if( FD_UNLIKELY( result.is_live_cluster ) )
+  if( FD_LIKELY( !strcmp( config->consensus.identity_path, "" ) ) ) {
+    if( FD_UNLIKELY( config->is_live_cluster ) )
       FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
 
-    snprintf1( result.consensus.identity_path,
-               sizeof( result.consensus.identity_path ),
+    snprintf1( config->consensus.identity_path,
+               sizeof( config->consensus.identity_path ),
                "%s/identity.json",
-               result.scratch_directory );
+               config->scratch_directory );
   }
 
-  validate_ports( &result );
+  validate_ports( config );
 
-  topo_initialize( &result );
-  fd_topo_validate( &result.topo );
+  topo_initialize( config );
+  fd_topo_validate( &config->topo );
 
-  for( ulong i=0; i<result.topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &result.topo.tiles[ i ];
+  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     switch( tile->kind ) {
       case FD_TOPO_TILE_KIND_NET:
-        strncpy( tile->net.app_name, result.name, sizeof(tile->net.app_name) );
-        strncpy( tile->net.interface, result.tiles.net.interface, sizeof(tile->net.interface) );
-        tile->net.xdp_aio_depth = result.tiles.net.xdp_aio_depth;
-        tile->net.xdp_rx_queue_size = result.tiles.net.xdp_rx_queue_size;
-        tile->net.xdp_tx_queue_size = result.tiles.net.xdp_tx_queue_size;
-        tile->net.allow_ports[ 0 ] = result.tiles.quic.regular_transaction_listen_port;
-        tile->net.allow_ports[ 1 ] = result.tiles.quic.quic_transaction_listen_port;
-        tile->net.allow_ports[ 2 ] = result.tiles.shred.shred_listen_port;
+        strncpy( tile->net.app_name, config->name, sizeof(tile->net.app_name) );
+        strncpy( tile->net.interface, config->tiles.net.interface, sizeof(tile->net.interface) );
+        tile->net.xdp_aio_depth = config->tiles.net.xdp_aio_depth;
+        tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
+        tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
+        tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
+        tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
+        tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
         break;
       case FD_TOPO_TILE_KIND_QUIC:
-        tile->quic.depth = result.topo.links[ tile->out_link_id_primary ].depth;
-        tile->quic.max_concurrent_connections = result.tiles.quic.max_concurrent_connections;
-        tile->quic.max_concurrent_handshakes = result.tiles.quic.max_concurrent_handshakes;
-        tile->quic.max_inflight_quic_packets = result.tiles.quic.max_inflight_quic_packets;
-        tile->quic.tx_buf_size = result.tiles.quic.tx_buf_size;
-        tile->quic.max_concurrent_streams_per_connection = result.tiles.quic.max_concurrent_streams_per_connection;
-        tile->quic.ip_addr = result.tiles.net.ip_addr;
-        fd_memcpy( tile->quic.src_mac_addr, result.tiles.net.mac_addr, 6 );
-        tile->quic.quic_transaction_listen_port = result.tiles.quic.quic_transaction_listen_port;
-        tile->quic.legacy_transaction_listen_port = result.tiles.quic.regular_transaction_listen_port;
-        tile->quic.idle_timeout_millis = result.tiles.quic.idle_timeout_millis;
+        tile->quic.depth = config->topo.links[ tile->out_link_id_primary ].depth;
+        tile->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
+        tile->quic.max_concurrent_handshakes = config->tiles.quic.max_concurrent_handshakes;
+        tile->quic.max_inflight_quic_packets = config->tiles.quic.max_inflight_quic_packets;
+        tile->quic.tx_buf_size = config->tiles.quic.tx_buf_size;
+        tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
+        tile->quic.ip_addr = config->tiles.net.ip_addr;
+        fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
+        tile->quic.quic_transaction_listen_port = config->tiles.quic.quic_transaction_listen_port;
+        tile->quic.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
+        tile->quic.idle_timeout_millis = config->tiles.quic.idle_timeout_millis;
         break;
       case FD_TOPO_TILE_KIND_VERIFY:
         break;
       case FD_TOPO_TILE_KIND_DEDUP:
-        tile->dedup.tcache_depth = result.tiles.dedup.signature_cache_size;
+        tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
       case FD_TOPO_TILE_KIND_PACK:
-        tile->pack.max_pending_transactions = result.tiles.pack.max_pending_transactions;
-        tile->pack.bank_tile_count = result.layout.bank_tile_count;
-        strncpy( tile->pack.identity_key_path, result.consensus.identity_path, sizeof(tile->pack.identity_key_path) );
+        tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
+        tile->pack.bank_tile_count = config->layout.bank_tile_count;
+        strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_BANK:
         break;
       case FD_TOPO_TILE_KIND_SHRED:
-        tile->shred.depth = result.topo.links[ tile->out_link_id_primary ].depth;
-        tile->shred.ip_addr = result.tiles.net.ip_addr;
-        fd_memcpy( tile->shred.src_mac_addr, result.tiles.net.mac_addr, 6 );
-        tile->shred.fec_resolver_depth = result.tiles.shred.max_pending_shred_sets;
-        strncpy( tile->shred.identity_key_path, result.consensus.identity_path, sizeof(tile->shred.identity_key_path) );
-        tile->shred.expected_shred_version = result.consensus.expected_shred_version;
-        tile->shred.shred_listen_port = result.tiles.shred.shred_listen_port;
+        tile->shred.depth = config->topo.links[ tile->out_link_id_primary ].depth;
+        tile->shred.ip_addr = config->tiles.net.ip_addr;
+        fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
+        tile->shred.fec_resolver_depth = config->tiles.shred.max_pending_shred_sets;
+        strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
+        tile->shred.expected_shred_version = config->consensus.expected_shred_version;
+        tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
         break;
       case FD_TOPO_TILE_KIND_STORE:
         break;
@@ -913,6 +962,18 @@ config_parse( int *    pargc,
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
     }
   }
+}
 
-  return result;
+int
+config_write_memfd( config_t * config ) {
+  int config_memfd = memfd_create( "fd_config", 0 );
+  if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "memfd_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ftruncate( config_memfd, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "ftruncate() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar * bytes = mmap( NULL, sizeof( config_t ), PROT_READ | PROT_WRITE, MAP_SHARED, config_memfd, 0 );
+  if( FD_UNLIKELY( bytes == MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_memcpy( bytes, config, sizeof( config_t ) );
+  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return config_memfd;
 }

@@ -805,7 +805,7 @@ populate_allowed_seccomp( void *               scratch,
 
   int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
   FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_shred( out_cnt, out, (unsigned int)fd_log_private_logfile_fd(), (unsigned int)netlink_fd );
+  populate_sock_filter_policy_shred( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)netlink_fd );
   return sock_filter_policy_shred_instr_cnt;
 }
 

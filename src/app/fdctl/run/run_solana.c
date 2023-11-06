@@ -13,7 +13,11 @@ int
 solana_labs_main( void * args ) {
   config_t * const config = args;
 
-  fd_log_private_group_id_set( (ulong)getpid1() ); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  fd_log_private_group_id_set( pid );
+  fd_log_private_thread_id_set( pid );
+  fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
+                                 &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting tile solana:0 pid:%lu", fd_log_group_id() ));
 
   fd_sandbox( 0, config->uid, config->gid, 0UL, 0, NULL, 0, NULL );
@@ -108,6 +112,10 @@ solana_labs_main( void * args ) {
   if( FD_UNLIKELY( setenv( "RUST_LOG", "solana=info,solana_metrics::metrics=warn", 1 ) ) )
     FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  char * log_style = config->log.colorize1 ? "always" : "never";
+  if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", log_style, 1 ) ) )
+    FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
@@ -122,15 +130,14 @@ run_solana_cmd_fn( args_t *         args,
   (void)args;
 
   fd_log_thread_set( "solana-labs" );
-  int pid = getpid1(); /* Need to read /proc since we are in a PID namespace now */
-  fd_log_private_group_id_set( (ulong)pid );
 
-  void * stack = fd_tile_private_stack_new( 1, 65535UL );
+  /* Run Solana Labs with an optimized huge page stack on numa node 0 ... */
+  void * stack = fd_tile_private_stack_new( 1, 0UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
 
   /* Also clone Solana Labs into PID namespaces so it cannot signal
      other tile or the parent. */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
-  pid_t clone_pid = clone( solana_labs_main, (uchar *)stack + (8UL<<20), flags, config );
+  pid_t clone_pid = clone( solana_labs_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, config );
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }

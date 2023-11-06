@@ -61,12 +61,12 @@ snprintf1( char * s,
 uchar const *
 load_key_into_protected_memory( char const * key_path, int public_key_only );
 
-/* self_exe() retrieves the full path of the current executable
-   into the path. Path should be a buffer with at least PATH_MAX
-   elements or calling this is undefined behavior. Logs error
+/* current_executable_path() retrieves the full path of the current
+   executable into the path.  Path should be a buffer with at least
+   PATH_MAX elements or calling this is undefined behavior. Logs error
    and exits if the current executable cannot be determined. */
 void
-self_exe( char * path );
+current_executable_path( char path[ PATH_MAX ] );
 
 /* RUN() executes the given string and formatting arguments as a
    subprocess, and waits for the child to complete. If the child does

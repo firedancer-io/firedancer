@@ -54,6 +54,83 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # NOT overlap with any of the static ports used by Firedancer below.
 dynamic_port_range = "8900-9000"
 
+# Firedancer logs to two places by default: stderr and a logfile. 
+# stdout is not used for logging, and will only be used to print command
+# output or boot errors.  Messages to "stderr" are abbreviated and not
+# as fully detailed as those to the log file.  The log file is intended
+# for long term archival purposes.  The log levels mirror the Linux
+# syslog levels, which are, from lowest priority to highest:
+#
+#   - DEBUG    Development and diagnostic messages.
+#   - INFO     Less important informational notice.
+#   - NOTICE   More important informational notice.
+#   - WARNING  Unexpected condition, shouldn't happen. Should be
+#              investigated.
+#   - ERR      Kills Firedancer. Routine error, likely programmer error. 
+#   - CRIT     Kills Firedancer. Critical errors.
+#   - ALERT    Kills Firedancer. Alert requiring immediate attention.
+#   - EMERG    Kills Firedancer. Emergency requiring immediate
+#              attention, security or risk issue.
+#
+# Default behaviors are:
+#
+#   - DEBUG messages are not written to either stream.
+#   - INFO messages are written in detailed form to the log file.
+#   - NOTICE is INFO + messages are written in summary form to
+#     stderr.
+#   - WARNING is NOTICE + the log file is flushed to disk.
+#   - ERR and above are WARNING + the program will be exited with an
+#     error code of 1.
+#   - CRIT and above are WARNING + the program will
+#
+# All processes in Firedancer share one log file, and they all inherit
+# STDERR and STDOUT from the launcher.  An example log message would
+# look something like:
+#
+#    NOTICE  01-23 04:56:07.890123 45678 f0 0 src/file.c(901): 1 is the loneliest number
+#
+# to the ephemeral log (stderr) and log something like:
+#
+#    NOTICE  2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/file.c(901)[func]: 1 is the loneliest number
+#
+# to the permanent log (log file).
+[log]
+    # Absolute file path of where to place the log file.  It will be
+    # appended to, or created if it does not already exist. The
+    # shortened ephemeral log will always be written to stderr.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # If no path is provided, the default is to place the log file in
+    # /tmp with a name that will be unique.  If specified as "-", the
+    # permanent log will be written to stdout.
+    path = ""
+
+    # Firedancer can colorize the stderr ephemeral log using ANSI escape
+    # codes so that it looks pretty in a terminal.  This option must be
+    # one of "auto", "true", or "false".  If set to "auto" stderr output
+    # will be colorized if we can detect the terminal supports it.  The
+    # log file output will never be colorized.
+    colorize = "auto"
+
+    # The minimum log level which will be written to the log file.  Log
+    # levels lower than this will be skipped.  Must be one of the levels
+    # described above.
+    level_logfile = "INFO"
+
+    # The minimum log level which will be written to stderr.  Log levels
+    # lower than this will be skipped.  Must be one of the levels
+    # described above.  This should be at least the same as the level
+    # for the log file.
+    level_stderr = "NOTICE"
+
+    # The minimum log level which will immediately flush the log file to
+    # disk.  Must be one of the levels described above.
+    level_flush = "WARNING"
+
 # The ledger is the set of information that can be replayed to get back
 # to the current state of the chain.  In Solana, it is considered a
 # combination of the genesis, and the recent unconfirmed blocks.  The

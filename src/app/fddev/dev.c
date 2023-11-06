@@ -42,17 +42,25 @@ dev_cmd_perm( args_t *         args,
 pid_t firedancer_pid, monitor_pid;
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
+#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+
+extern int * fd_log_private_shared_lock;
+
 static void
 parent_signal( int sig ) {
   (void)sig;
-  int err = 0;
-  if( FD_LIKELY( firedancer_pid ) )
-    if( kill( firedancer_pid, SIGINT ) ) err = 1;
-  if( FD_LIKELY( monitor_pid ) )
-    if( kill( monitor_pid, SIGKILL ) ) err = 1;
-  if( -1!=fd_log_private_logfile_fd() )
-    fd_log_private_fprintf_nolock_0( STDERR_FILENO, "Log at \"%s\"\n", fd_log_private_path );
-  exit_group( err );
+  if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
+  if( FD_LIKELY( monitor_pid ) )    kill( monitor_pid, SIGKILL );
+
+  /* Same hack as in run.c, see comments there. */
+  int lock;
+  fd_log_private_shared_lock = &lock;
+
+  if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
+  else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
+
+  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
+  else                           exit_group( 128+SIGTERM );
 }
 
 static void
@@ -189,10 +197,7 @@ dev_cmd_fn( args_t *         args,
 
     int wstatus;
     pid_t exited_pid = wait4( -1, &wstatus, (int)__WALL, NULL );
-    if( FD_UNLIKELY( exited_pid == -1 ) ) {
-      fd_log_private_fprintf_nolock_0( STDERR_FILENO, "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) );
-      exit_group( 1 );
-    }
+    if( FD_UNLIKELY( exited_pid == -1 ) ) FD_LOG_ERR(( "wait4() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     char * exited_child = exited_pid == firedancer_pid ? "firedancer" : exited_pid == monitor_pid ? "monitor" : "unknown";
     int exit_code = 0;

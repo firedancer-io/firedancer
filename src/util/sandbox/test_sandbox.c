@@ -213,7 +213,7 @@ seccomp_default_filter( void ) {
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_test_sandbox( 128UL, seccomp_filter );
 
-  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), 0, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); );
+  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), 0UL, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); );
 
   pid_t pid = fork();
   if ( pid ) {
@@ -222,7 +222,7 @@ seccomp_default_filter( void ) {
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
 
-    fd_sandbox( 1, getuid(), getgid(), 0, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter );
+    fd_sandbox( 1, getuid(), getgid(), 0UL, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
   }

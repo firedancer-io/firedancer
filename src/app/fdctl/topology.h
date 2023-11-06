@@ -536,9 +536,12 @@ fd_topo_huge_page_cnt( fd_topo_t * topo );
 void
 fd_topo_validate( fd_topo_t * topo );
 
-/* Prints a NOTICE log message describing the topology to the log. */
+/* Prints a message describing the topology to an output stream.  If
+   stdout is true, will be written to stdout, otherwise will be written
+   as a NOTICE log message to the log file. */
 void
-fd_topo_print_log( fd_topo_t * topo );
+fd_topo_print_log( int         stdout,
+                   fd_topo_t * topo );
 
 FD_PROTOTYPES_END
 

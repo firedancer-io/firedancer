@@ -172,7 +172,7 @@ populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
   (void)scratch;
-  populate_sock_filter_policy_verify( out_cnt, out, (unsigned int)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_verify( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_verify_instr_cnt;
 }
 

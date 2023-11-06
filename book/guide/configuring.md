@@ -48,6 +48,9 @@ for different commands may cause them to fail.
 :::
 
 ## Logging
+By default Firedancer will maintain two logs. One permanent log which is
+written to a file, and an ephemeral log for fast visual inspection which
+is written to stderr. 
 
 ## Layout
 One way that Firedancer is fast is that it pins a dedicated thread to

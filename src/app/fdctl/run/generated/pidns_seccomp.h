@@ -21,30 +21,40 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_pidns_instr_cnt = 18;
+static const unsigned int sock_filter_policy_pidns_instr_cnt = 23;
 
-static void populate_sock_filter_policy_pidns( ulong out_cnt, struct sock_filter * out ) {
-  FD_TEST( out_cnt >= 18 );
-  struct sock_filter filter[18] = {
+static void populate_sock_filter_policy_pidns( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd) {
+  FD_TEST( out_cnt >= 23 );
+  struct sock_filter filter[23] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 14 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 19 ),
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 4, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* check_write */ 5, 0 ),
+    /* allow fsync based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_fsync, /* check_fsync */ 8, 0 ),
     /* allow poll based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_poll, /* check_poll */ 5, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_poll, /* check_poll */ 9, 0 ),
     /* allow wait4 based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_wait4, /* check_wait4 */ 6, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_wait4, /* check_wait4 */ 10, 0 ),
     /* simply allow exit_group */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, /* RET_ALLOW */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_exit_group, /* RET_ALLOW */ 14, 0 ),
     /* none of the syscalls matched */
-    { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 8 },
+    { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 12 },
 //  check_write:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 11, /* lbl_1 */ 0 ),
+//  lbl_1:
+    /* load syscall argument 0 in accumulator */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 9, /* RET_KILL_PROCESS */ 8 ),
+//  check_fsync:
+    /* load syscall argument 0 in accumulator */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
 //  check_poll:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
@@ -52,8 +62,8 @@ static void populate_sock_filter_policy_pidns( ulong out_cnt, struct sock_filter
 //  check_wait4:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, (int)__WALL | (int)WNOHANG, /* lbl_1 */ 0, /* RET_KILL_PROCESS */ 2 ),
-//  lbl_1:
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, (int)__WALL, /* lbl_2 */ 0, /* RET_KILL_PROCESS */ 2 ),
+//  lbl_2:
     /* load syscall argument 3 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
