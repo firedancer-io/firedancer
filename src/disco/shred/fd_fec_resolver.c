@@ -38,7 +38,7 @@ typedef struct set_ctx set_ctx_t;
 #define DEQUE_T    void *
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-static const wrapped_sig_t null_signature = {0};
+static const wrapped_sig_t null_signature = {{0}};
 
 #define MAP_KEY               sig
 #define MAP_KEY_T             wrapped_sig_t
