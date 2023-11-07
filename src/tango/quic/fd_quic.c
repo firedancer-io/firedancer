@@ -918,6 +918,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( !entry ) ) {
     FD_LOG_WARNING(( "Stream map full" ));
     fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+
+    return NULL;
   }
 
   entry->stream = stream;
@@ -4839,14 +4841,42 @@ fd_quic_conn_free( fd_quic_t *      quic,
     fd_quic_stream_t * stream = conn->streams[j];
     if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
       fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
-      if( stream_entry && stream_entry->stream != conn->stream_dead ) {
+      if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
         /* TODO we seem to be freeing more streams than expected here */
-        if( stream_entry->stream ) {
-          fd_quic_stream_free( quic, conn, stream_entry->stream, FD_QUIC_NOTIFY_ABORT );
-        } else {
-          fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+        if( stream_entry->stream && stream_entry->stream != conn->stream_dead ) {
+          fd_quic_cb_stream_notify( quic, stream, stream->context, FD_QUIC_NOTIFY_ABORT );
         }
+
+        fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+      }
+    }
+  }
+
+  /* if any stream map entries are left over, remove them
+     this should not occur, so this branch should not execute
+     but if a stream doesn't get cleaned up properly, this fixes
+     the stream map */
+  if( fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) {
+    FD_LOG_WARNING(( "stream_map not empty. cnt: %lu",
+          (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
+    while( fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) {
+      int removed = 0;
+      for( ulong j = 0; j < fd_quic_stream_map_slot_cnt( conn->stream_map ); ++j ) {
+        if( conn->stream_map[j].stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
+          FD_LOG_WARNING(( "removing map entry for stream_id %lu stream %p %s",
+                (ulong)conn->stream_map[j].stream_id,
+                (void*)conn->stream_map[j].stream,
+                conn->stream_map[j].stream == conn->stream_dead ? "DEAD" : "" ));
+          fd_quic_stream_map_remove( conn->stream_map, &conn->stream_map[j] );
+          removed = 1;
+          j--; /* retry this entry */
+        }
+      }
+      if( !removed ) {
+        FD_LOG_WARNING(( "None removed. Remain: %lu",
+              (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
+        break;
       }
     }
   }
@@ -6113,6 +6143,11 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn ) {
       /* remove the stream_id from the map */
       fd_quic_stream_map_remove( conn->stream_map, stream_entry );
 
+      stream_entry->stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+
+      /* insert into unused list */
+      FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream_entry->stream );
+
       /* was the stream initiated by the peer */
       if( (uint)( stream_type & 1u ) == (uint)!conn->server ) {
 	conn->max_streams[stream_type]++; /* allows for one more stream */
@@ -6123,6 +6158,9 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn ) {
 	conn->flags         |= flag;
 	conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
       }
+
+      /* track current number of streams */
+      conn->num_streams[stream_type]--;
     }
   }
 }
@@ -6133,17 +6171,15 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
   fd_quic_cb_stream_notify( quic, stream, stream->context, code );
 
   ulong stream_id   = stream->stream_id;
-  ulong stream_type = stream_id & 3UL;
 
-  /* free the stream */
-  stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
-
-  /* remove from stream map */
+  /* reclaim removes it from stream map */
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
   if( FD_LIKELY( stream_entry && stream_entry->stream != conn->stream_dead ) ) {
     /* point to conn->stream_dead to indicate this stream id is dead and should
      * be reclaimed when appropriate */
     stream_entry->stream = conn->stream_dead;
+  } else {
+    FD_LOG_WARNING(( "stream %lu not found in stream map", (ulong)stream_id ));
   }
 
   /* remove from send_streams */
@@ -6151,12 +6187,6 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
     FD_QUIC_STREAM_LIST_REMOVE( stream );
   }
   stream->stream_flags = 0;
-
-  /* insert into unused list */
-  FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
-
-  /* track current number of streams */
-  conn->num_streams[stream_type]--;
 
   fd_quic_stream_reclaim( conn );
 }
