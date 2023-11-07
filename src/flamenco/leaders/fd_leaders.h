@@ -30,16 +30,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 
-/* fd_stake_weight_t assigns an Ed25519 public key (node identity) a
-   stake weight number measured in lamports */
-struct __attribute__((aligned(8UL))) fd_stake_weight {
-  fd_pubkey_t key;
-  ulong stake;
-};
-typedef struct fd_stake_weight fd_stake_weight_t;
-#define FD_STAKE_WEIGHT_FOOTPRINT sizeof(fd_stake_weight_t)
-#define FD_STAKE_WEIGHT_ALIGN (8UL)
-
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
    fd_epoch_leaders_{align,footprint} functions. */
 
