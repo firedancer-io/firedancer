@@ -11,6 +11,7 @@
 
 #include "../sanitize/fd_sanitize.h"
 #include "../tile/fd_tile.h"
+#include "../valloc/fd_valloc.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional run-time checks. */
@@ -426,7 +427,8 @@ fd_scratch_alloc( ulong align,
   ulong end  = smem + sz;
 
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( end < smem ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
+  if( FD_UNLIKELY( end < smem ) )
+    FD_LOG_ERR(( "sz (%lu) overflow", sz ));
 # endif
 
   fd_scratch_publish( (void *)end );
@@ -575,6 +577,21 @@ fd_scratch_trim_is_safe( void * _end ) {
   return 1;
 }
 
+/* fd_scratch_vtable is the virtual function table implementing
+   fd_valloc for fd_scratch. */
+
+extern const fd_valloc_vtable_t fd_scratch_vtable;
+
+/* fd_scratch_virtual returns an abstract handle to the fd_scratch join.
+   Valid for lifetime of scratch frame.  fd_valloc_t must be dropped
+   before scratch frame changes or scratch detaches. */
+
+FD_FN_CONST static inline fd_valloc_t
+fd_scratch_virtual( void ) {
+  fd_valloc_t valloc = { NULL, &fd_scratch_vtable };
+  return valloc;
+}
+
 /* fd_alloca is variant of alloca that works like aligned_alloc.  That
    is, it returns an allocation of sz bytes with an alignment of at
    least align.  Like alloca, this allocation will be in the stack frame
@@ -656,6 +673,21 @@ extern FD_TL ulong fd_alloca_check_private_sz;
 
 #endif /* FD_HAS_ASAN */
 #endif /* FD_HAS_ALLOCA */
+
+/* FD_SCRATCH_SCOPED_FRAME enters a new scratch frame that is
+   automatically destroyed when the scope it was declared in.
+   Uses a dummy variable with a cleanup attribute under the hood.
+   U.B. if scope is left abnormally (e.g. longjmp(), C++ exception,
+        abort(), etc.) */
+
+FD_FN_UNUSED static inline void
+fd_scratch_pop1( void * _unused ) { (void)_unused; fd_scratch_pop(); }
+
+#define FD_SCRATCH_SCOPED_FRAME               \
+  fd_scratch_push();                          \
+  int _scratch_guard ## __LINE__              \
+    __attribute__((cleanup(fd_scratch_pop1))) \
+    __attribute__((unused))
 
 FD_PROTOTYPES_END
 
