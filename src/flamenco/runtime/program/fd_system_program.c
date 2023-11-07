@@ -27,6 +27,11 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     sender = &txn_accs[instr_acc_idxs[0]];
     receiver = &txn_accs[instr_acc_idxs[1]];
     requested_lamports = instruction->inner.transfer;
+
+    if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, system_transfer_zero_check ) &&
+        requested_lamports == 0UL )
+      return FD_EXECUTOR_INSTR_SUCCESS;
+
   } else if (instruction->discriminant == fd_system_program_instruction_enum_transfer_with_seed) {
     int err = fd_account_sanity_check(&ctx, 3);
     if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err))
@@ -36,6 +41,10 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     fd_pubkey_t const * sender_base = &txn_accs[instr_acc_idxs[1]];
     receiver = &txn_accs[instr_acc_idxs[2]];
     requested_lamports = instruction->inner.transfer_with_seed.lamports;
+
+    if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, system_transfer_zero_check ) &&
+        requested_lamports == 0UL )
+      return FD_EXECUTOR_INSTR_SUCCESS;
 
     fd_pubkey_t      address_with_seed;
     fd_pubkey_create_with_seed(
