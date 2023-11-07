@@ -1,0 +1,7 @@
+{ "expected-missing-functions":
+  [
+
+  ],
+  "proof-name": "fd_keyguard_match_txn",
+  "proof-root": "verification/proofs"
+}
