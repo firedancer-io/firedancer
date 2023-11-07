@@ -273,7 +273,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
       ushort lo;
       ushort hi;
       /* we need an ephemeral UDP port range for at least two reasons:
-         1. Some nextwork hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
+         1. Some network hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
          2. For receive-side scaling, the server will be using the source port for load balancing */
     } ephem_udp_port;
 
