@@ -44,7 +44,7 @@
 
    - fd_txn_minsz_proof verifies the constant FD_TXN_MIN_SERIALIZED_SZ.
    - fd_txn_ambiguity_gossip_proof verifies that gossip messages cannot
-     be parsed as gossip messages.
+     be parsed as transactions.
    - fd_keyguard_match_txn_harness verifies that the txn fingerprinting
      logic is free of false negatives.
    - fd_keyguard_ambiguity_proof verifies that any input up to 2048 byte
