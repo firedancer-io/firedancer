@@ -1,5 +1,5 @@
 HARNESS_ENTRY = harness
-HARNESS_FILE = fd_txn_minsz_harness
+HARNESS_FILE = fd_txn_minsz_proof
 
 PROOF_UID = fd_txn_minsz
 
