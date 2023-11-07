@@ -10,7 +10,7 @@ struct __attribute__((aligned(64))) fd_mux_tile_in {
   ulong                  seq;      /* sequence number of next frag expected from the upstream producer,
                                       updated when frag from this in is published / filtered */
   fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
-  ulong *                fseq;     /* local join to the fseq used to return flow control credits the in */
+  ulong *                fseq;     /* local join to the fseq used to return flow control credits to the in */
   uint                   accum[6]; /* local diagnostic accumualtors.  These are drained during in housekeeping. */
                                    /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNR_CONT} are 0:5 */
 };
