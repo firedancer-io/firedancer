@@ -44,11 +44,22 @@ struct fd_quic_stream {
 
   fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
 
-  uint stream_flags;   /* flags representing elements that require sending */
+  uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA (1u<<2u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
+# define FD_QUIC_STREAM_FLAGS_DEAD            (1u<<4u)
+
+# define FD_QUIC_STREAM_FLAGS_ACTION                   \
+           ( FD_QUIC_STREAM_FLAGS_TX_FIN           |   \
+             FD_QUIC_STREAM_FLAGS_RX_FIN           |   \
+             FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA  |   \
+             FD_QUIC_STREAM_FLAGS_UNSENT           )
+
+# define FD_QUIC_STREAM_ACTION(stream) \
+           (!!( (stream)->stream_flags & FD_QUIC_STREAM_FLAGS_ACTION ))
+
 
   uint sentinel; /* does this stream represent a sentinel? */
 
@@ -127,7 +138,7 @@ struct fd_quic_stream {
     fd_quic_stream_t * stream_prev = (stream)->prev;            \
     fd_quic_stream_t * stream_next = (stream)->next;            \
     FD_QUIC_STREAM_LIST_LINK( stream_prev, stream_next     );   \
-    (stream)->next = (stream)->prev = NULL;                     \
+    (stream)->next = (stream)->prev = stream;                   \
   } while(0)
 
 

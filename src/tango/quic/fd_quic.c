@@ -847,11 +847,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   uint type   = server + ( (uint)dirtype << 1u );
 
   ulong next_stream_id  = conn->next_stream_id[type];
-  uint  stream_cnt = (uint)(
-      conn->quic->limits.stream_cnt[ 0x00 ] +
-      conn->quic->limits.stream_cnt[ 0x01 ] +
-      conn->quic->limits.stream_cnt[ 0x02 ] +
-      conn->quic->limits.stream_cnt[ 0x03 ] );
+  uint  stream_cnt      = (uint)conn->quic->limits.stream_cnt[type];
   uint  cur_num_streams = (uint)conn->num_streams[type];
 
   /* have we maxed out our max stream id?? */
@@ -872,6 +868,8 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   if( FD_UNLIKELY( stream == conn->unused_streams ) ) {
     FD_LOG_WARNING(( "max_concur_streams not reached, yet no free streams found" ));
     fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+
+    return NULL;
   }
 
   /* remove from unused list */
@@ -983,7 +981,7 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   }
 
   /* insert into send list */
-  if( stream->stream_flags == 0 ) {
+  if( !FD_QUIC_STREAM_ACTION( stream ) ) {
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
   }
   stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
@@ -1015,7 +1013,7 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
   fd_quic_conn_t * conn = stream->conn;
 
   /* insert into send list */
-  if( stream->stream_flags == 0 ) {
+  if( !FD_QUIC_STREAM_ACTION( stream ) ) {
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
   }
   stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_TX_FIN; /* state immediately updated */
@@ -4240,7 +4238,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
                   /* remove flag from cur_stream */
                   cur_stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-                  if( cur_stream->stream_flags == 0 ) {
+                  if( !FD_QUIC_STREAM_ACTION( cur_stream ) ) {
                     /* remove cur_stream from action list */
                     FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
                   }
@@ -4522,7 +4520,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         if( last_byte ) {
           stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_TX_FIN;
         }
-        if( stream->stream_flags == 0 ) {
+        if( !FD_QUIC_STREAM_ACTION( stream ) ) {
           /* remove from list */
           FD_QUIC_STREAM_LIST_REMOVE( stream );
         }
@@ -4844,11 +4842,20 @@ fd_quic_conn_free( fd_quic_t *      quic,
       if( stream_entry ) {
         /* fd_quic_stream_free calls fd_quic_stream_map_remove */
         /* TODO we seem to be freeing more streams than expected here */
-        if( stream_entry->stream && stream_entry->stream != conn->stream_dead ) {
+        if( stream_entry->stream &&
+            ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) {
           fd_quic_cb_stream_notify( quic, stream, stream->context, FD_QUIC_NOTIFY_ABORT );
         }
 
+        conn->num_streams[stream->stream_id&3]--;
+
         fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+        stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+        stream->stream_flags = 0;
+        FD_QUIC_STREAM_LIST_REMOVE( stream );
+        FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
+      } else {
+        FD_LOG_WARNING(( "stream %lu not in stream_map", (ulong)stream->stream_id ));
       }
     }
   }
@@ -4864,10 +4871,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
       int removed = 0;
       for( ulong j = 0; j < fd_quic_stream_map_slot_cnt( conn->stream_map ); ++j ) {
         if( conn->stream_map[j].stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
-          FD_LOG_WARNING(( "removing map entry for stream_id %lu stream %p %s",
-                (ulong)conn->stream_map[j].stream_id,
-                (void*)conn->stream_map[j].stream,
-                conn->stream_map[j].stream == conn->stream_dead ? "DEAD" : "" ));
           fd_quic_stream_map_remove( conn->stream_map, &conn->stream_map[j] );
           removed = 1;
           j--; /* retry this entry */
@@ -5530,7 +5533,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
           stream->tx_sent = offset;
 
           /* if flags==0, the stream is not in the send list */
-          if( stream->stream_flags == 0 ) {
+          if( !FD_QUIC_STREAM_ACTION( stream ) ) {
             /* insert into send list */
             FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
           }
@@ -5567,7 +5570,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED &&
             stream->upd_pkt_number == pkt_number ) {
           /* if flags==0, the stream is not in the send list */
-          if( stream->stream_flags == 0 ) {
+          if( !FD_QUIC_STREAM_ACTION( stream ) ) {
             /* insert */
             FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
           }
@@ -5721,11 +5724,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     ulong                  stream_id    = pkt_meta->stream_id;
     fd_quic_stream_t *     stream       = NULL;
     fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-    if( FD_LIKELY( stream_entry && stream_entry->stream != conn->stream_dead ) ) {
+    if( FD_LIKELY( stream_entry &&
+          ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
       stream = stream_entry->stream;
       if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
         stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-        if( stream->stream_flags == 0 ) {
+        if( !FD_QUIC_STREAM_ACTION( stream ) ) {
           /* remove from list */
           FD_QUIC_STREAM_LIST_REMOVE( stream );
         }
@@ -5740,7 +5744,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
     ulong                  stream_id    = pkt_meta->stream_id;
     fd_quic_stream_t *     stream       = NULL;
     fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-    if( FD_LIKELY( stream_entry && stream_entry->stream != conn->stream_dead ) ) {
+    if( FD_LIKELY( stream_entry &&
+          ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
       stream = stream_entry->stream;
 
       ulong tx_tail = stream->tx_buf.tail;
@@ -5851,7 +5856,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       if( stream->upd_pkt_number == pkt_number ) {
         if( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) {
           stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
-          if( stream->stream_flags == 0 ) {
+          if( !FD_QUIC_STREAM_ACTION( stream ) ) {
             /* stream must be in send_streams, so remove */
             FD_QUIC_STREAM_LIST_REMOVE( stream );
           }
@@ -6138,15 +6143,25 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn ) {
       /* can only remove the lowest numbered stream id */
 
       /* either a stream_id that hasn't been used, or one that's currently active */
-      if( stream_entry == NULL || stream_entry->stream != conn->stream_dead ) break;
+      if( stream_entry == NULL ||
+          ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) break;
+
+      fd_quic_stream_t * stream = stream_entry->stream;
 
       /* remove the stream_id from the map */
       fd_quic_stream_map_remove( conn->stream_map, stream_entry );
 
-      stream_entry->stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+      stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+
+      /* idempotent */
+      FD_QUIC_STREAM_LIST_REMOVE( stream );
 
       /* insert into unused list */
-      FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream_entry->stream );
+      FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
+      stream->stream_flags = 0;
+
+      /* track current number of streams */
+      conn->num_streams[stream_type]--;
 
       /* was the stream initiated by the peer */
       if( (uint)( stream_type & 1u ) == (uint)!conn->server ) {
@@ -6158,9 +6173,6 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn ) {
 	conn->flags         |= flag;
 	conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
       }
-
-      /* track current number of streams */
-      conn->num_streams[stream_type]--;
     }
   }
 }
@@ -6174,19 +6186,17 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
 
   /* reclaim removes it from stream map */
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
-  if( FD_LIKELY( stream_entry && stream_entry->stream != conn->stream_dead ) ) {
-    /* point to conn->stream_dead to indicate this stream id is dead and should
-     * be reclaimed when appropriate */
-    stream_entry->stream = conn->stream_dead;
+  if( FD_LIKELY( stream_entry ) ) {
+    stream_entry->stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
   } else {
     FD_LOG_WARNING(( "stream %lu not found in stream map", (ulong)stream_id ));
   }
 
   /* remove from send_streams */
-  if( stream->stream_flags ) {
+  if( FD_QUIC_STREAM_ACTION( stream ) ) {
     FD_QUIC_STREAM_LIST_REMOVE( stream );
   }
-  stream->stream_flags = 0;
+  stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
 
   fd_quic_stream_reclaim( conn );
 }
@@ -6236,7 +6246,7 @@ fd_quic_frame_handle_stream_frame(
 
   if( stream_entry ) {
     /* stream is dead. Assume a retransmit, and ack */
-    if( FD_UNLIKELY( stream_entry->stream == context.conn->stream_dead ) ) {
+    if( FD_UNLIKELY( ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) != 0 ) ) {
       return data_sz;
     }
 
@@ -6417,7 +6427,7 @@ fd_quic_frame_handle_stream_frame(
     /* set max_data and max_data_frame to go out next packet */
     stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
-    if( stream->stream_flags == 0 ) {
+    if( !FD_QUIC_STREAM_ACTION( stream ) ) {
       /* going from 0 to nonzero, so insert into action list */
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
     }
@@ -6489,7 +6499,8 @@ fd_quic_frame_handle_max_stream_data(
 
   /* find stream */
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
-  if( FD_UNLIKELY( !stream_entry || stream_entry->stream == context.conn->stream_dead ) ) return 0;
+  if( FD_UNLIKELY( !stream_entry ||
+        ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) != 0 ) ) return 0;
 
   fd_quic_stream_t * stream = stream_entry->stream;
 
