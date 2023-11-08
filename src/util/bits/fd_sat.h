@@ -39,40 +39,44 @@ fd_uint128_sat_sub( __uint128_t x, __uint128_t y ) {
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_add( ulong x, ulong y ) {
-  ulong res = x + y;
-  return fd_ulong_if( res < x, ULONG_MAX, res );
+  ulong res;
+  int cf = __builtin_uaddl_overflow ( x, y, &res );
+  return fd_ulong_if( cf, ULONG_MAX, res );
 }
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_mul( ulong x, ulong y ) {
-  ulong res = x * y;
-  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
-  return fd_ulong_if( overflow, ULONG_MAX, res );
+  ulong res;
+  int cf = __builtin_umull_overflow ( x, y, &res );
+  return fd_ulong_if( cf, ULONG_MAX, res );
 }
 
 FD_FN_CONST static inline ulong
 fd_ulong_sat_sub( ulong x, ulong y ) {
-  ulong res = x - y;
-  return fd_ulong_if( res > x, 0, res );
+  ulong res;
+  int cf = __builtin_usubl_overflow ( x, y, &res );
+  return fd_ulong_if( cf, 0UL, res );
 }
 
 FD_FN_CONST static inline uint
 fd_uint_sat_add( uint x, uint y ) {
-  uint res = x + y;
-  return fd_uint_if( res < x, UINT_MAX, res );
+  uint res;
+  int cf = __builtin_uadd_overflow ( x, y, &res );
+  return fd_uint_if( cf, UINT_MAX, res );
 }
 
 FD_FN_CONST static inline uint
 fd_uint_sat_mul( uint x, uint y ) {
-  uint res = x * y;
-  uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
-  return fd_uint_if( overflow, UINT_MAX, res );
+  uint res;
+  int cf = __builtin_umul_overflow ( x, y, &res );
+  return fd_uint_if( cf, UINT_MAX, res );
 }
 
 FD_FN_CONST static inline uint
 fd_uint_sat_sub( uint x, uint y ) {
-  uint res = x - y;
-  return fd_uint_if( res > x, 0, res );
+  uint res;
+  int cf = __builtin_usub_overflow ( x, y, &res );
+  return fd_uint_if( cf, 0U, res );
 }
 
 FD_FN_CONST static inline double
