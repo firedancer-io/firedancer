@@ -3,9 +3,9 @@ CPPFLAGS+=            \
   -Wall               \
   -Wextra             \
   -Wpedantic          \
+  -Wstrict-aliasing=2 \
   -Wconversion        \
   -Wdouble-promotion  \
-  -Wstrict-aliasing=2 \
   -Wno-format
 
 ifdef FD_USING_CLANG
@@ -14,4 +14,5 @@ endif
 
 ifdef FD_USING_GCC
 CPPFLAGS+=-Wimplicit-fallthrough=2
+CFLAGS+=-Wstrict-prototypes
 endif

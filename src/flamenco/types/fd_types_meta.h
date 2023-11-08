@@ -4,9 +4,10 @@
 #include "../../util/fd_util_base.h"
 #include "fd_bincode.h"
 
-/* fd_types_meta.h provides type reflection APIs fd_types. */
+/* fd_types_meta.h provides reflection APIs for fd_types. */
 
-/* FD_FLAMENCO_TYPE_{...} identifies kinds of nodes */
+/* FD_FLAMENCO_TYPE_{...} identifies kinds of nodes encountered in a
+   bincode/borsh data structure graph. */
 
 #define FD_FLAMENCO_TYPE_NULL      (0x00)
 #define FD_FLAMENCO_TYPE_BOOL      (0x01)
@@ -33,44 +34,36 @@
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
 
-/* TODO: This should be called fd_types_vtable_t. */
-
-struct fd_types_funcs {
-  int   (*decode_fun)(void* self, fd_bincode_decode_ctx_t *);
-  int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
-  int   (*walk_fun)(void * w, void * self, fd_types_walk_fn_t, const char *, uint);
-  ulong (*align_fun)( void );
-  ulong (*footprint_fun)( void );
-  ulong (*size_fun)(void const * self);
-  void  (*destroy_fun)(void* self, fd_bincode_destroy_ctx_t * ctx);
-  void* (*new_fun)(void *);
-};
-
-typedef struct fd_types_funcs fd_types_funcs_t;
-
 FD_PROTOTYPES_BEGIN
 
-static inline int
+/* fd_flamenco_type_is_primitive returns 1 if type does not contain
+   any child nodes.  Returns 0 otherwise. */
+
+FD_FN_CONST static inline int
 fd_flamenco_type_is_primitive( int type ) {
   return (type&0xe0)==0x00;
 }
 
-static inline int
+/* fd_flamenco_type_is_collection returns 1 if node type marks the
+   beginning or end of a collection.  Returns 0 otherwise. */
+
+FD_FN_CONST static inline int
 fd_flamenco_type_is_collection( int type ) {
   return (type&0xe0)==0x20;
 }
 
-static inline int
+/* fd_flamenco_type_is_collection_{begin,end} return 1 if collection
+   type marks the beginning or end of a collection respectively. */
+
+FD_FN_CONST static inline int
 fd_flamenco_type_is_collection_begin( int type ) {
   return fd_flamenco_type_is_collection(type) && ((type&1)==0);
 }
 
-static inline int
+FD_FN_CONST static inline int
 fd_flamenco_type_is_collection_end( int type ) {
   return fd_flamenco_type_is_collection(type) && ((type&1)!=0);
 }
-
-int fd_flamenco_type_lookup(const char *name, fd_types_funcs_t *);
 
 FD_PROTOTYPES_END
 

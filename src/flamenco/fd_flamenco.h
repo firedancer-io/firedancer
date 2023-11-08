@@ -14,5 +14,4 @@ fd_flamenco_halt( void );
 
 FD_PROTOTYPES_END
 
-
 #endif /* HEADER_fd_src_flamenco_fd_flamenco_h */

@@ -2,7 +2,16 @@
 #define HEADER_fd_src_ballet_siphash13_fd_siphash13_h
 
 /* fd_siphash13 provides APIs for SipHash1-3.
-   (1 compression round, 3 finalization rounds) */
+   (1 compression round, 3 finalization rounds)
+
+   This code is a modified version of https://github.com/antirez/siphash
+   For further license info see NOTICE in the root of this repo.
+
+   Copyright (c) 2012-2016 Jean-Philippe Aumasson
+   <jeanphilippe.aumasson@gmail.com>
+   Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+   Copyright (c) 2017 Salvatore Sanfilippo <antirez@gmail.com>
+   Modified 2023 by Firedancer Contributors */
 
 #include "../fd_ballet_base.h"
 

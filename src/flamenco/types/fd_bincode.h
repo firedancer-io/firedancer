@@ -12,6 +12,14 @@ typedef void
                         char const * type_name,
                         uint         level );
 
+typedef void
+(* fd_types_walk_fn_t)( void *       self,
+                        void const * arg,
+                        char const * name,
+                        int          type,
+                        char const * type_name,
+                        uint         level );
+
 /* Context argument used for encoding */
 struct fd_bincode_encode_ctx {
   /* Current position in data buffer */
@@ -20,11 +28,6 @@ struct fd_bincode_encode_ctx {
   void * dataend;
 };
 typedef struct fd_bincode_encode_ctx fd_bincode_encode_ctx_t;
-
-/* Generic allocator prototype */
-typedef char * (*fd_alloc_fun_t)(void * arg, ulong align, ulong len);
-/* Generic deallocator prototype */
-typedef void   (*fd_free_fun_t) (void * arg, void * ptr);
 
 /* Context argument used for decoding */
 struct fd_bincode_decode_ctx {

@@ -14,17 +14,17 @@ FD_TL ulong   fd_scratch_private_frame_max;  /* 0UL  on thread start */
 FD_TL ulong fd_alloca_check_private_sz;
 #endif
 
-/* Virtual function table
-   TODO type pun functions instead of using virtual wrappers? */
+/* fd_valloc virtual function table */
 
-static void *
-fd_scratch_malloc_virtual( void * _self __attribute__((unused)),
+void *
+fd_scratch_malloc_virtual( void * _self,
                            ulong  align,
                            ulong  sz ) {
+  (void)_self;
   return fd_scratch_alloc( align, sz );
 }
 
-static void
+void
 fd_scratch_free_virtual( void * _self,
                          void * _addr ) {
   (void)_self; (void)_addr;

@@ -17,7 +17,7 @@
    to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
-#define FD_SCRATCH_USE_HANDHOLDING 1
+#define FD_SCRATCH_USE_HANDHOLDING 0
 #endif
 
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
@@ -427,8 +427,7 @@ fd_scratch_alloc( ulong align,
   ulong end  = smem + sz;
 
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( end < smem ) )
-    FD_LOG_ERR(( "sz (%lu) overflow", sz ));
+  if( FD_UNLIKELY( end < smem ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
 # endif
 
   fd_scratch_publish( (void *)end );
@@ -592,6 +591,36 @@ fd_scratch_virtual( void ) {
   return valloc;
 }
 
+/* FD_SCRATCH_SCOPE_{BEGIN,END} create a `do { ... } while(0);` scope in
+   which a temporary scratch frame is available.  Nested scopes are
+   permitted.  This scratch frame is automatically destroyed when
+   exiting the scope normally (e.g. by 'break', 'return', or reaching
+   the end).  Uses a dummy variable with a cleanup attribute under the
+   hood.  U.B. if scope is left abnormally (e.g. longjmp(), exception,
+   abort(), etc.).  Use as follows:
+
+   FD_SCRATCH_SCOPE_BEGIN {
+     ...
+     fd_scratch_alloc( ... );
+     ...
+   }
+   FD_SCRATCH_SCOPE_END; */
+
+FD_FN_UNUSED static inline void
+fd_scratch_scoped_pop_private( void * _unused ) {
+  (void)_unused;
+  fd_scratch_pop();
+}
+
+#define FD_SCRATCH_SCOPE_BEGIN do {                         \
+  fd_scratch_push();                                        \
+  int __fd_scratch_guard_ ## __LINE__                       \
+    __attribute__((cleanup(fd_scratch_scoped_pop_private))) \
+    __attribute__((unused)) = 0;                            \
+  do
+
+#define FD_SCRATCH_SCOPE_END while(0); } while(0)
+
 /* fd_alloca is variant of alloca that works like aligned_alloc.  That
    is, it returns an allocation of sz bytes with an alignment of at
    least align.  Like alloca, this allocation will be in the stack frame
@@ -673,21 +702,6 @@ extern FD_TL ulong fd_alloca_check_private_sz;
 
 #endif /* FD_HAS_ASAN */
 #endif /* FD_HAS_ALLOCA */
-
-/* FD_SCRATCH_SCOPED_FRAME enters a new scratch frame that is
-   automatically destroyed when the scope it was declared in.
-   Uses a dummy variable with a cleanup attribute under the hood.
-   U.B. if scope is left abnormally (e.g. longjmp(), C++ exception,
-        abort(), etc.) */
-
-FD_FN_UNUSED static inline void
-fd_scratch_pop1( void * _unused ) { (void)_unused; fd_scratch_pop(); }
-
-#define FD_SCRATCH_SCOPED_FRAME               \
-  fd_scratch_push();                          \
-  int _scratch_guard ## __LINE__              \
-    __attribute__((cleanup(fd_scratch_pop1))) \
-    __attribute__((unused))
 
 FD_PROTOTYPES_END
 

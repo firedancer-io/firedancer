@@ -119,7 +119,7 @@ def get_args():
     }, {
             "flags": ["--marker-file"],
             "metavar": "FILE",
-            "default": "cbmc-proof.txt",
+            "default": "cbmc-viewer.json",
             "help": (
                 "name of file that marks proof directories. Default: "
                 "%(default)s"),

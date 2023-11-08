@@ -1,4 +1,5 @@
 #include "fd_bincode.h"
+#include "fd_types_meta.h"
 #include "fd_types_yaml.h"
 #include "../fd_flamenco.h"
 #include "fd_types.h"
@@ -219,8 +220,6 @@ static const fd_flamenco_yaml_test_t fd_flamenco_yaml_tests[] = {
 void
 fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
-
   static char yaml_buf[ 1<<20 ];
   FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
 
@@ -263,7 +262,10 @@ main( int     argc,
   for( fd_flamenco_yaml_test_t const * test = fd_flamenco_yaml_tests;
        test->walk;
        ++test ) {
-    fd_flamenco_yaml_unit_test( test );
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_flamenco_yaml_unit_test( test );
+    }
+    FD_SCRATCH_SCOPE_END;
   }
 
   /* Cleanup */

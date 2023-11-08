@@ -7,9 +7,5 @@ LD:=g++
 
 CPPFLAGS+=-DFD_USING_GCC=1
 
-ifneq ($(EMACS),1)
-CPPFLAGS+=-fdiagnostics-color=always
-endif
-
 FD_USING_GCC:=1
 

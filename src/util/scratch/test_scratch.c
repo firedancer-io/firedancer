@@ -164,13 +164,17 @@ main( int     argc,
   fd_scratch_reset();
   FD_TEST( fd_scratch_frame_used()==0UL );
   for( ulong i=0; i<3UL; i++ ) {
-    FD_SCRATCH_SCOPED_FRAME;
-    ulong inner_cnt = fd_rng_ulong_roll( rng, 10UL );
-    for( ulong j=0; j < inner_cnt; j++ ) {
-      FD_SCRATCH_SCOPED_FRAME;
-      FD_TEST( fd_scratch_frame_used()==2UL );
+    FD_SCRATCH_SCOPE_BEGIN {
+      ulong inner_cnt = fd_rng_ulong_roll( rng, 10UL );
+      for( ulong j=0; j < inner_cnt; j++ ) {
+        FD_SCRATCH_SCOPE_BEGIN {
+          FD_TEST( fd_scratch_frame_used()==2UL );
+        }
+        FD_SCRATCH_SCOPE_END;
+      }
+      FD_TEST( fd_scratch_frame_used()==1UL );
     }
-    FD_TEST( fd_scratch_frame_used()==1UL );
+    FD_SCRATCH_SCOPE_END;
   }
   FD_TEST( fd_scratch_frame_used()==0UL );
 

@@ -73,7 +73,7 @@ setup_mountns( void ) {
 }
 
 static void
-check_fds( ulong allow_fds_sz,
+check_fds( ulong allow_fds_cnt,
            int * allow_fds ) {
   DIR * dir = opendir( "/proc/self/fd" );
   FD_TESTV( dir );
@@ -83,7 +83,7 @@ check_fds( ulong allow_fds_sz,
   struct dirent *dp;
 
   int seen_fds[ 256 ] = {0};
-  FD_TESTV( allow_fds_sz < 256 );
+  FD_TESTV( allow_fds_cnt < 256 );
 
   while( ( dp = readdir( dir ) ) ) {
     char *end;
@@ -96,7 +96,7 @@ check_fds( ulong allow_fds_sz,
     if( FD_LIKELY( fd == dirfd1 ) ) continue;
 
     int found = 0;
-    for( ulong i=0; i<allow_fds_sz; i++ ) {
+    for( ulong i=0; i<allow_fds_cnt; i++ ) {
       if ( FD_LIKELY( fd==allow_fds[ i ] ) ) {
         seen_fds[ i ] = 1;
         found = 1;
@@ -118,7 +118,7 @@ check_fds( ulong allow_fds_sz,
     }
   }
 
-  for( ulong i=0; i<allow_fds_sz; i++ ) {
+  for( ulong i=0; i<allow_fds_cnt; i++ ) {
     if( FD_UNLIKELY( !seen_fds[ i ] ) ) {
       FD_LOG_ERR(( "allowed file descriptor %d not present", allow_fds[ i ] ));
     }
@@ -217,11 +217,11 @@ unshare_user( uint uid, uint gid ) {
    You should call `unthreaded` before creating any threads in the process, and
    then install the seccomp profile afterwards. */
 static void
-sandbox_unthreaded( ulong allow_fds_sz,
+sandbox_unthreaded( ulong allow_fds_cnt,
                     int * allow_fds,
                     uint uid,
                     uint gid ) {
-  check_fds( allow_fds_sz, allow_fds );
+  check_fds( allow_fds_cnt, allow_fds );
   unshare_user( uid, gid );
   struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
   FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));

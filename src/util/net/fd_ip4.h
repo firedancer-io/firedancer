@@ -21,6 +21,17 @@
 #define FD_IP4_OPT_RA  ((uchar)148) /* This option is a router alert option */
 #define FD_IP4_OPT_EOL ((uchar)0)   /* This is the end of the options list */
 
+/* All of the below are in network byte order */
+#define IP4_PRIVATE_RANGE1_START_NET FD_IP4_ADDR( 10,   0,   0,   0)
+#define IP4_PRIVATE_RANGE1_END_NET   FD_IP4_ADDR( 10, 255, 255, 255)
+#define IP4_PRIVATE_RANGE2_START_NET FD_IP4_ADDR(172,  16,   0,   0)
+#define IP4_PRIVATE_RANGE2_END_NET   FD_IP4_ADDR(172,  31, 255, 255)
+#define IP4_PRIVATE_RANGE3_START_NET FD_IP4_ADDR(192, 168,   0,   0)
+#define IP4_PRIVATE_RANGE3_END_NET   FD_IP4_ADDR(192, 168, 255, 255)
+
+#define IP4_LOOPBACK_START_NET       FD_IP4_ADDR(127,   0,   0,   0)
+#define IP4_LOOPBACK_END_NET         FD_IP4_ADDR(127, 255, 255, 255)
+
 union fd_ip4_hdr {
   struct {
     uchar  verihl;       /* 4 lsb: IP version (==4), assumes little endian */
@@ -178,6 +189,18 @@ fd_ip4_hdr_check_fast( void const * vp_hdr ) {
 int
 fd_cstr_to_ip4_addr( char const * s,
                      uint *       addr );
+
+/* fd_ip4_addr_is_public checks if the given IPv4 address is a public address.
+   assumed to be in net byte order.  */
+  
+FD_FN_CONST static inline int 
+fd_ip4_addr_is_public( uint addr ) {
+  uint addr_host = fd_uint_bswap( addr );
+  return !((addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE1_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE1_END_NET )) ||
+           (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE2_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE2_END_NET )) ||
+           (addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE3_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE3_END_NET )) ||
+           (addr_host >= fd_uint_bswap( IP4_LOOPBACK_START_NET )       && addr_host <= fd_uint_bswap( IP4_LOOPBACK_END_NET )));
+}
 
 /* fd_ip4_hdr_bswap reverses the endianness of all fields in the IPv4
    header. */

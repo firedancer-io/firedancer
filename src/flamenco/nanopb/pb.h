@@ -5,15 +5,13 @@
 #ifndef PB_H_INCLUDED
 #define PB_H_INCLUDED
 
-#define PB_SYSTEM_HEADER "pb_firedancer.h"
-
 /*****************************************************************
  * Nanopb compilation time options. You can change these here by *
  * uncommenting the lines, or on the compiler command line.      *
  *****************************************************************/
 
 /* Enable support for dynamically allocated fields */
-#define PB_ENABLE_MALLOC 1
+/* #define PB_ENABLE_MALLOC 1 */
 
 /* Define this if your CPU / compiler combination does not support
  * unaligned memory access to packed structures. Note that packed
@@ -48,7 +46,7 @@
 
 /* Check whether incoming strings are valid UTF-8 sequences. Slows down
  * the string processing slightly and slightly increases code size. */
-#define PB_VALIDATE_UTF8 0
+/* #define PB_VALIDATE_UTF8 1 */
 
 /* This can be defined if the platform is little-endian and has 8-bit bytes.
  * Normally it is automatically detected based on __BYTE_ORDER__ macro. */
@@ -67,7 +65,7 @@
 
 /* Version of the nanopb library. Just in case you want to check it in
  * your own program. */
-#define NANOPB_VERSION "nanopb-0.4.7"
+#define NANOPB_VERSION "nanopb-0.4.8-dev"
 
 /* Include all the system headers needed by nanopb. You will need the
  * definitions of the following:
@@ -171,6 +169,9 @@ extern "C" {
 #  ifndef PB_STATIC_ASSERT
 #    if defined(__ICCARM__)
        /* IAR has static_assert keyword but no _Static_assert */
+#      define PB_STATIC_ASSERT(COND,MSG) static_assert(COND,#MSG);
+#    elif defined(_MSC_VER) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 201112)
+       /* MSVC in C89 mode supports static_assert() keyword anyway */
 #      define PB_STATIC_ASSERT(COND,MSG) static_assert(COND,#MSG);
 #    elif defined(PB_C99_STATIC_ASSERT)
        /* Classic negative-size-array static assert mechanism */

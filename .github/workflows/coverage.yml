@@ -16,7 +16,7 @@ jobs:
   all-coverage:
     name: All Coverage
     runs-on:
-      group: github-v1
+      group: rhel85-icelake
     environment:
       name: github-pages
       url: ${{ steps.pages-deploy.outputs.page_url }}
@@ -24,9 +24,6 @@ jobs:
       CC: clang
       EXTRAS: llvm-cov
     steps:
-      - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y llvm lcov
-
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -51,6 +48,6 @@ jobs:
           # Upload entire repository
           path: './build/pages/'
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v2
+      # - name: Deploy to GitHub Pages
+      #   id: deployment
+      #   uses: actions/deploy-pages@v2

@@ -1,0 +1,3 @@
+[93mWARNING[0m run ... process requires capability `CAP_NET_RAW` to call `bind(2)` to bind to a socket with `SOCK_RAW`
+[93mWARNING[0m run ... process requires capability `CAP_SYS_ADMIN` to initialize XDP by calling `bpf_obj_get`
+[31mERR    [0m insufficient permissions to execute command `run`

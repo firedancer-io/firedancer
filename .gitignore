@@ -4,17 +4,20 @@ bin
 unit-test
 tmp
 
-# Coverage
 genhtml/
+target/
 *.lcov
 *.profraw
 
-# Core Dumps
-core.*.*
+# Rust
+**/Cargo.lock
 
 # Dependencies
 opt/
 deps-bundle.tar.zst
+
+# Nix
+/result
 
 # Vimdiff
 *.orig
@@ -23,7 +26,6 @@ deps-bundle.tar.zst
 *.swp
 *.swo
 
-test-ledger*
 # Certificates
 *.csr
 *.crt
@@ -37,33 +39,7 @@ test-ledger*
 # Logs
 *.log
 
-# Clang
-.clangd
-compile_commands.json
-
-# Temp ... remove this
-testgaddr
-gaddr
-test_ledger_backup
-dump/
-*.solcap
-/*.json
-/test_*.yml
-/test_*.bin
-
-# RocksDB
-LOG*
-LOCK
-*.sst
-MANIFEST-*
-OPTIONS-*
-CURRENT
-IDENTITY
-
-# Solana Labs
-*-keypair.json
-tower-*.bin
-genesis.bin
-genesis.tar.bz2
-
-.cache
+# VitePress docs
+/book/.vitepress/cache
+/book/.vitepress/dist
+/book/node_modules

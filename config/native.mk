@@ -29,11 +29,13 @@ include config/base.mk
 	CC:=gcc
 	CXX:=g++
 	LD:=g++
+  FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
 else ifeq ($(FD_USING_CLANG),1)
 include config/base.mk
 	CC=clang
 	CXX=clang++
 	LD=clang++
+  FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __clang_major__ |  awk '{print $$3}')
 endif
 
 BUILDDIR?=native/$(CC)
@@ -59,8 +61,24 @@ $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
 
+# Older version of GCC (<10) don't fully support AVX512, so we disable
+# it in those cases. Older versions of Clang (<8) don't support it
+# either, but Firedancer doesn't support those versions.
+ifeq ($(FD_USING_GCC),1)
+       ifeq ($(shell test $(FD_COMPILER_MAJOR_VERSION) -lt 10 && echo 1),1)
+               FD_HAS_AVX512:=
+               FD_HAS_AVX512_MESSAGE:=(Disabled because GCC version $(FD_COMPILER_MAJOR_VERSION) not >= 10.0)
+       else
+# This line cannot be indented properly
+$(call map-define,FD_HAS_AVX512, __AVX512IFMA__)
+       endif
+else ifeq ($(FD_USING_CLANG),1)
+$(call map-define,FD_HAS_AVX512, __AVX512IFMA__)
+endif
+
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
 $(info Using FD_HAS_AVX=$(FD_HAS_AVX))
+$(info Using FD_HAS_AVX512=$(FD_HAS_AVX512) $(FD_HAS_AVX512_MESSAGE))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 

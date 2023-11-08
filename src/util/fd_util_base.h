@@ -570,15 +570,11 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNUSED __attribute__((unused))
 
-/* FD_PARAM_UNUSED indicates that it is okay if the function parameter is not
-   used. */
+/* FD_FN_UNSANITIZED tells the compiler to disable AddressSanitizer and
+   UndefinedBehaviorSanitizer instrumentation.  For some functions, this
+   can improve instrumented compile time by ~30x. */
 
-#define FD_PARAM_UNUSED __attribute__((unused))
-
-/* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
-   to 1. */
-
-#define FD_TYPE_PACKED __attribute__((packed))
+#define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
 
 /* FD_WARN_UNUSED tells the compiler the result (from a function) should
    be checked. This is useful to force callers to either check the result
@@ -896,7 +892,6 @@ fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
   void * p = d;
-  // This does NOT handle overlapping memory copies correctly...
   __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
   return d;
 }

@@ -1,5 +1,14 @@
 #include "fd_siphash13.h"
 
+/* This code is a modified version of https://github.com/antirez/siphash
+   For further license info see NOTICE in the root of this repo.
+
+   Copyright (c) 2012-2016 Jean-Philippe Aumasson
+   <jeanphilippe.aumasson@gmail.com>
+   Copyright (c) 2012-2014 Daniel J. Bernstein <djb@cr.yp.to>
+   Copyright (c) 2017 Salvatore Sanfilippo <antirez@gmail.com>
+   Modified 2023 by Firedancer Contributors */
+
 static const ulong __attribute__((aligned(64UL)))
 fd_siphash13_initial[4] = {
   0x736f6d6570736575UL,
@@ -17,7 +26,10 @@ fd_siphash13_init( fd_siphash13_t * sip,
 
   ulong * v = sip->v;
 
-  memcpy( v, fd_siphash13_initial, 32UL );
+  v[ 0 ] = fd_siphash13_initial[ 0 ];
+  v[ 1 ] = fd_siphash13_initial[ 1 ];
+  v[ 2 ] = fd_siphash13_initial[ 2 ];
+  v[ 3 ] = fd_siphash13_initial[ 3 ];
   v[ 3 ] ^= k1;
   v[ 2 ] ^= k0;
   v[ 1 ] ^= k1;
@@ -52,8 +64,8 @@ fd_siphash13_append( fd_siphash13_t * sip,
 
   if( FD_UNLIKELY( buf_used ) ) { /* optimized for well aligned use of append */
 
-    /* If the append isn't large enough to complete the current blcok,
-      buffer these bytes too and return */
+    /* If the append isn't large enough to complete the current block,
+       buffer these bytes too and return */
 
     ulong buf_rem = 8UL - buf_used;
     if( FD_UNLIKELY( sz < buf_rem ) ) {

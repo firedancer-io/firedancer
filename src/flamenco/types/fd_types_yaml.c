@@ -1,10 +1,8 @@
 #include "fd_types_yaml.h"
+#include "fd_types_meta.h"
 
 #include <ctype.h>
 #include <stdio.h>
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
 
@@ -139,7 +137,7 @@ fd_flamenco_yaml_walk( void *       _self,
   (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
-    FD_LOG_WARNING(( "indent level %d exceeds max %ld",
+    FD_LOG_WARNING(( "indent level %d exceeds max %d",
                      level, FD_FLAMENCO_YAML_MAX_INDENT ));
     return;
   }

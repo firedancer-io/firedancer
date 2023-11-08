@@ -1,0 +1,18 @@
+#include "tiles.h"
+
+/* This is a stub definition that's needed so the tile can be used in
+   the topology system to set up links and count tiles and things, but
+   it's not invoked by the runner to start a bank tile.  Instead, bank
+   tiles are managed by the Solana Labs process. */
+
+fd_tile_config_t fd_tile_bank = {
+  .mux_flags                = FD_MUX_FLAG_DEFAULT,
+  .burst                    = 1UL,
+  .mux_ctx                  = NULL,
+  .populate_allowed_seccomp = NULL,
+  .populate_allowed_fds     = NULL,
+  .scratch_align            = NULL,
+  .scratch_footprint        = NULL,
+  .privileged_init          = NULL,
+  .unprivileged_init        = NULL,
+};

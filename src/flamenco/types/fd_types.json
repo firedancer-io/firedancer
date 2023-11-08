@@ -454,6 +454,28 @@
       ]
     },
     {
+      "name": "solana_accounts_db_fields",
+      "type": "struct",
+      "fields": [
+        { "name": "storages", "type": "map", "element": "slot_account_pair", "key": "slot" },
+        { "name": "version", "type": "ulong" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "bank_hash_info", "type": "bank_hash_info" },
+        { "name": "historical_roots", "type": "vector", "element": "ulong" },
+        { "name": "historical_roots_with_hash", "type": "vector", "element": "slot_map_pair" }
+      ]
+    },
+    {
+      "name": "solana_manifest",
+      "type": "struct",
+      "alignment": "16",
+      "fields": [
+        { "name": "bank",                     "type": "deserializable_versioned_bank" },
+        { "name": "accounts_db",              "type": "solana_accounts_db_fields" },
+        { "name": "lamports_per_signature",   "type": "ulong" }
+      ]
+    },
+    {
       "name": "rust_duration",
       "type": "struct",
       "fields": [
@@ -903,10 +925,7 @@
         { "name": "max_tick_height",       "type": "ulong" },
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
-        { "name": "rent",                  "type": "rent" },
-        { "name": "eah_start_slot",        "type": "ulong" },
-        { "name": "eah_stop_slot",         "type": "ulong" },
-        { "name": "eah_interval",          "type": "ulong" }
+        { "name": "rent",                  "type": "rent" }
       ]
     },
     {
@@ -920,7 +939,6 @@
         { "name": "prev_slot",             "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
         { "name": "banks_hash",            "type": "hash" },
-        { "name": "epoch_account_hash",    "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
         { "name": "block_height",          "type": "ulong" },
@@ -1895,54 +1913,6 @@
         { "name": "close_lut" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
-    },
-    {
-      "name": "serializable_stake_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "body", "type": "vector", "element": "stake_reward" }
-      ]
-    },
-    {
-      "name": "start_block_height_and_rewards",
-      "type": "struct",
-      "fields": [
-        { "name": "start_block_height", "type": "ulong" },
-        { "name": "stake_rewards_by_partition", "type": "vector", "element": "serializable_stake_rewards" }
-      ]
-    },
-    {
-      "name": "serializable_epoch_reward_status",
-      "type": "enum",
-      "variants": [
-          { "name": "Active", "type": "start_block_height_and_rewards"},
-          { "name": "Inactive"}
-      ]
-    },
-    {
-      "name": "solana_accounts_db_fields",
-      "type": "struct",
-      "fields": [
-        { "name": "storages", "type": "map", "element": "slot_account_pair", "key": "slot" },
-        { "name": "version", "type": "ulong" },
-        { "name": "slot", "type": "ulong" },
-        { "name": "bank_hash_info", "type": "bank_hash_info" },
-        { "name": "historical_roots", "type": "vector", "element": "ulong" },
-        { "name": "historical_roots_with_hash", "type": "vector", "element": "slot_map_pair" }
-      ]
-    },
-    {
-      "name": "solana_manifest",
-      "type": "struct",
-      "alignment": "16",
-      "fields": [
-        { "name": "bank",                                  "type": "deserializable_versioned_bank" },
-        { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
-        { "name": "lamports_per_signature",                "type": "ulong" },
-        { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence" },
-        { "name": "epoch_accounts_hash",                   "type": "option", "element": "hash" },
-        { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status", "ignore_underflow": true }
-      ]
     }
   ]
 }
