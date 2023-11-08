@@ -745,6 +745,11 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
+  ulong cluster = determine_cluster( result.gossip.entrypoints_cnt,
+                                     result.gossip.entrypoints,
+                                     result.consensus.expected_genesis_hash );
+  result.is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
+
   if( FD_UNLIKELY( result.development.netns.enabled ) ) {
     if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
@@ -759,7 +764,14 @@ config_parse( int *    pargc,
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.net.interface ));
-    result.tiles.net.ip_addr = listen_address( result.tiles.net.interface );
+    uint iface_ip = listen_address( result.tiles.net.interface );
+    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && result.is_live_cluster ) )
+      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " "
+                   "which is part of a private network and will not be routable for other Solana network nodes.", 
+                   result.tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+
+    result.tiles.net.ip_addr = iface_ip;
     mac_address( result.tiles.net.interface, result.tiles.net.mac_addr );
   }
 
@@ -804,11 +816,6 @@ config_parse( int *    pargc,
 
   replace( result.consensus.vote_account_path, "{user}", result.user );
   replace( result.consensus.vote_account_path, "{name}", result.name );
-
-  ulong cluster = determine_cluster( result.gossip.entrypoints_cnt,
-                                     result.gossip.entrypoints,
-                                     result.consensus.expected_genesis_hash );
-  result.is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( result.is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_EMERG(( "Attempted to start against live cluster `%s`. Firedancer is not "
