@@ -120,6 +120,7 @@
    time to try to bound the amount of pre-allocation for small requests. */
 
 #include "../wksp/fd_wksp.h"
+#include "../valloc/fd_valloc.h"
 
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
@@ -613,6 +614,20 @@ fd_alloc_max_expand( ulong max,
   ulong t0 = max + delta;               t0 = fd_ulong_if( t0<max, ULONG_MAX, t0 ); /* Handle overflow */
   ulong t1 = max + (max>>2) + (max>>4); t1 = fd_ulong_if( t1<max, ULONG_MAX, t1 ); /* Handle overflow */
   return fd_ulong_max( fd_ulong_max( t0, t1 ), needed );
+}
+
+/* fd_alloc_vtable is the virtual function table implementing fd_valloc
+   for fd_alloc. */
+
+extern const fd_valloc_vtable_t fd_alloc_vtable;
+
+/* fd_alloc_virtual returns an abstract handle to the fd_alloc join.
+   Valid for lifetime of join. */
+
+FD_FN_CONST static inline fd_valloc_t
+fd_alloc_virtual( fd_alloc_t * alloc ) {
+  fd_valloc_t valloc = { alloc, &fd_alloc_vtable };
+  return valloc;
 }
 
 FD_PROTOTYPES_END
