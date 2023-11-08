@@ -576,6 +576,16 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
 
+/* FD_PARAM_UNUSED indicates that it is okay if the function parameter is not
+   used. */
+
+#define FD_PARAM_UNUSED __attribute__((unused))
+
+/* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
+   to 1. */
+
+#define FD_TYPE_PACKED __attribute__((packed))
+
 /* FD_WARN_UNUSED tells the compiler the result (from a function) should
    be checked. This is useful to force callers to either check the result
    or deliberately and explicitly ignore it. Good for result codes and
