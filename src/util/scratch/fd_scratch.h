@@ -575,6 +575,36 @@ fd_scratch_trim_is_safe( void * _end ) {
   return 1;
 }
 
+/* FD_SCRATCH_SCOPE_{BEGIN,END} create a `do { ... } while(0);` scope in
+   which a temporary scratch frame is available.  Nested scopes are
+   permitted.  This scratch frame is automatically destroyed when
+   exiting the scope normally (e.g. by 'break', 'return', or reaching
+   the end).  Uses a dummy variable with a cleanup attribute under the
+   hood.  U.B. if scope is left abnormally (e.g. longjmp(), exception,
+   abort(), etc.).  Use as follows:
+
+   FD_SCRATCH_SCOPE_BEGIN {
+     ...
+     fd_scratch_alloc( ... );
+     ...
+   }
+   FD_SCRATCH_SCOPE_END; */
+
+FD_FN_UNUSED static inline void
+fd_scratch_scoped_pop_private( void * _unused ) {
+  (void)_unused;
+  fd_scratch_pop();
+}
+
+#define FD_SCRATCH_SCOPE_BEGIN do {                         \
+  fd_scratch_push();                                        \
+  int __fd_scratch_guard_ ## __LINE__                       \
+    __attribute__((cleanup(fd_scratch_scoped_pop_private))) \
+    __attribute__((unused)) = 0;                            \
+  do
+
+#define FD_SCRATCH_SCOPE_END while(0); } while(0)
+
 /* fd_alloca is variant of alloca that works like aligned_alloc.  That
    is, it returns an allocation of sz bytes with an alignment of at
    least align.  Like alloca, this allocation will be in the stack frame
