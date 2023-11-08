@@ -38,6 +38,31 @@ test_cstr_to_ip4_addr( void ) {
   FD_TEST( fd_cstr_to_ip4_addr( "36893488147419103232.0.0.0", &ip )==0  );
 }
 
+static void
+test_ip4_addr_is_public( void ) {
+  // Public addresses should return 1 for fd_ip4_addr_is_public
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  8,   8,   8,   8) ) == 1 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 74, 125, 224,  72) ) == 1 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(  1,   1,   1,   1) ) == 1 );
+
+  // Private addresses should return 0 for fd_ip4_addr_is_public
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 10,   0,   0,   1) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(172,  16,   0,   1) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192, 168,   1,   1) ) == 0 );
+
+  // Loopback address should also return 0
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(127,   0,   0,   1) ) == 0 );
+
+  // More private addresses tests
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 10,   0,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR( 10, 255, 255, 255) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(172,  16,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(172,  31, 255, 255) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192, 168,   0,   0) ) == 0 );
+  FD_TEST( fd_ip4_addr_is_public( FD_IP4_ADDR(192, 168, 255, 255) ) == 0 );
+}
+
+
 int
 main( int     argc,
       char ** argv ) {
@@ -68,6 +93,7 @@ main( int     argc,
   /* FIXME: TEST FD_IP4_HDR_CHECK_FAST */
 
   test_cstr_to_ip4_addr();
+  test_ip4_addr_is_public();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
