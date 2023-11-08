@@ -372,12 +372,13 @@ for j in range(len(batches)-1):
     start = batches[j]
     end = batches[j+1] # exclusive
     with open(f'wrapped_impl/fd_reedsol_ppt_impl_{start}.c', "wt") as outf:
+        print('/* Note: This file is auto generated. */', file=outf)
         print('#include "../fd_reedsol_ppt.h"', file=outf)
         for k in range(start, end):
             N = 1<<(k-1).bit_length() # Round to next power of 2
             if k==N:
                 continue # Skip powers of 2 because we don't use PPT in those cases
-            print('\nvoid', file=outf)
+            print('\nFD_FN_UNSANITIZED void', file=outf)
             fn_name = f"fd_reedsol_ppt_{N}_{k}( "
             print(fn_name + "gf_t * _in00,", file=outf)
             for l in range(1, N):

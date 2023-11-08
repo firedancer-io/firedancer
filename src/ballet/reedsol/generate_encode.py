@@ -11,10 +11,11 @@ def make_encode(min_data_shreds, max_data_shreds, max_parity_shreds):
     n = 2**(max_data_shreds - 1).bit_length()
     global outf
     with open(f'fd_reedsol_encode_{n}.c', 'wt') as outf:
+        cprint('/* Note: This file is auto generated. */')
         cprint('#include "fd_reedsol_ppt.h"')
 
         cprint('')
-        cprint('void')
+        cprint('FD_FN_UNSANITIZED void')
         fn_name = f'fd_reedsol_private_encode_{n}('
         cprint(fn_name + " ulong                 shred_sz,")
         cprint(" "*len(fn_name) + " uchar const * const * data_shred,")

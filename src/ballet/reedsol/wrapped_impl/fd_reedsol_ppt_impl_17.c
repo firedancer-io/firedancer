@@ -1,6 +1,7 @@
+/* Note: This file is auto generated. */
 #include "../fd_reedsol_ppt.h"
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_17( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -101,7 +102,7 @@ fd_reedsol_ppt_32_17( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_18( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -202,7 +203,7 @@ fd_reedsol_ppt_32_18( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_19( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -303,7 +304,7 @@ fd_reedsol_ppt_32_19( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_20( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -404,7 +405,7 @@ fd_reedsol_ppt_32_20( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_21( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -505,7 +506,7 @@ fd_reedsol_ppt_32_21( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_22( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -606,7 +607,7 @@ fd_reedsol_ppt_32_22( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_23( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -707,7 +708,7 @@ fd_reedsol_ppt_32_23( gf_t * _in00,
   *_in31 = in31;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_32_24( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,

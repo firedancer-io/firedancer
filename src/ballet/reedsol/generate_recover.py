@@ -14,11 +14,12 @@ def cprint(string):
 def make_recover_var(n, max_shreds):
     global outf
     with open(f'fd_reedsol_recover_{n}.c', 'wt') as outf:
+        cprint('/* Note: This file is auto generated. */')
         cprint('#include "fd_reedsol_ppt.h"')
         cprint('#include "fd_reedsol_fderiv.h"')
         cprint('')
 
-        cprint('int')
+        cprint('FD_FN_UNSANITIZED int')
         fn_name = f'fd_reedsol_private_recover_var_{n}('
         cprint(fn_name +          " ulong           shred_sz,")
         cprint(" "*len(fn_name) + " uchar * const * shred,")

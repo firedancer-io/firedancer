@@ -1,6 +1,7 @@
+/* Note: This file is auto generated. */
 #include "../fd_reedsol_ppt.h"
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_33( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -197,7 +198,7 @@ fd_reedsol_ppt_64_33( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_34( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -394,7 +395,7 @@ fd_reedsol_ppt_64_34( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_35( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -591,7 +592,7 @@ fd_reedsol_ppt_64_35( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_36( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -788,7 +789,7 @@ fd_reedsol_ppt_64_36( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_37( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -985,7 +986,7 @@ fd_reedsol_ppt_64_37( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_38( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
@@ -1182,7 +1183,7 @@ fd_reedsol_ppt_64_38( gf_t * _in00,
   *_in63 = in63;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_64_39( gf_t * _in00,
                       gf_t * _in01,
                       gf_t * _in02,
