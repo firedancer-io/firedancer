@@ -630,7 +630,7 @@ fd_double_eq( double x,
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE
 #if FD_HAS_X86
-#define FD_UNALIGNED_ACCESS_STYLE 1
+#define FD_UNALIGNED_ACCESS_STYLE 0  /* 1 is broken ... */
 #else
 #define FD_UNALIGNED_ACCESS_STYLE 0
 #endif
@@ -766,7 +766,7 @@ FD_FN_PURE static inline ulong  fd_ulong_load_5_fast ( void const * p ) { FD_COM
 FD_FN_PURE static inline ulong  fd_ulong_load_6_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(ulong  const *)p) & 0x0000ffffffffffffUL; } /* Tail read 2B */
 FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { FD_COMPILER_FORGET( p ); return (       *(ulong  const *)p) & 0x00ffffffffffffffUL; } /* Tail read 1B */
 #define                         fd_ulong_load_8_fast                    fd_ulong_load_8
- 
+
 #else
 #error "Unsupported FD_UNALIGNED_ACCESS_STYLE"
 #endif
@@ -998,6 +998,14 @@ fd_ulong_svw_dec_tail( uchar const * b,
     (void *)_scratch_alloc;                                                                         \
     }))
 #define FD_SCRATCH_ALLOC_FINI( layout, align ) (_##layout = FD_ULONG_ALIGN_UP( _##layout, (align) ) )
+
+#define FD_SCRATCH_ALLOC_PUBLISH( layout ) (__extension__({            \
+    void * end = (void *)FD_SCRATCH_ALLOC_FINI( layout, 1UL );         \
+    int ok = fd_scratch_publish_is_safe( end );                        \
+    if( ok ) fd_scratch_publish( end );                                \
+    ok;                                                                \
+  }))
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */
