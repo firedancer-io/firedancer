@@ -193,7 +193,7 @@ fd_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t * slot_ctx,
 // loaded account data size defined consists of data encapsulated within accounts pointed to by these pubkeys:
 // 1. static and dynamic account keys that are loaded for the message
 // 2. owner program which inteprets the opaque data for each instruction
-static int 
+static int
 fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
                                        fd_instr_info_t const *  instrs,
                                        ushort              instrs_cnt ) {
@@ -205,9 +205,9 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
   }
   for( ushort i = 0; i < instrs_cnt; ++i ) {
     fd_instr_info_t const * instr = &instrs[i];
-    
+
     fd_borrowed_account_t * p = NULL;
-    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &instr->program_id_pubkey, &p );    
+    int err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &instr->program_id_pubkey, &p );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -228,7 +228,7 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
     FD_LOG_WARNING(( "Total loaded accounts data size %lu has exceeded its set limit %lu", total_accounts_data_size, txn_ctx->loaded_accounts_data_size_limit ));
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
   };
-  
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -556,12 +556,12 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   }
 
   int ret = 0L;
-  if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {    
-    int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );  
+  if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {
+    int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );
     if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
       return -1;
-    }    
-  }  
+    }
+  }
   if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
     fd_sysvar_instructions_serialize_account( &txn_ctx, instrs, txn_descriptor->instr_cnt );
     if( ret != FD_ACC_MGR_SUCCESS ) {
@@ -672,13 +672,16 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       // Lets prevent creating non-rent-exempt accounts...
       uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen) <= b->meta->info.lamports;
 
+      // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
+
       if (!after_exempt) {
-        uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
-          (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
-        if (before_exempt && (b->meta->dlen != b->starting_dlen) && b->meta->dlen != 0) {
-          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
+        if (b->meta->dlen != b->starting_dlen)
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
-        }
+        if (b->meta->info.lamports > b->starting_lamports)
+          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+        uchar before_exempt = fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports;
+        if (before_exempt)
+          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
       }
 
       if (b->starting_lamports != ULONG_MAX)

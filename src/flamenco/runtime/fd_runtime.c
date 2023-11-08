@@ -1465,6 +1465,7 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx, ulong r
   sort_validator_stake_pair_inplace( validator_stakes, num_validator_stakes );
 
   ulong enforce_fix = FD_FEATURE_ACTIVE(slot_ctx, no_overflow_rent_distribution);
+  ulong prevent_rent_fix = FD_FEATURE_ACTIVE(slot_ctx, prevent_rent_paying_rent_recipients);
 
   ulong rent_distributed_in_initial_round = 0;
 
@@ -1493,14 +1494,29 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx, ulong r
     validator_stakes[i].stake++;
   }
 
+  // We really need to cache this...
+  fd_rent_t rent;
+  fd_rent_new( &rent );
+  fd_sysvar_rent_read( slot_ctx, &rent );
+
   for( i = 0; i < num_validator_stakes; i++ ) {
     ulong rent_to_be_paid = validator_stakes[i].stake;
 
-    // TODO: handle the prevent_rent_paying_rent_recipients feature
     if( !enforce_fix || rent_to_be_paid > 0 ) {
       fd_pubkey_t pubkey = validator_stakes[i].pubkey;
 
       FD_BORROWED_ACCOUNT_DECL(rec);
+
+      if ( prevent_rent_fix ) {
+        // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
+
+        ulong minbal = fd_rent_exempt_minimum_balance2( &rent, rec->meta->dlen);
+        if ( rec->meta->info.lamports + rent_to_be_paid < minbal ) {
+          FD_LOG_WARNING(( "cannot pay a rent paying account (%32J)", &pubkey ));
+          leftover_lamports += rent_to_be_paid;
+          continue;
+        }
+      }
 
       int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
       if( FD_UNLIKELY( err ) ) {
@@ -1515,7 +1531,7 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx, ulong r
       }
     }
   } // end of iteration over validator_stakes
-  if (enforce_fix) {
+  if (enforce_fix && !prevent_rent_fix) {
     FD_TEST( leftover_lamports == 0);
   } else {
     ulong old = slot_ctx->slot_bank.capitalization;
