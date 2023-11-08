@@ -92,6 +92,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    int  never_leader;
     uint net_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
