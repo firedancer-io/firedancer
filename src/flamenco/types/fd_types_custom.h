@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
 #define HEADER_fd_src_flamenco_runtime_fd_types_custom
 
-#include "fd_types_meta.h"
 #include "fd_bincode.h"
+#include "fd_types_meta.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../util/net/fd_ip4.h"
