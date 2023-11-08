@@ -195,19 +195,30 @@ local file.
 
 ### Permissions
 
-Many `fdctl` commands require elevated privileges, including
-initializing and running the validator. This is because of high
-performance features it uses like kernel bypass networking.
+There are two users involved in running Firedancer. The user that you
+launch `fdctl` with, and the user Firedancer switches to after it has
+started. The requirements for these users are very different:
 
-It is recommended that you run these commands as `root` although in some
-cases it is possible to run as a non-root user with capabilities
-instead. You can see what capabilities are needed and why by running the
-command unprivileged.
+ - The user Firedancer starts as is not specified in configuration, but
+   is simply the user that launches the process. For most commands,
+   including `fdctl run` and `configure` it needs to be `root` or have
+   various capabilities described below to setup kernel bypass
+   networking. It is recommended to simply use the `root` user when
+   launching.
 
-For additional layers of defense against local privilege escalation, it
-is not suggested to `setcap(8)` the `fdctl` binary as this can create a
-larger attack surface. You should also not run Firedancer as a user that
-is present in the sudoers file, although it is OK to start it as one.
+ - The user Firedancer switches to after it has booted up and performed
+   privileged initialization. This is given by the `user` option in your
+   configuration TOML file. Firedancer requires nothing from this user
+   and it should be as minimally permissioned as possible. It should
+   never be `root` or another superuser, and the user should not be
+   present in the sudoers file or have any other privileges.
+
+Only the `fdctl run` and `monitor` commands will switch to the
+non-privileged user, and other commands will run as the startup user
+until they complete. Most commands can be started with capabilities
+rather than as the `root` user, although this isn't recommended. If you
+are an advanced operator, you can see which capabilities are required for
+a command by running it unprivileged:
 
 ```sh [bash]
 $ ./build/native/gcc/bin/fdctl run
@@ -215,6 +226,6 @@ $ ./build/native/gcc/bin/fdctl run
 
 <<< @/snippets/capabilities.ansi
 
-Although the run command requires privileges to start the validator it
-does not keep them for long. Firedancer will immediately drop all
-privileges once it has booted.
+For additional layers of defense against local privilege escalation, it
+is not suggested to `setcap(8)` the `fdctl` binary as this can create a
+larger attack surface.
