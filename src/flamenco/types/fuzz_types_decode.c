@@ -85,26 +85,28 @@ fd_decode_fuzz_data( char  const * type_name,
                      uchar const * data,
                      ulong         size ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_types_funcs_t type_meta;
-  if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
-    FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
-    return -1;
-  }
+    fd_types_funcs_t type_meta;
+    if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
+      FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
+      return -1;
+    }
 
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = data,
-    .dataend = data + size,
-    .valloc  = fd_scratch_virtual()
-  };
-  void * decoded = fd_scratch_alloc( type_meta.align_fun(), type_meta.footprint_fun() );
-  if( decoded == NULL ) {
-    FD_LOG_ERR (( "Failed to alloc memory for decoded type %s", type_name ));
-    return -1;
-  }
-  int err = type_meta.decode_fun( decoded, &decode_ctx );
-  __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = data,
+      .dataend = data + size,
+      .valloc  = fd_scratch_virtual()
+    };
+    void * decoded = fd_scratch_alloc( type_meta.align_fun(), type_meta.footprint_fun() );
+    if( decoded == NULL ) {
+      FD_LOG_ERR (( "Failed to alloc memory for decoded type %s", type_name ));
+      return -1;
+    }
+    int err = type_meta.decode_fun( decoded, &decode_ctx );
+    __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+
+  } FD_SCRATCH_SCOPE_END;
 
   return 0;
 }

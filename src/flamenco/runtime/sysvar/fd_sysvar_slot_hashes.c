@@ -32,51 +32,52 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
 void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_slot_hashes_t slot_hashes;
-  int err = fd_sysvar_slot_hashes_read( slot_ctx, &slot_hashes );
-  switch( err ) {
-  case 0: break;
-  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
-    slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc );
-    FD_TEST( slot_hashes.hashes );
-    break;
-  default:
-    FD_LOG_ERR(( "fd_sysvar_slot_hashes_read failed (%d)", err ));
-  }
-
-  fd_slot_hash_t * hashes = slot_hashes.hashes;
-
-  uchar found = 0;
-  for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
-        !deq_fd_slot_hash_t_iter_done( hashes, iter );
-        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
-    fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-    if ( ele->slot == slot_ctx->slot_bank.slot ) {
-      memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
-      found = 1;
+    fd_slot_hashes_t slot_hashes;
+    int err = fd_sysvar_slot_hashes_read( slot_ctx, &slot_hashes );
+    switch( err ) {
+    case 0: break;
+    case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
+      slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc );
+      FD_TEST( slot_hashes.hashes );
+      break;
+    default:
+      FD_LOG_ERR(( "fd_sysvar_slot_hashes_read failed (%d)", err ));
     }
-  }
 
-  if ( !found ) {
-  // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
-    fd_slot_hash_t slot_hash = {
-      .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
-      .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
-    };
-    FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
-    fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
+    fd_slot_hash_t * hashes = slot_hashes.hashes;
 
-    if (deq_fd_slot_hash_t_full( hashes ) )
-      fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
+    uchar found = 0;
+    for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
+          !deq_fd_slot_hash_t_iter_done( hashes, iter );
+          iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
+      fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
+      if ( ele->slot == slot_ctx->slot_bank.slot ) {
+        memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+        found = 1;
+      }
+    }
 
-    deq_fd_slot_hash_t_push_head( hashes, slot_hash );
-  }
+    if ( !found ) {
+      // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
+      fd_slot_hash_t slot_hash = {
+        .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
+        .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
+      };
+      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
+      fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
 
-  write_slot_hashes( slot_ctx, &slot_hashes );
-  fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-  fd_slot_hashes_destroy( &slot_hashes, &ctx );
+      if (deq_fd_slot_hash_t_full( hashes ) )
+        fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
+
+      deq_fd_slot_hash_t_push_head( hashes, slot_hash );
+    }
+
+    write_slot_hashes( slot_ctx, &slot_hashes );
+    fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
+    fd_slot_hashes_destroy( &slot_hashes, &ctx );
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int

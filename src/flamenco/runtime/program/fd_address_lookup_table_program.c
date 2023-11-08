@@ -917,32 +917,33 @@ fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_bincode_decode_ctx_t decode = {
-    .valloc  = fd_scratch_virtual(),
-    .data    = instr_data,
-    .dataend = instr_data + instr_data_sz
-  };
-  fd_addrlut_instruction_t instr[1];
-  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-  if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) != FD_BINCODE_SUCCESS ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    fd_bincode_decode_ctx_t decode = {
+      .valloc  = fd_scratch_virtual(),
+      .data    = instr_data,
+      .dataend = instr_data + instr_data_sz
+    };
+    fd_addrlut_instruction_t instr[1];
+    /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
+    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) != FD_BINCODE_SUCCESS ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-  switch( instr->discriminant ) {
-  case fd_addrlut_instruction_enum_create_lut:
-    return create_lookup_table( ctx, &instr->inner.create_lut );
-  case fd_addrlut_instruction_enum_freeze_lut:
-    return freeze_lookup_table( ctx );
-  case fd_addrlut_instruction_enum_extend_lut:
-    return extend_lookup_table( ctx, &instr->inner.extend_lut );
-  case fd_addrlut_instruction_enum_deactivate_lut:
-    return deactivate_lookup_table( ctx );
-  case fd_addrlut_instruction_enum_close_lut:
-    return close_lookup_table( ctx );
-  default:
-    break;
-  }
+    switch( instr->discriminant ) {
+    case fd_addrlut_instruction_enum_create_lut:
+      return create_lookup_table( ctx, &instr->inner.create_lut );
+    case fd_addrlut_instruction_enum_freeze_lut:
+      return freeze_lookup_table( ctx );
+    case fd_addrlut_instruction_enum_extend_lut:
+      return extend_lookup_table( ctx, &instr->inner.extend_lut );
+    case fd_addrlut_instruction_enum_deactivate_lut:
+      return deactivate_lookup_table( ctx );
+    case fd_addrlut_instruction_enum_close_lut:
+      return close_lookup_table( ctx );
+    default:
+      break;
+    }
+  } FD_SCRATCH_SCOPE_END;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

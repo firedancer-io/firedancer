@@ -5,7 +5,7 @@
 /* https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L18 */
 int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/a03ae63daff987912c48ee286eb8ee7e8a84bf01/programs/config/src/config_processor.rs#L25 */
@@ -185,6 +185,8 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
+
+  } FD_SCRATCH_SCOPE_END;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 # undef ACC_IDX_CONFIG

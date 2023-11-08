@@ -192,22 +192,22 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 
       if( found ) {
         /* Load feature activation */
-        FD_SCRATCH_SCOPED_FRAME;
-        fd_bincode_decode_ctx_t decode = { .data    = acc->account.data,
-                                           .dataend = acc->account.data + acc->account.data_len,
-                                           .valloc  = fd_scratch_virtual() };
-        fd_feature_t feature;
-        int err = fd_feature_decode( &feature, &decode );
-        FD_TEST( err==FD_BINCODE_SUCCESS );
-        if( feature.has_activated_at ) {
-          FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, feature.activated_at ));
-          *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = feature.activated_at;
-        } else {
-          FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
-          *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = ULONG_MAX;
-        }
+        FD_SCRATCH_SCOPE_BEGIN {
+          fd_bincode_decode_ctx_t decode = { .data    = acc->account.data,
+            .dataend = acc->account.data + acc->account.data_len,
+            .valloc  = fd_scratch_virtual() };
+          fd_feature_t feature;
+          int err = fd_feature_decode( &feature, &decode );
+          FD_TEST( err==FD_BINCODE_SUCCESS );
+          if( feature.has_activated_at ) {
+            FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, feature.activated_at ));
+            *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = feature.activated_at;
+          } else {
+            FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
+            *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = ULONG_MAX;
+          }
+        } FD_SCRATCH_SCOPE_END;
       }
-
     }
   }
 
@@ -1841,38 +1841,39 @@ int fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Find EpochStakes for next slot */
   {
-    FD_SCRATCH_SCOPED_FRAME;
+    FD_SCRATCH_SCOPE_BEGIN {
 
-    ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
-    fd_epoch_stakes_t const * stakes = NULL;
-    fd_epoch_epoch_stakes_pair_t const * epochs = oldbank->epoch_stakes;
-    for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
-      if( epochs[ i ].key==epoch ) {
-        stakes = &epochs[i].value;
-        break;
+      ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->slot, NULL );
+      fd_epoch_stakes_t const * stakes = NULL;
+      fd_epoch_epoch_stakes_pair_t const * epochs = oldbank->epoch_stakes;
+      for( ulong i=0; i < manifest->bank.epoch_stakes_len; i++ ) {
+        if( epochs[ i ].key==epoch ) {
+          stakes = &epochs[i].value;
+          break;
+        }
       }
-    }
 
-    if( FD_UNLIKELY( !stakes ) )
-      FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
+      if( FD_UNLIKELY( !stakes ) )
+        FD_LOG_ERR(( "Snapshot missing EpochStakes for epoch %lu", epoch ));
 
-    /* TODO Hacky way to copy by serialize/deserialize :( */
-    fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
-    ulong   bufsz = fd_vote_accounts_size( vaccs );
-    uchar * buf   = fd_scratch_alloc( 1UL, bufsz );
-    fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = buf,
-      .dataend = (void *)( (ulong)buf + bufsz )
-    };
-    FD_TEST( fd_vote_accounts_encode( vaccs, &encode_ctx )
-             ==FD_BINCODE_SUCCESS );
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = buf,
-      .dataend = (void const *)( (ulong)buf + bufsz ),
-      .valloc  = slot_ctx->valloc,
-    };
-    FD_TEST( fd_vote_accounts_decode( &slot_bank->epoch_stakes, &decode_ctx )
-             ==FD_BINCODE_SUCCESS );
+      /* TODO Hacky way to copy by serialize/deserialize :( */
+      fd_vote_accounts_t const * vaccs = &stakes->stakes.vote_accounts;
+      ulong   bufsz = fd_vote_accounts_size( vaccs );
+      uchar * buf   = fd_scratch_alloc( 1UL, bufsz );
+      fd_bincode_encode_ctx_t encode_ctx = {
+        .data    = buf,
+        .dataend = (void *)( (ulong)buf + bufsz )
+      };
+      FD_TEST( fd_vote_accounts_encode( vaccs, &encode_ctx )
+        ==FD_BINCODE_SUCCESS );
+      fd_bincode_decode_ctx_t decode_ctx = {
+        .data    = buf,
+        .dataend = (void const *)( (ulong)buf + bufsz ),
+        .valloc  = slot_ctx->valloc,
+      };
+      FD_TEST( fd_vote_accounts_decode( &slot_bank->epoch_stakes, &decode_ctx )
+        ==FD_BINCODE_SUCCESS );
+    } FD_SCRATCH_SCOPE_END;
   }
 
   int result = fd_runtime_save_epoch_bank( slot_ctx );
@@ -1900,25 +1901,25 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_feature_t feature[1];
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = acct_rec->const_data,
-    .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
-    .valloc  = fd_scratch_virtual(),
-  };
-  int decode_err = fd_feature_decode( feature, &ctx );
-  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "Failed to decode feature account %32J (%d)", acct, decode_err ));
-    return;
-  }
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = acct_rec->const_data,
+      .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
+      .valloc  = fd_scratch_virtual(),
+    };
+    int decode_err = fd_feature_decode( feature, &ctx );
+    if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR(( "Failed to decode feature account %32J (%d)", acct, decode_err ));
+      return;
+    }
 
-  if( feature->has_activated_at ) {
-    FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, feature->activated_at ));
-    *f = feature->activated_at;
-  }
-
-  /* No need to call destroy, since we are using fd_scratch allocator. */
+    if( feature->has_activated_at ) {
+      FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, feature->activated_at ));
+      *f = feature->activated_at;
+    }
+    /* No need to call destroy, since we are using fd_scratch allocator. */
+  } FD_SCRATCH_SCOPE_END;
 }
 
 void
@@ -1931,48 +1932,49 @@ fd_features_restore( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot) {
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_epoch_schedule_t schedule;
-  fd_sysvar_epoch_schedule_read( slot_ctx, &schedule );
-  FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
-  FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
-  FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
-  FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
-  FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
+    fd_epoch_schedule_t schedule;
+    fd_sysvar_epoch_schedule_read( slot_ctx, &schedule );
+    FD_LOG_INFO(( "schedule->slots_per_epoch = %lu", schedule.slots_per_epoch ));
+    FD_LOG_INFO(( "schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset ));
+    FD_LOG_INFO(( "schedule->warmup = %d", schedule.warmup ));
+    FD_LOG_INFO(( "schedule->first_normal_epoch = %lu", schedule.first_normal_epoch ));
+    FD_LOG_INFO(( "schedule->first_normal_slot = %lu", schedule.first_normal_slot ));
 
-  fd_vote_accounts_t const * epoch_vaccs = &slot_ctx->slot_bank.epoch_stakes;
+    fd_vote_accounts_t const * epoch_vaccs = &slot_ctx->slot_bank.epoch_stakes;
 
-  ulong epoch           = fd_slot_to_epoch( &schedule, slot, NULL );
-  ulong slot0           = fd_epoch_slot0   ( &schedule, epoch );
-  ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
+    ulong epoch           = fd_slot_to_epoch( &schedule, slot, NULL );
+    ulong slot0           = fd_epoch_slot0   ( &schedule, epoch );
+    ulong slot_cnt        = fd_epoch_slot_cnt( &schedule, epoch );
 
-  FD_LOG_INFO(( "starting rent list init" ));
-  fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
-  FD_LOG_INFO(( "rent list init done" ));
+    FD_LOG_INFO(( "starting rent list init" ));
+    fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
+    FD_LOG_INFO(( "rent list init done" ));
 
-  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
-  fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
-  if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
+    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
+    fd_stake_weight_t * epoch_weights = fd_scratch_alloc( alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
+    if( FD_UNLIKELY( !epoch_weights ) ) FD_LOG_ERR(( "fd_scratch_alloc() failed" ));
 
-  ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
+    ulong stake_weight_cnt = fd_stake_weights_by_node( epoch_vaccs, epoch_weights );
 
-  if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
+    if( FD_UNLIKELY( stake_weight_cnt==ULONG_MAX ) ) FD_LOG_ERR(( "fd_stake_weights_by_node() failed" ));
 
-  /* Derive leader schedule */
+    /* Derive leader schedule */
 
-  FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
-  ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
-  FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
-  if( FD_LIKELY( epoch_leaders_footprint ) ) {
-    void * epoch_leaders_mem = fd_valloc_malloc(slot_ctx->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint );
-    if (NULL != slot_ctx->epoch_ctx->leaders)
-      fd_valloc_free(slot_ctx->valloc, slot_ctx->epoch_ctx->leaders);
-    slot_ctx->epoch_ctx->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, epoch, slot0,  slot_cnt, stake_weight_cnt, epoch_weights ) );
-    FD_TEST( slot_ctx->epoch_ctx->leaders );
-    /* Derive */
-    fd_epoch_leaders_derive( slot_ctx->epoch_ctx->leaders, epoch_weights, epoch );
-  }
+    FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
+    ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
+    FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
+    if( FD_LIKELY( epoch_leaders_footprint ) ) {
+      void * epoch_leaders_mem = fd_valloc_malloc(slot_ctx->valloc, fd_epoch_leaders_align(), epoch_leaders_footprint );
+      if (NULL != slot_ctx->epoch_ctx->leaders)
+        fd_valloc_free(slot_ctx->valloc, slot_ctx->epoch_ctx->leaders);
+      slot_ctx->epoch_ctx->leaders = fd_epoch_leaders_join( fd_epoch_leaders_new( epoch_leaders_mem, epoch, slot0,  slot_cnt, stake_weight_cnt, epoch_weights ) );
+      FD_TEST( slot_ctx->epoch_ctx->leaders );
+      /* Derive */
+      fd_epoch_leaders_derive( slot_ctx->epoch_ctx->leaders, epoch_weights, epoch );
+    }
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* process for the start of a new epoch */

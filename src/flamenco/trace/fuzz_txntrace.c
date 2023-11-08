@@ -222,24 +222,23 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
+    /* Deserialize */
+    pb_istream_t stream = pb_istream_from_buffer( data, size );
+    fd_soltrace_TxnInput in[1];
+    fd_memset( in, 0, sizeof(fd_soltrace_TxnInput) );
+    if( FD_UNLIKELY( !pb_decode( &stream, fd_soltrace_TxnInput_fields, in ) ) )
+      return -1;
 
-  /* Deserialize */
-  pb_istream_t stream = pb_istream_from_buffer( data, size );
-  fd_soltrace_TxnInput in[1];
-  fd_memset( in, 0, sizeof(fd_soltrace_TxnInput) );
-  if( FD_UNLIKELY( !pb_decode( &stream, fd_soltrace_TxnInput_fields, in ) ) )
-    return -1;
+    /* Execute */
+    fd_soltrace_TxnDiff  _diff[1];
+    fd_soltrace_TxnDiff * diff = fd_txntrace_replay( _diff, in, fuzz_txntrace_wksp );
+    if( FD_UNLIKELY( !diff ) )
+      return -1;
 
-  /* Execute */
-  fd_soltrace_TxnDiff  _diff[1];
-  fd_soltrace_TxnDiff * diff = fd_txntrace_replay( _diff, in, fuzz_txntrace_wksp );
-  if( FD_UNLIKELY( !diff ) )
-    return -1;
-
-  /* Clean up */
-  fd_wksp_free_laddr( diff );
-  pb_release( fd_soltrace_TxnInput_fields, in );
-
+    /* Clean up */
+    fd_wksp_free_laddr( diff );
+    pb_release( fd_soltrace_TxnInput_fields, in );
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }

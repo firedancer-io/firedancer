@@ -105,38 +105,39 @@ _process_meta_instruction( fd_exec_instr_ctx_t ctx ) {
 
   /* Scratch frame -- Deallocated when instruction processor exits */
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  /* Deserialize instruction */
+    /* Deserialize instruction */
 
-  uchar const * instr_data = ctx.instr->data;
-  fd_bincode_decode_ctx_t instr_decode = {
-    .data    = instr_data,
-    .dataend = instr_data + ctx.instr->data_sz,
-    .valloc  = fd_scratch_virtual()
-  };
+    uchar const * instr_data = ctx.instr->data;
+    fd_bincode_decode_ctx_t instr_decode = {
+      .data    = instr_data,
+      .dataend = instr_data + ctx.instr->data_sz,
+      .valloc  = fd_scratch_virtual()
+    };
 
-  fd_bpf_loader_v4_program_instruction_t instr[1];
-  int err = fd_bpf_loader_v4_program_instruction_decode( instr, &instr_decode );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    fd_bpf_loader_v4_program_instruction_t instr[1];
+    int err = fd_bpf_loader_v4_program_instruction_decode( instr, &instr_decode );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-  /* Handle instruction */
+    /* Handle instruction */
 
-  switch( instr->discriminant ) {
-  case fd_bpf_loader_v4_program_instruction_enum_write:
-    return _process_write( ctx, &instr->inner.write );
-  case fd_bpf_loader_v4_program_instruction_enum_truncate:
-    return _process_truncate( ctx, instr->inner.truncate );
-  case fd_bpf_loader_v4_program_instruction_enum_deploy:
-    return _process_deploy( ctx );
-  case fd_bpf_loader_v4_program_instruction_enum_retract:
-    return _process_retract( ctx );
-  case fd_bpf_loader_v4_program_instruction_enum_transfer_authority:
-    return _process_transfer_authority( ctx );
-  default:
-    __builtin_unreachable();
-    FD_LOG_CRIT(( "entered unreachable code" ));
-  }
+    switch( instr->discriminant ) {
+    case fd_bpf_loader_v4_program_instruction_enum_write:
+      return _process_write( ctx, &instr->inner.write );
+    case fd_bpf_loader_v4_program_instruction_enum_truncate:
+      return _process_truncate( ctx, instr->inner.truncate );
+    case fd_bpf_loader_v4_program_instruction_enum_deploy:
+      return _process_deploy( ctx );
+    case fd_bpf_loader_v4_program_instruction_enum_retract:
+      return _process_retract( ctx );
+    case fd_bpf_loader_v4_program_instruction_enum_transfer_authority:
+      return _process_transfer_authority( ctx );
+    default:
+      __builtin_unreachable();
+      FD_LOG_CRIT(( "entered unreachable code" ));
+    }
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int

@@ -28,46 +28,47 @@ static int
 fd_account_pretty_print( uchar const             owner[ static 32 ],
                          uchar const *           data,
                          ulong                   data_sz,
-                         FILE *                  file ) {
+  FILE *                  file ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = data,
-    .dataend = data + data_sz,
-    .valloc  = fd_scratch_virtual()
-  };
+    fd_bincode_decode_ctx_t decode = {
+      .data    = data,
+      .dataend = data + data_sz,
+      .valloc  = fd_scratch_virtual()
+    };
 
-  fd_flamenco_yaml_t * yaml =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      file );
-  FD_TEST( yaml );
+    fd_flamenco_yaml_t * yaml =
+      fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+          fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+        file );
+    FD_TEST( yaml );
 
-  if( 0==memcmp( owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    fd_vote_state_versioned_t vote_state[1];
-    int err = fd_vote_state_versioned_decode( vote_state, &decode );
+    if( 0==memcmp( owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_vote_state_versioned_t vote_state[1];
+      int err = fd_vote_state_versioned_decode( vote_state, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+      fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_bpf_upgradeable_loader_state_t stake_state[1];
+      int err = fd_bpf_upgradeable_loader_state_decode( stake_state, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+      fd_bpf_upgradeable_loader_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
+      fd_stake_state_v2_t stake_state[1];
+      int err = fd_stake_state_v2_decode( stake_state, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+      fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+    } else {
+      fwrite( "???", 1, 3, file );
+    }
+    int err = ferror( file );
     if( FD_UNLIKELY( err!=0 ) ) return err;
-    fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    fd_bpf_upgradeable_loader_state_t stake_state[1];
-    int err = fd_bpf_upgradeable_loader_state_decode( stake_state, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-    fd_bpf_upgradeable_loader_state_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    fd_stake_state_v2_t stake_state[1];
-    int err = fd_stake_state_v2_decode( stake_state, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-    fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else {
-    fwrite( "???", 1, 3, file );
-  }
-  int err = ferror( file );
-  if( FD_UNLIKELY( err!=0 ) ) return err;
 
-  /* No need to destroy structures, using fd_scratch allocator */
+    /* No need to destroy structures, using fd_scratch allocator */
 
-  fd_flamenco_yaml_delete( yaml );
+    fd_flamenco_yaml_delete( yaml );
+  } FD_SCRATCH_SCOPE_END;
   return 0;
 }
 

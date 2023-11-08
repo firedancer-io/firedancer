@@ -30,50 +30,52 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     if( n->elem.stake == 0UL ) continue;
 
     /* Create scratch allocator for current scope */
-    FD_SCRATCH_SCOPED_FRAME;  fd_valloc_t scratch = fd_scratch_virtual();
+    FD_SCRATCH_SCOPE_BEGIN {
 
-    /* Decode vote account */
-    uchar const * vote_acc_data = n->elem.value.data;
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = vote_acc_data,
-      .dataend = vote_acc_data + n->elem.value.data_len,
-      .valloc  = scratch,
-    };
-    fd_vote_state_versioned_t vote_state_versioned;
-    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &decode_ctx ) ) ) {
-      /* TODO can this occur on a real cluster? */
-      FD_LOG_WARNING(( "Failed to deserialize vote account %32J", n->elem.key.key ));
-      continue;
-    }
+      fd_valloc_t scratch = fd_scratch_virtual();
 
-    /* Extract node pubkey */
-    fd_pubkey_t const * node_pubkey;
-    switch( vote_state_versioned.discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      node_pubkey = &vote_state_versioned.inner.v0_23_5.node_pubkey; break;
-    case fd_vote_state_versioned_enum_current:
-      node_pubkey = &vote_state_versioned.inner.current.node_pubkey; break;
-    default:
-      __builtin_unreachable();
-    }
+      /* Decode vote account */
+      uchar const * vote_acc_data = n->elem.value.data;
+      fd_bincode_decode_ctx_t decode_ctx = {
+        .data    = vote_acc_data,
+        .dataend = vote_acc_data + n->elem.value.data_len,
+        .valloc  = scratch,
+      };
+      fd_vote_state_versioned_t vote_state_versioned;
+      if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state_versioned, &decode_ctx ) ) ) {
+        /* TODO can this occur on a real cluster? */
+        FD_LOG_WARNING(( "Failed to deserialize vote account %32J", n->elem.key.key ));
+        continue;
+      }
 
-    /* Check if node identity was previously visited */
-    fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
-    FD_TEST( query );
-    query->elem.key = *node_pubkey;
-    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
+      /* Extract node pubkey */
+      fd_pubkey_t const * node_pubkey;
+      switch( vote_state_versioned.discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_pubkey = &vote_state_versioned.inner.v0_23_5.node_pubkey; break;
+      case fd_vote_state_versioned_enum_current:
+        node_pubkey = &vote_state_versioned.inner.current.node_pubkey; break;
+      default:
+        __builtin_unreachable();
+      }
 
-    if( FD_UNLIKELY( node ) ) {
-      /* Accumulate to previously created entry */
-      fd_stake_weight_t_map_release( out_pool, query );
-      node->elem.stake += n->elem.stake;
-    } else {
-      /* Create new entry */
-      node = query;
-      node->elem.stake = n->elem.stake;
-      fd_stake_weight_t_map_insert( out_pool, &out_root, node );
-    }
+      /* Check if node identity was previously visited */
+      fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
+      FD_TEST( query );
+      query->elem.key = *node_pubkey;
+      fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
+      if( FD_UNLIKELY( node ) ) {
+        /* Accumulate to previously created entry */
+        fd_stake_weight_t_map_release( out_pool, query );
+        node->elem.stake += n->elem.stake;
+      } else {
+        /* Create new entry */
+        node = query;
+        node->elem.stake = n->elem.stake;
+        fd_stake_weight_t_map_insert( out_pool, &out_root, node );
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 
   return out_root;
@@ -132,38 +134,40 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
     return ULONG_MAX;
   }
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  /* Estimate size required to store temporary data structures */
+    /* Estimate size required to store temporary data structures */
 
-  /* TODO size is the wrong method name for this */
-  ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool, accs->vote_accounts_root );
+    /* TODO size is the wrong method name for this */
+    ulong vote_acc_cnt = fd_vote_accounts_pair_t_map_size( accs->vote_accounts_pool, accs->vote_accounts_root );
 
-  ulong rb_align     = fd_stake_weight_t_map_align();
-  ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );
+    ulong rb_align     = fd_stake_weight_t_map_align();
+    ulong rb_footprint = fd_stake_weight_t_map_footprint( vote_acc_cnt );
 
-  if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( rb_align, rb_footprint ) ) ) {
-    FD_LOG_WARNING(( "insufficient scratch space: need %lu align %lu footprint",
-                     rb_align, rb_footprint ));
-    return ULONG_MAX;
-  }
+    if( FD_UNLIKELY( !fd_scratch_alloc_is_safe( rb_align, rb_footprint ) ) ) {
+      FD_LOG_WARNING(( "insufficient scratch space: need %lu align %lu footprint",
+          rb_align, rb_footprint ));
+      return ULONG_MAX;
+    }
 
-  /* Create rb tree */
+    /* Create rb tree */
 
-  void * pool_mem = fd_scratch_alloc( rb_align, rb_footprint );
-         pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
-  if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
+    void * pool_mem = fd_scratch_alloc( rb_align, rb_footprint );
+    pool_mem = fd_stake_weight_t_map_new( pool_mem, vote_acc_cnt );
+    fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( pool_mem );
+    if( FD_UNLIKELY( !pool_mem ) ) FD_LOG_CRIT(( "fd_stake_weights_new() failed" ));
 
-  /* Accumulate stakes to rb tree */
+    /* Accumulate stakes to rb tree */
 
-  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool );
+    fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool );
 
-  /* Export to sorted list */
+    /* Export to sorted list */
 
-  ulong weights_cnt = fd_stakes_export( pool, root, weights );
-  fd_stake_weight_sort( weights, weights_cnt );
-  return weights_cnt;
+    ulong weights_cnt = fd_stakes_export( pool, root, weights );
+    fd_stake_weight_sort( weights, weights_cnt );
+
+    return weights_cnt;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */

@@ -144,57 +144,57 @@ static const fd_flamenco_type_step_t vote_account_walk[] = {
 
 static void
 test_vote_account_walk( void ) {
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  FD_SCRATCH_SCOPED_FRAME;
+    /* Decode bincode blob */
 
-  /* Decode bincode blob */
+    fd_bincode_decode_ctx_t decode[1] = {{
+      .data    = vote_account_bin,
+      .dataend = vote_account_bin + vote_account_bin_sz,
+      .valloc  = fd_scratch_virtual()
+    }};
+    fd_vote_state_versioned_t state[1];
+    int err = fd_vote_state_versioned_decode( state, decode );
+    FD_TEST( err==FD_BINCODE_SUCCESS );
 
-  fd_bincode_decode_ctx_t decode[1] = {{
-    .data    = vote_account_bin,
-    .dataend = vote_account_bin + vote_account_bin_sz,
-    .valloc  = fd_scratch_virtual()
-  }};
-  fd_vote_state_versioned_t state[1];
-  int err = fd_vote_state_versioned_decode( state, decode );
-  FD_TEST( err==FD_BINCODE_SUCCESS );
+    /* Walk with recorder */
 
-  /* Walk with recorder */
+    fd_vote_state_versioned_walk( recorder, state, fd_flamenco_walk_recorder, NULL, 0 );
 
-  fd_vote_state_versioned_walk( recorder, state, fd_flamenco_walk_recorder, NULL, 0 );
+    /* Diff by concurrent iterate */
 
-  /* Diff by concurrent iterate */
+    ulong i;
+    for( i=0UL; i < recorder->step_cnt; i++ ) {
 
-  ulong i;
-  for( i=0UL; i < recorder->step_cnt; i++ ) {
+      fd_flamenco_type_step_t const * expect = &vote_account_walk[i];
+      fd_flamenco_type_step_t const * actual = &recorder->steps  [i];
 
-    fd_flamenco_type_step_t const * expect = &vote_account_walk[i];
-    fd_flamenco_type_step_t const * actual = &recorder->steps  [i];
+      if( (!expect->level) & (!expect->type) ) break;
 
-    if( (!expect->level) & (!expect->type) ) break;
+      if( ( actual->level != expect->level )
+        | ( actual->type  != expect->type  ) ) {
 
-    if( ( actual->level != expect->level )
-      | ( actual->type  != expect->type  ) ) {
-
-      FD_LOG_WARNING(( "Mismatch at step %lu", i ));
-      FD_LOG_WARNING(( "Expected\n"
-                       "  level: %u\n"
-                       "  type:  %#x\n"
-                       "  name:  %s\n",
-                       expect->level,
-                       expect->type,
-                       expect->name ));
-      FD_LOG_WARNING(( "Actual\n"
-                       "  level: %u\n"
-                       "  type:  %#x\n"
-                       "  name:  %s\n",
-                       recorder->steps[i].level,
-                       recorder->steps[i].type,
-                       recorder->steps[i].name ));
-      FD_LOG_ERR(( "fail" ));
+        FD_LOG_WARNING(( "Mismatch at step %lu", i ));
+        FD_LOG_WARNING(( "Expected\n"
+                         "  level: %u\n"
+                         "  type:  %#x\n"
+                         "  name:  %s\n",
+                         expect->level,
+                         expect->type,
+                         expect->name ));
+        FD_LOG_WARNING(( "Actual\n"
+                         "  level: %u\n"
+                         "  type:  %#x\n"
+                         "  name:  %s\n",
+                         recorder->steps[i].level,
+                         recorder->steps[i].type,
+                         recorder->steps[i].name ));
+        FD_LOG_ERR(( "fail" ));
+      }
     }
-  }
-  FD_TEST( ( i==recorder->step_cnt       )
-         & ( !vote_account_walk[i].level ) );
+    FD_TEST( ( i==recorder->step_cnt       )
+           & ( !vote_account_walk[i].level ) );
+  } FD_SCRATCH_SCOPE_END;
 }
 
 int

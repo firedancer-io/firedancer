@@ -170,77 +170,78 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
                                 uchar const   owner[ static 32 ],
                                 uchar const * data,
                                 ulong         data_sz,
-                                FILE *        file ) {
+  FILE *        file ) {
 
-  FD_SCRATCH_SCOPED_FRAME;
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = data,
-    .dataend = data + data_sz,
-    .valloc  = fd_scratch_virtual()
-  };
+    fd_bincode_decode_ctx_t decode = {
+      .data    = data,
+      .dataend = data + data_sz,
+      .valloc  = fd_scratch_virtual()
+    };
 
-  fd_flamenco_yaml_t * yaml =
-    fd_flamenco_yaml_init( fd_flamenco_yaml_new(
-      fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
-      file );
-  FD_TEST( yaml );
+    fd_flamenco_yaml_t * yaml =
+      fd_flamenco_yaml_init( fd_flamenco_yaml_new(
+          fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
+        file );
+    FD_TEST( yaml );
 
-  /* TODO clean up */
-  uchar _sysvar_clock[ 32 ];
-  fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
-  uchar _sysvar_rent[ 32 ];
-  fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
-  uchar _sysvar_epoch_rewards[ 32 ];
-  fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111", _sysvar_epoch_rewards );
-  uchar _sysvar_stake_history[ 32 ];
-  fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111", _sysvar_stake_history );
+    /* TODO clean up */
+    uchar _sysvar_clock[ 32 ];
+    fd_base58_decode_32( "SysvarC1ock11111111111111111111111111111111", _sysvar_clock );
+    uchar _sysvar_rent[ 32 ];
+    fd_base58_decode_32( "SysvarRent111111111111111111111111111111111", _sysvar_rent );
+    uchar _sysvar_epoch_rewards[ 32 ];
+    fd_base58_decode_32( "SysvarEpochRewards1111111111111111111111111", _sysvar_epoch_rewards );
+    uchar _sysvar_stake_history[ 32 ];
+    fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111", _sysvar_stake_history );
 
-  if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
-    fd_vote_state_versioned_t vote_state[1];
-    int err = fd_vote_state_versioned_decode( vote_state, &decode );
+    if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
+      fd_vote_state_versioned_t vote_state[1];
+      int err = fd_vote_state_versioned_decode( vote_state, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
+      fd_stake_state_v2_t stake_state[1];
+      int err = fd_stake_state_v2_decode( stake_state, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
+      fd_sol_sysvar_clock_t clock[1];
+      int err = fd_sol_sysvar_clock_decode( clock, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) ) {
+      fd_rent_t rent[1];
+      int err = fd_rent_decode( rent, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( pubkey, _sysvar_epoch_rewards, 32UL ) ) {
+      fd_sysvar_epoch_rewards_t epoch_rewards[1];
+      int err = fd_sysvar_epoch_rewards_decode( epoch_rewards, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U );
+    } else if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) ) {
+      fd_stake_history_t stake_history[1];
+      int err = fd_stake_history_decode( stake_history, &decode );
+      if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U );
+    }
+
+    int err = ferror( file );
     if( FD_UNLIKELY( err!=0 ) ) return err;
 
-    fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
-    fd_stake_state_v2_t stake_state[1];
-    int err = fd_stake_state_v2_decode( stake_state, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
+    /* No need to destroy structures, using fd_scratch allocator */
 
-    fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
-    fd_sol_sysvar_clock_t clock[1];
-    int err = fd_sol_sysvar_clock_decode( clock, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-
-    fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) ) {
-    fd_rent_t rent[1];
-    int err = fd_rent_decode( rent, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-
-    fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( pubkey, _sysvar_epoch_rewards, 32UL ) ) {
-    fd_sysvar_epoch_rewards_t epoch_rewards[1];
-    int err = fd_sysvar_epoch_rewards_decode( epoch_rewards, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-
-    fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U );
-  } else if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) ) {
-    fd_stake_history_t stake_history[1];
-    int err = fd_stake_history_decode( stake_history, &decode );
-    if( FD_UNLIKELY( err!=0 ) ) return err;
-
-    fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U );
-  }
-
-  int err = ferror( file );
-  if( FD_UNLIKELY( err!=0 ) ) return err;
-
-  /* No need to destroy structures, using fd_scratch allocator */
-
-  fd_flamenco_yaml_delete( yaml );
-  return 0;
+    fd_flamenco_yaml_delete( yaml );
+    return 0;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* fd_solcap_dump_account_data writes a binary file containing exactly
@@ -304,58 +305,59 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
     FD_TEST( meta[0].data_sz <= 1048576 );
     FD_TEST( meta[1].data_sz <= 1048576 );
 
-    FD_SCRATCH_SCOPED_FRAME;
-    void * acc_data[2];
-           acc_data[0] = fd_scratch_alloc( 1UL, meta[0].data_sz );
-           acc_data[1] = fd_scratch_alloc( 1UL, meta[1].data_sz );
-
-    for( ulong i=0UL; i<2UL; i++ ) {
-      /* Rewind capture stream */
-      FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
-
-      /* Copy data */
-      FD_TEST( meta[i].data_sz == fread( acc_data[i], 1UL, meta[i].data_sz, diff->iter[i].stream ) );
-    }
-
-    for( ulong i=0; i<2; i++ ) {
-      fd_solcap_dump_account_data( diff, meta+i, entry[i], acc_data[i] );
-    }
-
-    /* Inform user */
-    printf( "    -data:       %s/%32J-%32J.bin\n"
-            "    +data:       %s/%32J-%32J.bin\n"
-            "                 vimdiff <(xxd '%s/%32J-%32J.bin') <(xxd '%s/%32J-%32J.bin')\n",
-            diff->dump_dir, entry[0]->key, entry[0]->hash,
-            diff->dump_dir, entry[1]->key, entry[1]->hash,
-            diff->dump_dir, entry[0]->key, entry[0]->hash,
-            diff->dump_dir, entry[1]->key, entry[1]->hash );
-
-    if( fd_solcap_can_pretty_print( meta[0].owner, entry[0]->key )
-      & fd_solcap_can_pretty_print( meta[1].owner, entry[1]->key ) ) {
+    FD_SCRATCH_SCOPE_BEGIN {
+      void * acc_data[2];
+      acc_data[0] = fd_scratch_alloc( 1UL, meta[0].data_sz );
+      acc_data[1] = fd_scratch_alloc( 1UL, meta[1].data_sz );
 
       for( ulong i=0UL; i<2UL; i++ ) {
-        /* Create YAML file */
-        char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-        int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry[i]->key, entry[i]->hash );
-        FD_TEST( (res>0) & (res<(int)sizeof(path)) );
-        int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
-        if( FD_UNLIKELY( fd<0 ) )
-          FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
-                      diff->dump_dir_fd, path, errno, strerror( errno ) ));
+        /* Rewind capture stream */
+        FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
 
-        /* Write YAML file */
-        FILE * file = fdopen( fd, "wb" );
-        fd_solcap_account_pretty_print( entry[i]->key, meta[i].owner, acc_data[i], meta[i].data_sz, file );
-        fclose( file );  /* closes fd */
+        /* Copy data */
+        FD_TEST( meta[i].data_sz == fread( acc_data[i], 1UL, meta[i].data_sz, diff->iter[i].stream ) );
       }
 
+      for( ulong i=0; i<2; i++ ) {
+        fd_solcap_dump_account_data( diff, meta+i, entry[i], acc_data[i] );
+      }
 
       /* Inform user */
-      printf( "                 vimdiff '%s/%32J-%32J.yml' '%s/%32J-%32J.yml'\n",
-              diff->dump_dir, entry[0]->key, entry[0]->hash,
-              diff->dump_dir, entry[1]->key, entry[1]->hash );
+      printf( "    -data:       %s/%32J-%32J.bin\n"
+        "    +data:       %s/%32J-%32J.bin\n"
+        "                 vimdiff <(xxd '%s/%32J-%32J.bin') <(xxd '%s/%32J-%32J.bin')\n",
+        diff->dump_dir, entry[0]->key, entry[0]->hash,
+        diff->dump_dir, entry[1]->key, entry[1]->hash,
+        diff->dump_dir, entry[0]->key, entry[0]->hash,
+        diff->dump_dir, entry[1]->key, entry[1]->hash );
 
-    }
+      if( fd_solcap_can_pretty_print( meta[0].owner, entry[0]->key )
+        & fd_solcap_can_pretty_print( meta[1].owner, entry[1]->key ) ) {
+
+        for( ulong i=0UL; i<2UL; i++ ) {
+          /* Create YAML file */
+          char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+          int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry[i]->key, entry[i]->hash );
+          FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+          int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+          if( FD_UNLIKELY( fd<0 ) )
+            FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+                diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+          /* Write YAML file */
+          FILE * file = fdopen( fd, "wb" );
+          fd_solcap_account_pretty_print( entry[i]->key, meta[i].owner, acc_data[i], meta[i].data_sz, file );
+          fclose( file );  /* closes fd */
+        }
+
+
+        /* Inform user */
+        printf( "                 vimdiff '%s/%32J-%32J.yml' '%s/%32J-%32J.yml'\n",
+          diff->dump_dir, entry[0]->key, entry[0]->hash,
+          diff->dump_dir, entry[1]->key, entry[1]->hash );
+
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 }
 
@@ -468,44 +470,45 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
     /* TODO: Remove hardcoded account size check */
     FD_TEST( meta->data_sz <= 1048576 );
 
-    FD_SCRATCH_SCOPED_FRAME;
-    void * acc_data = fd_scratch_alloc( 1UL, meta->data_sz );
+    FD_SCRATCH_SCOPE_BEGIN {
+      void * acc_data = fd_scratch_alloc( 1UL, meta->data_sz );
 
-    /* Rewind capture stream */
-    FD_TEST( 0==fseek(stream, (long)*data_goff, SEEK_SET ) );
+      /* Rewind capture stream */
+      FD_TEST( 0==fseek(stream, (long)*data_goff, SEEK_SET ) );
 
-    /* Copy data */
-    FD_TEST( meta->data_sz == fread( acc_data, 1UL, meta->data_sz, stream ) );
+      /* Copy data */
+      FD_TEST( meta->data_sz == fread( acc_data, 1UL, meta->data_sz, stream ) );
 
-    fd_solcap_dump_account_data( diff, meta, entry, acc_data );
-
-    /* Inform user */
-    printf( "    %cdata:       %s/%32J-%32J.bin\n"
-            "                 xxd '%s/%32J-%32J.bin'\n",
-            prefix,
-            diff->dump_dir, entry->key, entry->hash,
-            diff->dump_dir, entry->key, entry->hash );
-
-    if( fd_solcap_can_pretty_print( meta->owner, entry->key ) ) {
-      /* Create YAML file */
-      char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-      int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry->key, entry->hash );
-      FD_TEST( (res>0) & (res<(int)sizeof(path)) );
-      int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
-      if( FD_UNLIKELY( fd<0 ) )
-        FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
-                    diff->dump_dir_fd, path, errno, strerror( errno ) ));
-
-      /* Write YAML file */
-      FILE * file = fdopen( fd, "wb" );
-      fd_solcap_account_pretty_print( entry->key, meta->owner, acc_data, meta->data_sz, file );
-      fclose( file );  /* closes fd */
+      fd_solcap_dump_account_data( diff, meta, entry, acc_data );
 
       /* Inform user */
-      printf( "                 cat '%s/%32J-%32J.yml'\n",
-              diff->dump_dir, entry->key, entry->hash,
-              diff->dump_dir, entry->key, entry->hash );
-    }
+      printf( "    %cdata:       %s/%32J-%32J.bin\n"
+        "                 xxd '%s/%32J-%32J.bin'\n",
+        prefix,
+        diff->dump_dir, entry->key, entry->hash,
+        diff->dump_dir, entry->key, entry->hash );
+
+      if( fd_solcap_can_pretty_print( meta->owner, entry->key ) ) {
+        /* Create YAML file */
+        char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
+        int res = snprintf( path, sizeof(path), "%32J-%32J.yml", entry->key, entry->hash );
+        FD_TEST( (res>0) & (res<(int)sizeof(path)) );
+        int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+        if( FD_UNLIKELY( fd<0 ) )
+          FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
+              diff->dump_dir_fd, path, errno, strerror( errno ) ));
+
+        /* Write YAML file */
+        FILE * file = fdopen( fd, "wb" );
+        fd_solcap_account_pretty_print( entry->key, meta->owner, acc_data, meta->data_sz, file );
+        fclose( file );  /* closes fd */
+
+        /* Inform user */
+        printf( "                 cat '%s/%32J-%32J.yml'\n",
+          diff->dump_dir, entry->key, entry->hash,
+          diff->dump_dir, entry->key, entry->hash );
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 }
 

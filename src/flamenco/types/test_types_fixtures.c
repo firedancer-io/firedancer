@@ -103,51 +103,51 @@ TEST_VECTOR( X )
 
 static void
 test_yaml( test_fixture_t const * t ) {
+  FD_SCRATCH_SCOPE_BEGIN {
 
-  FD_SCRATCH_SCOPED_FRAME;
+    /* Decode bincode blob */
 
-  /* Decode bincode blob */
+    ulong bin_sz = *t->bin_sz;
+    fd_bincode_decode_ctx_t decode[1] = {{
+        .data    = t->bin,
+        .dataend = t->bin + bin_sz,
+        .valloc  = fd_scratch_virtual()
+      }};
 
-  ulong bin_sz = *t->bin_sz;
-  fd_bincode_decode_ctx_t decode[1] = {{
-    .data    = t->bin,
-    .dataend = t->bin + bin_sz,
-    .valloc  = fd_scratch_virtual()
-  }};
+    void * decoded = fd_scratch_alloc( 64UL, t->struct_sz );
+    int err = t->decode( decoded, decode );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
+      FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
 
-  void * decoded = fd_scratch_alloc( 64UL, t->struct_sz );
-  int err = t->decode( decoded, decode );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
+    /* Encode YAML */
 
-  /* Encode YAML */
+    static char yaml_buf[ 1<<20 ];
+    FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
 
-  static char yaml_buf[ 1<<20 ];
-  FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
+    void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+    fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
-  void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
+    t->walk( yaml, decoded, fd_flamenco_yaml_walk, NULL, 0 );
+    FD_TEST( 0==ferror( file ) );
+    long sz = ftell(  file );
+    FD_TEST( sz>0 );
+    FD_TEST( 0==fclose( file ) );
 
-  t->walk( yaml, decoded, fd_flamenco_yaml_walk, NULL, 0 );
-  FD_TEST( 0==ferror( file ) );
-  long sz = ftell(  file );
-  FD_TEST( sz>0 );
-  FD_TEST( 0==fclose( file ) );
+    /* Compare */
 
-  /* Compare */
+    ulong yml_sz = *t->yml_sz;
+    if( FD_UNLIKELY( (ulong)sz!=yml_sz )
+      || (0!=memcmp( yaml_buf, t->yml, yml_sz ) ) ) {
+      FD_LOG_WARNING(( "Test '%s' failed", t->name ));
 
-  ulong yml_sz = *t->yml_sz;
-  if( FD_UNLIKELY( (ulong)sz!=yml_sz )
-                || (0!=memcmp( yaml_buf, t->yml, yml_sz ) ) ) {
-    FD_LOG_WARNING(( "Test '%s' failed", t->name ));
+      FILE * dump = fopen( t->dump_path, "w" );
+      fwrite( yaml_buf, 1, (ulong)sz, dump );
+      fclose( dump );
 
-    FILE * dump = fopen( t->dump_path, "w" );
-    fwrite( yaml_buf, 1, (ulong)sz, dump );
-    fclose( dump );
-
-    FD_LOG_WARNING(( "Dumped actual YAML to: %s", t->dump_path ));
-    FD_LOG_ERR(( "fail" ));
-  }
+      FD_LOG_WARNING(( "Dumped actual YAML to: %s", t->dump_path ));
+      FD_LOG_ERR(( "fail" ));
+    }
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* test_idempotent first deserializes t->bin, then re-serializes the
