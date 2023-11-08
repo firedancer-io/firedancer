@@ -7,7 +7,7 @@
 /* Create random bit patterns with lots of leading and/or trailing zeros
    or ones to really stress limits of implementations. */
 
-static inline ulong            
+static inline ulong
 make_test_rand_ulong( ulong x,        /* Random 64-bit */
                        uint *_ctl ) { /* Least significant 8 bits random, uses them up */
   uint ctl = *_ctl;
@@ -19,7 +19,7 @@ make_test_rand_ulong( ulong x,        /* Random 64-bit */
   return i ? (~x) : x;
 }
 
-static inline uint            
+static inline uint
 make_test_rand_uint( uint x,        /* Random 32-bit */
                      uint *_ctl ) { /* Least significant 8 bits random, uses them up */
   uint ctl = *_ctl;
@@ -67,7 +67,7 @@ fd_ulong_sat_mul_ref( ulong x,
     return 0;
   }
 
-  if( ( ref < x ) || ( ref < y ) || ( ( x / ref ) != y ) ) {
+  if( ( ref < x ) || ( ref < y ) || ( ( ref/x ) != y ) || (ref > ULONG_MAX)) {
     return ULONG_MAX;
   } else {
     return (ulong) ref;
@@ -110,7 +110,7 @@ fd_uint_sat_mul_ref( uint x,
     return 0;
   }
 
-  if( ( ref < x ) || ( ref < y ) || ( ( x / ref ) != y ) ) {
+  if( ( ref < x ) || ( ref < y ) || ( ( ref / x ) != y )  || (ref > UINT_MAX) ) {
     return UINT_MAX;
   } else {
     return (uint) ref;
@@ -172,7 +172,7 @@ main( int     argc,
   for( int i=0; i<100000000; i++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %i iterations", i )); ctr = 10000000; }
     ctr--;
-    
+
 #   define TEST(op)                                  \
     do {                                             \
       uint  t =  fd_rng_uint ( rng );                             \
@@ -230,4 +230,3 @@ main( int     argc,
 }
 
 #endif
-
