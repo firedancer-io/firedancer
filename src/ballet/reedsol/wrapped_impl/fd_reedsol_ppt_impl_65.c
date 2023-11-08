@@ -1,6 +1,7 @@
+/* Note: This file is auto generated. */
 #include "../fd_reedsol_ppt.h"
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_128_65( gf_t * _in00,
                        gf_t * _in01,
                        gf_t * _in02,
@@ -389,7 +390,7 @@ fd_reedsol_ppt_128_65( gf_t * _in00,
   *_in127 = in127;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_128_66( gf_t * _in00,
                        gf_t * _in01,
                        gf_t * _in02,
@@ -778,7 +779,7 @@ fd_reedsol_ppt_128_66( gf_t * _in00,
   *_in127 = in127;
 }
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_ppt_128_67( gf_t * _in00,
                        gf_t * _in01,
                        gf_t * _in02,

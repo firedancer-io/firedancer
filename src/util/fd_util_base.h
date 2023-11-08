@@ -570,6 +570,12 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNUSED __attribute__((unused))
 
+/* FD_FN_UNSANITIZED tells the compiler to disable AddressSanitizer and
+   UndefinedBehaviorSanitizer instrumentation.  For some functions, this
+   can improve instrumented compile time by ~30x. */
+
+#define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
+
 /* FD_WARN_UNUSED tells the compiler the result (from a function) should
    be checked. This is useful to force callers to either check the result
    or deliberately and explicitly ignore it. Good for result codes and

@@ -1,6 +1,7 @@
+/* Note: This file is auto generated. */
 #include "../fd_reedsol_fft.h"
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_fft_64_128( gf_t * _in00,
                        gf_t * _in01,
                        gf_t * _in02,

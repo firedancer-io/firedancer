@@ -1,7 +1,8 @@
+/* Note: This file is auto generated. */
 #include "fd_reedsol_ppt.h"
 #include "fd_reedsol_fderiv.h"
 
-int
+FD_FN_UNSANITIZED int
 fd_reedsol_private_recover_var_64( ulong           shred_sz,
                                    uchar * const * shred,
                                    ulong           data_shred_cnt,
