@@ -17,8 +17,8 @@
 
 #define MAX_SHRED_DESTS              40200UL
 #define MAX_SLOTS_PER_EPOCH         432000UL
-/* MAX_SHRED_DEST_FOOTPRINT==fd_shred_dest_footprint( MAX_SHRED_DESTS),
-   runtime asserted in new.  The size of fd_shred_dest_t, varies
+/* MAX_SHRED_DEST_FOOTPRINT==fd_shred_dest_footprint( MAX_SHRED_DESTS ),
+   runtime asserted in the tests.  The size of fd_shred_dest_t, varies
    based on FD_SHA256_BATCH_FOOTPRINT, which depends on the compiler
    settings. */
 #define MAX_SHRED_DEST_FOOTPRINT (10067072UL + sizeof(fd_shred_dest_t))
@@ -118,7 +118,10 @@ void * fd_stake_ci_delete( void          * mem  );
 
    new_message should be a pointer to the first byte of the dcache entry
    containing the stakes update.  new_message will be accessed
-   new_message[i] for i in [0, FD_STAKE_CI_STAKE_MSG_SZ).
+   new_message[i] for i in [0, FD_STAKE_CI_STAKE_MSG_SZ).  new_message
+   must contain at least one staked pubkey, and the pubkeys must be
+   sorted in the usual way (by stake descending, ties broken by pubkey
+   ascending).
 
    fd_stake_ci_dest_add_init behaves slightly differently and returns a
    pointer to the first element of an array of size MAX_SHRED_DESTS-1 to
@@ -127,12 +130,21 @@ void * fd_stake_ci_delete( void          * mem  );
    addresses).  The `cnt` argument to _dest_add_fini specifies the
    number of elements of the array returned by _init that were
    populated. 0<=cnt<MAX_SHRED_DESTS.  _fini will only read the first
-   `cnt` elements of the array.  The identity pubkey provided at
-   initialization must not be one of the cnt values in the array.  The
-   caller should not retain a read or write interest in the pointer
-   returned by _init after fini has been called, or after the caller has
-   determined that fini will not be called for that update, e.g. because
-   the update was overrun.  Calls to _fini may clobber the array.  */
+   `cnt` elements of the array.  The stake_lamports field of the input
+   is ignored.  The identity pubkey provided at initialization must not
+   be one of the cnt values in the array.  The caller should not retain
+   a read or write interest in the pointer returned by _init after fini
+   has been called, or after the caller has determined that fini will
+   not be called for that update, e.g. because the update was overrun.
+   Calls to _fini may clobber the array.
+
+   The list used for leader schedules is always just the staked nodes.
+   The list used for shred destinations is the staked nodes along with
+   any unstaked nodes for which we have contact info.  If a stake
+   message doesn't have contact info for a staked node, the previous
+   contact info will be preserved.  If a stake message doesn't have
+   contact info for an unstaked node, on the other hand, that node will
+   be deleted from the list. */
 void                       fd_stake_ci_stake_msg_init( fd_stake_ci_t * info, uchar const * new_message );
 void                       fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info                            );
 fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info                            );
