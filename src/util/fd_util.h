@@ -13,7 +13,8 @@
 //#include "shmem/fd_shmem.h"       /* includes log/fd_log.h */
 //#include "tile/fd_tile.h"         /* includes shmem/fd_shmem.h */
 //#include "wksp/fd_wksp.h"         /* includes shmem/fd_shmem.h pod/fd_pod.h */
-//#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h */
+//#include "valloc/fd_valloc.h"     /* includes fd_util_base.h */
+//#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h valloc/fd_valloc.h */
 #include "math/fd_stat.h"           /* includes bits/fd_bits.h */
 #include "bits/fd_sat.h"
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */

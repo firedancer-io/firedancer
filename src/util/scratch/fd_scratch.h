@@ -11,6 +11,7 @@
 
 #include "../sanitize/fd_sanitize.h"
 #include "../tile/fd_tile.h"
+#include "../valloc/fd_valloc.h"
 
 /* FD_SCRATCH_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional run-time checks. */
@@ -573,6 +574,21 @@ fd_scratch_trim_is_safe( void * _end ) {
   if( FD_UNLIKELY( end < fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ] ) ) return 0; /* Trim underflow */
   if( FD_UNLIKELY( end > fd_scratch_private_free                                      ) ) return 0; /* Trim overflow */
   return 1;
+}
+
+/* fd_scratch_vtable is the virtual function table implementing
+   fd_valloc for fd_scratch. */
+
+extern const fd_valloc_vtable_t fd_scratch_vtable;
+
+/* fd_scratch_virtual returns an abstract handle to the fd_scratch join.
+   Valid for lifetime of scratch frame.  fd_valloc_t must be dropped
+   before scratch frame changes or scratch detaches. */
+
+FD_FN_CONST static inline fd_valloc_t
+fd_scratch_virtual( void ) {
+  fd_valloc_t valloc = { NULL, &fd_scratch_vtable };
+  return valloc;
 }
 
 /* FD_SCRATCH_SCOPE_{BEGIN,END} create a `do { ... } while(0);` scope in
