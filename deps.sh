@@ -312,7 +312,8 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
     -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF
+    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
+    -DCMAKE_C_FLAGS_RELEASE="-march=native -O3"
 
   echo "[+] Building secp256k1"
   "${MAKE[@]}"
@@ -332,6 +333,7 @@ install_openssl () {
     -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
+    -march=native \
     enable-quic \
     enable-pic \
     no-engine \
@@ -430,7 +432,9 @@ install_rocksdb () {
     -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
     -Dzstd_ROOT_DIR="$PREFIX" \
     -DSnappy_LIBRARIES="$PREFIX/lib" \
-    -DSnappy_INCLUDE_DIRS="$PREFIX/include"
+    -DSnappy_INCLUDE_DIRS="$PREFIX/include" \
+    -DUSE_RTTI=ON \
+    -DCMAKE_CXX_FLAGS_RELEASE="-march=native"
 
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
