@@ -34,6 +34,21 @@
 #define FD_FLAMENCO_TYPE_MAP       (0x22)
 #define FD_FLAMENCO_TYPE_MAP_END   (0x23)
 
+/* TODO: This should be called fd_types_vtable_t. */
+
+struct fd_types_funcs {
+  int   (*decode_fun)(void* self, fd_bincode_decode_ctx_t *);
+  int   (*encode_fun)(void const * self, fd_bincode_encode_ctx_t * ctx);
+  int   (*walk_fun)(void * w, void * self, fd_types_walk_fn_t, const char *, uint);
+  ulong (*align_fun)( void );
+  ulong (*footprint_fun)( void );
+  ulong (*size_fun)(void const * self);
+  void  (*destroy_fun)(void* self, fd_bincode_destroy_ctx_t * ctx);
+  void* (*new_fun)(void *);
+};
+
+typedef struct fd_types_funcs fd_types_funcs_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_flamenco_type_is_primitive returns 1 if type does not contain
