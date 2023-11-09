@@ -125,6 +125,8 @@ typedef struct {
   ulong       verify_out_chunk0;
   ulong       verify_out_wmark;
   ulong       verify_out_chunk;
+
+  ulong depth;
 } fd_quic_ctx_t;
 
 /* fd_quic_dcache_app_footprint returns the required footprint in bytes
@@ -264,7 +266,8 @@ mux_ctx( void * scratch ) {
 FD_FN_CONST static inline ulong
 fd_quic_chunk_idx( ulong chunk0,
                    ulong chunk ) {
-  return ((chunk-chunk0)*FD_CHUNK_FOOTPRINT) / fd_ulong_align_up( FD_TPU_DCACHE_MTU, FD_CHUNK_FOOTPRINT );
+  ulong j = (chunk-chunk0) * FD_CHUNK_SZ / fd_ulong_align_up( FD_TPU_DCACHE_MTU, 2*FD_CHUNK_SZ );
+  return j;
 }
 
 /* fd_quic_dcache_msg_ctx returns a pointer to the TPU/QUIC message
@@ -277,8 +280,16 @@ fd_quic_chunk_idx( ulong chunk0,
 FD_FN_CONST static inline fd_quic_msg_ctx_t *
 fd_quic_dcache_msg_ctx( uchar * app_laddr,
                         ulong   chunk0,
-                        ulong   chunk ) {
+                        ulong   chunk,
+                        ulong   depth,
+   ulong wmark ) {
   fd_quic_msg_ctx_t * msg_arr = (fd_quic_msg_ctx_t *)app_laddr;
+  ulong idx = fd_quic_chunk_idx( chunk0, chunk );
+  if( idx > depth*FD_CHUNK_SZ ) {
+    FD_LOG_ERR(( "Buffer overrun. Terminating. Diag: "
+                 "idx (%lu) > depth (%lu)  chunk: %lu  chunk0: %lu  wmark: %lu",
+                 idx, depth, chunk, chunk0, wmark ));
+  }
   return &msg_arr[ fd_quic_chunk_idx( chunk0, chunk ) ];
 }
 
@@ -320,7 +331,8 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   FD_TEST( packet_sz <= FD_TPU_DCACHE_MTU ); /* paranoia, not possible */
   ulong chunk = fd_dcache_compact_next( ctx->verify_out_chunk, FD_TPU_DCACHE_MTU, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
+  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk,
+                                                        ctx->depth, ctx->verify_out_wmark );
   msg_ctx->conn_id   = ULONG_MAX;
   msg_ctx->stream_id = ULONG_MAX;
   msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_mem, chunk );
@@ -600,7 +612,10 @@ quic_stream_new( fd_quic_stream_t * stream,
 
   ulong chunk = fd_dcache_compact_next( ctx->verify_out_chunk, FD_TPU_DCACHE_MTU, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk );
+
+  fd_quic_msg_ctx_t * msg_ctx = fd_quic_dcache_msg_ctx( ctx->verify_out_dcache_app, ctx->verify_out_chunk0, chunk,
+                                                        ctx->depth, ctx->verify_out_wmark );
+
   msg_ctx->conn_id   = conn_id;
   msg_ctx->stream_id = stream_id;
   msg_ctx->data      = fd_chunk_to_laddr( ctx->verify_out_mem, chunk );
@@ -796,11 +811,11 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "quic tile in depths are not equal" ));
 
   void * dcache = topo->links[ tile->out_link_id_primary ].dcache;
-  if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) )
-
-  FD_LOG_ERR(( "dcache app sz too small (min=%lu have=%lu)",
-                fd_quic_dcache_app_footprint( depth ),
-                fd_dcache_app_sz( dcache ) ));
+  if( FD_UNLIKELY( fd_dcache_app_sz( dcache ) < fd_quic_dcache_app_footprint( depth ) ) ) {
+    FD_LOG_ERR(( "dcache app sz too small (min=%lu have=%lu)",
+                  fd_quic_dcache_app_footprint( depth ),
+                  fd_dcache_app_sz( dcache ) ));
+  }
 
   ulong scratch_top = (ulong)scratch;
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t*)SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
@@ -888,6 +903,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->round_robin_id  = tile->kind_id;
 
   ctx->legacy_transaction_port = tile->quic.legacy_transaction_listen_port;
+
+  ctx->depth = depth;
 
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));

@@ -74,6 +74,8 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  handshake_cnt    = limits->handshake_cnt;
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
+  ulong  arp_entries      = limits->arp_entries;
+  ulong  routing_entries  = limits->routing_entries;
 
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
@@ -82,8 +84,12 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
 
   if( FD_UNLIKELY( conn_id_sparsity==0.0 ) )
     conn_id_sparsity = FD_QUIC_DEFAULT_SPARSITY;
-  if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
+  if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT )) {
     return 0UL;
+  }
+
+  if( FD_UNLIKELY( arp_entries     == 0UL ) ) arp_entries     = 32UL;
+  if( FD_UNLIKELY( routing_entries == 0UL ) ) routing_entries = 32UL;
 
   ulong offs  = 0;
 
@@ -126,6 +132,13 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong tls_footprint  = fd_quic_tls_footprint( limits->handshake_cnt );
   if( FD_UNLIKELY( !tls_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_footprint" )); return 0UL; }
   offs                += tls_footprint;
+
+  /* allocate space for fd_ip_t */
+  offs                 = fd_ulong_align_up( offs, fd_ip_align() );
+  layout->ip_off       = offs;
+  ulong ip_footprint   = fd_ip_footprint( arp_entries, routing_entries );
+  if( FD_UNLIKELY( !ip_footprint ) ) { FD_LOG_WARNING(( "invalid fd_ip_footprint" )); return 0UL; }
+  offs                += ip_footprint;
 
   return offs;
 }
@@ -6305,7 +6318,7 @@ fd_quic_frame_handle_stream_frame(
       fd_quic_conn_t * conn = context.conn;
       FD_QUIC_STREAM_LIST_REMOVE( stream );
 
-      stream->stream_id   = stream_id;
+      stream->stream_id = stream_id;
 
       /* track current number of streams */
       conn->num_streams[type]++;
@@ -6324,7 +6337,7 @@ fd_quic_frame_handle_stream_frame(
 
   /* A receiver MUST close the connection with an error of type FLOW_CONTROL_ERROR if the sender
      violates the advertised connection or stream data limits */
-  if (stream->rx_max_stream_data < offset + data_sz) {
+  if( stream->rx_max_stream_data < offset + data_sz ) {
     FD_LOG_WARNING(( "peer exceeded advertised stream data limit" ));
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
     return FD_QUIC_PARSE_FAIL;
@@ -6356,6 +6369,10 @@ fd_quic_frame_handle_stream_frame(
     ulong skip = exp_offset - offset; /* skip already delivered bytes */
 
     ulong delivered = data_sz - skip;
+
+    if( FD_UNLIKELY( stream->stream_id == FD_QUIC_STREAM_ID_UNUSED ) ) {
+      FD_LOG_WARNING(( "stream_id FD_QUIC_STREAM_ID_UNUSED. Killing connection" ));
+    }
 
     fd_quic_cb_stream_receive(
         context.quic,
