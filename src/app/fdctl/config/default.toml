@@ -1,0 +1,762 @@
+# Name of this Firedancer instance.  This name serves as a unique token
+# so that multiple Firedancer instances can run side by side without
+# conflicting when they need to share a system or kernel namespace.
+# When starting a Firedancer instance, it will potentially load, reset,
+# or overwrite any state created by a prior, or currently running
+# instance with the same name.
+name = "fd1"
+
+# The operating system user to permission data and run Firedancer as.
+# Firedancer needs to start privileged, either with various capabilities
+# or as root, so that it can configure kernel bypass networking.  Once
+# this configuration has been performed, the process will enter a highly
+# restrictive sandbox, drop all privileges, and switch to the user given
+# here.  When running the configuration steps of `fdctl configure`, data
+# will be permissioned as read/write for this user, irrespective of
+# which user is performing the configuration.
+#
+# Firedancer requires nothing from this user, and it should be as
+# minimally permissioned as is possible.  It is suggested to run
+# Firedancer as a separate user from other proecssses on the machine so
+# that they cannot attempt to send signals, ptrace, or otherwise
+# interfere with the process.  You should under no circumstances use a
+# superuser or privileged user here, and Firedancer will not allow you
+# to use the root user.  It is also not a good idea to use a user that
+# has access to `sudo` or has other entries in the sudoers file.
+#
+# When running in a development environment (with `fddev`), Firedancer
+# will automatically determine a user to run as if none is provided.  By
+# default, it will use the terminal user which is starting the program.
+# If running as sudo, the terminal user is not root but the user which
+# invoked sudo.
+user = ""
+
+# Absolute directory path to place scratch files used during setup and
+# operation.  The ledger and accounts databases will also be placed in
+# here by default, although that is overridable by other options.
+#
+# Two substitutions will be performed on this string.  If "{user}" is
+# present it will be replaced with the user running Firedancer, as
+# above, and "{name}" will be replaced with the name of the Firedancer
+# instance.
+scratch_directory = "/home/{user}/.firedancer/{name}"
+
+# Port range used for various incoming network listeners, in the form
+# `<MIN_PORT>-<MAX_PORT>` inclusive.  The range used includes min, but
+# not max [min, max).  Ports are used for receiving transactions and
+# votes from clients and other validators.
+#
+# For Firedancer, ports are assigned statically in later parts of this
+# configuration file, and this option is passed to the Solana Labs
+# client with the `--dynamic-port-range` argument.  Solana Labs will use
+# this to determine port locations for services not yet rewritten as
+# part of Firedancer, including gossip and RPC.  This port range should
+# NOT overlap with any of the static ports used by Firedancer below.
+dynamic_port_range = "8900-9000"
+
+# The ledger is the set of information that can be replayed to get back
+# to the current state of the chain.  In Solana, it is considered a
+# combination of the genesis, and the recent unconfirmed blocks.  The
+# accounts database (the current balance of all the accounts) is
+# information that is derived from the ledger.
+[ledger]
+    # Absolute directory path to place the ledger.  Firedancer currently
+    # spawns a Solana Labs validator to execute transactions that it
+    # receives.  If no ledger path is provided, it is defaulted to the
+    # `ledger` subdirectory of the scratch directory above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # The ledger path constructed here is passed to the Solana Labs
+    # client with the `--ledger` argument.
+    path = ""
+
+    # Absolute directory path to place the accounts database in.  If
+    # this is empty, it will default to the `accounts` subdirectory of
+    # the ledger `path` above.  This option is passed to the Solana Labs
+    # client with the `--accounts` argument.
+    accounts_path = ""
+
+    # Maximum number of shreds to keep in root slots in the ledger
+    # before discarding.
+    #
+    # The default is chosen to allow enough time for a validator to
+    # download a snapshot from a peer and boot from it, and to make sure
+    # that if a validator needs to reboot from its own snapshot, it has
+    # enough slots locally to catch back up to where it was when it
+    # stopped.  It works out to around 400GB of space.
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--limit-ledger-size` argument.
+    limit_size = 200_000_000
+
+    # If enabled, fetch historical transaction info from a BigTable
+    # instance as a fallback to local ledger data.  The
+    # `GOOGLE_APPLICATION_CREDENTIALS` environment variable must be set
+    # to access BigTable.
+    #
+    # This option does not currently work, and it should not be enabled.
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--enable-rpc-bigtable-ledger-storage` argument.
+    bigtable_storage = false
+
+    # If nonempty, enable an accounts index indexed by the specified
+    # field.  The account field must be one of "program-id",
+    # "spl-token-owner", or "spl-token-mint".  These options are passed
+    # to the Solana Labs client with the `--account-index` argument.
+    account_indexes = []
+
+    # If account indexes are enabled, exclude these keys from the index.
+    # These options are passed to the Solana Labs client with the
+    # `--account-index-exclude-key` argument.
+    account_index_exclude_keys = []
+
+    # Whether to use compression when storing snapshots.  This option is
+    # passed to the Solana Labs client with the
+    # `--snapshot-archive-format` argument.
+    snapshot_archive_format = "zstd"
+
+    # Refuse to start if saved tower state is not found.  This option is
+    # passed to the Solana Labs client with the `--require-tower`
+    # argument.
+    require_tower = false
+
+[gossip]
+    # Routable DNS name or IP address and port number to use to
+    # rendezvous with the gossip cluster.  These entrypoints are passed
+    # to the Solana Labs client with the `--entrypoint` argument.
+    entrypoints = []
+
+    # If true, checks at startup that at least one of the provided
+    # entrypoints can connect to this validator on all necessary ports.
+    # If it can't, then the validator will exit.
+    #
+    # This option is passed to the Solana Labs client inverted with the
+    # `--no-port-check` argument.
+    port_check = true
+
+    # The port number to use for receiving gossip messages on this
+    # validator.  This option is passed to the Solana Labs client with
+    # the `--gossip-port` argument.  This argument is required.  Solana
+    # Labs treats this as an optional argument, but the code that tries
+    # to find a default will always fail.
+    port = 8001
+
+    # DNS name or IP address to advertise to the network in gossip.  If
+    # none is provided, the default is to ask the first entrypoint which
+    # replies to the port check described above what our IP address is.
+    # If no entrypoints are specified, then this will be defaulted to
+    # 127.0.0.1. 
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--gossip-host` argument.
+    host = ""
+
+[rpc]
+    # If nonzero, enable JSON RPC on this port, and use the next port
+    # for the RPC websocket.  If zero, disable JSON RPC.  This option is
+    # passed to the Solana Labs client with the `--rpc-port` argument.
+    port = 8899
+
+    # If true, all RPC operations are enabled on this validator,
+    # including non-default RPC methods for querying chain state and
+    # transaction history.  This option is passed to the Solana Labs
+    # client with the `--full-rpc-api` argument.
+    full_api = true
+
+    # If the RPC is private, the valdiator's open RPC port is not
+    # published in the `solana gossip` command for use by others.  This
+    # option is passed to the Solana Labs client with the
+    # `--private-rpc` argument.
+    private = false
+
+    # Enable historical transaction info over JSON RPC, including the
+    # `getConfirmedBlock` API.  This will cause an increase in disk
+    # usage and IOPS.  This option is passed to the Solana Labs client
+    # with the `--enable-rpc-transaction-history` argument.
+    transaction_history = true
+
+    # If enabled, include CPI inner instructions, logs, and return data
+    # in the historical transaction info stored.  This option is passed
+    # to the Solana Labs client with the
+    # `--enable-extended-tx-metadata-storage` argument.
+    extended_tx_metadata_storage = true
+
+    # If true, use the RPC service of known validators only.  This
+    # option is passed to the Solana Labs client with the
+    # `--only-known-rpc` argument.
+    only_known = false
+
+    # If true, enable the unstable RPC PubSub `blockSubscribe`
+    # subscription.  This option is passed to the Solana Labs client
+    # with the `--rpc-pubsub-enable-block-subscription` argument.
+    pubsub_enable_block_subscription = false
+
+    # If true, enable the unstable RPC PubSub `voteSubscribe`
+    # subscription.  This option is passed to the Solana Labs client
+    # with the `--rpc-pubsub-enable-vote-subscription` argument.
+    pubsub_enable_vote_subscription = false
+
+# The Solana Labs client periodically takes and stores snapshots of the
+# chain's state.  Other clients, especially as they bootstrap or catch
+# up to the head of the chain, may request a snapshot.
+[snapshots]
+    # Enable incremental snapshots by setting this flag.  This option is
+    # passed to the Solana Labs client (inverted) with the
+    # `--no-incremental-snapshots` flag.
+    incremental_snapshots = true
+
+    # Set how frequently full snapshots are taken, measured in slots,
+    # where one slot is about 400ms on production chains.  It's
+    # recommended to leave this to the default or to set it to the same
+    # value that the known validators are using.
+    full_snapshot_interval_slots = 25000
+
+    # Set how frequently incremental snapshots are taken, measured in
+    # slots.  Must be a multiple of the accounts hash interval (which is
+    # 100 by default).
+    incremental_snapshot_interval_slots = 100
+
+    # Absolute directory path for storing snapshots.  If no path is
+    # provided, it defaults to the [ledger.path] option from above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # The snapshot path constructed here is passed to the Solana Labs
+    # client with the `--snapshots` argument.
+    path = ""
+
+[consensus]
+    # Absolute path to a `keypair.json` file containing the identity of
+    # the validator.  When connecting to dev, test, or mainnet it is
+    # required to provide an identity file.
+    #
+    # When running a local cluster, Firedancer will generate a keypair
+    # if one is not provided (or has not already been generated) and
+    # place it in the scratch directory, under path `identity.json`.
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--identity` argument.
+    identity_path = ""
+
+    # Absolute path to a `keypair.json` containing the identity of the
+    # voting account of the validator.  If no voting account is
+    # provided, voting will be disabled and the validator will cast no
+    # votes.  This option is passed to the Solana Labs client with the
+    # `--vote-account` argument.
+    vote_account_path = ""
+
+    # If false, do not attempt to fetch a snapshot from the cluster,
+    # instead start from a local snapshot if one is present.  A snapshot
+    # is required to run the validator, so either one must be present,
+    # or you need to fetch it.  The snapshot will be fetched from a
+    # validator in the list of entrpoints.  If no validators are listed
+    # there, starting the validator will fail.  This option is passed
+    # (inverted) to the Solana Labs client with the `no-snapshot-fetch`
+    # argument.
+    snapshot_fetch = true
+
+    # If false, do not attempt to fetch the genesis from the cluster.
+    # This option is passed (inverted) to the Solana Labs client with
+    # the `no-genesis-fetch` argument.
+    genesis_fetch = true
+
+    # On startup, do some simulations to see how fast the validator can
+    # generate proof of history, and if it too slow to keep up with the
+    # network, exit out during boot.  It is recommended to leave this on
+    # to ensure you can keep up with the network.  This option is passed
+    # to the Solana Labs client (inverted) with the
+    # `--no-poh-speed-test` argument.
+    poh_speed_test = true
+
+    # If set, require the genesis block to have the given hash.  If it
+    # does not the validator will abort with an error.  This option is
+    # passed to the Solana Labs client with the
+    # `--expected-genesis-hash` argument.
+    expected_genesis_hash = ""
+
+    # If nonzero, after processing the ledger, and the next slot is the
+    # provided value, wait until a supermajority of stake is visible on
+    # gossip before starting proof of history.  This option is passed to
+    # the Solana Labs client with the `--wait-for-supermajority`
+    # argument.
+    wait_for_supermajority_at_slot = 0
+
+    # If there is a hard fork, it might be required to provide an
+    # expected bank hash to ensure the correct fork is being selected.
+    # If this is not provided, or we are not waiting for a
+    # supermajority, the bank hash is not checked.  Otherwise we require
+    # the bank at the supermajority slot to have this hash.  This option
+    # is passed to the Solana Labs client with the
+    # `--expected-bank-hash` argument.
+    expected_bank_hash = ""
+
+    # The shred version is a small hash of the genesis block and any
+    # subsequent hard forks.  The Solana Labs client uses it to filter
+    # out any shred traffic from validators that disagree with this
+    # validator on the genesis hash or the set of hard forks.  If
+    # nonzero, ignore any shreds that have a different shred version
+    # than this value.  If zero, the expected shred version is
+    # automatically determined by copying the shred version that the
+    # entrypoint validator is using.  This option is passed to the
+    # Solana Labs client with the `--expected-shred-version` argument.
+    expected_shred_version = 0
+
+    # If the validator starts up with no ledger, it will wait to start
+    # block production until it sees a vote land in a rooted slot.  This
+    # prevents double signing.  Turn off to risk double signing a block.
+    # This option is passed to the Solana Labs client (inverted) with
+    # the `--no-wait-for-vote-to-start-leader` argument.
+    wait_for_vote_to_start_leader = true
+
+    # Perform a network speed test on starting up the validator.  If
+    # this is not disabled, and the speed test fails, the validator will
+    # refuse to start.  This option is passed to the Solana Labs client
+    # (inverted) with the `--no-os-network-limits-test` argument.
+    os_network_limits_test = true
+
+    # If nonempty, add a hard fork at each of the provided slots.  These
+    # options are passed to the Solana Labs client with the
+    # `--hard-fork` argument.
+    hard_fork_at_slots = []
+
+    # A set of validators we trust to publish snapshots.  If a snapshot
+    # is not published by a validator with one of these keys, it is
+    # ignored.  If no known validators are specified, any hash will be
+    # accepted.  These options are passed to the Solana Labs client with
+    # the `--trusted-validator` argument.
+    known_validators = []
+
+# CPU cores in Firedancer are carefully managed.  Where a typical
+# program lets the operating system scheduler determine which threads to
+# run on which cores and for how long, Firedancer overrides most of this
+# behavior by pinning threads to CPU cores.
+#
+# Consider a validator node needing to do six essential pieces of work:
+#
+#  1. quic      Parse received QUIC packets into transactions, and
+#               respond to the client appropriately
+#  2. verify    Verify the signature of the transaction, dropping
+#               invalid ones
+#  3. dedup     Drop duplicated or repeatedly sent transactions
+#  4. pack      Decide which transactions to execute, ordering them by
+#               profitability
+#  5. bank      Run the transactions in order and update accounting
+#  6. shred     Sign outgoing messages and forward to other validators
+#
+# This is a data pipeline.  When we model the flow of a transaction
+# through the system, it's a simple linear sequence, and could run
+# nicely on six CPU cores, one for each stage,
+#
+#   1 -> 2 -> 3 -> 4 -> 5 -> 6
+#
+# Transactions can largely be processed indepdendently, except for
+# deduplication.  With that in mind, if we had ten CPU cores, we could
+# make our pipeline faster by parallelizing it as follows,
+#
+#   1 -> 2 --> 3 --> 4 --> 5 -> 6
+#           |          |
+#   1 -> 2 -+          +-> 5 -> 6
+#
+# The problem of deciding which cores to use, and what work to run on
+# each core we call layout.  Layout is system dependent and the highest
+# throughput layout will vary depending on the specific hardware
+# available.
+#
+# Pinning and layout is accomplished with help from a primitive we call
+# a tile.  A tile is a thread which you can dispatch work to.  Tiles may
+# either be pinned to a specific core, or float between unassigned cores
+# (the OS scheduler will assign).  While a tile could receive and handle
+# arbitrary new work requests over its lifetime, acting like a worker
+# thread in a thread pool, in practice most tiles are dispatched just
+# one piece of work at startup, one of the six described above, which
+# they run forever.
+#
+# The concurrency model is that each tile runs exclusively on its own
+# thread, and communicates with other tiles via. message passing.  The
+# message passing primitives are built on top of shared memory, but
+# tiles do not otherwise communicate via. shared memory.  These message
+# queues between tiles are all fixed size, and when a producer outruns a
+# downstream consumer and fills the outgoing buffer transactions will be
+# dropped.
+#
+# A full Firedancer layout spins up these six tasks onto a variety of
+# tiles and connects them together with queues so that data can flow in
+# and out of the system with maximum throughput and minimal overruns.
+[layout]
+    # Logical CPU cores to run Firedancer tiles on.  Can be specified as
+    # a single core like "0", a range like "0-10", or a range with
+    # stride like "0-10/2".  Stride is useful when CPU cores should be
+    # skipped due to hyperthreading.
+    #
+    # It is suggested to use all available CPU cores for Firedancer, so
+    # that the Solana network can run as fast as possible.
+    affinity = "0-15"
+
+    # How many net tiles to run.  Each networking tile will service
+    # exactly one queue from a network device being listened to.  If
+    # there are less net tiles than queues, some queues will not get
+    # drained and packets will be lost, and if there are more tiles than
+    # queues, some tiles will spin a CPU core doing nothing since no
+    # packets will ever arrive.
+    #
+    # See the comments for the [tiles.net] section below for more
+    # information.
+    net_tile_count = 4
+
+    # How many verify tiles to run.  Currently this also configures the
+    # number of QUIC tiles to run.  QUIC and verify tiles are connected
+    # 1:1.
+    verify_tile_count = 4
+
+    # How many bank tiles to run.  Multiple banks can run in parallel,
+    # if they are not writing to the same accounts at the same time.
+    bank_tile_count = 4
+
+# All memory that will be used in Firedancer is pre-allocated in two
+# kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
+# pages are 1GB.  This is done to prevent TLB misses which can have a
+# high performance cost.  There are three important steps in this
+# configuration,
+#
+#  1. At boot time or soon after, the kernel is told to allocate a
+#     certain number of both huge and gigantic pages to a special pool
+#     so that they are reserved for later use by privileged programs.
+#
+#  2. At configuration time, one (psuedo) filesystem of type hugetlbfs
+#     for each of huge and gigantic pages is mounted on a local
+#     directory.  Any file created within these filesystems will be
+#     backed by in-memory pages of the desired size.
+#
+#  3. At Firedancer initialization time, Firedancer creates a
+#     "workspace" file in one of these mounts.  The workspace is a
+#     single mapped memory region within which the program lays out and
+#     initializes all of the data structures it will need in advance.
+#     Most Firedancer allocations occur at initialization time, and this
+#     memory is fully managed by special purpose allocators.
+#
+# A typical layout of the mounts looks as follows,
+#
+#  /mnt/.fd                     [Mount parent directory specified below]
+#    +-- .gigantic              [Files created in this mount use 1GB
+#                                pages]
+#        +-- firedancer1.wksp
+#    +-- .huge                  [Files created in this mount use 4MB
+#                                pages]
+#        +-- scratch1.wksp
+#        +-- scratch2.wksp
+[shmem]
+    # The absolute path to a directory in the filesystem.  Firedancer
+    # will mount the hugetlbfs filesystem for gigantic pages at this
+    # path, or if the path already exists, will use it as-is.  If the
+    # mount already exists it should be writable by the Firedancer user.
+    gigantic_page_mount_path = "/mnt/.fd/.gigantic"
+
+    # The absolute path to a directory in the filesystem.  Firedancer
+    # will mount the hugetlbfs filesystem for huge pages at this path,
+    # or if the path already exists, will use it as-is.  If the mount
+    # already exists it should be writable by the Firedancer user.
+    huge_page_mount_path = "/mnt/.fd/.huge"
+
+# Tiles are described in detail in the layout section above.  While the
+# layout configuration determines how many of each tile to place on
+# which CPU core to create a functioning system, below is the individual
+# settings that can change behavior of the tiles.
+[tiles]
+    # A networking tile is responsible for sending and receiving packets
+    # on the the network.  Each networking tile is bound to a specific
+    # queue on a network device.  For example, if you have one network
+    # device with four queues, you must run four net tiles.
+    #
+    # Net tiles will multiplex in both directions, fanning out packets
+    # to multiple parts of Firedancer that can receive and handle them,
+    # like QUIC tiles and the Turbine retransmission engine.  Then also
+    # fanning in from these various network senders to transmit on the
+    # queues we have available.
+    [tiles.net]
+        # Which interface to bind to for network traffic.  Currently
+        # only one interface is supported for networking.  If this is
+        # empty, the default is the interface used to route to 8.8.8.8,
+        # you can check what this is with `ip route get 8.8.8.8`
+        #
+        # If developing under a network namespace with [netns] enabled,
+        # this should be the same as [development.netns.interface0].
+        interface = ""
+
+        # Firedancer uses XDP for fast packet processing.  XDP supports
+        # two modes, XDP_SKB and XDP_DRV.  XDP_DRV is preferred as it is
+        # faster, but is not supported by all drivers.  This argument
+        # must be either the string "skb" or the string "drv".  You can
+        # also use "generic" here for development environments, but it
+        # should not be used in production.
+        xdp_mode = "skb"
+
+        # XDP has a metadata queue with memory defined by the driver or
+        # kernel that is specially mapped into userspace.  With XDP mode
+        # XDP_DRV this could be MMIO to a PCIE device, but in SKB it's
+        # kernel memory made available to userspace that is copied in
+        # and out of the device.
+        #
+        # This setting defines the size of these metadata queues.  A
+        # larger value is probably better if supported by the hardware,
+        # as we will drop less packets when bursting in high bandwidth
+        # scenarios.
+        #
+        # TODO: This probably shouldn't be configurable, we should just
+        # use the maximum available to the hardware?
+        xdp_rx_queue_size = 4096
+        xdp_tx_queue_size = 4096
+
+        # When writing multiple queue entries to XDP, we may wish to
+        # batch them together if it's expensive to do them one at a
+        # time.  This might be the case for example if the writes go
+        # directly to the network device.  A large batch size may not be
+        # ideal either, as it adds latency and jitter to packet
+        # handling.
+        xdp_aio_depth = 256
+
+        # The maximum number of packets in-flight between a net tile and
+        # downstream consumers, after which additional packets begin to
+        # replace older ones, which will be dropped.  TODO: ... Should
+        # this really be configurable?
+        send_buffer_size = 8192
+
+    # QUIC tiles are responsible for serving network traffic, including
+    # parsing and responding to packets and managing connection timeouts
+    # and state machines.  These tiles implement the QUIC protocol,
+    # along with receiving regular (non-QUIC) UDP transactions, and
+    # forward well formed (but not necessarily valid) ones to verify
+    # tiles.
+    [tiles.quic]
+        # Which port to listen on for incoming, regular UDP transactions
+        # that are not over QUIC.  These could be votes, user
+        # transactions, or transactions forwarded from another
+        # validator.
+        regular_transaction_listen_port = 9001
+
+        # Which port to listen on for incoming QUIC transactions.
+        # Currently this must be exactly 6 more than the
+        # transaction_listen_port.
+        quic_transaction_listen_port = 9007
+
+        # Maximum number of simultaneous QUIC connections which can be
+        # open.  New connections which would exceed this limit will not
+        # be accepted.
+        #
+        # This must be >= 2 and also a power of 2.
+        max_concurrent_connections = 32
+
+        # QUIC allows for multiple streams to be multiplexed over a
+        # single connection.  This option sets the maximum number of
+        # simultaneous streams per connection supported by our protocol
+        # implementation.  This is an initial value per connection and
+        # may be lowered further during the connection by the peer.
+        #
+        # If the peer has this many simultaneous streams open and wishes
+        # to initiate another stream, they must first retire an existing
+        # stream.
+        #
+        # The Solana protocol uses one stream per transaction.  If the
+        # expected round trip latency to peers is high, transaction
+        # throughput could be constrained by this option rather than the
+        # underlying link bandwidth.  Supporting more streams per
+        # connection currently has a memory footprint cost on the order
+        # of kilobytes per stream, per connection.
+        max_concurrent_streams_per_connection = 16
+
+        # QUIC has a handshake process which establishes a secure
+        # connection between two endpoints.  The structures for this can
+        # be expensive, so in future we might allow more connections
+        # than we have handshake slots, and reuse handshakes across
+        # different connections.
+        #
+        # Currently, we don't support this, and this should always be
+        # set to the same value as the `max_concurrent_connections`
+        # above.
+        #
+        # TODO: This should be removed.
+        max_concurrent_handshakes = 32
+
+        # QUIC has a concept of a "QUIC packet", there can be multiple
+        # of these inside a UDP packet.  Each QUIC packet we send to the
+        # peer needs to be acknowledged before we can discard it, as we
+        # may need to retransmit.  This setting configures how many such
+        # packets we can have in-flight to the peer and unacknowledged.
+        #
+        # If the expected round trip latency to peers is high,
+        # transaction throughput could be constrained by this option
+        # rather than the underlying link bandwidth.  If you have a lot
+        # of memory available and are constrained by this, it can make
+        # sense to increase.
+        max_inflight_quic_packets = 4096
+
+        # TODO: This should be removed.  We never transmit stream data
+        # so this should be unused.
+        tx_buf_size = 4096
+
+        # QUIC has a concept of an idle connection, one where neither
+        # the client nor the server has sent any packet to the other for
+        # a period of time.  Once this timeout is reached the connection
+        # will be terminated.
+        # An idle connection will be terminated if it remains idle longer than
+        # some threshold. "idle_timeout_millis" represents this threshold in
+        # milliseconds
+        idle_timeout_millis = 10000
+
+    # Verify tiles perform signature verification of incoming
+    # transactions, making sure that the data is well-formed, and that
+    # it is signed by the appropriate private key.
+    [tiles.verify]
+        # The maximum number of messages in-flight between a QUIC tile
+        # and associated verify tile, after which earlier messages might
+        # start being overwritten, and get dropped so that the system
+        # can keep up.
+        receive_buffer_size = 16384
+
+    # After being verified, all transactions are sent to a dedup tile to
+    # ensure the same transaction is not repeated multiple times.  The
+    # dedup tile keeps a rolling history of signatures it has seen and
+    # drops any that are duplicated, before forwarding unique ones on.
+    [tiles.dedup]
+        # The size of the cache that stores unique signatures we have
+        # seen to deduplicate.  This is the maximum number of signatures
+        # that can be remembered before we will let a duplicate through.
+        #
+        # If a duplicated transaction is let through, it will waste more
+        # resources downstream before we are able to determine that it
+        # is invalid and has already been executed.  If a lot of memory
+        # is available, it can make sense to increase this cache size to
+        # protect against denial of service from high volumes of
+        # transaction spam.
+        signature_cache_size = 4194302
+
+    # The pack tile takes incoming transactions that have been verified
+    # by the verify tile and then deduplicated, and attempts to order
+    # them in an optimal way to generate the most fees per compute
+    # resource used to execute them.
+    [tiles.pack]
+        # The pack tile may process transactions faster than the Solana
+        # Labs bank stage that sits downstream of it.  If this happens,
+        # the pack tile will accumulate a buffer of transactions that
+        # need to be forwarded, up to this limit after which the least
+        # profitable transactions will be dropped.
+        #
+        # If a lot of memory is available, it may be more sensible to
+        # continue to queue inbound transactions rather than drop them,
+        # for two reasons,
+        #
+        #  (1) If transactions were received in a burst, we may be able
+        #      to handle them later while idle and earn more rewards.
+        #
+        #  (2) If many highly profitable transactions are received in a
+        #      burst, we may drop some when later they would be better
+        #      to execute than what is available.
+        #
+        # This option specifies how many transactions will be buffered
+        # in the pack tile.
+        max_pending_transactions = 4096
+
+    # The bank tile is what executes transactions and updates the
+    # accounting state as a result of any operations performed by the
+    # transactions.  Currently the bank tile is implemented by the
+    # Solana Labs execution engine and is not configurable.
+    [tiles.bank]
+
+    # The shred tile distributes processed transactions that have been
+    # executed to the rest of the cluster in the form of shred packets.
+    [tiles.shred]
+        # When this validator is not the leader, it receives the most
+        # recent processed transactions from the leader and other
+        # validators in the form of shred packets.  Shreds are grouped
+        # in sets for error correction purposes, and the full validation
+        # of a shred packet requires receiving at least half of the set.
+        # Since shreds frequently arrive out of order, the shred tile
+        # needs a relatively large buffer to hold sets of shreds until
+        # they can be fully validated.  This option specifies the size
+        # of this buffer.
+        #
+        # To compute an appropriate value, multiply the expected Turbine
+        # worst-case latency (tenths of seconds) by the expected
+        # transaction rate, and divide by approx 25.
+        max_pending_shred_sets = 16384
+
+        # The shred tile listens on a specific port for shreds to
+        # forward.  This argument controls which port that is.  The port
+        # is broadcast over gossip so other validators know how to reach
+        # this one.
+        shred_listen_port = 8003
+
+# These options can be useful for development, but should not be used
+# when connecting to a live cluster, as they may cause the validator to
+# be unstable or have degraded performance or security.  The program
+# will check that these options are set correctly in production and
+# refuse to start otherwise.
+[development]
+    # For enhanced security, Firedancer runs itself in a restrictive
+    # sandbox in production.  The sandbox prevents most system calls and
+    # restricts the capabilities of the process after initialization to
+    # make the attack surface smaller.  This is required in production,
+    # but might be too restrictive during development.
+    #
+    # In development, you can disable the sandbox for testing and
+    # debugging with the `--no-sandbox` argument to `fddev`.
+    sandbox = true
+
+    # Firedancer currently hosts a Solana Labs client as a child process when
+    # it starts up, to provide functionality that has not yet been implemented.
+    # For development sometimes it is desirable to not launch this subprocess,
+    # although it will prevent the validator from operating correctly.
+    #
+    # In development, you can disable solana for testing and debugging with
+    # the `--no-solana-labs` argument to `fddev`.
+    no_solana_labs = false
+
+    # It can be convenient during development to use a network namespace
+    # for running Firedancer.  This allows us to send packets at a local
+    # Firedancer instance and have them go through more of the kernel
+    # XDP stack than would be possible by just using the loopback
+    # interface.  We have special support for creating a pair of virtual
+    # interfaces that are routable to each other.
+    #
+    # Because of how Firedancer uses UDP and XDP together, we do not
+    # receive packets when binding to the loopback interface.  This can
+    # make local developement difficult.  Network namespaces are one
+    # solution, they allow us to create a pair of virtual interfaces on
+    # the machine which can route to each other.
+    #
+    # If this configuration is enabled, `fdctl dev` will create two
+    # network namespaces and a link between them to send packets back
+    # and forth.  When this option is enabled, the interface to bind to
+    # in the net configuration must be one of the virtual interfaces.
+    # Firedancer will be launched by `fdctl` within that namespace.
+    #
+    # This is a development only configuration, network namespaces are
+    # not suitable for production use due to performance overhead.  In
+    # developmemnt when running with `fddev`, this can also be enabled
+    # with the `--netns` command line argument.
+    [development.netns]
+        # If enabled, `fdctl dev` will ensure the network namespaces are
+        # configured properly, can route to each other, and that running
+        # Firedancer will run it inside the namespace for interface0
+        enabled = false
+
+        # Name of the first network namespace.
+        interface0 = "veth_test_xdp_0"
+        # MAC address of the first network namespace.
+        interface0_mac = "52:F1:7E:DA:2C:E0"
+        # IP address of the first network namespace.
+        interface0_addr = "198.18.0.1"
+
+        # Name of the second network namespace.
+        interface1 = "veth_test_xdp_1"
+        # MAC address of the second network namespace.
+        interface1_mac = "52:F1:7E:DA:2C:E1"
+        # IP address of the second network namespace.
+        interface1_addr = "198.18.0.2"
