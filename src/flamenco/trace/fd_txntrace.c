@@ -120,7 +120,7 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
     if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return NULL;
     FD_SCRATCH_ALLOC_INIT( state_layout, fd_scratch_prepare( 1UL ) );
 
-    input->state.blockhash_count = (uint)blockhash_cnt;
+    input->state.blockhash_count = (pb_size_t)blockhash_cnt;
     input->state.blockhash = FD_SCRATCH_ALLOC_APPEND( state_layout,
         alignof(fd_soltrace_RecentBlockhash),
         sizeof (fd_soltrace_RecentBlockhash) * blockhash_cnt );

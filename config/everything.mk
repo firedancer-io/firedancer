@@ -41,22 +41,23 @@ help:
 	# SED             = $(SED)
 	# FIND            = $(FIND)
 	# SCRUB           = $(SCRUB)
+	# NANOPB          = $(NANOPB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
-	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
+	# "make bin" makes all binaries for the current platform
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
-	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
+	# "make nanopb" generate nanopb Protobuf sources (if available)
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# Fuzzing (requires fuzzing profile):
@@ -96,7 +97,7 @@ lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
 
-make-lib = $(eval $(call _make-lib,$(1)))
+make-lib = $(eval $(call _make-lib,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-objs,objs,lib)
@@ -109,7 +110,7 @@ $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)
 
 endef
 
-add-objs = $(eval $(call _add-objs,$(1),$(2)))
+add-objs = $(eval $(call _add-objs,$(strip $(1)),$(strip $(2))))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -131,7 +132,7 @@ include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJ
 
 endef
 
-add-hdrs = $(eval $(call _add-hdrs,$(1)))
+add-hdrs = $(eval $(call _add-hdrs,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-examples,examples)
@@ -142,7 +143,7 @@ include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$
 
 endef
 
-add-examples = $(eval $(call _add-examples,$(1)))
+add-examples = $(eval $(call _add-examples,$(strip $(1))))
 
 ##############################
 # Usage: $(call add-scripts,scripts)
@@ -166,8 +167,8 @@ $(1): $(OBJDIR)/$(1)/$(2)
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
-add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
+add-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,bin,$(script))))
+add-test-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,unit-test,$(script))))
 endif
 
 ##############################
@@ -182,14 +183,14 @@ define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+$(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
 	#######################################################################
-	# Creating $(5) $$@ from $$^
+	# Creating $(4) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
 
-$(4): $(OBJDIR)/$(5)/$(1)
+$(4): $(OBJDIR)/$(4)/$(1)
 
 endef
 
@@ -204,7 +205,7 @@ $(OBJDIR)/unit-test/automatic.txt:
 
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test))
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
 
 .PHONY: $(1)_unit
 $(1)_unit:
@@ -221,18 +222,17 @@ run-fuzz-test: $(1)_unit
 endef
 
 ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
-make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
+make-bin       = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),bin))
+make-unit-test = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),unit-test))
 fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1)))
+run-unit-test = $(eval $(call _run-unit-test,$(strip $(1))))
 run-fuzz-test:
 	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
 	@exit 1
 else
 make-bin =
 make-unit-test =
-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
+fuzz-test = $(eval $(call _fuzz-test,$(strip $(1)),$(strip $(2)),$(strip $(3))))
 run-unit-test =
 endif
 
@@ -251,7 +251,7 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
+$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info $(GENERATED)
 	#######################################################################
 	# Generating dependencies for C source $< to $@
 	#######################################################################
@@ -260,7 +260,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
+$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info $(GENERATED)
 	#######################################################################
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
@@ -348,6 +348,8 @@ $(CP) $^ $@
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
 # If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
+include config/nanopb.mk
+
 # Include all the make fragments
 
 define _include-mk
@@ -381,7 +383,7 @@ ppp: $(DEPFILES:.d=.i)
 endif
 
 run-script-test:
-	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) contrib/script-tests.sh
+	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) scripts/script-tests.sh
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/generate_filters.py {} \;
