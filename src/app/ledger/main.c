@@ -1,3 +1,5 @@
+#define OLD_TAR
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -8,7 +10,11 @@
 #include <fcntl.h>
 #include <errno.h>
 #include "../../util/fd_util.h"
+#ifdef OLD_TAR
+#include "../../util/archive/fd_tar_old.h"
+#else
 #include "../../util/archive/fd_tar.h"
+#endif /* OLD_TAR */
 #include "../../util/compress/fd_compress.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
@@ -44,7 +50,11 @@ static void usage(char const * progname) {
 }
 
 struct SnapshotParser {
+#ifdef OLD_TAR
+  struct fd_tar_old_stream  tarreader_;
+#else
   struct fd_tar_stream  tarreader_;
+#endif /* OLD_TAR */
   char*                 tmpstart_;
   char*                 tmpcur_;
   char*                 tmpend_;
@@ -55,7 +65,11 @@ struct SnapshotParser {
 };
 
 void SnapshotParser_init(struct SnapshotParser* self, fd_exec_slot_ctx_t * slot_ctx) {
+#ifdef OLD_TAR
+  fd_tar_old_stream_init( &self->tarreader_, slot_ctx->valloc );
+#else
   fd_tar_stream_init( &self->tarreader_, slot_ctx->valloc );
+#endif /* OLD_TAR */
   size_t tmpsize = 1<<30;
   self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
   self->tmpend_ = self->tmpstart_ + tmpsize;
@@ -74,7 +88,11 @@ void SnapshotParser_destroy(struct SnapshotParser* self) {
     self->manifest_ = NULL;
   }
 
+#ifdef OLD_TAR
+  fd_tar_old_stream_delete(&self->tarreader_);
+#else
   fd_tar_stream_delete(&self->tarreader_);
+#endif /* OLD_TAR */
   free(self->tmpstart_);
 }
 
@@ -187,7 +205,11 @@ SnapshotParser_moreData( void *        arg,
                          uchar const * data,
                          ulong         datalen ) {
   struct SnapshotParser* self = (struct SnapshotParser*)arg;
+#ifdef OLD_TAR
+  return fd_tar_old_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
+#else
   return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
+#endif /* OLD_TAR */
 }
 
 #define VECT_NAME vec_fd_txnstatusidx
