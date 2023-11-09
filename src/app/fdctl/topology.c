@@ -184,7 +184,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       case FD_TOPO_LINK_KIND_QUIC_TO_VERIFY:
         /* The QUIC tile stashes some information in the dcache app region, this
             should probably be changed. */
-        dcache_app_sz = fd_quic_dcache_app_footprint( link->depth );
+        dcache_app_sz = fd_quic_dcache_app_footprint( ( link->depth + link->burst ) );
         break;
       default:
         break;

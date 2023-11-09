@@ -195,6 +195,9 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
 
   ulong  tx_buf_sz;        /* per-stream, tx buf sz in bytes          */
   /* the user consumes rx directly from the network buffer */
+
+  ulong  arp_entries;      /* instance-wide, space for arp entries */
+  ulong  routing_entries;  /* instance-wide, space for routing entries */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 
