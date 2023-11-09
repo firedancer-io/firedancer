@@ -18,6 +18,7 @@
 #include "math/fd_stat.h"           /* includes bits/fd_bits.h */
 #include "bits/fd_sat.h"
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
+#include "hist/fd_hist.h"
 #include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
 #include "sandbox/fd_sandbox.h"
