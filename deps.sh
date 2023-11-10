@@ -445,6 +445,9 @@ install () {
   cc="$CC"
   export CC
   export cc
+
+  mkdir -p ./opt/{include,lib}
+
   #( install_zlib      )
   #( install_bzip2     )
   #( install_zstd      )
