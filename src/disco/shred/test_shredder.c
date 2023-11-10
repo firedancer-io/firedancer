@@ -231,9 +231,9 @@ main( int     argc,
 
   FD_TEST( FD_FEC_SET_MAX_BMTREE_DEPTH == fd_bmtree_depth( FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX ) );
 
-  if( sizeof(fd_shredder_t) != FD_SHREDDER_FOOTPRINT )
-    FD_LOG_WARNING(( "sizeof() %lu, footprint: %lu", sizeof(fd_shredder_t), FD_SHREDDER_FOOTPRINT ));
-  FD_TEST( sizeof(fd_shredder_t) == FD_SHREDDER_FOOTPRINT );
+  if( sizeof(fd_shredder_t) != fd_shredder_footprint() )
+    FD_LOG_WARNING(( "sizeof() %lu, footprint: %lu", sizeof(fd_shredder_t), fd_shredder_footprint() ));
+  FD_TEST( sizeof(fd_shredder_t) == fd_shredder_footprint() );
 
 
   test_shredder_count();

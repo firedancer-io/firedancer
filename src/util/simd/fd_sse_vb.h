@@ -99,10 +99,11 @@ vb_expand_oct( uchar b0, uchar b1, uchar b2, uchar b3, uchar b4, uchar b5, uchar
 
    Note: gcc knows a __m128i may alias. */
 
-static inline vb_t vb_ld(  uchar const * p   ) { return _mm_load_si128(  (__m128i const *)p ); }
-static inline vb_t vb_ldu( uchar const * p   ) { return _mm_loadu_si128( (__m128i const *)p ); }
-static inline void vb_st(  uchar * p, vb_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
-static inline void vb_stu( uchar * p, vb_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
+static inline vb_t vb_ld( uchar const * p ) { return _mm_load_si128(  (__m128i const *)p ); }
+static inline void vb_st( uchar * p, vb_t i ) { _mm_store_si128(  (__m128i *)p, i ); }
+
+static inline vb_t vb_ldu( void const * p ) { return _mm_loadu_si128( (__m128i const *)p ); }
+static inline void vb_stu( void * p, vb_t i ) { _mm_storeu_si128( (__m128i *)p, i ); }
 
 /* Sadly, no maskload_epi8, so we can't provide a vb_ldif or vb_stif.
    TODO: consider emulating this? */

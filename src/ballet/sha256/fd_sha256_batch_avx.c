@@ -1,28 +1,35 @@
+#define FD_SHA256_BATCH_IMPL 1
+
 #include "fd_sha256.h"
 #include "../../util/simd/fd_avx.h"
-#include "../../util/simd/fd_sse.h"
+
+FD_STATIC_ASSERT( FD_SHA256_BATCH_MAX==8UL, compat );
 
 void
 fd_sha256_private_batch_avx( ulong          batch_cnt,
                              void const *   _batch_data,
                              ulong const *  batch_sz,
                              void * const * _batch_hash ) {
+
   /* If the batch is too small, it's faster to run each part of the
      batch sequentially.  When we have SHA-NI instructions, the
      sequential implementation is faster, so we need a larger batch size
      to justify using the batched implementation. */
-#if FD_HAS_SHANI
+
+# if FD_HAS_SHANI
 # define MIN_BATCH_CNT (6UL)
-#else
+# else
 # define MIN_BATCH_CNT (2UL)
-#endif
+# endif
+
   if( FD_UNLIKELY( batch_cnt<MIN_BATCH_CNT ) ) {
     void const * const * batch_data = (void const * const *)_batch_data;
     for( ulong batch_idx=0UL; batch_idx<batch_cnt; batch_idx++ )
       fd_sha256_hash( batch_data[ batch_idx ], batch_sz[ batch_idx ], _batch_hash[ batch_idx ] );
     return;
   }
-#undef MIN_BATCH_CNT
+
+# undef MIN_BATCH_CNT
 
   /* SHA appends to the end of each message 9 bytes of additional data
      (a messaging terminator byte and the big endian ulong with the
@@ -34,15 +41,15 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
      probably be SIMD optimized slightly more (this is where all the
      really performance suboptimally designed parts of SHA live so it is
      just inherently gross).  The main optimization would probably be to
-     allow tailing reading to use a faster memcpy and then maybe some
+     allow tail reading to use a faster memcpy and then maybe some
      vectorization of the bswap. */
 
   ulong const * batch_data = (ulong const *)_batch_data;
-  
-  ulong batch_tail_data[ FD_SHA256_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
-  ulong batch_tail_rem [ FD_SHA256_PRIVATE_BATCH_MAX ] __attribute__((aligned(32)));
 
-  uchar scratch[ FD_SHA256_PRIVATE_BATCH_MAX*2UL*FD_SHA256_PRIVATE_BUF_MAX ] __attribute__((aligned(64)));
+  ulong batch_tail_data[ FD_SHA256_BATCH_MAX ] __attribute__((aligned(32)));
+  ulong batch_tail_rem [ FD_SHA256_BATCH_MAX ] __attribute__((aligned(32)));
+
+  uchar scratch[ FD_SHA256_BATCH_MAX*2UL*FD_SHA256_PRIVATE_BUF_MAX ] __attribute__((aligned(128)));
   do {
     ulong scratch_free = (ulong)scratch;
 
@@ -54,7 +61,7 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
 
       ulong data = batch_data[ batch_idx ];
       ulong sz   = batch_sz  [ batch_idx ];
-      
+
       ulong tail_data     = scratch_free;
       ulong tail_data_sz  = sz & (FD_SHA256_PRIVATE_BUF_MAX-1UL);
       ulong tail_data_off = fd_ulong_align_dn( sz,               FD_SHA256_PRIVATE_BUF_MAX );
@@ -89,12 +96,11 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
       ulong src = data + tail_data_off;
       ulong dst = tail_data;
       ulong rem = tail_data_sz;
-      if( rem>=32UL ) { wv_st( (ulong *)dst, wv_ldu( (ulong const *)src ) ); dst += 32UL; src += 32UL; rem -= 32UL; }
-      if( rem>=16UL ) { vv_st( (ulong *)dst, vv_ldu( (ulong const *)src ) ); dst += 16UL; src += 16UL; rem -= 16UL; }
-      if( rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );             dst +=  8UL; src +=  8UL; rem -=  8UL; }
-      if( rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );             dst +=  4UL; src +=  4UL; rem -=  4UL; }
-      if( rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );             dst +=  2UL; src +=  2UL; rem -=  2UL; }
-      if( rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );             dst++;                                 }
+      while( rem>=32UL ) { wv_st( (ulong *)dst, wv_ldu( (ulong const *)src ) ); dst += 32UL; src += 32UL; rem -= 32UL; }
+      while( rem>= 8UL ) { *(ulong  *)dst = FD_LOAD( ulong,  src );             dst +=  8UL; src +=  8UL; rem -=  8UL; }
+      if   ( rem>= 4UL ) { *(uint   *)dst = FD_LOAD( uint,   src );             dst +=  4UL; src +=  4UL; rem -=  4UL; }
+      if   ( rem>= 2UL ) { *(ushort *)dst = FD_LOAD( ushort, src );             dst +=  2UL; src +=  2UL; rem -=  2UL; }
+      if   ( rem       ) { *(uchar  *)dst = FD_LOAD( uchar,  src );             dst++;                                 }
       *(uchar *)dst = (uchar)0x80;
 #     else
       fd_memcpy( (void *)tail_data, (void const *)(data + tail_data_off), tail_data_sz );
@@ -151,25 +157,25 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
        the state computations for the inactive lane will be ignored). */
 
     wv_t W03 = wv_if( active_lane_lo, W_lo, W_sentinel );
-    uint const * W0 = (uint const *)wv_extract( W03, 0 );
-    uint const * W1 = (uint const *)wv_extract( W03, 1 );
-    uint const * W2 = (uint const *)wv_extract( W03, 2 );
-    uint const * W3 = (uint const *)wv_extract( W03, 3 );
+    uchar const * W0 = (uchar const *)wv_extract( W03, 0 );
+    uchar const * W1 = (uchar const *)wv_extract( W03, 1 );
+    uchar const * W2 = (uchar const *)wv_extract( W03, 2 );
+    uchar const * W3 = (uchar const *)wv_extract( W03, 3 );
 
     wv_t W47 = wv_if( active_lane_hi, W_hi, W_sentinel );
-    uint const * W4 = (uint const *)wv_extract( W47, 0 );
-    uint const * W5 = (uint const *)wv_extract( W47, 1 );
-    uint const * W6 = (uint const *)wv_extract( W47, 2 );
-    uint const * W7 = (uint const *)wv_extract( W47, 3 );
+    uchar const * W4 = (uchar const *)wv_extract( W47, 0 );
+    uchar const * W5 = (uchar const *)wv_extract( W47, 1 );
+    uchar const * W6 = (uchar const *)wv_extract( W47, 2 );
+    uchar const * W7 = (uchar const *)wv_extract( W47, 3 );
 
     wu_t x0; wu_t x1; wu_t x2; wu_t x3; wu_t x4; wu_t x5; wu_t x6; wu_t x7;
-    wu_transpose_8x8( wu_bswap( wu_ldu(W0  ) ), wu_bswap( wu_ldu(W1  ) ), wu_bswap( wu_ldu(W2  ) ), wu_bswap( wu_ldu(W3  ) ),
-                      wu_bswap( wu_ldu(W4  ) ), wu_bswap( wu_ldu(W5  ) ), wu_bswap( wu_ldu(W6  ) ), wu_bswap( wu_ldu(W7  ) ),
+    wu_transpose_8x8( wu_bswap( wu_ldu(W0   ) ), wu_bswap( wu_ldu(W1   ) ), wu_bswap( wu_ldu(W2   ) ), wu_bswap( wu_ldu(W3   ) ),
+                      wu_bswap( wu_ldu(W4   ) ), wu_bswap( wu_ldu(W5   ) ), wu_bswap( wu_ldu(W6   ) ), wu_bswap( wu_ldu(W7   ) ),
                       x0, x1, x2, x3, x4, x5, x6, x7 );
 
     wu_t x8; wu_t x9; wu_t xa; wu_t xb; wu_t xc; wu_t xd; wu_t xe; wu_t xf;
-    wu_transpose_8x8( wu_bswap( wu_ldu(W0+8) ), wu_bswap( wu_ldu(W1+8) ), wu_bswap( wu_ldu(W2+8) ), wu_bswap( wu_ldu(W3+8) ),
-                      wu_bswap( wu_ldu(W4+8) ), wu_bswap( wu_ldu(W5+8) ), wu_bswap( wu_ldu(W6+8) ), wu_bswap( wu_ldu(W7+8) ),
+    wu_transpose_8x8( wu_bswap( wu_ldu(W0+32) ), wu_bswap( wu_ldu(W1+32) ), wu_bswap( wu_ldu(W2+32) ), wu_bswap( wu_ldu(W3+32) ),
+                      wu_bswap( wu_ldu(W4+32) ), wu_bswap( wu_ldu(W5+32) ), wu_bswap( wu_ldu(W6+32) ), wu_bswap( wu_ldu(W7+32) ),
                       x8, x9, xa, xb, xc, xd, xe, xf );
 
     /* Compute the SHA-256 state updates */
@@ -303,4 +309,3 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
   default: break;
   }
 }
-

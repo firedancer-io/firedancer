@@ -31,6 +31,7 @@ jobs:
         with:
           submodules: recursive
 
+      - uses: ./.github/actions/deps
       - uses: ./.github/actions/hugepages
 
       - name: Build low unit tests

@@ -3,6 +3,7 @@
 #include "run/run.h"
 
 #include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,90 +15,6 @@
 #include <arpa/inet.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
-
-FD_FN_CONST char *
-workspace_kind_str( workspace_kind_t kind ) {
-  switch( kind ) {
-    case wksp_netmux_inout: return "netmux_inout";
-    case wksp_quic_verify: return "quic_verify";
-    case wksp_verify_dedup: return "verify_dedup";
-    case wksp_dedup_pack: return "dedup_pack";
-    case wksp_pack_bank: return "pack_bank";
-    case wksp_bank_shred: return "bank_shred";
-    case wksp_net: return "net";
-    case wksp_netmux: return "netmux";
-    case wksp_quic: return "quic";
-    case wksp_verify: return "verify";
-    case wksp_dedup: return "dedup";
-    case wksp_pack: return "pack";
-    case wksp_bank: return "bank";
-  }
-  return NULL;
-}
-
-static workspace_config_t *
-find_wksp( config_t * const config,
-           workspace_kind_t kind ) {
-  for( ulong i=0; i<config->shmem.workspaces_cnt; i++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ i ];
-    if( FD_UNLIKELY( kind == wksp->kind  ) ) return wksp;
-  }
-  FD_LOG_ERR(( "no workspace with kind `%s` found", workspace_kind_str( kind ) ));
-}
-
-ulong
-memlock_max_bytes( config_t * const config ) {
-  ulong memlock_max_bytes = 0;
-  for( ulong j=0; j<config->shmem.workspaces_cnt; j++ ) {
-    workspace_config_t * wksp = &config->shmem.workspaces[ j ];
-
-#define TILE_MAX( tile ) do {                                   \
-    ulong used_bytes = 0;                                       \
-    for( ulong i=0; i<tile.allow_workspaces_cnt; i++ ) {        \
-      workspace_kind_t kind = tile.allow_workspaces[ i ];       \
-      workspace_config_t * in_wksp = find_wksp( config, kind ); \
-      used_bytes += in_wksp->num_pages * in_wksp->page_size;    \
-    }                                                           \
-    memlock_max_bytes = fd_ulong_max( memlock_max_bytes,        \
-                                      used_bytes );             \
-  } while(0)
-
-    switch ( wksp->kind ) {
-      case wksp_netmux_inout:
-      case wksp_quic_verify:
-      case wksp_verify_dedup:
-      case wksp_dedup_pack:
-      case wksp_pack_bank:
-      case wksp_bank_shred:
-        break;
-      case wksp_net:
-        TILE_MAX( net );
-        break;
-      case wksp_netmux:
-        TILE_MAX( netmux );
-        break;
-      case wksp_quic:
-        TILE_MAX( quic );
-        break;
-      case wksp_verify:
-        TILE_MAX( verify );
-        break;
-      case wksp_dedup:
-        TILE_MAX( dedup );
-        break;
-      case wksp_pack:
-        TILE_MAX( pack );
-        break;
-      case wksp_bank:
-        TILE_MAX( bank );
-        break;
-    }
-  }
-
-  /* each process only has one thread, so there's only one set of stack pages mlocked */
-  ulong stack_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
-  return memlock_max_bytes + FD_SHMEM_HUGE_PAGE_SZ * stack_pages;
-}
 
 static char *
 default_user( void ) {
@@ -112,22 +29,22 @@ default_user( void ) {
   return name;
 }
 
-static void parse_key_value( config_t *   config,
-                             const char * section,
-                             const char * key,
-                             char * value ) {
+static int parse_key_value( config_t *   config,
+                            const char * section,
+                            const char * key,
+                            char * value ) {
 #define ENTRY_STR(edot, esection, ekey) do {                                         \
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
       ulong len = strlen( value );                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) { \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey ) + 2 ) )           \
         FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));    \
       strncpy( config->esection edot ekey, value + 1, len - 2 );                     \
       config->esection edot ekey[ len - 2 ] = '\0';                                  \
-      return;                                                                        \
+      return 1;                                                                      \
     }                                                                                \
   } while( 0 )
 
@@ -136,7 +53,7 @@ static void parse_key_value( config_t *   config,
       ulong len = strlen( value );                                                                   \
       if( FD_UNLIKELY( len < 2 || value[ 0 ] != '"' || value[ len - 1 ] != '"' ) ) {                 \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));                        \
-        return;                                                                                      \
+        return 1;                                                                                    \
       }                                                                                              \
       if( FD_UNLIKELY( len >= sizeof( config->esection edot ekey[ 0 ] ) + 2 ) )                      \
         FD_LOG_ERR(( "value for %s.%s is too long: `%s`", section, key, value ));                    \
@@ -145,7 +62,7 @@ static void parse_key_value( config_t *   config,
       strncpy( config->esection edot ekey[ config->esection edot ekey##_cnt ], value + 1, len - 2 ); \
       config->esection edot ekey[ config->esection edot ekey##_cnt ][ len - 2 ] = '\0';              \
       config->esection edot ekey##_cnt++;                                                            \
-      return;                                                                                        \
+      return 1;                                                                                      \
     }                                                                                                \
   } while( 0 )
 
@@ -153,7 +70,7 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                   \
       }                                                                           \
       char * src = value;                                                         \
       char * dst = value;                                                         \
@@ -166,10 +83,10 @@ static void parse_key_value( config_t *   config,
       unsigned long int result = strtoul( value, &endptr, 10 );                   \
       if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                 \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       config->esection edot ekey = (uint)result;                                  \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -177,7 +94,7 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) {    \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                     \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       char * src = value;                                                            \
       char * dst = value;                                                            \
@@ -190,7 +107,7 @@ static void parse_key_value( config_t *   config,
       unsigned long int result = strtoul( value, &endptr, 10 );                      \
       if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                    \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));        \
-        return;                                                                      \
+        return 1;                                                                    \
       }                                                                              \
       config->esection edot ekey[ config->esection edot ekey##_cnt ] = (uint)result; \
       config->esection edot ekey##_cnt++;                                            \
@@ -201,16 +118,16 @@ static void parse_key_value( config_t *   config,
     if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
       if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       char * endptr;                                                              \
       unsigned long int result = strtoul( value, &endptr, 10 );                   \
       if( FD_UNLIKELY( *endptr != '\0' || result > USHORT_MAX ) ) {               \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-        return;                                                                   \
+        return 1;                                                                 \
       }                                                                           \
       config->esection edot ekey = (ushort)result;                                \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -222,7 +139,7 @@ static void parse_key_value( config_t *   config,
         config->esection edot ekey = 0;                                           \
       else                                                                        \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
-      return;                                                                     \
+      return 1;                                                                   \
     }                                                                             \
   } while( 0 )
 
@@ -267,7 +184,11 @@ static void parse_key_value( config_t *   config,
   ENTRY_BOOL  ( ., rpc,                 only_known                                                );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_block_subscription                          );
   ENTRY_BOOL  ( ., rpc,                 pubsub_enable_vote_subscription                           );
-  ENTRY_BOOL  ( ., rpc,                 incremental_snapshots                                     );
+
+  ENTRY_BOOL  ( ., snapshots,           incremental_snapshots                                     );
+  ENTRY_UINT  ( ., snapshots,           full_snapshot_interval_slots                              );
+  ENTRY_UINT  ( ., snapshots,           incremental_snapshot_interval_slots                       );
+  ENTRY_STR   ( ., snapshots,           path                                                      );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
@@ -277,7 +198,34 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
 
+  ENTRY_STR   ( ., tiles.net,           interface                                                 );
+  ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
+  ENTRY_UINT  ( ., tiles.net,           xdp_rx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.net,           xdp_tx_queue_size                                         );
+  ENTRY_UINT  ( ., tiles.net,           xdp_aio_depth                                             );
+  ENTRY_UINT  ( ., tiles.net,           send_buffer_size                                          );
+
+  ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
+  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
+  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
+  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
+  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
+  ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
+  ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
+  ENTRY_UINT  ( ., tiles.quic,          idle_timeout_millis                                       );
+
+  ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
+  ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
+
+  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+
+  ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
+
+  ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
+  ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
+  ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -287,29 +235,8 @@ static void parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
-  ENTRY_STR   ( ., tiles.net,           interface                                                 );
-  ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
-  ENTRY_UINT  ( ., tiles.net,           xdp_rx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.net,           xdp_tx_queue_size                                         );
-  ENTRY_UINT  ( ., tiles.net,           xdp_aio_depth                                             );
-  ENTRY_UINT  ( ., tiles.net,           send_buffer_size                                          );
-
-  ENTRY_USHORT( ., tiles.quic,          transaction_listen_port                                   );
-  ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
-  ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
-  ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
-  ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
-
-  ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
-  ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
-
-  ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
-
-  ENTRY_UINT  ( ., tiles.bank,          receive_buffer_size                                       );
-
-  ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
+  /* We have encountered a token that is not recognized, return 0 to indicate failure. */
+  return 0;
 }
 
 void
@@ -337,7 +264,8 @@ replace( char *       in,
 }
 
 static void
-config_parse_array( config_t * config,
+config_parse_array( const char * path,
+                    config_t * config,
                     char * section,
                     char * key,
                     int * in_array,
@@ -356,23 +284,32 @@ config_parse_array( config_t * config,
     char * end = token + strlen( token ) - 1;
     while( FD_UNLIKELY( *end == ' ' ) ) end--;
     *(end+1) = '\0';
-    if( FD_LIKELY( end > token ) ) parse_key_value( config, section, key, token );
+    if( FD_LIKELY( end > token ) ) {
+      if( FD_UNLIKELY( !parse_key_value( config, section, key, token ) ) ) {
+        if( FD_UNLIKELY( path == NULL ) ) {
+          FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
+        } else {
+          FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
+        }
+      }
+    }
     token = strtok_r( NULL, ",", &saveptr );
   }
 }
 
 static void
-config_parse_line( uint       lineno,
-                   char *     line,
-                   char *     section,
-                   int *      in_array,
-                   char *     key,
-                   config_t * out ) {
+config_parse_line( const char * path,
+                   uint         lineno,
+                   char *       line,
+                   char *       section,
+                   int *        in_array,
+                   char *       key,
+                   config_t *   out ) {
   while( FD_LIKELY( *line == ' ' ) ) line++;
   if( FD_UNLIKELY( *line == '#' || *line == '\0' || *line == '\n' ) ) return;
 
   if( FD_UNLIKELY( *in_array ) ) {
-    config_parse_array( out, section, key, in_array, line );
+    config_parse_array( path, out, section, key, in_array, line );
     return;
   }
 
@@ -397,9 +334,15 @@ config_parse_line( uint       lineno,
 
   if( FD_UNLIKELY( *value == '[' ) ) {
     *in_array = 1;
-    config_parse_array( out, section, key, in_array, value );
+    config_parse_array( path, out, section, key, in_array, value );
   } else {
-    parse_key_value( out, section, key, value );
+    if( FD_UNLIKELY( !parse_key_value( out, section, key, value ) ) ) {
+      if( FD_UNLIKELY( path == NULL ) ) {
+        FD_LOG_ERR(( "Error while parsing the embedded configuration. The configuration had an unrecognized key [%s.%s].", section, key ));
+      } else {
+        FD_LOG_ERR(( "Error while parsing user configuration TOML file at %s. The configuration had an unrecognized key [%s.%s].", path, section, key ));
+      }
+    }
   }
 }
 
@@ -422,7 +365,7 @@ config_parse1( const char * config,
     strncpy( line_copy, line, sizeof( line_copy ) - 1 ); // -1 to silence linter
     line_copy[ n ] = '\0';
 
-    config_parse_line( lineno, line_copy, section, &in_array, key, out );
+    config_parse_line( NULL , lineno, line_copy, section, &in_array, key, out );
 
     if( FD_LIKELY( next_line ) ) next_line++;
     line = next_line;
@@ -446,7 +389,7 @@ config_parse_file( const char * path,
     if( FD_UNLIKELY( len==4095UL ) ) FD_LOG_ERR(( "line %u too long in `%s`", lineno, path ));
     if( FD_LIKELY( len ) ) {
       line[ len-1UL ] = '\0'; /* chop off newline */
-      config_parse_line( lineno, line, section, &in_array, key, out );
+      config_parse_line( path, lineno, line, section, &in_array, key, out );
     }
   }
   if( FD_UNLIKELY( ferror( fp ) ) )
@@ -482,91 +425,6 @@ mac_address( const char * interface,
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
-static void
-init_workspaces( config_t * config ) {
-  ulong idx = 0;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_netmux_inout;
-  config->shmem.workspaces[ idx ].name      = "netmux_inout";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_quic_verify;
-  config->shmem.workspaces[ idx ].name      = "quic_verify";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_verify_dedup;
-  config->shmem.workspaces[ idx ].name      = "verify_dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_dedup_pack;
-  config->shmem.workspaces[ idx ].name      = "dedup_pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_pack_bank;
-  config->shmem.workspaces[ idx ].name      = "pack_bank";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_bank_shred;
-  config->shmem.workspaces[ idx ].name      = "bank_shred";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_net;
-  config->shmem.workspaces[ idx ].name      = "net";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_netmux;
-  config->shmem.workspaces[ idx ].name      = "netmux";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_quic;
-  config->shmem.workspaces[ idx ].name      = "quic";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_verify;
-  config->shmem.workspaces[ idx ].name      = "verify";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_dedup;
-  config->shmem.workspaces[ idx ].name      = "dedup";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_pack;
-  config->shmem.workspaces[ idx ].name      = "pack";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces[ idx ].kind      = wksp_bank;
-  config->shmem.workspaces[ idx ].name      = "bank";
-  config->shmem.workspaces[ idx ].page_size = FD_SHMEM_HUGE_PAGE_SZ;
-  config->shmem.workspaces[ idx ].num_pages = 1;
-  idx++;
-
-  config->shmem.workspaces_cnt = idx;
-}
-
 static uint
 username_to_uid( char * username ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
@@ -591,6 +449,253 @@ username_to_uid( char * username ) {
   }
 
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+}
+
+/* topo_initialize initializes the provided topology structure from the
+   user configuration.  This should be called exactly once immediately
+   after Firedancer is booted. */
+static void
+topo_initialize( config_t * config ) {
+  fd_topo_t * topo = &config->topo;
+
+  /* Static configuration of all workspaces in the topology.  Workspace
+     sizing will be determined dynamically at runtime based on how much
+     space will be allocated from it. */
+  ulong wksp_cnt = 0;
+
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX_INOUT }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC_VERIFY  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY_DEDUP }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP_PACK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK_BANK    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_SHRED   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_STORE  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STAKE_OUT    }; wksp_cnt++;
+
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NET    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
+
+  topo->wksp_cnt = wksp_cnt;
+
+  /* Static listing of all links in the topology. */
+  ulong link_cnt = 0;
+
+#define LINK( cnt, kind1, wksp, depth1, mtu1, burst1 ) do {                                   \
+    for( ulong i=0; i<cnt; i++ ) {                                                            \
+      topo->links[ link_cnt ] = (fd_topo_link_t){ .id      = link_cnt,                        \
+                                                  .kind    = kind1,                           \
+                                                  .kind_id = i,                               \
+                                                  .wksp_id = fd_topo_find_wksp( topo, wksp ), \
+                                                  .depth   = depth1,                          \
+                                                  .mtu     = mtu1,                            \
+                                                  .burst   = burst1 };                        \
+      link_cnt++;                                                                             \
+    }                                                                                         \
+  } while(0)
+
+  LINK( config->layout.net_tile_count,    FD_TOPO_LINK_KIND_NET_TO_NETMUX,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0,                      1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
+  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_STAKE_TO_OUT,    FD_TOPO_WKSP_KIND_STAKE_OUT,    128UL,                                    32UL + 40200UL * 40UL,  1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    8UL  + 40200UL * 38UL,  1UL );
+  /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
+  LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+
+  topo->link_cnt = link_cnt;
+
+  ulong tile_cnt = 0UL;
+
+#define TILE( cnt, kind1, wksp, out_link_id_primary1 ) do {                                               \
+    for( ulong i=0; i<cnt; i++ ) {                                                                        \
+      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,                        \
+                                                  .kind                = kind1,                           \
+                                                  .kind_id             = i,                               \
+                                                  .wksp_id             = fd_topo_find_wksp( topo, wksp ), \
+                                                  .in_cnt              = 0,                               \
+                                                  .out_link_id_primary = out_link_id_primary1,            \
+                                                  .out_cnt             = 0 };                             \
+      tile_cnt++;                                                                                         \
+    }                                                                                                     \
+  } while(0)
+
+  TILE( config->layout.net_tile_count,    FD_TOPO_TILE_KIND_NET,    FD_TOPO_WKSP_KIND_NET,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_NETMUX, FD_TOPO_WKSP_KIND_NETMUX, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   i ) );
+  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_QUIC,   FD_TOPO_WKSP_KIND_QUIC,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i ) );
+  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_VERIFY, FD_TOPO_WKSP_KIND_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_DEDUP,  FD_TOPO_WKSP_KIND_DEDUP,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_PACK,   FD_TOPO_WKSP_KIND_PACK,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_PACK_TO_BANK,    i ) );
+  TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
+
+  topo->tile_cnt = tile_cnt;
+
+#define TILE_IN( kind, kind_id, link, link_id, reliable ) do {                               \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
+    tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );       \
+    tile->in_link_reliable[ tile->in_cnt ] = reliable;                                       \
+    tile->in_cnt++;                                                                          \
+  } while(0)
+
+  /* TILE_OUT is used for specifying additional, non-primary outs for
+     the tile.  The primary output link is specified with the TILE macro
+     above and will not appear as a TILE_OUT. */
+#define TILE_OUT( kind, kind_id, link, link_id ) do {                                        \
+    ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                                \
+    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                                \
+      FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id ));  \
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                         \
+    tile->out_link_id[ tile->out_cnt ] = fd_topo_find_link( topo, link, link_id );           \
+    tile->out_cnt++;                                                                         \
+  } while(0)
+
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_OUT( FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i      );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_VERIFY, i,   FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i,   0 ); /* No reliable consumers, verify tiles may be overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i,   1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   0UL, 1 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  0UL, 1 );
+}
+
+static void
+validate_ports( config_t * result ) {
+  char dynamic_port_range[ 32 ];
+  fd_memcpy( dynamic_port_range, result->dynamic_port_range, sizeof(dynamic_port_range) );
+
+  char * dash = strstr( dynamic_port_range, "-" );
+  if( FD_UNLIKELY( !dash ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+
+  *dash = '\0';
+  char * endptr;
+  ulong solana_port_min = strtoul( dynamic_port_range, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_min > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  ulong solana_port_max = strtoul( dash + 1, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || solana_port_max > USHORT_MAX ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "This must be formatted like `<min>-<max>`",
+                 result->dynamic_port_range ));
+  if( FD_UNLIKELY( solana_port_min > solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [dynamic_port_range] `%s`. "
+                 "The minimum port must be less than or equal to the maximum port",
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.regular_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.regular_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.regular_transaction_listen_port,
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.quic.quic_transaction_listen_port >= solana_port_min &&
+                   result->tiles.quic.quic_transaction_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.quic.quic_transaction_listen_port,
+                 result->dynamic_port_range ));
+
+  if( FD_UNLIKELY( result->tiles.shred.shred_listen_port >= solana_port_min &&
+                   result->tiles.shred.shred_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.shred.shred_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.shred.shred_listen_port,
+                 result->dynamic_port_range ));
+}
+
+/* These CLUSTER_* values must be ordered from least important to most
+   important network.  Eg, it's important that if a config has the
+   MAINNET_BETA genesis hash, but has a bunch of entrypoints that we
+   recognize as TESTNET, we classify it as MAINNET_BETA so we can be
+   maximally restrictive.  This is done by a high-to-low comparison. */
+#define FD_CONFIG_CLUSTER_UNKNOWN      (0UL)
+#define FD_CONFIG_CLUSTER_PYTHTEST     (1UL)
+#define FD_CONFIG_CLUSTER_TESTNET      (2UL)
+#define FD_CONFIG_CLUSTER_DEVNET       (3UL)
+#define FD_CONFIG_CLUSTER_PYTHNET      (4UL)
+#define FD_CONFIG_CLUSTER_MAINNET_BETA (5UL)
+
+FD_FN_PURE static ulong
+determine_cluster( ulong  entrypoints_cnt,
+                   char   entrypoints[16][256],
+                   char * expected_genesis_hash ) {
+  char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+  char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
+  char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+  char const * PYTHTEST_GENESIS_HASH = "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve";
+  char const * PYTHNET_GENESIS_HASH = "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq";
+
+  char const * DEVNET_ENTRYPOINT_URI = "devnet.solana.com";
+  char const * TESTNET_ENTRYPOINT_URI = "testnet.solana.com";
+  char const * MAINNET_BETA_ENTRYPOINT_URI = "mainnet-beta.solana.com";
+  char const * PYTHTEST_ENTRYPOINT_URI = "pythtest.pyth.network";
+  char const * PYTHNET_ENTRYPOONT_URI = "pythnet.pyth.network";
+
+  ulong cluster = FD_CONFIG_CLUSTER_UNKNOWN;
+  if( FD_LIKELY( expected_genesis_hash ) ) {
+    if( FD_UNLIKELY( !strcmp( expected_genesis_hash, DEVNET_GENESIS_HASH ) ) )            cluster = FD_CONFIG_CLUSTER_DEVNET;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, TESTNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_TESTNET;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, MAINNET_BETA_GENESIS_HASH ) ) ) cluster = FD_CONFIG_CLUSTER_MAINNET_BETA;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHTEST_GENESIS_HASH ) ) )     cluster = FD_CONFIG_CLUSTER_PYTHTEST;
+    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_PYTHNET;
+  }
+
+  for( ulong i=0; i<entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( strstr( entrypoints[ i ], DEVNET_ENTRYPOINT_URI ) ) )            cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_DEVNET );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], TESTNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_TESTNET );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], MAINNET_BETA_ENTRYPOINT_URI ) ) ) cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_MAINNET_BETA );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHTEST_ENTRYPOINT_URI ) ) )     cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHTEST );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHNET_ENTRYPOONT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHNET );
+  }
+
+  return cluster;
+}
+
+FD_FN_CONST static char *
+cluster_to_cstr( ulong cluster ) {
+  switch( cluster ) {
+    case FD_CONFIG_CLUSTER_UNKNOWN:      return "unknown";
+    case FD_CONFIG_CLUSTER_PYTHTEST:     return "pythtest";
+    case FD_CONFIG_CLUSTER_TESTNET:      return "testnet";
+    case FD_CONFIG_CLUSTER_DEVNET:       return "devnet";
+    case FD_CONFIG_CLUSTER_PYTHNET:      return "pythnet";
+    case FD_CONFIG_CLUSTER_MAINNET_BETA: return "mainnet-beta";
+    default:                             return "unknown";
+  }
 }
 
 config_t
@@ -640,6 +745,11 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
+  ulong cluster = determine_cluster( result.gossip.entrypoints_cnt,
+                                     result.gossip.entrypoints,
+                                     result.consensus.expected_genesis_hash );
+  result.is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
+
   if( FD_UNLIKELY( result.development.netns.enabled ) ) {
     if( FD_UNLIKELY( strcmp( result.development.netns.interface0, result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
@@ -654,7 +764,14 @@ config_parse( int *    pargc,
   } else {
     if( FD_UNLIKELY( !if_nametoindex( result.tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", result.tiles.net.interface ));
-    result.tiles.net.ip_addr = listen_address( result.tiles.net.interface );
+    uint iface_ip = listen_address( result.tiles.net.interface );
+    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && result.is_live_cluster ) )
+      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " "
+                   "which is part of a private network and will not be routable for other Solana network nodes.", 
+                   result.tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+
+    result.tiles.net.ip_addr = iface_ip;
     mac_address( result.tiles.net.interface, result.tiles.net.mac_addr );
   }
 
@@ -668,7 +785,7 @@ config_parse( int *    pargc,
   if( FD_UNLIKELY( getuid() != 0 && result.uid != getuid() ) )
     FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), result.uid ));
   if( FD_UNLIKELY( getgid() != 0 && result.gid != getgid() ) )
-    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getuid(), result.uid ));
+    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), result.gid ));
 
   replace( result.scratch_directory, "{user}", result.user );
   replace( result.scratch_directory, "{name}", result.name );
@@ -678,6 +795,13 @@ config_parse( int *    pargc,
     replace( result.ledger.path, "{name}", result.name );
   } else {
     snprintf1( result.ledger.path, sizeof(result.ledger.path), "%s/ledger", result.scratch_directory );
+  }
+
+  if( FD_UNLIKELY( strcmp( result.snapshots.path, "" ) ) ) {
+    replace( result.snapshots.path, "{user}", result.user );
+    replace( result.snapshots.path, "{name}", result.name );
+  } else {
+    strncpy( result.snapshots.path, result.ledger.path, sizeof(result.snapshots.path) );
   }
 
   if( FD_UNLIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
@@ -693,36 +817,14 @@ config_parse( int *    pargc,
   replace( result.consensus.vote_account_path, "{user}", result.user );
   replace( result.consensus.vote_account_path, "{name}", result.name );
 
-  result.is_live_cluster = 0;
-  for( ulong i=0; i<result.gossip.entrypoints_cnt; i++ ) {
-    if( strstr( result.gossip.entrypoints[ i ], "solana.com" ) ||
-        strstr( result.gossip.entrypoints[ i ], "pyth.network" ) ) {
-      result.is_live_cluster = 1;
-      break;
-    }
-  }
-
-  const char * live_genesis_hashes[ 6 ] = {
-    "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", // devnet
-    "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY", // testnet
-    "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d", // mainnet
-    "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve", // pythtest
-    "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq", // pythnet
-    NULL,
-  };
-
-  for( ulong i=0; live_genesis_hashes[ i ]; i++ ) {
-    if( !strcmp( result.consensus.expected_genesis_hash, live_genesis_hashes[ i ] ) ) {
-      result.is_live_cluster = 1;
-      break;
-    }
-  }
-
-  if( FD_UNLIKELY( result.is_live_cluster ) )
-    FD_LOG_EMERG(( "Attempted to start against a live cluster. Firedancer is not "
+  if( FD_UNLIKELY( result.is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
+    FD_LOG_EMERG(( "Attempted to start against live cluster `%s`. Firedancer is not "
                    "ready for production deployment, has not been tested, and is "
                    "missing consensus critical functionality. Joining a live Solana "
-                   "cluster may destabilize the network. Please do not attempt." ));
+                   "cluster may destabilize the network. Please do not attempt. You "
+                   "can start against the testnet cluster by specifying the testnet "
+                   "entrypoints from https://docs.solana.com/clusters under "
+                   "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
 
   if( FD_LIKELY( result.is_live_cluster) ) {
     if( FD_UNLIKELY( !result.development.sandbox ) )
@@ -731,13 +833,86 @@ config_parse( int *    pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }
 
-  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.transaction_listen_port + 6 ) )
-    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
-                 "This must be 6 more than [tiles.quic.transaction_listen_port] `%hu`",
-                 result.tiles.quic.quic_transaction_listen_port,
-                 result.tiles.quic.transaction_listen_port ));
+  if( FD_UNLIKELY( result.ledger.bigtable_storage ) ) {
+    FD_LOG_ERR(( "BigTable storage is not yet supported." ));
+  }
 
-  init_workspaces( &result );
+  if( FD_UNLIKELY( result.tiles.quic.quic_transaction_listen_port != result.tiles.quic.regular_transaction_listen_port + 6 ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.quic.quic_transaction_listen_port] `%hu`. "
+                 "This must be 6 more than [tiles.quic.regular_transaction_listen_port] `%hu`",
+                 result.tiles.quic.quic_transaction_listen_port,
+                 result.tiles.quic.regular_transaction_listen_port ));
+
+  if( FD_LIKELY( !strcmp( result.consensus.identity_path, "" ) ) ) {
+    if( FD_UNLIKELY( result.is_live_cluster ) )
+      FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
+
+    snprintf1( result.consensus.identity_path,
+               sizeof( result.consensus.identity_path ),
+               "%s/identity.json",
+               result.scratch_directory );
+  }
+
+  validate_ports( &result );
+
+  topo_initialize( &result );
+  fd_topo_validate( &result.topo );
+
+  for( ulong i=0; i<result.topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &result.topo.tiles[ i ];
+    switch( tile->kind ) {
+      case FD_TOPO_TILE_KIND_NET:
+        strncpy( tile->net.app_name, result.name, sizeof(tile->net.app_name) );
+        strncpy( tile->net.interface, result.tiles.net.interface, sizeof(tile->net.interface) );
+        tile->net.xdp_aio_depth = result.tiles.net.xdp_aio_depth;
+        tile->net.xdp_rx_queue_size = result.tiles.net.xdp_rx_queue_size;
+        tile->net.xdp_tx_queue_size = result.tiles.net.xdp_tx_queue_size;
+        tile->net.allow_ports[ 0 ] = result.tiles.quic.regular_transaction_listen_port;
+        tile->net.allow_ports[ 1 ] = result.tiles.quic.quic_transaction_listen_port;
+        tile->net.allow_ports[ 2 ] = result.tiles.shred.shred_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_NETMUX:
+        break;
+      case FD_TOPO_TILE_KIND_QUIC:
+        tile->quic.depth = result.topo.links[ tile->out_link_id_primary ].depth;
+        tile->quic.max_concurrent_connections = result.tiles.quic.max_concurrent_connections;
+        tile->quic.max_concurrent_handshakes = result.tiles.quic.max_concurrent_handshakes;
+        tile->quic.max_inflight_quic_packets = result.tiles.quic.max_inflight_quic_packets;
+        tile->quic.tx_buf_size = result.tiles.quic.tx_buf_size;
+        tile->quic.max_concurrent_streams_per_connection = result.tiles.quic.max_concurrent_streams_per_connection;
+        tile->quic.ip_addr = result.tiles.net.ip_addr;
+        fd_memcpy( tile->quic.src_mac_addr, result.tiles.net.mac_addr, 6 );
+        tile->quic.quic_transaction_listen_port = result.tiles.quic.quic_transaction_listen_port;
+        tile->quic.legacy_transaction_listen_port = result.tiles.quic.regular_transaction_listen_port;
+        tile->quic.idle_timeout_millis = result.tiles.quic.idle_timeout_millis;
+        break;
+      case FD_TOPO_TILE_KIND_VERIFY:
+        break;
+      case FD_TOPO_TILE_KIND_DEDUP:
+        tile->dedup.tcache_depth = result.tiles.dedup.signature_cache_size;
+        break;
+      case FD_TOPO_TILE_KIND_PACK:
+        tile->pack.max_pending_transactions = result.tiles.pack.max_pending_transactions;
+        tile->pack.bank_tile_count = result.layout.bank_tile_count;
+        strncpy( tile->pack.identity_key_path, result.consensus.identity_path, sizeof(tile->pack.identity_key_path) );
+        break;
+      case FD_TOPO_TILE_KIND_BANK:
+        break;
+      case FD_TOPO_TILE_KIND_SHRED:
+        tile->shred.depth = result.topo.links[ tile->out_link_id_primary ].depth;
+        tile->shred.ip_addr = result.tiles.net.ip_addr;
+        fd_memcpy( tile->shred.src_mac_addr, result.tiles.net.mac_addr, 6 );
+        tile->shred.fec_resolver_depth = result.tiles.shred.max_pending_shred_sets;
+        strncpy( tile->shred.identity_key_path, result.consensus.identity_path, sizeof(tile->shred.identity_key_path) );
+        tile->shred.expected_shred_version = result.consensus.expected_shred_version;
+        tile->shred.shred_listen_port = result.tiles.shred.shred_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_STORE:
+        break;
+      default:
+        FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
+    }
+  }
 
   return result;
 }

@@ -1,56 +1,128 @@
 #include "fd_base64.h"
 
-/* Function to get the index of a character in the Base64 alphabet */
-static inline int
-base64_decode_char( char c ) {
-  if( c >= 'A' && c <= 'Z' ) return c - 'A';
-  if( c >= 'a' && c <= 'z' ) return c - 'a' + 26;
-  if( c >= '0' && c <= '9' ) return c - '0' + 52;
-  if( c == '+' ) return 62;
-  if( c == '/' ) return 63;
-  return -1; // Invalid character
-}
+static const char base64_alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-/* Function to decode a base64 encoded string into an unsigned char array
-   The function returns the length of the decoded array */
-int
-fd_base64_decode( const char *  encoded,
-                  uchar *       decoded ) {
-  int    len = 0;
-  int    bits_collected = 0;
-  uint   accumulator = 0;
+/* Inverse lookup table of ASCII byte => Base64 code point.
 
-  while ( *encoded ) {
-    char c = *encoded++;
-    int value = base64_decode_char(c);
+   Simple Base64 decode. Could do better here, but it's good
+   enough for now.  One obvious optimization is to provide
+   multiple LUTs for each limb of the encoded word, then AND
+   them together. */
 
-    if( value >= 0 ) {
-      accumulator = ( accumulator << 6 ) | ( uint ) value;
-      bits_collected += 6;
+static uchar const invlut[ 0x100 ] = {
+  /* 0x00 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x08 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x10 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x18 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x20 */ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x28 */ 0xff, 0xff, 0xff, 0x3e, 0xff, 0xff, 0xff, 0x3f,
+  /* 0x30 */ 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b,
+  /* 0x38 */ 0x3c, 0x3d, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x40 */ 0xff, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+  /* 0x48 */ 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+  /* 0x50 */ 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+  /* 0x58 */ 0x17, 0x18, 0x19, 0xff, 0xff, 0xff, 0xff, 0xff,
+  /* 0x60 */ 0xff, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+  /* 0x68 */ 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+  /* 0x70 */ 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
+  /* 0x78 */ 0x31, 0x32, 0x33, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+};
 
-      if( bits_collected >= 8 ) {
-        bits_collected -= 8;
-        decoded[ len++ ] = ( uchar )( accumulator >> bits_collected );
-        accumulator &= ( 1U << bits_collected ) - 1;
-      }
-    } else if( c == '=' ) {
-      /* Padding character, ignore and break the loop */
-      break;
-    } else {
-      /* Fail with invalid characters (e.g., whitespace, padding) */
-      return -1;
-    }
+long
+fd_base64_decode( uchar *      out,
+                  char const * in,
+                  ulong        in_len ) {
+
+  uchar * const out_orig = out;
+
+  if( in_len==0UL ) return 0UL;
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( in_len, 4UL ) ) ) return -1L;
+
+  ulong pad_cnt = 0UL;
+  if( in[ in_len-2UL ]=='=' ) pad_cnt++;
+  if( in[ in_len-1UL ]=='=' ) pad_cnt++;
+  in_len -= pad_cnt;
+
+  /* 3 char padding is invalid */
+  if( FD_UNLIKELY( (in_len%4UL)==1UL ) ) return -1L;
+
+  /* "Fast" decode */
+
+  while( in_len>=4UL ) {
+    int a = (schar)invlut[ (ulong)(uchar)in[ 0 ] ];
+    int b = (schar)invlut[ (ulong)(uchar)in[ 1 ] ];
+    int c = (schar)invlut[ (ulong)(uchar)in[ 2 ] ];
+    int d = (schar)invlut[ (ulong)(uchar)in[ 3 ] ];
+
+    int err = (a<0) | (b<0) | (c<0) | (d<0);
+    if( FD_UNLIKELY( err ) ) return -1L;
+
+    ulong triple = ((ulong)a<<18UL) | ((ulong)b<<12UL) | ((ulong)c<<6UL) | ((ulong)d);
+
+    out[ 0 ] = (uchar)(triple>>16UL);
+    out[ 1 ] = (uchar)(triple>> 8UL);
+    out[ 2 ] = (uchar)(triple>> 0UL);
+
+    in     += 4L;
+    in_len -= 4L;
+    out    += 3L;
   }
 
-  return len;
+  /* Decode last chunk */
+
+  if( in_len>0UL ) {
+
+    int a = (schar)invlut[ (ulong)(uchar)in[ 0 ] ];
+    int b = (schar)invlut[ (ulong)(uchar)in[ 1 ] ];
+    int c = 0;
+    if( in_len==3 )
+        c = (schar)invlut[ (ulong)(uchar)in[ 2 ] ];
+
+    int err = (a<0) | (b<0) | (c<0);
+    if( FD_UNLIKELY( err ) ) return -1L;
+
+    ulong triple   = ((ulong)a<<18UL) | ((ulong)b<<12UL) | ((ulong)c<<6UL);
+          triple   = fd_ulong_bswap( triple );
+          triple >>= 40UL;
+
+    switch( in_len ) {
+    case 3: *out = (uchar)triple;
+             out++;
+            triple>>=8UL;
+            __attribute__((fallthrough));
+    case 2: *out = (uchar)triple;
+             out++;
+    }
+
+  } while(0);
+
+  return out - out_orig;
 }
 
 ulong
-fd_base64_encode( const uchar * data,
-                  int           data_len,
-                  char *        encoded ) {
-  static const char base64_alphabet[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+fd_base64_encode( char *       encoded,
+                  void const * _data,
+                  ulong        data_len ) {
+
+  uchar const * data = fd_type_pun_const( _data );
 
   uint encoded_len = 0;
   uint accumulator = 0;
@@ -76,9 +148,6 @@ fd_base64_encode( const uchar * data,
   while( encoded_len % 4 != 0 ) {
     encoded[ encoded_len++ ] = '=';
   }
-
-  // Null-terminate the encoded string
-  encoded[ encoded_len ] = '\0';
 
   return encoded_len;
 }

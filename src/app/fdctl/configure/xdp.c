@@ -11,13 +11,13 @@
 #define NAME "xdp"
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
   else {
-    check_cap( security, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
-    check_cap( security, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "create a BPF map with `bpf_map_create`" );
+    fd_caps_check_capability( caps, NAME, CAP_NET_ADMIN, "create an XSK map with `bpf_map_create`" );
   }
 }
 
@@ -80,20 +80,21 @@ init( config_t * const config ) {
   }
 
 
-  ushort udp_ports[] = { config->tiles.quic.transaction_listen_port, config->tiles.quic.quic_transaction_listen_port };
+  ushort udp_ports[] = { config->tiles.quic.regular_transaction_listen_port, config->tiles.quic.quic_transaction_listen_port,
+                         config->tiles.shred.shred_listen_port                                                                };
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
                                             config->tiles.net.ip_addr,
-                                            2,
+                                            3,
                                             udp_ports,
                                             1 ) ) )
     FD_LOG_ERR(( "fd_xdp_listen_udp_ports failed" ));
 }
 
 static void
-fini_perm( security_t *     security,
+fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 static void
@@ -124,11 +125,10 @@ check( config_t * const config ) {
   if( FD_UNLIKELY( result && errno == ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", xdp_path );
   else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, fd_io_strerror( errno ) );
 
-  CHECK( check_dir(  "/sys/fs/bpf", config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
-  CHECK( check_dir(  xdp_path,      config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
+  CHECK( check_dir(  xdp_path, config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
 
   snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", config->name );
-  CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+  CHECK( check_file( xdp_path, config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
   char * interfaces[] = { config->tiles.net.interface, "lo" };
   ulong interfaces_sz = !strcmp( config->tiles.net.interface, "lo" ) ? 1 : 2;

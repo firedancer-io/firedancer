@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/deps
+
       - name: Build Fuzz Tests
         run: make -j -Otarget fuzz-test
 

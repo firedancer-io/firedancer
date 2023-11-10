@@ -10,17 +10,17 @@
 #define NAME "shmem"
 
 static void
-init_perm( security_t *     security,
+init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "create directories in `/mnt`, mount hugetlbfs filesystems" );
+  fd_caps_check_root( caps, NAME, "create directories in `/mnt`, mount hugetlbfs filesystems" );
 }
 
 static void
-fini_perm( security_t *     security,
+fini_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  check_root( security, NAME, "remove directories from `/mnt`, unmount filesystems" );
+  fd_caps_check_root( caps, NAME, "remove directories from `/mnt`, unmount filesystems" );
 }
 
 static ulong

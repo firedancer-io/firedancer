@@ -249,8 +249,9 @@ print("#endif /* HEADER_fd_src_ballet_reedsol_fd_reedsol_fft_h */", file=outf)
 for N in (256, 128, 64):
     for shift in range(0, 67*2, N):
         with open(f'wrapped_impl/fd_reedsol_fft_impl_{N}_{shift}.c', "wt") as outf:
+            print('/* Note: This file is auto generated. */', file=outf)
             print('#include "../fd_reedsol_fft.h"', file=outf)
-            print('\nvoid', file=outf)
+            print('\nFD_FN_UNSANITIZED void', file=outf)
             fn_name = f"fd_reedsol_fft_{N}_{shift}( "
             print(fn_name + "gf_t * _in00,", file=outf)
             for l in range(1, N):

@@ -53,7 +53,7 @@ the necessary `sudo` access.
     * - memlock unlimited
     * - nice -20
     ```
-  (The user might only opt to be more restrictiv if desired, e.g. only
+  (The user might only opt to be more restrictive if desired, e.g. only
   allow Firedancer users to do this.)  Recommend logging out and then
   logging back in again after making these changes.  `ulimit -a` can be
   used to tell if the new user limits have taken effect.  E.g., as a
@@ -104,7 +104,7 @@ the necessary `sudo` access.
     512 2MiB pages on numa node 1
   on the host for application use (assuming the host in fact has enough
   free contiguous physical DRAM availability).  Adjust this as necessary
-  for the number of cores, system DRAM availabiity, application mix,
+  for the number of cores, system DRAM availability, application mix,
   application configurations, etc.  `fd_shmem_cfg` has many powers.  Run
   `fd_shmem_cfg help` for more info.
 

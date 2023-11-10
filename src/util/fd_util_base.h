@@ -523,7 +523,41 @@ fd_type_pun_const( void const * p ) {
 /* FD_FN_PURE hints to the optimizer that the function, roughly
    speaking, does not have side effects.  As such, the compiler can
    replace a call to the function with the result of an earlier call to
-   that function provide the inputs and memory used hasn't changed. */
+   that function provide the inputs and memory used hasn't changed.
+
+   IMPORTANT SAFETY TIP!  Recent compilers seem to take an undocumented
+   and debatable stance that pure functions do no writes to memory.
+   This is a sufficient condition for the above but not a necessary one.
+
+   Consider, for example, the real world case of an otherwise pure
+   function that uses pass-by-reference to return more than one value
+   (an unpleasant practice that is sadly often necessary because C/C++,
+   compilers and underlying platform ABIs are very bad at helping
+   developers simply and clearly express their intent to return multiple
+   values and then generate good assembly for such).
+
+   If called multiple times sequentially, all but the first call to such
+   a "pure" function could be optimized away because the non-volatile
+   memory writes done in the all but the 1st call for the
+   pass-by-reference-returns write the same value to normal memory that
+   was written on the 1st call.  That is, these calls return the same
+   value for their direct return and do writes that do not have any
+   visible effect.
+
+   Thus, while it is safe for the compiler to eliminate all but the
+   first call via techniques like common subexpression elimination, it
+   is not safe for the compiler to infer that the first call did no
+   writes.
+
+   But recent compilers seem to do exactly that.
+
+   Sigh ... we can't use FD_FN_PURE on such functions because of all the
+   above linguistic, compiler, documentation and ABI infinite sadness.
+
+   TL;DR To be safe against the above vagaries, recommend using
+   FD_FN_PURE to annotate functions that do no memory writes (including
+   trivial memory writes) and try to design HPC APIs to avoid returning
+   multiple values as much as possible. */
 
 #define FD_FN_PURE __attribute__((pure))
 
@@ -547,12 +581,36 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNUSED __attribute__((unused))
 
+/* FD_FN_UNSANITIZED tells the compiler to disable AddressSanitizer and
+   UndefinedBehaviorSanitizer instrumentation.  For some functions, this
+   can improve instrumented compile time by ~30x. */
+
+#define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
+
 /* FD_WARN_UNUSED tells the compiler the result (from a function) should
    be checked. This is useful to force callers to either check the result
    or deliberately and explicitly ignore it. Good for result codes and
    errors */
 
 #define FD_WARN_UNUSED __attribute__ ((warn_unused_result))
+
+/* FD_FALLTHRU tells the compiler that a case in a switch falls through
+   to the next case. This avoids the compiler complaining, in cases where
+   it is an intentional fall through.
+   The "while(0)" avoids a compiler complaint in the event the case
+   has no statement, example:
+     switch( return_code ) {
+       case RETURN_CASE_1: FD_FALLTHRU;
+       case RETURN_CASE_2: FD_FALLTHRU;
+       case RETURN_CASE_3:
+         case_123();
+       default:
+         case_other();
+     }
+
+   See C++17 [[fallthrough]] and gcc __attribute__((fallthrough)) */
+
+#define FD_FALLTHRU while(0) __attribute__((fallthrough))
 
 /* FD_COMPILER_FORGET(var):  Tells the compiler that it shouldn't use
    any knowledge it has about the provided register-compatible variable
@@ -714,7 +772,7 @@ fd_type_pun_const( void const * p ) {
 
 #endif /* FD_HAS_ATOMIC */
 
-/* FD_TLS:  This indicates that the variable should be thread local.
+/* FD_TL:  This indicates that the variable should be thread local.
 
    FD_ONCE_{BEGIN,END}:  The block:
 
@@ -762,8 +820,8 @@ fd_type_pun_const( void const * p ) {
 
 #if FD_HAS_THREADS /* Potentially more than one thread in the process */
 
-#ifndef FD_TLS
-#define FD_TLS __thread
+#ifndef FD_TL
+#define FD_TL __thread
 #endif
 
 #define FD_ONCE_BEGIN do {                                                \
@@ -786,9 +844,9 @@ fd_type_pun_const( void const * p ) {
     }                             \
   } while(0)
 
-#define FD_THREAD_ONCE_BEGIN do {                        \
-    static FD_TLS int _fd_thread_once_block_state = 0;   \
-    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) {  \
+#define FD_THREAD_ONCE_BEGIN do {                       \
+    static FD_TL int _fd_thread_once_block_state = 0;   \
+    if( FD_UNLIKELY( !_fd_thread_once_block_state ) ) { \
       do
 
 #define FD_THREAD_ONCE_END             \
@@ -799,8 +857,8 @@ fd_type_pun_const( void const * p ) {
 
 #else /* Only one thread in the process */
 
-#ifndef FD_TLS
-#define FD_TLS /**/
+#ifndef FD_TL
+#define FD_TL /**/
 #endif
 
 #define FD_ONCE_BEGIN do {                       \

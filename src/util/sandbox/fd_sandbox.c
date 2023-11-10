@@ -20,6 +20,7 @@
 #include <sched.h>        /* CLONE_*, setns, unshare */
 #include <stddef.h>
 #include <stdlib.h>       /* clearenv, mkdtemp*/
+#include <sys/mman.h>     /* For mmap, etc. */
 #include <sys/mount.h>    /* MS_*, MNT_*, mount, umount2 */
 #include <sys/prctl.h>
 #include <sys/resource.h> /* RLIMIT_*, rlimit, setrlimit */
@@ -72,7 +73,7 @@ setup_mountns( void ) {
 }
 
 static void
-check_fds( ulong allow_fds_sz,
+check_fds( ulong allow_fds_cnt,
            int * allow_fds ) {
   DIR * dir = opendir( "/proc/self/fd" );
   FD_TESTV( dir );
@@ -82,7 +83,7 @@ check_fds( ulong allow_fds_sz,
   struct dirent *dp;
 
   int seen_fds[ 256 ] = {0};
-  FD_TESTV( allow_fds_sz < 256 );
+  FD_TESTV( allow_fds_cnt < 256 );
 
   while( ( dp = readdir( dir ) ) ) {
     char *end;
@@ -95,7 +96,7 @@ check_fds( ulong allow_fds_sz,
     if( FD_LIKELY( fd == dirfd1 ) ) continue;
 
     int found = 0;
-    for( ulong i=0; i<allow_fds_sz; i++ ) {
+    for( ulong i=0; i<allow_fds_cnt; i++ ) {
       if ( FD_LIKELY( fd==allow_fds[ i ] ) ) {
         seen_fds[ i ] = 1;
         found = 1;
@@ -117,7 +118,7 @@ check_fds( ulong allow_fds_sz,
     }
   }
 
-  for( ulong i=0; i<allow_fds_sz; i++ ) {
+  for( ulong i=0; i<allow_fds_cnt; i++ ) {
     if( FD_UNLIKELY( !seen_fds[ i ] ) ) {
       FD_LOG_ERR(( "allowed file descriptor %d not present", allow_fds[ i ] ));
     }
@@ -127,41 +128,13 @@ check_fds( ulong allow_fds_sz,
 }
 
 static void
-install_seccomp( ushort allow_syscalls_cnt, long * allow_syscalls ) {
-  FD_TEST( allow_syscalls_cnt < 32 - 5 );
-
-  struct sock_filter filter [ 128 ] = {
-    /* validate architecture, load the arch number */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-
-    /* do not jump (and die) if the compile arch is neq the runtime arch.
-       Otherwise, jump over the SECCOMP_RET_KILL_PROCESS statement. */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 1, 0 ),
-    BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_ALLOW ),
-
-    /* verify that the syscall is allowed, oad the syscall */
-    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
+install_seccomp( ushort               seccomp_filter_cnt,
+                 struct sock_filter * seccomp_filter ) {
+  struct sock_fprog program = {
+    .len    = seccomp_filter_cnt,
+    .filter = seccomp_filter,
   };
-
-  for( ulong i=0; i<allow_syscalls_cnt; i++ ) {
-    /* If the syscall does not match, jump over RET_ALLOW */
-    struct sock_filter jmp = BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint)allow_syscalls[i], 0, 1);
-    struct sock_filter ret = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
-    filter[ 4+(i*2)   ] = jmp;
-    filter[ 4+(i*2)+1 ] = ret;
-  }
-
-  /* none of the syscalls approved were matched: die */
-  struct sock_filter kill = BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-  filter[ 4+(allow_syscalls_cnt*2) ] = kill;
-
-  FD_TESTV( 0 == prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
-
-  struct sock_fprog default_prog = {
-    .len = (ushort)(5+(allow_syscalls_cnt*2)),
-    .filter = filter,
-  };
-  FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &default_prog ) );
+  FD_TESTV( 0 == syscall( SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &program ) );
 }
 
 static void
@@ -244,11 +217,11 @@ unshare_user( uint uid, uint gid ) {
    You should call `unthreaded` before creating any threads in the process, and
    then install the seccomp profile afterwards. */
 static void
-sandbox_unthreaded( ulong allow_fds_sz,
+sandbox_unthreaded( ulong allow_fds_cnt,
                     int * allow_fds,
                     uint uid,
                     uint gid ) {
-  check_fds( allow_fds_sz, allow_fds );
+  check_fds( allow_fds_cnt, allow_fds );
   unshare_user( uid, gid );
   struct rlimit limit = { .rlim_cur = 0, .rlim_max = 0 };
   FD_TESTV( !setrlimit( RLIMIT_NOFILE, &limit ));
@@ -258,19 +231,51 @@ sandbox_unthreaded( ulong allow_fds_sz,
 }
 
 void
-fd_sandbox( int    full_sandbox,
-            uint   uid,
-            uint   gid,
-            ulong  allow_fds_sz,
-            int *  allow_fds,
-            ushort allow_syscalls_cnt,
-            long * allow_syscalls ) {
+fd_sandbox( int                  full_sandbox,
+            uint                 uid,
+            uint                 gid,
+            ulong                allow_fds_cnt,
+            int *                allow_fds,
+            ulong                seccomp_filter_cnt,
+            struct sock_filter * seccomp_filter ) {
   if( FD_LIKELY( full_sandbox ) ) {
-    sandbox_unthreaded( allow_fds_sz, allow_fds, uid, gid );
-    install_seccomp( allow_syscalls_cnt, allow_syscalls );
-    FD_LOG_INFO(( "sandbox: full sandbox is now enabled" ));
+    sandbox_unthreaded( allow_fds_cnt, allow_fds, uid, gid );
+    FD_TESTV( !prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) );
+    FD_TEST( seccomp_filter_cnt <= USHORT_MAX );
+    FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case tile doesn't use logfile */
+    install_seccomp( (ushort)seccomp_filter_cnt, seccomp_filter );
   } else {
     switch_user( uid, gid );
     FD_LOG_INFO(( "sandbox: no sandbox enabled" ));
   }
+}
+
+void *
+fd_sandbox_alloc_protected_pages( ulong page_cnt,
+                                  ulong guard_page_cnt ) {
+#define PAGE_SZ (4096UL)
+  void * pages = mmap( NULL, (2UL*guard_page_cnt+page_cnt)*PAGE_SZ, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0UL );
+  if( FD_UNLIKELY( pages==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar * middle_pages = (uchar *)( (ulong)pages + guard_page_cnt*PAGE_SZ );
+
+  /* Make the guard pages untouchable */
+  if( FD_UNLIKELY( mprotect( pages, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( mprotect( middle_pages+page_cnt*PAGE_SZ, guard_page_cnt*PAGE_SZ, PROT_NONE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Lock the key page so that it doesn't page to disk */
+  if( FD_UNLIKELY( mlock( middle_pages, page_cnt*PAGE_SZ ) ) )
+    FD_LOG_ERR(( "mlock failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Prevent the key page from showing up in core dumps. It shouldn't be
+     possible to fork this process typically, but we also prevent any
+     forked child from having this page. */
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return middle_pages;
+#undef PAGE_SZ
 }

@@ -95,12 +95,13 @@
 
 
 // VAR currently assumed to be aligned bytes
+// BITS_MIN and BITS_MAX are always divisible by 8
 #define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)         \
     cur_byte += (cur_bit != 0);                                        \
     cur_bit = 0;                                                       \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) ||     \
-                     ( tmp_len * 8 > BITS_MAX ) ) ) {                  \
+    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
+                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
       FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
             "  field: " #NAME                                          \
             "  BITS_MIN: %lu"                                          \
@@ -123,12 +124,13 @@
 
 
 // VAR currently assumed to be aligned bytes
+// BITS_MIN and BITS_MAX are always divisible by 8
 #define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)     \
     cur_byte += (cur_bit != 0);                                        \
     cur_bit = 0;                                                       \
     tmp_len = out->LEN_NAME;                                           \
-    if( FD_UNLIKELY( ( (signed)tmp_len * 8 < (signed)BITS_MIN ) ||     \
-                     ( tmp_len * 8 > BITS_MAX ) ) ) {                  \
+    if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
+                     ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
       FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
             "  field: " #NAME                                          \
             "  BITS_MIN: %lu"                                          \

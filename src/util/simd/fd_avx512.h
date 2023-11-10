@@ -57,13 +57,12 @@
 /* Include all the APIs */
 
 /* TODO: ADD EXTRA APIS AS NECESSARY */
-//#include "fd_avx512_wwc.h" /* Vector conditional support */
 //#include "fd_avx512_wwf.h" /* Vector float support */
-//#include "fd_avx512_wwi.h" /* Vector int support */
-//#include "fd_avx512_wwu.h" /* Vector uint support */
+#include "fd_avx512_wwi.h" /* Vector int support */
+#include "fd_avx512_wwu.h" /* Vector uint support */
 //#include "fd_avx512_wwd.h" /* Vector double support */
 #include "fd_avx512_wwl.h" /* Vector long support */
-//#include "fd_avx512_wwv.h" /* Vector ulong support */
+#include "fd_avx512_wwv.h" /* Vector ulong support */
 //#include "fd_avx512_wwb.h" /* Vector uchar (byte) support */
 
 #else

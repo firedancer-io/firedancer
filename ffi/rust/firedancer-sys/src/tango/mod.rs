@@ -3,7 +3,6 @@ mod dcache;
 mod fctl;
 mod fseq;
 mod mcache;
-mod mvcc;
 mod tcache;
 mod xdp;
 
@@ -12,7 +11,6 @@ pub use dcache::*;
 pub use fctl::*;
 pub use fseq::*;
 pub use mcache::*;
-pub use mvcc::*;
 pub use tcache::*;
 pub use xdp::*;
 

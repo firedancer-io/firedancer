@@ -6,7 +6,7 @@ struct pubkey_to_idx {
 };
 typedef struct pubkey_to_idx pubkey_to_idx_t;
 
-const fd_pubkey_t null_pubkey = { 0 };
+const fd_pubkey_t null_pubkey = {{ 0 }};
 
 #define MAP_NAME              pubkey_to_idx
 #define MAP_T                 pubkey_to_idx_t
@@ -92,6 +92,8 @@ fd_shred_dest_new( void                           * mem,
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
+  /* We reserved enough space in _wsample for both the staked and
+     unstaked info */
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
   ulong * unstaked = (ulong *)fd_ulong_align_up( ((ulong)_wsample + fd_wsample_footprint( staked_cnt, 1 )), alignof(ulong) );
 
@@ -213,19 +215,19 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 
 /* Returns 0 on success */
 static inline int
-compute_seeds( fd_shred_dest_t   * sdest,
-               fd_shred_t  const * input_shreds,
-               ulong               shred_cnt,
-               fd_pubkey_t const * leader,
-               ulong               slot,
-               uchar               dest_hash_output[ FD_SHRED_DEST_MAX_SHRED_CNT ][ 32 ] ) {
+compute_seeds( fd_shred_dest_t           * sdest,
+               fd_shred_t  const * const * input_shreds,
+               ulong                       shred_cnt,
+               fd_pubkey_t       const   * leader,
+               ulong                       slot,
+               uchar                       dest_hash_output[ FD_SHRED_DEST_MAX_SHRED_CNT ][ 32 ] ) {
 
   shred_dest_input_t dest_hash_inputs [ FD_SHRED_DEST_MAX_SHRED_CNT ];
   fd_sha256_batch_t * sha256 = fd_sha256_batch_init( sdest->_sha256_batch );
 
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     shred_dest_input_t * h_in  = dest_hash_inputs+i;
-    fd_shred_t const   * shred = input_shreds    +i;
+    fd_shred_t const   * shred = input_shreds[i];
     if( FD_UNLIKELY( shred->slot != slot ) ) return -1;
 
     uchar shred_type = fd_shred_type( shred->variant );
@@ -242,10 +244,10 @@ compute_seeds( fd_shred_dest_t   * sdest,
 
 
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
-                             fd_shred_t    const * input_shreds,
-                             ulong                 shred_cnt,
-                             fd_shred_dest_idx_t * out ) {
+fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
+                             fd_shred_t const * const * input_shreds,
+                             ulong                      shred_cnt,
+                             fd_shred_dest_idx_t      * out ) {
 
   if( FD_UNLIKELY( shred_cnt==0UL ) ) return out;
 
@@ -258,7 +260,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
 
   uchar dest_hash_outputs[ FD_SHRED_DEST_MAX_SHRED_CNT ][ 32 ];
 
-  ulong slot = input_shreds[0].slot;
+  ulong slot = input_shreds[0]->slot;
   fd_pubkey_t const * leader = fd_epoch_leaders_get( sdest->lsched, slot );
   if( FD_UNLIKELY( !leader ) ) return NULL;
 
@@ -284,14 +286,14 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
 }
 
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_children( fd_shred_dest_t     * sdest,
-                                fd_shred_t const    * input_shreds,
-                                ulong                 shred_cnt,
-                                fd_shred_dest_idx_t * out,
-                                ulong                 out_stride,
-                                ulong                 fanout,
-                                ulong                 dest_cnt,
-                                ulong               * opt_max_dest_cnt ) {
+fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
+                                fd_shred_t const * const * input_shreds,
+                                ulong                      shred_cnt,
+                                fd_shred_dest_idx_t      * out,
+                                ulong                      out_stride,
+                                ulong                      fanout,
+                                ulong                      dest_cnt,
+                                ulong                    * opt_max_dest_cnt ) {
 
   /* The logic here is a little tricky since we are keeping track of
      staked and unstaked separately and only logically concatenating
@@ -307,7 +309,7 @@ fd_shred_dest_compute_children( fd_shred_dest_t     * sdest,
 
   if( FD_UNLIKELY( (shred_cnt==0UL) | (dest_cnt==0UL) ) ) return out; /* Nothing to do */
 
-  ulong               slot   = input_shreds[0].slot;
+  ulong               slot   = input_shreds[0]->slot;
   fd_pubkey_t const * leader = fd_epoch_leaders_get   ( sdest->lsched, slot );
   pubkey_to_idx_t *   query  = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *leader, NULL );
   int                 leader_is_staked = query ? (query->idx<sdest->staked_cnt): 0;
@@ -421,3 +423,15 @@ fd_shred_dest_compute_children( fd_shred_dest_t     * sdest,
   fd_ulong_store_if( !!opt_max_dest_cnt, opt_max_dest_cnt, max_dest_cnt );
   return out;
 }
+
+fd_shred_dest_idx_t
+fd_shred_dest_pubkey_to_idx( fd_shred_dest_t   * sdest,
+                             fd_pubkey_t const * pubkey     ) {
+  if( FD_UNLIKELY( !memcmp( pubkey, null_pubkey.uc, 32UL ) ) ) return FD_SHRED_DEST_NO_DEST;
+
+  pubkey_to_idx_t default_res[ 1 ] = {{ .idx = FD_SHRED_DEST_NO_DEST }};
+  pubkey_to_idx_t * query = pubkey_to_idx_query( sdest->pubkey_to_idx_map, *pubkey, default_res );
+
+  return (fd_shred_dest_idx_t)query->idx;
+}
+

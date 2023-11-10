@@ -1,12 +1,12 @@
 BUILDDIR?=linux/gcc/x86_64
 
 include config/base.mk
+include config/with-security.mk
 include config/with-gcc.mk
 include config/with-debug.mk
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
-include config/with-openssl.mk
 
 include config/x86-64-flags.mk
 include config/x86-64-gcc-flags.mk

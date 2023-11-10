@@ -15,7 +15,9 @@
 #define FD_FEC_SET_MAX_BMTREE_DEPTH (9UL) /* ceil(log2(DATA_SHREDS_MAX + PARITY_SHREDS_MAX)) */
 
 #define FD_SHREDDER_ALIGN     (  128UL)
-#define FD_SHREDDER_FOOTPRINT (25984UL) /* == sizeof(fd_shredder_t) */
+/* FD_SHREDDER_FOOTPRINT is not provided because it depends on the footprint
+   of fd_sha256_batch_t, which is not invariant (the latter depends on the
+   underlying implementation). Instead, a static inline function is provided. */
 
 #define FD_SHREDDER_MAGIC (0xF17EDA2547EDDE70UL) /* FIREDAN SHREDDER V0 */
 
@@ -40,9 +42,9 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong  magic;
   ushort shred_version;
 
+  fd_sha256_batch_t sha256 [ 1 ];
   fd_sha512_t       sha512 [ 1 ]; /* Needed for signing */
   fd_reedsol_t      reedsol[ 1 ];
-  fd_sha256_batch_t sha256 [ 1 ];
   union __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN))) {
     fd_bmtree_commit_t bmtree;
     uchar _bmtree_footprint[ FD_BMTREE_COMMIT_FOOTPRINT( FD_FEC_SET_MAX_BMTREE_DEPTH ) ];
@@ -63,7 +65,7 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
 typedef struct fd_shredder_private fd_shredder_t;
 
 FD_FN_CONST static inline ulong fd_shredder_align    ( void ) { return FD_SHREDDER_ALIGN;     }
-FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return FD_SHREDDER_FOOTPRINT; }
+FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return sizeof(fd_shredder_t); }
 
 /* fd_shredder_new formats a region of memory as a shredder object.
    pubkey must point to the first byte of 32 bytes containing the public

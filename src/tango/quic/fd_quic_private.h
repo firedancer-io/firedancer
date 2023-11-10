@@ -79,6 +79,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* next_ephem_udp_port: Next ephemeral UDP port to allocate */
   ushort next_ephem_udp_port;
+
+  /* last arp/routing tables update */
+  ulong ip_table_upd;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
@@ -111,6 +114,12 @@ fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
                       ulong            now );
 
+/* get the service interval, while ensuring the value
+   is sufficient */
+ulong
+fd_quic_get_service_interval( fd_quic_t * quic );
+
+
 /* reschedule a connection */
 void
 fd_quic_reschedule_conn( fd_quic_conn_t * conn,
@@ -122,7 +131,6 @@ fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      fd_quic_conn_id_t const * our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
-                     ulong                     dst_mac_addr,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,
                      int                       server,
@@ -139,6 +147,9 @@ fd_quic_stream_free( fd_quic_t *        quic,
                      fd_quic_conn_t *   conn,
                      fd_quic_stream_t * stream,
                      int                code );
+
+void
+fd_quic_stream_reclaim( fd_quic_conn_t * conn );
 
 /* Callbacks provided by fd_quic **************************************/
 

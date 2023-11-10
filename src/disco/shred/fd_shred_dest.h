@@ -20,7 +20,7 @@
 typedef ushort fd_shred_dest_idx_t;
 
 
-#define FD_SHRED_DEST_MAX_SHRED_CNT (67UL)
+#define FD_SHRED_DEST_MAX_SHRED_CNT (134UL) /* DATA_SHREDS_MAX+PARITY_SHREDS_MAX */
 #define FD_SHRED_DEST_NO_DEST       (USHORT_MAX)
 
 /* fd_shred_dest_weighted_t specifies a destination to which a shred might be
@@ -44,8 +44,9 @@ struct pubkey_to_idx;
 typedef struct pubkey_to_idx pubkey_to_idx_t;
 
 #define FD_SHRED_DEST_ALIGN (128UL)
+FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN>=FD_SHA256_BATCH_ALIGN, fd_shred_dest_private_align );
 
-struct fd_shred_dest_private {
+struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   uchar      _sha256_batch[ FD_SHA256_BATCH_FOOTPRINT ]  __attribute__((aligned(FD_SHA256_BATCH_ALIGN)));
   fd_chacha20rng_t rng[1];
 
@@ -119,6 +120,16 @@ fd_shred_dest_t * fd_shred_dest_join( void * mem );
 void * fd_shred_dest_leave( fd_shred_dest_t * sdest );
 void * fd_shred_dest_delete( void * mem );
 
+/* fd_shred_dest_cnt_{staked, unstaked, all} returns the number of known
+   destination that are staked, unstaked, or either, respectively.  The
+   staked destinations have index [0, fd_shred_dest_cnt_staked()) and
+   the unstaked destinations have index [fd_shred_dest_cnt_staked(),
+   fd_shred_dest_cnt_all() ).  fd_shred_dest_cnt_all() ==
+   fd_shred_dest_cnt_staked() + fd_shred_dest_cnt_unstaked(). */
+static inline ulong fd_shred_dest_cnt_staked  ( fd_shred_dest_t * sdest ) { return sdest->staked_cnt                      ; }
+static inline ulong fd_shred_dest_cnt_unstaked( fd_shred_dest_t * sdest ) { return                     sdest->unstaked_cnt; }
+static inline ulong fd_shred_dest_cnt_all     ( fd_shred_dest_t * sdest ) { return sdest->staked_cnt + sdest->unstaked_cnt; }
+
 /* fd_shred_dest_compute_first computes the root of the Turbine tree for
    each of the provided shreds.  All the provided shreds must come from
    the same slot (and thus have the same leader).  This should only be
@@ -134,10 +145,10 @@ void * fd_shred_dest_delete( void * mem );
    which is why it operates on several shreds at the same time as
    opposed to one at a time. */
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
-                             fd_shred_t const    * input_shreds,
-                             ulong                 shred_cnt,
-                             fd_shred_dest_idx_t * out );
+fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
+                             fd_shred_t const * const * input_shreds,
+                             ulong                      shred_cnt,
+                             fd_shred_dest_idx_t      * out );
 
 /* fd_shred_dest_compute_children computes the source validator's
    children in the Turbine tree for each of the provided shreds.
@@ -163,7 +174,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
      shred0 dest1, shred1 dest1, shred2 dest1, ... (skip until 2stride)
      ...
      shred0 dest dest_cnt-1, ... ].
-   out_stride must be at least dest_cnt.
+   out_stride must be at least shred_cnt.
    If opt_max_dest_cnt is non-NULL, the maximum number of real
    destinations for any of the provided shreds will be stored in
    opt_max_dest_cnt.  This value is always <= dest_cnt, but in many
@@ -174,14 +185,14 @@ fd_shred_dest_compute_first( fd_shred_dest_t     * sdest,
 /* TODO: Would it be better if out were transposed? Should I get rid of
    stride? */
 fd_shred_dest_idx_t *
-fd_shred_dest_compute_children( fd_shred_dest_t     * sdest,
-                                fd_shred_t const    * input_shreds,
-                                ulong                 shred_cnt,
-                                fd_shred_dest_idx_t * out,
-                                ulong                 out_stride,
-                                ulong                 fanout,
-                                ulong                 dest_cnt,
-                                ulong               * opt_max_dest_cnt );
+fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
+                                fd_shred_t const * const * input_shreds,
+                                ulong                      shred_cnt,
+                                fd_shred_dest_idx_t      * out,
+                                ulong                      out_stride,
+                                ulong                      fanout,
+                                ulong                      dest_cnt,
+                                ulong                    * opt_max_dest_cnt );
 
 /* fd_shred_dest_idx_to_dest maps a destination index (as produced by
    fd_shred_dest_compute_children or fd_shred_dest_compute_first) to an
@@ -196,5 +207,10 @@ static inline fd_shred_dest_weighted_t *
 fd_shred_dest_idx_to_dest( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
   return fd_ptr_if( idx!=FD_SHRED_DEST_NO_DEST, sdest->all_destinations + idx, sdest->null_dest );
 }
+
+/* fd_shred_dest_idx_t maps a pubkey to a destination index, if the
+   pubkey is known as a destination.  If the pubkey is not know, returns
+   FD_SHRED_DEST_NO_DEST. */
+fd_shred_dest_idx_t fd_shred_dest_pubkey_to_idx( fd_shred_dest_t * sdest, fd_pubkey_t const * pubkey );
 
 #endif /* HEADER_fd_src_disco_shred_fd_shred_dest_h */

@@ -83,6 +83,7 @@
 /* TODO provide fd_quic on non-hosted targets */
 
 #include "../aio/fd_aio.h"
+#include "../ip/fd_ip.h"
 #include "../../util/fd_util.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
@@ -269,7 +270,7 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
       ushort lo;
       ushort hi;
       /* we need an ephemeral UDP port range for at least two reasons:
-         1. Some nextwork hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
+         1. Some network hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
          2. For receive-side scaling, the server will be using the source port for load balancing */
     } ephem_udp_port;
 
@@ -384,36 +385,43 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 
 /* TODO: evaluate performance impact of metrics */
 
-struct fd_quic_metrics {
-  /* Network metrics */
-  ulong net_rx_pkt_cnt;  /* number of IP packets received */
-  ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
-  ulong net_tx_pkt_cnt;  /* number of IP packets sent */
-  ulong net_tx_byte_cnt; /* total bytes sent */
+union fd_quic_metrics {
+  ulong ul[ 26 ];
+  struct {
+    /* Network metrics */
+    ulong net_rx_pkt_cnt;  /* number of IP packets received */
+    ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
+    ulong net_tx_pkt_cnt;  /* number of IP packets sent */
+    ulong net_tx_byte_cnt; /* total bytes sent */
 
-  /* Conn metrics */
-  long  conn_active_cnt;         /* number of active conns */
-  ulong conn_created_cnt;        /* number of conns created */
-  ulong conn_closed_cnt;         /* number of conns gracefully closed */
-  ulong conn_aborted_cnt;        /* number of conns aborted */
-  ulong conn_retry_cnt;          /* number of conns established with retry */
-  ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-  ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
-  ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+    /* Conn metrics */
+    long  conn_active_cnt;         /* number of active conns */
+    ulong conn_created_cnt;        /* number of conns created */
+    ulong conn_closed_cnt;         /* number of conns gracefully closed */
+    ulong conn_aborted_cnt;        /* number of conns aborted */
+    ulong conn_retry_cnt;          /* number of conns established with retry */
+    ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
+    ulong conn_err_tls_fail_cnt;   /* number of conns that aborted due to TLS failure */
+    ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
 
-  /* Handshake metrics */
-  ulong hs_created_cnt;          /* number of handshake flows created */
-  ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
+    /* Handshake metrics */
+    ulong hs_created_cnt;          /* number of handshake flows created */
+    ulong hs_err_alloc_fail_cnt;   /* number of handshakes dropped due to alloc fail */
 
-  /* Stream metrics */
-  ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
-  ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
-    /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
-  int   stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
-  ulong stream_rx_event_cnt;      /* number of stream RX events */
-  ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+    /* Stream metrics */
+    ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
+    ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
+       /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
+    int   stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
+    ulong stream_rx_event_cnt;      /* number of stream RX events */
+    ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
+  };
 };
-typedef struct fd_quic_metrics fd_quic_metrics_t;
+typedef union fd_quic_metrics fd_quic_metrics_t;
+
+/* Assertion: fd_quic_metrics_t::ul must cover the whole struct */
+
+FD_STATIC_ASSERT( sizeof(((fd_quic_metrics_t *)(0))->ul)==sizeof(fd_quic_metrics_t), layout );
 
 /* fd_quic_t memory layout ********************************************/
 
@@ -427,6 +435,8 @@ struct fd_quic {
 
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
+
+  fd_ip_t * ip;    /* ownership transferred to fd_quic */
 
   /* ... private variable-length structures follow ... */
 };
@@ -459,11 +469,16 @@ fd_quic_footprint( fd_quic_limits_t const * limits );
    or server.  mem is a non-NULL pointer to this region in the local
    address with the required footprint and alignment.  limits is a
    temporary reference, identical to the one given to fd_quic_footprint
-   used to figure out the required footprint. */
+   used to figure out the required footprint.
+
+   The QUIC takes a local join to a fd_ip_t and it will use this for
+   the lifetime of the IP.  The caller should make sure the IP stays
+   joined until the fd_quic_leave is called. */
 
 FD_QUIC_API void *
 fd_quic_new( void *                   mem,
-             fd_quic_limits_t const * limits );
+             fd_quic_limits_t const * limits,
+             fd_ip_t *                ip );
 
 /* fd_quic_join joins the caller to the fd_quic.  shquic points to the
    first byte of the memory region backing the QUIC in the caller's
@@ -654,19 +669,19 @@ fd_quic_stream_fin( fd_quic_stream_t * stream );
 
 FD_PROTOTYPES_END
 
-uint fd_quic_tx_buffered_raw(fd_quic_t *quic,
-                             uchar **tx_ptr_ptr,
-                             uchar *tx_buf,
-                             ulong tx_buf_sz,
-                             ulong *tx_sz,
-                             uchar *crypt_scratch,
-                             ulong crypt_scratch_sz,
-                             uchar *dst_mac_addr,
-                             ushort *ipv4_id,
-                             uint dst_ipv4_addr,
-                             ushort src_udp_port,
-                             ushort dst_udp_port,
-                             int flush);
+uint fd_quic_tx_buffered_raw( fd_quic_t      * quic,
+                              uchar **         tx_ptr_ptr,
+                              uchar *          tx_buf,
+                              ulong            tx_buf_sz,
+                              ulong *          tx_sz,
+                              uchar *          crypt_scratch,
+                              ulong            crypt_scratch_sz,
+                              uchar *          dst_mac_addr,
+                              ushort *         ipv4_id,
+                              uint             dst_ipv4_addr,
+                              ushort           src_udp_port,
+                              ushort           dst_udp_port,
+                              int              flush );
 
 /* Convenience exports for consumers of API */
 #include "fd_quic_conn.h"

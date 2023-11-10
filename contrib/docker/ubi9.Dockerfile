@@ -7,25 +7,23 @@
 # FIXME Drop permissions
 # FIXME multi-arch support
 
-ARG BUILDER_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.1.0-1817
-ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.1.0-1829
+ARG BUILDER_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi:9.2-755
+ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.2-755
 
 # Set up build container
 
 FROM ${BUILDER_BASE_IMAGE} AS builder
-RUN dnf install -y \
-      gcc-toolset-12 \
-      git \
-      make \
-      clang
+
+# Fetch and build source dependencies
+
+WORKDIR /firedancer
+COPY deps.sh ./
+RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
 
 # Build source tree
 
-WORKDIR /firedancer
-COPY config ./config
-COPY src ./src
-COPY Makefile ./
-RUN scl run gcc-toolset-12 -- make -j all --output-sync=target
+COPY . ./
+RUN make -j all --output-sync=target
 
 # Set up release container
 

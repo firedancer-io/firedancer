@@ -13,7 +13,7 @@ dev_cmd_args( int *    pargc,
 
 void
 dev_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config );
 
 void
@@ -31,7 +31,7 @@ dev1_cmd_fn( args_t *         args,
 
 void
 txn_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config );
 
 void

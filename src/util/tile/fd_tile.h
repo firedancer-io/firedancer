@@ -67,8 +67,8 @@ FD_FN_PURE ulong fd_tile_cpu_id( ulong tile_idx );
    details will be logged and stack0/stack1/stack_sz/est_used/est_free
    will be NULL/NULL/0/0/0. */
 
-extern FD_TLS ulong fd_tile_private_stack0;
-extern FD_TLS ulong fd_tile_private_stack1;
+extern FD_TL ulong fd_tile_private_stack0;
+extern FD_TL ulong fd_tile_private_stack1;
 
 static inline void const * fd_tile_stack0  ( void ) { return (void const *)fd_tile_private_stack0; }
 static inline void const * fd_tile_stack1  ( void ) { return (void const *)fd_tile_private_stack1; }

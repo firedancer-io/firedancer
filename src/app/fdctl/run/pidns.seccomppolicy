@@ -1,0 +1,33 @@
+# There are two policies involved in booting Firedancer, one for the
+# init process that creates a child process with a PID namespace, and
+# one for the child process with the PID namespace which launches tiles.
+#
+# This policy is for the child process which launches tiles.  This
+# process is the init process (PID 0) of the PID namespace, and so if
+# it is killed all Firedancer tiles will be terminated by the kernel.
+noarg
+
+# logging: write diagnostic messages to a pipe
+#
+# The pidns process will write simple error messages to STDERR if any
+# of the child tile processes terminates.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (eq (arg 0) 2)
+
+# supervisor: wait for any child tile process to exit
+#
+# Tiles should not exit on their own, so after booting them the pidns
+# process simply waits for any child to exit, and if this happens
+# terminates the whole process group with a diagnostic message.
+wait4: (and (eq (arg 0) "(unsigned int)-1")
+            (eq (arg 2) __WCLONE)
+            (eq (arg 3) 0))
+
+# supervisor: exit when a child process exits
+#
+# When the wait4 above completes, the child process has exited and the
+# parent will now need to exit itself, which will terminate all tiles
+# as well.
+exit_group

@@ -14,6 +14,7 @@ target/
 
 # Dependencies
 opt/
+deps-bundle.tar.zst
 
 # Nix
 /result
@@ -31,3 +32,8 @@ opt/
 
 # Logs
 *.log
+
+# VitePress docs
+/book/.vitepress/cache
+/book/.vitepress/dist
+/book/node_modules

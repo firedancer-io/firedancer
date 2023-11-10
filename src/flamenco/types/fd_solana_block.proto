@@ -1,0 +1,203 @@
+// Copyright 2023 Solana Labs, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// This file was heavily modified to integrate with Firedancer via nanopb.
+
+syntax = "proto2";
+package solana.storage.ConfirmedBlock;
+
+// ### What is this data?
+//
+// The "ConfirmedBlock" Protobuf definitions are part of the transaction
+// status RPC APIs.  This data format is not relevant for consensus and
+// thus not in use during regular validator operation.  However, it
+// contains interesting data about the side effects of transaction
+// execution that are highly useful for debugging.
+//
+// transaction_status
+//
+// ### Where do I get it from?
+//
+// If configured correctly, the Solana Labs validator will store
+// transaction metadata in this Protobuf format in a blockstore column
+// family.  If available, test_runtime program uses this data to check
+// whether Firedancer's replay results match.
+//
+// ### nanopb
+//
+// The Protobuf C++ bindings are considered too heavy.  nanopb is an
+// alternative C/C++ Protobuf code generator with zero external
+// dependencies and fairly small code footprint.  Its custom annotations
+// (like array size bounds) and support for custom memory allocators
+// make it friendly for embedded-style targets.
+//
+// nanopb is available at https://jpa.kapsi.fi/nanopb/
+// under the zlib license.
+//
+// ### How to build
+//
+// Building the generated code that is checked into the repo requires
+// no additional steps.  To regenerate the code (e.g. after modifying
+// the Protobuf definitions), refer to the Makefile in this directory.
+//
+// ### How to use
+//
+// nanopb API reference: https://jpa.kapsi.fi/nanopb/docs/reference.html
+
+import "nanopb.proto";
+option (nanopb_fileopt).package = "fd_solblock";
+
+// Transaction related
+
+message MessageHeader {
+    required uint32 num_required_signatures = 1;
+    required uint32 num_readonly_signed_accounts = 2;
+    required uint32 num_readonly_unsigned_accounts = 3;
+}
+
+message Instruction {
+    required uint32 program_id_index = 1;
+    required bytes accounts = 2
+        [(nanopb).type = FT_POINTER];
+    required bytes data = 3
+        [(nanopb).type = FT_POINTER];
+}
+
+message MessageAddressTableLookup {
+    required bytes account_key = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required bytes writable_indexes = 2;
+    required bytes readonly_indexes = 3;
+}
+
+message Message {
+    required MessageHeader header = 1;
+    repeated bytes account_keys = 2
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true,
+         (nanopb).type = FT_POINTER];
+    required bytes recent_blockhash = 3
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    repeated Instruction instructions = 4
+        [(nanopb).type = FT_POINTER];
+    required bool versioned = 5;
+    repeated MessageAddressTableLookup address_table_lookups = 6
+        [(nanopb).type = FT_POINTER];
+}
+
+message Transaction {
+    repeated bytes signatures = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true,
+         (nanopb).type = FT_POINTER];
+    required Message message = 2;
+}
+
+message ConfirmedTransaction {
+    required Transaction transaction = 1;
+    required TransactionStatusMeta meta = 2;
+}
+
+// Transaction Status related
+
+message InnerInstruction {
+    required uint32 program_id_index = 1;
+    required bytes accounts = 2
+        [(nanopb).type = FT_POINTER];
+    required bytes data = 3
+        [(nanopb).type = FT_POINTER];
+
+    // Invocation stack height of an inner instruction.
+    // Available since Solana v1.14.6
+    // Set to `None` for txs executed on earlier versions.
+    optional uint32 stack_height = 4;
+}
+
+message InnerInstructions {
+    required uint32 index = 1;
+    repeated InnerInstruction instructions = 2
+        [(nanopb).type = FT_POINTER];
+}
+
+message TransactionError {
+    required bytes err = 1
+        [(nanopb).type = FT_POINTER];
+}
+
+message UiTokenAmount {
+    optional double ui_amount = 1;
+    optional uint32 decimals = 2;
+    required string amount = 3
+        [(nanopb).type = FT_POINTER];
+    required string ui_amount_string = 4
+        [(nanopb).type = FT_POINTER];
+}
+
+message TokenBalance {
+    required uint32 account_index = 1;
+    required string mint = 2
+        [(nanopb).max_length = 44];
+    required UiTokenAmount ui_token_amount = 3;
+    required string owner = 4
+        [(nanopb).max_length = 44];
+    required string program_id = 5
+        [(nanopb).max_length = 44];
+}
+
+enum RewardType {
+    Unspecified = 0;
+    Fee = 1;
+    Rent = 2;
+    Staking = 3;
+    Voting = 4;
+}
+
+message Reward {
+    required string pubkey = 1
+        [(nanopb).max_length = 44];
+    required int64 lamports = 2;
+    required uint64 post_balance = 3;
+    required RewardType reward_type = 4;
+    required string commission = 5
+        [(nanopb).type = FT_POINTER];
+}
+
+message ReturnData {
+    required bytes program_id = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required bytes data = 2;
+}
+
+message TransactionStatusMeta {
+    optional TransactionError err = 1;
+    required uint64 fee = 2;
+    repeated uint64 pre_balances = 3
+        [(nanopb).type = FT_POINTER];
+    repeated uint64 post_balances = 4
+        [(nanopb).type = FT_POINTER];
+    repeated InnerInstructions inner_instructions = 5
+        [(nanopb).type = FT_POINTER];
+    optional bool inner_instructions_none = 10;
+    repeated string log_messages = 6
+        [(nanopb).type = FT_POINTER];
+    optional bool log_messages_none = 11;
+    repeated TokenBalance pre_token_balances = 7
+        [(nanopb).type = FT_POINTER];
+    repeated TokenBalance post_token_balances = 8
+        [(nanopb).type = FT_POINTER];
+    repeated Reward rewards = 9
+        [(nanopb).type = FT_POINTER];
+    repeated bytes loaded_writable_addresses = 12
+        [(nanopb).type = FT_POINTER];
+    repeated bytes loaded_readonly_addresses = 13
+        [(nanopb).type = FT_POINTER];
+    optional ReturnData return_data = 14;
+    optional bool return_data_none = 15;
+
+    // Sum of compute units consumed by all instructions.
+    // Available since Solana v1.10.35 / v1.11.6.
+    // Set to `None` for txs executed on earlier versions.
+    optional uint64 compute_units_consumed = 16;
+}

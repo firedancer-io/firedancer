@@ -62,7 +62,6 @@
 
 #include "../fd_ballet.h"
 
-
 /* FD_SHRED_MAX_SZ: The max byte size of a shred.
    This limit derives from the IPv6 MTU of 1280 bytes, minus 48 bytes
    for the UDP/IPv6 headers and another 4 bytes for good measure.  Most
@@ -216,7 +215,7 @@ fd_shred_variant( uchar type,
   return (uchar)(type | merkle_cnt);
 }
 
-FD_FN_CONST static inline ulong
+FD_FN_PURE static inline ulong
 fd_shred_sz( fd_shred_t const * shred ) {
   return fd_ulong_if( shred->variant & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ,
          fd_ulong_if( fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA, FD_SHRED_MIN_SZ,
@@ -270,7 +269,7 @@ fd_shred_payload_sz( fd_shred_t const * shred ) {
 /* fd_shred_merkle_off: Returns the byte offset of the merkle inclusion proof of a shred.
 
    The provided shred must have passed validation in fd_shred_parse(). */
-FD_FN_CONST static inline ulong
+FD_FN_PURE static inline ulong
 fd_shred_merkle_off( fd_shred_t const * shred ) {
   return fd_shred_sz( shred ) - fd_shred_merkle_sz( shred->variant );
 }

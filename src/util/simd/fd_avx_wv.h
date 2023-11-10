@@ -70,10 +70,11 @@ wv_permute( wv_t x, int imm_i0, int imm_i1, int imm_i2, int imm_i3 ) {
 
    Note: gcc knows a __m256i may alias. */
 
-static inline wv_t wv_ld(  ulong const * p   ) { return _mm256_load_si256(  (__m256i const *)p ); }
-static inline wv_t wv_ldu( ulong const * p   ) { return _mm256_loadu_si256( (__m256i const *)p ); }
-static inline void wv_st(  ulong * p, wv_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
-static inline void wv_stu( ulong * p, wv_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
+static inline wv_t wv_ld( ulong const * p ) { return _mm256_load_si256(  (__m256i const *)p ); }
+static inline void wv_st( ulong * p, wv_t i ) { _mm256_store_si256(  (__m256i *)p, i ); }
+
+static inline wv_t wv_ldu( void const * p ) { return _mm256_loadu_si256( (__m256i const *)p ); }
+static inline void wv_stu( void * p, wv_t i ) { _mm256_storeu_si256( (__m256i *)p, i ); }
 
 /* wv_ldif is an optimized equivalent to wv_notczero(c,wv_ldu(p)) (may
    have different behavior if c is not a proper vector conditional).  It
@@ -118,18 +119,18 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 
 /* Arithmetic operations */
 
-/* Note: _mm256_{min,max}_epu64 are missing pre AVX-512.  We emulate
-   these below.  Likewise, there is no _mm256_mullo_epi64 in AVX.  Since
-   this is not cheap to emulate, we do not provide a wv_mul for the time
-   being.  There is a 64L*64L->64 multiply (where the lower 32-bits of
-   the inputs will be zero extended to 64-bits beforehand) though and
-   that is very useful.  So we do provide that. */
-
 #define wv_neg(a) _mm256_sub_epi64( _mm256_setzero_si256(), (a) ) /* [ -a0  -a1  ... -a3  ] */
 #define wv_abs(a) (a)                                             /* [ |a0| |a1| ... |a3| ] */
 
-//#define wv_min(a,b)  _mm256_min_epi64(   (a), (b) ) /* [ min(a0,b0) min(a1,b1) ... min(a3,b3) ] */
-//#define wv_max(a,b)  _mm256_max_epi64(   (a), (b) ) /* [ max(a0,b0) max(a1,b1) ... max(a3,b3) ] */
+/* Note: _mm256_{min,max}_epu64 are missing pre AVX-512.  We emulate
+   these on pre AVX-512 targets below (and use the AVX-512 versions if
+   possible).  Likewise, there is no _mm256_mullo_epi64 pre AVX-512.
+   Since this is not cheap to emulate, we do not provide a wv_mul for
+   the time being (we could consider exposing it on AVX-512 targets
+   though).  There is a 64L*64L->64 multiply (where the lower 32-bits of
+   the inputs will be zero extended to 64-bits beforehand) though and
+   that is very useful.  So we do provide that. */
+
 #define wv_add(a,b)    _mm256_add_epi64(   (a), (b) ) /* [ a0 +b0     a1 +b1     ... a3 +b3     ] */
 #define wv_sub(a,b)    _mm256_sub_epi64(   (a), (b) ) /* [ a0 -b0     a1 -b1     ... a3 -b3     ] */
 //#define wv_mul(a,b)  _mm256_mullo_epi64( (a), (b) ) /* [ a0 *b0     a1 *b1     ... a3 *b3     ] */
@@ -203,15 +204,19 @@ static inline wv_t wv_ror_vector( wv_t a, wl_t b ) {
 
 #define wv_if(c,t,f)     _mm256_blendv_epi8( (f), (t), (c) ) /* [ c0?t0:f0  c1?t1:f1  ... c3?t3:f3 ] */
 
-/* See note above */
-static inline wv_t wv_min( wv_t a, wv_t b ) { return wv_if( wv_lt( a, b ), a, b ); } 
+#if defined(__AVX512F__) && defined(__AVX512VL__) /* See note above */
+#define wv_min(a,b) _mm256_min_epu64( (a), (b) )
+#define wv_max(a,b) _mm256_max_epu64( (a), (b) )
+#else
+static inline wv_t wv_min( wv_t a, wv_t b ) { return wv_if( wv_lt( a, b ), a, b ); }
 static inline wv_t wv_max( wv_t a, wv_t b ) { return wv_if( wv_gt( a, b ), a, b ); }
+#endif
 
 /* Conversion operations */
 
 /* Summarizing:
 
-   wv_to_wc(d)     returns [ !!v0 !!v0 !!v1 !!v1 ... !!v3 !!v3 ] 
+   wv_to_wc(d)     returns [ !!v0 !!v0 !!v1 !!v1 ... !!v3 !!v3 ]
 
    wv_to_wf(l,i,0) returns [ (float)v0 (float)v1 (float)v2 (float)v3 f4 f5 f6 f7 ]
    wv_to_wf(l,i,1) returns [ f0 f1 f2 f3 (float)v0 (float)v1 (float)v2 (float)v3 ]

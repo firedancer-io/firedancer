@@ -4,6 +4,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../tango/quic/fd_quic.h"
 #include "../../tango/quic/tests/fd_quic_test_helpers.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
 
@@ -17,12 +18,12 @@ static int g_stream_notify = 0;
 
 void
 txn_cmd_perm( args_t *         args,
-              security_t *     security,
+              fd_caps_ctx_t *  caps,
               config_t * const config ) {
   (void)args;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    check_cap( security, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
+    fd_caps_check_capability( caps, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }
 
 void
@@ -112,7 +113,15 @@ send_quic_transactions( fd_quic_t *         quic,
     fd_quic_udpsock_service( udpsock );
   }
 
-  fd_quic_conn_close( conn, 0 );
+  /* close and wait for connection to complete */
+  if( !g_conn_final ) {
+    fd_quic_conn_close( conn, 0 );
+    while( !g_conn_final ) {
+      fd_quic_service( quic );
+      fd_quic_udpsock_service( udpsock );
+    }
+  }
+
   fd_quic_fini( quic );
 }
 
@@ -141,14 +150,15 @@ txn_cmd_fn( args_t *         args,
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz("normal"),
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ,
                                             1UL << 10,
                                             fd_shmem_cpu_idx( 0 ),
                                             "wksp",
                                             0UL );
   FD_TEST( wksp );
+  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_quic_t * quic = fd_quic_new( mem, &quic_limits );
+  fd_quic_t * quic = fd_quic_new( mem, &quic_limits, ip );
   FD_TEST( quic );
 
   fd_quic_udpsock_t _udpsock;
@@ -162,20 +172,27 @@ txn_cmd_fn( args_t *         args,
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
   client_cfg->initial_rx_max_stream_data = 1<<15;
-  client_cfg->idle_timeout = 100UL * 1000UL * 1000UL; /* 100 millis */
+  client_cfg->idle_timeout = 200UL * 1000UL * 1000UL; /* 5000 millis */
   client_cfg->initial_rx_max_stream_data = FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA;
 
   fd_aio_pkt_info_t pkt[ MAX_TXN_COUNT ];
 
-  uchar buf[1300];
   if( FD_LIKELY( !args->txn.payload_base64 ) ) {
+    FD_LOG_INFO(( "Transaction payload not specified, using hardcoded sample payload" ));
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )sample_transaction;
       pkt[ i ].buf_sz = (ushort )sample_transaction_sz;
     }
   } else {
-    int buf_sz = fd_base64_decode( args->txn.payload_base64, buf );
-    if( FD_UNLIKELY( buf_sz == -1 ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
+    ulong payload_b64_sz = strlen( args->txn.payload_base64 );
+
+    static uchar buf[ 1UL << 15UL ];
+    if( FD_UNLIKELY( FD_BASE64_DEC_SZ( payload_b64_sz ) > sizeof(buf) ) )
+      FD_LOG_ERR(( "Input payload is too large (max %lu bytes)", sizeof(buf) ));
+
+    long buf_sz = fd_base64_decode( buf, args->txn.payload_base64, payload_b64_sz );
+    if( FD_UNLIKELY( buf_sz<0L ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
+
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )buf;
       pkt[ i ].buf_sz = (ushort )buf_sz;

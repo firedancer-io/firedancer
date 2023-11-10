@@ -5,16 +5,39 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <sys/random.h>
+
+#define KEYGEN_KEY_IDENTITY     (0UL)
+#define KEYGEN_KEY_VOTE_ACCOUNT (1UL)
+
+void
+keygen_cmd_args( int *    pargc,
+                 char *** pargv,
+                 args_t * args) {
+  char * usage = "usage: keygen <identity|vote>";
+  if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
+
+  if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) ) args->keygen.key_type = KEYGEN_KEY_IDENTITY;
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) ) args->keygen.key_type = KEYGEN_KEY_VOTE_ACCOUNT;
+  else FD_LOG_ERR(( "unrecognized subcommand `%s`, %s", *pargv[0], usage ));
+
+  (*pargc)--;
+  (*pargv)++;
+
+  return;
+}
 
 void
 generate_keypair( const char * keyfile,
                   config_t * const config ) {
   uchar keys[ 64 ];
 
-  FILE * fp = fopen( "/dev/urandom", "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "could not create keypair, fopen(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( fread( keys, 1, 32, fp ) != 32 ) ) FD_LOG_ERR(( "could not create keypair, fread(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose(/dev/urandom) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  long bytes_produced = 0L;
+  while( FD_LIKELY( bytes_produced<32 ) ) {
+    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), GRND_RANDOM );
+    if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create keypair, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    bytes_produced += n;
+  }
 
   fd_sha512_t _sha[1];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
@@ -31,8 +54,13 @@ generate_keypair( const char * keyfile,
 
   mode_t previous = umask( S_IRWXO | S_IRWXG | S_IXUSR );
 
-  fp = fopen( keyfile, "w" );
-  if( !fp ) FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
+  FILE * fp = fopen( keyfile, "wx" );
+  if( FD_UNLIKELY( !fp ) ) {
+    if( FD_LIKELY( errno == EEXIST ) )
+      FD_LOG_ERR(( "could not create keypair as the keyfile `%s` already exists", keyfile ));
+    else 
+      FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
+  }
 
   if( fwrite( "[", 1, 1, fp ) != 1 )
       FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
@@ -59,7 +87,15 @@ generate_keypair( const char * keyfile,
 void
 keygen_cmd_fn( args_t *         args,
                config_t * const config ) {
-  (void)args;
+  if( FD_LIKELY( args->keygen.key_type == KEYGEN_KEY_IDENTITY ) ) {
+    generate_keypair( config->consensus.identity_path, config );
+  } else if( FD_LIKELY( args->keygen.key_type == KEYGEN_KEY_VOTE_ACCOUNT ) ) {
+    if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
+      FD_LOG_ERR(( "Cannot create a vote account keypair because your validator is not configured "
+                   "to vote. Please set [consensus.vote_account_path] in your configuration file." ));
 
-  generate_keypair( config->consensus.identity_path, config );
+    generate_keypair( config->consensus.vote_account_path, config );
+  } else {
+    FD_LOG_ERR(( "unknown key type `%lu`", args->keygen.key_type ));
+  }
 }

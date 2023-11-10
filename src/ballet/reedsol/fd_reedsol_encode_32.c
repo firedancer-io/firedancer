@@ -1,6 +1,7 @@
+/* Note: This file is auto generated. */
 #include "fd_reedsol_ppt.h"
 
-void
+FD_FN_UNSANITIZED void
 fd_reedsol_private_encode_32( ulong                 shred_sz,
                               uchar const * const * data_shred,
                               ulong                 data_shred_cnt,
