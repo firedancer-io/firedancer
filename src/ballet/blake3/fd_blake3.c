@@ -138,3 +138,9 @@ fd_blake3_fini( fd_blake3_t * sha,
   return hash;
 }
 
+void *
+fd_blake3_fini_512( fd_blake3_t * sha,
+                void *        hash ) {
+  blake3_hasher_finalize( &sha->hasher, (uchar *) hash, 64);
+  return hash;
+}
