@@ -6,19 +6,29 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::upper_case_acronyms)]
 
+type schar = i8;
+type uchar = u8;
+type ushort = u16;
+type uint = u32;
+type ulong = u64;
+
 #[allow(dead_code)]
-mod generated {
-    type schar = i8;
-    type uchar = u8;
-    type ushort = u16;
-    type uint = u32;
-    type ulong = u64;
-
-    type __m128i = [::std::os::raw::c_longlong; 2usize];
-    type __m256i = [::std::os::raw::c_longlong; 4usize];
-
+mod genutil {
+    use crate::{schar, uchar, ushort, uint, ulong};
     include!(concat!(env!("OUT_DIR"), "/bindings_util.rs"));
+}
+
+#[allow(dead_code)]
+mod genballet {
+    use crate::{uchar, ushort, uint, ulong};
+    use crate::genutil::fd_rng_t;
     include!(concat!(env!("OUT_DIR"), "/bindings_ballet.rs"));
+}
+
+#[allow(dead_code)]
+mod gentango {
+    use crate::{uchar, ushort, uint, ulong};
+    use crate::genutil::fd_rng_t;
     include!(concat!(env!("OUT_DIR"), "/bindings_tango.rs"));
 }
 

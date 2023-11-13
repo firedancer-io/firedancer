@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_tempo_async_min,
     fd_tempo_async_reload,
     fd_tempo_lazy_default,

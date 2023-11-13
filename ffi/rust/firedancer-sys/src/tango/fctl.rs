@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_fctl_cfg_done,
     fd_fctl_cfg_rx_add,
     fd_fctl_delete,

@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_bmtree_commit_append,
     fd_bmtree_commit_fini,
     fd_bmtree_commit_init,

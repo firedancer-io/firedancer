@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_rng_delete,
     fd_rng_idx,
     fd_rng_idx_set,
