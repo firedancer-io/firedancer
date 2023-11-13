@@ -190,6 +190,7 @@ typedef struct {
 
   struct {
     ulong  depth;
+    uint   reasm_cnt;
     ulong  max_concurrent_connections;
     ulong  max_concurrent_handshakes;
     ulong  max_inflight_quic_packets;
@@ -367,7 +368,7 @@ fd_topo_link_kind_str( ulong kind ) {
    readable string describing it.  This string does not uniquely
    identify a tile, since there can be multiple of each tile kind
    in the topology.
-   
+
    Tile names must be <= 7 chars, so that we can print them easily in
    diagnostic output and monitoring tools. */
 FD_FN_CONST static inline char *
@@ -454,9 +455,9 @@ fd_topo_create_workspaces( char *      app_name,
    into the topo object. This must be called after all of the tile
    workspaces have been joined, either by calling
    fd_topo_join_workspaces, or fd_topo_join_tile_workspaces.
-   
+
    The mode should be one of FD_TOPO_FILL_MODE_* and determines
-   what the function actually does. 
+   what the function actually does.
 
      FD_TOPO_FILL_MODE_FOOTPRINT
         The footprint of every workspace in the topology is calculated

@@ -632,18 +632,5 @@ fd_mux_tile( fd_cnc_t *              cnc,
   return 0;
 }
 
-void
-fd_mux_publish( fd_mux_context_t * ctx,
-                ulong              sig,
-                ulong              chunk,
-                ulong              sz,
-                ulong              ctl,
-                ulong              tsorig,
-                ulong              tspub ) {
-  fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
-  *ctx->cr_avail -= ctx->cr_decrement_amount;
-  *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
-}
-
 #undef SCRATCH_ALLOC
 
