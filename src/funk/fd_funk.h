@@ -243,7 +243,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong rec_tail_idx;  /* "                       last          " */
 
   ulong partvec_gaddr; /* Address of partition header vector */
-    
+
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in
      fd_funk_val.h.  Allocations from this allocator will be tagged with

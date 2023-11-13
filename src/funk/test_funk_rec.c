@@ -173,10 +173,10 @@ main( int     argc,
         FD_TEST( mrec==(is_frozen ? NULL               : &rec_map[0]    ) );
       }
 
-      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
-      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
       if( fd_funk_rec_is_full( rec_map ) ) {
@@ -297,10 +297,10 @@ main( int     argc,
 
       int err;
 
-      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
-      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) ); 
+      FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, NULL ) );
       FD_TEST( !fd_funk_rec_insert( NULL, ttxn, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
 
       if( fd_funk_rec_is_full( rec_map ) ) {

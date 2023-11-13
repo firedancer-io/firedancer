@@ -650,7 +650,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
       dst_rec->val_gaddr = val_gaddr;
 
       /* Use the new partition */
-      
+
       fd_funk_part_set_intern( partvec, rec_map, dst_rec, part );
     }
 
