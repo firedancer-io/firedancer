@@ -227,7 +227,7 @@ fd_funk_delete( void * shfunk ) {
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( fd_funk_txn_map( funk, wksp ) ) ) );
-  
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = 0UL;
   FD_COMPILER_MFENCE();
@@ -351,4 +351,3 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

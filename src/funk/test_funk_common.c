@@ -416,4 +416,3 @@ key_eq( fd_funk_rec_key_t const * key,
   fd_funk_rec_key_t tmp[1];
   return fd_funk_rec_key_eq( key, key_set( tmp, _key ) );
 }
-
