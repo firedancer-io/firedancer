@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_sbpf_calldests_t,
     fd_sbpf_elf_info_t,
     fd_sbpf_elf_peek,

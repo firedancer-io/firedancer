@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_wksp_align,
     fd_wksp_alloc,
     fd_wksp_alloc_at_least,

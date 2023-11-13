@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_cnc_align,
     fd_cnc_app_laddr,
     fd_cnc_app_laddr_const,

@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_sha512_align,
     fd_sha512_append,
     fd_sha512_delete,

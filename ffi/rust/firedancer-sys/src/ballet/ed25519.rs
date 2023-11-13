@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_ed25519_public_from_private,
     fd_ed25519_sign,
     fd_ed25519_strerror,

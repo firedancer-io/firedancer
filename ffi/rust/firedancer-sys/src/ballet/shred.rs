@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_shred_parse,
     fd_shred_t,
     FD_SHRED_CODE_HEADER_SZ,

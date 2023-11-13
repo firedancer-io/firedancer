@@ -1,1 +1,1 @@
-pub use crate::generated::fd_txn_p_t;
+pub use crate::genballet::fd_txn_p_t;

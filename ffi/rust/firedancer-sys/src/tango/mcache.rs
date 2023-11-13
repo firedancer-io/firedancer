@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_frag_meta_t,
     fd_mcache_align,
     fd_mcache_app_laddr,
