@@ -65,6 +65,15 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
   return h;
 }
 
+static inline int
+fd_ed25519_fe_eq( fd_ed25519_fe_t * const f,
+                  fd_ed25519_fe_t * const g ) {
+  // FIXME - temp placeholder
+  uchar s[32]; fd_ed25519_fe_tobytes(s, f);
+  uchar t[32]; fd_ed25519_fe_tobytes(t, g);
+  return !memcmp(s, t, 32);
+}
+
 static inline fd_ed25519_fe_t *
 fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f,
@@ -153,6 +162,18 @@ static inline fd_ed25519_fe_t *
 fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f ) {
   wi_t m   = wc_bcast( !!fd_ed25519_fe_isnegative( f ) );
+  wi_t f07 = wi_ld( f->limb );      wi_t f89 = wi_ld( f->limb+8 );
+  wi_t z   = wi_zero();
+  wi_t g07 = wi_sub( z, f07 );      wi_t g89 = wi_sub( z, f89 );
+  wi_t h07 = wi_if ( m, g07, f07 ); wi_t h89 = wi_if ( m, g89, f89 );
+  wi_st( h->limb, h07 );            wi_st( h->limb+8, h89 );
+  return h;
+}
+
+static inline fd_ed25519_fe_t *
+fd_ed25519_fe_neg_abs( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  wi_t m   = wc_bcast( !fd_ed25519_fe_isnegative( f ) );
   wi_t f07 = wi_ld( f->limb );      wi_t f89 = wi_ld( f->limb+8 );
   wi_t z   = wi_zero();
   wi_t g07 = wi_sub( z, f07 );      wi_t g89 = wi_sub( z, f89 );

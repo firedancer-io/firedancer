@@ -49,6 +49,16 @@ fd_ed25519_fe_copy( fd_ed25519_fe_t *       h,
   return h;
 }
 
+static inline int
+fd_ed25519_fe_eq( fd_ed25519_fe_t * const fe0,
+                   fd_ed25519_fe_t * const fe1 ) {
+  return ( fe0->limb[ 0 ] == fe1->limb[ 0 ] ) & ( fe0->limb[ 1 ] == fe1->limb[ 1 ] ) &
+         ( fe0->limb[ 2 ] == fe1->limb[ 2 ] ) & ( fe0->limb[ 3 ] == fe1->limb[ 3 ] ) &
+         ( fe0->limb[ 4 ] == fe1->limb[ 4 ] ) & ( fe0->limb[ 5 ] == fe1->limb[ 5 ] ) &
+         ( fe0->limb[ 6 ] == fe1->limb[ 6 ] ) & ( fe0->limb[ 7 ] == fe1->limb[ 7 ] ) &
+         ( fe0->limb[ 8 ] == fe1->limb[ 8 ] ) & ( fe0->limb[ 9 ] == fe1->limb[ 9 ] );
+}
+
 /* fd_ed25519_fe_0 initializes the fe pointed to by h to 0.  Returns h
    and the fe pointed to by h will be 0 on return. */
 
@@ -420,6 +430,14 @@ fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
   fd_ed25519_fe_t fneg[1];
   fd_ed25519_fe_neg( fneg, f );
   fd_ed25519_fe_if( h, fd_ed25519_fe_isnegative( f ), fneg, f );
+}
+
+static inline void
+fd_ed25519_fe_neg_abs( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  fd_ed25519_fe_t fneg[1];
+  fd_ed25519_fe_neg( fneg, f );
+  fd_ed25519_fe_if( h, fd_ed25519_fe_isnegative( f ), f, fneg );
 }
 
 FD_PROTOTYPES_END

@@ -150,15 +150,105 @@ fd_ristretto255_ge_tobytes( uchar *                    b,
 }
 
 fd_ristretto255_point_t *
-fd_ristretto255_point_decompress( fd_ristretto255_point_t * h_,
-                                  uchar const               s[ static 32 ] ) {
+fd_ristretto255_map_to_point( fd_ristretto255_point_t * h_,
+                              uchar const               t[ static 32 ] ) {
   fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
-  return fd_type_pun( fd_ristretto255_ge_frombytes_vartime( h, s ) );
+
+  static const fd_ed25519_fe_t d[1] = {{
+    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
+  }};
+
+  static const fd_ed25519_fe_t sqrtm1[1] = {{
+    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
+  }};
+
+  // "76c15f94c1097ce20f355ecd38a1812ce4df70beddab9499d7e0b3b2a8729002"
+  static const fd_ed25519_fe_t one_minus_d_sq[1] = {{
+    { 6275446, -16617371, -22938544, -3773710, 11667077, 7397348, -27922721, 1766195, -24433858, 672203 }
+	}};
+
+  // "204ded44aa5aad3199191eb02c4a9ed2eb4e9b522fd3dc4c41226cf67ab36859"
+  static const fd_ed25519_fe_t d_minus_one_sq[1] = {{
+    { 15551795, -11097455, -13425098, -10125071, -11896535, 10178284, -26634327, 4729244, -5282110, -10116402 }
+  }};
+
+  // "1b2e7b49a0f6977ebd54781b0c8e9daffdd1f531c9fc3c0fac48832bbf316937"
+  static const fd_ed25519_fe_t sqrt_ad_minus_one[1] = {{
+    { 24849947, -153582, -23613485, 6347715, -21072328, -667138, -25271143, -15367704, -870347, 14525639 }
+	}};
+
+  static const fd_ed25519_fe_t one[1] = {{
+    { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  }};
+
+  /* r = SQRT_M1 * t^2 */
+  fd_ed25519_fe_t r0[1];
+  fd_ed25519_fe_t r[1];
+  fd_ed25519_fe_frombytes( r0, t );
+  fd_ed25519_fe_mul( r, sqrtm1, fd_ed25519_fe_sq( r, r0 ) );
+
+  /* u = (r + 1) * ONE_MINUS_D_SQ */
+  fd_ed25519_fe_t u[1];
+  fd_ed25519_fe_mul( u, one_minus_d_sq, fd_ed25519_fe_add( u, r, one ) );
+
+  /* c = -1 */
+  fd_ed25519_fe_t c[1] = {{
+    { -1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  }};
+  // fd_ed25519_fe_neg( c, one );
+
+  /* v = (c - r*D) * (r + D) */
+  fd_ed25519_fe_t v[1], r_plus_d[1];
+  fd_ed25519_fe_add( r_plus_d, r, d );
+  fd_ed25519_fe_mul( v, r, d );
+  fd_ed25519_fe_sub( v, c, v );
+  fd_ed25519_fe_mul( v, v, r_plus_d );
+
+  /* (was_square, s) = SQRT_RATIO_M1(u, v) */
+  fd_ed25519_fe_t s[1];
+  int was_square = fd_ed25519_fe_sqrt_ratio( s, u, v );
+
+  /* s_prime = -CT_ABS(s*r0) */
+  fd_ed25519_fe_t s_prime[1];
+  fd_ed25519_fe_neg_abs( s_prime, fd_ed25519_fe_mul( s_prime, s, r0 ) );
+
+	/* s = CT_SELECT(s IF was_square ELSE s_prime) */
+  fd_ed25519_fe_if( s, was_square, s, s_prime );
+	/* c = CT_SELECT(c IF was_square ELSE r) */
+  fd_ed25519_fe_if( c, was_square, c, r );
+
+  /* N = c * (r - 1) * D_MINUS_ONE_SQ - v */
+  fd_ed25519_fe_t n[1];
+  fd_ed25519_fe_mul( n, c, fd_ed25519_fe_sub( n, r, one ) );
+  fd_ed25519_fe_sub( n, fd_ed25519_fe_mul( n, n, d_minus_one_sq ), v );
+
+  /* w0 = 2 * s * v
+	   w1 = N * SQRT_AD_MINUS_ONE
+     w2 = 1 - s^2
+	   w3 = 1 + s^2 */
+  fd_ed25519_fe_t s2[1];
+  fd_ed25519_fe_sq( s2, s );
+  fd_ed25519_fe_t w0[1], w1[1], w2[1], w3[1];
+  fd_ed25519_fe_add( w0, w0, fd_ed25519_fe_mul( w0, s, v ) );
+  fd_ed25519_fe_mul( w1, n, sqrt_ad_minus_one );
+  fd_ed25519_fe_sub( w2, one, s2 );
+  fd_ed25519_fe_add( w3, one, s2 );
+
+  fd_ed25519_fe_mul( h->X, w0, w3 );
+  fd_ed25519_fe_mul( h->Y, w2, w1 );
+  fd_ed25519_fe_mul( h->Z, w1, w3 );
+  fd_ed25519_fe_mul( h->T, w0, w2 );
+  return h_;
 }
 
-uchar *
-fd_ristretto255_point_compress( uchar                           s[ static 32 ],
-                                fd_ristretto255_point_t const * f_ ) {
-  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
-  return fd_ristretto255_ge_tobytes( s, f );
+fd_ristretto255_point_t *
+fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
+                               uchar const               s[ static 64 ] ) {
+  fd_ristretto255_point_t p1[1];
+  fd_ristretto255_point_t p2[1];
+
+  fd_ristretto255_map_to_point( p1, s    );
+  fd_ristretto255_map_to_point( p2, s+32 );
+
+  return fd_ristretto255_point_add(h, p1, p2);
 }

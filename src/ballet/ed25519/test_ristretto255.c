@@ -1,5 +1,7 @@
-#include "fd_ed25519_private.h"
+#include "../fd_ballet.h"
+#include "fd_ristretto255_ge.h"
 #include "fd_ristretto255_ge_private.h"
+#include "../hex/fd_hex.h"
 
 /* base_point_multiples was imported from
    draft-irtf-cfrg-ristretto255-decaf448-08 Appendix A.1 */
@@ -63,31 +65,53 @@ static uchar const bad_encodings[][32] = {
   "\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x7f",
 };
 
-int
-main( int     argc,
-      char ** argv ) {
-  fd_boot( &argc, &argv );
+static void
+log_bench( char const * descr,
+           ulong        iter,
+           long         dt ) {
+  float khz = 1e6f *(float)iter/(float)dt;
+  float tau = (float)dt /(float)iter;
+  FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
+}
+
+static void
+fd_ed25519_fe_print (fd_ed25519_fe_t * f) {
+  uchar s[32];
+  fd_ed25519_fe_tobytes(s, f);
+  for ( int i=0; i<32; i++ ) { printf("%02x", s[i]); } printf("\n");
+}
+
+FD_FN_UNUSED static void
+fd_ed25519_ge_print (fd_ed25519_point_t * _p) {
+  fd_ed25519_ge_p3_t * p = (fd_ed25519_ge_p3_t *)_p;
+  printf("X = "); fd_ed25519_fe_print(p->X);
+  printf("Y = "); fd_ed25519_fe_print(p->Y);
+  printf("Z = "); fd_ed25519_fe_print(p->Z);
+  printf("T = "); fd_ed25519_fe_print(p->T);
+}
+
+FD_FN_UNUSED static int
+fd_ed25519_point_eq (fd_ed25519_point_t * _p, fd_ed25519_point_t * _q) {
+  fd_ed25519_ge_p3_t * p = (fd_ed25519_ge_p3_t *)_p;
+  fd_ed25519_ge_p3_t * q = (fd_ed25519_ge_p3_t *)_q;
+  return fd_ed25519_ge_eq(p, q);
+}
+
+static void
+test_point_decompress( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar                   _s[32]; uchar *                   s = _s;
+  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
 
   /* Decompress & compress base point multiples */
   for( uchar const * s = base_point_multiples[0];
                      s < (uchar const *)base_point_multiples + sizeof base_point_multiples;
                      s += 32 ) {
-    fd_ed25519_ge_p3_t h[1];
-    if( FD_UNLIKELY( !fd_ristretto255_ge_frombytes_vartime( h, s ) ) ) {
+    fd_ristretto255_point_t h[1];
+    if( FD_UNLIKELY( !fd_ristretto255_point_decompress( h, s ) ) ) {
       FD_LOG_ERR(( "FAIL"
-                   "\n\tfd_ristretto255_ge_frombytes_vartime failed to decode point:"
+                   "\n\tfd_ristretto255_point_decompress failed to decode point:"
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                    FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ) ));
-    }
-    uchar t[32];
-    fd_ristretto255_ge_tobytes( t, h );
-    if( FD_UNLIKELY( !!memcmp( s, t, 32 ) ) ) {
-      FD_LOG_ERR(( "FAIL"
-                   "\n\tfd_ristretto255_ge_tobytes returned incorrect result:"
-                   "\n\t\tExpected" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
-                   "\n\t\tGot     " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
-                   FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ),
-                   FD_LOG_HEX16_FMT_ARGS( t ), FD_LOG_HEX16_FMT_ARGS( t+16 ) ));
     }
   }
 
@@ -95,14 +119,217 @@ main( int     argc,
   for( uchar const * s  = *bad_encodings;
                      s  < (uchar const *)bad_encodings + sizeof bad_encodings;
                      s += 32 ) {
-    fd_ed25519_ge_p3_t h[1];
-    if( FD_UNLIKELY( !!fd_ristretto255_ge_frombytes_vartime( h, s ) ) ) {
+    fd_ristretto255_point_t h[1];
+    if( FD_UNLIKELY( !!fd_ristretto255_point_decompress( h, s ) ) ) {
       FD_LOG_ERR(( "FAIL"
                    "\n\tBad encoding was not rejected:"
                    "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
                    FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ) ));
     }
   }
+
+  /* Benchmarks */
+  fd_memcpy( s, base_point_multiples[5], 32 );
+  ulong iter = 100000UL;
+  long dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_point_decompress( h, s ); }
+  dt = fd_log_wallclock() - dt;
+  log_bench( "fd_ristretto255_point_decompress", iter, dt );
+}
+
+static void
+test_point_compress( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar                   _s[32]; uchar *                   s = _s;
+  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
+
+  /* Decompress & compress base point multiples */
+  for( uchar const * s = base_point_multiples[0];
+                     s < (uchar const *)base_point_multiples + sizeof base_point_multiples;
+                     s += 32 ) {
+    fd_ristretto255_point_t h[1];
+    if( FD_UNLIKELY( !fd_ristretto255_point_decompress( h, s ) ) ) {
+      FD_LOG_ERR(( "FAIL"
+                   "\n\tfd_ristretto255_point_decompress failed to decode point:"
+                   "\n\t\t" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                   FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ) ));
+    }
+    uchar t[32];
+    fd_ristretto255_point_compress( t, h );
+    if( FD_UNLIKELY( !!memcmp( s, t, 32 ) ) ) {
+      FD_LOG_ERR(( "FAIL"
+                   "\n\tfd_ristretto255_point_compress returned incorrect result:"
+                   "\n\t\tExpected" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                   "\n\t\tGot     " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                   FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ),
+                   FD_LOG_HEX16_FMT_ARGS( t ), FD_LOG_HEX16_FMT_ARGS( t+16 ) ));
+    }
+
+    /* Multiply all coordinates by const c */
+    fd_ed25519_ge_p3_t * p = fd_type_pun(h);
+    fd_ed25519_fe_t _c[1]; fd_ed25519_fe_t * c = _c;
+    fd_ed25519_fe_rng(c, rng);
+    fd_ed25519_fe_mul(p->X, p->X, c);
+    fd_ed25519_fe_mul(p->Y, p->Y, c);
+    fd_ed25519_fe_mul(p->Z, p->Z, c);
+    fd_ed25519_fe_mul(p->T, p->T, c);
+
+    fd_ristretto255_point_compress( t, h );
+    if( FD_UNLIKELY( !!memcmp( s, t, 32 ) ) ) {
+      FD_LOG_ERR(( "FAIL"
+                   "\n\tfd_ristretto255_point_compress returned incorrect result:"
+                   "\n\t\tExpected" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                   "\n\t\tGot     " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                   FD_LOG_HEX16_FMT_ARGS( s ), FD_LOG_HEX16_FMT_ARGS( s+16 ),
+                   FD_LOG_HEX16_FMT_ARGS( t ), FD_LOG_HEX16_FMT_ARGS( t+16 ) ));
+    }
+  }
+
+  /* Benchmarks */
+  fd_ristretto255_point_decompress( h, base_point_multiples[5] );
+  ulong iter = 100000UL;
+  long dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_point_compress( s, h ); }
+  dt = fd_log_wallclock() - dt;
+  log_bench( "fd_ristretto255_point_compress", iter, dt );
+}
+
+static void
+test_extended_bytes( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar                   _s[32*4]; uchar *                   s = _s;
+  fd_ristretto255_point_t _h[1];    fd_ristretto255_point_t * h = _h;
+
+  /* Benchmarks */
+  fd_ristretto255_point_decompress( h, base_point_multiples[5] );
+  ulong iter = 100000UL;
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_extended_tobytes( s, h ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_extended_tobytes", iter, dt );
+  }
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_extended_frombytes( h, s ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_extended_frombytes", iter, dt );
+  }
+}
+
+static void
+test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar                   _s[64]; uchar *                   s = _s;
+  uchar                   _e[32]; uchar *                   e = _e;
+  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
+  fd_ristretto255_point_t _g[1];  fd_ristretto255_point_t * g = _g;
+
+  /* sha512("Ristretto is traditionally a short shot of espresso coffee") */
+  fd_hex_decode( s, "5d1be09e3d0c82fc538112490e35701979d99e06ca3e2b5b54bffe8b4dc772c14d98b696a1bbfb5ca32c436cc61c16563790306c79eaca7705668b47dffe5bb6", 128 );
+  fd_hex_decode( e, "3066f82a1a747d45120d1740f14358531a8f04bbffe6a819f86dfe50f44a0a46", 64 );
+  fd_ristretto255_point_decompress( g, e );
+
+  fd_ristretto255_hash_to_curve( h, s );
+  FD_TEST( fd_ristretto255_point_eq( h, g ) );
+  FD_TEST( !fd_ed25519_point_eq( h, g ) );
+
+  uchar t[32];
+  fd_ristretto255_point_compress( t, h );
+  if( FD_UNLIKELY( !!memcmp( e, t, 32 ) ) ) {
+    FD_LOG_ERR(( "FAIL"
+                  "\n\tfd_ristretto255_hash_to_curve returned incorrect result:"
+                  "\n\t\tExpected" FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT
+                  "\n\t\tGot     " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT,
+                  FD_LOG_HEX16_FMT_ARGS( e ), FD_LOG_HEX16_FMT_ARGS( e+16 ),
+                  FD_LOG_HEX16_FMT_ARGS( t ), FD_LOG_HEX16_FMT_ARGS( t+16 ) ));
+  }
+
+  /* Benchmarks */
+  ulong iter = 100000UL;
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_hash_to_curve( h, s ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_hash_to_curve", iter, dt );
+  }
+}
+
+static void
+test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
+  fd_ristretto255_point_t _f[1];  fd_ristretto255_point_t * f = _f;
+  fd_ristretto255_point_t _g[1];  fd_ristretto255_point_t * g = _g;
+  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
+
+  /* Correctness */
+  fd_ristretto255_point_t _t[1];  fd_ristretto255_point_t * t = _t;
+
+  fd_ristretto255_point_decompress( t, base_point_multiples[0] );
+  fd_ristretto255_point_decompress( f, base_point_multiples[5] );
+  fd_ristretto255_point_add(h, f, t); /* P = P + 0 */
+  FD_TEST( fd_ristretto255_point_eq( h, f ) );
+  fd_ristretto255_point_add(h, t, f); /* P = 0 + P */
+  FD_TEST( fd_ristretto255_point_eq( h, f ) );
+  fd_ristretto255_point_sub(h, f, t); /* P = P - 0 */
+  FD_TEST( fd_ristretto255_point_eq( h, f ) );
+
+  fd_ristretto255_point_sub(g, t, f); /* 0 - P */
+  fd_ristretto255_point_add(h, f, g); /* 0 = P + (-P) */
+  FD_TEST( fd_ristretto255_point_eq( h, t ) );
+  fd_ristretto255_point_add(h, g, f); /* 0 = (-P) + P */
+  FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+  for ( int i=1; i<=15; i++ ) {
+    for ( int j=1; i+j<=15; j++ ) {
+      fd_ristretto255_point_decompress( f, base_point_multiples[i] );
+      fd_ristretto255_point_decompress( g, base_point_multiples[j] );
+      fd_ristretto255_point_decompress( t, base_point_multiples[i+j] );
+      fd_ristretto255_point_add(h, f, g); /* (i+j)P = iP + jP */
+      FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+      fd_ristretto255_point_sub(h, t, g); /* iP = (i+j)P - jP */
+      FD_TEST( fd_ristretto255_point_eq( h, f ) );
+    }
+  }
+
+  /* Benchmarks */
+  ulong iter = 1000000UL;
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( g ); FD_COMPILER_FORGET( h );
+      fd_ristretto255_point_add( h, f, g );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_point_add", iter, dt );
+  }
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( g ); FD_COMPILER_FORGET( h );
+      fd_ristretto255_point_sub( h, f, g );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_point_sub", iter, dt );
+  }
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  test_point_decompress ( rng );
+  test_point_compress   ( rng );
+  test_extended_bytes   ( rng );
+
+  test_hash_to_curve    ( rng );
+
+  test_point_add_sub    ( rng );
+  // test_point_scalarmult ( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -8,16 +8,6 @@
 #error "Unsupported FD_ED25519_FE_IMPL"
 #endif
 
-static inline int
-fd_ed25519_fe_eq( fd_ed25519_fe_t * const fe0,
-                   fd_ed25519_fe_t * const fe1 ) {
-  return ( fe0->limb[ 0 ] == fe1->limb[ 0 ] ) & ( fe0->limb[ 1 ] == fe1->limb[ 1 ] ) &
-         ( fe0->limb[ 2 ] == fe1->limb[ 2 ] ) & ( fe0->limb[ 3 ] == fe1->limb[ 3 ] ) &
-         ( fe0->limb[ 4 ] == fe1->limb[ 4 ] ) & ( fe0->limb[ 5 ] == fe1->limb[ 5 ] ) &
-         ( fe0->limb[ 6 ] == fe1->limb[ 6 ] ) & ( fe0->limb[ 7 ] == fe1->limb[ 7 ] ) &
-         ( fe0->limb[ 8 ] == fe1->limb[ 8 ] ) & ( fe0->limb[ 9 ] == fe1->limb[ 9 ] );
-}
-
 static inline void
 fd_ed25519_ge_p3_mul_by_pow_2( fd_ed25519_ge_p3_t * ret,
                                fd_ed25519_ge_p3_t * const p,
@@ -41,21 +31,8 @@ fd_ed25519_ge_p3_mul_by_pow_2( fd_ed25519_ge_p3_t * ret,
 static inline int
 fd_ed25519_ge_p3_is_identity( fd_ed25519_ge_p3_t * const p ) {
   fd_ed25519_ge_p3_t I[1];
-  fd_ed25519_fe_0( I->X );
-  fd_ed25519_fe_1( I->Y );
-  fd_ed25519_fe_1( I->Z );
-  fd_ed25519_fe_0( I->T );
-
-  fd_ed25519_fe_t cmp[2];
-  fd_ed25519_fe_mul( &cmp[ 0 ], p->X, I->Z );
-  fd_ed25519_fe_mul( &cmp[ 1 ], I->X, p->Z );
-  int x = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
-
-  fd_ed25519_fe_mul( &cmp[ 0 ], p->Y, I->Z );
-  fd_ed25519_fe_mul( &cmp[ 1 ], I->Y, p->Z );
-  int y = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
-
-  return x & y;
+  fd_ed25519_ge_p3_0(I);
+  return fd_ed25519_ge_eq(p, I);
 }
 
 int

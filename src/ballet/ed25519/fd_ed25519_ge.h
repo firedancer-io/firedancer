@@ -16,7 +16,7 @@
 /* FD_ED25519_POINT_{ALIGN,FOOTPRINT} specify requirements for a memory
    region suitable to hold an fd_ed25519_point_t. */
 
-#define FD_ED25519_POINT_ALIGN     ( 16UL)
+#define FD_ED25519_POINT_ALIGN     ( 64UL)
 #define FD_ED25519_POINT_FOOTPRINT (256UL)
 
 /* fd_ed25519_point_t is a opaque handle to an Ed25519 group element.

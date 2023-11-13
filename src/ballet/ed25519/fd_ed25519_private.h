@@ -87,6 +87,21 @@ fd_ed25519_ge_p3_0( fd_ed25519_ge_p3_t * h ) {
   return h;
 }
 
+static inline int
+fd_ed25519_ge_eq( fd_ed25519_ge_p3_t * const p,
+                  fd_ed25519_ge_p3_t * const q ) {
+  fd_ed25519_fe_t cmp[2];
+  fd_ed25519_fe_mul( &cmp[ 0 ], p->X, q->Z );
+  fd_ed25519_fe_mul( &cmp[ 1 ], q->X, p->Z );
+  int x = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  fd_ed25519_fe_mul( &cmp[ 0 ], p->Y, q->Z );
+  fd_ed25519_fe_mul( &cmp[ 1 ], q->Y, p->Z );
+  int y = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  return x & y;
+}
+
 fd_ed25519_ge_p3_t *
 fd_ed25519_ge_scalarmult_base( fd_ed25519_ge_p3_t * h,
                                uchar const *        a );
