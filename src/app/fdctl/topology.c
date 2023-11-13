@@ -179,17 +179,6 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ i ];
     if( FD_LIKELY( link->wksp_id!=wksp->id ) ) continue;
 
-    ulong dcache_app_sz = 0UL;
-    switch( link->kind ) {
-      case FD_TOPO_LINK_KIND_QUIC_TO_VERIFY:
-        /* The QUIC tile stashes some information in the dcache app region, this
-            should probably be changed. */
-        dcache_app_sz = fd_quic_dcache_app_footprint( link->depth );
-        break;
-      default:
-        break;
-    }
-
     void * mcache = SCRATCH_ALLOC( fd_mcache_align(), fd_mcache_footprint( link->depth, 0UL ) );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
       snprintf1( path, sizeof(path), "mcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
@@ -198,12 +187,12 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       link->mcache = fd_mcache_join( mcache );
       if( FD_UNLIKELY( !link->mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
     }
-  
+
     if( FD_LIKELY( link->mtu ) ) {
-      void * dcache = SCRATCH_ALLOC( fd_dcache_align(), fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), dcache_app_sz ) );
+      void * dcache = SCRATCH_ALLOC( fd_dcache_align(), fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
         snprintf1( path, sizeof(path), "dcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
-        INSERT_POD( path, fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), dcache_app_sz ) );
+        INSERT_POD( path, fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_dcache_join( dcache );
         if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
@@ -372,7 +361,7 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t * tile ) {
     /* Shred and pack tiles use 5 normal pages to hold key material. */
     key_pages = 5UL;
   }
-  
+
   /* All tiles lock one normal page for the fd_log shared lock. */
   return key_pages + 1UL;
 }
