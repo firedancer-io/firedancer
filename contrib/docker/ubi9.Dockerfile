@@ -14,6 +14,10 @@ ARG RELEASE_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.2-755
 
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
+# Install Rustup
+RUN curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # Fetch and build source dependencies
 
 WORKDIR /firedancer
@@ -23,7 +27,7 @@ RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
 # Build source tree
 
 COPY . ./
-RUN make -j all --output-sync=target
+RUN make -j all rust --output-sync=target
 
 # Set up release container
 
