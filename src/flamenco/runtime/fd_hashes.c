@@ -4,13 +4,24 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/ed25519/fd_ristretto255_ge.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 #include "fd_account.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
-#define SORT_BEFORE(a,b) ((memcmp(&a, &b, 32) < 0))
+static int
+fd_pubkey_hash_pair_compare(fd_pubkey_hash_pair_t const * a, fd_pubkey_hash_pair_t const * b) {
+  for (uint i = 0; i < 32U/sizeof(ulong); ++i) {
+    /* First byte is least significant when seen as a long. Make it most significant. */
+    ulong al = __builtin_bswap64(a->pubkey->ul[i]);
+    ulong bl = __builtin_bswap64(b->pubkey->ul[i]);
+    if (al != bl) return (al < bl);
+  }
+  return 0;
+}
+#define SORT_BEFORE(a,b) fd_pubkey_hash_pair_compare(&a, &b)
 #include "../../util/tmpl/fd_sort.c"
 
 #define FD_ACCOUNT_DELTAS_MERKLE_FANOUT (16UL)
@@ -39,7 +50,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
   for( ulong i = 0; i < pairs_len; ++i ) {
 
     if (0) {
-      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey.key, pairs[i].hash.hash));
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->uc, pairs[i].hash->hash));
 
       /*
       pubkey
@@ -57,7 +68,7 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
       // char encoded_owner[50];
       // fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
       int     err;
-      uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) &pairs[i].pubkey, NULL, &err);
+      uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, pairs[i].pubkey, NULL, &err);
       if (NULL != raw_acc_data) {
 
         fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
@@ -75,14 +86,14 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
           *acc_data_str_cursor = 0;
         }
 
-        FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  pairs[i].pubkey.uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, pairs[i].hash.hash ));
-        fprintf(stderr, "account_delta_hash pubkey: %32J, slot: %lu, lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  pairs[i].pubkey.uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, pairs[i].hash.hash );
+        FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  pairs[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, pairs[i].hash->hash ));
+        fprintf(stderr, "account_delta_hash pubkey: %32J, slot: %lu, lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  pairs[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, pairs[i].hash->hash );
 
         free(acc_data_str);
       }
     }
 
-    fd_sha256_append( &shas[0] , (uchar const *) pairs[i].hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &shas[0], pairs[i].hash->hash, sizeof( fd_hash_t ) );
     num_hashes[0]++;
 
     for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
@@ -256,6 +267,9 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 
+  fd_ristretto255_point_t rhash;
+  fd_ristretto255_extended_frombytes( &rhash, slot_ctx->slot_bank.rhash );
+
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
@@ -278,25 +292,42 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Hash account */
 
     fd_hash_t acc_hash[1];
+    uchar acc_rhash[128];
+    uchar deleted = 0;
     // TODO: talk to jsiegel about this
     if (FD_UNLIKELY(acc_meta->info.lamports == 0)) { //!FD_RAW_ACCOUNT_EXISTS(_raw))) {
       fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
+
       /* If we erase records instantly, this causes problems with the
          iterator.  Instead, we will store away the record and erase
          it later where appropriate.  */
       fd_funk_rec_vector_push(&erase_recs, rec);
+      deleted = 1;
     } else {
-      fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, slot_ctx );
+      // Maybe instead of going through the whole hash mechanism, we
+      // can find the parent funky record and just compare the data?
+      fd_hash_account_current( acc_hash->hash, acc_rhash, acc_meta, acc_key->key, acc_data, slot_ctx );
     }
 
     /* If hash didn't change, nothing to do */
-
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) ) {
       FD_LOG_WARNING(("Acc hash no change %32J for account %32J", acc_meta->hash, acc_key->uc));
       continue;
     }
 
     /* Upgrade to writable record */
+
+    // How the heck do we deal with new accounts?  test that
+
+    // Lets remove the effect of this account on the rhash...
+    fd_ristretto255_point_t p2;
+    fd_ristretto255_extended_frombytes( &p2, acc_meta->rhash );
+    fd_ristretto255_point_sub( &rhash, &rhash, &p2 );
+
+    if (!deleted) {
+      fd_ristretto255_extended_frombytes( &p2, acc_rhash );
+      fd_ristretto255_point_add( &rhash, &rhash, &p2 );
+    }
 
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = rec;
@@ -307,6 +338,8 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Update hash */
 
     memcpy( acc_rec->meta->hash, acc_hash->hash, sizeof(fd_hash_t) );
+    memcpy( acc_rec->meta->rhash, acc_rhash, sizeof(acc_rhash) );
+    acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
     /* Logging ... */
     FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
@@ -315,21 +348,24 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                    "owner: %32J  "
                    "executable: %s,  "
                    "rent_epoch: %ld, "
-                   "data_len: %ld",
+                   "data_len: %ld, "
+                   "hash: %32J",
                    acc_key,
                    slot,
                    acc_rec->meta->info.lamports,
                    acc_rec->meta->info.owner,
                    acc_rec->meta->info.executable ? "true" : "false",
                    acc_rec->meta->info.rent_epoch,
-                   acc_rec->meta->dlen ));
+                   acc_rec->meta->dlen,
+                   acc_rec->meta->hash
+        ));
 
     /* Add account to "dirty keys" list, which will be added to the
        bank hash. */
 
     fd_pubkey_hash_pair_t dirty_entry;
-    memcpy( dirty_entry.pubkey.key, acc_key,        sizeof(fd_pubkey_t) );
-    memcpy( dirty_entry.hash.hash,  acc_hash->hash, sizeof(fd_hash_t  ) );
+    dirty_entry.pubkey = acc_key;
+    dirty_entry.hash = (const fd_hash_t *)acc_rec->meta->hash;
     fd_pubkey_hash_vector_push( &dirty_keys, dirty_entry );
 
     /* Add to capture */
@@ -343,6 +379,12 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         acc_hash->hash );
     FD_TEST( err==0 );
   }
+
+  // We have a new ristretto hash
+  fd_ristretto255_extended_tobytes( slot_ctx->slot_bank.rhash, &rhash );
+
+  // Lets make sure everything lines up...
+  fd_accounts_check_rhash( slot_ctx );
 
   /* Sort and hash "dirty keys" to the accounts delta hash. */
 
@@ -361,7 +403,8 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
 void const *
 fd_hash_account_v0( uchar                     hash[ static 32 ],
-                    fd_account_meta_t const * m,
+                    uchar                    *rhash,
+                    fd_account_meta_t const  *m,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data,
                     ulong                     slot ) {
@@ -381,11 +424,30 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, owner,       32UL            );
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
+
+  if (NULL != rhash) {
+    uchar hash512[64];
+    fd_ristretto255_point_t p;
+
+    fd_blake3_init  ( b3 );
+    fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
+    fd_blake3_append( b3, &slot,       sizeof( ulong ) );
+    fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
+    fd_blake3_append( b3, data,        m->dlen         );
+    fd_blake3_append( b3, &executable, sizeof( uchar ) );
+    fd_blake3_append( b3, owner,       32UL            );
+    fd_blake3_append( b3, pubkey,      32UL            );
+    fd_blake3_fini_512  ( b3, hash512 );
+    fd_ristretto255_hash_to_curve( &p, hash512 );
+    fd_ristretto255_extended_tobytes( rhash, &p );
+  }
+
   return hash;
 }
 
 void const *
 fd_hash_account_v1( uchar                     hash[ static 32 ],
+                    uchar                    *rhash,
                     fd_account_meta_t const * m,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data ) {
@@ -404,19 +466,37 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, owner,       32UL            );
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
+
+  if (NULL != rhash) {
+    uchar hash512[64];
+    fd_ristretto255_point_t p;
+
+    fd_blake3_init  ( b3 );
+    fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
+    fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
+    fd_blake3_append( b3, data,        m->dlen         );
+    fd_blake3_append( b3, &executable, sizeof( uchar ) );
+    fd_blake3_append( b3, owner,       32UL            );
+    fd_blake3_append( b3, pubkey,      32UL            );
+    fd_blake3_fini_512  ( b3, hash512 );
+    fd_ristretto255_hash_to_curve( &p, hash512 );
+    fd_ristretto255_extended_tobytes( rhash, &p );
+  }
+
   return hash;
 }
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
+                         uchar                     *rhash,
                          fd_account_meta_t const *  account,
                          uchar const                pubkey[ static 32 ],
                          uchar const              * data,
                          fd_exec_slot_ctx_t const * slot_ctx ) {
   if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
-    return fd_hash_account_v1( hash, account, pubkey, data );
+    return fd_hash_account_v1( hash, rhash, account, pubkey, data );
   else
-    return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->slot_bank.slot );
+    return fd_hash_account_v0( hash, rhash, account, pubkey, data, slot_ctx->slot_bank.slot );
 }
 
 struct accounts_hash {
@@ -518,8 +598,8 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
       if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
         continue;
 
-      fd_memcpy(pairs[num_pairs].pubkey.key, slot->key->pair.key, 32);
-      fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
+      pairs[num_pairs].pubkey = (const fd_pubkey_t *)slot->key->pair.key->uc;
+      pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
       num_pairs++;
     }
   }
@@ -533,3 +613,166 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 
   return 0;
 }
+
+// This is bad.. everything I am doing here is a violation of data
+// boundries...  such is the life of POC code...
+int
+fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
+  ulong oldslot = slot_ctx->slot_bank.slot;
+
+  // Lets initialize this to zero
+  fd_ristretto255_point_t rhash;
+  fd_ristretto255_point_0(&rhash);
+
+  for (
+    fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, NULL); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec))
+    {
+      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+        void const * data = fd_funk_val( rec, fd_funk_wksp(funk) );
+        fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
+        FD_TEST ( metadata->magic == FD_ACCOUNT_META_MAGIC );
+
+        uchar                      hash[32];
+        void const * d   = (void const *)( (ulong)data + metadata->hlen );
+        slot_ctx->slot_bank.slot = metadata->slot;
+
+        // I really should do a funk_view here.. to get a writable metadata object but this is POC code...
+        fd_hash_account_current(hash, (uchar *) metadata->rhash, metadata, (uchar *) rec->pair.key, d, slot_ctx);
+        FD_TEST(memcmp(hash, metadata->hash, 32) == 0);
+
+        // We maybe should refactor fd_hash_account_current to save
+        // away the point so that we can use it.. but that will be
+        // done after the POC
+        fd_ristretto255_point_t p2;
+        fd_ristretto255_extended_frombytes( &p2, metadata->rhash );
+
+        fd_ristretto255_point_add( &rhash, &rhash, &p2 );
+      } // if ( fd_acc_mgr_is_key( rec->pair.key ) )
+    } // fd_funk_rec_t const *rec = fd_f
+
+  // I kinda wish we could just put the point itself into the slot
+  // context.  Problem is, the point is a opaque handle.. we could use
+  // a "sizeof" against it to save the raw bytes but I don't know how
+  // stable it is.  It just feels performance stupid to be doing this
+  // conversion but maybe on the grand scale of things, it doesn't
+  // really matter?
+  fd_ristretto255_extended_tobytes( slot_ctx->slot_bank.rhash, &rhash );
+
+  slot_ctx->slot_bank.slot = oldslot;
+  return 0;
+} // fd_accounts_init_
+
+/*
+ Confirms we can recreate the ristretto hash at any time and things
+ still match
+ */
+
+void
+fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
+  ulong oldslot = slot_ctx->slot_bank.slot;
+
+  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *     wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
+  fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
+
+  // How many txns are we dealing with?
+  ulong txn_cnt = 1;
+  fd_funk_txn_t * txn = slot_ctx->funk_txn;
+  while (NULL != txn) {
+    txn_cnt++;
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+
+  fd_funk_txn_t ** txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
+  if ( FD_UNLIKELY(NULL == txns))
+    FD_LOG_ERR(("Out of scratch space?"));
+
+  // Lay it flat to make it easier to walk backwards up the chain from
+  // the root
+  txn = slot_ctx->funk_txn;
+  ulong txn_idx = txn_cnt;
+  while (1) {
+    txns[--txn_idx] = txn;
+    if (NULL == txn)
+      break;
+    txn = fd_funk_txn_parent( txn, txn_map );
+  }
+
+  // How many total records are we dealing with?
+  ulong           num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+
+  int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
+
+  FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %d   slots: %d", num_iter_accounts, accounts_hash_slots));
+  void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
+  FD_LOG_WARNING(("initializing memory for hash"));
+  accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
+
+  FD_LOG_WARNING(("copying in accounts"));
+
+  // walk up the transactions...
+  for (ulong idx = 0; idx < txn_cnt; idx++) {
+    FD_LOG_WARNING(("txn idx %d", idx));
+    for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
+         NULL != rec;
+         rec = fd_funk_txn_next_rec(funk, rec)) {
+      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+        accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
+        if (NULL != q)
+          accounts_hash_remove(hash_map, q);
+        if (!(rec->flags & FD_FUNK_REC_FLAG_ERASE))
+          accounts_hash_insert(hash_map, (fd_funk_rec_t *) rec);
+      }
+    }
+  }
+
+  // Lets initialize this to zero
+  fd_ristretto255_point_t rhash;
+  fd_ristretto255_point_0(&rhash);
+
+  ulong slot_cnt = accounts_hash_slot_cnt(hash_map);;
+  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
+    accounts_hash_t *slot = &hash_map[slot_idx];
+    if (FD_UNLIKELY (NULL != slot->key)) {
+//      FD_LOG_WARNING(( "newcase: %32J ", (uchar *) slot->key->pair.key));
+
+      void const * data = fd_funk_val_const( slot->key, wksp );
+      fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
+
+      uchar                      hash[32];
+      uchar                      account_rhash[128];
+
+      void const * d   = (void const *)( (ulong)data + metadata->hlen );
+
+      // This goes away... soon... but not soon enough as far as I
+      // am concerned...  It is gone on testnet and I think it might
+      // also be gone on mainnet.. if so, maybe I should create a
+      // new test ledger...
+      slot_ctx->slot_bank.slot = metadata->slot;
+
+      fd_hash_account_current(hash, account_rhash, metadata, (uchar *) slot->key->pair.key, d, slot_ctx);
+
+      FD_TEST(memcmp(hash, metadata->hash, 32) == 0);
+      FD_TEST(memcmp(account_rhash, metadata->rhash, 128) == 0);
+
+      fd_ristretto255_point_t p2;
+      fd_ristretto255_extended_frombytes( &p2, metadata->rhash );
+
+      fd_ristretto255_point_add( &rhash, &rhash, &p2 );
+    }
+  }
+
+  uchar                      v1[32];
+  fd_ristretto255_point_compress(v1, &rhash);
+
+  fd_ristretto255_point_t p2;
+  fd_ristretto255_extended_frombytes( &p2, slot_ctx->slot_bank.rhash );
+  uchar                      v2[32];
+  fd_ristretto255_point_compress(v2, &p2);
+
+  FD_TEST(memcmp(v1, v2, 32) == 0);
+
+  slot_ctx->slot_bank.slot = oldslot;
+} // fd_accounts_check_rhash

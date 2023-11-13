@@ -228,11 +228,12 @@
       "attribute": "((packed))",
       "fields": [
         { "name": "magic", "type": "ushort" },
-        { "name": "hlen", "type": "ushort" },
-        { "name": "dlen", "type": "ulong" },
-        { "name": "hash", "type": "uchar[32]" },
-        { "name": "slot", "type": "ulong" },
-        { "name": "info", "type": "solana_account_meta" }
+        { "name": "hlen",  "type": "ushort" },
+        { "name": "dlen",  "type": "ulong" },
+        { "name": "hash",  "type": "uchar[32]" },
+        { "name": "rhash", "type": "uchar[128]" },
+        { "name": "slot",  "type": "ulong" },
+        { "name": "info",  "type": "solana_account_meta" }
       ]
     },
     {
@@ -920,6 +921,7 @@
         { "name": "prev_slot",             "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
         { "name": "banks_hash",            "type": "hash" },
+        { "name": "rhash",                 "type": "uchar[128]" },
         { "name": "epoch_account_hash",    "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
@@ -1939,8 +1941,8 @@
         { "name": "bank",                                  "type": "deserializable_versioned_bank" },
         { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
         { "name": "lamports_per_signature",                "type": "ulong" },
-        { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence" },
-        { "name": "epoch_accounts_hash",                   "type": "option", "element": "hash" },
+        { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
+        { "name": "epoch_accounts_hash",                   "type": "option", "element": "hash", "ignore_underflow": true },
         { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status", "ignore_underflow": true }
       ]
     }

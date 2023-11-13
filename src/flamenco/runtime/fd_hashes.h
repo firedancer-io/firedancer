@@ -8,8 +8,8 @@
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
 struct fd_pubkey_hash_pair {
-  fd_pubkey_t pubkey;
-  fd_hash_t   hash;
+  fd_pubkey_t const * pubkey;
+  fd_hash_t   const * hash;
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 
@@ -45,6 +45,7 @@ int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, ulong 
 
 void const *
 fd_hash_account_v0( uchar                     hash[ static 32 ],
+                    uchar                    *rhash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data,
@@ -58,6 +59,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
 
 void const *
 fd_hash_account_v1( uchar                     hash  [ static 32 ],
+                    uchar                    *rhash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data );
@@ -67,6 +69,7 @@ fd_hash_account_v1( uchar                     hash  [ static 32 ],
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
+                         uchar                     *rhash,
                          fd_account_meta_t const *  account,
                          uchar const                pubkey[ static 32 ],
                          uchar const *              data,
@@ -75,6 +78,12 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash );
+
+int
+fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx );
+
+void
+fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

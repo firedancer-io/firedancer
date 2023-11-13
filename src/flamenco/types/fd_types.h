@@ -235,6 +235,7 @@ struct __attribute__((packed)) fd_account_meta {
   ushort hlen;
   ulong dlen;
   uchar hash[32];
+  uchar rhash[128];
   ulong slot;
   fd_solana_account_meta_t info;
 };
@@ -1129,6 +1130,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong prev_slot;
   fd_hash_t poh;
   fd_hash_t banks_hash;
+  uchar rhash[128];
   fd_hash_t epoch_account_hash;
   fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
