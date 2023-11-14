@@ -93,7 +93,7 @@ fd_pack_t * fd_pack_join( void * mem );
 
 /* fd_pack_avail_txn_cnt returns the number of transactions that this
    pack object has available to schedule but that have not been
-   scheduled yet. pack must be a vaild local join.  The return value
+   scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
 FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
@@ -136,8 +136,8 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
 
    pack must be a local join of a pack object.  Transactions part of the
    scheduled microblock are copied to out in no particular order.  The
-   cumulative cost of these transactions will not excede total_cus, and
-   the number of transactions will not excede the value of
+   cumulative cost of these transactions will not exceed total_cus, and
+   the number of transactions will not exceed the value of
    max_txn_per_microblock given in fd_pack_new.
 
    The block will not contain more than
