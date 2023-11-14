@@ -21,7 +21,7 @@
    before tc and netfilter).  eBPF is user-deployable JIT-compiled
    bytecode that usually runs inside the kernel. Some hardware/driver
    combinations optionally allow offloading eBPF processing to NICs.
-   This is not to be confused with other BPF-erived ISAs such as sBPF
+   This is not to be confused with other BPF-derived ISAs such as sBPF
    (Solana BPF).
 
      +--- Figure 1: AF_XDP RX Block Diagram -----------------+

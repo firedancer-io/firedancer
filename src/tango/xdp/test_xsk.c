@@ -151,7 +151,7 @@ test_xsk( void ) {
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    "lo", 0U ) ); /* oversz app_anme */
+    "lo", 0U ) ); /* oversz app_name */
   FD_TEST( NULL==fd_xsk_bind( shxsk, "app", "AAAAAAAAAAAAAAAA", 0U ) ); /* oversz ifname */
 
   FD_TEST( NULL==fd_xsk_bind( (void *)((ulong)shxsk+1UL), "app", "lo", 0U ) ); /* unalign shxsk */
