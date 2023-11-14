@@ -26,7 +26,7 @@ FD_PROTOTYPES_BEGIN
 
    Stores the output in the buffer pointed to by out.  If opt_len is
    non-NULL, *opt_len == strlen( out ) on return.  Returns out.  out is
-   guaranteed to be nul teriminated on return.
+   guaranteed to be nul terminated on return.
 
    Out must have enough space for FD_BASE58_ENCODED_{32,64}_SZ
    characters, including the nul terminator.
