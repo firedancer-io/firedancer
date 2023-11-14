@@ -257,26 +257,27 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
 
 static void
 test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
-  fd_ristretto255_point_t _f[1];  fd_ristretto255_point_t * f = _f;
-  fd_ristretto255_point_t _g[1];  fd_ristretto255_point_t * g = _g;
-  fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
+  fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
+  fd_ristretto255_point_t _g[1]; fd_ristretto255_point_t * g = _g;
+  fd_ristretto255_point_t _h[1]; fd_ristretto255_point_t * h = _h;
 
   /* Correctness */
-  fd_ristretto255_point_t _t[1];  fd_ristretto255_point_t * t = _t;
+  fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
 
   fd_ristretto255_point_decompress( t, base_point_multiples[0] );
   fd_ristretto255_point_decompress( f, base_point_multiples[5] );
-  fd_ristretto255_point_add(h, f, t); /* P = P + 0 */
+  fd_ristretto255_point_add( h, t, f ); /* P = P + 0 */
+  fd_ristretto255_point_add( g, f, t ); /* P = 0 + P */
   FD_TEST( fd_ristretto255_point_eq( h, f ) );
-  fd_ristretto255_point_add(h, t, f); /* P = 0 + P */
+  fd_ristretto255_point_add( h, t, f ); /* P = 0 + P */
   FD_TEST( fd_ristretto255_point_eq( h, f ) );
   fd_ristretto255_point_sub(h, f, t); /* P = P - 0 */
   FD_TEST( fd_ristretto255_point_eq( h, f ) );
 
-  fd_ristretto255_point_sub(g, t, f); /* 0 - P */
-  fd_ristretto255_point_add(h, f, g); /* 0 = P + (-P) */
+  fd_ristretto255_point_sub( g, t, f ); /* 0 - P */
+  fd_ristretto255_point_add( h, f, g ); /* 0 = P + (-P) */
   FD_TEST( fd_ristretto255_point_eq( h, t ) );
-  fd_ristretto255_point_add(h, g, f); /* 0 = (-P) + P */
+  fd_ristretto255_point_add( h, g, f ); /* 0 = (-P) + P */
   FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
   for ( int i=1; i<=15; i++ ) {
@@ -284,10 +285,10 @@ test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_ristretto255_point_decompress( f, base_point_multiples[i] );
       fd_ristretto255_point_decompress( g, base_point_multiples[j] );
       fd_ristretto255_point_decompress( t, base_point_multiples[i+j] );
-      fd_ristretto255_point_add(h, f, g); /* (i+j)P = iP + jP */
+      fd_ristretto255_point_add( h, f, g ); /* (i+j)P = iP + jP */
       FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
-      fd_ristretto255_point_sub(h, t, g); /* iP = (i+j)P - jP */
+      fd_ristretto255_point_sub( h, t, g ); /* iP = (i+j)P - jP */
       FD_TEST( fd_ristretto255_point_eq( h, f ) );
     }
   }

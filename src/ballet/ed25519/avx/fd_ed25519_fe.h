@@ -66,12 +66,13 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
 }
 
 static inline int
-fd_ed25519_fe_eq( fd_ed25519_fe_t * const f,
-                  fd_ed25519_fe_t * const g ) {
-  // FIXME - temp placeholder
-  uchar s[32]; fd_ed25519_fe_tobytes(s, f);
-  uchar t[32]; fd_ed25519_fe_tobytes(t, g);
-  return !memcmp(s, t, 32);
+fd_ed25519_fe_eq( fd_ed25519_fe_t * const fe0,
+                   fd_ed25519_fe_t * const fe1 ) {
+  return ( fe0->limb[ 0 ] == fe1->limb[ 0 ] ) & ( fe0->limb[ 1 ] == fe1->limb[ 1 ] ) &
+         ( fe0->limb[ 2 ] == fe1->limb[ 2 ] ) & ( fe0->limb[ 3 ] == fe1->limb[ 3 ] ) &
+         ( fe0->limb[ 4 ] == fe1->limb[ 4 ] ) & ( fe0->limb[ 5 ] == fe1->limb[ 5 ] ) &
+         ( fe0->limb[ 6 ] == fe1->limb[ 6 ] ) & ( fe0->limb[ 7 ] == fe1->limb[ 7 ] ) &
+         ( fe0->limb[ 8 ] == fe1->limb[ 8 ] ) & ( fe0->limb[ 9 ] == fe1->limb[ 9 ] );
 }
 
 static inline fd_ed25519_fe_t *

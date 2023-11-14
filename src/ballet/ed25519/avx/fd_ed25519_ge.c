@@ -475,7 +475,6 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
 
     //fd_ed25519_ge_add( t, A2, Ai[i] );
       FE_AVX_INL_MUL    ( vt, vr, vu );
-      FE_AVX_INL_ADD    ( vu, vt, vt );
       FE_AVX_INL_SUB_MIX( vt, vt     );
       // Fused final perm for add with the below
 
@@ -689,6 +688,58 @@ fd_ed25519_point_0( fd_ed25519_point_t * h ) {
   return h;
 }
 
+static inline fd_ed25519_ge_cached_t *
+fd_ed25519_ge_p3_to_cached( fd_ed25519_ge_cached_t *   r,
+                            fd_ed25519_ge_p3_t const * p ) {
+  static const fd_ed25519_fe_t d2[1] = {{
+    { -21827239, -5839606, -30745221, 13898782, 229458, 15978800, -12551817, -6495438,  29715968, 9444199 }
+  }};
+
+  fd_ed25519_fe_add ( r->YplusX,  p->Y, p->X );
+  fd_ed25519_fe_sub ( r->YminusX, p->Y, p->X );
+  fd_ed25519_fe_copy( r->Z,       p->Z       );
+  fd_ed25519_fe_mul ( r->T2d,     p->T, d2   );
+  return r;
+}
+
+FD_FN_UNUSED static fd_ed25519_ge_p1p1_t * /* Work around -Winline */
+fd_ed25519_ge_add( fd_ed25519_ge_p1p1_t *         r,
+                   fd_ed25519_ge_p3_t const *     p,
+                   fd_ed25519_ge_cached_t const * q ) {
+  fd_ed25519_fe_t t0[1];
+  fd_ed25519_fe_add ( r->X, p->Y,   p->X       );
+  fd_ed25519_fe_sub ( r->Y, p->Y,   p->X       );
+  fd_ed25519_fe_mul4( r->Z, r->X,   q->YplusX,
+                      r->Y, r->Y,   q->YminusX,
+                      r->T, q->T2d, p->T,
+                      r->X, p->Z,   q->Z       );
+  fd_ed25519_fe_add ( t0,   r->X,   r->X       );
+  fd_ed25519_fe_sub ( r->X, r->Z,   r->Y       );
+  fd_ed25519_fe_add ( r->Y, r->Z,   r->Y       );
+  fd_ed25519_fe_add ( r->Z, t0,     r->T       );
+  fd_ed25519_fe_sub ( r->T, t0,     r->T       );
+  return r;
+}
+
+static inline fd_ed25519_ge_p1p1_t *
+fd_ed25519_ge_sub( fd_ed25519_ge_p1p1_t *         r,
+                   fd_ed25519_ge_p3_t const *     p,
+                   fd_ed25519_ge_cached_t const * q ) {
+  fd_ed25519_fe_t t0[1];
+  fd_ed25519_fe_add ( r->X, p->Y,   p->X       );
+  fd_ed25519_fe_sub ( r->Y, p->Y,   p->X       );
+  fd_ed25519_fe_mul4( r->Z, r->X,   q->YminusX,
+                      r->Y, r->Y,   q->YplusX,
+                      r->T, q->T2d, p->T,
+                      r->X, p->Z,   q->Z       );
+  fd_ed25519_fe_add ( t0,   r->X,   r->X       );
+  fd_ed25519_fe_sub ( r->X, r->Z,   r->Y       );
+  fd_ed25519_fe_add ( r->Y, r->Z,   r->Y       );
+  fd_ed25519_fe_sub ( r->Z, t0,     r->T       );
+  fd_ed25519_fe_add ( r->T, t0,     r->T       );
+  return r;
+}
+
 fd_ed25519_point_t *
 fd_ed25519_point_add( fd_ed25519_point_t *       h_,
                       fd_ed25519_point_t const * f_,
@@ -697,7 +748,7 @@ fd_ed25519_point_add( fd_ed25519_point_t *       h_,
   fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
   fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
   fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
-
+#if 0
   FE_AVX_INL_DECL( vh );
   FE_AVX_INL_DECL( vf );
   FE_AVX_INL_DECL( vg );
@@ -735,6 +786,14 @@ fd_ed25519_point_add( fd_ed25519_point_t *       h_,
   FE_AVX_INL_MUL      ( vh, vh, vt      );
 
   FE_AVX_INL_SWIZZLE_OUT4( h->Z, h->Y, h->X, h->T, vh );
+#else
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_add( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+#endif
   return h_;
 }
 
@@ -746,7 +805,7 @@ fd_ed25519_point_sub( fd_ed25519_point_t *       h_,
   fd_ed25519_ge_p3_t * h = (fd_ed25519_ge_p3_t *)h_;
   fd_ed25519_ge_p3_t * f = (fd_ed25519_ge_p3_t *)f_;
   fd_ed25519_ge_p3_t * g = (fd_ed25519_ge_p3_t *)g_;
-
+#if 0
   FE_AVX_INL_DECL( vh );
   FE_AVX_INL_DECL( vf );
   FE_AVX_INL_DECL( vg );
@@ -785,6 +844,14 @@ fd_ed25519_point_sub( fd_ed25519_point_t *       h_,
   FE_AVX_INL_MUL      ( vh, vh, vt      );
 
   FE_AVX_INL_SWIZZLE_OUT4( h->Z, h->Y, h->X, h->T, vh );
+#else
+  fd_ed25519_ge_p1p1_t   r [1];
+  fd_ed25519_ge_cached_t gc[1];
+  fd_ed25519_ge_p3_to_cached( gc, g );
+  fd_ed25519_ge_sub( r, f, gc );
+  /* Consider converting to p2 instead of p3 */
+  fd_ed25519_ge_p1p1_to_p3( h, r );
+#endif
   return h_;
 }
 
