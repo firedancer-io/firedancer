@@ -113,7 +113,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   ulong                bin_sz );
 
 /* fd_sbpf_program_{align,footprint} return the alignment and size
-   requirements of the memory region backing thecool fd_sbpf_program_t
+   requirements of the memory region backing the fd_sbpf_program_t
    object. */
 
 FD_FN_CONST ulong

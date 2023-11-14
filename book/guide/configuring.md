@@ -62,7 +62,7 @@ efficient pipeline for processing transactions.
 ::: warning WARNING
 
 Each tile needs a dedicated CPU core and it will be saturated at 100%
-utlilization The Solana Labs process will run on the remaining cores,
+utilization The Solana Labs process will run on the remaining cores,
 and you must leave at least a few cores unpinned so that it is not
 starved.
 

@@ -11,7 +11,7 @@ CORPUSDIR:=corpus
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
-# Auxiliarily rules that should not set up depenencies
+# Auxiliary rules that should not set up dependencies
 AUX_RULES:=clean distclean help show-deps run-unit-test
 
 all: info bin include lib unit-test
