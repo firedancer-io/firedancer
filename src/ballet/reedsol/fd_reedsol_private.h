@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_reedsol_fd_reedsol_private_h
 #define HEADER_fd_src_ballet_reedsol_fd_reedsol_private_h
 
-/* Contains function declarations for the interal encoding and recovery
+/* Contains function declarations for the internal encoding and recovery
    functions.  */
 
 #include "fd_reedsol.h"
