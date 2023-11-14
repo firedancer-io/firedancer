@@ -8,7 +8,7 @@
    can work performant and transparent with different low level I/O
    libraries and hardware.
 
-   FIXME: update the below documentation.  Also, given fd_aio_t almostly
+   FIXME: update the below documentation.  Also, given fd_aio_t almost
    certainly is behaves like an abstract base class, doing a declaration
    like the below for a fd_aio_t is probably wrong because different
    implementations likely will need different footprints and the like
@@ -102,7 +102,7 @@ struct __attribute__((aligned(FD_AIO_PKT_INFO_ALIGN))) fd_aio_pkt_info {
      - To be used by an AIO instance for receiving future packets.
      - ...
 
-     The readabilty, writeability, lifetime, footprint, alignment, ...
+     The readability, writability, lifetime, footprint, alignment, ...
      requirements of memory region here depending on the specific APIs
      and/or AIO instance. */
 
@@ -158,9 +158,9 @@ typedef struct fd_aio_pkt_info fd_aio_pkt_info_t;
      [*opt_batch_idx,batch_cnt) were not.
 
    - Further, in this case and the error reason is specific to a packet,
-     packets indexed [0,*opt_batch_idx) were seemingly transmissable,
-     the packet indexed *opt_batch_idx was untransmissable and packets
-     indexed (*opt_batch_idx,batch_cnt) had unexamined transmissability.
+     packets indexed [0,*opt_batch_idx) were seemingly transmissible,
+     the packet indexed *opt_batch_idx was untransmissible and packets
+     indexed (*opt_batch_idx,batch_cnt) had unexamined transmissibility.
 
    - The batch array and memory regions covered by the batch array and
      any *opt_batch_idx must not be modified while this is running.
@@ -169,7 +169,7 @@ typedef struct fd_aio_pkt_info fd_aio_pkt_info_t;
      interest in the batch array, the packet buffers referred to in the
      array on return.
 
-   - flush requests an asychronous best-effort transmit of packets
+   - flush requests an asynchronous best-effort transmit of packets
      buffered from this and prior send operations.  Actual flush
      semantics are implementation-defined.
 
@@ -218,7 +218,7 @@ FD_PROTOTYPES_BEGIN
    probably not things that should be exposed as per FIXME above.  That
    is, probably should be more like
    fd_aio_{xdp,quic}_{align,footprint,new} and similar for other
-   specific AIO implementations (e.g. iouring, etc).  Probably implies
+   specific AIO implementations (e.g. io_uring, etc).  Probably implies
    that fd_aio_private like have their own delete_func too.  Likewise,
    if the ctx gets included in the actual aio, the fd_aio_ctx function
    probably does away. */

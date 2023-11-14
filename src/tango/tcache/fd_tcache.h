@@ -42,7 +42,7 @@
 #define FD_TCACHE_TAG_NULL (0UL)
 
 /* FD_TCACHE_SPARSE_DEFAULT specifies how sparse a default map_cnt
-   tcache map should be.  Must be a postive and << 64.  After startup, a
+   tcache map should be.  Must be a positive and << 64.  After startup, a
    tcache with a large depth with a default map size will have fixed
    fill ratio somewhere between ~2^-SPARSE_DEFAULT and
    ~2^-(SPARSE_DEFAULT-1) (i.e. for SPARSE_DEFAULT=2, the fill ratio
@@ -50,7 +50,7 @@
    memory footprint efficiency and tcache computational efficiency.
    Larger values are more computationally efficient but with an
    exponentially rapidly diminishing return and an exponentially
-   increasing memory footprint.  SPARSE_DEFAULT of 1 is usally a bad
+   increasing memory footprint.  SPARSE_DEFAULT of 1 is usually a bad
    idea as operational costs can spike exponentially if the worst fill
    ratio for the depth ends up close to 1. */
 
@@ -84,7 +84,7 @@ struct __attribute((aligned(FD_TCACHE_ALIGN))) fd_tcache_private {
   /* map_cnt ulong (map):
 
      This is a sparse linear probed key-only map of tags currently in
-     the tcache.  Since it is sparse, probe collisons are rare (and thus
+     the tcache.  Since it is sparse, probe collisions are rare (and thus
      the branches involved in various cache operations are highly
      predictable.  While the sparsity makes the map reasonably
      inefficient from a memory footprint point of view, memory footprint
@@ -163,7 +163,7 @@ fd_tcache_footprint( ulong depth,
    with the required footprint and alignment.  depth is the number of
    unique tags that can be stored in the tcache and should be positive
    (positive integer powers of 2 minus 2 have good memory footprint Feng
-   Shui and postive integer powers of 2 minus 1 have good computational
+   Shui and positive integer powers of 2 minus 1 have good computational
    efficiency Feng Shui).  map_cnt is the number of slots to use for the
    map.  A map_cnt of 0 indicates to fd_tcache_map_cnt_default above.
 

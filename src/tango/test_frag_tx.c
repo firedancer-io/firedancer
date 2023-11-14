@@ -96,7 +96,7 @@ main( int     argc,
     bursts just fit into a single packet).
 
     In the limit pkt_payload_max << burst_avg, the denominator is
-    asympotically such that the number average number of framing bytes
+    asymptotically such that the number average number of framing bytes
     per burst is pkt_framing (burst_avg / pkt_payload_max).  This is also
     as expected as in this limit the bursts are so large they are mostly
     received via the large number of leading MTU packets.
