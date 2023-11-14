@@ -198,7 +198,7 @@ main( int     argc,
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz"  ));
-  if( FD_UNLIKELY( !tx_pcap ) ) FD_LOG_ERR(( "--tx-pcap not specifed" ));
+  if( FD_UNLIKELY( !tx_pcap ) ) FD_LOG_ERR(( "--tx-pcap not specified" ));
 
   if( FD_UNLIKELY( fd_tile_cnt()<3UL ) ) FD_LOG_ERR(( "this unit test requires at least 3 tiles" ));
 

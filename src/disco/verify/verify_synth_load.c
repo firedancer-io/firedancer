@@ -279,7 +279,7 @@ fd_app_verify_task( int     argc,
         continue;
       }
       /* We just "started receiving" the first bytes of the next burst
-         from the redudant "NIC".  Record the timestamp. */
+         from the redundant "NIC".  Record the timestamp. */
       burst_ts = fd_frag_meta_ts_comp( burst_next );
     }
     ulong msg_sz = fd_ulong_min( burst_rem, msg_max );
@@ -311,7 +311,7 @@ fd_app_verify_task( int     argc,
          IFG and udp_payload_msg_sz+12 is last logical wire byte).  We
          don't bother to fill these in from synthetic data as we ignore
          them here (the previous layers should have already validated
-         them).  This implicity assumes that runt and jumbo frames have
+         them).  This implicitly assumes that runt and jumbo frames have
          been discarded upstream. */
 
       /*ulong chunk  = ... already at location where next packet will be written ...; */
@@ -347,7 +347,7 @@ fd_app_verify_task( int     argc,
          quick dedup of ha traffic (FIXME: POTENTIAL DOS ATTACK IF
          SOMEBODY COULD INTERCEPT TRAFFIC AND SUBMIT PACKETS WITH SAME
          PUBLIC KEY, SIG AND GARBAGE MESSAGE AHEAD OF THE TRAFFIC ...
-         SEEMS UNLKELY AS THEY WOULD EITHER BE BEHIND THE INBOUND OR BE
+         SEEMS UNLIKELY AS THEY WOULD EITHER BE BEHIND THE INBOUND OR BE
          A MITM THAT COULD JUST DISCARD INBOUND TRAFFIC).
 
          When running synthetic load though, we only have a very limited

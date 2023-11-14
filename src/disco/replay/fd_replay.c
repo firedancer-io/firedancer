@@ -45,7 +45,7 @@ fd_replay_tile( fd_cnc_t *       cnc,
   ulong   cnc_diag_backp_cnt;     /* Accumulates number of transitions of tile to backpressured between housekeeping events */
   ulong   cnc_diag_pcap_done;     /* is the pcap file stream replay done */
   ulong   cnc_diag_pcap_pub_cnt;  /* Accumulates number of pcap packets published between housekeeping events */
-  ulong   cnc_diag_pcap_pub_sz;   /* Accumulates pcap payload bytes publised between housekeeping events */
+  ulong   cnc_diag_pcap_pub_sz;   /* Accumulates pcap payload bytes published between housekeeping events */
   ulong   cnc_diag_pcap_filt_cnt; /* Accumulates number of pcap packets filtered between housekeeping events */
   ulong   cnc_diag_pcap_filt_sz;  /* Accumulates pcap payload bytes filtered between housekeeping events */
 
