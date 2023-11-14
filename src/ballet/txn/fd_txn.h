@@ -65,7 +65,7 @@
 #define FD_TXN_SIG_MAX               (127UL)
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
-   that a transaction can have.  The spec only guarauntees <= 256, but the
+   that a transaction can have.  The spec only guarantees <= 256, but the
    current MTU of 1232 B restricts this to 35 account addresses.  An artificial
    limit of 64 is currently in place, but this is being changed to 128 in the
    near future (https://github.com/solana-labs/solana/issues/27241), so we'll
@@ -77,7 +77,7 @@
    the maximum number allowed.  Since there's a maximum of 128 total accounts
    (including the fee payer) that the transaction can reference, if you have
    more than 127 table lookups, then you must have some from which you are not
-   using any account.  Realistically, the current MTU of 1232 B resticts this
+   using any account.  Realistically, the current MTU of 1232 B restricts this
    to 33. FIXME: We should petition to limit this to approx 8. */
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
@@ -436,7 +436,7 @@ fd_txn_footprint( ulong instr_cnt,
 
    From these properties, we can make categories of account addresses
    for counting and iterating over account addresses.  Since these
-   properties can be set indepenently, it would seem to give us 2*2*2=8
+   properties can be set independently, it would seem to give us 2*2*2=8
    categories of accounts based on the properties, but account addresses
    that come from an address lookup table cannot be signers, giving 6
    raw categories instead of 8.
