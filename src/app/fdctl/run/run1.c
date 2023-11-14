@@ -130,8 +130,7 @@ tile_main( void * _args ) {
     .before_frag         = config->mux_before_frag,
     .during_frag         = config->mux_during_frag,
     .after_frag          = config->mux_after_frag,
-    .cnc_diag_write      = config->mux_cnc_diag_write,
-    .cnc_diag_clear      = config->mux_cnc_diag_clear,
+    .metrics_write       = config->mux_metrics_write,
   };
 
   void * ctx = NULL;

@@ -436,11 +436,11 @@ before_credit( void * _ctx,
 }
 
 static inline void
-cnc_diag_write( void * _ctx, ulong * cnc_diag ) {
+metrics_write( void * _ctx ) {
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT ]  = ctx->conn_cnt;
-  cnc_diag[ FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      ]  = ctx->conn_seq;
+  FD_MGAUGE_SET( QUIC, CONN_LIVE_CNT, ctx->conn_cnt );
+  FD_MGAUGE_SET( QUIC, CONN_SEQ,      ctx->conn_seq );
 }
 
 static void
@@ -932,7 +932,7 @@ fd_tile_config_t fd_tile_quic = {
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
-  .mux_cnc_diag_write       = cnc_diag_write,
+  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .loose_footprint          = loose_footprint,
