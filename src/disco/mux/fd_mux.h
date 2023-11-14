@@ -320,7 +320,7 @@ FD_PROTOTYPES_BEGIN
    For ctl, it is up to the application to specify ctl.orig for all
    streams covered by the in_mcache's in a non-conflicting way.
    Specifically, at any given time, ctl.orig field should unique
-   identify an active logical publisher such that a conusmer can
+   identify an active logical publisher such that a consumer can
    correctly reassemble multiple fragment messages from that ctl.orig.
    (As such, ctl.orig could be used more flexible if an application
    never does multiple fragment messages.)
