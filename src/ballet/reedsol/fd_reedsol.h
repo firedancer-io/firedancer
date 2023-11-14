@@ -8,7 +8,7 @@
 
    Reed-Solomon works in GF(2^8), i.e. the codeword size is 1 byte, but
    is typically used on each byte of larger pieces of data called
-   shreds (a Solana-specific term, often called shards elswhere in the
+   shreds (a Solana-specific term, often called shards elsewhere in the
    literature).  Mathematically, the encoding process forms a vector
    from the input data, taking one byte from each shred, and
    left-multiplies the vector by a constant matrix in GF(2^8).  The
