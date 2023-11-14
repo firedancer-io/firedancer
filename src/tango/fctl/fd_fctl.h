@@ -37,7 +37,7 @@ typedef struct fd_fctl_private fd_fctl_t;
 /* Private APIs *******************************************************/
 
 /* For the most part, applications should not interacting with these
-   directly.  They are exposed to faciliate compile time inlining of
+   directly.  They are exposed to facilitate compile time inlining of
    flow control operations in performance critical loops. */
 
 struct fd_fctl_private_rx {
@@ -184,7 +184,7 @@ fd_fctl_cfg_rx_add( fd_fctl_t *   fctl,
    metadata, etc).  Should be in [1,cr_burst_max] where cr_burst_max is
    min(rx[:].cr_max) and LONG_MAX when there are no receivers.
 
-   cr_max is an upper bound of the number of credits a transmiter can
+   cr_max is an upper bound of the number of credits a transmitter can
    have (e.g. how many credits a transmitter should get from a query
    when there are no active receivers).  Should be in
    [cr_burst,LONG_MAX].  0 indicates to pick a reasonable default for
@@ -232,7 +232,7 @@ fd_fctl_cfg_done( fd_fctl_t * fctl,
    rx_idx is in [0,rx_cnt).  slow_laddr_const is a const-correct
    version of rx_slow_laddr.
    
-   (FIXME: CONSIDER ACCESSES FOR DISTIGUISHING WHETHER CR_MAX /
+   (FIXME: CONSIDER ACCESSES FOR DISTINGUISHING WHETHER CR_MAX /
    CR_RESUME / CR_REFILL WERE AUTOCONFIGURED.  EXPOSE IN_REFILL?
    GET/SET RX_SEQ_LADDR DYNAMICALLY?  GET/SET IN_REFILL?) */
 
@@ -347,7 +347,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
      number ahead of the transmitter).  Then delta is in [LONG_MIN,0).
      And max(delta,0)==0 such that rx_cr_test = rx_cr_query = rx_cr_max.
      The result here in conservative lower bound of the credits the
-     transmitter can use.  Conversative in the sense that it has been
+     transmitter can use.  Conservative in the sense that it has been
      capped by rx_cr_max even though the value advertised by the
      receiver in principle would allow more (as a receiver getting ahead
      of the transmitter is a good sign of some breakage though, this
@@ -373,7 +373,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
    transmitter and the transmitter's position in sequence space.
 
    The vast majority of flow control scenarios (even incredibly
-   intricate dynamic heterogenous multiple consumer) can typically be
+   intricate dynamic heterogeneous multiple consumer) can typically be
    handled with just this one call in the transmitter's run loop.
 
    It assumes that reliable receivers are updating their position in
@@ -418,7 +418,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
 
    Related, using distinct and well separated refill and resume
    thresholds prevents performance degrading start / stop situations
-   (e.g. if resume and refill threholds are very close, the situation
+   (e.g. if resume and refill thresholds are very close, the situation
    can arise where the fctl falls below, triggers a query, the receivers
    are just above, triggering another round of flow control
    communications shortly thereafter and another and another ...).  This

@@ -214,7 +214,7 @@ fd_mcache_seq_update( ulong * _seq,
 }
 
 /* fd_mcache_line_idx returns the index of the cache line in a depth
-   entry mcache (depth is asssumed to be a power of 2) where the
+   entry mcache (depth is assumed to be a power of 2) where the
    metadata for the frag with sequence number seq will be stored when it
    is in cache.  Outside of startup transients, a mcache is guaranteed
    to exactly hold the depth most recently sequence numbers (the act of
@@ -567,7 +567,7 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
    require modification of the below to use more explicit fencing or
    what not.
 
-   The below is implemented as a macro to faciliate use in ultra high
+   The below is implemented as a macro to facilitate use in ultra high
    performance run loops and support multiple return values.  This macro
    is robust (e.g. it evaluates its argument a minimal number of times). */
 

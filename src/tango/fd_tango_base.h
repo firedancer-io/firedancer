@@ -9,7 +9,7 @@
      typically include a mixture of network receiving devices, local
      message publishers, etc.  Applications might restrict the set of
      origins / add additional context / structure to origins id as
-     neeed.
+     need.
 
    - Messages are partitioned into one or more disjoint fragments.  The
      number of message payload bytes in a message fragment is in
@@ -221,7 +221,7 @@ FD_PROTOTYPES_BEGIN
    indicates a and b are the same.
 
    In general operations on sequence numbers are strongly encouraged to
-   use this macros as such facilitates updating code to accomodate
+   use this macros as such facilitates updating code to accommodate
    things like changing the width of a sequence number. */
 
 FD_FN_CONST static inline int fd_seq_lt( ulong a, ulong b ) { return ((long)(a-b))< 0L; }
