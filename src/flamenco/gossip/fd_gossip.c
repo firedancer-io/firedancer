@@ -348,7 +348,7 @@ struct fd_gossip_global {
     fd_hash_t * need_push;
     ulong need_push_head;
     ulong need_push_cnt;
-    /* Table of recieve statistics */
+    /* Table of receive statistics */
     fd_stats_elem_t * stats;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
@@ -776,7 +776,7 @@ fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   return key % nbits;
 }
 
-/* Chooose a random active peer with good ping count */
+/* Choose a random active peer with good ping count */
 fd_active_elem_t *
 fd_gossip_random_active( fd_gossip_global_t * glob ) {
   /* Create a list of active peers with minimal pings */
