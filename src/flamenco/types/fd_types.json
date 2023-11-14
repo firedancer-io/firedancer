@@ -1314,7 +1314,7 @@
         { "name": "delegation", "type": "delegation" },
         { "name": "credits_observed", "type": "ulong" }
       ],
-      "commment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
     },
     {
       "name": "stake_flags",
