@@ -104,7 +104,7 @@ fd_funk_val_read( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
    Reasons for failure include NULL rec, NULL data with non-zero sz,
    [data,data+sz) wraps, [off,off+sz) does not overlap with the record
    completely, [data,data+sz) overlaps with [off,off+sz).  Assumes no
-   concurrent operatons on rec or data. */
+   concurrent operations on rec or data. */
 
 FD_FN_UNUSED static fd_funk_rec_t *           /* Returns rec on success, NULL on failure */ /* Workaround -Winline */
 fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address space to live funk record (NULL returns NULL) */

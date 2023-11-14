@@ -16,7 +16,7 @@ fd_funk_val_copy( fd_funk_rec_t * rec,
   ulong d0 = (ulong)data;
   ulong d1 = d0 + sz;
 
-  if( FD_UNLIKELY( (!rec) | ((!data) & (!!sz)) | (!alloc) | (!wksp) |         /* NULL rec,NULL data w sz!=0,NULL alloc,NULL wskp */
+  if( FD_UNLIKELY( (!rec) | ((!data) & (!!sz)) | (!alloc) | (!wksp) |         /* NULL rec,NULL data w sz!=0,NULL alloc,NULL wksp */
                    (d1<d0) | (sz>sz_est) | (sz_est>FD_FUNK_REC_VAL_MAX) ) ) { /* data wraps, too large sz, too large sz_est */
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;

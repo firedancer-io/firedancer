@@ -447,7 +447,7 @@ main( int     argc,
       FD_TEST( trec==(fd_funk_rec_t const *)_trec );
       FD_TEST( !fd_funk_rec_remove( tst, _trec, erase ) );
 
-    } else if( op>=2 ) { /* Prepare 8x as publish and cancel combinned */
+    } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 
       if( FD_UNLIKELY( fd_funk_txn_is_full( txn_map ) ) ) continue;
 
