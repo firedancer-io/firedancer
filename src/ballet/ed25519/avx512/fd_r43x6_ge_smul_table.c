@@ -94,7 +94,7 @@ main( int     argc,
   FD_LOG_NOTICE(( "Saving table" ));
 
   FILE * file = fopen( path, "wb" );
-  if( FD_UNLIKELY( !file ) ) FD_LOG_ERR(( "fopen faield" ));
+  if( FD_UNLIKELY( !file ) ) FD_LOG_ERR(( "fopen failed" ));
   if( FD_UNLIKELY( fwrite( table, sz, 1UL, file )!=1UL ) ) FD_LOG_ERR(( "fwrite failed" ));
   if( FD_UNLIKELY( fclose( file ) ) ) FD_LOG_WARNING(( "fclose failed; attempting to continue" ));
 
