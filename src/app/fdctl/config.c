@@ -671,7 +671,7 @@ determine_cluster( ulong  entrypoints_cnt,
   char const * TESTNET_ENTRYPOINT_URI = "testnet.solana.com";
   char const * MAINNET_BETA_ENTRYPOINT_URI = "mainnet-beta.solana.com";
   char const * PYTHTEST_ENTRYPOINT_URI = "pythtest.pyth.network";
-  char const * PYTHNET_ENTRYPOONT_URI = "pythnet.pyth.network";
+  char const * PYTHNET_ENTRYPOINT_URI = "pythnet.pyth.network";
 
   ulong cluster = FD_CONFIG_CLUSTER_UNKNOWN;
   if( FD_LIKELY( expected_genesis_hash ) ) {
@@ -687,7 +687,7 @@ determine_cluster( ulong  entrypoints_cnt,
     else if( FD_UNLIKELY( strstr( entrypoints[ i ], TESTNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_TESTNET );
     else if( FD_UNLIKELY( strstr( entrypoints[ i ], MAINNET_BETA_ENTRYPOINT_URI ) ) ) cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_MAINNET_BETA );
     else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHTEST_ENTRYPOINT_URI ) ) )     cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHTEST );
-    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHNET_ENTRYPOONT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHNET );
+    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHNET );
   }
 
   return cluster;

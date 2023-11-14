@@ -28,7 +28,7 @@ fsync: (eq (arg 0) logfile_fd)
 # XDP: we need to call sendto to notify the kernel there are new entries
 #      in the TX ring
 #
-# The kernel has no mechanism to continously poll the TX queue to see if
+# The kernel has no mechanism to continuously poll the TX queue to see if
 # there are new packets for the driver to send, so instead we must
 # notify it.  The sendto syscall has been overloaded by Linux for this
 # purpose.
@@ -47,7 +47,7 @@ sendto: (and (or (eq (arg 0) xsk_fd)
 # XDP: We use XDP_USE_NEED_WAKEUP so we must notify the kernel when
 #      there are new entries in the fill ring
 #
-# The kernel by default continously polls the fill ring of an XSK for
+# The kernel by default continuously polls the fill ring of an XSK for
 # new entries, so it can reuse these to put new incoming packets into.
 # When using XDP_USE_NEED_WAKEUP, the kernel no longer does this as an
 # optimization, and so if the fill ring becomes empty, we must notify
@@ -55,7 +55,7 @@ sendto: (and (or (eq (arg 0) xsk_fd)
 # overloaded by Linux for this purpose.
 #
 # arg 0 is the file descriptor of the XSK that the kernel should poll
-# for entries.  There are two possible XSKs, since we can recieve
+# for entries.  There are two possible XSKs, since we can receive
 # packets on a network device or the loopback device.
 recvmsg: (and (or (eq (arg 0) xsk_fd) 
                   (eq (arg 0) lo_xsk_fd))

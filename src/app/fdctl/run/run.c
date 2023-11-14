@@ -128,7 +128,7 @@ execve_tile( fd_topo_tile_t * tile,
                      "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
                      "continue without explicitly specifying this cpu's thread affinity but it "
                      "is likely this thread group's performance and stability are compromised "
-                     "(possibly catastrophically so). Update [layout.affinity] in the configuraton "
+                     "(possibly catastrophically so). Update [layout.affinity] in the configuration "
                      "to specify a set of allowed cpus that have been reserved for this thread "
                      "group on this host to eliminate this warning.",
                      errno, fd_io_strerror( errno ), tile->id, cpu_idx ));

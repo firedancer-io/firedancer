@@ -121,7 +121,7 @@ typedef struct {
   ulong wksp_id; /* The workspace that this link belongs to.  Each link belongs to exactly one workspace. */
 
   ulong depth;   /* The depth of the mcache representing the link. */
-  ulong mtu;     /* The MTU of data fragments in the mcache.  A value of 0 means there is no dache. */
+  ulong mtu;     /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
   ulong burst;   /* The max amount of MTU sized data fragments that might be bursted to the dcache. */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
@@ -156,7 +156,7 @@ typedef struct {
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
-  int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indeexed in [0, in_cnt). */
+  int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
 
   ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
 
@@ -313,7 +313,7 @@ fd_topo_find_link_producer( fd_topo_t *      topo,
 
 /* Given a workspace kind, one of FD_TOPO_WKSP_KIND_*, produce a human
    readable string for what to name that workspace.  This string
-   uniquely identifies the workspace, since a toplogy may only have one
+   uniquely identifies the workspace, since a topology may only have one
    of each kind of workspace. */
 FD_FN_CONST static inline char *
 fd_topo_wksp_kind_str( ulong kind ) {
@@ -436,7 +436,7 @@ fd_topo_join_workspaces( char * const app_name,
                          int          mode );
 
 /* Leave (unmap from the process) all shared memory needed by all
-   tiles in the toplogy, if each of them was mapped. */
+   tiles in the topology, if each of them was mapped. */
 void
 fd_topo_leave_workspaces( fd_topo_t *  topo );
 
@@ -486,12 +486,12 @@ fd_topo_fill( fd_topo_t * topo,
               ulong       mode );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to
-   sucessfully run all tiles in separate processes.  The value returned
+   successfully run all tiles in separate processes.  The value returned
    is the maximum amount of memory that will be locked with mlock() by
    any individual process in the tree.  Specifically, if we have three
    tile processes, and they each need to lock 5, 9, and 2 MiB of memory
    respectively, RLIMIT_MLOCK needs to be 9 MiB to allow all three
-   process mlock() calls to succed.
+   process mlock() calls to succeed.
 
    Tiles lock memory in three ways.  Any workspace they are using, they
    lock the entire workspace.  Then each tile uses huge pages for the

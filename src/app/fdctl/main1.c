@@ -193,7 +193,7 @@ main1( int     argc,
                      "to configure Firedancer as the root user. Firedancer configuration requires "
                      "root because it does privileged operating system actions like setting up XDP. "
                      "Configuration is a local action that does not access the network, and the process "
-                     "exits immedaitely once configuration completes. The user that Firedancer runs "
+                     "exits immediately once configuration completes. The user that Firedancer runs "
                      "as is specified in your configuration file, and although configuration runs as root "
                      "it will permission the relevant resources for the user in your configuration file, "
                      "which can be an anonymous maximally restrictive account with no privileges.", action->name ));

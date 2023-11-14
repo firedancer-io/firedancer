@@ -69,7 +69,7 @@ typedef struct {
 } link_snap_t;
 
 static void
-tile_snap( tile_snap_t * snap_cur,     /* Snaphot for each tile, indexed [0,tile_cnt) */
+tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,tile_cnt) */
            fd_topo_t *   topo ) {
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     tile_snap_t * snap = &snap_cur[ tile_idx ];
@@ -201,7 +201,7 @@ run_monitor( config_t * const config,
   if( FD_UNLIKELY( !link_snap_prv ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* Paranoia */
   link_snap_t * link_snap_cur = link_snap_prv + link_cnt;
 
-  /* Get the inital reference diagnostic snapshot */
+  /* Get the initial reference diagnostic snapshot */
   tile_snap( tile_snap_prv, topo );
   link_snap( link_snap_prv, topo );
   long then; long tic; fd_tempo_observe_pair( &then, &tic );
@@ -344,7 +344,7 @@ run_monitor( config_t * const config,
     }
 
     /* Still more monitoring to do ... wind up for the next iteration by
-       swaping the two snap arrays. */
+       swapping the two snap arrays. */
     line_count = 0;
     for ( ulong i=(ulong)(mon_start-buffer); i<sizeof(buffer) - buf_sz; i++ ) {
       if( buffer[i] == '\n' ) line_count++;
@@ -384,7 +384,7 @@ monitor_cmd_fn( args_t *         args,
   ulong num_fds = sizeof(allow_fds)/sizeof(allow_fds[0]);
   ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
 
-  /* join all workspaces needed by the toplogy before sandboxing, so
+  /* join all workspaces needed by the topology before sandboxing, so
      we can access them later */
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 

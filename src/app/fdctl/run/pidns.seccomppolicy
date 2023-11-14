@@ -32,7 +32,7 @@ fsync: (eq (arg 0) logfile_fd)
 # process simply waits for any child to exit, and if this happens
 # terminates the whole process group with a diagnostic message.
 #
-# Pipe file descriptors are used with poll() to detect proces exit (the
+# Pipe file descriptors are used with poll() to detect process exit (the
 # pipe will SIGHUP) rather than waitpid() so that we can wait for
 # grandchildren and the parent process, rather than just direct
 # children.  The third parameter to poll(), timeout, is an int, and we
