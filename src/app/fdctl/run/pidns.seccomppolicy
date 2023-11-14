@@ -44,7 +44,8 @@ poll: (and (eq (arg 2) "(unsigned int)-1"))
 # Once the parent or a child process has exited, the pidns will wait4()
 # it to get the exit status and print diagnostic information before
 # terminating the rest of the process group.
-wait4: (and (eq (arg 2) "(int)__WALL")
+wait4: (and (or (eq (arg 2) "(int)__WALL | (int)WNOHANG")
+                (eq (arg 2) "(int)__WALL"))
             (eq (arg 3) 0))
 
 # supervisor: exit when a child process exits
