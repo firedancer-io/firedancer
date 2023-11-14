@@ -286,7 +286,7 @@ main_pid_namespace( void * _args ) {
     for( ulong i=0; i<1+child_cnt; i++ ) {
       if( FD_UNLIKELY( fds[ i ].revents ) ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
-        if( FD_UNLIKELY( !i ) ) {
+        if( FD_UNLIKELY( i==child_cnt ) ) {
           /* Parent process died, probably SIGINT, exit gracefully. */
           exit_group( 0 );
         }
@@ -301,14 +301,14 @@ main_pid_namespace( void * _args ) {
           continue;
         }
 
-        char * tile_name = child_names[ i-1 ];
-        ulong  tile_id = i-1 ? config->topo.tiles[ i-1 ].kind_id : 0;
+        char * tile_name = child_names[ i ];
+        ulong  tile_id = config->topo.tiles[ i ].kind_id;
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)\n", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
           exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d\n", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
           exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
         }
       }
