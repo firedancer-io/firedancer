@@ -32,7 +32,7 @@
      #define REDBLK_NAME my_rb
      #include "fd_redblack.c"
 
-   Note the order of declations and includes. REDBLK_T and REDBLK_NAME
+   Note the order of declarations and includes. REDBLK_T and REDBLK_NAME
    need to be defined before including this template. REDBLK_T is the
    node or element type. It must include the following fields:
 
@@ -94,7 +94,7 @@
      }
      my_rb_delete( my_rb_leave( pool ) );
 
-   The aplication must provided the compare implementation. It must
+   The application must provided the compare implementation. It must
    return a negative number, zero, or positive depending on whether
    the left is less than, equal to, or greater than right. For
    example:

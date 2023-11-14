@@ -3,7 +3,7 @@
 
 #include "fd_bits.h"
 
-/* Set of primitives for saturating math operations, mimicing the behaviour
+/* Set of primitives for saturating math operations, mimicking the behaviour
    of Rust's primitive `saturating_add`, `saturating_sub`, `saturating_mul` operations.
    These saturate at the boundaries of the integer representation, instead of overflowing
    or underflowing.

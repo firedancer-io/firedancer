@@ -54,7 +54,7 @@ fd_stat_robust_norm_fit_float( float *       opt_mu,
                                void  *       scratch ) {
   float * y = (float *)scratch;
 
-  /* Filter out weird data points.  The threshhold is such the sigma
+  /* Filter out weird data points.  The threshold is such the sigma
      calculation cannot overflow.  Specifically consider an x whose
      elements are +/-thresh.  The median would end being exactly
      +/-thresh.  The absolute deviations from the median then would then
@@ -92,7 +92,7 @@ fd_stat_robust_exp_fit_float( float *       opt_x0,
                               void *        scratch ) {
   float * y = (float *)scratch;
 
-  /* Filter out weird data points.  The threshhold is such the x0
+  /* Filter out weird data points.  The threshold is such the x0
      and tau calculations cannot overflow.  Specifically consider an x
      whose elements are +/-thresh.  The magnitude of the median is at
      most thresh and the median absolute deviation is at most 2*thresh.

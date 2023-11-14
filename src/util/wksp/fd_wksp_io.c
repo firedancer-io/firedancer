@@ -444,7 +444,7 @@ unlock: /* note: wksp locked at this point */
      shouldn't) */
 
   if( wksp_dirty ) {
-    FD_LOG_WARNING(( "wksp \"%s\" dirty; attemping to reset it and continue", wksp->name ));
+    FD_LOG_WARNING(( "wksp \"%s\" dirty; attempting to reset it and continue", wksp->name ));
     for( ulong i=0UL; i<wksp_part_max; i++ ) wksp_pinfo[ i ].tag = 0UL;
     fd_wksp_rebuild( wksp, new_seed ); /* logs details */
     err = FD_WKSP_ERR_CORRUPT;

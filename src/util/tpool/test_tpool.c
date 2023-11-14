@@ -477,7 +477,7 @@ main( int     argc,
 
   FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
 
-  /* FIXME: better coverage of stratch attach / detach */
+  /* FIXME: better coverage of scratch attach / detach */
 
   fd_rng_delete( fd_rng_leave( rng ) );
   

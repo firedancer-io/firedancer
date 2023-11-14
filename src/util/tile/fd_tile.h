@@ -92,7 +92,7 @@ fd_tile_stack_est_free( void ) {
    tile idx (in [0,fd_tile_cnt()).  Returns a handle for this exec on
    success (tile idx was signaled to start execution of task) or NULL on
    failure (e.g.  tried to dispatch to self or tried dispatch to tile 0,
-   another exec is currently running on that tile id, tried to dispath
+   another exec is currently running on that tile id, tried to dispatch
    to a thread in a different thread group, etc).
 
    task, argc, argv and argv[0:argc] are intended to be in this thread

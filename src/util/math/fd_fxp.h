@@ -613,7 +613,7 @@ fd_fxp_div_rno_fast( ulong x,
   return q + (ulong)( (r>flhy) | ((r==flhy) & !!((~y) & (~q) & 1UL)) );
 }
 
-/* Other rouding modes:
+/* Other rounding modes:
      rdn -> Round down                   / toward floor / toward -inf ... same as rtz for unsigned
      rup -> Round up                     / toward ceil  / toward +inf ... same as raz for unsigned
      rnd -> Round nearest with ties down / toward floor / toward -inf ... same as rnz for unsigned
@@ -922,7 +922,7 @@ FD_FN_CONST static inline ulong fd_fxp_sqrt_rna_fast( ulong x ) { return fd_fxp_
 FD_FN_CONST static inline ulong fd_fxp_sqrt_rne_fast( ulong x ) { return fd_fxp_sqrt_rnz_fast( x ); }
 FD_FN_CONST static inline ulong fd_fxp_sqrt_rno_fast( ulong x ) { return fd_fxp_sqrt_rnz_fast( x ); }
 
-/* Other rouding modes:
+/* Other rounding modes:
      rdn -> Round down                   / toward floor / toward -inf ... same as rtz for unsigned
      rup -> Round up                     / toward ceil  / toward +inf ... same as raz for unsigned
      rnd -> Round nearest with ties down / toward floor / toward -inf ... same as rnz for unsigned

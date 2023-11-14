@@ -35,13 +35,13 @@
     // event when there is 1 or more events on the heap though).  THIS
     // IS NOT JUST A SIMPLE CAST OF SHEVENTQ.
     //
-    // leave - Leave an eventq.  Asumes heap points to the eventq's
+    // leave - Leave an eventq.  Assumes heap points to the eventq's
     // heap.  Returns a pointer to the shared memory region the join.
     // THIS IS NOT JUST A SIMPLE CAST OF HEAP
     //
     // delete - Unformat a memory region used as an eventq.  Assumes
     // sheventq points to a formatted region with no current joins.
-    // Returns a pointer to the unformated memory region.
+    // Returns a pointer to the unformatted memory region.
 
     ulong     eventq_align    ( void                        );
     ulong     eventq_footprint( ulong      max              );
@@ -114,7 +114,7 @@
 #error "Define PRQ_T"
 #endif
 
-/* Setting PRQ_EXPLITICT_TIMEOUT to 0 allows the user to use a comparison
+/* Setting PRQ_EXPLICIT_TIMEOUT to 0 allows the user to use a comparison
    function to compare elements in the PRQ without having a single explicit
    timeout field. */
 #ifndef PRQ_EXPLICIT_TIMEOUT

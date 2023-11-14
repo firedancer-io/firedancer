@@ -223,7 +223,7 @@ FD_PROTOTYPES_BEGIN
          7 - EMERG
 
        If these are set weirdly (i.e. decreasing or core is not at least
-       4), they will overriden to values that are sensible.
+       4), they will be overridden to values that are sensible.
 
        Setting logfile, stderr, flush <=0 and core==4 makes the log
        maximally chatty.  Setting logfile, stderr, flush, core >7 makes

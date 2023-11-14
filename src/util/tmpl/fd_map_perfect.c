@@ -30,7 +30,7 @@
 #define MAP_PERFECT_ZERO_KEY  0UL          // Must be the key that's all zero bytes
 
 To add elements, just define MAP_PERFECT_i to be key, value (or values).
-This will eventally expand to something like
+This will eventually expand to something like
           { MAP_PERFECT_KEY = key, values }
 so using the .fieldname=value syntax is supported.  Otherwise
 the fields will be initialized in the order they are declared in the

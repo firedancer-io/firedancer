@@ -322,7 +322,7 @@ fd_pod_query( uchar const   * FD_RESTRICT pod,
 */
 
 /* fd_pod_iter_t is an opaque handle for iterating over all the key-val
-   pairs in a pod.  This is exposed here to faciliate inlining iteration
+   pairs in a pod.  This is exposed here to facilitate inlining iteration
    operations. */
 
 struct fd_pod_iter_private {

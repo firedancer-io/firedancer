@@ -206,7 +206,7 @@ main( int     argc,
     /* BIT_PATTERN uses the lower 13 bits of r (uniform random) to
        generate uniform random length string of 0s or 1s bits starting a
        uniform random offset and going for a uniform random length
-       cyclic and fillin the rest of the bits with a uniform bit
+       cyclic and filling the rest of the bits with a uniform bit
        pattern.  (Stress stuff near 0 and ULONG_MAX and other tricky
        edge cases preferentially.) */
 

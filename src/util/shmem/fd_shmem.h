@@ -17,7 +17,7 @@
 #define FD_SHMEM_JOIN_MAX (255UL)
 
 /* FD_SHMEM_JOIN_MODE_* are used to specify how a memory region should
-   be initialy mapped into the thread group's local address space by
+   be initially mapped into the thread group's local address space by
    fd_shmem_join. */
 
 #define FD_SHMEM_JOIN_MODE_READ_ONLY   (0)
@@ -74,9 +74,9 @@ struct fd_shmem_join_info {
                       Will be -1 the join is in join/leave func and positive otherwise. */
   void * join;     /* Local join handle (i.e. what join_func returned).  Will be NULL in a call join func. */
   void * shmem;    /* Location in the thread group local address space of name.  Will be non-NULL and page_sz aligned. */
-  ulong  page_sz;  /* Page size unsed for the region.  Will be a supported page size (e.g. non-zero integer power-of-two) */
+  ulong  page_sz;  /* Page size used for the region.  Will be a supported page size (e.g. non-zero integer power-of-two) */
   ulong  page_cnt; /* Number of pages in the region.  Will be non-zero, page_sz*page_cnt will not overflow */
-  int    mode;     /* Will be in FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.  Attemping to execute and (if read-only) write in the
+  int    mode;     /* Will be in FD_SHMEM_JOIN_MODE_{READ_ONLY,READ_WRITE}.  Attempting to execute and (if read-only) write in the
                       shmem region will fault the thread group. */
   uint   hash;     /* Will be (uint)fd_hash( 0UL, name, FD_SHMEM_NAME_MAX ) */
   union {
@@ -99,7 +99,7 @@ typedef void *
    of a shared memory region. */
 
 struct fd_shmem_info {
-  ulong page_sz;  /* page size of the region, will be a suported page size (e.g. non-zero, integer power of two) */
+  ulong page_sz;  /* page size of the region, will be a supported page size (e.g. non-zero, integer power of two) */
   ulong page_cnt; /* number of pages in the region, will be positive, page_sz*page_cnt will not overflow */
 };
 
@@ -153,7 +153,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_shmem_leave is just the inverse of this.  It can fail for a few
    reasons, including if the mmap cannot be close()'d for any reason.
-   IT will log extensive details if there is any wokiness udner the
+   IT will log extensive details if there is any wonkiness under the
    hood.  The caller may wish to proceed even if it fails.
 
    IMPORTANT!  It is safe to have join/leave functions themselves call
@@ -197,7 +197,7 @@ fd_shmem_leave( void *                    join,
    (ENOENT).
 
    For query_by_addr, returns ENOENT if sz is 0 (no overlap with an
-   empty set) and EINVAL if the address range wrapps around the end of
+   empty set) and EINVAL if the address range wraps around the end of
    address space.  If there are multiple joins overlapped by the range,
    returns 0 and, if opt_info is non-NULL, *opt_info will have details
    about one of the joins (it is undefined which join).  Note it is
@@ -276,7 +276,7 @@ fd_shmem_leave_anonymous( void *                 join,
 /* fd_shmem_{numa,cpu}_cnt returns the number of numa nodes / logical
    cpus configured in system.  numa nodes are indexed in
    [0,fd_shmem_numa_cnt()) where fd_shmem_numa_cnt() is in
-   [1,FD_SHMEM_NUMA_MAX] and simiarly for logical cpus.  This value is
+   [1,FD_SHMEM_NUMA_MAX] and similarly for logical cpus.  This value is
    determined at thread group boot.  cpu_cnt>=numa_cnt. */
 
 FD_FN_PURE ulong fd_shmem_numa_cnt( void );
@@ -315,7 +315,7 @@ fd_shmem_numa_validate( void const * mem,
    given by the cstr pointed to by name backed by page_sz pages.  The
    region will consist of sub_cnt subregions, indexed [0,sub_cnt).  Each
    subregion will have page_cnt pages near cpu_idx and the region will
-   be the concatentation of these subregions in the order specified.
+   be the concatenation of these subregions in the order specified.
    mode specifies the permissions for this region (the usual POSIX open
    umask caveats apply).
 
@@ -331,7 +331,7 @@ fd_shmem_numa_validate( void const * mem,
    unique over caller's shared memory domain for a given page_sz.  Names
    can be reused between two different page_sz (and such will correspond
    to two unrelated mappings).  Generally, it is a good idea to have
-   unique names over all page_sz but this is not strcitly required (the
+   unique names over all page_sz but this is not strictly required (the
    APIs may not work particularly well in this case though).
 
    fd_shmem_create is a simple wrapper around fd_shmem_create_multi for
@@ -402,7 +402,7 @@ fd_shmem_info( char const *      name,
    region for the private use of the caller's thread group.  The region
    will consist of sub_cnt subregions, indexed [0,sub_cnt).  Each
    subregion will have page_cnt pages near cpu_idx and the region will
-   be the concatentation of these subregions in the order specified.
+   be the concatenation of these subregions in the order specified.
    The lifetime of a page in the allocation is until the thread group
    terminates or the page is explicitly released.  Returns a pointer to
    the location in the local address space of the mapped pages on

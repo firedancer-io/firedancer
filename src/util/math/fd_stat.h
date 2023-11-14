@@ -144,7 +144,7 @@ fd_stat_robust_exp_fit_double( double *       opt_x0,
    undefined (as they are not well ordered with anything).  If there is
    a mixture of signed zeros and unsigned zeros, their exact order in
    the region of zeros will be undefined (as they are not well ordered
-   amonst themselves).  In short, don't pass arrays with NaN and ignore
+   amongst themselves).  In short, don't pass arrays with NaN and ignore
    the sign of zero when using floating point sorts. */
 
 /* ascending */
