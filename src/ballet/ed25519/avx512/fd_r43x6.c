@@ -14,7 +14,7 @@ fd_r43x6_repsqr_mul( fd_r43x6_t x,
     of the loop body and encourage the compiler to hoist various compile
     time constants out of the loop.  REPSQR is almost always paired with
     a MUL and this is almost always iterated.  So we incorporate the mul
-    into this operationl too to try to get the whole operation inlined
+    into this operation too to try to get the whole operation inlined
     but without too much instruction footprint for the below use cases. */
 
   for( ; n; n-- ) FD_R43X6_SQR1_INL( x, x );
