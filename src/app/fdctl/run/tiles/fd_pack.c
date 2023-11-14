@@ -254,7 +254,7 @@ after_credit( void *             _ctx,
 }
 
 /* At this point, we have started receiving frag seq with details in
-    mline at time now.  Speculatively processs it here. */
+    mline at time now.  Speculatively process it here. */
 
 static inline void
 during_frag( void * _ctx,

@@ -17,7 +17,7 @@ name = "fd1"
 #
 # Firedancer requires nothing from this user, and it should be as
 # minimally permissioned as is possible.  It is suggested to run
-# Firedancer as a separate user from other proecssses on the machine so
+# Firedancer as a separate user from other processes on the machine so
 # that they cannot attempt to send signals, ptrace, or otherwise
 # interfere with the process.  You should under no circumstances use a
 # superuser or privileged user here, and Firedancer will not allow you
@@ -245,7 +245,7 @@ dynamic_port_range = "8900-9000"
     # client with the `--full-rpc-api` argument.
     full_api = true
 
-    # If the RPC is private, the valdiator's open RPC port is not
+    # If the RPC is private, the validator's open RPC port is not
     # published in the `solana gossip` command for use by others.  This
     # option is passed to the Solana Labs client with the
     # `--private-rpc` argument.
@@ -334,7 +334,7 @@ dynamic_port_range = "8900-9000"
     # instead start from a local snapshot if one is present.  A snapshot
     # is required to run the validator, so either one must be present,
     # or you need to fetch it.  The snapshot will be fetched from a
-    # validator in the list of entrpoints.  If no validators are listed
+    # validator in the list of entrypoints.  If no validators are listed
     # there, starting the validator will fail.  This option is passed
     # (inverted) to the Solana Labs client with the `no-snapshot-fetch`
     # argument.
@@ -434,7 +434,7 @@ dynamic_port_range = "8900-9000"
 #
 #   1 -> 2 -> 3 -> 4 -> 5 -> 6
 #
-# Transactions can largely be processed indepdendently, except for
+# Transactions can largely be processed independently, except for
 # deduplication.  With that in mind, if we had ten CPU cores, we could
 # make our pipeline faster by parallelizing it as follows,
 #
@@ -507,7 +507,7 @@ dynamic_port_range = "8900-9000"
 #     certain number of both huge and gigantic pages to a special pool
 #     so that they are reserved for later use by privileged programs.
 #
-#  2. At configuration time, one (psuedo) filesystem of type hugetlbfs
+#  2. At configuration time, one (pseudo) filesystem of type hugetlbfs
 #     for each of huge and gigantic pages is mounted on a local
 #     directory.  Any file created within these filesystems will be
 #     backed by in-memory pages of the desired size.
@@ -804,7 +804,7 @@ dynamic_port_range = "8900-9000"
     #
     # Because of how Firedancer uses UDP and XDP together, we do not
     # receive packets when binding to the loopback interface.  This can
-    # make local developement difficult.  Network namespaces are one
+    # make local development difficult.  Network namespaces are one
     # solution, they allow us to create a pair of virtual interfaces on
     # the machine which can route to each other.
     #
@@ -816,7 +816,7 @@ dynamic_port_range = "8900-9000"
     #
     # This is a development only configuration, network namespaces are
     # not suitable for production use due to performance overhead.  In
-    # developmemnt when running with `fddev`, this can also be enabled
+    # development when running with `fddev`, this can also be enabled
     # with the `--netns` command line argument.
     [development.netns]
         # If enabled, `fdctl dev` will ensure the network namespaces are

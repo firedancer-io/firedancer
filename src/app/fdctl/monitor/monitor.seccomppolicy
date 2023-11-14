@@ -1,5 +1,5 @@
 # The monitor is a binary that can run alongside Firedancer and print
-# certain diagnostics about the status and peformance of the validator.
+# certain diagnostics about the status and performance of the validator.
 
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
