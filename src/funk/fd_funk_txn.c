@@ -32,7 +32,7 @@
 
    When there is a corruption issue detected realtime, it is prima facie
    evidence of either software bug, hardware fault or compromised
-   process.  In all cases, these functions wiill refuse to proceed
+   process.  In all cases, these functions will refuse to proceed
    further and abort with FD_LOG_CRIT to minimize the blast radius of
    possible corruption and give the user as much details (stack trace
    and core) to diagnose the source of the issue.  This handling is
@@ -325,7 +325,7 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
 
 /* fd_funk_txn_oldest_sibling returns the index of the oldest sibling
    in txn_idx's family.  Callers have already validated our input
-   argumnets.  The caller should validate the return index. */
+   arguments.  The caller should validate the return index. */
 
 static inline ulong
 fd_funk_txn_oldest_sibling( fd_funk_t *     funk,
@@ -606,7 +606,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
          around the src's value for later use and for speed, we do this
          zero-copy / in-place.  So we stash record value in stack
          temporaries and unmap (xid,key).  Note this strictly frees 1
-         record from the rec_map, guaranting at least 1 record free in
+         record from the rec_map, guaranteeing at least 1 record free in
          the record map below.  Note that we can't just reuse rec_idx in
          the update case because that could break map queries. */
 
@@ -778,7 +778,7 @@ fd_funk_txn_publish( fd_funk_t *     funk,
     /* At this point, all the transactions we need to publish are
        tagged, txn is the next up publish funk and publish_stack has the
        transactions to follow in order by pop.  We use a new tag for
-       each publish as txn and its sibligns we potentially visited in a
+       each publish as txn and its siblings we potentially visited in a
        previous iteration of this loop. */
 
     if( FD_UNLIKELY( fd_funk_txn_publish_funk_child( funk, map, txn_max, funk->cycle_tag++, txn_idx ) ) ) break;
@@ -1006,7 +1006,7 @@ fd_funk_txn_verify( fd_funk_t * funk ) {
       ulong child_idx = fd_funk_txn_idx( map[ txn_idx ].child_tail_cidx );
       while( !fd_funk_txn_idx_is_null( child_idx ) ) {
 
-        /* Make sure valid idx, tagged as visted above (detects cycles)
+        /* Make sure valid idx, tagged as visited above (detects cycles)
            and child knows it is a child of txn_idx.  Then, tag as
            visited / in-prep, push to stack and update prep_cnt */
 

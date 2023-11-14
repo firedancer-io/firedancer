@@ -98,7 +98,7 @@ main( int     argc,
     int op = (int)(r & 15U); r >>= 4;
     switch( op ) {
 
-    case 0: { /* look up a live xid (always suceeed) */
+    case 0: { /* look up a live xid (always succeed) */
       if( FD_UNLIKELY( !live_pmap ) ) break;
       uint idx; RANDOM_SET_BIT_IDX( live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );

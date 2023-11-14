@@ -292,7 +292,7 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    transaction will be a child of the in-preparation transaction pointed
    to by parent.  A NULL parent means the transaction should be a child
    of funk.  xid points to transaction id that should be used for the
-   transaction.  This id must be unique over all in-prepraration
+   transaction.  This id must be unique over all in-preparation
    transactions, the root transaction and the last published
    transaction.  It is strongly recommended to use globally unique ids
    when possible.  Returns a pointer in the caller's address space to
@@ -382,7 +382,7 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
    This follows a principle of least information loss.  Specifically,
    publications proceed incrementally from the oldest ancestor to txn
    inclusive.  When a transaction is published, the transaction is first
-   committed to permanant storage.  If this is unsuccessful, the publish
+   committed to permanent storage.  If this is unsuccessful, the publish
    is stopped at this transaction and the transaction remains
    unpublished.  Otherwise, the transaction's siblings and their
    descendants are cancelled.
