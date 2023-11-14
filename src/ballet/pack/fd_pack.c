@@ -576,7 +576,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
     }
 
     fd_txn_acct_iter_t ctrl[1];
-    /* Check conflicts between this transactions's writable accounts and
+    /* Check conflicts between this transaction's writable accounts and
        current readers */
     for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
         i=fd_txn_acct_iter_next( i, ctrl ) ) {
@@ -593,7 +593,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       if( use ) conflicts |= use->in_use_by; /* break? */
     }
 
-    /* Check conflicts between this transactions's readonly accounts and
+    /* Check conflicts between this transaction's readonly accounts and
        current writers */
     for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
         i=fd_txn_acct_iter_next( i, ctrl ) ) {
