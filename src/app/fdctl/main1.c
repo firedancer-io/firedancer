@@ -16,6 +16,7 @@ action_t ACTIONS[ ACTIONS_CNT ] = {
   { .name = "keygen",     .args = keygen_cmd_args,    .fn = keygen_cmd_fn,     .perm = NULL,                .description = "Generate new keypairs for use with the validator" },
   { .name = "ready",      .args = NULL,               .fn = ready_cmd_fn,      .perm = NULL,                .description = "Wait for all tiles to be running" },
   { .name = "mem",        .args = NULL,               .fn = mem_cmd_fn,        .perm = NULL,                .description = "Print workspace memory and tile topology information" },
+  { .name = "spy",        .args = NULL,               .fn = spy_cmd_fn,        .perm = NULL,                .description = "Spy on  and print out gossip traffic" },
   { .name = "help",       .args = NULL,               .fn = help_cmd_fn,       .perm = NULL,                .description = "Print this help message" },
 };
 

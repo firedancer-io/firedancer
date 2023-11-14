@@ -1,17 +1,15 @@
-/**
-
-   export RUST_LOG=solana_gossip=TRACE
-   cargo run --bin solana-test-validator
-
- **/
+/*
+ build/native/gcc/bin/fdctl spy --config src/app/fdctl/config/testnet.toml
+*/
 
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 
-#include "fd_gossip.h"
-#include "../fd_flamenco.h"
+#include "fdctl.h"
+#include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/fd_flamenco.h"
 #include "../../util/fd_util.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../types/fd_types_yaml.h"
+#include "../../flamenco/types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
 #include <stdio.h>
 #include <unistd.h>
@@ -23,14 +21,6 @@
 #include <errno.h>
 #include <netdb.h>
 #include <stdlib.h>
-
-/*
-static void usage(const char* progname) {
-  fprintf( stderr, "USAGE: %s\n", progname );
-  fprintf( stderr,
-           " --config      <file>       startup configuration file\n" );
-}
-*/
 
 static void print_data(fd_crds_data_t* data, void* arg) {
   fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
@@ -189,23 +179,15 @@ resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
   return res;
 }
 
-int main(int argc, char **argv) {
-  fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+void
+spy_cmd_fn( args_t *         args,
+            config_t * const config ) {
+  (void)args;
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
-  /*
-  const char* config_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--config", NULL, NULL );
-  if ( config_file == NULL ) {
-    fprintf( stderr, "--config flag required\n" );
-    usage( argv[0] );
-    return 1;
-  }
-  */
-
-  fd_gossip_config_t config;
-  fd_memset(&config, 0, sizeof(config));
+  fd_gossip_config_t gconfig;
+  fd_memset(&gconfig, 0, sizeof(gconfig));
 
   uchar private_key[32];
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
@@ -213,63 +195,58 @@ int main(int argc, char **argv) {
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
-  config.private_key = private_key;
-  config.public_key = &public_key;
+  gconfig.private_key = private_key;
+  gconfig.public_key = &public_key;
 
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
+  char gossiphost[256];
+  if ( config->gossip.host[0] == '\0' )
+    gethostname(gossiphost, sizeof(gossiphost));
+  else
+    strncpy(gossiphost, config->gossip.host, sizeof(gossiphost));
+  ulong seed = fd_hash(0, gossiphost, strnlen(gossiphost, sizeof(gossiphost)));
 
-  FD_TEST( resolve_hostport(":1125", &config.my_addr) );
+  /* Compute my address */
+  struct hostent * hostres = gethostbyname( gossiphost );
+  if (hostres == NULL) {
+    FD_LOG_ERR(("unable to resolve host %s", gossiphost));
+    return;
+  }
+  gconfig.my_addr.l = 0;
+  gconfig.my_addr.addr = ((struct in_addr *)hostres->h_addr)->s_addr;
+  gconfig.my_addr.port = htons((ushort)config->gossip.port);
 
-  config.shred_version = 61807;
+  gconfig.shred_version = config->consensus.expected_shred_version;
+  if (0 == gconfig.shred_version)
+    /* TODO: This is a placeholder until we can do something smarter */
+    gconfig.shred_version = 61807;
 
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
       fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
       stdout );
-  config.deliver_fun = print_data;
-  config.fun_arg = yamldump;
-  config.send_fun = send_packet;
-
-  ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
+  gconfig.deliver_fun = print_data;
+  gconfig.fun_arg = yamldump;
+  gconfig.send_fun = send_packet;
 
   void * shm = fd_valloc_malloc(valloc, fd_gossip_align(), fd_gossip_footprint());
   fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed, valloc));
 
-  if ( fd_gossip_set_config(glob, &config) )
-    return 1;
+  if ( fd_gossip_set_config(glob, &gconfig) )
+    return;
 
-  fd_gossip_peer_addr_t peeraddr;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint.mainnet-beta.solana.com:8001", &peeraddr)) )
-  // return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint2.mainnet-beta.solana.com:8001", &peeraddr)) )
-  // return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint3.mainnet-beta.solana.com:8001", &peeraddr)) )
-  // return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint4.mainnet-beta.solana.com:8001", &peeraddr)) )
-  // return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint5.mainnet-beta.solana.com:8001", &peeraddr)) )
-  // return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("86.109.3.165:1024", &peeraddr)) )
-  // return 1;
+  for ( ulong i = 0; i < config->gossip.entrypoints_cnt; ++i ) {
+    fd_gossip_peer_addr_t peeraddr;
+    if ( fd_gossip_add_active_peer(glob, resolve_hostport(config->gossip.entrypoints[i], &peeraddr)) )
+      return;
+  }
 
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
-  if ( main_loop(glob, &config, &stopflag) )
-    return 1;
+  if ( main_loop(glob, &gconfig, &stopflag) )
+    return;
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
 
   fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob), valloc));
-
-  fd_halt();
-
-  return 0;
 }
