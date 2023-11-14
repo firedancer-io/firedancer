@@ -856,7 +856,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                    ( conn->state     != FD_QUIC_CONN_STATE_ACTIVE ) |
                    ( cur_num_streams >= stream_cnt ) ) ) {
     /* this is a normal condition which occurs whenever we run up to
-       the peer advertized limit and represents one form of flow control */
+       the peer advertised limit and represents one form of flow control */
     return NULL;
   }
 
@@ -1371,7 +1371,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           );
           fd_memcpy( retry_pkt.src_conn_id, &new_conn_id.conn_id, retry_pkt.src_conn_id_len );
 
-          /* copy to avoid aligment issues */
+          /* copy to avoid alignment issues */
           uint saddr = 0;
           memcpy( &saddr, pkt->ip4->saddr_c, 4 );
 
@@ -3344,7 +3344,7 @@ fd_quic_tx_buffered_raw(
   /* TODO saddr could be zero -- should use the kernel routing table to
      determine an appropriate source address */
 
-  /* copy to avoid aligment issues */
+  /* copy to avoid alignment issues */
   memcpy( &pkt.ip4->saddr_c, &config->net.ip_addr, 4 );
   memcpy( &pkt.ip4->daddr_c, &dst_ipv4_addr,       4 );
 
