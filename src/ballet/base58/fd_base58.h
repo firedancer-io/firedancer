@@ -57,6 +57,6 @@ char * fd_base58_encode_64( uchar const * bytes, ulong * opt_len, char * out );
 uchar * fd_base58_decode_32( char const * encoded, uchar * out );
 uchar * fd_base58_decode_64( char const * encoded, uchar * out );
 
-FD_PROTOTYPES_BEGIN
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_base58_fd_base58_h */
