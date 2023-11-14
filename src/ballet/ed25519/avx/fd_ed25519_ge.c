@@ -918,7 +918,6 @@ fd_ed25519_point_scalarmult( fd_ed25519_point_t *       h_,
 
     //fd_ed25519_ge_add( t, A2, Ai[i] );
       FE_AVX_INL_MUL    ( vt, vr, vu );
-      FE_AVX_INL_ADD    ( vu, vt, vt );
       FE_AVX_INL_SUB_MIX( vt, vt     );
       // Fused final perm for add with the below
 
