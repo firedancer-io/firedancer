@@ -116,7 +116,7 @@ fd_sha256_delete( void * shsha ) {
    been streamlined specifically for use inside Firedancer base machine
    model (no machine specific capabilities required).
 
-   In particular, fd_sha256_core_ref is based on openssl's
+   In particular, fd_sha256_core_ref is based on OpenSSL's
    OPENSSL_SMALL_FOOTPRINT SHA-256 implementation (Apache licensed).
    This should work anywhere but it is not the highest performance
    implementation possible.
