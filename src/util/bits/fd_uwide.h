@@ -243,7 +243,7 @@ fd_uwide_private_div_approx( ulong n,    /* In [0,d) */
    Breakdown in worst case 1 u64 log2, 2 u64/u64 div, 1 u64*u64->u64
    mul, 1 u64 sub, 1 int sub, 1 u128 variable shift, 1 1 u64 variable
    shift, 1 u64 div approx init, 4*(1 u64 div approx, 1 u64*u64->u128
-   mul, 1 u128 sub) plus various operations to faciliating shortcutting
+   mul, 1 u128 sub) plus various operations to facilitating shortcutting
    (e.g. when xh is zero, cost is 1 u64/u64 div). */
 
 FD_FN_UNUSED static int /* Work around -Winline */

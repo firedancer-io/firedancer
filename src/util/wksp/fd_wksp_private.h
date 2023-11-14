@@ -98,7 +98,7 @@
      idx, same_cidx will refer to the next partition of the same size.
 
      If partition idx is in a list of same sized partitions, in_same
-     will be 1 and parent_cidx / same_cidx will specifiy the prev / next
+     will be 1 and parent_cidx / same_cidx will specify the prev / next
      index of additional partitions of the same size.  same_cidx will
      specify IDX_NULL if no more.
 
@@ -163,9 +163,9 @@ struct fd_wksp_private {
   ulong owner;                     /* thread group id of the owner or NULL otherwise */
 
   /* IMPORTANT!  The "single-source-of-truth" for what is currently
-     used (and its tags) is the set of non-zero tagged partitons in the
+     used (and its tags) is the set of non-zero tagged partitions in the
      partition info array.  The idle stack, partition list, used treap
-     and free treap are auxilary data structurings that can be
+     and free treap are auxiliary data structuring that can be
      reconstructed at any time from this single source of truth.
 
      Conversely, if there accidental or deliberate data corruption of
@@ -220,7 +220,7 @@ fd_wksp_private_pinfo_const( fd_wksp_t const * wksp ) {
   return (fd_wksp_private_pinfo_t const *)(((ulong)wksp) + fd_wksp_private_pinfo_off());
 }
 
-/* fd_wksp_private_pinfo_{cidx,idx} compresses / uncompresss a pinfo index */
+/* fd_wksp_private_pinfo_{cidx,idx} compresses / uncompresses a pinfo index */
 
 static inline uint  fd_wksp_private_pinfo_cidx( ulong idx  ) { return (uint) idx;  }
 static inline ulong fd_wksp_private_pinfo_idx ( uint  cidx ) { return (ulong)cidx; }

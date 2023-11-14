@@ -136,7 +136,7 @@ typedef struct fd_tar_read_vtable fd_tar_read_vtable_t;
 
 /* fd_tar_reader_t is a streaming TAR reader using a callback API for
    delivering data.  To use, feed it the chunks of the TAR stream via
-   fd_tar_read.  There is no restriction on the size and alignemnt of
+   fd_tar_read.  There is no restriction on the size and alignment of
    these chunks, other than that the chunks are supplied in order and
    gapless.  The resulting callback sequence is (1x file, Nx read, 1x
    file, Nx read ...).  As in: Each new file encountered creates a file
@@ -178,7 +178,7 @@ fd_tar_reader_footprint( void ) {
 
 /* fd_tar_reader_new creates a new TAR reader.  mem is the memory region
    that will hold the fd_tar_reader_t (matches above align/ footprint
-   requirements).  cb_vt containins the callback function pointers of
+   requirements).  cb_vt contains the callback function pointers of
    the recipient.  cb_vt pointer is borrowed until this function
    returns.  cb_arg is the callback context value (usually a pointer to
    the recipient object).  Returns a qualified handle to the reader

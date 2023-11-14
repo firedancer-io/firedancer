@@ -163,7 +163,7 @@
 /* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
    which accelerate SHA-1 and SHA-256 computation.  This extension is
    also called SHA-NI or SHA_NI (Secure Hash Algorithm New
-   Instructiosn).  Although proposed in 2013, they're only supported on
+   Instructions).  Although proposed in 2013, they're only supported on
    Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
 
 #ifndef FD_HAS_SHANI
@@ -205,7 +205,7 @@
 #include <limits.h>
 #include <float.h>
 
-/* Work around some library naming irregularites */
+/* Work around some library naming irregularities */
 /* FIXME: Consider this for FLOAT/FLT, DOUBLE/DBL too? */
 
 #define  SHORT_MIN  SHRT_MIN
@@ -248,7 +248,7 @@
    typical build target usage, ..., assumes char / short / int / long
    are 8 / 16 / 32 / 64 twos complement integers and float is IEEE-754
    single precision.  Further assumes little endian, truncating signed
-   integer divison, sign extending (arithmetic) signed right shift and
+   integer division, sign extending (arithmetic) signed right shift and
    signed left shift behaves the same as an unsigned left shift from bit
    operations point of view (technically the standard says signed left
    shift is undefined if the result would overflow).  Also, except for
@@ -424,7 +424,7 @@ __extension__ typedef unsigned __int128 uint128;
    is relative to the the make directory (working around this would
    require a __FILE__-like directive for the source code directory base
    path).  Even if that did exist, it might still not work because
-   out-of-tree builds often require some substitions to the gcc -M
+   out-of-tree builds often require some substitutions to the gcc -M
    generated dependencies that this might not pick up (at least not
    without some build system surgery).  And then it still wouldn't work
    because gcc -M seems to ignore all of this anyways (which is the
@@ -558,7 +558,7 @@ fd_type_pun_const( void const * p ) {
 /* FD_FN_UNUSED indicates that it is okay if the function with static
    linkage is not used.  Allows working around -Winline in header only
    APIs where the compiler decides not to actually inline the function.
-   (This belief, frequently promulagated by anti-macro cults, that "An
+   (This belief, frequently promulgated by anti-macro cults, that "An
    Inline Function is As Fast As a Macro" ... an entire section in gcc's
    documentation devoted to it in fact ... remains among the biggest
    lies in computer science.  Yes, an inline function is as fast as a
@@ -612,7 +612,7 @@ fd_type_pun_const( void const * p ) {
    CPU of having lots of branches).  This is not asm volatile (use
    UNPREDICTABLE below for that) and has no clobbers.  So if var is not
    used after the forget, the compiler can optimize the FORGET away
-   (along with operations preceeding it used to produce var). */
+   (along with operations preceding it used to produce var). */
 
 #define FD_COMPILER_FORGET(var) __asm__( "# FD_COMPILER_FORGET(" #var ")@" FD_SRC_LOCATION : "+r" (var) )
 
@@ -658,11 +658,11 @@ fd_type_pun_const( void const * p ) {
 #endif
 
 /* FD_VOLATILE_CONST(x):  Tells the compiler is not able to predict the
-   value obtained by dereferencing x and that deferencing x might have
+   value obtained by dereferencing x and that dereferencing x might have
    other side effects (e.g. maybe another thread could change the value
    and the compiler has no way of knowing this).  Generally speaking,
    the volatile keyword is broken linguistically.  Volatility is not a
-   property of the variable but of the deferencing of a variable (e.g.
+   property of the variable but of the dereferencing of a variable (e.g.
    what is volatile from the POV of a reader of a shared variable is not
    necessarily volatile from the POV a writer of that shared variable in
    a different thread). */
@@ -670,7 +670,7 @@ fd_type_pun_const( void const * p ) {
 #define FD_VOLATILE_CONST(x) (*((volatile const __typeof__((x)) *)&(x)))
 
 /* FD_VOLATILE(x): tells the compiler is not able to predict the effect
-   of modifying x and that deferencing x might have other side effects
+   of modifying x and that dereferencing x might have other side effects
    (e.g. maybe another thread is spinning on x waiting for its value to
    change and the compiler has no way of knowing this). */
 
@@ -729,7 +729,7 @@ fd_type_pun_const( void const * p ) {
    __sync_lock_test_and_set.  And some implementations (and C++)
    debatably then implemented this API according to what the misleading
    name implied as opposed to what it actually did.  But those
-   implementations didn't bother to provide an replacment for atomic
+   implementations didn't bother to provide an replacement for atomic
    exchange functionality (forcing us to emulate atomic exchange more
    slowly via CAS there).  Sigh ... we do what we can to fix this up. */
 
@@ -998,7 +998,7 @@ fd_hash_memcpy( ulong                    seed,
                 ulong                    sz );
 
 #ifndef FD_TICKCOUNT_STYLE
-#if FD_HAS_X86 /* Use RTDSC */
+#if FD_HAS_X86 /* Use RDTSC */
 #define FD_TICKCOUNT_STYLE 1
 #else /* Use portable fallback */
 #define FD_TICKCOUNT_STYLE 0

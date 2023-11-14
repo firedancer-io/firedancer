@@ -12,7 +12,7 @@
    heaps, etc.  Likewise, a heap can be persisted beyond the lifetime of
    creating process, used concurrently in many common operations, used
    inter-process, relocated in memory, naively serialized/deserialized,
-   moved between hosts, supports index compresson for cache and memory
+   moved between hosts, supports index compression for cache and memory
    bandwidth efficiency, etc.
 
    Typical usage:

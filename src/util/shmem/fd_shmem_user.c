@@ -203,7 +203,7 @@ fd_shmem_join( char const *               name,
   fd_shmem_private_map_cnt++;
 
   join_info->ref_cnt  = -1L;  /* Mark join/leave in progress so we can detect circular join/leave dependencies */
-  join_info->join     = NULL; /* Overriden below */
+  join_info->join     = NULL; /* Overridden below */
   join_info->shmem    = shmem;
   join_info->page_sz  = page_sz;
   join_info->page_cnt = page_cnt;

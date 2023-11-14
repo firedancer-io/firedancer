@@ -46,7 +46,7 @@ main( int     argc,
 
   ulong max = fd_env_strip_cmdline_ulong( &argc, &argv, "--max", NULL, scratch_max );
   if( FD_UNLIKELY( max>scratch_max || max>ACQUIRED_MAX ) )  {
-    FD_LOG_WARNING(( "skip: increase scratch_max and/or ACQURIED_MAX to support this level of --max" ));
+    FD_LOG_WARNING(( "skip: increase scratch_max and/or ACQUIRED_MAX to support this level of --max" ));
     return 0;
   }
   if( FD_UNLIKELY( (mypool_align()>SCRATCH_ALIGN) | (mypool_footprint( max )>SCRATCH_FOOTPRINT) ) ) {

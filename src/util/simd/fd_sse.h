@@ -20,7 +20,7 @@
 
    That is, this is a thin wrapper around Intel's SSE intrinsics to give
    it a sane type system and robust semantics for writing mixed type and
-   mixed wiidth vectorized code (including branching).  This includes a
+   mixed width vectorized code (including branching).  This includes a
    lot of non-obvious tricks, fixes for ultra high density of
    irregularities in their intrinsics, implementations of missing
    intrinsics and lots of workarounds to get Intel AVX to behave sanely.

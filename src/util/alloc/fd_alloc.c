@@ -9,7 +9,7 @@
 
 /* sizeclass APIs *****************************************************/
 
-/* fd_alloc_preferred_sizeclass returns the tighest fitting sizeclass
+/* fd_alloc_preferred_sizeclass returns the tightest fitting sizeclass
    for the given footprint.  The caller promises there is at least one
    possible size class (i.e. that footprint is in
    [0,FD_ALLOC_FOOTPRINT_SMALL_THRESH].  The return will be in
@@ -322,7 +322,7 @@ fd_alloc_private_inactive_stack_pop( fd_alloc_vgaddr_t * inactive_stack,
 
 /* fd_alloc_hdr_t *****************************************************/
 
-/* An fd_alloc_hdr_t is a small header preprended to an allocation that
+/* An fd_alloc_hdr_t is a small header prepended to an allocation that
    describes the allocation.  Because fd_alloc supports arbitrary
    allocation alignments, these headers might be stored at unaligned
    positions. */
@@ -335,7 +335,7 @@ typedef uint fd_alloc_hdr_t;
    detect an allocation is done by that allocator.  The most significant
    24 bits are a magic number to help with analytics.  Bit 7 indicates
    whether this allocation is direct user allocation or holds a
-   superblock that aggregrates many small allocations together. */
+   superblock that aggregates many small allocations together. */
 
 #define FD_ALLOC_HDR_LARGE_DIRECT     ((fd_alloc_hdr_t)(0xFDA11C00U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
 #define FD_ALLOC_HDR_LARGE_SUPERBLOCK ((fd_alloc_hdr_t)(0xFDA11C80U | (fd_alloc_hdr_t)FD_ALLOC_SIZECLASS_LARGE))
@@ -405,7 +405,7 @@ fd_alloc_hdr_large_is_superblock( fd_alloc_hdr_t hdr ) {
 
 /* fd_alloc_hdr_store stores a fd_alloc_hdr_t describing a small
    sizeclass allocation contained within block of superblock in the
-   sizeof(fd_alloc_hdr_t) bytes immediately preceeding the byte pointed
+   sizeof(fd_alloc_hdr_t) bytes immediately preceding the byte pointed
    to by laddr in the caller's address space.  The caller promises that
    these bytes are somewhere within the block.
 
@@ -688,7 +688,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
      allocation.  If we are able to do so, obviously the new superblock
      would have at least one free block for this allocation.  (Yes,
      malloc calls itself recursively.  The base case is the large
-     allocation above.  Note that we expand out the base case explictly
+     allocation above.  Note that we expand out the base case explicitly
      here so we can distinguish user large allocations from gigantic
      superblock allocations in analytics without having to change the
      APIs or use the public API as a wrapper.)
@@ -822,7 +822,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
        As discussed in free below, we could update a superblock cgroup
        hint here (such that the when the superblock goes back into
        circulation, it will be put into circulation as the active
-       superblock for this cgroup to encourge for additional mallocs
+       superblock for this cgroup to encourage for additional mallocs
        from this thread for good spatial locality).  This doesn't need
        to be atomic.  Even though a concurrent free on another thread
        might get this into superblock into circulation before this
@@ -1190,7 +1190,7 @@ fd_alloc_is_empty( fd_alloc_t * join ) {
 /* fd_alloc_superblock_fprintf pretty prints to the given stream
    exhaustive details about the current state of the given superblock in
    wksp at superblock_gaddr.  The superblock's parameters are given by
-   sizeclass, block_cnt, block_footprint.  Diagnosts will be accumulated
+   sizeclass, block_cnt, block_footprint.  Diagnostics will be accumulated
    ctr.  Returns behavior matches fprintf return behavior (i.e. the
    number of characters output to stream or a negative error code).
    This is meant to be called exclusively from fd_alloc_fprintf and does

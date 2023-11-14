@@ -440,7 +440,7 @@ fd_pod_subpod_grow( fd_pod_subpod_path_t * node,
   }
 
   /* fd_ulong_max below is to eliminate a very rare edge cases at a
-     miniscule temporary cost in packing efficiency (compact can handle
+     minuscule temporary cost in packing efficiency (compact can handle
      it).  The edge case is the ideal new_val_footprint is at most the
      current val_footprint but the current val_sz can't be encoded in
      the ideal new_val_footprint.  In this case, we'd need to repack the

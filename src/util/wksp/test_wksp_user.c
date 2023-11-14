@@ -235,7 +235,7 @@ main( int     argc,
       fd_wksp_usage_t usage[1];
       FD_TEST( fd_wksp_usage( wksp, alloc_tag, 4UL, usage )==usage );
       FD_TEST( usage->total_max==part_max ); FD_TEST( usage->total_sz==data_max );
-      FD_TEST( usage->total_cnt==(usage->free_cnt+usage->used_cnt) ); /* only when tag query is comprehesive */
+      FD_TEST( usage->total_cnt==(usage->free_cnt+usage->used_cnt) ); /* only when tag query is comprehensive */
       FD_TEST( usage->total_sz ==(usage->free_sz +usage->used_sz ) ); /* " */
       FD_LOG_NOTICE(( "Usage\n\t"
                       "total_part  %3lu\n\t"

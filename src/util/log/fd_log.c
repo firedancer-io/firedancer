@@ -515,7 +515,7 @@ void
 fd_log_private_fprintf_0( int          fd,
                           char const * fmt, ... ) {
 
-  /* Note: while this function superfically looks vdprintf-ish, we don't
+  /* Note: while this function superficially looks vdprintf-ish, we don't
      use that as it can do all sorts of unpleasantness under the hood
      (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
      function deliberately avoids.  Also, the function uses the shared
@@ -568,7 +568,7 @@ void
 fd_log_private_fprintf_nolock_0( int          fd,
                                  char const * fmt, ... ) {
 
-  /* Note: while this function superfically looks vdprintf-ish, we don't
+  /* Note: while this function superficially looks vdprintf-ish, we don't
      use that as it can do all sorts of unpleasantness under the hood
      (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
      function deliberately avoids.  Also, the function uses the shared

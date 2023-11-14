@@ -75,7 +75,7 @@
       already.  Your process will now be running as the unprivileged
       user.
 
-    * The real group ID, effecetive group ID, and the saved-set-group-ID
+    * The real group ID, effective group ID, and the saved-set-group-ID
       of the process are switched to the provided gid, if they are not
       already.
 

@@ -535,7 +535,7 @@ MAP_(footprint)( ulong key_max ) {
 
        2*sizeof(ulong) + align-1 + key_max*sizeof(ulong) + sizeof(map_private_t) + key_max*sizeof(map_t) + align-1
 
-     Requring this to be at most ULONG_MAX (such that no calculations
+     Requiring this to be at most ULONG_MAX (such that no calculations
      will overflow) yields the below.  We also must have
      key_max<=2^63-1==MAP_IDX_NULL given how elements are marked. */
 

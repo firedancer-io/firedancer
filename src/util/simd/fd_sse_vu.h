@@ -236,7 +236,7 @@ static inline vf_t vu_to_vf( vu_t u ) {
      _mm_cvtepi32_pd equivalent would not be exact such that add to
      correct the twos complement mangling would add a possible second
      roundoff error ... this would result in slightly different values
-     occassionally when u is >~ 2^31).  We instead convert the two
+     occasionally when u is >~ 2^31).  We instead convert the two
      halves to double (exact), convert the double to float (single
      roundoff error) and then concat the two float halves to make a
      correctly rounded implementation. */

@@ -31,7 +31,7 @@
      form to stderr.
 
    - FD_LOG_WARNING is FD_LOG_NOTICE + the log file and stderr are
-     flushed to minimize the risk of this message and any preceeding not
+     flushed to minimize the risk of this message and any preceding not
      making it out before thread resumption.
 
    - FD_LOG_ERR is FD_LOG_WARNING + the program will be exited with
@@ -64,7 +64,7 @@
      timestamps.
 
    - Concurrent reads of the wallclock by different threads should be
-     reasonably well sychronized such that ordering of events between
+     reasonably well synchronized such that ordering of events between
      communicating threads is accurately reflected by the timestamps.
 
    - A thread runs on a cpu.
@@ -284,7 +284,7 @@
              20: 20 21 22 23 24 25 26 27  28 29 2a 2b 2c 2d 2e 2f
              30: 30 31 32 33 34 35 36 37  38 39 3a 3b 3c 3d 3e 3f
 
-   to the ephermal log typically (and a more detailed message to the
+   to the ephemeral log typically (and a more detailed message to the
    permanent log).  And similarly for the other log levels.  b should be
    safe against multiple evaluation. */
 
@@ -489,7 +489,7 @@ int fd_log_group_id_query( ulong group_id );
 
    Code that is meant to be general purpose should not assume any
    particular format, contents, length, etc.  The build system,
-   packaging magner, distribution manager, etc might external impose
+   packaging manager, distribution manager, etc might external impose
    additional requirements on this string for application specific code
    though. */
 
@@ -564,7 +564,7 @@ fd_log_flush( void );
    stderr==logfile, flush<stderr will be treated as flush==stderr,
    core<4 will be treated as 4).  colorize returns the colorization mode
    of the ephemeral log.  Currently, zero indicates no colorization of
-   the ephmeral log and non-zero indicates to colorize it. */
+   the ephemeral log and non-zero indicates to colorize it. */
 
 int fd_log_colorize( void );
 int fd_log_level_logfile ( void );

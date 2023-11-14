@@ -21,7 +21,7 @@ main( int     argc,
 
   fd_boot( &argc, &argv );
 
-  /* FIXME: MORE EXPLICT TESTS OF FD_CSTR_PRINTF */
+  /* FIXME: MORE EXPLICIT TESTS OF FD_CSTR_PRINTF */
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
