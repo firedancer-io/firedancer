@@ -269,7 +269,7 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
                      uint      ip_addr );
 
 
-/* Prepares the ARP cache for recieving a new ARP entry
+/* Prepares the ARP cache for receiving a new ARP entry
 
    Should be called prior to sending an ARP request
 

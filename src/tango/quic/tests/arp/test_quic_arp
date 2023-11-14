@@ -71,7 +71,7 @@ fi
 BIN=$1/bin
 UNIT_TEST=$1/unit-test
 
-# Disable permanant log for all the controls we are going to run in here
+# Disable permanent log for all the controls we are going to run in here
 
 FD_LOG_PATH=""
 export FD_LOG_PATH

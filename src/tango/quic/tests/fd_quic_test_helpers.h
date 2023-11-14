@@ -51,7 +51,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
 
 /* fd_quic_virtual_pair_init sets up an aio loop between the two given QUIC
    objects.  That is, an fd_aio_send() call by quicA will trigger
-   a sychronous callback to the aio receive to the quicB.  (FIXME This
+   a synchronous callback to the aio receive to the quicB.  (FIXME This
    assumes no reentrancy in QUIC)  If user requested pcap, causes
    packets to get logged.  May only be called once per thread.  Any
    allocated resources get released at halt. */

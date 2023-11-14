@@ -624,7 +624,7 @@ fd_quic_crypto_encrypt(
 static char const *
 fd_quic_openssl_strerror( void ) {
   /* had a segfault in ERR_error_string_n
-   * so disaabling this for now
+   * so disabling this for now
    * TODO fix */
 #if 1
   static char errbuf[ 256UL ];  /* openssl docs state buf <= 256 bytes */
