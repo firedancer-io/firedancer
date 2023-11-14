@@ -1,5 +1,6 @@
 #include "fd_types_yaml.h"
 #include "fd_types_meta.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -311,12 +312,18 @@ fd_flamenco_yaml_walk( void *       _self,
   case FD_FLAMENCO_TYPE_DOUBLE:
     fprintf( file, "%f\n", *(double const *)arg );
     break;
-  case FD_FLAMENCO_TYPE_HASH256:
-    fprintf( file, "'%32J'\n", arg );
+  case FD_FLAMENCO_TYPE_HASH256: {
+    char buf[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( arg, NULL, buf );
+    fprintf( file, "'%s'\n", buf );
     break;
-  case FD_FLAMENCO_TYPE_SIG512:
-    fprintf( file, "'%64J'\n", arg );
+  }
+  case FD_FLAMENCO_TYPE_SIG512: {
+    char buf[ FD_BASE58_ENCODED_64_SZ ];
+    fd_base58_encode_64( arg, NULL, buf );
+    fprintf( file, "'%s'\n", buf );
     break;
+  }
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
     break;
