@@ -94,7 +94,7 @@ FD_PROTOTYPES_BEGIN
    always) required to create an FEC set resolver that can keep track of
    `depth` in progress FEC sets, will not reuse FEC sets for at least
    partial_depth shreds or for at least complete_depth complete FEC sets
-   (see above for more information).  Aditionally, the FEC resolver
+   (see above for more information).  Additionally, the FEC resolver
    remembers done_depth FEC sets to recognize duplicates vs. new FEC
    sets.  All depths must positive.
 

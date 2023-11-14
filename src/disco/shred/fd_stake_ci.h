@@ -140,7 +140,7 @@ void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulo
 
 
 /* fd_stake_ci_get_{sdest, lsched}_for_slot respectively return a
-   pointer to the fd_shred_dest_t and fd_epoch_leaders_t containin
+   pointer to the fd_shred_dest_t and fd_epoch_leaders_t containing
    information about the specified slot, if it is available.  These
    functions are the primary query functions for fd_stake_ci.  They
    return NULL if we don't have information for that slot.

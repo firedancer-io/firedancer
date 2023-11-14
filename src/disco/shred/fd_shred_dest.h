@@ -26,7 +26,7 @@ typedef ushort fd_shred_dest_idx_t;
 /* fd_shred_dest_weighted_t specifies a destination to which a shred might be
    sent.  The information comes from Gossip typically. */
 struct fd_shred_dest_weighted {
-  fd_pubkey_t  pubkey;   /* The valiator's identity key */
+  fd_pubkey_t  pubkey;   /* The validator's identity key */
   ulong  stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
   uint   ip4;            /* The validator's IP address, in host byte order */
   ushort port;           /* The TVU port, in host byte order */
@@ -168,7 +168,7 @@ fd_shred_dest_compute_first( fd_shred_dest_t          * sdest,
    Results are stored in out, but there's some awkwardness associated
    with something that's logically a 2d array, so out_stride specifies
    the number of elements in each logical row of the output.
-   Preciesely, destination j for shred i is written to out[ j*out_stride
+   Precisely, destination j for shred i is written to out[ j*out_stride
    + i ]. Graphically:
    [ shred0 dest0, shred1 dest0, shred2 dest0, ... (skip until stride)
      shred0 dest1, shred1 dest1, shred2 dest1, ... (skip until 2stride)
