@@ -66,7 +66,7 @@ typedef struct {
   void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
 
-#define ACTIONS_CNT (9UL)
+#define ACTIONS_CNT (10UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
 config_t fdctl_boot( int *        pargc,
@@ -142,6 +142,10 @@ ready_cmd_fn( args_t *         args,
 
 void
 mem_cmd_fn( args_t *         args,
+            config_t * const config );
+
+void
+spy_cmd_fn( args_t *         args,
             config_t * const config );
 
 void
