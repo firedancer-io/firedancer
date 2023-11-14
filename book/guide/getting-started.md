@@ -82,7 +82,7 @@ enables architecture specific instructions if possible. This means
 binaries built on one machine may not be able to run on another.
 
 If you wish to target a lower machine architecture you can compile for a
-specific target by setting the `MACHINE` envrionment variable to one of
+specific target by setting the `MACHINE` environment variable to one of
 the targets under `config/`.
 
 ```sh [bash]
@@ -160,7 +160,7 @@ production host.
 
 :::
 
-The initialization steps are desribed [in detail](/guide/initializing.md)
+The initialization steps are described [in detail](/guide/initializing.md)
 later. But plowing ahead at the moment:
 
 ```sh [bash]
