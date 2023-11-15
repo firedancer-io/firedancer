@@ -59,7 +59,7 @@ main( int     argc,
 
   FD_TEST( !fd_io_write( fd, src, src_len, src_len, &wsz ) && wsz==src_len     );
 
-  /* Test compoound write */
+  /* Test compound write */
 
   FD_TEST( !fd_io_write( fd, src,     3UL,         3UL,         &wsz ) && wsz==3UL         );
   FD_TEST( !fd_io_write( fd, src+3UL, src_len-3UL, src_len-3UL, &wsz ) && wsz==src_len-3UL );

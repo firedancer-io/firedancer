@@ -31,7 +31,7 @@
      form to stderr.
 
    - FD_LOG_WARNING is FD_LOG_NOTICE + the log file and stderr are
-     flushed to minimize the risk of this message and any preceeding not
+     flushed to minimize the risk of this message and any preceding not
      making it out before thread resumption.
 
    - FD_LOG_ERR is FD_LOG_WARNING + the program will be exited with
@@ -64,7 +64,7 @@
      timestamps.
 
    - Concurrent reads of the wallclock by different threads should be
-     reasonably well sychronized such that ordering of events between
+     reasonably well synchronized such that ordering of events between
      communicating threads is accurately reflected by the timestamps.
 
    - A thread runs on a cpu.
@@ -234,6 +234,11 @@
 #define FD_LOG_HEXDUMP_ALERT(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 6, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
 #define FD_LOG_HEXDUMP_EMERG(a)   do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_2( 7, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_hexdump_msg a ); } while(0)
 
+/* FD_LOG_STDOUT(()) is used for writing formatted messages to STDOUT, it does not
+   take a lock and might interleave with other messages to the same pipe.  It
+   should only be used for command output. */
+#define FD_LOG_STDOUT(a) do { fd_log_private_fprintf_nolock_0( STDOUT_FILENO, "%s", fd_log_private_0 a ); } while(0)
+
 /* FD_TEST is a single statement that evaluates condition c and, if c
    evaluates to false, will FD_LOG_ERR that the condition failed.  It is
    optimized for the case where c will is non-zero.  This is mostly
@@ -279,7 +284,7 @@
              20: 20 21 22 23 24 25 26 27  28 29 2a 2b 2c 2d 2e 2f
              30: 30 31 32 33 34 35 36 37  38 39 3a 3b 3c 3d 3e 3f
 
-   to the ephermal log typically (and a more detailed message to the
+   to the ephemeral log typically (and a more detailed message to the
    permanent log).  And similarly for the other log levels.  b should be
    safe against multiple evaluation. */
 
@@ -484,7 +489,7 @@ int fd_log_group_id_query( ulong group_id );
 
    Code that is meant to be general purpose should not assume any
    particular format, contents, length, etc.  The build system,
-   packaging magner, distribution manager, etc might external impose
+   packaging manager, distribution manager, etc might external impose
    additional requirements on this string for application specific code
    though. */
 
@@ -559,7 +564,7 @@ fd_log_flush( void );
    stderr==logfile, flush<stderr will be treated as flush==stderr,
    core<4 will be treated as 4).  colorize returns the colorization mode
    of the ephemeral log.  Currently, zero indicates no colorization of
-   the ephmeral log and non-zero indicates to colorize it. */
+   the ephemeral log and non-zero indicates to colorize it. */
 
 int fd_log_colorize( void );
 int fd_log_level_logfile ( void );
@@ -600,6 +605,12 @@ fd_log_private_2( int          level,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
 
+void
+fd_log_private_raw_2( char const * file,
+                      int          line,
+                      char const * func,
+                      char const * msg ) __attribute__((noreturn)); /* Let compiler know this will not be returning */
+
 char const *
 fd_log_private_hexdump_msg( char const * tag,
                             void const * mem,
@@ -610,9 +621,40 @@ fd_log_private_boot( int *    pargc,
                      char *** pargv );
 
 void
+fd_log_private_boot_custom( int *        lock,
+                            ulong        app_id,
+                            char const * app,
+                            ulong        thread_id,
+                            char const * thread,
+                            ulong        host_id,
+                            char const * host,
+                            ulong        cpu_id,
+                            char const * cpu,
+                            ulong        group_id,
+                            char const * group,
+                            ulong        tid,
+                            ulong        user_id,
+                            char const * user,
+                            int          dedup,
+                            int          colorize,
+                            int          level_logfile,
+                            int          level_stderr,
+                            int          level_flush,
+                            int          level_core,
+                            int          log_fd,
+                            char const * log_path );
+
+
+void
 fd_log_private_halt( void );
 
 ulong fd_log_private_main_stack_sz( void ); /* Returns ulimit -s (if reasonable) on success, 0 on failure (logs details) */
+
+ulong
+fd_log_private_tid_default( void );
+
+ulong
+fd_log_private_cpu_id_default( void );
 
 void
 fd_log_private_stack_discover( ulong   stack_sz,  /* Size the stack is expected to be */

@@ -332,7 +332,7 @@ fd_tpool_private_exec_all_##style##_node( void * _node_tpool,                   
 
 FD_TPOOL_EXEC_ALL_IMPL_HDR(rrobin)
   ulong m_stride = t1-t0;
-  ulong m        = l0 + fd_ulong_min( node_t0-t0, ULONG_MAX-l0 ); /* robust agaisnt overflow */
+  ulong m        = l0 + fd_ulong_min( node_t0-t0, ULONG_MAX-l0 ); /* robust against overflow */
   while( m<l1 ) {
     task( (void *)_tpool,t0,t1, args,reduce,stride, l0,l1, m,m+1UL, node_t0,node_t1 );
     m += fd_ulong_min( m_stride, ULONG_MAX-m ); /* robust against overflow */

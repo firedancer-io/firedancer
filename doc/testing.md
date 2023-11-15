@@ -74,7 +74,7 @@ determinism include using the current time as a random value, or
 expecting the order in which tests are executed to stay the same.
 
 **No inputs**: Unit tests should try to support automatic configuration
-to ensure they are run frequently.  Apart from aforemented requirements,
+to ensure they are run frequently.  Apart from aforementioned requirements,
 this is achieved by bundling inputs (`FD_IMPORT_BINARY`), and being able
 to run without additional command-line arguments.
 

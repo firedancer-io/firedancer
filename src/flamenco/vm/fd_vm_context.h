@@ -46,7 +46,7 @@
 #define FD_VM_MEM_MAP_SUCCESS       (0)
 #define FD_VM_MEM_MAP_ERR_ACC_VIO   (1)
 
-/* Foward definition of fd_vm_sbpf_exec_context_t. */
+/* Forward definition of fd_vm_sbpf_exec_context_t. */
 struct fd_vm_exec_context;
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 

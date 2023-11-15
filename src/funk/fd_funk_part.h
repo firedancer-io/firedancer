@@ -4,7 +4,7 @@
 /* This provides APIs for managing funk record partitions. */
 
 struct fd_funk_parthead {
-  ulong  head_idx;      /* Record map index of the first record in parition, FD_FUNK_REC_IDX_NULL if none */
+  ulong  head_idx;      /* Record map index of the first record in partition, FD_FUNK_REC_IDX_NULL if none */
   ulong  tail_idx;      /* "                       last          " */
 };
 

@@ -183,7 +183,7 @@ fd_io_buffered_read( int     fd,
     }
 
     /* At this point we have more bytes to read, which implies cpy_sz
-       was less than dst_sz, whcih implies cpy_sz was rbuf_ready, which
+       was less than dst_sz, which implies cpy_sz was rbuf_ready, which
        implies rbuf is empty because it was drained above. */
   }
 
@@ -255,7 +255,7 @@ fd_io_buffered_skip( int     fd,
 
   /* For large skips, flush rbuf and lseek the fd for the remainder.
      TODO: Consider a variant where fd lseek is aligned to a rbuf_sz
-     like the above (such might requre this function to do some
+     like the above (such might require this function to do some
      buffering of data if the skip_sz isn't an rbuf_sz multiple). */
 
   ulong rbuf_ready = *_rbuf_ready;
@@ -426,7 +426,7 @@ fd_io_strerror( int err ) {
 
   /* This covers the standard POSIX-2008 errnos.  We handle the POSIX
      glitches around EWOULDBLOCK / EAGAIN and EOPNOTSUPP / ENOTSUP so
-     this will build fine regardlesss of whether these map to the same
+     this will build fine regardless of whether these map to the same
      or different error codes (they typically map to the same nowadays).
      We also throw in negative values for EOF as that is how the above
      handles such. */

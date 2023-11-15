@@ -26,7 +26,7 @@ FD_PROTOTYPES_BEGIN
 
    Stores the output in the buffer pointed to by out.  If opt_len is
    non-NULL, *opt_len == strlen( out ) on return.  Returns out.  out is
-   guaranteed to be nul teriminated on return.
+   guaranteed to be nul terminated on return.
 
    Out must have enough space for FD_BASE58_ENCODED_{32,64}_SZ
    characters, including the nul terminator.
@@ -57,6 +57,6 @@ char * fd_base58_encode_64( uchar const * bytes, ulong * opt_len, char * out );
 uchar * fd_base58_decode_32( char const * encoded, uchar * out );
 uchar * fd_base58_decode_64( char const * encoded, uchar * out );
 
-FD_PROTOTYPES_BEGIN
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_base58_fd_base58_h */

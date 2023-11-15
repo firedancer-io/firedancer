@@ -42,7 +42,7 @@
      my_ele_t * my_deque_peek_tail  ( my_ele_t * deque ); // peeks at tail, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_peek_index ( my_ele_t * deque, ulong idx ); // peeks at index, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_insert_head( my_ele_t * deque ); // inserts uninitialized element at head, returns deque
-     my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitiaiized element at tail, returns deque
+     my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitialized element at tail, returns deque
      my_ele_t * my_deque_remove_head( my_ele_t * deque ); // removes head, returns deque
      my_ele_t * my_deque_remove_tail( my_ele_t * deque ); // removes tail, returns deque
      my_ele_t * my_deque_remove_all ( my_ele_t * deque ); // removes all, returns deque, fast O(1)
@@ -113,10 +113,10 @@ struct DEQUE_(private) {
 
      start and end overflow/underflow are fine if max is a power of two
      and start and end are initialized such that overflow / underflow
-     will not happen for millenia practically anyway.  More precisely,
+     will not happen for millennia practically anyway.  More precisely,
      this implementation is guaranteed when max is a power of two and/or
      when fewer than 2^63 operations have been done on the deque (which,
-     practically speaking, would take millenia).  If, in some distant
+     practically speaking, would take millennia).  If, in some distant
      age, a user does want to support doing more than 2^63 operations
      when max is not a power of two, this can be done by moving start
      and end as close as possible toward 2^63 by the same integer

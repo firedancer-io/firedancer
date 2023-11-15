@@ -296,7 +296,7 @@ client_fibre_fn( void * vp_arg ) {
               server_quic->config.sni );
 
       if( !conn ) {
-        FD_LOG_WARNING(( "Client unable to obtain a connection" ));
+        FD_LOG_WARNING(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
         continue;
       }
 
@@ -326,8 +326,9 @@ client_fibre_fn( void * vp_arg ) {
 
       if( !stream ) {
         if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
-          FD_LOG_WARNING(( "Client unable to obtain a stream" ));
+          FD_LOG_WARNING(( "Client unable to obtain a stream. now: %lu", (ulong)now ));
         }
+        next_send = now + period_ns; /* ensure we make progress */
         continue;
       }
     }

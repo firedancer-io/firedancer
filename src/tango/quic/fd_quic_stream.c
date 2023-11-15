@@ -49,7 +49,7 @@ fd_quic_buffer_store( fd_quic_buffer_t * buf,
 }
 
 /* fd_quic_buffer_load
-   load data from cirular buffer */
+   load data from circular buffer */
 void
 fd_quic_buffer_load( fd_quic_buffer_t * buf,
                      ulong              offs,

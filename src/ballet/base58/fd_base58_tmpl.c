@@ -11,7 +11,7 @@
      BINARY_SIZE: N/4.  Define it yourself to facilitate declaring the
          required tables.
 
-   INTERMEIDATE_SZ and BINARY_SZ should expand to ulongs while N should
+   INTERMEDIATE_SZ and BINARY_SZ should expand to ulongs while N should
    be an integer literal.
 
    Expects that enc_table_N, dec_table_N, and FD_BASE58_ENCODED_N_SZ

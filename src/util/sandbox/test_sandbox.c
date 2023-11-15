@@ -79,17 +79,17 @@
 void
 check_open_fds( void ) {
   TEST_FORK_EXIT_NON_0(
-    sandbox_unthreaded( 0, NULL, getuid(), getgid() );
+    sandbox_unthreaded( 0, 0, NULL, getuid(), getgid() );
   );
 
   int fds[ 5 ] = { 0, 1, 2, 3, 101 };
   TEST_FORK_EXIT_NON_0(
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( 0, SIZEOFA( fds ), fds, getuid(), getgid() );
   );
 
-  int fds2[ 4 ] = { 0, 1, 2, 3 };
+  int fds2[ 5 ] = { 0, 1, 2, 3, 4 };
   TEST_FORK_OK(
-    sandbox_unthreaded( SIZEOFA( fds2 ), fds2, getuid(), getgid() );
+    sandbox_unthreaded( 0, SIZEOFA( fds2 ), fds2, getuid(), getgid() );
   );
 }
 
@@ -97,12 +97,12 @@ check_open_fds( void ) {
    the set limits cannot be exceeded. */
 void
 resource_limits( void ) {
-  int fds[ 4 ] = { 0, 1, 2, 3 };
+  int fds[ 5 ] = { 0, 1, 2, 3, 4 };
   TEST_FORK_OK(
     FD_TEST( -1 != open( "/etc/passwd", O_RDONLY ) );
   );
   TEST_FORK_OK(
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( 0, SIZEOFA( fds ), fds, getuid(), getgid() );
     FD_TEST( -1 == open( "/etc/passwd", O_RDONLY ) );
     FD_TEST( EMFILE == errno );
   );
@@ -110,10 +110,10 @@ resource_limits( void ) {
 
 void
 not_dumpable( void ) {
-  int fds[ 4 ] = { 0, 1, 2, 3 };
+  int fds[ 5 ] = { 0, 1, 2, 3, 4 };
   TEST_FORK_OK(
     FD_TEST( prctl( PR_GET_DUMPABLE ) );
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( 0, SIZEOFA( fds ), fds, getuid(), getgid() );
     FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   );
 }
@@ -122,12 +122,12 @@ void
 no_capabilities( void ) {
   struct __user_cap_header_struct hdr = { _LINUX_CAPABILITY_VERSION_3, 0 };
   struct __user_cap_data_struct   data[2] = { { 0 } };
-  int fds[ 4 ] = { 0, 1, 2, 3 };
+  int fds[ 5 ] = { 0, 1, 2, 3, 4 };
   TEST_FORK_OK(
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( data[0].effective || data[1].effective );
 
-    sandbox_unthreaded( SIZEOFA( fds ), fds, getuid(), getgid() );
+    sandbox_unthreaded( 0, SIZEOFA( fds ), fds, getuid(), getgid() );
 
     FD_TEST( 0 == syscall( SYS_capget, &hdr, data ) );
     FD_TEST( !data[0].effective && !data[1].effective );
@@ -208,12 +208,12 @@ mountns_null( void ) {
    seccomp is effective. */
 void
 seccomp_default_filter( void ) {
-  int fds[ 4 ] = { 0, 1, 2, 3 };
+  int fds[ 5 ] = { 0, 1, 2, 3, 4 };
 
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_test_sandbox( 128UL, seccomp_filter );
 
-  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); );
+  TEST_FORK_OK( fd_sandbox( 1, getuid(), getgid(), 0UL, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter ); );
 
   pid_t pid = fork();
   if ( pid ) {
@@ -222,7 +222,7 @@ seccomp_default_filter( void ) {
     FD_TEST( WIFSIGNALED( wstatus ) && WTERMSIG( wstatus ) == SIGSYS );
   } else { // child
 
-    fd_sandbox( 1, getuid(), getgid(), SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter );
+    fd_sandbox( 1, getuid(), getgid(), 0UL, SIZEOFA( fds ), fds, sock_filter_policy_test_sandbox_instr_cnt, seccomp_filter );
     // This should fail with SIGSYS
     execl( "/bin/true", "" );
   }
@@ -231,7 +231,6 @@ seccomp_default_filter( void ) {
 
 void
 test_protected_pages( void ) {
-
   pid_t pid = fork();
   if ( pid ) {
     int wstatus;

@@ -76,8 +76,8 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   ulong done_depth;
 
   /* curr_map: A map (using fd_map_dynamic) from tags of signatures to
-     the context object with its relavant data.  This map contains at
-     most `depth` elements at any time, but to improve query performace,
+     the context object with its relevant data.  This map contains at
+     most `depth` elements at any time, but to improve query performance,
      we size it at 2*depth. */
   set_ctx_t * curr_map;
 
@@ -333,7 +333,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
 
   /* For the purposes of the shred header, tree_depth means the number
      of nodes, counting the leaf but excluding the root.  For bmtree,
-     depth means the nubmer of layers, which counts both. */
+     depth means the number of layers, which counts both. */
   ulong tree_depth           = fd_shred_merkle_cnt( variant ); /* In [0, 15] */
   ulong reedsol_protected_sz = 1115UL - 20UL*tree_depth + 0x58UL - 0x40UL; /* Cannot underflow */
   ulong merkle_protected_sz  = reedsol_protected_sz + fd_ulong_if( is_data_shred, 0UL, 0x59UL - 0x40UL );

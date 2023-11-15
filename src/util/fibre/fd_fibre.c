@@ -421,7 +421,7 @@ fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {
     fd_fibre_swap( fd_fibre_scheduler );
   }
 
-  /* we have data to provide, so retrive it */
+  /* we have data to provide, so retrieve it */
   *value = pipe->entries[pipe->tail % pipe->cap];
 
   /* increment the tail */

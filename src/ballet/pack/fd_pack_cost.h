@@ -12,7 +12,7 @@
      * instruction data length cost
      * built-in execution cost
      * BPF execution cost
-   These are all summed to determine the total cost.  Aditionally, this
+   These are all summed to determine the total cost.  Additionally, this
    header provides a method for determining if a transaction is a simple
    vote transaction, in which case its costs are used slightly
    differently. */

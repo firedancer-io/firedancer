@@ -48,6 +48,9 @@ for different commands may cause them to fail.
 :::
 
 ## Logging
+By default Firedancer will maintain two logs. One permanent log which is
+written to a file, and an ephemeral log for fast visual inspection which
+is written to stderr. 
 
 ## Layout
 One way that Firedancer is fast is that it pins a dedicated thread to
@@ -59,7 +62,7 @@ efficient pipeline for processing transactions.
 ::: warning WARNING
 
 Each tile needs a dedicated CPU core and it will be saturated at 100%
-utlilization The Solana Labs process will run on the remaining cores,
+utilization The Solana Labs process will run on the remaining cores,
 and you must leave at least a few cores unpinned so that it is not
 starved.
 

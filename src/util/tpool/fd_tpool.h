@@ -4,7 +4,7 @@
 /* tpool provides APIs to group sets of tiles together for ultra low
    overhead and high scalability launching of thread parallel jobs.
    There is a lot of nuance that most thread pool APIs and
-   implementations get wrong.  And this naunce is very useful to
+   implementations get wrong.  And this nuance is very useful to
    understand why the APIs and implementations are the way they are.
    So, a crash course:
 
@@ -145,7 +145,7 @@
    the problem transitions from being cacheable to uncachable.  And in
    that regime, memory bandwidth limits not considered here dominate
    (all those cores starved of useful work because of badly designed
-   software and limited memory bandwidth).  Embarassing.
+   software and limited memory bandwidth).  Embarrassing.
 
    All too common a story: "We parallelized [important thing] with
    [rando popular but naive thread library du jour].  It got slower.
@@ -357,7 +357,7 @@
                float *      C,           // (l1-l0)*(n1-n0) col-major matrix with col stride sC
                ulong        sC,          // Assumes sC>=(l1-l0), C(i,j) at C[ i + sC*j ]
                ulong l0,    ulong l1,    // Assumes l1>=l0
-               ulong m0,    ulong m1,    // Asssmes m1>=m0
+               ulong m0,    ulong m1,    // Assumes m1>=m0
                ulong n0,    ulong n1 ) { // Assumes n1>=n0
 
        // At this point, we are worker thread t0 and we are responsible
@@ -381,7 +381,7 @@
          // We then execute in parallel the left range on worker threads
          // [t0,th) and the right range on worker threads [th,t1).  Yes,
          // this uses recursion in the thread dispatch to get radically
-         // better scalablity, lower overhead and ability to map
+         // better scalability, lower overhead and ability to map
          // arbitrary shaped problems onto arbitrarily shaped massively
          // parallel hardware with minimal load imbalance (see notes
          // above for more details about this).
@@ -398,7 +398,7 @@
            // Splitting along m is more onerous than splitting along l
            // or n because the left and right subtask outputs would end
            // up clobbering each other or, if being atomically too
-           // clever by half, having a non-determistic result due to an
+           // clever by half, having a non-deterministic result due to an
            // indeterminant summation order and floating point
            // non-associativity.  So we allocate a temporary matrix near
            // these cores to hold the right half partial reduction such
@@ -553,7 +553,7 @@ typedef struct fd_tpool_private_worker fd_tpool_private_worker_t;
 
 struct fd_tpool_private {
 
-  /* This point is 128 aligned and preceeded by the worker0 sentinel */
+  /* This point is 128 aligned and preceded by the worker0 sentinel */
 
   ulong worker_max; /* Positive */
   ulong worker_cnt; /* in [1,worker_max] */
@@ -652,7 +652,7 @@ fd_tpool_fini( fd_tpool_t * tpool );
 
    If scratch_sz is non-zero, this will assume that tile tile_idx
    currently has no scratch memory attached to it and configure tile
-   tile_idx to use the memory with approprate alignment whose first byte
+   tile_idx to use the memory with appropriate alignment whose first byte
    in the local address space is scratch and that has scratch_sz bytes
    total for its scratch memory.  Otherwise, it will use whatever
    scratch memory has already been configured for tile_idx (or leave it

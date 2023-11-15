@@ -60,7 +60,7 @@
    zero.  Result can be treated as a 2x4 long matrix with no additional
    operations.
 
-   These two tranposes are then interleaved for lots of ILP. */
+   These two transposes are then interleaved for lots of ILP. */
 
 #define FE_AVX_INL_SWIZZLE_IN4( v, a,b,c,d ) do {                      \
     int const * _a = (a)->limb;                                        \
@@ -769,7 +769,7 @@
 /* FE_AVX_INL_POW22523 applies fd_ed25519_pow22523 to the lanes of f and
    stores the result in h.  In place operation is fine.  Note that we
    actually implement this one out of line even in inline contexts to
-   keep instruction footprint resonable. */
+   keep instruction footprint reasonable. */
 
 #define FE_AVX_INL_POW22523( h, f ) do {           \
     long _f[ 40 ] __attribute__((aligned(64)));    \

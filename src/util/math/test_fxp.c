@@ -355,7 +355,7 @@ main( int     argc,
       if( ulp > fd_fxp_log2_approx_ulp ) fd_fxp_log2_approx_ulp = ulp;
       /* FIXME: when double support is not available, fxp is more
          precise than the reference and the larger ULP limit reflects
-         this (and potentialy the build target also having a less
+         this (and potentially the build target also having a less
          accurate libm). */
       if( e0!=e1 || (ulp > (FD_HAS_DOUBLE ? 2UL : 5263UL)) )
         FD_LOG_ERR(( "FAIL: %i fd_fxp_log2_approx x %016lx z0 %3i %016lx z1 %3i %016lx ulp %016lx", i, x, e0,f0, e1,f1, ulp ));
@@ -379,7 +379,7 @@ main( int     argc,
       if( ulp > fd_fxp_rexp2_approx_ulp ) fd_fxp_rexp2_approx_ulp = ulp;
       /* FIXME: when double support is not available, fxp is more
          precise than the reference and the larger ULP limit reflects
-         this (and potentialy the build target also having a less
+         this (and potentially the build target also having a less
          accurate libm). */
       if( ulp > (FD_HAS_DOUBLE ? 1UL : 59UL) )
         FD_LOG_ERR(( "FAIL: %i fd_fxp_rexp2_approx x %016lx z0 %016lx z1 %016lx ulp %016lx", i, x, z0, z1, ulp ));

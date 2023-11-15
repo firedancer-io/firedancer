@@ -19,7 +19,7 @@
      ulong      my_set_align    ( void             ); // required byte alignment of a my_set_t
      ulong      my_set_footprint( void             ); // required byte footprint of a my_set_t
      void *     my_set_new      ( void     * shmem ); // format memory region into a my_set, my_set will be empty
-                                                      // (caller not joined on return, mem has required align/foorprint, etc)
+                                                      // (caller not joined on return, mem has required align/footprint, etc)
      my_set_t * my_set_join     ( void     * shset ); // join a my_set_t (unlimited joins, etc)
      void *     my_set_leave    ( my_set_t *   set ); // leave a my_set_t (matched with join, etc)
      void *     my_set_delete   ( void     * shset ); // unformat memory (no active joins, etc)

@@ -81,14 +81,14 @@
    competing histories.  This model matches blockchains, where
    speculative work can proceed on several blocks at once long before
    the blocks are finalized.  When a transaction is published, all its
-   ancestors are also published, any competiting histories are
+   ancestors are also published, any competing histories are
    cancelled, leaving only a linear history up to the published
    transaction.  There is no practical limitation on the complexity of
    this tree.
 
    Funk tolerates applications crashing or being killed.  On a clean
    process termination, the state of the database will correspond to the
-   last published transactions and all in-preperation transactions as
+   last published transactions and all in-preparation transactions as
    they were at termination.  Extensive memory integrity checkers are
    provided to help with resuming / recovering if a code is killed
    uncleanly / crashes / etc in the middle of funk operations.  Hardware
@@ -116,7 +116,7 @@
    out of bounds in memory).  Outside of record values, all memory used
    is preallocated.  And record values are O(1) lockfree concurrent
    allocated via fd_alloc using the same wksp as funk (the
-   implementation is structured in layers that are straightforard to
+   implementation is structured in layers that are straightforward to
    retarget for particular applications as might be necessary).
 
    The shared memory used by a funk instance is within a workspace such
@@ -183,7 +183,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      before running out of indexing space.  But if ever needing to
      support more, it is straightforward to change the code to not use
      index compression.  Then, a funk (with a planet sized workspace
-     backing it) would survive a similar scenario for millons of years.
+     backing it) would survive a similar scenario for millions of years.
      Presumably, if such a situation arose, in the weeks to eons while
      there was consensus, somebody would notice and care enough to
      intervene (if not it is probably irrelevant to the real world
@@ -222,7 +222,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
 
   /* The funk record map stores the details about all the records in
      the funk, including all those in the last published transaction and
-     all those getting updated in an in-preparation transcation.  This
+     all those getting updated in an in-preparation translation.  This
      is a fd_map_giant and more details are given in fd_funk_txn.h
 
      rec_max is the maximum number of records that can exist in this
@@ -243,7 +243,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong rec_tail_idx;  /* "                       last          " */
 
   ulong partvec_gaddr; /* Address of partition header vector */
-    
+
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in
      fd_funk_val.h.  Allocations from this allocator will be tagged with
@@ -464,10 +464,10 @@ fd_funk_alloc( fd_funk_t * funk,       /* Assumes current local join */
 /* Operations */
 
 /* fd_funk_descendant returns the funk's youngest descendant that has no
-   globally competiting transaction history currently or NULL if funk
+   globally competing transaction history currently or NULL if funk
    has no children or all of the children of funk are in competition.
    That is, this is as far as fd_funk_txn_publish can publish before it
-   needs to start canceling competiting transaction histories.  This is
+   needs to start canceling competing transaction histories.  This is
    O(length of descendant history) and this is not fortified against
    transaction map data corruption.  Assumes funk is a current local
    join.  The returned pointer lifetime and address space is as

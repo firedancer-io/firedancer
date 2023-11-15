@@ -1,0 +1,21 @@
+[package]
+name = "firedancer-diff"
+version = "0.1.0"
+edition = "2021"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+description = "Utility to diff Firedancer vs Solana Labs"
+license = "Apache-2.0"
+
+[features]
+default = []
+fuzz-asan = ["firedancer-sys/fuzz-asan"]
+
+[dependencies]
+diff = "0.1.13"
+hxdmp = "0.2.1"
+firedancer-sys = { path = "../firedancer-sys", version = "0.3.0" }
+solana-bpf-loader-program = { git = "https://github.com/solana-labs/solana", rev = "91186d38600f2c5acd3f1126aaedc2348368397a", version = "1.17.0" }
+solana-logger = { git = "https://github.com/solana-labs/solana", rev = "91186d38600f2c5acd3f1126aaedc2348368397a", version = "1.17.0" }
+solana-metrics = { git = "https://github.com/solana-labs/solana", rev = "91186d38600f2c5acd3f1126aaedc2348368397a", version = "1.17.0" }
+solana-program-runtime = { git = "https://github.com/solana-labs/solana", rev = "91186d38600f2c5acd3f1126aaedc2348368397a", version = "1.17.0" }
+solana-sdk = { git = "https://github.com/solana-labs/solana", rev = "91186d38600f2c5acd3f1126aaedc2348368397a", version = "1.17.0" }

@@ -235,7 +235,7 @@ fd_shmem_create_multi( char const *  name,
        allocation to be on the desired numa node, keeping our fingers
        crossed that even the ftruncate / mmap above did not trigger
        this; it doesn't seem too, even when the user's thread group has
-       configued things like mlockall(MCL_CURRENT | MCL_FUTURE ).
+       configured things like mlockall(MCL_CURRENT | MCL_FUTURE ).
        Theoretically, the fd_numa_mbind below should do it without this
        but the Linux kernel tends to view requests to move pages between
        numa nodes after allocation as for entertainment purposes only. */
@@ -729,7 +729,7 @@ fd_shmem_private_halt( void ) {
 
 # if FD_HAS_THREADS
   if( FD_UNLIKELY( pthread_mutex_destroy( fd_shmem_private_lock ) ) )
-    FD_LOG_WARNING(( "fd_shmem: pthread_mutex_destory failed; attempting to continue" ));
+    FD_LOG_WARNING(( "fd_shmem: pthread_mutex_destroy failed; attempting to continue" ));
 # endif /* FD_HAS_THREADS */
 
   FD_LOG_INFO(( "fd_shmem: halt success" ));
@@ -742,7 +742,7 @@ fd_shmem_private_boot( int *    pargc,
                        char *** pargv ) {
   FD_LOG_INFO(( "fd_shmem: booting" ));
 
-  /* Strip the command line even though ignored to make environemnt
+  /* Strip the command line even though ignored to make environment
      parsing identical to downstream regardless of platform. */
 
   (void)fd_env_strip_cmdline_cstr( pargc, pargv, "--shmem-path", "FD_SHMEM_PATH", "/mnt/.fd" );

@@ -3,7 +3,7 @@
 # THE OUTPUT OF THIS SCRIPT HAS TO BE AUDITED.
 # We have the choice to spend a lot of energy verifying this compiler or spend
 #  a little bit of energy each time verifying its outputs. Given that the code
-#  that it generates is succint and commented, we picked the latter.
+#  that it generates is succinct and commented, we picked the latter.
 
 # This file contains a naive compiler that turns symbolic expressions into cBPF code.
 # Instead of targeting cBPF, the compiler targets C header files.
@@ -56,7 +56,7 @@ def replace_label(label, instr_idx):
 
     return label
 
-# ReloCondJump contains a inconditional jump instruction that is not yet realized.
+# ReloCondJump contains an unconditional jump instruction that is not yet realized.
 class ReloJump(object):
     def __init__(self, label, pre_comment=None, post_comment=None):
         self.label = label
@@ -132,7 +132,7 @@ def codegen(policy_lines, filt):
 
 # expression handles a rule with a symbolic expression attached
 def expression(name, expr, filt):
-    # The check for `name` starts at the next intruction
+    # The check for `name` starts at the next instruction
     relo_abs_mapping[f"check_{name}"] = len(filt)
 
     expr = edn_format.loads(expr)

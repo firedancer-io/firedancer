@@ -28,7 +28,7 @@ fd_numa_private_parse_node_idx( char const * s ) {
   for(;;) {
     char c = *t;
     if( !c ) break; /* host dep branch prob */
-    if( FD_UNLIKELY( !(('0'<=c) | (c<='9')) ) ) return -1; /* non-digit encoutered */
+    if( FD_UNLIKELY( !(('0'<=c) | (c<='9')) ) ) return -1; /* non-digit encountered */
     val = (long)(c-'0') + 10L*val;
     if( FD_UNLIKELY( val>(long)INT_MAX ) ) return -1; /* overflow */
     t++;
@@ -77,7 +77,7 @@ fd_numa_node_cnt( void ) {
 ulong
 fd_numa_cpu_cnt( void ) {
 
-  /* FIXME: Consider using get_npocs_conf, syscall or sysfs director
+  /* FIXME: Consider using get_nprocs_conf, syscall or sysfs director
      scan. */
 
   int cpu_cnt = get_nprocs();

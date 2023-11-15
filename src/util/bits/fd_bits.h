@@ -103,7 +103,7 @@ FD_PROTOTYPES_BEGIN
    it then has the difficult job of proving that reordering c with the
    loads is safe (e.g. evaluating c might affect the value that would be
    loaded if c has side effects).  In the unlikely case it overcomes
-   that barrier, it then has the diffcult job of proving it is safe to
+   that barrier, it then has the difficult job of proving it is safe to
    do the loads before evaluating c (e.g. c might be protecting against
    a load that could seg-fault).
 
@@ -116,7 +116,7 @@ FD_PROTOTYPES_BEGIN
    parallel via ILP.  Further, it can then ideally can use a conditional
    move operation to eliminate unnecessary consumption of BTB resources.
    And, if c is known at compile time, the compiler can prune
-   unnecessary code for the unseleted option (e.g. the compiler knows
+   unnecessary code for the unselected option (e.g. the compiler knows
    that omitting an unused normal load has no observable effect in the
    machine model).
 
@@ -137,7 +137,7 @@ FD_PROTOTYPES_BEGIN
    At one extreme, a major reason why Itanium failed was languages
    didn't have the right constructs and machine models for developers to
    "do the right thing".  Even given such, most devs wouldn't know to
-   use them because they were erroreously taught to code to a machine
+   use them because they were erroneously taught to code to a machine
    abstraction that hasn't applied to the real world since the early
    1980s.  Compilers then were not able to utilize all the speculative
    execution / ILP / ... features that were key to performance on that
@@ -376,7 +376,7 @@ fd_uint128_pow2_dn( uint128 x ) {
 }
 #endif
 
-/* Brokeness of indeterminant char sign strikes again ... sigh.  We
+/* Brokenness of indeterminant char sign strikes again ... sigh.  We
    explicitly provide the unsigned variant of the token to these
    macros because the uchar token is not related to the schar token
    by simply prepending u to schar. */
@@ -422,7 +422,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,uint128,128)
 
 #undef FD_SRC_UTIL_BITS_FD_BITS_IMPL
 
-/* Brokeness of indeterminant char sign strikes again ... sigh.  We
+/* Brokenness of indeterminant char sign strikes again ... sigh.  We
    can't provide a char_min/char_max between platforms as they don't
    necessarily produce the same results.  Likewise, we don't provide a
    fd_char_abs because it will not produce equivalent results between
@@ -566,7 +566,7 @@ fd_double_eq( double x,
    them unchanged otherwise.  Assumes a and b have the same
    plain-old-data type.  Best if a and b are primitive types (e.g.
    ulong) as the compiler will likely replace the trinaries below with
-   cmovs, making this branchless.  This macro is robust (it evalutes a,
+   cmovs, making this branchless.  This macro is robust (it evaluates a,
    b and c the minimal number of times). */
 
 #define fd_swap_if(c,a,b) do {                                      \
@@ -625,7 +625,7 @@ fd_double_eq( double x,
    if such is beneficial for higher performance.
 
    Accesses that would normally be atomic (e.g. an aligned access to a
-   primtive type like a ulong) are no guaranteed to be atomic if done
+   primitive type like a ulong) are no guaranteed to be atomic if done
    through these annotations. */
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE
@@ -636,7 +636,7 @@ fd_double_eq( double x,
 #endif
 #endif
 
-#if FD_UNALIGNED_ACCESS_STYLE==0 /* memcpy eliason based */
+#if FD_UNALIGNED_ACCESS_STYLE==0 /* memcpy elision based */
 
 /* This implementation does not assume it is safe to access unaligned
    memory directly (and thus can be used on platforms outside the

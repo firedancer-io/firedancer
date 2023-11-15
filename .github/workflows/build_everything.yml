@@ -13,7 +13,7 @@ concurrency:
 jobs:
   make-test:
     strategy:
-      # Since this build is on main, it's not rushed for feedback. Avoid wasting runner minutes by limiting paralellism.
+      # Since this build is on main, it's not rushed for feedback. Avoid wasting runner minutes by limiting parallelism.
       max-parallel: 1
       fail-fast: true
       matrix:
