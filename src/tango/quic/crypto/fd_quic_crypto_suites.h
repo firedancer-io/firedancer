@@ -198,7 +198,7 @@ struct fd_quic_crypto_secrets {
 /* fd_quic_crypto_rand retrieves cryptographic quality random bytes
    into given memory region.  buf points to first byte of buffer in
    local address space.  buf_sz is the number of bytes to fill.  Current
-   backend is OpenSSL RAND_bytes (>=256-bit security level on Linux).
+   backend is getrandom(2) (>=256-bit security level on Linux).
    Return value in FD_QUIC_{SUCCESS,FAILURE}.  Reasons for failure
    include lack of entropy, in which case caller should wait and retry.
    buf_sz in [1,INT_MAX] but should be reasonably small (max KiB-ish) */
@@ -361,7 +361,7 @@ fd_quic_gen_new_keys(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
 
    returns
      FD_QUIC_SUCCESS   if the operation succeeded
@@ -394,7 +394,7 @@ fd_quic_crypto_encrypt(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
      the decrypted data is corrupt
 
    returns
@@ -431,7 +431,7 @@ fd_quic_crypto_decrypt(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
      the decrypted data is corrupt
 
    returns
