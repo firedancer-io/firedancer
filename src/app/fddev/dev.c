@@ -53,7 +53,7 @@ parent_signal( int sig ) {
   if( FD_LIKELY( monitor_pid ) )    kill( monitor_pid, SIGKILL );
 
   /* Same hack as in run.c, see comments there. */
-  int lock;
+  int lock = 0;
   fd_log_private_shared_lock = &lock;
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
