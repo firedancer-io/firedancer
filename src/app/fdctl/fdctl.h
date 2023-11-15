@@ -33,9 +33,10 @@ typedef union {
   } configure;
 
   struct {
-    int monitor;
-    int no_configure;
-    int no_solana_labs;
+    int  monitor;
+    int  no_configure;
+    int  no_solana_labs;
+    char debug_tile[ 32 ];
   } dev;
 
   struct {

@@ -127,6 +127,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_solana_labs;
+    uint debug_tile;
     struct {
       int  enabled;
       char interface0     [ 256 ];
