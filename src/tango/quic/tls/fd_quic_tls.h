@@ -11,9 +11,6 @@
 
    This defines an API for QUIC-TLS
 
-   Currently, this uses a fork of openssl found here:
-     https://github.com/quictls/openssl.git
-
    General operation:
      // set up a quic-tls config object
      fd_quic_tls_cfg_t quic_tls_cfg = {
@@ -224,7 +221,7 @@ fd_quic_tls_new( void *              mem,
 
 /* fd_quic_delete unformats a memory region used as an fd_quic_tls_t.
    Returns the given pointer on success and NULL if used obviously in error.
-   Frees any OpenSSL resources. */
+   Deletes any fd_tls resources. */
 
 void *
 fd_quic_tls_delete( fd_quic_tls_t * self );

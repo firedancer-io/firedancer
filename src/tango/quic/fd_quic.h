@@ -22,10 +22,9 @@
 
    ### Memory Management
 
-   fd_quic is almost entirely pre-allocated (with the exception of
-   OpenSSL objects).  Currently, a QUIC object reserves space for a
-   number of connection slots, with uniform stream, reassembly, and ACK
-   buffers.
+   fd_quic is entirely pre-allocated.  Currently, a QUIC object reserves
+   space for a number of connection slots, with uniform stream,
+   reassembly, and ACK buffers.
 
    ### Memory Layout
 
@@ -498,7 +497,7 @@ fd_quic_join( void * shquic );
 /* fd_quic_leave leaves a current local join and frees all dynamically
    managed resources (heap allocs, OS handles).  Returns the given quic
    on success and NULL on failure (logs details).  Reasons for failure
-   include quic is NULL, no active join, or OpenSSL error. */
+   include quic is NULL or no active join */
 
 FD_QUIC_API void *
 fd_quic_leave( fd_quic_t * quic );
@@ -557,7 +556,7 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
    Returns given quic on success and NULL on failure (logs details).
    Performs various heap allocations and file system accesses such
    reading certs.  Reasons for failure include invalid config or
-   OpenSSL error. */
+   fd_tls error. */
 
 FD_QUIC_API fd_quic_t *
 fd_quic_init( fd_quic_t * quic );

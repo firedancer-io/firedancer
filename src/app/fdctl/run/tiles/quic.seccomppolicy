@@ -22,20 +22,7 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# openssl: RAND_bytes requires getpid
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getpid() as
-# an implementation detail, they save the PID in a global and reseed the
-# RNG if the PID ever changes (the process was forked).  We don't need
-# this logic since our process can't fork.
-getpid
-
-# openssl: RAND_bytes requires getrandom
-#
-# QUIC uses OpenSSL RAND_bytes to generate randomness, which it uses for
-# picking connection IDs.  The OpenSSL implementation calls getrandom
-# internally for periodically reseeding the RNG.
+# QUIC uses getrandom for cryptographically secure randomness.
 getrandom
 
 # netlink: send netlink messages to kernel requesting ARP tables

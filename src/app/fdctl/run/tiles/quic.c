@@ -91,10 +91,7 @@ run( fd_tile_args_t * args ) {
 static long allow_syscalls[] = {
   __NR_write,     /* logging */
   __NR_fsync,     /* logging, WARNING and above fsync immediately */
-  __NR_getpid,    /* OpenSSL RAND_bytes checks pid, temporarily used as part of quic_init to generate a certificate */
-  __NR_getrandom, /* OpenSSL RAND_bytes reads getrandom, temporarily used as part of quic_init to generate a certificate */
-  __NR_madvise,   /* OpenSSL SSL_do_handshake() uses an arena which eventually calls _rjem_je_pages_purge_forced */
-  __NR_mmap,      /* OpenSSL again... deep inside SSL_provide_quic_data() some jemalloc code calls mmap */
+  __NR_getrandom, /* CSPRNG */
 };
 
 static workspace_kind_t allow_workspaces[] = {

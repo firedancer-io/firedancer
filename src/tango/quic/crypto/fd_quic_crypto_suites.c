@@ -237,8 +237,6 @@ fd_quic_gen_new_secrets(
 }
 
 
-/* TODO need to dispose of keys somewhere
-   these allocate openssl resources now */
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
