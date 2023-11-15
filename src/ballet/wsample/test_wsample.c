@@ -132,7 +132,7 @@ test_probability_dist_noreplacement( void ) {
 
   /* Expected probabilities of sampling without replacement get
      complicated.  We're going to use a 4-element set, and make sure the
-     distrubtion of returned 4-tuples matches what we manually compute. */
+     distribution of returned 4-tuples matches what we manually compute. */
   void * partial = fd_wsample_new_init( _shmem, rng, 4UL, 1, FD_WSAMPLE_HINT_FLAT );
   partial = fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( fd_wsample_new_add( partial, 40UL ), 30UL ), 20UL ), 10UL );
   fd_wsample_t * tree = fd_wsample_join( fd_wsample_new_fini( partial ) );

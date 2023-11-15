@@ -321,7 +321,7 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
 
   TEST( fd_shmem_name_len( wksp->name ) );
 
-  /* seed is aribitrary */
+  /* seed is arbitrary */
 
   TEST( wksp->cycle_tag >= 4UL );
 
@@ -436,7 +436,7 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
         TEST( !pinfo[ i ].in_same );                  /* Make sure unique */
         TEST( fd_wksp_private_pinfo_idx_is_null( fd_wksp_private_pinfo_idx( pinfo[ i ].same_cidx ) ) ); /* " */
 
-        pinfo[ i ].cycle_tag = 3UL;                   /* Mark as visited this traversasl */
+        pinfo[ i ].cycle_tag = 3UL;                   /* Mark as visited this traversal */
         visit_cnt++;                                  /* Update the visit cnt */
         g = pinfo[ i ].gaddr_hi;                      /* Get minimum start for next partition */
 
@@ -629,7 +629,7 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
     while( i ) {
       i--;
 
-      /* Ideally, heap priorities should just be a shuffing of the
+      /* Ideally, heap priorities should just be a shuffling of the
          integers [0,part_max).  fd_uint_hash will generate such a
          shuffling for part_max = 2^32.  Using the lower 30 bits
          (reserving bit 31 for bulk operations) will yield something

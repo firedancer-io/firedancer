@@ -10,7 +10,7 @@ This guide assumes the steps in [getting-started.md](./getting-started.md)
 have been completed.
 
 Requires recent Linux kernel and headers (version >=4.18). `XDP` and related
-technologies are being activiely developed and usually have noticable
+technologies are being actively developed and usually have noticeable
 improvements in the most recent kernels (>=6.2).
 
 Introduction to `XDP` and `AF_XDP`

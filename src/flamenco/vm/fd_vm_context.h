@@ -37,7 +37,7 @@
 #define FD_VM_MEM_MAP_SUCCESS       (0)
 #define FD_VM_MEM_MAP_ERR_ACC_VIO   (1)
 
-/* Foward definition of fd_vm_sbpf_exec_context_t. */
+/* Forward definition of fd_vm_sbpf_exec_context_t. */
 struct fd_vm_exec_context;
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
@@ -64,7 +64,7 @@ struct fd_vm_exec_context {
   ulong                 instruction_counter;  /* The number of instructions which have been executed */
   fd_vm_log_collector_t log_collector;        /* The log collector used by `sol_log_*` syscalls */
   ulong                 compute_budget;       /* The remaining CUs left for the transaction */
-  ulong                 cond_fault;           /* If non-zero, indicates a fault occured during execution */
+  ulong                 cond_fault;           /* If non-zero, indicates a fault occurred during execution */
 
   /* Memory regions: */
   uchar *       read_only;            /* The read-only memory region, typically just the relocated program binary blob */
@@ -92,7 +92,7 @@ FD_FN_PURE ulong fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
 
 // FIXME: crossing region boundaries is probably bad
 /* Translates an address from the VM address space to the host address space. Takes an execution
-   context, whether this is a read or write (0 for read, 1 for write), the VM addresss, the size of
+   context, whether this is a read or write (0 for read, 1 for write), the VM addresses, the size of
    the access, and the location for storing the host address on success. Returns success or
    an error code (a fault). On success, the host_addr is set to the actual host_addr. */
 ulong fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,

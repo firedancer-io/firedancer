@@ -463,7 +463,7 @@ fd_r43x6_quad_sqr_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
      example, for p1b, we need to form x05=x0|x5 and then compute
      p1b=x05*x05.  Instead of forming x15 and x04 to compute
      p2a=2*x15*x04, we can do p2a=2*p01h|2*p54h and use the x14 we were
-     passed direclty and reuse the x05 formed for p1b.
+     passed directly and reuse the x05 formed for p1b.
 
      This yields the below.  Theoretical minimum number of multiplies,
      tons of ILP, low swizzling overhead. */

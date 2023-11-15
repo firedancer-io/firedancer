@@ -44,7 +44,7 @@ union fd_ip4_hdr {
     uchar  protocol;     /* Type of payload */
     ushort check;        /* Header checksum ("invariant" order) */
     uchar  saddr_c[4];   /* Address of sender, technically net order but all APIs below work with this directly */
-    uchar  daddr_c[4];   /* Address of destination, tecnically net order but all APIs below work with this directly */
+    uchar  daddr_c[4];   /* Address of destination, technically net order but all APIs below work with this directly */
     /* Up to 40 bytes of options here */
   };
 };
@@ -73,7 +73,7 @@ typedef union fd_ip4_hdr fd_ip4_hdr_t;
 #define FD_IP4_SET_IHL(ip4,value) ((uchar)( \
       ( (uint)(ip4).verihl & 0xf0u ) | ( (uint)(value) & 0x0fu ) ))
 
-/* FD_IP4_VERIHL combines the suplied IHL and VERISION into a single verihl fields */
+/* FD_IP4_VERIHL combines the supplied IHL and VERSION into a single verihl fields */
 
 #define FD_IP4_VERIHL(version,ihl) ((uchar)( ( ((uint)(version) & 0x0fu) << 4u ) | \
                                                ((uint)(ihl)     & 0x0fu) ))

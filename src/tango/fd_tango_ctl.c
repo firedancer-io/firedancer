@@ -18,7 +18,7 @@ main( int     argc,
   char const * bin = argv[0];
   SHIFT(1);
 
-  /* FIXME: CACHE ATTACHEMENTS? */
+  /* FIXME: CACHE ATTACHMENTS? */
 
   ulong tag = 1UL;
 

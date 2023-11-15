@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genballet::{
     fd_txn_acct_addr_lut_t,
     fd_txn_instr_t,
     fd_txn_parse,

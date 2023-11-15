@@ -80,7 +80,7 @@ printf_seq( char ** buf,
 
      cvt*((overhead + (cnt_now - cnt_then)) / dt)
 
-   Will be exactly 8 char wide, right justifed with aligned decimal
+   Will be exactly 8 char wide, right justified with aligned decimal
    point.  Uses standard engineering base 10 suffixes (e.g. 10.0e9 ->
    10.0G) to support wide dynamic range rate diagnostics.  Since pretty
    printing this value will often require rounding it, the rounding is

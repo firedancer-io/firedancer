@@ -192,6 +192,22 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
          ( fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->sibling_next_cidx ) ) );
 }
 
+typedef struct fd_funk_rec fd_funk_rec_t;
+
+/* Return the first record in a transaction. Returns NULL if the
+   transaction has no records yet. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_first_rec( fd_funk_t *           funk,
+                       fd_funk_txn_t const * txn );
+
+/* Return the next record in a transaction. Returns NULL if the
+   transaction has no more records. */
+
+FD_FN_PURE fd_funk_rec_t const *
+fd_funk_txn_next_rec( fd_funk_t *           funk,
+                      fd_funk_rec_t const * rec );
+
 /* Operations */
 
 /* fd_funk_txn_ancestor returns a pointer in the caller's address space
@@ -203,7 +219,7 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
    transactions).  This is a reasonably fast O(length of ancestor
    history) time (theoretical minimum) and a reasonably small O(1) space
    (theoretical minimum).  This is not fortified against transaction map
-   data corruption. 
+   data corruption.
 
    fd_funk_txn_descendant returns a pointer in the caller's address
    space to the first the first transaction among txn and its youngest
@@ -212,7 +228,7 @@ fd_funk_txn_is_only_child( fd_funk_txn_t const * txn ) {
    This is a reasonably fast O(length of descendant history) time
    (theoretical minimum) and a reasonably small O(1) space (theoretical
    minimum).  This is not fortified against transaction map data
-   corruption. 
+   corruption.
 
    That is, if txn's ancestor is NULL, all transactions up to and
    including txn's descendant (which will be non-NULL) can be published
@@ -276,7 +292,7 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    transaction will be a child of the in-preparation transaction pointed
    to by parent.  A NULL parent means the transaction should be a child
    of funk.  xid points to transaction id that should be used for the
-   transaction.  This id must be unique over all in-prepraration
+   transaction.  This id must be unique over all in-preparation
    transactions, the root transaction and the last published
    transaction.  It is strongly recommended to use globally unique ids
    when possible.  Returns a pointer in the caller's address space to
@@ -354,6 +370,10 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
                              fd_funk_txn_t * txn,
                              int             verbose );
 
+ulong
+fd_funk_txn_cancel_all( fd_funk_t *     funk,
+                        int             verbose );
+
 /* fd_funk_txn_publish publishes in-preparation transaction txn and any
    of txn's in-preparation ancestors.  Returns the number of
    transactions published.  Any competing histories to this chain will
@@ -362,7 +382,7 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
    This follows a principle of least information loss.  Specifically,
    publications proceed incrementally from the oldest ancestor to txn
    inclusive.  When a transaction is published, the transaction is first
-   committed to permanant storage.  If this is unsuccessful, the publish
+   committed to permanent storage.  If this is unsuccessful, the publish
    is stopped at this transaction and the transaction remains
    unpublished.  Otherwise, the transaction's siblings and their
    descendants are cancelled.

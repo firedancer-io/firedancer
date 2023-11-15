@@ -24,7 +24,7 @@ typedef struct fd_wsample_private fd_wsample_t;
 #define FD_WSAMPLE_FOOTPRINT( ele_cnt, restore_enabled ) (((ele_cnt)<UINT_MAX) ? \
                                                                   ( 64UL + ((restore_enabled)?64UL:32UL)*(ele_cnt) ) : 0UL)
 /* fd_wsample_{align, footprint} give the alignment and footprint
-   repectively required to create a weighted sampler with at most
+   respectively required to create a weighted sampler with at most
    ele_cnt stake weights.  If restore_enabled is zero, calls to
    wsample_restore_all will be no-ops, but the footprint required will
    be smaller.

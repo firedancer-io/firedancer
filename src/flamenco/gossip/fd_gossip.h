@@ -3,54 +3,66 @@
 
 #include "../types/fd_types.h"
 #include "../../util/valloc/fd_valloc.h"
-#include <netinet/in.h>
 
 /* Global state of gossip protocol */
-typedef struct fd_gossip_global fd_gossip_global_t;
-ulong                fd_gossip_global_align    ( void );
-ulong                fd_gossip_global_footprint( void );
-void *               fd_gossip_global_new      ( void * shmem, ulong seed, fd_valloc_t valloc );
-fd_gossip_global_t * fd_gossip_global_join     ( void * shmap );
-void *               fd_gossip_global_leave    ( fd_gossip_global_t * join );
-void *               fd_gossip_global_delete   ( void * shmap, fd_valloc_t valloc );
+typedef struct fd_gossip fd_gossip_t;
+ulong         fd_gossip_align    ( void );
+ulong         fd_gossip_footprint( void );
+void *        fd_gossip_new      ( void * shmem, ulong seed, fd_valloc_t valloc );
+fd_gossip_t * fd_gossip_join     ( void * shmap );
+void *        fd_gossip_leave    ( fd_gossip_t * join );
+void *        fd_gossip_delete   ( void * shmap, fd_valloc_t valloc );
 
-/* fd_gossip_credentials holds the node's gossip private credentials. */
-
-struct fd_gossip_credentials {
-    fd_pubkey_t public_key;
-    uchar private_key[ 32 ];
+union fd_gossip_peer_addr {
+    struct {
+        uint   addr;  /* IPv4 address, network byte order (big endian) */
+        ushort port;  /* port number, network byte order (big endian) */
+        ushort pad;   /* Must be zero */
+    };
+    ulong l;          /* Combined port and address */
 };
-typedef struct fd_gossip_credentials fd_gossip_credentials_t;
+typedef union fd_gossip_peer_addr fd_gossip_peer_addr_t;
 
-struct __attribute__((aligned(8UL))) fd_gossip_network_addr {
-    sa_family_t family;   /* AF_INET or AF_INET6 */
-    in_port_t   port;     /* port number, network byte order */
-    uint        addr[4];  /* IPv4 or v6 address, network byte order */
-};
-typedef struct fd_gossip_network_addr fd_gossip_network_addr_t;
+/* Callback when a new message is received */
+typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
 
-fd_gossip_network_addr_t * fd_gossip_resolve_hostport(const char* str /* host:port */,
-                                                      fd_gossip_network_addr_t * res);
-
-typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg, long now);
+/* Callback for sending a packet. addr is the address of the destination. */
+typedef void (*fd_gossip_send_packet_fun)( uchar const * msg, size_t msglen, fd_gossip_peer_addr_t const * addr, void * arg );
 
 struct fd_gossip_config {
-    fd_gossip_credentials_t my_creds;
-    fd_gossip_network_addr_t my_addr;
+    fd_pubkey_t * public_key;
+    uchar * private_key;
+    fd_gossip_peer_addr_t my_addr;
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
-    void * deliver_fun_arg;
+    fd_gossip_send_packet_fun send_fun;
+    void * fun_arg;
 };
 typedef struct fd_gossip_config fd_gossip_config_t;
 
-int fd_gossip_global_set_config( fd_gossip_global_t * glob, const fd_gossip_config_t * config );
+/* Initialize the gossip data structure */
+int fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config );
 
-int fd_gossip_add_active_peer( fd_gossip_global_t * glob, fd_gossip_network_addr_t * addr );
+/* Add a peer to talk to */
+int fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t * addr );
 
 /* Publish an outgoing value. The source id and wallclock are set by this function */
-int fd_gossip_push_value( fd_gossip_global_t * glob, fd_crds_data_t* data );
+int fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t* data );
 
-/* Main loop for socket reading/writing. Does not return until stopflag is non-zero */
-int fd_gossip_main_loop( fd_gossip_global_t * glob, fd_valloc_t valloc, volatile int * stopflag );
+/* Set the current protocol time in nanosecs. Call this as often as feasible. */
+void fd_gossip_settime( fd_gossip_t * glob, long ts );
+
+/* Get the current protocol time in nanosecs */
+long fd_gossip_gettime( fd_gossip_t * glob );
+
+/* Start timed events and other protocol behavior. settime MUST be called before this. */
+int fd_gossip_start( fd_gossip_t * glob );
+
+/* Dispatch timed events and other protocol behavior. This should be
+ * called inside the main spin loop. calling settime first is recommended. */
+int fd_gossip_continue( fd_gossip_t * glob );
+
+/* Pass a raw gossip packet into the protocol. addr is the address of the sender */
+int fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * addr );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

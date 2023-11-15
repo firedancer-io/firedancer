@@ -141,7 +141,7 @@ Firedancer is updated, or any time the configuration file changes. The
 `init` mode requires `root` or both `CAP_SYS_ADMIN` and `CAP_NET_RAW`.
 
 ## ethtool
-In addition to XDP, Firedancer uses recieve side scaling (RSS) to
+In addition to XDP, Firedancer uses receive side scaling (RSS) to
 improve network performance. This uses functionality of modern NICs to
 steer packets to different queues to distribute processing among CPUs.
 See the [kernel

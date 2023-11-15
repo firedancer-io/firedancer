@@ -12,7 +12,7 @@
      // align/footprint - Return the alignment/footprint required for a
      // memory region to be used as vector that can hold up to max
      // events.  footprint returns 0 if max is so large that the
-     // footpritn would overflow ULONG_MAX.
+     // footprint would overflow ULONG_MAX.
      //
      // new - Format a memory region pointed to by shmem into a myvec
      // vector.  Assumes shmem points to a region with the required
@@ -83,7 +83,7 @@
      
      // myvec_remove_compact remove element at idx by compaction.  While
      // this is preserves operating, this is an O(cnt-idx-1) operation
-     // and it is very easily to accidential create O(N^2) accidentially
+     // and it is very easily to accidentally create O(N^2)
      // if using compaction.  IMPORTANT!  AS THIS IS USED IN HPC
      // CONTEXTS, ASSUMES CALLER KNOWS IDX IS A CURRENT ELEMENT.  THAT
      // IS, IDX IS IN [0,CNT).

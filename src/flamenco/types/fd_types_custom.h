@@ -16,7 +16,7 @@
 
 union __attribute__((packed)) fd_hash {
   uchar hash[ FD_HASH_FOOTPRINT ];
-  uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangable
+  uchar key [ FD_HASH_FOOTPRINT ]; // Making fd_hash and fd_pubkey interchangeable
 
   // Generic type specific accessors
   ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];

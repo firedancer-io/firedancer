@@ -336,7 +336,7 @@ fd_tile_private_manager( void * _args ) {
 
     /* state is EXEC ... the run assigned task and then
        transition to IDLE when done */
-    /* FIXME: MORE SOPHISTCATED HANDLING OF EXCEPTIONS */
+    /* FIXME: MORE SOPHISTICATED HANDLING OF EXCEPTIONS */
 
     int            argc = FD_VOLATILE_CONST( tile->argc );
     char **        argv = FD_VOLATILE_CONST( tile->argv );

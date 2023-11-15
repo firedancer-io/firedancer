@@ -53,7 +53,7 @@ fd_tempo_tickcount_model( double * opt_tau );
    TL;DR This returns an estimate of fd_tickcount()'s clock speed in
    GHz.  This is _NOT_ the current clock speed of the processor though
    it will usually superficially look like it.  This is _NOT_ the
-   instananenous rate the tickcounter is ticking relative to the
+   instantaneous rate the tickcounter is ticking relative to the
    wallclock though it will usually superficially look like it. */
 
 double
@@ -132,7 +132,7 @@ fd_tempo_observe_pair( long * opt_now,
    Note that that while this might seem aggressive per credit, since
    cr_max is typically values in thousands to hundreds of thousands,
    this corresponds to default laziness in the tens microseconds to
-   millseconds.  We also saturate cr_max to keep the returned value in
+   milliseconds.  We also saturate cr_max to keep the returned value in
    [1,2^31] ns for all cr_max. */
 
 FD_FN_CONST static inline long
@@ -155,7 +155,7 @@ fd_tempo_lazy_default( ulong cr_max ) {
    to complete an event cycle roughly every lazy ns for system
    considerations.
 
-   If we were to use a reguarly scheduled interval between events (which
+   If we were to use a regularly scheduled interval between events (which
    is a stunningly bad idea in an distributed system and all too
    commonly done), we'd space housekeeping events by:
 

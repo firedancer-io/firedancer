@@ -193,7 +193,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt,
                       SORT_KEY_T * tmp ) {
 
-  /* If below threshhold, use insertion sort */
+  /* If below threshold, use insertion sort */
 
   if( cnt<=((SORT_IDX_T)(SORT_MERGE_THRESH)) ) return SORT_(insert)( key, cnt );
   
@@ -289,7 +289,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
        simple choice of pivots that is ideal for nearly sorted data (in
        either direction) with a little extra sampling to improve the
        partitioning for randomly ordered data.  There is a possibility
-       that this deterministic choice of pivots will not suceeed in
+       that this deterministic choice of pivots will not succeed in
        making two or more non-empty partitions; we detect and correct
        that below. */
 
@@ -394,7 +394,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
          larger of the left and right partitions then followed by the
          smaller of the left and right partitions (such that we process
          the smallest next iteration).  For this, the same O(log_2 cnt)
-         max recusion depth applies as quicksort even this does a three
+         max recursion depth applies as quicksort even this does a three
          way partitioning.  That is, let fl/fc/fr be the fraction of
          keys in the left, center, right partitions.  At this point, fl
          is in [0,1), fc is in (0,1) and fr is in [0,1) and fl+fc+fr=1.

@@ -13,7 +13,7 @@ void
 dev1_cmd_args( int *    pargc,
                char *** pargv,
                args_t * args) {
-  char * usage = "usage: run1 <tile>";
+  char * usage = "usage: dev1 <tile>";
   if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
 
   strncpy( args->dev1.tile_name, *pargv[ 0 ], sizeof( args->dev1.tile_name ) - 1 );
@@ -49,6 +49,7 @@ dev1_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int result;
   if( !strcmp( args->dev1.tile_name, "solana" ) ||
@@ -56,13 +57,7 @@ dev1_cmd_fn( args_t *         args,
       !strcmp( args->dev1.tile_name, "solana-labs" ) ) {
     result = solana_labs_main( config );
   } else {
-    ulong tile_kind = ULONG_MAX;
-    for( ulong i=0; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
-      if( !strcmp( fd_topo_tile_kind_str( i ), args->dev1.tile_name ) ) {
-        tile_kind = i;
-        break;
-      }
-    }
+    ulong tile_kind = fd_topo_tile_kind_from_cstr( args->dev1.tile_name );
     if( FD_UNLIKELY( tile_kind==ULONG_MAX ) ) FD_LOG_ERR(( "unknown tile %s", args->dev1.tile_name ));
 
     ulong idx;
@@ -75,6 +70,7 @@ dev1_cmd_fn( args_t *         args,
     tile_main_args_t args = {
       .config = config,
       .tile   = &config->topo.tiles[ idx ],
+      .pipefd = -1, /* no parent process to notify about termination */
     };
     result = tile_main( &args );
   }

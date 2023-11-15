@@ -89,12 +89,12 @@ fd_wksp_private_split_after( ulong                     i1,       /* In [0,part_m
 }
 
 /* fd_wksp_private_merge_before i1 into i2 where i1 is the partition
-   immediately preceeding i2.  Assumes that i2 and the partition before
+   immediately preceding i2.  Assumes that i2 and the partition before
    it are not tagged and not in the idle stack, free treap or used
    treap.
 
    This will push the idle stack once to make the index used for the
-   preceeding partition available for future use.
+   preceding partition available for future use.
 
    fd_wksp_private_merge_after is identical except the partition to
    merge the split is after the original partition. */

@@ -75,7 +75,7 @@ fd_cstr_to_ulong_seq( char const * cstr,      /* String to parse, NULL returns 0
 
 /* fd_cstr_hash hashes the cstr pointed to by key to a ulong.
    fd_cstr_hash_append updates the hash value (it will be as though the
-   fd_cstr_hash was called on the string concatentation of the all the
+   fd_cstr_hash was called on the string concatenation of the all the
    keys provided to hash / hash append in order).  Treats key==NULL the
    same as the empty string "".  Yields identical cross platform results
    regardless of how the platform treats the sign of char.  Based on one
@@ -153,7 +153,7 @@ static inline char * fd_cstr_init( char * buf ) { return buf; }
 static inline void fd_cstr_fini( char * p ) { *p = '\0'; }
 
 /* fd_cstr_append_char append character c to cstr.  Assumes p is valid
-   (non-NULL and room for at least this char and a final teriminating
+   (non-NULL and room for at least this char and a final terminating
    '\0') and c is not '\0' */
 
 static inline char * fd_cstr_append_char( char * p, char c ) { *(p++) = c; return p; }

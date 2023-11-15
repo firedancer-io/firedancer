@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_tcache_align,
     fd_tcache_delete,
     fd_tcache_footprint,

@@ -90,7 +90,7 @@ void fd_reedsol_encode_ref( ulong                 shred_sz,
   }
 
   /* main_matrix = main_matrix * (right half of top_matrix).
-   * In-place multipication, so we need some extra temporary space. */
+   * In-place multiplication, so we need some extra temporary space. */
   for( ulong i=0UL; i<parity_shred_cnt; i++ ) {
     ulong temp[ FD_REEDSOL_DATA_SHREDS_MAX ];
     fd_memset( temp, 0, data_shred_cnt*sizeof(ulong) );
@@ -727,7 +727,7 @@ test_pi( gen_pi_fn_t fn,
     }
   }
 
-  /* erausres = [ i, j ] */
+  /* erasures = [ i, j ] */
   for( ulong i=0UL; i<N; i++ ) for( ulong j=i+1UL; j<N; j++ ) {
     fd_memset( in, 0, N );
     in [ i ] = in[ j ] = (uchar)1;

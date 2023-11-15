@@ -21,6 +21,7 @@
 typedef struct {
   char name[ NAME_SZ ];
   char user[ 256 ];
+  char hostname[ FD_LOG_NAME_MAX ];
 
   fd_topo_t topo;
 
@@ -32,6 +33,27 @@ typedef struct {
   char scratch_directory[ PATH_MAX ];
 
   char dynamic_port_range[ 32 ];
+
+  struct {
+    char path[ PATH_MAX ];
+    char colorize[ 6 ];
+    int  colorize1;
+    char level_logfile[ 8 ];
+    int  level_logfile1;
+    char level_stderr[ 8 ];
+    int  level_stderr1;
+    char level_flush[ 8 ];
+    int  level_flush1;
+
+    /* File descriptor used for logging to the log file.  Stashed
+       here for easy communication to child processes. */
+    int  log_fd;
+
+    /* Shared memfd_create file descriptor where the first 4
+       bytes are the lock object for log sequencing.  Kind of
+       gross to stash this in here. */
+    int  lock_fd;
+  } log;
 
   struct {
     char  path[ PATH_MAX ];
@@ -180,8 +202,15 @@ memlock_max_bytes( config_t * const config );
    `toml` file at that path is loaded and applied on top of the default
    configuration. This exits the program if it encounters any issue
    while loading or parsing the configuration. */
-config_t
-config_parse( int *    pargc,
-              char *** pargv );
+void
+config_parse( int *      pargc,
+              char ***   pargv,
+              config_t * config );
+
+/* Create a memfd and write the contents of the config struct into it.
+   Used when execve() a child process so that it can read back in the
+   same config as we did. */
+int
+config_write_memfd( config_t * config );
 
 #endif /* HEADER_fd_src_app_fdctl_config_h */

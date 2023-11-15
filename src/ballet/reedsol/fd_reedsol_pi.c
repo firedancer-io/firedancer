@@ -434,7 +434,7 @@ gen_pi_noavx_generic( uchar const * is_erased,
   long sz_inv = 256L/(long)sz;
   /* The % operator in C doesn't work like the mathematical mod
      operation for negative numbers, so we need to add in a shift to
-     make any input non-negative.  We can compute the smalles possible
+     make any input non-negative.  We can compute the smallest possible
      value at this point and it's -142397, so we add 255*559=142545. */
   for( ulong i=0UL; i<sz; i++ ) scratch[ i ] = (sz_inv*(scratch[ i ] + 255L*559L)) % 255L;
 

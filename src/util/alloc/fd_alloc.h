@@ -54,9 +54,9 @@
    above.  Suddenly it is a feat to even keep up with a 1980s modem.
 
    But that's not the end of the horror.  Because Linux thinks it cool
-   to overcommit beyond physical limits for no discernable reason and
+   to overcommit beyond physical limits for no discernible reason and
    gets flaky if you try to disable swap and/or overcommit, the page
-   fault might not be able honor the committment.  Finding itself caught
+   fault might not be able honor the commitment.  Finding itself caught
    in a lie (it can't go back in time and rescind the success that
    malloc already returned to the unsuspecting developer), the Linux
    kernel goes full HAL-9000 and starts randomly killing things.  A dead
@@ -103,7 +103,7 @@
    even malloc in one process, translate the pointer into the address
    space of another process, and free it there, even after the first
    process has terminated), a process can be stopped and then other
-   processes can still find the stopped processes's allocations and use
+   processes can still find the stopped process's allocations and use
    them / free them / etc.
 
    Regarding time efficiency and concurrency, large allocations are
@@ -115,7 +115,7 @@
    needing to fall back to the underlying wksp allocator, the allocator
    is lockfree O(1).
 
-   Regarding spatial efficiency, it is reasonbly space efficient
+   Regarding spatial efficiency, it is reasonably space efficient
    (overhead for a cstr-style allocation is ~4 bytes) and adapts over
    time to try to bound the amount of pre-allocation for small requests. */
 
@@ -272,14 +272,14 @@ FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // Positive, 0 indica
    An align of 0 indicates to use FD_ALLOC_MALLOC_DEFAULT_ALIGN for the
    request alignment.  This will be large enough such that
    fd_alloc_malloc is conformant with C/C++ alignment specifications
-   (i.e. can trivally wrap fd_alloc_malloc to use as a drop in
+   (i.e. can trivially wrap fd_alloc_malloc to use as a drop in
    replacement for malloc).
 
    Small values of align will NOT be rounded up to some minimum (e.g.
    allocating lots of 1 byte aligned short strings is fine and
    relatively space and time efficient ... the overhead is ~4 bytes per
    allocation).  fd_alloc is not particularly optimized when align>~sz
-   and/or large aligments (>~4096B).  While large values for align are
+   and/or large alignments (>~4096B).  While large values for align are
    supported by fd_alloc_malloc, directly using fd_wksp_alloc is
    recommended in such cases.
 
@@ -340,7 +340,7 @@ fd_alloc_malloc( fd_alloc_t * join,
    handled by fd_wksp_free under the hood, which is neither lockfree nor
    O(1).  If the allocation was small, this will typically be lockfree
    O(1).  It is possible that, if the amount of outstanding small
-   allocations has reduced signficantly, fd_alloc_free on a small
+   allocations has reduced significantly, fd_alloc_free on a small
    allocation might trigger a fd_wksp_free to free up wksp space for
    other usage (including uses not through this fd_alloc).
 
@@ -449,7 +449,7 @@ fd_alloc_is_empty( fd_alloc_t * join );
    increased by fixed absolute amount each resizing, there will be
    final_foo_cnt/foo_delta -> O(final_foo_cnt) such resizes.
 
-   That is, we've accidentially written a method that has a slow
+   That is, we've accidentally written a method that has a slow
    O(final_foo_cnt^2) worst case even though it superficially looks like
    a fast O(final_foo_cnt) method.  Worse still, this behavior might
    appear suddenly in previously fine code if realloc implementation

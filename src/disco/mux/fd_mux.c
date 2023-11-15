@@ -11,7 +11,7 @@ struct __attribute__((aligned(64))) fd_mux_tile_in {
                                       updated when frag from this in is published / filtered */
   fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
   ulong *                fseq;     /* local join to the fseq used to return flow control credits to the in */
-  uint                   accum[6]; /* local diagnostic accumualtors.  These are drained during in housekeeping. */
+  uint                   accum[6]; /* local diagnostic accumulators.  These are drained during in housekeeping. */
                                    /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNR_CONT} are 0:5 */
 };
 
@@ -87,7 +87,6 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
 
 int
 fd_mux_tile( fd_cnc_t *              cnc,
-             ulong                   pid,
              ulong                   flags,
              ulong                   in_cnt,
              fd_frag_meta_t const ** in_mcache,
@@ -157,7 +156,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     if( FD_UNLIKELY( fd_cnc_signal_query( cnc )!=FD_CNC_SIGNAL_BOOT ) ) { FD_LOG_WARNING(( "already booted" )); return 1; }
 
     cnc_diag = (ulong *)fd_cnc_app_laddr( cnc );
-    cnc_diag[FD_APP_CNC_DIAG_PID] = pid;
+    cnc_diag[FD_APP_CNC_DIAG_LOG_GROUP_ID] = fd_log_group_id();
 
     /* in_backp==1, backp_cnt==0 indicates waiting for initial credits,
        cleared during first housekeeping if credits available */
@@ -589,7 +588,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     now = fd_tickcount();
     if( FD_UNLIKELY( filter ) ) {
       /* If there are any frags from this in that are currently exposed
-         downstream, this frag needs to be taken into acount in the flow
+         downstream, this frag needs to be taken into account in the flow
          control info we send to this in (see note above).  Since we do
          not track the distribution of the source of exposed frags (or
          how filtered frags might be interspersed with them), we do not

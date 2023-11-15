@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_cstr_to_shmem_lg_page_sz,
     fd_cstr_to_shmem_page_sz,
     fd_shmem_info_t,
@@ -9,7 +9,7 @@ pub use crate::generated::{
     FD_SHMEM_NAME_MAX,
 };
 // Administrative APIs
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_shmem_create,
     fd_shmem_create_multi,
     fd_shmem_info,
@@ -21,7 +21,7 @@ pub use crate::generated::{
     fd_shmem_unlink,
 };
 // User APIs
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_shmem_join,
     fd_shmem_join_anonymous,
     fd_shmem_join_query_by_addr,

@@ -681,7 +681,8 @@ fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
 }
 
 void
-fd_topo_print_log( fd_topo_t * topo ) {
+fd_topo_print_log( int         stdout,
+                   fd_topo_t * topo ) {
   char message[ 4UL*4096UL ] = {0}; /* Same as FD_LOG_BUF_SZ */
 
   char * cur = message;
@@ -785,5 +786,6 @@ fd_topo_print_log( fd_topo_t * topo ) {
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
-  FD_LOG_NOTICE(( "%s", message ));
+  if( FD_UNLIKELY( stdout ) ) FD_LOG_STDOUT(( "%s\n", message ));
+  else                        FD_LOG_NOTICE(( "%s", message ));
 }

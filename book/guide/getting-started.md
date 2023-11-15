@@ -82,7 +82,7 @@ enables architecture specific instructions if possible. This means
 binaries built on one machine may not be able to run on another.
 
 If you wish to target a lower machine architecture you can compile for a
-specific target by setting the `MACHINE` envrionment variable to one of
+specific target by setting the `MACHINE` environment variable to one of
 the targets under `config/`.
 
 ```sh [bash]
@@ -160,7 +160,7 @@ production host.
 
 :::
 
-The initialization steps are desribed [in detail](/guide/initializing.md)
+The initialization steps are described [in detail](/guide/initializing.md)
 later. But plowing ahead at the moment:
 
 ```sh [bash]
@@ -188,10 +188,34 @@ Finally, we can run Firedancer:
 
 ```sh [bash]
 $ sudo ./build/native/gcc/bin/fdctl run --config ~/config.toml
+
 ```
 
 Firedancer logs selected output to `stderr` and a more detailed log to a
-local file.
+local file.  Every tile in Firedancer runs in a separate process for
+security isolation, so you will see a complete process tree get launched.
+
+```sh [bash]
+$ pstree 1741904 -a -s
+systemd --switched-root --system --deserialize 17
+  └─fdctl
+      └─fdctl
+          └─fdctl run-solana --config-fd 0
+          │   └─957*[{fdctl}]
+          ├─fdctl run1 net 1 --pipe-fd 8 --config-fd 0
+          ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
+          ├─fdctl run1 netmux 0 --pipe-fd 11 --config-fd 0
+          ├─fdctl run1 quic 0 --pipe-fd 12 --config-fd 0
+          ├─fdctl run1 quic 1 --pipe-fd 13 --config-fd 0
+          ├─fdctl run1 verify 0 --pipe-fd 16 --config-fd 0
+          ├─fdctl run1 verify 1 --pipe-fd 17 --config-fd 0
+          ├─fdctl run1 dedup 0 --pipe-fd 20 --config-fd 0
+          ├─fdctl run1 pack 0 --pipe-fd 21 --config-fd 0
+          └─fdctl run1 shred 0 --pipe-fd 22 --config-fd 0
+```
+
+If any of the processes dies or is killed, it will bring all of the
+others down with it.
 
 ### Permissions
 

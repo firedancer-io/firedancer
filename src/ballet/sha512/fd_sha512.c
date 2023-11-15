@@ -106,7 +106,7 @@ fd_sha512_delete( void * shsha ) {
 
 #if FD_SHA512_CORE_IMPL==0
 
-/* The implementation below was derived from Openssl's sha512
+/* The implementation below was derived from OpenSSL's sha512
    implementation (Apache 2 licensed).  See in particular:
 
      https://github.com/openssl/openssl/blob/master/crypto/sha/sha512.c
@@ -116,7 +116,7 @@ fd_sha512_delete( void * shsha ) {
    been streamlined specifically for use inside Firedancer base machine
    model (no machine specific capabilities required).
 
-   In particular, fd_sha512_core_ref is based on openssl's
+   In particular, fd_sha512_core_ref is based on OpenSSL's
    OPENSSL_SMALL_FOOTPRINT SHA-512 implementation (Apache licensed).
    This should work anywhere but it is not the highest performance
    implementation possible.

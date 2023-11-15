@@ -187,6 +187,25 @@ fd_xdp_fini( char const * app_name ) {
 #define EBPF_KERN_LOG_BUFSZ (32768UL)
 char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
 
+/* Define some kernel uapi constants in case the user is compiling
+   with older kernel headers.  This is especially a problem on Ubuntu
+   20.04 which supports these functions, but doesn't have them in
+   the default headers. */
+#ifndef BPF_LINK_CREATE
+#define BPF_LINK_CREATE (28)
+#endif
+
+#ifndef BPF_XDP
+#define BPF_XDP (37)
+#endif
+
+struct __attribute__((aligned(8))) bpf_link_create {
+  uint prog_fd;
+  uint target_ifindex;
+  uint attach_type;
+  uint flags;
+};
+
 int
 fd_xdp_hook_iface( char const * app_name,
                    char const * ifname,
@@ -345,18 +364,21 @@ fd_xdp_hook_iface( char const * app_name,
   fd_xdp_reperm( path, install_stat.st_mode, (int)install_stat.st_uid, (int)install_stat.st_gid, 0 );
 
   /* Install program to device */
-
-  attr = (union bpf_attr) {
-    .link_create = {
-      .prog_fd        = (uint)prog_fd,
-      .target_ifindex = ifidx,
-      .attach_type    = BPF_XDP,
-      .flags          = xdp_mode
-    }
+  struct bpf_link_create link_create = {
+    .prog_fd        = (uint)prog_fd,
+    .target_ifindex = ifidx,
+    .attach_type    = BPF_XDP,
+    .flags          = xdp_mode
   };
-  int prog_link_fd = (int)bpf( BPF_LINK_CREATE, &attr, sizeof(union bpf_attr) );
+
+  int prog_link_fd = (int)bpf( BPF_LINK_CREATE, fd_type_pun( &link_create ), sizeof(struct bpf_link_create) );
   if( FD_UNLIKELY( -1==prog_link_fd ) ) {
-    FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( errno==ENOSYS ) ) {
+      FD_LOG_WARNING(( "BPF_LINK_CREATE is not supported by your kernel. "
+                       "Please upgrade to a newer kernel version." ));
+    } else {
+      FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
     close( prog_link_fd );
     close( prog_fd );
     close( xsks_fd );

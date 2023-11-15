@@ -112,7 +112,7 @@ void
 fd_fibre_swap( fd_fibre_t * swap_to );
 
 
-/* fd_fibre_abort is called when a fatal error occurrs */
+/* fd_fibre_abort is called when a fatal error occurs */
 #ifndef fd_fibre_abort
 #  define fd_fibre_abort(...) abort( __VA_ARGS__ )
 #endif

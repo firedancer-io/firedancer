@@ -25,7 +25,7 @@ struct __attribute__((aligned(FD_MCACHE_ALIGN))) fd_mcache_private_hdr {
 
   ulong __attribute__((aligned(FD_MCACHE_ALIGN))) seq[ FD_MCACHE_SEQ_CNT ];
 
-  /* Padding to FD_MCACHE_ALIGN here (probably zero), this is implicity FD_FRAG_META_ALIGNED */
+  /* Padding to FD_MCACHE_ALIGN here (probably zero), this is implicitly FD_FRAG_META_ALIGNED */
 
   /* depth fd_frag_meta_t here */
 

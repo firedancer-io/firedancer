@@ -4,7 +4,7 @@
 
 #include "test_funk_common.h"
 
-FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX==(10UL<<20), unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX==UINT_MAX, unit_test );
 
 int
 main( int     argc,

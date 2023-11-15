@@ -494,7 +494,7 @@ fd_io_buffered_istream_fini( fd_io_buffered_istream_t * in ) {
 /* fd_io_buffered_istream_read reads dst_sz bytes from in to dst,
    reading ahead as convenient.  Assumes in is initialized.  dst /
    dst_sz have the same meaning / restrictions as fd_io_buffered_read.
-   Returns 0 on success and non-zero on failure.  Failure intepretation
+   Returns 0 on success and non-zero on failure.  Failure interpretation
    is the same as fd_io_buffered_read.  On failure, in and the
    underlying file descriptor should be considered to be in a failed
    state (e.g. the only valid thing to do to in is fini and the only
@@ -523,7 +523,7 @@ fd_io_buffered_istream_read( fd_io_buffered_istream_t * in,
 
 /* fd_io_buffered_istream_skip skips skip_sz bytes from in.  Assumes in
    is initialized.  Returns 0 on success and non-zero on failure.
-   Failure intepretation is the same as fd_io_buffered_read.  On a
+   Failure interpretation is the same as fd_io_buffered_read.  On a
    failure, in and the underlying file descriptor should be considered
    to be in a failed state (e.g. the only valid thing to do to in is
    fini and the only valid thing to do to fd is close).
@@ -648,7 +648,7 @@ FD_FN_PURE static inline ulong  fd_io_buffered_ostream_wbuf_sz( fd_io_buffered_o
    and wbuf.
 
    IMPORTANT!  THIS WILL NOT DO ANY FINAL FLUSH OF BUFFERED BYTES.  IT
-   IS THE CALLER'S RESPONSIBILLITY TO DO THIS IN THE NORMAL FINI CASE. */
+   IS THE CALLER'S RESPONSIBILITY TO DO THIS IN THE NORMAL FINI CASE. */
 
 static inline void
 fd_io_buffered_ostream_fini( fd_io_buffered_ostream_t * out ) {
@@ -657,7 +657,7 @@ fd_io_buffered_ostream_fini( fd_io_buffered_ostream_t * out ) {
 
 /* fd_io_buffered_ostream_write writes src_sz bytes from src to the
    stream, temporarily buffering zero or more bytes as convenient.
-   Assume out is initialized.  src / src_sz ahve the same meaning /
+   Assume out is initialized.  src / src_sz have the same meaning /
    restrictions as fd_io_buffered_write.  Returns 0 on success and
    non-zero on failure.  Failure interpretation is the same as
    fd_io_buffered_write.  On failure, out and the underlying file

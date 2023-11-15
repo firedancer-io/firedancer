@@ -23,7 +23,7 @@
 FD_PROTOTYPES_BEGIN
 /* fd_cu16_dec_fixed: Reads a compact-u16 whose width is known.  High
    performance API that does no error checking, and as such, it's designed to
-   be used with fd_cu16_dec_sz, which performs all necessary valiation to
+   be used with fd_cu16_dec_sz, which performs all necessary validation to
    ensure this is safe.  buf points to the first byte of the encoded value.
    sz in {1, 2, 3}. Reads exactly sz bytes. */
 static inline ushort

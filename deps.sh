@@ -40,7 +40,7 @@ cat <<EOF
 
   Usage: $0 [cmd] [args...]
 
-  If cmd is ommitted, default is 'install'.
+  If cmd is omitted, default is 'install'.
 
   Commands are:
 

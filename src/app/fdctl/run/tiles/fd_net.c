@@ -335,7 +335,7 @@ populate_allowed_seccomp( void *               scratch,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : init_ctx->xsk->xsk_fd;
   FD_TEST( init_ctx->xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (unsigned int)fd_log_private_logfile_fd(), (unsigned int)init_ctx->xsk->xsk_fd, (unsigned int)allow_fd2 );
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)init_ctx->xsk->xsk_fd, (uint)allow_fd2 );
   return sock_filter_policy_net_instr_cnt;
 }
 

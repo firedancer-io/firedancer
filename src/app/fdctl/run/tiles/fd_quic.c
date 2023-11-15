@@ -32,7 +32,7 @@
 
    QUIC tiles don't service network devices directly, but rely on
    packets being received by net tiles and forwarded on via. a mux
-   (multiplexer).  An arbirary number of QUIC tiles can be run, and
+   (multiplexer).  An arbitrary number of QUIC tiles can be run, and
    these will round-robin packets from the networking queues based on
    the source IP address.
 
@@ -99,7 +99,7 @@ typedef struct {
 
   ulong inflight_streams; /* number of QUIC network streams currently open, used for flow control */
   ulong conn_cnt; /* count of live connections, put into the cnc for diagnostics */
-  ulong conn_seq; /* current quic connection sequence number, put into cnc for idagnostics */
+  ulong conn_seq; /* current quic connection sequence number, put into cnc for diagnostics */
 
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -147,7 +147,7 @@ quic_limits( fd_topo_tile_t * tile ) {
        privacy by obfuscating the client IP address and prevent
        connection-linking by observers.
 
-       Additional connection IDs are simply alises back to the same
+       Additional connection IDs are simply aliases back to the same
        connection, and can be created and retired during a connection by
        either endpoint. This configuration determines how many different
        connection IDs the connection may have simultaneously.
@@ -900,7 +900,7 @@ populate_allowed_seccomp( void *               scratch,
 
   int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
   FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_quic( out_cnt, out, (unsigned int)fd_log_private_logfile_fd(), (unsigned int)netlink_fd );
+  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)netlink_fd );
   return sock_filter_policy_quic_instr_cnt;
 }
 

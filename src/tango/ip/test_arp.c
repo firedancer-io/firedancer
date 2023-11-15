@@ -51,7 +51,7 @@ get_mac_addr( uchar * out_mac_addr, char const * intf, int fd )
 }
 
 
-/* get interface ip address from interace name */
+/* get interface ip address from interface name */
 uint
 get_ip_addr( char const * intf, int fd ) {
   struct ifreq ifr = {0};

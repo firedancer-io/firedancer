@@ -247,7 +247,7 @@ fd_dcache_compact_wmark( void const * base,
    This implies, in the worst case, there at least depth+1 chunk_mtu
    footprint frags (those not near the end) and 1 frag with a
    2*chunk_mtu-1 footprint (the one frag nearest the dcache end) in the
-   dcache.  depth of these are exposed to consumers and 1 in prepration
+   dcache.  depth of these are exposed to consumers and 1 in preparation
    by the producer.  It also implies that the set of chunks in the
    dcache in use is cyclically contiguous starting from the oldest
    consumer exposed frag until the currently exposed frag.

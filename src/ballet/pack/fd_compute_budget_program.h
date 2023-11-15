@@ -140,7 +140,7 @@ fd_compute_budget_program_parse( uchar const * instr_data,
 /* fd_compute_budget_program_finalize: digests the state that resulted from
    processing all of the ComputeBudgetProgram instructions in a transaction to
    compute the total priority rewards for the transaction.  state must point to
-   a previously initalized fd_compute_budget_program_state_t.  instr_cnt is the
+   a previously initialized fd_compute_budget_program_state_t.  instr_cnt is the
    total number of instructions in the transaction, including
    ComputeBudgetProgram instructions.  out_rewards and out_compute must be
    non-null.  The total priority rewards for the transaction (i.e. not counting

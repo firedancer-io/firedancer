@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::genutil::{
     fd_tile_cnt,
     fd_tile_cpu_id,
     fd_tile_exec,

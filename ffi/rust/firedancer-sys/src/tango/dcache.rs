@@ -1,4 +1,4 @@
-pub use crate::generated::{
+pub use crate::gentango::{
     fd_dcache_align,
     fd_dcache_app_laddr,
     fd_dcache_app_laddr_const,

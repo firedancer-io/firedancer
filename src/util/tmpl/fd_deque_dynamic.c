@@ -37,7 +37,7 @@
      my_ele_t * my_deque_peek_head  ( my_ele_t * deque ); // peeks at head, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_peek_tail  ( my_ele_t * deque ); // peeks at tail, returned ptr lifetime is until next op on deque
      my_ele_t * my_deque_insert_head( my_ele_t * deque ); // inserts uninitialized element at head, returns deque
-     my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitiaiized element at tail, returns deque
+     my_ele_t * my_deque_insert_tail( my_ele_t * deque ); // inserts uninitialized element at tail, returns deque
      my_ele_t * my_deque_remove_head( my_ele_t * deque ); // removes head, returns deque
      my_ele_t * my_deque_remove_tail( my_ele_t * deque ); // removes tail, returns deque
      my_ele_t * my_deque_remove_all ( my_ele_t * deque ); // removes all, returns deque, fast O(1)
