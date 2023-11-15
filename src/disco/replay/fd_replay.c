@@ -4,12 +4,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
-    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
-    scratch_top = _scratch_alloc + (s);                           \
-    (void *)_scratch_alloc;                                       \
-  }))
-
 FD_STATIC_ASSERT( FD_FCTL_ALIGN<=FD_REPLAY_TILE_SCRATCH_ALIGN, packing );
 
 ulong
@@ -20,9 +14,9 @@ fd_replay_tile_scratch_align( void ) {
 ulong
 fd_replay_tile_scratch_footprint( ulong out_cnt ) {
   if( FD_UNLIKELY( out_cnt>FD_REPLAY_TILE_OUT_MAX ) ) return 0UL;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( fd_fctl_align(), fd_fctl_footprint( out_cnt ) ); /* fctl */
-  return fd_ulong_align_up( scratch_top, fd_replay_tile_scratch_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, fd_fctl_align(), fd_fctl_footprint( out_cnt ) ); /* fctl */
+  return FD_LAYOUT_FINI( l, fd_replay_tile_scratch_align() );
 }
 
 int
@@ -85,7 +79,7 @@ fd_replay_tile( fd_cnc_t *       cnc,
       return 1;
     }
 
-    ulong scratch_top = (ulong)scratch;
+    FD_SCRATCH_ALLOC_INIT( l, scratch );
 
     /* cnc state init */
 
@@ -150,7 +144,7 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
     if( FD_UNLIKELY( !!out_cnt && !out_fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq" )); return 1; }
 
-    fctl = fd_fctl_join( fd_fctl_new( SCRATCH_ALLOC( fd_fctl_align(), fd_fctl_footprint( out_cnt ) ), out_cnt ) );
+    fctl = fd_fctl_join( fd_fctl_new( FD_SCRATCH_ALLOC_APPEND( l, fd_fctl_align(), fd_fctl_footprint( out_cnt ) ), out_cnt ) );
     if( FD_UNLIKELY( !fctl ) ) { FD_LOG_WARNING(( "join failed" )); return 1; }
 
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
@@ -322,5 +316,3 @@ fd_replay_tile( fd_cnc_t *       cnc,
 
   return 0;
 }
-
-#undef SCRATCH_ALLOC

@@ -94,13 +94,13 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  SCRATCH_ALLOC( fd_rng_align(),           fd_rng_footprint() );
-  SCRATCH_ALLOC( fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
                                                      tile->pack.bank_tile_count,
                                                      MAX_TXN_PER_MICROBLOCK ) );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -354,8 +354,8 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
 
-  ulong scratch_top = (ulong)scratch;
-  fd_pack_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
 
   if( FD_UNLIKELY( !strcmp( tile->pack.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -379,13 +379,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, out_cnt, MAX_TXN_PER_MICROBLOCK );
 
-  ulong scratch_top = (ulong)scratch;
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t*)SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  fd_rng_t *      rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
-  ctx->pack = fd_pack_join( fd_pack_new( SCRATCH_ALLOC( fd_pack_align(), pack_footprint ), tile->pack.max_pending_transactions,
-                                                        out_cnt, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
+  ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
+                                         tile->pack.max_pending_transactions, out_cnt, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   ctx->cur_spot = NULL;
@@ -426,6 +426,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, out_cnt ));
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

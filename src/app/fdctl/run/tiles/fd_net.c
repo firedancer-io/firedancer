@@ -51,17 +51,17 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
-  SCRATCH_ALLOC( alignof( fd_net_ctx_t ),      sizeof( fd_net_ctx_t ) );
-  SCRATCH_ALLOC( fd_aio_align(),               fd_aio_footprint() );
-  SCRATCH_ALLOC( fd_xsk_align(),               fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-  SCRATCH_ALLOC( fd_xsk_aio_align(),           fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_net_ctx_t ),      sizeof( fd_net_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_aio_align(),               fd_aio_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_xsk_align(),               fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
+  l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),           fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
-    SCRATCH_ALLOC( fd_xsk_align(),     fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-    SCRATCH_ALLOC( fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
+    l = FD_LAYOUT_APPEND( l, fd_xsk_align(),     fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
+    l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -225,11 +225,11 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
 
-  ulong scratch_top = (ulong)scratch;
-  fd_net_init_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_net_init_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
   /* Initialize XSK and xsk_aio which requires being privileged. */
-  void * xsk = fd_xsk_new( SCRATCH_ALLOC( fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
+  void * xsk = fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
                            FD_NET_MTU,
                            tile->net.xdp_rx_queue_size,
                            tile->net.xdp_rx_queue_size,
@@ -241,7 +241,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->xsk = fd_xsk_join( xsk );
   if( FD_UNLIKELY( !ctx->xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
 
-  ctx->xsk_aio = fd_xsk_aio_new( SCRATCH_ALLOC( fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+  ctx->xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
                                  tile->net.xdp_tx_queue_size,
                                  tile->net.xdp_aio_depth );
   if( FD_UNLIKELY( !ctx->xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
@@ -250,7 +250,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->lo_xsk     = NULL;
   ctx->lo_xsk_aio = NULL;
   if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && !tile->kind_id ) ) {
-    void * lo_xsk = fd_xsk_new( SCRATCH_ALLOC( fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
+    void * lo_xsk = fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
                                 FD_NET_MTU,
                                 tile->net.xdp_rx_queue_size,
                                 tile->net.xdp_rx_queue_size,
@@ -262,7 +262,7 @@ privileged_init( fd_topo_t *      topo,
     ctx->lo_xsk = fd_xsk_join( lo_xsk );
     if( FD_UNLIKELY( !ctx->lo_xsk ) ) FD_LOG_ERR(( "fd_xsk_join failed" ));
 
-    ctx->lo_xsk_aio = fd_xsk_aio_new( SCRATCH_ALLOC( fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
+    ctx->lo_xsk_aio = fd_xsk_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) ),
                                       tile->net.xdp_tx_queue_size,
                                       tile->net.xdp_aio_depth );
     if( FD_UNLIKELY( !ctx->lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
@@ -273,10 +273,10 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
-  fd_net_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
-  fd_aio_t * net_rx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, net_rx_aio_send ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
+  fd_aio_t * net_rx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, net_rx_aio_send ) );
   if( FD_UNLIKELY( !net_rx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
   ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
@@ -320,6 +320,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -328,8 +329,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
@@ -343,8 +344,8 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_net_init_ctx_t * init_ctx = SCRATCH_ALLOC( alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 4 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 

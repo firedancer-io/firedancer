@@ -137,15 +137,15 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() );
-  SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() );
-  SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( tile->quic.depth, tile->quic.reasm_cnt ) );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_aio_align(), fd_aio_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( tile->quic.depth, tile->quic.reasm_cnt ) );
   fd_quic_limits_t limits = quic_limits( tile );
-  SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 /* OpenSSL allows us to specify custom memory allocation functions, which we
@@ -587,9 +587,9 @@ privileged_init( fd_topo_t *      topo,
   (void)topo;
   (void)tile;
 
-  ulong scratch_top = (ulong)scratch;
-  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  ctx->ip = fd_ip_join( fd_ip_new( SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
   if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
@@ -599,7 +599,7 @@ privileged_init( fd_topo_t *      topo,
   /* OpenSSL goes and tries to read files and allocate memory and
      other dumb things on a thread local basis, so we need a special
      initializer to do it before seccomp happens in the process. */
-  fd_quic_ssl_mem_function_ctx = fd_alloc_join( fd_alloc_new( SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() ), 1UL ), tile->kind_id );
+  fd_quic_ssl_mem_function_ctx = fd_alloc_join( fd_alloc_new( FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() ), 1UL ), tile->kind_id );
   if( FD_UNLIKELY( !fd_quic_ssl_mem_function_ctx ) )
     FD_LOG_ERR(( "fd_alloc_join failed" ));
   if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) )
@@ -621,23 +621,23 @@ unprivileged_init( fd_topo_t *      topo,
   if( topo->links[ tile->out_link_id_primary ].depth != depth )
     FD_LOG_ERR(( "quic tile in depths are not equal" ));
 
-  ulong scratch_top = (ulong)scratch;
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t*)SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  SCRATCH_ALLOC( fd_alloc_align(), fd_alloc_footprint() );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
   /* End privileged allocs */
 
-  fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( SCRATCH_ALLOC( fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
+  fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
   uint  reasm_cnt = tile->quic.reasm_cnt;
-  void * reasm_buf = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( depth, reasm_cnt ) );
+  void * reasm_buf = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( depth, reasm_cnt ) );
 
   fd_ip_arp_fetch( ctx->ip );
   fd_ip_route_fetch( ctx->ip );
   fd_quic_limits_t limits = quic_limits( tile );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( SCRATCH_ALLOC( fd_quic_align(), fd_quic_footprint( &limits ) ), &limits, ctx->ip ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) ), &limits, ctx->ip ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
@@ -713,6 +713,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->legacy_transaction_port = tile->quic.legacy_transaction_listen_port;
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -721,8 +722,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
 
   int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
   FD_TEST( netlink_fd >= 0 );
@@ -734,8 +735,8 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_quic_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 

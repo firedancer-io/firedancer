@@ -44,11 +44,11 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
-  SCRATCH_ALLOC( fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
-  SCRATCH_ALLOC( fd_sha512_align(),          fd_sha512_footprint() );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  l = FD_LAYOUT_APPEND( l, fd_sha512_align(),          fd_sha512_footprint() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -134,11 +134,11 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_verify_ctx_t * ctx = (fd_verify_ctx_t*)SCRATCH_ALLOC( alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
-  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( SCRATCH_ALLOC( FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( SCRATCH_ALLOC( alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
   if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
 
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
@@ -163,6 +163,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
