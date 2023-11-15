@@ -112,12 +112,12 @@ typedef struct {
 /* fd_mux_during_housekeeping_fn is called during the housekeeping routine,
    which happens infrequently on a schedule determined by the mux (based on
    the lazy parameter, see fd_tempo.h for more information).
-   
+
    It is appropriate to do slightly expensive things here that wouldn't be
    OK to do in the main loop, like updating sequence numbers that are shared
    with other tiles (e.g. synchronization information), or sending batched
    information somewhere.
-   
+
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 typedef void (fd_mux_during_housekeeping_fn)( void * ctx );
@@ -465,17 +465,32 @@ fd_mux_tile( fd_cnc_t *              cnc,         /* Local join to the mux's com
              void *                  ctx,         /* User supplied context to be passed to the read and process functions */
              fd_mux_callbacks_t *    callbacks ); /* User supplied callbacks to be invoked during mux tile execution */
 
+static inline ulong
+fd_mux_advance( fd_mux_context_t * ctx ) {
+  ulong * seqp = ctx->seq;
+  ulong   seq  = *seqp;
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
+  *seqp = fd_seq_inc( seq, 1UL );
+  return seq;
+}
+
 /* If the mux is operating with FD_MUX_FLAG_NO_PUBLISH, the caller can optionally
    publish fragments to the consumers themself.  To do this, they should call
    fd_mux_publish with the mux context provided in the  */
-void
+static inline void
 fd_mux_publish( fd_mux_context_t * ctx,
                 ulong              sig,
                 ulong              chunk,
                 ulong              sz,
                 ulong              ctl,
                 ulong              tsorig,
-                ulong              tspub );
+                ulong              tspub ) {
+  ulong * seqp = ctx->seq;
+  ulong   seq  = *seqp;
+  fd_mcache_publish( ctx->mcache, ctx->depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
+  *seqp = fd_seq_inc( seq, 1UL );
+}
 
 FD_PROTOTYPES_END
 

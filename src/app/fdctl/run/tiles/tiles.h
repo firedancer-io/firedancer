@@ -30,9 +30,6 @@ typedef struct {
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
 } fd_tile_config_t;
 
-FD_FN_CONST ulong
-fd_quic_dcache_app_footprint( ulong depth );
-
 FD_FN_CONST fd_tile_config_t *
 fd_topo_tile_to_config( fd_topo_tile_t * tile );
 

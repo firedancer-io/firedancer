@@ -215,6 +215,7 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
+  ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
@@ -793,7 +794,7 @@ config_parse( int *      pargc,
     if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && config->is_live_cluster ) )
       FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
                    "but it has IPv4 address " FD_IP4_ADDR_FMT " "
-                   "which is part of a private network and will not be routable for other Solana network nodes.", 
+                   "which is part of a private network and will not be routable for other Solana network nodes.",
                    config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
 
     config->tiles.net.ip_addr = iface_ip;
@@ -924,6 +925,7 @@ config_parse( int *      pargc,
         break;
       case FD_TOPO_TILE_KIND_QUIC:
         tile->quic.depth = config->topo.links[ tile->out_link_id_primary ].depth;
+        tile->quic.reasm_cnt = config->tiles.quic.txn_reassembly_count;
         tile->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
         tile->quic.max_concurrent_handshakes = config->tiles.quic.max_concurrent_handshakes;
         tile->quic.max_inflight_quic_packets = config->tiles.quic.max_inflight_quic_packets;

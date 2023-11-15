@@ -76,13 +76,13 @@ fd_mux_tile_scratch_footprint( ulong in_cnt,
                                ulong out_cnt ) {
   if( FD_UNLIKELY( in_cnt >FD_MUX_TILE_IN_MAX  ) ) return 0UL;
   if( FD_UNLIKELY( out_cnt>FD_MUX_TILE_OUT_MAX ) ) return 0UL;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t)     ); /* in */
-  SCRATCH_ALLOC( alignof(ulong const *),    out_cnt*sizeof(ulong const *)       ); /* out_fseq */
-  SCRATCH_ALLOC( alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_slow */
-  SCRATCH_ALLOC( alignof(ulong),            out_cnt*sizeof(ulong)               ); /* out_seq */
-  SCRATCH_ALLOC( alignof(ushort),           (in_cnt+out_cnt+1UL)*sizeof(ushort) ); /* event_map */
-  return fd_ulong_align_up( scratch_top, fd_mux_tile_scratch_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t)     ); /* in */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong const *),    out_cnt*sizeof(ulong const *)       ); /* out_fseq */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong *),          out_cnt*sizeof(ulong *)             ); /* out_slow */
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),            out_cnt*sizeof(ulong)               ); /* out_seq */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),           (in_cnt+out_cnt+1UL)*sizeof(ushort) ); /* event_map */
+  return FD_LAYOUT_FINI( l, fd_mux_tile_scratch_align() );
 }
 
 int
@@ -147,7 +147,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       return 1;
     }
 
-    ulong scratch_top = (ulong)scratch;
+    FD_SCRATCH_ALLOC_INIT( l, scratch );
 
     /* cnc state init */
 
@@ -166,7 +166,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     /* in frag stream init */
 
     in_seq = 0UL; /* First in to poll */
-    in = (fd_mux_tile_in_t *)SCRATCH_ALLOC( alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t) );
+    in = (fd_mux_tile_in_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_mux_tile_in_t), in_cnt*sizeof(fd_mux_tile_in_t) );
 
     ulong min_in_depth = (ulong)LONG_MAX;
 
@@ -315,9 +315,9 @@ fd_mux_tile( fd_cnc_t *              cnc,
     cr_avail = 0UL; /* Will be initialized by run loop */
     cr_filt  = 0UL;
 
-    out_fseq = (ulong const **)SCRATCH_ALLOC( alignof(ulong const *), out_cnt*sizeof(ulong const *) );
-    out_slow = (ulong **)      SCRATCH_ALLOC( alignof(ulong *),       out_cnt*sizeof(ulong *)       );
-    out_seq  = (ulong *)       SCRATCH_ALLOC( alignof(ulong),         out_cnt*sizeof(ulong)         );
+    out_fseq = (ulong const **)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong const *), out_cnt*sizeof(ulong const *) );
+    out_slow = (ulong **)      FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong *),       out_cnt*sizeof(ulong *)       );
+    out_seq  = (ulong *)       FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),         out_cnt*sizeof(ulong)         );
 
     if( FD_UNLIKELY( !!out_cnt && !_out_fseq ) ) { FD_LOG_WARNING(( "NULL out_fseq" )); return 1; }
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
@@ -337,7 +337,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        ins accordingly. */
 
     event_cnt = in_cnt + 1UL + out_cnt;
-    event_map = (ushort *)SCRATCH_ALLOC( alignof(ushort), event_cnt*sizeof(ushort) );
+    event_map = (ushort *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort), event_cnt*sizeof(ushort) );
     event_seq = 0UL;                                     event_map[ event_seq++ ] = (ushort)out_cnt;
     for( ulong  in_idx=0UL;  in_idx< in_cnt;  in_idx++ ) event_map[ event_seq++ ] = (ushort)(in_idx+out_cnt+1UL);
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) event_map[ event_seq++ ] = (ushort)out_idx;
@@ -631,19 +631,3 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
   return 0;
 }
-
-void
-fd_mux_publish( fd_mux_context_t * ctx,
-                ulong              sig,
-                ulong              chunk,
-                ulong              sz,
-                ulong              ctl,
-                ulong              tsorig,
-                ulong              tspub ) {
-  fd_mcache_publish( ctx->mcache, ctx->depth, *ctx->seq, sig, chunk, sz, ctl, tsorig, tspub );
-  *ctx->cr_avail -= ctx->cr_decrement_amount;
-  *ctx->seq = fd_seq_inc( *ctx->seq, 1UL );
-}
-
-#undef SCRATCH_ALLOC
-

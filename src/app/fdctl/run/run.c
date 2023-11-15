@@ -63,7 +63,7 @@ parent_signal( int sig ) {
      particularly if one of those processes might have just died.  The
      signal handler is re-entrant so this also avoids a deadlock since
      the log lock is not re-entrant. */
-  int lock;
+  int lock = 0;
   fd_log_private_shared_lock = &lock;
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
@@ -168,6 +168,13 @@ main_pid_namespace( void * _args ) {
   fd_log_private_thread_id_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
+
+  if( FD_UNLIKELY( !config->development.sandbox ) ) {
+    /* If no sandbox, then there's no actual PID namespace so we can't
+       wait() grandchildren for the exit code.  Do this as a workaround. */
+    if( FD_UNLIKELY( -1==prctl( PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0 ) ) )
+      FD_LOG_ERR(( "prctl(PR_SET_CHILD_SUBREAPER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   /* Bank and store tiles are not real tiles yet. */
   ulong tile_cnt = config->topo.tile_cnt
@@ -291,6 +298,9 @@ main_pid_namespace( void * _args ) {
           exit_group( 0 );
         }
 
+        char * tile_name = child_names[ i ];
+        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
         int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
@@ -300,9 +310,6 @@ main_pid_namespace( void * _args ) {
           /* Spurious wakeup, no child actually dead yet. */
           continue;
         }
-
-        char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
