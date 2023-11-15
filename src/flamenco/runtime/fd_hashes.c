@@ -267,8 +267,10 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 
+#ifdef _ENABLE_RHASH
   fd_ristretto255_point_t rhash;
   fd_ristretto255_extended_frombytes( &rhash, slot_ctx->slot_bank.rhash );
+#endif
 
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
        NULL != rec;
@@ -293,7 +295,9 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_hash_t acc_hash[1];
     uchar acc_rhash[128];
+#ifdef _ENABLE_RHASH
     uchar deleted = 0;
+#endif
     // TODO: talk to jsiegel about this
     if (FD_UNLIKELY(acc_meta->info.lamports == 0)) { //!FD_RAW_ACCOUNT_EXISTS(_raw))) {
       fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
@@ -302,7 +306,9 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
          iterator.  Instead, we will store away the record and erase
          it later where appropriate.  */
       fd_funk_rec_vector_push(&erase_recs, rec);
+#ifdef _ENABLE_RHASH
       deleted = 1;
+#endif
     } else {
       // Maybe instead of going through the whole hash mechanism, we
       // can find the parent funky record and just compare the data?
@@ -319,6 +325,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     // How the heck do we deal with new accounts?  test that
 
+#ifdef _ENABLE_RHASH
     // Lets remove the effect of this account on the rhash...
     fd_ristretto255_point_t p2;
     fd_ristretto255_extended_frombytes( &p2, acc_meta->rhash );
@@ -328,6 +335,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
       fd_ristretto255_extended_frombytes( &p2, acc_rhash );
       fd_ristretto255_point_add( &rhash, &rhash, &p2 );
     }
+#endif
 
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = rec;
@@ -338,7 +346,9 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Update hash */
 
     memcpy( acc_rec->meta->hash, acc_hash->hash, sizeof(fd_hash_t) );
+#ifdef _ENABLE_RHASH
     memcpy( acc_rec->meta->rhash, acc_rhash, sizeof(acc_rhash) );
+#endif
     acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
     /* Logging ... */
@@ -380,11 +390,13 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     FD_TEST( err==0 );
   }
 
+#ifdef _ENABLE_RHASH
   // We have a new ristretto hash
   fd_ristretto255_extended_tobytes( slot_ctx->slot_bank.rhash, &rhash );
 
   // Lets make sure everything lines up...
   fd_accounts_check_rhash( slot_ctx );
+#endif
 
   /* Sort and hash "dirty keys" to the accounts delta hash. */
 
@@ -425,6 +437,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
 
+#ifdef _ENABLE_RHASH
   if (NULL != rhash) {
     uchar hash512[64];
     fd_ristretto255_point_t p;
@@ -441,6 +454,9 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
     fd_ristretto255_hash_to_curve( &p, hash512 );
     fd_ristretto255_extended_tobytes( rhash, &p );
   }
+#else
+  (void) rhash;
+#endif
 
   return hash;
 }
@@ -467,6 +483,7 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
 
+#ifdef _ENABLE_RHASH
   if (NULL != rhash) {
     uchar hash512[64];
     fd_ristretto255_point_t p;
@@ -482,6 +499,9 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
     fd_ristretto255_hash_to_curve( &p, hash512 );
     fd_ristretto255_extended_tobytes( rhash, &p );
   }
+#else
+  (void) rhash;
+#endif
 
   return hash;
 }
