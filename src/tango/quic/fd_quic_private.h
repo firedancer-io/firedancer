@@ -44,7 +44,7 @@ typedef struct fd_quic_event fd_quic_event_t;
    lifetime of join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_state_private {
-  /* Pointer to OpenSSL TLS state (part of quic memory region) */
+  /* Pointer to TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
 
