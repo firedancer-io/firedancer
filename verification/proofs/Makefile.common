@@ -658,7 +658,7 @@ $(PROJECT_GOTO)0200.goto: $(PROJECT_GOTO)0100.goto
 	  --description "$(PROOF_UID): removing function bodies from project sources"
 
 # Link project and proof sources into the proof harness
-$(HARNESS_GOTO)0100.goto: $(PROOF_GOTO)0100.goto $(PROJECT_GOTO)0200.goto
+$(HARNESS_GOTO)0100.goto: $(PROOF_GOTO)0100.goto $(if $(PROJECT_SOURCES)$(REWRITTEN_SOURCES),$(PROJECT_GOTO)0200.goto)
 	$(LITANI) add-job \
 	  --command '$(GOTO_CC) $(CBMC_VERBOSITY) --function $(HARNESS_ENTRY) $^ $(LINK_FLAGS) -o $@' \
 	  --inputs $^ \
