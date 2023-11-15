@@ -45,7 +45,6 @@ include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-debug.mk
 
-$(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
 FD_HAS_DOUBLE:=1
 CPPFLAGS+=-DFD_HAS_DOUBLE=1
@@ -60,6 +59,7 @@ CPPFLAGS+=-DFD_HAS_X86=1
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
+$(call map-define,FD_HAS_SHANI, __SHA__)
 
 # Older version of GCC (<10) don't fully support AVX512, so we disable
 # it in those cases. Older versions of Clang (<8) don't support it

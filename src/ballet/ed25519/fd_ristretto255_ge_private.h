@@ -4,7 +4,7 @@
 #include "fd_ed25519_private.h"
 
 /* fd_ristretto255 provides internal APIs for the ristretto255 prime
-   order group.  TODO These are experimental and have not been audited! */
+   order group. */
 
 FD_PROTOTYPES_BEGIN
 

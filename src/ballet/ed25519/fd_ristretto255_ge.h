@@ -13,6 +13,7 @@
    to secret data) */
 
 #include "fd_ed25519_ge.h"
+#include "fd_ristretto255_ge_private.h"
 
 /* fd_ristretto255 provides APIs for the ristretto255 prime order group */
 
@@ -25,9 +26,19 @@ typedef fd_ed25519_point_t fd_ristretto255_point_t;
 
 FD_PROTOTYPES_BEGIN
 
-fd_ristretto255_point_t *
-fd_ristretto255_point_decompress( fd_ristretto255_point_t * h,
-                                  uchar const               s[ static 32 ] );
+static inline fd_ristretto255_point_t *
+fd_ristretto255_point_decompress( fd_ristretto255_point_t * h_,
+                                  uchar const               s[ static 32 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  return fd_type_pun( fd_ristretto255_ge_frombytes_vartime( h, s ) );
+}
+
+static inline uchar *
+fd_ristretto255_point_compress( uchar                           s[ static 32 ],
+                                fd_ristretto255_point_t const * f_ ) {
+  fd_ed25519_ge_p3_t const * f = fd_type_pun_const( f_ );
+  return fd_ristretto255_ge_tobytes( s, f );
+}
 
 static inline int
 fd_ristretto255_point_validate( uchar const s[ static 32 ] ) {
@@ -35,9 +46,50 @@ fd_ristretto255_point_validate( uchar const s[ static 32 ] ) {
   return !!fd_ristretto255_point_decompress( A, s );
 }
 
-uchar *
-fd_ristretto255_point_compress( uchar                           s[ static 32 ],
-                                fd_ristretto255_point_t const * f );
+static inline fd_ristretto255_point_t *
+fd_ristretto255_extended_frombytes( fd_ristretto255_point_t * h_,
+                                    uchar const               s[ static 32*4 ] ) {
+  fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
+  fd_ed25519_fe_frombytes( h->X, s    );
+  fd_ed25519_fe_frombytes( h->Y, s+32 );
+  fd_ed25519_fe_frombytes( h->Z, s+64 );
+  fd_ed25519_fe_frombytes( h->T, s+96 );
+  return h_;
+}
+
+static inline uchar *
+fd_ristretto255_extended_tobytes( uchar                           s[ static 32*4 ],
+                                  fd_ristretto255_point_t const * h_ ) {
+  fd_ed25519_ge_p3_t const * h = fd_type_pun_const( h_ );
+  fd_ed25519_fe_tobytes( s,    h->X );
+  fd_ed25519_fe_tobytes( s+32, h->Y );
+  fd_ed25519_fe_tobytes( s+64, h->Z );
+  fd_ed25519_fe_tobytes( s+96, h->T );
+  return s;
+}
+
+static inline int
+fd_ristretto255_point_eq( fd_ristretto255_point_t * const p_,
+                          fd_ristretto255_point_t * const q_ ) {
+  // https://ristretto.group/details/equality.html
+  fd_ed25519_ge_p3_t const * p = fd_type_pun_const( p_ );
+  fd_ed25519_ge_p3_t const * q = fd_type_pun_const( q_ );
+  fd_ed25519_fe_t cmp[2];
+
+  fd_ed25519_fe_mul( &cmp[ 0 ], p->X, q->Y );
+  fd_ed25519_fe_mul( &cmp[ 1 ], q->X, p->Y );
+  int x = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  fd_ed25519_fe_mul( &cmp[ 0 ], p->X, q->X );
+  fd_ed25519_fe_mul( &cmp[ 1 ], p->Y, q->Y );
+  int y = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  return x | y;
+}
+
+fd_ristretto255_point_t *
+fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
+                               uchar const               s[ static 64 ] );
 
 #define fd_ristretto255_point_0          fd_ed25519_point_0
 #define fd_ristretto255_point_add        fd_ed25519_point_add

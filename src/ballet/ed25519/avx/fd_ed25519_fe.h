@@ -65,6 +65,16 @@ fd_ed25519_fe_rng( fd_ed25519_fe_t * h,
   return h;
 }
 
+static inline int
+fd_ed25519_fe_eq( fd_ed25519_fe_t * const fe0,
+                   fd_ed25519_fe_t * const fe1 ) {
+  return ( fe0->limb[ 0 ] == fe1->limb[ 0 ] ) & ( fe0->limb[ 1 ] == fe1->limb[ 1 ] ) &
+         ( fe0->limb[ 2 ] == fe1->limb[ 2 ] ) & ( fe0->limb[ 3 ] == fe1->limb[ 3 ] ) &
+         ( fe0->limb[ 4 ] == fe1->limb[ 4 ] ) & ( fe0->limb[ 5 ] == fe1->limb[ 5 ] ) &
+         ( fe0->limb[ 6 ] == fe1->limb[ 6 ] ) & ( fe0->limb[ 7 ] == fe1->limb[ 7 ] ) &
+         ( fe0->limb[ 8 ] == fe1->limb[ 8 ] ) & ( fe0->limb[ 9 ] == fe1->limb[ 9 ] );
+}
+
 static inline fd_ed25519_fe_t *
 fd_ed25519_fe_add( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f,
@@ -153,6 +163,18 @@ static inline fd_ed25519_fe_t *
 fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
                    fd_ed25519_fe_t const * f ) {
   wi_t m   = wc_bcast( !!fd_ed25519_fe_isnegative( f ) );
+  wi_t f07 = wi_ld( f->limb );      wi_t f89 = wi_ld( f->limb+8 );
+  wi_t z   = wi_zero();
+  wi_t g07 = wi_sub( z, f07 );      wi_t g89 = wi_sub( z, f89 );
+  wi_t h07 = wi_if ( m, g07, f07 ); wi_t h89 = wi_if ( m, g89, f89 );
+  wi_st( h->limb, h07 );            wi_st( h->limb+8, h89 );
+  return h;
+}
+
+static inline fd_ed25519_fe_t *
+fd_ed25519_fe_neg_abs( fd_ed25519_fe_t *       h,
+                       fd_ed25519_fe_t const * f ) {
+  wi_t m   = wc_bcast( !fd_ed25519_fe_isnegative( f ) );
   wi_t f07 = wi_ld( f->limb );      wi_t f89 = wi_ld( f->limb+8 );
   wi_t z   = wi_zero();
   wi_t g07 = wi_sub( z, f07 );      wi_t g89 = wi_sub( z, f89 );
