@@ -31,10 +31,23 @@ run1_cmd_args( int *    pargc,
   (*pargv)++;
 }
 
+extern int * fd_log_private_shared_lock;
+
 int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
   fd_topo_tile_t * tile = args->tile;
+
+  if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
+    if( FD_UNLIKELY( tile->id==args->config->development.debug_tile-1 ) ) {
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%d", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, getpid1() ));
+      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
+        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_log_private_shared_lock[1] = 0;
+    } else {
+      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
+    }
+  }
 
   ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_group_id_set( pid );

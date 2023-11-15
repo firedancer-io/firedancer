@@ -21,6 +21,9 @@ dev_cmd_args( int *    pargc,
   args->dev.no_solana_labs = fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana-labs" ) ||
                              fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" ) ||
                              fd_env_strip_cmdline_contains( pargc, pargv, "--no-labs" );
+  const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
+  if( FD_UNLIKELY( debug_tile ) )
+    strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
 }
 
 void
@@ -162,6 +165,30 @@ dev_cmd_fn( args_t *         args,
     /* if we entered a network namespace during configuration, leave it
        so that `run_firedancer` starts from a clean namespace */
     leave_network_namespace();
+  }
+
+  if( FD_UNLIKELY( strcmp( "", args->dev.debug_tile ) ) ) {
+    if( FD_LIKELY( config->development.sandbox ) ) {
+      FD_LOG_WARNING(( "disabling sandbox to debug tile `%s`", args->dev.debug_tile ));
+      config->development.sandbox = 0;
+    }
+
+    if( !strcmp( args->dev.debug_tile, "solana" ) ||
+        !strcmp( args->dev.debug_tile, "labs" ) ||
+        !strcmp( args->dev.debug_tile, "solana-labs" ) ) {
+      config->development.debug_tile = UINT_MAX; /* Sentinel value representing Solana Labs */
+    } else {
+      ulong tile_kind = fd_topo_tile_kind_from_cstr( args->dev.debug_tile );
+      if( FD_UNLIKELY( tile_kind==ULONG_MAX ) ) FD_LOG_ERR(( "unknown --debug-tile `%s`", args->dev.debug_tile ));
+
+      ulong idx;
+      for( idx=0; idx<config->topo.tile_cnt; idx++ ) {
+        if( FD_UNLIKELY( config->topo.tiles[ idx ].kind == tile_kind ) ) break;
+      }
+
+      if( FD_UNLIKELY( idx >= config->topo.tile_cnt ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));
+      config->development.debug_tile = 1U+(uint)idx;
+    }
   }
 
   if( FD_LIKELY( !args->dev.monitor ) ) run_firedancer( config );

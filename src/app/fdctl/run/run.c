@@ -155,6 +155,8 @@ execve_tile( fd_topo_tile_t * tile,
   return 0;
 }
 
+extern int * fd_log_private_shared_lock;
+
 int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
@@ -202,6 +204,10 @@ main_pid_namespace( void * _args ) {
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
   int config_memfd = config_write_memfd( config );
+
+  if( FD_UNLIKELY( config->development.debug_tile ) ) {
+    fd_log_private_shared_lock[1] = 1;
+  }
 
   ulong child_cnt = 0UL;
   if( FD_LIKELY( !config->development.no_solana_labs ) ) {
