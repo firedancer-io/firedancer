@@ -1,5 +1,5 @@
-#include "fd_rent_lists.h"
-#include "../fd_flamenco.h"
+#include "../fd_rent_lists.h"
+#include "../../fd_flamenco.h"
 
 void
 test_partitions( ulong epoch_len ) {
