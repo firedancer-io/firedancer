@@ -149,6 +149,13 @@ static void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         ulong            mode ) {
+
+# define SCRATCH_ALLOC( a, s ) (__extension__({                   \
+    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
+    scratch_top = _scratch_alloc + (s);                           \
+    (void *)_scratch_alloc;                                       \
+  }))
+
   /* Our first (and only) allocation is always at gaddr_lo in the workspace. */
   ulong scratch_top = 0UL;
   if( FD_LIKELY( mode != FD_TOPO_FILL_MODE_FOOTPRINT ) )
@@ -325,6 +332,8 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     wksp->page_sz = page_sz;
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
+
+# undef SCRATCH_ALLOC
 }
 
 void

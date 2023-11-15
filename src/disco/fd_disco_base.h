@@ -29,12 +29,6 @@
    in the Rust code. */
 FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
 
-#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
-    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
-    scratch_top = _scratch_alloc + (s);                           \
-    (void *)_scratch_alloc;                                       \
-  }))
-
 /* FD_APP_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
    same considerations apply.  Further they are harmonized with the
    standard FD_CNC_DIAG_*.  Specifically:

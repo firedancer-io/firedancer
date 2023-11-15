@@ -214,14 +214,14 @@ scratch_footprint( fd_topo_tile_t * tile ) {
                                                             128UL * tile->shred.fec_resolver_depth );
   ulong fec_set_cnt = tile->shred.depth + tile->shred.fec_resolver_depth + 4UL;
 
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
-  SCRATCH_ALLOC( fd_ip_align(),                    fd_ip_footprint( 256UL, 256UL )         );
-  SCRATCH_ALLOC( fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
-  SCRATCH_ALLOC( fd_fec_resolver_align(),          fec_resolver_footprint                  );
-  SCRATCH_ALLOC( fd_shredder_align(),              fd_shredder_footprint()                 );
-  SCRATCH_ALLOC( alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(),                    fd_ip_footprint( 256UL, 256UL )         );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
+  l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -613,9 +613,9 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
 
-  ulong scratch_top = (ulong)scratch;
-  fd_shred_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
-  ctx->ip = fd_ip_join( fd_ip_new( SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
   if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
@@ -646,9 +646,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
 
-  ulong scratch_top = (ulong)scratch;
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t*)SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
-  SCRATCH_ALLOC( fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
 
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
@@ -675,10 +675,10 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
-  void * _stake_ci = SCRATCH_ALLOC( fd_stake_ci_align(),              fd_stake_ci_footprint()            );
-  void * _resolver = SCRATCH_ALLOC( fd_fec_resolver_align(),          fec_resolver_footprint             );
-  void * _shredder = SCRATCH_ALLOC( fd_shredder_align(),              fd_shredder_footprint()            );
-  void * _fec_sets = SCRATCH_ALLOC( alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
+  void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
+  void * _shredder = FD_SCRATCH_ALLOC_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()            );
+  void * _fec_sets = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt   );
 
   fd_fec_set_t * fec_sets = (fd_fec_set_t *)_fec_sets;
   fd_shred34_t * shred34  = (fd_shred34_t *)store_out_dcache;
@@ -792,6 +792,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_ip_route_fetch( ctx->ip );
   warmup_arp_cache( ctx );
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -800,8 +801,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_shred_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
 
   int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
   FD_TEST( netlink_fd >= 0 );
@@ -813,8 +814,8 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_shred_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
 
   if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
