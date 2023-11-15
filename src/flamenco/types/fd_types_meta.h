@@ -28,6 +28,7 @@
 #define FD_FLAMENCO_TYPE_HASH256   (0x0e)  /* pubkey, account */
 #define FD_FLAMENCO_TYPE_SIG512    (0x0f)
 #define FD_FLAMENCO_TYPE_CSTR      (0x10)
+#define FD_FLAMENCO_TYPE_HASH1024  (0x11)
 
 #define FD_FLAMENCO_TYPE_ARR       (0x20)
 #define FD_FLAMENCO_TYPE_ARR_END   (0x21)

@@ -656,6 +656,9 @@ main( int     argc,
       // TODO: regexp the hash out of the filename and compare..
     }
 
+    fd_accounts_init_rhash(slot_ctx);
+    fd_accounts_check_rhash(slot_ctx);
+
     if (snapshot_used) {
       FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
       int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec);
@@ -843,15 +846,15 @@ main( int     argc,
       }
 
       fd_hash_t acc_hash;
-      if( fd_hash_account_v0(acc_hash.uc, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot)==NULL )
+      if( fd_hash_account_v0(acc_hash.uc, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot)==NULL )
         FD_LOG_ERR(("error processing account hash"));
 
       if( memcmp(acc_hash.uc, metadata->hash, 32) != 0 ) {
         FD_LOG_ERR(("account hash mismatch - num_pairs: %lu, slot: %lu, acc: %32J, acc_hash: %32J, snap_hash: %32J", num_pairs, slot_ctx->slot_bank.slot, rec->pair.key->uc, acc_hash.uc, metadata->hash));
       }
 
-      fd_memcpy(pairs[num_pairs].pubkey.key, rec->pair.key, 32);
-      fd_memcpy(pairs[num_pairs].hash.hash, metadata->hash, 32);
+      pairs[num_pairs].pubkey = (const fd_pubkey_t *)rec->pair.key->uc;
+      pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
       num_pairs++;
     }
     FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
