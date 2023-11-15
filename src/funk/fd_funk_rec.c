@@ -597,8 +597,9 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
         return NULL;
       rec = fd_funk_val_copy( rec, fd_funk_val_const(rec_con, wksp), fd_funk_val_sz(rec_con),
         fd_ulong_max( fd_funk_val_sz(rec_con), min_val_size ), fd_funk_alloc( funk, wksp ), wksp, opt_err );
-      if ( !rec )
+      if ( !rec ) {
         return NULL;
+      }
     }
 
   } else {

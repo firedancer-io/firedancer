@@ -22,7 +22,7 @@ fd_convert_txn_instr_to_instr( fd_txn_t const *          txn_descriptor,
     instr->borrowed_accounts[i] = &borrowed_accounts[instr_acc_idxs[i]];
 
     instr->acct_flags[i] = 0;
-    if( fd_account_is_writable_idx( txn_descriptor, txn_instr->program_id, instr_acc_idxs[i] ) ) {
+    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) ) {
       instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     }
     if( fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) ) {

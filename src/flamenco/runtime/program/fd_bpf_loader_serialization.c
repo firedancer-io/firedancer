@@ -258,7 +258,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       fd_borrowed_account_t * view_acc = NULL;
       int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
 
-      if (FD_LIKELY(FD_RAW_ACCOUNT_EXISTS(view_acc->const_meta))) {
+      if (FD_LIKELY(view_acc->const_meta != NULL)) {
         fd_account_meta_t const * metadata_check = (fd_account_meta_t *)view_acc->const_meta;
         FD_LOG_DEBUG(("dlen %lu post data len %lu owner %32J for %32J", metadata_check->dlen, post_data_len, metadata_check->info.owner, acc->uc));
         if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {

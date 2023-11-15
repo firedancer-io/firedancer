@@ -65,10 +65,18 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   if (!fd_instr_acc_is_signer(ctx.instr, sender))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
+  // TODO: remove hack
+  if ( requested_lamports == 0 ) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+
   fd_borrowed_account_t * sender_rec = NULL;
     int err = fd_instr_borrowed_account_view( &ctx, sender, &sender_rec );
-  if (FD_UNLIKELY( err ))
+  if (FD_UNLIKELY( err )){
+    FD_LOG_WARNING(("Account %32J not found", sender->uc));
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+    
   if (sender_rec->const_meta->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
@@ -105,9 +113,11 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   err = fd_instr_borrowed_account_modify(&ctx,  receiver,  1,  0UL, & receiver_rec);
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-
+  FD_LOG_WARNING(("Transferring %32J -> %32J: %lu", sender->uc, receiver->uc, requested_lamports));
   sender_rec->meta->info.lamports = sender_rec->meta->info.lamports - requested_lamports;
   receiver_rec->meta->info.lamports = res;
+  sender_rec->meta->slot = ctx.slot_ctx->slot_bank.slot;
+  receiver_rec->meta->slot = ctx.slot_ctx->slot_bank.slot;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -220,7 +230,7 @@ static int fd_system_assign_with_seed(
   err = fd_instr_borrowed_account_modify(&ctx,  account,  1,  0UL, & account_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
-
+  FD_LOG_DEBUG(("Old owner %32J New owner %32J", account_rec->const_meta->info.owner, t->owner.uc));
   if (memcmp(account_rec->const_meta->info.owner, fd_solana_system_program_id.key, sizeof(account_rec->const_meta->info.owner)) != 0)
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
 

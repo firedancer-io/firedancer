@@ -85,3 +85,18 @@ fd_pubkey_is_sysvar_id( fd_pubkey_t const * acct ) {
   if (memcmp(acct->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   return 0;
 }
+
+int
+fd_pubkey_is_builtin_program( fd_pubkey_t const * acct ) {
+  if (memcmp(acct->key, fd_solana_config_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_stake_program_config_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_system_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  if (memcmp(acct->key, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  return 0;
+}

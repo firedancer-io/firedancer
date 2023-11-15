@@ -470,7 +470,7 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
     fd_txn_t const * txn = microblock_info->txn_ptrs[txn_idx];
     fd_rawtxn_b_t const * raw_txn = &microblock_info->raw_txns[txn_idx];
 
-    FD_LOG_DEBUG(( "executing txn - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar *)raw_txn->raw + txn->signature_off ));
+    FD_LOG_NOTICE(( "executing txn - slot: %lu, txn_idx: %lu, sig: %64J", slot_ctx->slot_bank.slot, txn_idx, (uchar *)raw_txn->raw + txn->signature_off ));
     fd_execute_txn( slot_ctx, txn, raw_txn );
   }
 
@@ -916,12 +916,25 @@ fd_runtime_epoch_ctx_setup_from_parent( fd_exec_epoch_ctx_t const * parent_epoch
 //   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
 // }
 
+static fd_funk_txn_t * fake_root = NULL;
+
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              void const * block,
                              ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong max_workers ) {
+  
+  if (fake_root == NULL) {
+    fd_funk_txn_xid_t xid;
+
+    xid.ul[0] = fd_rng_ulong( slot_ctx->rng );
+    xid.ul[1] = fd_rng_ulong( slot_ctx->rng );
+    xid.ul[2] = fd_rng_ulong( slot_ctx->rng );
+    xid.ul[3] = fd_rng_ulong( slot_ctx->rng );
+    fake_root = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, NULL, &xid, 1 );
+    slot_ctx->funk_txn = fake_root;
+  }
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t xid;
 
@@ -940,15 +953,18 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 //  ulong old_slot = te->slot;
 
   if (old_txn != NULL ) {
-    if (slot_ctx->tower.constipate) {
-      if (NULL != slot_ctx->tower.blockage)
-        fd_funk_txn_merge( slot_ctx->acc_mgr->funk, old_txn, 0);
-      else
-        slot_ctx->tower.blockage = old_txn;
-    } else
-      slot_ctx->tower.blockage = NULL;
+    // if (slot_ctx->tower.constipate) {
+    //   if (NULL != slot_ctx->tower.blockage)
+    //     fd_funk_txn_merge( slot_ctx->acc_mgr->funk, old_txn, 0);
+    //   else
+    //     slot_ctx->tower.blockage = old_txn;
+    // } else
+    //   slot_ctx->tower.blockage = NULL;
     FD_LOG_DEBUG(( "publishing funk txn in tower: idx: %u", slot_ctx->tower.funk_txn_index ));
-    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, old_txn, 0 );
+    ulong num_published = fd_funk_txn_publish( slot_ctx->acc_mgr->funk, old_txn, 0 );
+    if( num_published == 0 ) {
+      FD_LOG_ERR(("nothing to publish?!"));
+    }
   }
   te->txn = slot_ctx->funk_txn = txn;
   te->slot = slot_ctx->slot_bank.slot;
@@ -971,7 +987,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   // FIXME: better way of using starting slot
-  if (FD_RUNTIME_EXECUTE_SUCCESS != ret && slot_ctx->slot_bank.slot == 179244883 ) {
+  if (FD_RUNTIME_EXECUTE_SUCCESS != ret && slot_ctx->slot_bank.slot == 223338038 ) {
     // Not exactly sure what I am supposed to do if execute fails to
     // this point...  is this a "log and fall over?"
     /*

@@ -95,6 +95,7 @@ int fd_account_can_data_be_resized(fd_exec_instr_ctx_t *ctx, const fd_account_me
 
 static inline
 int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
+                                fd_pubkey_t const * accounts,
                                 uchar program_id,
                                 int idx ) {
   int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
@@ -109,11 +110,18 @@ int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
   if (idx == program_id)
     return 0;
 
+  if (txn_descriptor->transaction_version == FD_TXN_VLEGACY) {
+    if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
+      return 0;
+    }
+  }
+
   return fd_txn_is_writable(txn_descriptor, idx);
 }
 
 static inline
 int fd_txn_account_is_writable_idx( fd_txn_t const * txn_descriptor,
+                                    fd_pubkey_t const * accounts,
                                     int idx ) {
   int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
   if (txn_descriptor->transaction_version == FD_TXN_V0) {
@@ -122,6 +130,12 @@ int fd_txn_account_is_writable_idx( fd_txn_t const * txn_descriptor,
 
   if (idx == acct_addr_cnt)
     return 0;
+
+  if (txn_descriptor->transaction_version == FD_TXN_VLEGACY) {
+    if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
+      return 0;
+    }
+  }
 
   return fd_txn_is_writable(txn_descriptor, idx);
 }
@@ -137,7 +151,7 @@ int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, u
       break;
   }
 
-  return fd_account_is_writable_idx(txn_descriptor, program_id, idx);
+  return fd_account_is_writable_idx(txn_descriptor, txn_accs, program_id, idx);
 }
 
 static inline
@@ -202,7 +216,7 @@ int fd_account_set_owner(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct, fd_
     if (memcmp(acct->info.owner, fd_solana_system_program_id.key, sizeof(acct->info.owner)) != 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     // shouldn't the touch and compare here be outside the if?
-    if (!fd_account_touch(ctx, acct, key, &err))
+    if (fd_account_touch(ctx, acct, key, &err) != OK)
       return err;
   }
   memcpy(&acct->info.owner, pubkey, sizeof(fd_pubkey_t));

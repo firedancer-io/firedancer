@@ -441,9 +441,9 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
 
   ulong oldest_idx;
 
-  if( FD_LIKELY( !txn ) ) oldest_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* opt for non-compete */
-  else {
-
+  if( FD_LIKELY( txn == NULL ) ) {
+    oldest_idx = fd_funk_txn_idx( funk->child_head_cidx ); /* opt for non-compete */
+  } else {
     ulong txn_idx = (ulong)(txn - map);
     if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map */ | (txn!=(map+txn_idx)) /* Bad alignment */ ) ) {
       if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn is not a funk transaction" ));
@@ -456,7 +456,10 @@ fd_funk_txn_cancel_children( fd_funk_t *     funk,
     }
 
     oldest_idx = fd_funk_txn_idx( txn->child_head_cidx );
+  }
 
+  if( fd_funk_txn_idx_is_null( oldest_idx ) ) {
+    return 0UL;
   }
 
   return fd_funk_txn_cancel_sibling_list( funk, map, txn_max, funk->cycle_tag++, oldest_idx, FD_FUNK_TXN_IDX_NULL );
@@ -842,6 +845,63 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   parent->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   parent->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
+
+  return FD_FUNK_SUCCESS;
+}
+
+int
+fd_funk_txn_merge_with_children( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn,
+                                 int             verbose ) {
+  if( FD_UNLIKELY( !funk ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
+
+  ulong txn_max = fd_funk_txn_map_key_max( map );
+
+  ulong txn_idx = (ulong)(txn - map);
+
+  ASSERT_IN_PREP( txn_idx );
+
+  if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
+  if( FD_UNLIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must have an unpublished parent" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  ASSERT_IN_PREP( parent_idx );
+
+  /* Merge records from child into parent */
+
+  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                      fd_funk_alloc( funk, wksp ), wksp );
+
+  fd_funk_txn_t * parent = map + parent_idx;
+
+  parent->child_head_cidx = txn->child_head_cidx;
+  parent->child_tail_cidx = txn->child_tail_cidx;
+
+  uint grand_child_cidx = parent->child_head_cidx;
+  ulong grand_child_idx = fd_funk_txn_idx( grand_child_cidx );
+  while( !fd_funk_txn_idx_is_null( grand_child_idx ) ) {
+    fd_funk_txn_t * grand_child = map + grand_child_cidx;
+    grand_child->parent_cidx = txn->parent_cidx;
+    grand_child_cidx = grand_child->sibling_next_cidx;
+    grand_child_idx = fd_funk_txn_idx( grand_child_cidx );
+  }
 
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 

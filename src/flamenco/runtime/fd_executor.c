@@ -304,7 +304,6 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* TODO: allow instructions to be failed, and the transaction to be reverted */
   fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
-
   execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
   int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
@@ -397,11 +396,11 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
-    if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, (int)i ) ) {
+    if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i ) ) {
       int err = fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, 1, 0UL, borrowed_account);
-
+      FD_LOG_DEBUG(("Writable account %32J slot %lu", acc->uc, borrowed_account->const_meta->slot));
       if( FD_UNLIKELY( err ) ) {
-      //   FD_LOG_WARNING(( "fd_acc_mgr_modify(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
+        FD_LOG_WARNING(( "fd_acc_mgr_modify(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
       }
     } else {
       int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );
@@ -560,6 +559,8 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {
     int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );
     if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
+      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
+      txn_ctx.funk_txn = parent_txn;
       return -1;
     }
   }
@@ -579,6 +580,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
       FD_BORROWED_ACCOUNT_DECL(writable_new);
       int err = fd_acc_mgr_view(txn_ctx.acc_mgr, txn_ctx.funk_txn, &txn_ctx.accounts[i], writable_new);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_DEBUG(("Unknown account %32J", txn_ctx.accounts[i].uc));
         unknown_accounts[i] = 1;
       }
     }
@@ -596,15 +598,19 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
 
     int exec_result = fd_execute_instr( &instrs[i], &txn_ctx );
 
-    if( exec_result == FD_EXECUTOR_INSTR_SUCCESS )
-      exec_result = fd_executor_txn_check( slot_ctx, &txn_ctx );
-
     if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
-      FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
+      FD_LOG_WARNING(( "fd_execute_instr failed (%d)", exec_result ));
       fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
       txn_ctx.funk_txn = parent_txn;
       return -1;
     }
+  }
+  int err = fd_executor_txn_check( slot_ctx, &txn_ctx );
+  if ( err != FD_EXECUTOR_INSTR_SUCCESS) {
+    FD_LOG_WARNING(( "fd_executor_txn_check failed (%d)", err ));
+    fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
+    txn_ctx.funk_txn = parent_txn;
+    return -1;
   }
 
   for( ulong i = 0; i < txn_ctx.accounts_cnt; i++ ) {
@@ -625,6 +631,8 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     ret = fd_sysvar_instructions_cleanup_account( &txn_ctx );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO CLEANUP!" ));
+      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
+      txn_ctx.funk_txn = parent_txn;
       return -1;
     }
   }
@@ -648,7 +656,10 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     }
   }
 
-  fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
+  err = fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
+  if (err != FD_FUNK_SUCCESS) {
+    FD_LOG_ERR(("Merge failed in txn %s", strerror(err)));
+  }
   slot_ctx->funk_txn = parent_txn;
   return 0;
   } FD_SCRATCH_SCOPE_END;
@@ -668,22 +679,27 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
   for (ulong idx = 0; idx < txn->accounts_cnt; idx++) {
     fd_borrowed_account_t *b = &txn->borrowed_accounts[idx];
     if (NULL != b->meta) {
+      FD_LOG_DEBUG(("Account %32J starting %lu ending %lu", b->pubkey->uc, b->starting_lamports, b->meta->info.lamports));
       ending_lamports += b->meta->info.lamports;
       ending_dlen += b->meta->dlen;
 
       // Lets prevent creating non-rent-exempt accounts...
       uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen) <= b->meta->info.lamports;
 
-      // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
-
-      if (!after_exempt) {
-        if (b->meta->dlen != b->starting_dlen)
+      if (after_exempt || b->meta->info.lamports == 0) {
+        // no-op
+      } else {
+        uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
+          (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
+        if (before_exempt || b->starting_lamports == 0) {
+          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
-        if (b->meta->info.lamports > b->starting_lamports)
+        } else if (!before_exempt && (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports) {
+          // no-op
+        } else {
+          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
-        uchar before_exempt = fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports;
-        if (before_exempt)
-          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+        }
       }
 
       if (b->starting_lamports != ULONG_MAX)
@@ -691,6 +707,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       if (b->starting_dlen != ULONG_MAX)
         starting_dlen += b->starting_dlen;
     } else if (NULL != b->const_meta) {
+      FD_LOG_DEBUG(("Const rec mismatch %32J starting %lu %lu ending %lu %lu", b->pubkey->uc, b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
       // Should these just kill the client?  They are impossible...
       if (b->starting_lamports != b->const_meta->info.lamports)
         return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
@@ -700,8 +717,10 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
   }
 
   // Should these just kill the client?  They are impossible yet solana just throws an error
-  if (ending_lamports != starting_lamports)
+  if (ending_lamports != starting_lamports) {
+    FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+  }
 
 #if 0
   // cap_accounts_data_allocations_per_transaction

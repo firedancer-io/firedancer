@@ -40,6 +40,9 @@ extern fd_pubkey_t fd_solana_spl_token_id;
 int 
 fd_pubkey_is_sysvar_id( fd_pubkey_t const * acct );
 
+int 
+fd_pubkey_is_builtin_program( fd_pubkey_t const * acct );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_system_ids_h */

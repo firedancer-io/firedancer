@@ -918,7 +918,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L223
       rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-
+    FD_LOG_WARNING(("Custom err %d", ctx.txn_ctx->custom_err));
     break;
   }
 
@@ -1191,7 +1191,7 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
     }
   }
 
-  fd_option_slot_t * root_to_check           = &vote_state_update->root;
+  fd_option_slot_t   root_to_check           = vote_state_update->root;
   ulong              vote_state_update_index = 0;
   ulong              lockouts_len = deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts );
 
@@ -1202,12 +1202,12 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
 
   while ( vote_state_update_index < lockouts_len && slot_hashes_index > 0 ) {
     ulong proposed_vote_slot =
-        fd_ulong_if( root_to_check->is_some,
-                     root_to_check->slot,
+        fd_ulong_if( root_to_check.is_some,
+                     root_to_check.slot,
                      deq_fd_vote_lockout_t_peek_index_const( vote_state_update->lockouts,
                                                              vote_state_update_index )
                          ->slot );
-    if ( !root_to_check->is_some && vote_state_update_index > 0 &&
+    if ( !root_to_check.is_some && vote_state_update_index > 0 &&
          proposed_vote_slot <=
              deq_fd_vote_lockout_t_peek_index_const(
                  vote_state_update->lockouts,
@@ -1230,16 +1230,16 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
       if ( slot_hashes_index == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) {
         FD_TEST( proposed_vote_slot < earliest_slot_hash_in_history );
         if ( !vote_state_contains_slot( vote_state, proposed_vote_slot ) &&
-             !root_to_check->is_some ) {
+             !root_to_check.is_some ) {
           vote_state_update_indexes_to_filter[filter_index++] = vote_state_update_index;
         }
-        if ( root_to_check->is_some ) {
-          ulong new_proposed_root = root_to_check->slot;
+        if ( root_to_check.is_some ) {
+          ulong new_proposed_root = root_to_check.slot;
           FD_TEST( new_proposed_root == proposed_vote_slot );
           FD_TEST( new_proposed_root < earliest_slot_hash_in_history );
 
-          root_to_check->is_some = false;
-          root_to_check->slot    = ULONG_MAX;
+          root_to_check.is_some = false;
+          root_to_check.slot    = ULONG_MAX;
         } else {
           vote_state_update_index = checked_add_expect(
               vote_state_update_index,
@@ -1249,7 +1249,7 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
         }
         continue;
       } else {
-        if ( root_to_check->is_some ) {
+        if ( root_to_check.is_some ) {
           ctx.txn_ctx->custom_err = FD_VOTE_ERR_ROOT_ON_DIFFERENT_FORK;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         } else {
@@ -1265,9 +1265,9 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
           "`slot_hashes_index` is positive when finding newer slots in SlotHashes history" );
       continue;
     } else {
-      if ( root_to_check->is_some ) {
-        root_to_check->is_some = false;
-        root_to_check->slot    = ULONG_MAX;
+      if ( root_to_check.is_some ) {
+        root_to_check.is_some = false;
+        root_to_check.slot    = ULONG_MAX;
       } else {
         vote_state_update_index =
             checked_add_expect( vote_state_update_index,
@@ -1287,10 +1287,11 @@ vote_state_check_update_vote_state_slots_are_valid( fd_vote_state_t *        vot
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   // FD_TEST( last_vote_state_update_slot == slot_hashes[slot_hashes_index].0);
-
+  FD_LOG_WARNING(("Slot hashes index %lu Slot Hash %32J Vote hash %32J", slot_hashes_index, deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index )->hash.key, vote_state_update->hash.key));
   if ( memcmp( &deq_fd_slot_hash_t_peek_index_const( slot_hashes->hashes, slot_hashes_index )->hash,
                &vote_state_update->hash,
                sizeof( fd_hash_t ) ) != 0 ) {
+    FD_LOG_WARNING(("FAILLLLLLL"));
     ctx.txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_HASH_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1452,7 +1453,7 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
       ulong last_locked_out_slot =
           current_vote->lockout.slot +
           (ulong)pow( INITIAL_LOCKOUT, current_vote->lockout.confirmation_count );
-      if ( last_locked_out_slot >= new_state->slot ) {
+      if ( last_locked_out_slot >= new_vote->slot ) {
         ctx.txn_ctx->custom_err = FD_VOTE_ERR_LOCKOUT_CONFLICT;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
@@ -1481,7 +1482,9 @@ vote_state_process_new_vote_state( fd_vote_state_t *   vote_state,
     /* new_state asserted nonempty at function beginning */
     ulong last_slot = deq_fd_vote_lockout_t_peek_tail( new_state )->slot;
     rc              = vote_state_process_timestamp( vote_state, last_slot, *timestamp, ctx );
-    if ( FD_UNLIKELY( !rc ) ) return rc;
+    if ( FD_UNLIKELY( rc != OK ) ) {
+      return rc;
+    }
     vote_state->last_timestamp.timestamp = *timestamp;
   }
   vote_state->root_slot = new_root;

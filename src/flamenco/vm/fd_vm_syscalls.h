@@ -141,6 +141,28 @@ FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_fees_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
 
+/* Represents an account for a CPI*/
+struct fd_instruction_account {
+  ushort index_in_transaction;
+  ushort index_in_caller;
+  ushort index_in_callee;
+  uint is_signer;
+  uint is_writable;
+};
+typedef struct fd_instruction_account fd_instruction_account_t;
+
+// Prepare instruction method
+ulong
+fd_vm_prepare_instruction(
+  fd_instr_info_t const * caller_instr,
+  fd_instr_info_t * callee_instr,
+  fd_exec_instr_ctx_t * instr_ctx,
+  fd_instruction_account_t instruction_accounts[256],
+  ulong * instruction_accounts_cnt,
+  fd_pubkey_t const * signers,
+  ulong signers_cnt
+);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h */

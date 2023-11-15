@@ -22,16 +22,6 @@
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
 
-/* Represents an account for a CPI*/
-struct fd_instruction_account {
-  ushort index_in_transaction;
-  ushort index_in_caller;
-  ushort index_in_callee;
-  uint is_signer;
-  uint is_writable;
-};
-typedef struct fd_instruction_account fd_instruction_account_t;
-
 /* Representation of a caller account, used to
   update callee accounts. */
 struct fd_caller_account {
@@ -79,7 +69,7 @@ is_signer( fd_pubkey_t const * account,
   return 0;
 }
 
-static ulong
+ulong
 fd_vm_prepare_instruction(
   fd_instr_info_t const * caller_instr,
   fd_instr_info_t * callee_instr,
@@ -377,32 +367,43 @@ fd_vm_syscall_sol_keccak256(
     return FD_VM_SYSCALL_ERR_INVAL;
 
   ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.sha256_base_cost);
-  if ( FD_UNLIKELY( err ) ) return err;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
-
-  fd_vm_vec_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
+  if ( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+  
   void * hash =
       fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
 
-  if( FD_UNLIKELY( (!slices) | (!hash) ) ) {
+  if( FD_UNLIKELY( (!hash) ) ) {
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
   }
 
   fd_keccak256_t sha;
   fd_keccak256_init(&sha);
 
-  for (ulong i = 0; i < slices_cnt; i++) {
-    void const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) {
+  if ( FD_LIKELY( slices_cnt > 0 ) ) {
+    ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
+
+    fd_vm_vec_t const * slices =
+        fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
+    
+    if( FD_UNLIKELY( (!slices) ) ) {
       return FD_VM_MEM_MAP_ERR_ACC_VIO;
     }
 
-    ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len / 2));
-    ulong err = fd_vm_consume_compute_meter(ctx, cost);
-    if ( FD_UNLIKELY( err ) ) return err;
+    for (ulong i = 0; i < slices_cnt; i++) {
+      void const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
+      if( FD_UNLIKELY( !slice ) ) {
+        FD_LOG_DEBUG(("Translate slice failed %lu %lu %lu", i, slices[i].addr, slices[i].len));
+        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      }
 
-    fd_keccak256_append( &sha, slice, slices[i].len );
+      ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len / 2));
+      ulong err = fd_vm_consume_compute_meter(ctx, cost);
+      if ( FD_UNLIKELY( err ) ) return err;
+
+      fd_keccak256_append( &sha, slice, slices[i].len );
+    }
   }
 
   fd_keccak256_fini(&sha, hash);
@@ -698,6 +699,11 @@ fd_vm_syscall_sol_memcpy(
   || (src_vm_addr <= dst_vm_addr && dst_vm_addr < src_vm_addr + n))
     return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
 
+  if ( n == 0 ) {
+    *pr0 = 0;
+    return FD_VM_SYSCALL_SUCCESS;
+  }
+  
   void *       dst_host_addr =
       fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
   if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -1064,8 +1070,8 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
     fd_vm_syscall_pda_next( pdas );
 
     FD_LOG_WARNING(( "FD_VM_SCDS C: %lu %lu", i, seeds->len ));
-    for( ulong j=0UL; j < seeds->len; j++ ) {
-      FD_LOG_WARNING(( "FD_VM_SCDS D: %lu %lu", i, j ));
+    for( ulong j=0UL; j < seeds[i].len; j++ ) {
+      FD_LOG_WARNING(( "FD_VM_SCDS D: %lu %lu %lu", i, j, seed[j].len ));
       /* Check seed limb length */
       /* TODO use constant */
       if( FD_UNLIKELY( seed[j].len > 32 ) ) return FD_VM_SYSCALL_ERR_INVAL;
@@ -1076,13 +1082,14 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
           seed[j].addr,
           seed[j].len,
           alignof(uchar) );
-      if( FD_UNLIKELY( !seed_limb ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
       fd_vm_syscall_pda_seed_append( pdas, seed_limb, seed[j].len );
     }
 
-    if( FD_UNLIKELY( !fd_vm_syscall_pda_fini( ctx, pdas ) ) )
+    if( FD_UNLIKELY( !fd_vm_syscall_pda_fini( ctx, pdas ) ) ) {
+      FD_LOG_WARNING(("fini failed"));
       return FD_VM_SYSCALL_ERR_INVAL;
+    }
 
     FD_LOG_WARNING(( "FD_VM_SCDS KEY: %lu %32J", i, &pdas->keys[pdas->idx-1] ));
   }
@@ -1283,8 +1290,6 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
 
   fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)raw_callee_acc_data;
 
-  uchar * callee_acc_data = fd_account_get_data( callee_acc_metadata );
-
   uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(ctx->instr_ctx.slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
   if (callee_acc_metadata->info.lamports != caller_account->lamports) {
     callee_acc_metadata->info.lamports = caller_account->lamports;
@@ -1297,8 +1302,13 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
     // if ( FD_UNLIKELY( err1 || err2 ) ) {
     //   return 1;
     // }
-    callee_acc_metadata->dlen = caller_account->serialized_data_len;
-    fd_memcpy( callee_acc_data, caller_account->serialized_data, callee_acc_metadata->dlen );
+    fd_borrowed_account_t * callee_acc = NULL;
+    err1 = fd_txn_borrowed_account_modify(ctx->instr_ctx.txn_ctx, callee_acc_pubkey, 0, caller_account->serialized_data_len, &callee_acc);
+    if (err1 != FD_ACC_MGR_SUCCESS) {
+      return 1;
+    }
+    callee_acc->meta->dlen = caller_account->serialized_data_len;
+    fd_memcpy( callee_acc->data, caller_account->serialized_data, caller_account->serialized_data_len );
   }
 
   if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
@@ -1495,7 +1505,6 @@ fd_vm_syscall_cpi_rust(
       instruction->accounts.addr,
       instruction->accounts.len * sizeof(fd_vm_rust_account_meta_t),
       FD_VM_RUST_ACCOUNT_META_ALIGN );
-  if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   uchar const * data = fd_vm_translate_vm_to_host_const(
       ctx,
@@ -1530,7 +1539,10 @@ fd_vm_syscall_cpi_rust(
         sizeof(fd_pubkey_t),
         alignof(uchar) );
     FD_LOG_WARNING(( "CPI9: %lu %lx", i, acc_infos[i].pubkey_addr ));
-    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !acct_addr ) ) {
+      FD_LOG_WARNING(("Translate failed %lu", i));
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    }
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
@@ -1544,6 +1556,7 @@ fd_vm_syscall_cpi_rust(
   fd_vm_syscall_cpi_rust_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
   err = fd_vm_prepare_instruction(ctx->instr_ctx.instr, &cpi_instr, &ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( err != 0 ) {
+    FD_LOG_WARNING(("PREPARE FAILED"));
     return err;
   }
 
@@ -1694,7 +1707,7 @@ fd_vm_syscall_sol_set_return_data(
     ulong   arg2  FD_PARAM_UNUSED,
     ulong   arg3  FD_PARAM_UNUSED,
     ulong   arg4  FD_PARAM_UNUSED,
-    ulong * ret   FD_PARAM_UNUSED
+    ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   ulong cost = fd_ulong_sat_add(len / vm_compute_budget.cpi_bytes_per_unit, vm_compute_budget.syscall_base_cost);
@@ -1723,6 +1736,8 @@ fd_vm_syscall_sol_set_return_data(
   if (len != 0) {
     fd_memcpy(ctx->instr_ctx.txn_ctx->return_data.data, return_data, len);
   }
+
+  *ret = 0;
   return FD_VM_SYSCALL_SUCCESS;
 }
 
@@ -1739,7 +1754,7 @@ fd_vm_syscall_sol_get_stack_height(
   ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.syscall_base_cost);
   if ( FD_UNLIKELY( err ) ) return err;
 
-  *ret = ctx->stack.frames_used;
+  *ret = ctx->instr_ctx.txn_ctx->instr_stack_sz;
 
   return FD_VM_SYSCALL_SUCCESS;
 }
@@ -1909,7 +1924,6 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
       alignof(uchar) );
 
   /* Translate seed scatter array address */
-
   fd_vm_vec_t const * seeds = fd_vm_translate_vm_to_host_const(
       ctx,
       seeds_vaddr,
@@ -1920,7 +1934,10 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
   /* Bail if translation fails */
 
   if( FD_UNLIKELY( ( !program_id )
-                 | ( !seeds      ) ) ) return NULL;
+                 | ( !seeds      ) ) ) {
+    FD_LOG_DEBUG(("Failed to translate"));
+    return NULL;
+  }
 
   /* Start hashing */
 
@@ -1930,7 +1947,10 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 
     /* Refuse to hash overlong parts */
 
-    if( FD_UNLIKELY( seeds[ i ].len > 32UL ) ) return NULL;
+    if( FD_UNLIKELY( seeds[ i ].len > 32UL ) ) {
+      FD_LOG_DEBUG(("Seed %lu len %lu exceeded", i, seeds[i].len));
+      return NULL;
+    }
 
     /* Translate seed */
 
@@ -1939,7 +1959,6 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
         seeds[ i ].addr,
         seeds[ i ].len,
         alignof(uchar) );
-    if( FD_UNLIKELY( !seed_part ) ) return NULL;
 
     /* Append to hash (gather) */
 

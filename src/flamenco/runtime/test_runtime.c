@@ -374,7 +374,8 @@ main( int     argc,
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_INFO(("finishing validate"));
   }
-
+  ulong r = fd_funk_txn_cancel_all(state.slot_ctx->acc_mgr->funk, 1);
+  FD_LOG_WARNING(("Cancelled old transactions %lu", r));
   void * alloc_shmem = fd_wksp_alloc_laddr( local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) {
     FD_LOG_ERR(( "fd_alloc too large for workspace" ));

@@ -438,6 +438,11 @@ fd_funk_txn_merge( fd_funk_t *     funk,
                    fd_funk_txn_t * txn,
                    int             verbose );
 
+int
+fd_funk_txn_merge_with_children( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn,
+                                 int             verbose );
+
 /* Misc */
 
 /* fd_funk_txn_verify verifies a transaction map.  Returns

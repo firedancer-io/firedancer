@@ -149,11 +149,6 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   if( has_compute_units_price_update ) {
     ctx->prioritization_fee_type = prioritization_fee_type;
     ctx->compute_unit_price = updated_compute_unit_price;
-
-    // FIXME: this should not be here but solana is weird
-    if (!has_compute_units_limit_update) {
-      ctx->compute_unit_limit = FD_MAX_COMPUTE_UNIT_LIMIT;
-    }
   }
 
   if ( has_loaded_accounts_data_size_limit_update ) {
