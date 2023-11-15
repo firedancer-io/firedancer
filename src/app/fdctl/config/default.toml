@@ -227,7 +227,8 @@ dynamic_port_range = "8900-9000"
     # none is provided, the default is to ask the first entrypoint which
     # replies to the port check described above what our IP address is.
     # If no entrypoints are specified, then this will be defaulted to
-    # 127.0.0.1.
+    # 127.0.0.1.  If connecting to a public cluster like mainnet or
+    # testnet, make sure this is an externally resolvable IP address.
     #
     # This option is passed to the Solana Labs client with the
     # `--gossip-host` argument.
