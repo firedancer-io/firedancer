@@ -291,6 +291,18 @@ main_pid_namespace( void * _args ) {
           exit_group( 0 );
         }
 
+        char * tile_name = child_names[ i ];
+        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+
+        if( FD_UNLIKELY( !config->development.sandbox ) ) {
+          /* If we aren't running with the sandbox, we can't figure out
+             the exit code of the process, since there's a tree A -> B -> C
+             (we are A, the child is C), and B is gone (it's used just to
+             set up a hugepage stack via. the clone() syscall for the child
+             process), the PID got orphaned to init and reaped already. */
+          FD_LOG_ERR(( "tile %s:%lu exited with unknown code", tile_name, tile_id ));
+        }
+
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
         int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
@@ -300,9 +312,6 @@ main_pid_namespace( void * _args ) {
           /* Spurious wakeup, no child actually dead yet. */
           continue;
         }
-
-        char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
