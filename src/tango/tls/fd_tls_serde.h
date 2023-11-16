@@ -51,12 +51,13 @@
 
 #define FD_TLS_SERDE_ENCODE( IDX, FIELD, FIELD_TYPE, FIELD_CNT ) \
   do {                                                           \
-    FIELD_TYPE * _field_##IDX##_ptr = (FIELD);                   \
-    for( ulong i=0; i < (FIELD_CNT); i++ ) {                     \
-      *((_field_##IDX##_ptr)++) = __extension__                  \
-        (FIELD_TYPE)fd_##FIELD_TYPE##_bswap( (FIELD)[i] );       \
+    uchar * dest = (uchar *)_field_##IDX##_laddr;                \
+    memcpy( dest, (FIELD), _field_##IDX##_sz );                  \
+    FIELD_TYPE * ele = fd_type_pun( dest );                      \
+    for( ulong i=0; i<(FIELD_CNT); i++ ) {                       \
+      *ele = fd_##FIELD_TYPE##_bswap( *ele );                    \
+      ele++;                                                     \
     }                                                            \
-    memcpy( (void *)_field_##IDX##_laddr, (FIELD), _field_##IDX##_sz ); \
   } while(0);
 
 /* FD_TLS_DECODE_FIELD is a convenience macro for decoding a single

@@ -407,9 +407,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
                             ulong                   wire_sz );
 
 long
-fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
-                            void *                  wire,
-                            ulong                   wire_sz );
+fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
+                            void *                        wire,
+                            ulong                         wire_sz );
 
 long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
@@ -417,9 +417,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
                             ulong                   wire_sz );
 
 long
-fd_tls_encode_server_hello( fd_tls_server_hello_t * in,
-                            void *                  wire,
-                            ulong                   wire_sz );
+fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
+                            void *                        wire,
+                            ulong                         wire_sz );
 
 long
 fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
@@ -427,9 +427,9 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
                        ulong              wire_sz );
 
 long
-fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
-                       void *             wire,
-                       ulong              wire_sz );
+fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
+                       void *                   wire,
+                       ulong                    wire_sz );
 
 long
 fd_tls_encode_server_cert_x509( void const * x509,
