@@ -7,6 +7,7 @@
 #include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
+#include <sys/random.h>
 
 FD_IMPORT_BINARY(sample_transaction, "src/tango/quic/tests/quic_txn.bin");
 
@@ -158,8 +159,11 @@ txn_cmd_fn( args_t *         args,
   FD_TEST( wksp );
   fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_quic_t * quic = fd_quic_new( mem, &quic_limits, ip );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits, ip ) );
   FD_TEST( quic );
+
+  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_key, 32UL, 0 ) ) )
+    FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
 
   fd_quic_udpsock_t _udpsock;
   fd_quic_udpsock_t * udpsock = fd_quic_client_create_udpsock( &_udpsock, wksp, fd_quic_get_aio_net_rx( quic ), 0 );
