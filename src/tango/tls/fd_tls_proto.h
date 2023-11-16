@@ -180,7 +180,6 @@ typedef struct fd_tls_enc_ext_t fd_tls_enc_ext_t;
 
 struct __attribute__((packed)) fd_tls_cert_verify {
   ushort sig_alg;  /* FD_TLS_SIGNATURE_{...} */
-  ushort sig_sz;   /* 0x40 */
   uchar  sig[ 64 ];
 };
 
@@ -368,7 +367,9 @@ fd_tls_u24_to_uint( fd_tls_u24_t x ) {
 
 static inline fd_tls_u24_t
 fd_uint_to_tls_u24( uint x ) {
-  fd_tls_u24_t ret = {{ (uchar)x, (uchar)(x>>8), (uchar)(x>>16) }};
+  fd_tls_u24_t ret = {{ (uchar)( x     &0xffU),
+                        (uchar)((x>> 8)&0xffU),
+                        (uchar)((x>>16)&0xffU) }};
   return ret;
 }
 
@@ -449,7 +450,6 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
 static inline void
 fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
   x->sig_alg = fd_ushort_bswap( x->sig_alg );
-  x->sig_sz  = fd_ushort_bswap( x->sig_sz );
 }
 
 long
@@ -530,7 +530,7 @@ fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
 struct fd_tls_extract_cert_pubkey_res {
   uchar const * pubkey;
   uint          alert;
-  uint          reason;
+  ushort        reason;
 };
 
 typedef struct fd_tls_extract_cert_pubkey_res fd_tls_extract_cert_pubkey_res_t;
