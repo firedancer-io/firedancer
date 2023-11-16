@@ -351,4 +351,3 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   return FD_FUNK_SUCCESS;
 }
-

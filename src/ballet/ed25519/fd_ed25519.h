@@ -8,7 +8,7 @@
 /* FD_ED25519_ERR_* gives a number of error codes used by fd_ed25519
    APIs. */
 
-#define FD_ED25519_SUCCESS    ( 0) /* Operation was succesful */
+#define FD_ED25519_SUCCESS    ( 0) /* Operation was successful */
 #define FD_ED25519_ERR_SIG    (-1) /* Operation failed because the signature was obviously invalid */
 #define FD_ED25519_ERR_PUBKEY (-2) /* Operation failed because the public key was obviously invalid */
 #define FD_ED25519_ERR_MSG    (-3) /* Operation failed because the message didn't match the signature for the given key */

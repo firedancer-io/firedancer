@@ -18,7 +18,7 @@
    of creating process, used concurrently in many common operations,
    used inter-process, relocated in memory, naively
    serialized/deserialized, moved between hosts, supports index
-   compresson for cache and memory bandwidth efficiency, etc.
+   compression for cache and memory bandwidth efficiency, etc.
 
    Typical usage:
 
@@ -42,7 +42,7 @@
        ... needing similar randomization).  This eliminates all
        ... overheads associated with random number generation during
        ... operation.  But this also means that prio field is not
-       ... avaiable for use when a myele is not in the treap.
+       ... available for use when a myele is not in the treap.
 
        ... In other situations, the user might chose to generate random
        ... priorities dynamically (as it done in textbook
@@ -283,7 +283,7 @@
      myele_t const *    mytreap_fwd_iter_ele_const( mytreap_fwd_iter_t iter, myele_t const * pool );
 
      // mytreap_rev_iter_{init,done,next,idx,ele,ele_const} is the same
-     // but used when interating from largest to smallest.
+     // but used when iterating from largest to smallest.
 
      typedef ... mytreap_rev_iter_t;
 
@@ -297,7 +297,7 @@
      // mytreap_merge merges two treaps backed by the same pool into a
      // single treap.  Merge is equivalent to removing each element from
      // treap_b and inserting it into treap_a, but merging the heaps is
-     // asympotically slightly better.  Returns treap_a, which now
+     // asymptotically slightly better.  Returns treap_a, which now
      // additionally contains the elements from treap_b.  Requires that
      // the treap does not use the maximum priority element (see the
      // note above about PRIO_MAX).  Assumes the A and B treaps contain
@@ -343,7 +343,7 @@
 #endif
 
 /* TREAP_CMP compares a TREAP_QUERY_T q with an element e's query
-   fields and returns a negatve/zero/positive int if q is less
+   fields and returns a negative/zero/positive int if q is less
    than/equal/greater than element e's query fields.  Should be a pure
    function. */
 

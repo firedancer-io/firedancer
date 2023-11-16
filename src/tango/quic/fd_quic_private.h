@@ -149,6 +149,9 @@ fd_quic_stream_free( fd_quic_t *        quic,
                      fd_quic_stream_t * stream,
                      int                code );
 
+void
+fd_quic_stream_reclaim( fd_quic_conn_t * conn );
+
 /* Callbacks provided by fd_quic **************************************/
 
 /* used by quic to receive data from network */

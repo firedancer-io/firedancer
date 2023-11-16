@@ -188,7 +188,7 @@ fd_wksp_part_max_est( ulong footprint,
                       ulong sz_typical );
 
 /* fd_wksp_data_max_est computes an estimated maximum data region size
-   for fooprint sized workspace with part_max partitions.  Returns a
+   for footprint sized workspace with part_max partitions.  Returns a
    positive value on success and 0 on failure.  Reasons for failure
    include footprint is too small, part_max is 0, part_max is too large
    for under the hood implementation limitations or part_max is too
@@ -466,7 +466,7 @@ fd_wksp_laddr_fast( fd_wksp_t const * wksp,
    This implementation support arbitrary sz and align efficiently but
    each allocation will use up 1-3 wksp partitions to achieve this.  As
    these are a finite resources (and typically sized for a wksp that
-   handles primiarly larger allocations, like a fd_alloc huge
+   handles primarily larger allocations, like a fd_alloc huge
    superblock) and as there are allocators like fd_alloc that faster are
    algorithmically, lower overhead and lockfree O(1) for small sizes and
    alignment, it is strongly recommended to use this as an allocator of
@@ -521,7 +521,7 @@ fd_wksp_tag( fd_wksp_t * wksp,
    info_max is non-zero, will return detailed information for the first
    (from low to high gaddr) min(info_cnt,info_max).  Returns 0 if no
    partitions match any tags.  If any wonkiness encountered (e.g. wksp
-   is NULL, tag is not in postive, etc) returns 0 and logs details.
+   is NULL, tag is not in positive, etc) returns 0 and logs details.
    This is O(wksp_alloc_cnt*tag_cnt) currently (but could be made
    O(wksp_alloc_cnt) with some additional work). */
 
@@ -542,7 +542,7 @@ fd_wksp_tag_query( fd_wksp_t *                wksp,
 
 /* fd_wksp_tag_free frees all allocations in wksp that match one of the
    given tags.  The tag array is indexed [0,tag_cnt).  Logs details if
-   any wonkiness encountered (e.g. wksp is NULL, tag is not in postive.
+   any wonkiness encountered (e.g. wksp is NULL, tag is not in positive.
    This is O(wksp_alloc_cnt*tag_cnt) currently (but could be made
    O(wksp_alloc_cnt) with some additional work). */
 

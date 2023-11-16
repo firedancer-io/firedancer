@@ -33,7 +33,7 @@
 /* FD_TCACHE_{ALIGN,FOOTPRINT} specify the alignment and footprint
    needed for a tcache with depth history and a tag key-only map with
    map_cnt slots.  ALIGN is at least double cache line to mitigate
-   various kinds of false shalist.  depth and map_cnt are assumed to be
+   various kinds of false sharing.  depth and map_cnt are assumed to be
    valid (i.e. depth is positive, map_cnt is an integer power of 2 of at
    least depth+2 and the combination will not require a footprint larger
    than ULONG_MAX). */
@@ -58,7 +58,7 @@ struct __attribute( ( aligned( FD_LRU_ALIGN ) ) ) fd_lru_private {
      the tcache.  This is a circular doubly linked list with a sentinel:
      the entry before sentinel (cyclic) is the newest tag in the tcache and
      the list entry after oldest (cyclic) is the 2nd oldest tag in the
-     tcache. Dulist startup (the first depth-1 unique tags inserted),
+     tcache. During startup (the first depth-1 unique tags inserted),
      list[oldest] will be FD_TCACHE_NULL.  In high performance operation,
      only the slots around oldest will be in active use / occupy local
      cache and the access pattern will be highly sequential. */
@@ -66,7 +66,7 @@ struct __attribute( ( aligned( FD_LRU_ALIGN ) ) ) fd_lru_private {
   /* map_cnt ulong (map):
 
      This is a sparse linear probed key-only map of tags currently in
-     the tcache.  Since it is sparse, probe collisons are rare (and thus
+     the tcache.  Since it is sparse, probe collisions are rare (and thus
      the branches involved in various cache operations are highly
      predictable.  While the sparsity makes the map reasonably
      inefficient from a memory footprint point of view, memory footprint
@@ -144,7 +144,7 @@ fd_lru_footprint( ulong depth, ulong map_cnt );
    with the required footprint and alignment.  depth is the number of
    unique tags that can be stored in the lru and should be positive
    (positive integer powers of 2 minus 2 have good memory footprint Feng
-   Shui and postive integer powers of 2 minus 1 have good computational
+   Shui and positive integer powers of 2 minus 1 have good computational
    efficiency Feng Shui).  map_cnt is the number of slots to use for the
    map.  A map_cnt of 0 indicates to fd_lru_map_cnt_default above.
 

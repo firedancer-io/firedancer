@@ -88,6 +88,11 @@ fd_rtm_type_to_label( uint rtm_type ) {
 # undef FD_RTN_MATCH
 }
 
+#ifndef NDA_FDB_EXT_ATTRS
+/* Some older kernel headers might not have this defined */
+#define NDA_FDB_EXT_ATTRS (14)
+#endif
+
 #define FD_NL_NDA_TYPE(X,...) \
   X( NDA_UNSPEC             , __VA_ARGS__ ) \
   X( NDA_DST                , __VA_ARGS__ ) \

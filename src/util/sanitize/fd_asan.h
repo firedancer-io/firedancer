@@ -16,7 +16,7 @@
      - https://clang.llvm.org/docs/AddressSanitizer.html
      - https://github.com/google/sanitizers/wiki/AddressSanitizer
 
-   For a guide on how to setup manual ASan memory posioning, see
+   For a guide on how to setup manual ASan memory poisoning, see
    https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning */
 
 /* Based on https://github.com/llvm/llvm-project/blob/main/compiler-rt/include/sanitizer/asan_interface.h

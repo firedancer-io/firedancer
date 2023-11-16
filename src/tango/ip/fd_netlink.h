@@ -37,7 +37,7 @@ struct fd_nl_route_entry {
      FD_NL_RT_FLAGS_DST_IP_ADDR Entry contains an ip address
      FD_NL_RT_FLAGS_DST_NETMASK Entry contains a netmask
      FD_NL_RT_FLAGS_NH_IP_ADDR  Entry contains an ip address
-     FD_NL_RT_FLAGS_SRC_IP_ADDR Entry contains a (perferred) source ip address
+     FD_NL_RT_FLAGS_SRC_IP_ADDR Entry contains a (preferred) source ip address
      FD_NL_RT_FLAGS_OIF         Entry contains an output interface index
      FD_NL_RT_FLAGS_UNSUPPORTED Entry contains an unsupported feature */
   uint flags;
@@ -99,13 +99,13 @@ int
 fd_nl_init( fd_nl_t * nl, uint seq );
 
 
-/* finilizes fd_nl_t, closes socket */
+/* finalizes fd_nl_t, closes socket */
 void
 fd_nl_fini( fd_nl_t * nl );
 
 
 /* Loads the routing table referred to as route_table
-   from the kernel using the netlink socket definted in
+   from the kernel using the netlink socket defined in
    nl
    Unused entries are zeroed out
 
@@ -116,7 +116,7 @@ fd_nl_fini( fd_nl_t * nl );
      route_table_cap  The number of entries in the route_table array
 
    Return
-     -1               If a transient error occorred
+     -1               If a transient error occurred
      count            The number of entries filled with data */
 long
 fd_nl_load_route_table( fd_nl_t *             nl,
@@ -162,7 +162,7 @@ fd_nl_arp_query( fd_nl_arp_entry_t * arp_table,
                  uint                ip_addr );
 
 
-/* Prepares the ARP cache for recieving a new ARP entry
+/* Prepares the ARP cache for receiving a new ARP entry
    May reload the supplied arp_table
 
    Should be called prior to sending an ARP request
@@ -177,7 +177,7 @@ fd_nl_arp_query( fd_nl_arp_entry_t * arp_table,
    the transitions correctly
 
    reachable indicates that we have received packets from the address
-   in question. It's only a positive indicator, and its absense implies
+   in question. It's only a positive indicator, and its absence implies
    nothing about reachability
 
    return values:

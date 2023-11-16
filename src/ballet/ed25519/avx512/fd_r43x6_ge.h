@@ -56,8 +56,8 @@ fd_r43x6_ge_is_eq( wwl_t X03, wwl_t X14, wwl_t X25,
   /* We use the same method from the spec to test equality.  It is worth
      noting that the standard itself specifies using a two point check
      to avoid doing an unnecessary inversion.  E.g. It is somewhat odd
-     that OpenSSL implementation choses instead to encode R' to r'
-     (slow) compare the encoded r and r' for its equalty check in
+     that OpenSSL implementation chooses instead to encode R' to r'
+     (slow) compare the encoded r and r' for its equality check in
      verify. */
 
   // Section 6 classEdwardsPoint (page 51)

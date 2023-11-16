@@ -62,10 +62,10 @@ fd_rng_float_exp( fd_rng_t * rng ) {
       y = e - lg1p( m / 2^64 );
       return y*(1/log2(e));
 
-   Eliminating floating point rep quant artificats near the origin is
+   Eliminating floating point rep quant artifacts near the origin is
    much trickier due to the cancellations implied above (but also
    practically much less important ... they are no worse than the
-   quantiziation artifacts of the typical generator). */
+   quantization artifacts of the typical generator). */
 
 float
 fd_rng_float_exp( fd_rng_t * rng ) {
@@ -84,7 +84,7 @@ fd_rng_float_exp( fd_rng_t * rng ) {
     /* Compute a uniform rand as wide as the current ziggurat level
        (will be closed at both endpoints due to trapezoid rounding
        above).  If willing to have an additional table, the
-       multipication by 2^-24 can be eliminated (technically though this
+       multiplication by 2^-24 can be eliminated (technically though this
        is exact and can be done just be playing with with the exponent). */
 
     float x = zig_x[l+1UL]*((1.f/(float)(1<<24))*(float)m);

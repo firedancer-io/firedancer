@@ -152,7 +152,7 @@ FD_PROTOTYPES_END
    in bytes required for a region of memory to can hold the state of an
    in-progress set of SHA-256 calculations.  ALIGN will be an integer
    power of 2 and FOOTPRINT will be a multiple of ALIGN.  These are to
-   facilitate compile time declartions. */
+   facilitate compile time declarations. */
 
 #define FD_SHA256_BATCH_ALIGN     ...
 #define FD_SHA256_BATCH_FOOTPRINT ...
@@ -203,7 +203,7 @@ fd_sha256_batch_init( void * mem );
    Messages can overlap and/or be added to a batch multiple times.  Each
    hash location added to a batch should not overlap any other hash
    location of calculation state or message region.  (Hash reuse /
-   overlap have indeterminiant but non-crashing behavior as the
+   overlap have indeterminant but non-crashing behavior as the
    implementation under the hood is free to execute the elements of the
    batch in whatever order it sees fit and potentially do those
    calculations incrementally / in the background / ... as the batch is
@@ -235,7 +235,7 @@ void *
 fd_sha256_batch_fini( fd_sha256_batch_t * batch );
 
 /* fd_sha256_batch_abort aborts an in-progress set of SHA-256
-   calcuations.  There is no guarantee which individual messages (if
+   calculations.  There is no guarantee which individual messages (if
    any) had their hashes computed and the contents of the hash memory
    regions is undefined.  Returns a pointer to the memory region used to
    hold the calculation state (contents undefined) and the calculation

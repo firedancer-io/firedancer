@@ -46,7 +46,7 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_KEY_UPDATE          indicates key update was in effect
        FD_QUIC_PKT_META_FLAGS_KEY_PHASE           set only if key_phase was set in the short-header
 
-     some of thesse flags are mutually exclusive */
+     some of these flags are mutually exclusive */
   uint                 flags;       /* flags */
 # define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
 # define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)

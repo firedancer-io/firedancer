@@ -12,7 +12,7 @@ fd_wksp_private_used_treap_query( ulong                     gaddr,
   ulong i = fd_wksp_private_pinfo_idx( wksp->part_used_cidx );
   while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
     if( FD_UNLIKELY( i>=part_max                     ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Bad index */
-    if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Cycle detectd */
+    if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Cycle detected */
     pinfo[ i ].cycle_tag = cycle_tag;                                                           /* Mark i as visited */
 
     ulong gaddr_lo = pinfo[ i ].gaddr_lo;
@@ -88,7 +88,7 @@ fd_wksp_private_used_treap_insert( ulong                     n,
        and tags of visited nodes */
 
     /* We need to validate both left and right child links to make the
-       bubble up phase robust (becase we do that after we insert). */
+       bubble up phase robust (because we do that after we insert). */
 
     ulong l = fd_wksp_private_pinfo_idx( pinfo[ i ].left_cidx  ); TEST_AND_MARK( l ); TEST_PARENT( l, i );
     ulong r = fd_wksp_private_pinfo_idx( pinfo[ i ].right_cidx ); TEST_AND_MARK( r ); TEST_PARENT( r, i );

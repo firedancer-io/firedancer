@@ -19,7 +19,7 @@
      // Index operations
      ulong myset_max  ( void      ); // return the maximum number of elements that can be held by the set,
                                      // will be in (0,8*sizeof(myset_t)]
-     ulong myset_cnt  ( myset_t x ); // return the current number of elemets in the set, will be in [0,myset_max()]
+     ulong myset_cnt  ( myset_t x ); // return the current number of elements in the set, will be in [0,myset_max()]
      ulong myset_first( myset_t x ); // return the index of the first element in the set, will be in [0,myset_max()),
                                      // U.B. if set is null
      

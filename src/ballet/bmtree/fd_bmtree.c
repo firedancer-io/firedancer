@@ -7,7 +7,7 @@
      #include "fd_bmtree_tmpl.c"
 
    will declare in the current compile unit a header only library
-   with the folling APIs:
+   with the following APIs:
    
      // Public node API
 
@@ -207,7 +207,7 @@ fd_bmtree_commit_init( void * mem,     /* Assumed unused with required alignment
 
 /* bmtree_commit_append appends a range of leaf nodes.  Assumes that
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
-   for millenia, is always true). */
+   for millennia, is always true). */
 
 fd_bmtree_commit_t *                                            /* Returns state */
 fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,           /* Assumed valid and in a calc */

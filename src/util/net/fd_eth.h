@@ -50,7 +50,7 @@
    ethernet indicating timestamp info has been provided for the packet
    somehow) or even 3 (e.g. capture device tagging a 2 vlan tag packet).
 
-   Simiarly, hardware might insert or strip VLAN tags behind a thread's
+   Similarly, hardware might insert or strip VLAN tags behind a thread's
    back depending on the network, hardware, interface and how it was
    configured.  And different hardware devices and hardware-software
    interfaces have ideas as to what applications should be exposed to.
@@ -61,7 +61,7 @@
    behaviors they understand / expect for the combination of LAN, WAN,
    NIC and interface they support.  Often this is implicit / evolved as
    most application devs are blissfully unaware of all this.  E.g. the
-   maxmum number of VLAN tags they can handle is implicitly bounded by
+   maximum number of VLAN tags they can handle is implicitly bounded by
    their buffer sizes / buffer management, their range of expected
    behaviors is bounded by what worked in testing on their combination
    of lab hardware and equipment, etc.
@@ -70,9 +70,9 @@
    not the MAC address multicast or unicast.  Bit 1 in byte 0 indicates
    whether or not the MAC address is locally administered.  For standard
    unicast MAC addresses (not locally admin'd), the first 3 bytes encode
-   an OUI (organizationally unique identfier).  The last 3 bytes are
+   an OUI (organizationally unique identifier).  The last 3 bytes are
    then assigned by the organization to hardware such that Ethernet
-   conformant hardware will all have globally unique MAC addresse.  Most
+   conformant hardware will all have globally unique MAC addresses.  Most
    anything goes for locally admin'd addresses.  Additional notes are
    below.
 

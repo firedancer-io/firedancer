@@ -180,7 +180,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) )
       return NULL;
 
-  } else { /* Modifying an in-prep tranaction */
+  } else { /* Modifying an in-prep transaction */
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
 
@@ -447,7 +447,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
          potentially an O(ancestor_cnt) cost, it prevents the
          possibility unnecessarily consuming a practically unbounded
          number of records by flickering insert / remove-with-erase in
-         an in-preparaton transaction with lots unique keys. */
+         an in-preparation transaction with lots unique keys. */
 
       ulong tag = funk->cycle_tag++;
 

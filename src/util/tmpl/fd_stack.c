@@ -35,7 +35,7 @@
      // Advanced API for zero-copy usage
 
      my_ele_t * my_stack_peek      ( my_ele_t * stack ); // peeks at stack top, returned ptr lifetime is until next op on stack
-     my_ele_t * my_stack_insert    ( my_ele_t * stack ); // inserts uninitiaiized element at tail, returns stack
+     my_ele_t * my_stack_insert    ( my_ele_t * stack ); // inserts uninitialized element at tail, returns stack
      my_ele_t * my_stack_remove    ( my_ele_t * stack ); // removes tail, returns stack
      my_ele_t * my_stack_remove_all( my_ele_t * stack ); // removes all, returns stack, fast O(1)
 

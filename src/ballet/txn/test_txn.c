@@ -9,7 +9,7 @@ FD_STATIC_ASSERT( FD_TXN_MTU<=USHORT_MAX, fd_txn_mtu );
 
 /* A worst-case instruction takes 3B of the payload and is stored as 10 B.  A
    worst-case address lookup table takes 34B of the payload and is stored as 8B.
-   This gives the optimiztion problem:
+   This gives the optimization problem:
     Maximize sizeof(fd_txn_t) + x * sizeof(fd_txn_instr_t) + y * sizeof(fd_txn_acct_addr_lut_t)
     subject to:
           MIN_FIXED_SIZE_SECTION

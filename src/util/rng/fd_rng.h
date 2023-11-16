@@ -297,7 +297,7 @@ static inline double fd_rng_double_o ( fd_rng_t * rng ) { return fd_rng_ulong_to
 
    Rejection method based.  Specifically, the number of rng slots
    consumed is typically 1 but theoretically might be higher
-   occassionally (64-bit wide types consume rng slots twice as fast).
+   occasionally (64-bit wide types consume rng slots twice as fast).
 
    Deterministic_rng slot consumption possible with a slightly more
    approximate implementation (bound the number of iterations such that

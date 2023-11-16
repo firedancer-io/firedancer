@@ -26,7 +26,13 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       clang \
       llvm \
       lcov \
-      gettext
+      gettext \
+      curl \
+      ca-certificates
+
+# Install Rustup
+RUN curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Fetch and build source dependencies
 
@@ -37,7 +43,7 @@ RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
 # Build source tree
 
 COPY . ./
-RUN make -j all --output-sync=target
+RUN make -j all rust --output-sync=target
 
 # Set up release container
 

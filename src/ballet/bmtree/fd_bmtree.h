@@ -153,7 +153,7 @@ struct __attribute__((aligned(32))) fd_bmtree_node {
 typedef struct fd_bmtree_node fd_bmtree_node_t;
 
 /* bmtree_hash_leaf computes `SHA-256(prefix|data), where prefix is the
-   first prefix_sz bytes of fd_bmtre_leaf_prefix.  prefix_sz is
+   first prefix_sz bytes of fd_bmtree_leaf_prefix.  prefix_sz is
    typically FD_BMTREE_LONG_PREFIX_SZ or FD_BMTREE_SHORT_PREFIX_SZ.
    This is the first step in the creation of a Merkle tree.  Returns
    node.  U.B. if `node` and `data` overlap. */
@@ -277,7 +277,7 @@ struct fd_bmtree_commit_private {
    should be 10.  The natural index of that node is 7+4=11 though.  The
    indexing gets very complicated and error-prone if we try to store it
    in 10, so we prefer to store it in 11.  That means the size of our
-   storeage depends only on the maximum number of layers we expect in
+   storage depends only on the maximum number of layers we expect in
    the tree, which is somewhat convenient.  This does waste up to
    O(leaf_cnt) space though. */
 
@@ -308,7 +308,7 @@ FD_PROTOTYPES_BEGIN
 
 /* bmtree_commit_{footprint,align} return the alignment and footprint
    required for a memory region to be used as a bmtree_commit_t.  If the
-   tree does not exceede inclusion_proof_layer_cnt layers, then all
+   tree does not exceed inclusion_proof_layer_cnt layers, then all
    inclusion proofs can be retrieved after finalization. */
 ulong          fd_bmtree_commit_align    ( void );
 ulong          fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt );
@@ -332,7 +332,7 @@ ulong          fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt );
    */
 fd_bmtree_commit_t * fd_bmtree_commit_init     ( void * mem, ulong hash_sz, ulong prefix_sz, ulong inclusion_proof_layer_cnt );
 
-/* bmtree_commit_leaf_cnt returns the number of leafs appeneded thus
+/* bmtree_commit_leaf_cnt returns the number of leafs appended thus
    far.  Assumes state is valid. */
 FD_FN_PURE static inline ulong fd_bmtree_commit_leaf_cnt ( fd_bmtree_commit_t const * bmt ) { return bmt->leaf_cnt; }
 
@@ -344,7 +344,7 @@ FD_FN_CONST ulong fd_bmtree_node_cnt( ulong leaf_cnt );
 
 /* bmtree_commit_append appends a range of leaf nodes.  Assumes that
    leaf_cnt + new_leaf_cnt << 2^63 (which, unless planning on running
-   for millenia, is always true). */
+   for millennia, is always true). */
 fd_bmtree_commit_t *                                                         /* Returns state */
 fd_bmtree_commit_append( fd_bmtree_commit_t *                 state,         /* Assumed valid and in a leaf-based calc */
                          fd_bmtree_node_t const * FD_RESTRICT new_leaf,      /* Indexed [0,new_leaf_cnt) */
@@ -397,7 +397,7 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
    Memory regions should not overlap.
 
    The proof consists of proof_depth hashes, each hash_sz bytes
-   concatenated with no padding odered from leaf to root, excluding the
+   concatenated with no padding ordered from leaf to root, excluding the
    root.
 
    Returns root if the proof is valid and NULL otherwise.  If the proof
@@ -435,7 +435,7 @@ fd_bmtree_from_proof( fd_bmtree_node_t const * leaf,
    be written to the memory pointed to by opt_root.  In the case that
    the inclusion proof is full (contains all the nodes except the root),
    the node that is stored is the root of the tree; however, in general
-   the tree can grow beyond this, so it isn't possible to garauntee that
+   the tree can grow beyond this, so it isn't possible to guarantee that
    it is the root in other cases.  If the function returns failure (0)
    or opt_root==NULL, then the memory pointed to by opt_root will not be
    accessed.

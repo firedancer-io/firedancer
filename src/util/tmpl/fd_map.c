@@ -32,12 +32,12 @@
     // join - Join a mymap.  Assumes shmap points at a region formatted
     // as a mymap.  Returns a handle of the callers join.
     //
-    // leave - Leave a mymap.  Asumes mymap points to a current join.
+    // leave - Leave a mymap.  Assumes mymap points to a current join.
     // Returns a pointer to the shared memory region the join.
     //
     // delete - Unformat a memory region used as a mymap.  Assumes
     // shmymap points to a formatted region with no current joins.
-    // Returns a pointer to the unformated memory region.
+    // Returns a pointer to the unformatted memory region.
 
     ulong     mymap_align    ( void              );
     ulong     mymap_footprint( void              );
@@ -144,7 +144,7 @@
 
   and on removal:
 
-    ... clean up other slot fields as necesary
+    ... clean up other slot fields as necessary
     ... clean up slot->key as necessary
     mymap_remove( map, slot );
     ... the mapping of keys to map slots might have been changed by the
@@ -229,7 +229,7 @@
 
 /* If MAP_KEY_EQUAL_IS_SLOW is slow (e.g. variable length string
    compare, large buffer compares, etc), set MAP_KEY_EQUAL_IS_SLOW to
-   non-zero.  Then, if MAP_MEMOIZE (below) is set, precomputed key hashs
+   non-zero.  Then, if MAP_MEMOIZE (below) is set, precomputed key hashes
    will be used accelerate key insert and key query. */
 
 #ifndef MAP_KEY_EQUAL_IS_SLOW

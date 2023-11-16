@@ -1,0 +1,25 @@
+[package]
+name = "firedancer-diff-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+firedancer-diff = { path = "..", features = ["fuzz-asan"] }
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_sbpf_loader2_diff"
+path = "fuzz_targets/fuzz_sbpf_loader2_diff.rs"
+test = false
+doc = false

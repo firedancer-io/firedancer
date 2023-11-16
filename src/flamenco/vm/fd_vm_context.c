@@ -15,7 +15,7 @@ fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
 // Opcode validation success/error codes.
 #define FD_VALID        (0) /* Valid opcode */
 #define FD_CHECK_JMP    (1) /* Validation should check that the instruction is a valid jump */
-#define FD_CHECK_END    (2) /* Validation should check that the instruction is a valid endiannesss conversion */
+#define FD_CHECK_END    (2) /* Validation should check that the instruction is a valid endianness conversion */
 #define FD_CHECK_ST     (3) /* Validation should check that the instruction is a valid store */
 #define FD_CHECK_LDQ    (4) /* Validation should check that the instruction is a valid load-quad */
 #define FD_CHECK_CALL   (5) /* Validation should check that the instruction is a valid function call */

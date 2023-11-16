@@ -43,14 +43,14 @@ extern char fd_log_private_path[ 1024 ];
 static void
 execve_as_root( int     argc,
                 char ** argv ) {
-  char self_exe_path[ PATH_MAX ];
-  self_exe( self_exe_path );
+  char _current_executable_path[ PATH_MAX ];
+  current_executable_path( _current_executable_path );
 
   char * args[ MAX_ARGC+4 ];
   for( int i=1; i<argc; i++ ) args[i+2] = argv[i];
   args[ 0 ]      = "sudo";
   args[ 1 ]      = "-E";
-  args[ 2 ]      = self_exe_path;
+  args[ 2 ]      = _current_executable_path;
   /* always override the log path to use the same one we just opened for ourselves */
   args[ argc+2 ] = "--log-path";
   args[ argc+3 ] = fd_log_private_path;
@@ -85,18 +85,18 @@ main( int     argc,
   if( FD_UNLIKELY( argc >= MAX_ARGC ) ) FD_LOG_ERR(( "too many arguments (%i)", argc ));
   char ** argv = _argv;
 
-  /* initialize logging */
-  fd_boot( &argc, &argv );
-  fd_log_thread_set( "main" );
-
   argc--; argv++;
 
+  char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
+
+  config_t config = fdctl_boot( &argc, &argv, log_path );
+
   /* load configuration and command line parsing */
-  config_t config = config_parse( &argc, &argv );
   if( FD_UNLIKELY( config.is_live_cluster ) )
     FD_LOG_ERR(( "The `fddev` command is for development and test environments but your "
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
+
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
   config.development.sandbox = config.development.sandbox && !no_sandbox;
 

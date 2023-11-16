@@ -9,7 +9,7 @@
    beyond the lifetime of the creating process, used concurrently in
    many common operations, used inter-process, relocated in memory,
    naively serialized/deserialized, moved between hosts, supports index
-   compresson for cache and memory bandwidth efficiency, etc.
+   compression for cache and memory bandwidth efficiency, etc.
 
    Memory efficiency and flexible footprint are prioritized.  Elements
    that are recently queried can be optionally moved to the front of
@@ -220,7 +220,7 @@
      myele_t const * mymap_iter_ele_const( mymap_iter_t iter, mymap_t const * join, myele_t const * pool ); // assumes not done
 
      // mymap_verify returns 0 if the mymap is not obviously corrupt or
-     // -1 (i.e. ERR_INVAL) otherwse (logs details).
+     // -1 (i.e. ERR_INVAL) otherwise (logs details).
 
      int
      mymap_verify( mymap_t const * join,    // Current local join to a mymap.

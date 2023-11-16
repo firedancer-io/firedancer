@@ -114,7 +114,7 @@ void *
 fd_keccak256_fini( fd_keccak256_t * sha,
                    void *           hash );
 
-/* fd_keccak256_hash is a convience implementation of:
+/* fd_keccak256_hash is a convenience implementation of:
 
      fd_keccak256_t keccak[1];
      return fd_keccak256_fini( fd_keccak256_append( fd_keccak256_init( keccak ), data, sz ), hash )

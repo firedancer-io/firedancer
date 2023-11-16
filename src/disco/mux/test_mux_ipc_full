@@ -1,0 +1,84 @@
+#!/bin/bash
+
+if [ $# -lt 2 ] || [ ! -f tmp/test_mux_ipc.conf ]; then
+  echo ""
+  echo "        Usage: $0 [TX_CNT] [RX_CNT] [tx command line options]"
+  echo ""
+  echo "        This test requires that test_mux_ipc_init has been done to"
+  echo "        create the shared memory objects that will be used for IPC."
+  echo "        This should ideally run on cores near wksp's numa node."
+  echo "        Adjust CORE_FIRST and NUMA_STRIDE in this file if necessary"
+  echo "        (i.e. make CORE_FIRST the lowest indexed core on numa_node"
+  echo "        to use and, on boxes that assign blocks of cores to numa"
+  echo "        nodes, use NUMA_STRIDE=1 while on boxes that stripe cores"
+  echo "        over numa nodes use NUMA_STRIDE==\$NUMA_CNT)."
+  echo ""
+  exit 1
+fi
+
+. tmp/test_mux_ipc.conf
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+tx_cnt=$1
+rx_cnt=$2
+shift 2
+
+CORE_FIRST=$NUMA_IDX
+NUMA_STRIDE=$NUMA_CNT
+
+HALT_ALL=""
+
+for((tx_idx=0;tx_idx<tx_cnt;tx_idx++)); do
+  if [ "${IN_MCACHES}" = "" ]; then
+    IN_MCACHES=${TX_MCACHE[tx_idx]}
+    IN_FSEQS=${TX_FSEQ[tx_idx]}
+  else
+    IN_MCACHES=${IN_MCACHES},${TX_MCACHE[tx_idx]}
+    IN_FSEQS=${IN_FSEQS},${TX_FSEQ[tx_idx]}
+  fi
+  HALT_ALL="${HALT_ALL} signal-cnc ${TX_CNC[tx_idx]} halt"
+done
+
+HALT_ALL="${HALT_ALL} signal-cnc ${MUX_CNC[0]} halt"
+
+for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
+  if [ "${OUT_FSEQS}" = "" ]; then
+    OUT_FSEQS=${RX_FSEQ[rx_idx]}
+  else
+    OUT_FSEQS=${OUT_FSEQS},${RX_FSEQ[rx_idx]}
+  fi
+  HALT_ALL="${HALT_ALL} signal-cnc ${RX_CNC[rx_idx]} halt"
+done
+
+CORE_NEXT=$CORE_FIRST
+
+# Start up the receivers
+
+for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
+  taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_rx --tile-cpus "$CORE_NEXT" --cnc "${RX_CNC[rx_idx]}" --mcache "${MUX_MCACHE[0]}" --wksp "$WKSP" --fseq "${RX_FSEQ[rx_idx]}" &
+  CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
+done
+
+# Start up the mux
+
+taskset -c "$CORE_NEXT" "$BIN"/fd_mux_tile --tile-cpus "$CORE_NEXT" --cnc "${MUX_CNC[0]}" --mcache "${MUX_MCACHE[0]}" --in-mcaches "${IN_MCACHES}" --in-fseqs "${IN_FSEQS}" --out-fseqs "${OUT_FSEQS}" &
+CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
+
+# Start up the transmitters
+
+for((tx_idx=0;tx_idx<tx_cnt;tx_idx++)); do
+  taskset -c $CORE_NEXT "$UNIT_TEST"/test_frag_tx --tile-cpus $CORE_NEXT --cnc "${TX_CNC[tx_idx]}" --mcache "${TX_MCACHE[tx_idx]}" --dcache "${TX_DCACHE[tx_idx]}" --fseqs "${TX_FSEQ[tx_idx]}" --tx-idx "$tx_idx" "$@" &
+  CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
+done
+
+# Let run for a while
+
+sleep 10
+
+# Send a halt command
+
+"$BIN"/fd_tango_ctl $HALT_ALL
+
+wait
+exit 0

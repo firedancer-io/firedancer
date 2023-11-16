@@ -69,7 +69,7 @@ typedef struct {
 } link_snap_t;
 
 static void
-tile_snap( tile_snap_t * snap_cur,     /* Snaphot for each tile, indexed [0,tile_cnt) */
+tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,tile_cnt) */
            fd_topo_t *   topo ) {
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     tile_snap_t * snap = &snap_cur[ tile_idx ];
@@ -79,13 +79,13 @@ tile_snap( tile_snap_t * snap_cur,     /* Snaphot for each tile, indexed [0,tile
     snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
     ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
     FD_COMPILER_MFENCE();
-    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_PID         ];
-    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP    ];
-    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT   ];
-    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT ];
-    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ  ];
-    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT ];
-    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ  ];
+    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_LOG_GROUP_ID ];
+    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP     ];
+    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT    ];
+    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT  ];
+    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ   ];
+    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT  ];
+    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ   ];
     FD_COMPILER_MFENCE();
   }
 }
@@ -201,7 +201,7 @@ run_monitor( config_t * const config,
   if( FD_UNLIKELY( !link_snap_prv ) ) FD_LOG_ERR(( "fd_alloca failed" )); /* Paranoia */
   link_snap_t * link_snap_cur = link_snap_prv + link_cnt;
 
-  /* Get the inital reference diagnostic snapshot */
+  /* Get the initial reference diagnostic snapshot */
   tile_snap( tile_snap_prv, topo );
   link_snap( link_snap_prv, topo );
   long then; long tic; fd_tempo_observe_pair( &then, &tic );
@@ -344,7 +344,7 @@ run_monitor( config_t * const config,
     }
 
     /* Still more monitoring to do ... wind up for the next iteration by
-       swaping the two snap arrays. */
+       swapping the two snap arrays. */
     line_count = 0;
     for ( ulong i=(ulong)(mon_start-buffer); i<sizeof(buffer) - buf_sz; i++ ) {
       if( buffer[i] == '\n' ) line_count++;
@@ -384,18 +384,19 @@ monitor_cmd_fn( args_t *         args,
   ulong num_fds = sizeof(allow_fds)/sizeof(allow_fds[0]);
   ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
 
-  /* join all workspaces needed by the toplogy before sandboxing, so
+  /* join all workspaces needed by the topology before sandboxing, so
      we can access them later */
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
-  populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (unsigned int)fd_log_private_logfile_fd(), drain_output_fd );
+  populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
+              0,
               allow_fds_sz,
               allow_fds,
               sock_filter_policy_monitor_instr_cnt,

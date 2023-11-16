@@ -125,7 +125,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   /* Compute how many data and parity shreds to generate */
 
   ulong entry_bytes_remaining = entry_sz - offset;
-  /* how many totoal payload bytes in this FEC set? */
+  /* how many total payload bytes in this FEC set? */
   ulong chunk_size              = fd_ulong_if( entry_bytes_remaining>=2UL*31200UL, 31200UL, entry_bytes_remaining );
   ulong data_shred_cnt          = fd_shredder_count_data_shreds( chunk_size );
   ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size );

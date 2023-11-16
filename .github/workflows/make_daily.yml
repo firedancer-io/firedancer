@@ -206,3 +206,41 @@ jobs:
       with:
         category: "/language:${{matrix.language}}"
         threads: 0
+
+  # Build Ubuntu 20.04 docker image
+  docker-ubuntu-2004:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./contrib/docker/ubuntu2004.Dockerfile
+          push: false
+
+  # Build Ubuntu 22.04 docker image
+  docker-ubuntu-2204:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./contrib/docker/ubuntu2204.Dockerfile
+          push: false

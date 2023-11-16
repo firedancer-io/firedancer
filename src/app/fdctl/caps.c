@@ -87,9 +87,15 @@ fd_caps_str( uint capability ) {
     case CAP_WAKE_ALARM:         return "CAP_WAKE_ALARM";
     case CAP_BLOCK_SUSPEND:      return "CAP_BLOCK_SUSPEND";
     case CAP_AUDIT_READ:         return "CAP_AUDIT_READ";
+#ifdef CAP_PERFMON
     case CAP_PERFMON:            return "CAP_PERFMON";
+#endif
+#ifdef CAP_BPF
     case CAP_BPF:                return "CAP_BPF";
+#endif
+#ifdef CAP_CHECKPOINT_RESTORE
     case CAP_CHECKPOINT_RESTORE: return "CAP_CHECKPOINT_RESTORE";
+#endif
     default:                     return "UNKNOWN";
   }
 }

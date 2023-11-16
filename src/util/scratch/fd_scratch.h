@@ -100,7 +100,7 @@ fd_scratch_private_true_align( ulong align ) {
    could make it is theoretically possible to have a scratch pad memory
    that is shared across multiple threads / processes.  The API is not
    well designed for such though (the main reason to use fmem in shared
-   memory would be convenience and/or addiing hot swapping
+   memory would be convenience and/or adding hot swapping
    functionality).  In the common scratch scenario, every thread would
    attach to their local join of the shared smem and shared fmem.  But
    since the operations below are not designed to be thread safe, the
@@ -183,7 +183,7 @@ fd_scratch_attach( void * smem,
    attachment.  Returns smem used on attach and, if opt_fmem is
    non-NULL, opt_fmem[0] will contain the fmem used on attach on return.
 
-   This reliquishes the calling threads read/write interest on these
+   This relinquishes the calling threads read/write interest on these
    memory regions.  All the caller's scratch frames are popped, any
    prepare in progress is canceled and all the caller's scratch
    allocations are freed implicitly by this.
@@ -302,7 +302,7 @@ fd_scratch_pop( void ) {
    available.  The caller is free to clobber any bytes in this region.
 
    fd_scratch_publish finishes an in-progress allocation.  end points at
-   the first byte after the final allicaton.  Assumes there is a
+   the first byte after the final allocation.  Assumes there is a
    matching prepare.  A published allocation can be subsequently
    trimmed.
 

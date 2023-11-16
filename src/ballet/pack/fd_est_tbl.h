@@ -15,7 +15,7 @@
    normality etc.
    The answers this data structure gives are approximate because tags are
    mapped to an array of bins that is much smaller than the universe of tags
-   and thus tags can alias.  This is actually desireable behavior because it
+   and thus tags can alias.  This is actually desirable behavior because it
    means that if you have inserted lots of data but then query for a brand-new
    tag, the expected value of the returned data is close to the overall mean of
    all values that have been inserted. */

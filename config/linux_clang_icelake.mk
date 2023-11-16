@@ -13,7 +13,7 @@ include config/with-bz2.mk
 include config/with-zstd.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
-# limits clang usage to code hygenine usage for the time being.  Here,
+# limits clang usage to code hygiene usage for the time being.  Here,
 # ideally would do:
 #
 # -falign-functions=32 -falign-jumps=32 -falign-labels=32 -falign-loops=32

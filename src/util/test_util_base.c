@@ -17,7 +17,7 @@ FD_STATIC_ASSERT( !(FD_HAS_GFNI   && !FD_HAS_AVX), devenv );
 
 /* Test size_t <> ulong, uintptr_t <> ulong, intptr_t <> long (which
    then further imply sizeof and alignof return a ulong and that
-   pointers can be interchangably treated as a ulong or long). */
+   pointers can be interchangeably treated as a ulong or long). */
 
 FD_STATIC_ASSERT( __builtin_types_compatible_p( ulong, size_t    ), devenv );
 FD_STATIC_ASSERT( __builtin_types_compatible_p( ulong, uintptr_t ), devenv );
@@ -71,7 +71,7 @@ FD_STATIC_ASSERT(       ULONG_MAX==18446744073709551615UL,   devenv );
    cleanly currently.  (Could make macros that stitch together two
    64-bit words though.) */
 
-/* Test signed right shift is arithemetic (i.e. sign extending) and
+/* Test signed right shift is arithmetic (i.e. sign extending) and
    unsigned right shift is logical (i.e. zero padding).  (Zero padding
    signed right shift is also allowed by the language.) */
 
@@ -293,7 +293,7 @@ main( int     argc,
 
   } while(0);
 
-  do { /* FIXME: PROBABLY SHOULD MORE AGGRESIVELY TEST SOME OF THIS */
+  do { /* FIXME: PROBABLY SHOULD MORE AGGRESSIVELY TEST SOME OF THIS */
     int c = 1;
     FD_COMPILER_FORGET(        c ); FD_TEST( c==1 );
     FD_COMPILER_UNPREDICTABLE( c ); FD_TEST( c==1 );

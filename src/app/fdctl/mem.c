@@ -6,5 +6,5 @@ mem_cmd_fn( args_t *         args,
   (void)args;
 
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-  fd_topo_print_log( &config->topo );
+  fd_topo_print_log( 1, &config->topo );
 }

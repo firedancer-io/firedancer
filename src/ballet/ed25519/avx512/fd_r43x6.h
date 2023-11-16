@@ -53,7 +53,7 @@
      converted into a packed uint256 value used by various cryptographic
      protocols and vice versa.
 
-   - Cheat sheat
+   - Cheat sheet
 
        unpack maps uint256 to unpacked
        pack   maps unpacked to uint256
@@ -948,7 +948,7 @@ FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
 fd_r43x6_sqr_fast( fd_r43x6_t x ) {
   wwl_t const zero = wwl_zero();
 
-  /* The goal of this implmentation is to compute each product once, but
+  /* The goal of this implementation is to compute each product once, but
      to make sure each product gets generated in the right AVX lane so
      that we don't have to do a ton of shuffling at the end.  In
      exchange, we do a lot of permutevars upfront to get everything
