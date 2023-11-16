@@ -642,14 +642,21 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
                            void const *           wire,
                            ulong                  wire_sz ) {
 
+  ulong wire_laddr = (ulong)wire;
+
   if( FD_UNLIKELY( wire_sz != sizeof(fd_tls_cert_verify_t) ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
-  memcpy( out, wire, sizeof(fd_tls_cert_verify_t) );
-  fd_tls_cert_verify_bswap( out );
+  ushort sig_sz;
+# define FIELDS( FIELD ) \
+    FIELD( 0, &out->sig_alg, ushort,  1 ) \
+    FIELD( 1, &sig_sz,       ushort,  1 ) \
+    FIELD( 2,  out->sig,     uchar,  32 )
+  FD_TLS_DECODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
 
   if( FD_UNLIKELY( ( out->sig_alg != FD_TLS_SIGNATURE_ED25519 )
-                 | ( out->sig_sz  != 0x40UL                   ) ) )
+                 | (      sig_sz  != 0x40UL                   ) ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
   return (long)sizeof(fd_tls_cert_verify_t);
@@ -978,6 +985,7 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
 
     uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz, &res->pubkey );
     if( FD_UNLIKELY( x509_alert!=0U ) ) {
+      res->pubkey = NULL;
       res->alert  = x509_alert;
       res->reason = FD_TLS_REASON_X509_PARSE;
       return -1L;

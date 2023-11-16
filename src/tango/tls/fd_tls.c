@@ -229,8 +229,7 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
     .sz   = fd_uint_to_tls_u24( 0x44 )
   };
   cv_rec.cert_verify = (fd_tls_cert_verify_t){
-    .sig_alg = FD_TLS_SIGNATURE_ED25519,
-    .sig_sz  = 0x40,
+    .sig_alg = FD_TLS_SIGNATURE_ED25519
   };
 
   fd_tls_record_hdr_bswap ( &cv_rec.hdr         );
@@ -724,6 +723,9 @@ fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
   fd_tls_extract_cert_pubkey_res_t extract =
   fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz, fd_uint_if( is_rpk, FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 ) );
 
+  if( FD_UNLIKELY( !extract.pubkey ) )
+    return fd_tls_alert( base, extract.alert, extract.reason );
+
   if( expected_pubkey )
     if( FD_UNLIKELY( 0!=memcmp( extract.pubkey, expected_pubkey, 32UL ) ) )
       return fd_tls_alert( base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_WRONG_PUBKEY );
@@ -776,8 +778,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
       return fd_tls_alert( hs, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CH_TRAILING );
   } while(0);
 
-  if( FD_UNLIKELY( ( vfy->sig_alg != FD_TLS_SIGNATURE_ED25519 )
-                 | ( vfy->sig_sz  != 0x40                     ) ) )
+  if( FD_UNLIKELY( vfy->sig_alg != FD_TLS_SIGNATURE_ED25519 ) )
     return fd_tls_alert( hs, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_CV_SIGALG );
 
   /* Verify signature *************************************************/
