@@ -154,9 +154,6 @@ fd_shmem_join( char const *               name,
   /* Validate the mapping */
 
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
-    if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                       path, sz>>10, errno, fd_io_strerror( errno ) ));
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,%s,MAP_SHARED,\"%s\",0) failed (%i-%s)",
                      sz>>10, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", path, mmap_errno, fd_io_strerror( mmap_errno ) ));
