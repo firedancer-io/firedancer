@@ -12,6 +12,7 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <linux/unistd.h>
+#include <sys/random.h>
 
 /* fd_quic provides a QUIC server tile.
 
@@ -122,7 +123,6 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_aio_align(), fd_aio_footprint() );
   fd_quic_limits_t limits = quic_limits( tile );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
@@ -545,6 +545,12 @@ privileged_init( fd_topo_t *      topo,
   ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
   if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 
+  fd_quic_limits_t limits = quic_limits( tile );
+  void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits, ctx->ip ) );
+  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_key, 32UL, 0 ) ) )
+    FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
+
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
   fd_log_wallclock();
@@ -563,7 +569,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+
+  fd_quic_limits_t limits = quic_limits( tile );
+  void * quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
 
   /* End privileged allocs */
 
@@ -572,8 +580,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_ip_arp_fetch( ctx->ip );
   fd_ip_route_fetch( ctx->ip );
-  fd_quic_limits_t limits = quic_limits( tile );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) ), &limits, ctx->ip ) );
+  fd_quic_t * quic = fd_quic_join( quic_mem );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
