@@ -18,8 +18,7 @@ typedef struct {
   fd_mux_before_frag_fn         * mux_before_frag;
   fd_mux_during_frag_fn         * mux_during_frag;
   fd_mux_after_frag_fn          * mux_after_frag;
-  fd_mux_cnc_diag_write_fn      * mux_cnc_diag_write;
-  fd_mux_cnc_diag_clear_fn      * mux_cnc_diag_clear;
+  fd_mux_metrics_write_fn       * mux_metrics_write;
 
   ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );

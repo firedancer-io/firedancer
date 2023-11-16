@@ -42,16 +42,21 @@ monitor_cmd_perm( args_t *         args,
 }
 
 typedef struct {
+  ulong pid;
   long  cnc_heartbeat;
   ulong cnc_signal;
 
-  ulong cnc_diag_pid;
-  ulong cnc_diag_in_backp;
-  ulong cnc_diag_backp_cnt;
-  ulong cnc_diag_ha_filt_cnt;
-  ulong cnc_diag_ha_filt_sz;
-  ulong cnc_diag_sv_filt_cnt;
-  ulong cnc_diag_sv_filt_sz;
+  ulong in_backp;
+  ulong backp_cnt;
+
+  ulong housekeeping_ticks;
+  ulong backpressure_ticks;
+  ulong caught_up_ticks;
+  ulong overrun_polling_ticks;
+  ulong overrun_reading_ticks;
+  ulong filter_before_frag_ticks;
+  ulong filter_after_frag_ticks;
+  ulong finish_ticks;
 } tile_snap_t;
 
 typedef struct {
@@ -68,24 +73,42 @@ typedef struct {
   ulong fseq_diag_slow_cnt;
 } link_snap_t;
 
+static ulong
+tile_total_ticks( tile_snap_t * snap ) {
+  return snap->housekeeping_ticks +
+         snap->backpressure_ticks +
+         snap->caught_up_ticks +
+         snap->overrun_polling_ticks +
+         snap->overrun_reading_ticks +
+         snap->filter_before_frag_ticks +
+         snap->filter_after_frag_ticks +
+         snap->finish_ticks;
+}
+
 static void
 tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,tile_cnt) */
            fd_topo_t *   topo ) {
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
-    fd_cnc_t const * cnc = topo->tiles[ tile_idx ].cnc;
-    snap->cnc_heartbeat = fd_cnc_heartbeat_query( cnc );
-    snap->cnc_signal    = fd_cnc_signal_query   ( cnc );
-    ulong const * cnc_diag = (ulong const *)fd_cnc_app_laddr_const( cnc );
+    fd_topo_tile_t * tile = &topo->tiles[ tile_idx ];
+    snap->cnc_heartbeat = fd_cnc_heartbeat_query( tile->cnc );
+    snap->cnc_signal    = fd_cnc_signal_query   ( tile->cnc );
+
+    fd_metrics_register( tile->metrics );
+
     FD_COMPILER_MFENCE();
-    snap->cnc_diag_pid         = cnc_diag[ FD_APP_CNC_DIAG_LOG_GROUP_ID ];
-    snap->cnc_diag_in_backp    = cnc_diag[ FD_APP_CNC_DIAG_IN_BACKP     ];
-    snap->cnc_diag_backp_cnt   = cnc_diag[ FD_APP_CNC_DIAG_BACKP_CNT    ];
-    snap->cnc_diag_ha_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_CNT  ];
-    snap->cnc_diag_ha_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_HA_FILT_SZ   ];
-    snap->cnc_diag_sv_filt_cnt = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_CNT  ];
-    snap->cnc_diag_sv_filt_sz  = cnc_diag[ FD_APP_CNC_DIAG_SV_FILT_SZ   ];
+    snap->pid                      = FD_MGAUGE_GET( TILE, PID );
+    snap->in_backp                 = FD_MGAUGE_GET( STEM, IN_BACKPRESSURE );
+    snap->backp_cnt                = FD_MCNT_GET( STEM, BACKPRESSURE );
+    snap->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_DURATION_HOUSEKEEPING );
+    snap->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_DURATION_BACKPRESSURE );
+    snap->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_DURATION_CAUGHT_UP );
+    snap->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_DURATION_OVERRUN_POLLING );
+    snap->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_DURATION_OVERRUN_READING );
+    snap->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_DURATION_FILTER_BEFORE_FRAGMENT );
+    snap->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_DURATION_FILTER_AFTER_FRAGMENT );
+    snap->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_DURATION_FINISH );
     FD_COMPILER_MFENCE();
   }
 }
@@ -253,19 +276,27 @@ run_monitor( config_t * const config,
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     PRINT( "snapshot for %s" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    PRINT( "    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |         sv_filt cnt " TEXT_NEWLINE );
-    PRINT( "---------+---------+------------+-------+------------+----------+---------------------+---------------------" TEXT_NEWLINE );
+    PRINT( "    tile |     pid |      stale | heart |        sig | in backp |           backp cnt |  %% hkeep |  %% backp |   %% wait |  %% ovrnp |  %% ovrnr |  %% filt1 |  %% filt2 | %% finish" TEXT_NEWLINE );
+    PRINT( "---------+---------+------------+-------+------------+----------+---------------------+----------+----------+----------+----------+----------+----------+----------+----------" TEXT_NEWLINE );
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
       PRINT( " %7s", fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
-      PRINT( " | %7lu", cur->cnc_diag_pid );
+      PRINT( " | %7lu", cur->pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
-      PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat,        prv->cnc_heartbeat        );
-      PRINT( " | " ); printf_sig     ( &buf, &buf_sz, cur->cnc_signal,           prv->cnc_signal           );
-      PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->cnc_diag_in_backp,    prv->cnc_diag_in_backp    );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->cnc_diag_backp_cnt,   prv->cnc_diag_backp_cnt   );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->cnc_diag_sv_filt_cnt, prv->cnc_diag_sv_filt_cnt );
+      PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat, prv->cnc_heartbeat        );
+      PRINT( " | " ); printf_sig     ( &buf, &buf_sz, cur->cnc_signal,    prv->cnc_signal           );
+      PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->in_backp,      prv->in_backp             );
+      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->backp_cnt,     prv->backp_cnt            );
+
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->housekeeping_ticks,       prv->housekeeping_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->backpressure_ticks,       prv->backpressure_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->caught_up_ticks,          prv->caught_up_ticks,          0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->overrun_polling_ticks,    prv->overrun_polling_ticks,    0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->overrun_reading_ticks,    prv->overrun_reading_ticks,    0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->filter_before_frag_ticks, prv->filter_before_frag_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->filter_after_frag_ticks , prv->filter_after_frag_ticks,  0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur->finish_ticks,             prv->finish_ticks,             0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
       PRINT( TEXT_NEWLINE );
     }
     PRINT( TEXT_NEWLINE );
@@ -374,15 +405,14 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int allow_fds[] = {
-    1, /* stdout */
-    2, /* stderr */
-    3, /* logfile */
-    args->monitor.drain_output_fd, /* maybe we are interposing firedancer log output with the monitor */
-  };
-
-  ulong num_fds = sizeof(allow_fds)/sizeof(allow_fds[0]);
-  ulong allow_fds_sz = args->monitor.drain_output_fd >= 0 ? num_fds : num_fds - 1;
+  int allow_fds[ 4 ];
+  ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 1; /* stdout */
+  allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
+    allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
+    allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
   /* join all workspaces needed by the topology before sandboxing, so
      we can access them later */
@@ -392,17 +422,18 @@ monitor_cmd_fn( args_t *         args,
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
   populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
 
-  if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( STDIN_FILENO ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   fd_sandbox( config->development.sandbox,
               config->uid,
               config->gid,
               0,
-              allow_fds_sz,
+              allow_fds_cnt,
               allow_fds,
               sock_filter_policy_monitor_instr_cnt,
               seccomp_filter );
 
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
 
   run_monitor( config,
