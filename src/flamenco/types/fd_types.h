@@ -235,7 +235,7 @@ struct __attribute__((packed)) fd_account_meta {
   ushort hlen;
   ulong dlen;
   uchar hash[32];
-  uchar rhash[128];
+  uchar rhash[32];
   ulong slot;
   fd_solana_account_meta_t info;
 };
@@ -1534,6 +1534,7 @@ typedef struct fd_stake_meta fd_stake_meta_t;
 #define FD_STAKE_META_FOOTPRINT sizeof(fd_stake_meta_t)
 #define FD_STAKE_META_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539 */
 struct __attribute__((aligned(8UL))) fd_stake {
   fd_delegation_t delegation;
   ulong credits_observed;

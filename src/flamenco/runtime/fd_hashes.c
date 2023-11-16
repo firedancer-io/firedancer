@@ -634,6 +634,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
   return 0;
 }
 
+#ifdef _ENABLE_RHASH
 // This is bad.. everything I am doing here is a violation of data
 // boundries...  such is the life of POC code...
 int
@@ -796,3 +797,4 @@ fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
 
   slot_ctx->slot_bank.slot = oldslot;
 } // fd_accounts_check_rhash
+#endif

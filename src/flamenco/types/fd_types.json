@@ -231,7 +231,7 @@
         { "name": "hlen",  "type": "ushort" },
         { "name": "dlen",  "type": "ulong" },
         { "name": "hash",  "type": "uchar[32]" },
-        { "name": "rhash", "type": "uchar[128]" },
+        { "name": "rhash", "type": "uchar[32]" },
         { "name": "slot",  "type": "ulong" },
         { "name": "info",  "type": "solana_account_meta" }
       ]
