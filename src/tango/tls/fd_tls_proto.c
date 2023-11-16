@@ -2,6 +2,7 @@
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 #include "fd_tls_asn1.h"
+#include "../../ballet/x509/fd_x509_cert_parser.h"
 
 typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
@@ -901,4 +902,117 @@ fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
   if( FD_UNLIKELY( (ulong)alpn_sz != wire_sz ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
   return fd_tls_decode_ext_opaque( out, (void const *)wire_laddr, wire_sz );
+}
+
+/* fd_tls_client_handle_x509 extracts the Ed25519 subject public key
+   from the certificate.  Does not validate the signature found on the
+   certificate (might be self-signed).  [cert,cert+cert_sz) points to
+   an ASN.1 DER serialization of the certificate.  On success, copies
+   public key bits to out_pubkey and returns 0U.  On failure, returns
+   positive TLS alert error code. */
+
+static uint
+fd_tls_client_handle_x509( uchar const *  const cert,
+                           ulong          const cert_sz,
+                           uchar const ** const out_pubkey ) {
+
+  cert_parsing_ctx parsed = {0};
+  int err = parse_x509_cert( &parsed, cert, (uint)cert_sz );
+  if( FD_UNLIKELY( err ) )
+    return FD_TLS_ALERT_BAD_CERTIFICATE;
+
+  if( FD_UNLIKELY( parsed.spki_alg != SPKI_ALG_ED25519 ) )
+    return FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
+
+  if( FD_UNLIKELY( parsed.spki_alg_params.ed25519.ed25519_raw_pub_len != 32 ) )
+    return FD_TLS_ALERT_BAD_CERTIFICATE;
+
+  *out_pubkey = cert + parsed.spki_alg_params.ed25519.ed25519_raw_pub_off;
+  return 0L;
+}
+
+static long
+fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
+                             uchar const * cert_chain,
+                             ulong         cert_chain_sz,
+                             uint          cert_type ) {
+
+  fd_memset( res, 0, sizeof(fd_tls_extract_cert_pubkey_res_t) );
+
+  ulong wire_laddr = (ulong)cert_chain;
+  ulong wire_sz    = cert_chain_sz;
+
+  /* Skip 'opaque certificate_request_context<0..2^8-1>' */
+  uchar const * opaque_sz = FD_TLS_SKIP_FIELD( uchar );
+  uchar const * opaque    = FD_TLS_SKIP_FIELDS( uchar, *opaque_sz );
+  (void)opaque;
+
+  /* Get first entry of certificate chain
+     CertificateEntry certificate_list<0..2^24-1> */
+  fd_tls_u24_t const * cert_list_sz_be = FD_TLS_SKIP_FIELD( fd_tls_u24_t );
+  fd_tls_u24_t         cert_list_sz_   = fd_tls_u24_bswap( *cert_list_sz_be );
+  uint                 cert_list_sz    = fd_tls_u24_to_uint( cert_list_sz_ );
+  if( FD_UNLIKELY( cert_list_sz==0U ) ) {
+    res->alert  = FD_TLS_ALERT_BAD_CERTIFICATE;
+    res->reason = FD_TLS_REASON_CERT_CHAIN_EMPTY;
+    return -1L;
+  }
+
+  /* Get certificate size */
+  fd_tls_u24_t const * cert_sz_be = FD_TLS_SKIP_FIELD( fd_tls_u24_t );
+  fd_tls_u24_t         cert_sz_   = fd_tls_u24_bswap( *cert_sz_be );
+  uint                 cert_sz    = fd_tls_u24_to_uint( cert_sz_ );
+  if( FD_UNLIKELY( cert_sz>wire_sz ) ) {
+    res->alert = FD_TLS_ALERT_DECODE_ERROR;
+    res->reason = FD_TLS_REASON_CERT_PARSE;
+    return -1L;
+  }
+
+  void * cert = (void *)wire_laddr;
+
+  switch( cert_type ) {
+
+  case FD_TLS_CERTTYPE_X509: {
+
+    /* DER-encoded X.509 certificate */
+
+    uint x509_alert = fd_tls_client_handle_x509( cert, cert_sz, &res->pubkey );
+    if( FD_UNLIKELY( x509_alert!=0U ) ) {
+      res->alert  = x509_alert;
+      res->reason = FD_TLS_REASON_X509_PARSE;
+      return -1L;
+    }
+
+    return 0L;
+  }
+
+  case FD_TLS_CERTTYPE_RAW_PUBKEY: {
+
+    /* Interpret certificate entry as raw public key (RFC 7250)
+       'opaque ASN1_subjectPublicKeyInfo<1..2^24-1>' */
+
+    res->pubkey = fd_ed25519_public_key_from_asn1( cert, cert_sz );
+    if( FD_UNLIKELY( !res->pubkey ) ) {
+      res->reason = FD_TLS_REASON_SPKI_PARSE;
+      res->alert  = FD_TLS_ALERT_BAD_CERTIFICATE;
+      return -1L;
+    }
+
+    return 0L;
+  }
+
+  default:
+    __builtin_unreachable();
+
+  } /* end switch */
+}
+
+fd_tls_extract_cert_pubkey_res_t
+fd_tls_extract_cert_pubkey( uchar const * cert_chain,
+                            ulong         cert_chain_sz,
+                            uint          cert_type ) {
+  fd_tls_extract_cert_pubkey_res_t res;
+  long ret = fd_tls_extract_cert_pubkey_( &res, cert_chain, cert_chain_sz, cert_type );
+  (void)ret;
+  return res;
 }

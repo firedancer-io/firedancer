@@ -14,8 +14,6 @@
    a packed C struct and a "bswap" (endianness conversion) function is
    provided. */
 
-/* TODO Messy code!  Needs cleanup eventually. */
-
 #include "fd_tls_base.h"
 
 /* TLS Extensions *****************************************************/
@@ -525,6 +523,22 @@ long
 fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
                         void const *        const wire,
                         ulong                     wire_sz );
+
+/* fd_tls_extract_cert_pubkey extracts the public key of a TLS cert
+   message. */
+
+struct fd_tls_extract_cert_pubkey_res {
+  uchar const * pubkey;
+  uint          alert;
+  uint          reason;
+};
+
+typedef struct fd_tls_extract_cert_pubkey_res fd_tls_extract_cert_pubkey_res_t;
+
+fd_tls_extract_cert_pubkey_res_t
+fd_tls_extract_cert_pubkey( uchar const * cert,
+                            ulong         cert_sz,
+                            uint          cert_type );
 
 FD_PROTOTYPES_END
 
