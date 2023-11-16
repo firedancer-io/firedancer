@@ -896,7 +896,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY
+#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC)
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -913,7 +913,9 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
-//if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
+# ifdef CBMC
+  if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
+# endif
   return memcpy( d, s, sz );
 }
 
@@ -928,7 +930,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC)
 
 static inline void *
 fd_memset( void  * d,
@@ -945,7 +947,9 @@ static inline void *
 fd_memset( void  * d,
            int     c,
            ulong   sz ) {
-//if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
+# ifdef CBMC
+  if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
+# endif
   return memset( d, c, sz );
 }
 
