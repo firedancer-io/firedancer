@@ -496,7 +496,9 @@ main( int     argc,
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
   char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
+#ifdef _ENABLE_RHASH
   char const * rhash        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rhash",        NULL, "false"   );
+#endif
 
   fd_wksp_t* wksp;
   if (wkspname == NULL) {
@@ -657,10 +659,12 @@ main( int     argc,
       // TODO: regexp the hash out of the filename and compare..
     }
 
+#ifdef _ENABLE_RHASH
     if ((NULL != rhash) && (strcmp(rhash, "true") == 0)) {
       fd_accounts_init_rhash(slot_ctx);
       fd_accounts_check_rhash(slot_ctx);
     }
+#endif
 
     if (snapshot_used) {
       FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
