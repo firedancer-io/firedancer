@@ -8,9 +8,6 @@
 #include "../../ballet/hmac/fd_hmac.h"
 #include "../../ballet/x509/fd_x509_cert_parser.h"
 
-/* TODO: Stop doing in-place endianness conversions - Do them on read
-         instead such that the serializers become readonly */
-
 /* Pre-generated keys */
 
 static char const fd_tls13_cli_sign_prefix[ 98 ] =

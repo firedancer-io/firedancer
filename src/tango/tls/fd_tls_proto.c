@@ -33,15 +33,13 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   /* Decode static sized part of client hello.
      (Assuming that session ID field is of a certain size) */
 
-  ushort cipher_suites_sz;     /* size occupied by cipher suite list */
   ushort legacy_version;       /* ==FD_TLS_VERSION_TLS12 */
   uchar  legacy_session_id_sz; /* ==0 */
 
 # define FIELDS( FIELD )                            \
     FIELD( 0, &legacy_version,       ushort, 1    ) \
     FIELD( 1, &out->random[0],       uchar,  32UL ) \
-    FIELD( 2, &legacy_session_id_sz, uchar,  1    ) \
-    FIELD( 3, &cipher_suites_sz,     ushort, 1    )
+    FIELD( 2, &legacy_session_id_sz, uchar,  1    )
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -50,14 +48,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
 
   /* Decode cipher suite list */
 
-  if( FD_UNLIKELY( ( !fd_uint_is_aligned( cipher_suites_sz, 2U ) )
-                 | ( cipher_suites_sz > wire_sz                  ) ) )
-    return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
-  while( cipher_suites_sz > 0 ) {
+  FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(ushort) ) {
     ushort cipher_suite;
     FD_TLS_DECODE_FIELD( &cipher_suite, ushort );
-    cipher_suites_sz = (ushort)( cipher_suites_sz - sizeof(ushort) );
 
     switch( cipher_suite ) {
     case FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256:
@@ -68,17 +61,16 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
       break;
     }
   }
+  FD_TLS_DECODE_LIST_END
 
   /* Decode next static sized part of client hello */
 
-  ushort extension_tot_sz;  /* size occupied by extensions */
   uchar  legacy_compression_method_cnt;    /* == 1  */
   uchar  legacy_compression_methods[ 1 ];  /* =={0} */
 
 # define FIELDS( FIELD )                                  \
     FIELD( 5, &legacy_compression_method_cnt, uchar,  1 ) \
-    FIELD( 6, &legacy_compression_methods[0], uchar,  1 ) \
-    FIELD( 7, &extension_tot_sz,              ushort, 1 )
+    FIELD( 6, &legacy_compression_methods[0], uchar,  1 )
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -86,17 +78,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
                  | ( legacy_compression_methods[0] != 0 ) ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
-  /* Byte range occupied by extensions */
-
-  if( FD_UNLIKELY( extension_tot_sz > wire_sz ) )
-    return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
-  ulong ext_start = wire_laddr;
-  ulong ext_stop  = ext_start + extension_tot_sz;
-
   /* Read extensions */
 
-  while( wire_laddr < ext_stop ) {
+  FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
     /* Read extension type and length */
     ushort ext_type;
     ushort ext_sz;
@@ -107,7 +91,7 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
 #   undef FIELDS
 
     /* Bounds check extension data */
-    if( FD_UNLIKELY( (ext_stop - wire_laddr) < ext_sz ) )
+    if( FD_UNLIKELY( ext_sz > wire_sz ) )
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
     /* Decode extension data */
@@ -151,15 +135,15 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     wire_laddr += ext_sz;
     wire_sz    -= ext_sz;
   }
+  FD_TLS_DECODE_LIST_END
 
-  FD_TEST( wire_laddr==ext_stop );
   return (long)( wire_laddr - (ulong)wire );
 }
 
 long
-fd_tls_encode_client_hello( fd_tls_client_hello_t * in,
-                            void *                  wire,
-                            ulong                   wire_sz ) {
+fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
+                            void *                        wire,
+                            ulong                         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -378,9 +362,9 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 }
 
 long
-fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
-                            void *                  wire,
-                            ulong                   wire_sz ) {
+fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
+                            void *                        wire,
+                            ulong                         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -394,7 +378,7 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
 
 # define FIELDS( FIELD )                                 \
     FIELD( 0, &legacy_version,            ushort, 1    ) \
-    FIELD( 1, &out->random[0],            uchar,  32UL ) \
+    FIELD( 1, &in->random[0],             uchar,  32UL ) \
     FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
     FIELD( 3, &cipher_suite,              ushort, 1    ) \
     FIELD( 4, &legacy_compression_method, uchar,  1    )
@@ -423,7 +407,7 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t * out,
     FIELD( 4, &ext_key_share_ext_sz,              ushort, 1    ) \
     FIELD( 5, &ext_key_share_group,               ushort, 1    ) \
     FIELD( 6, &ext_key_share_sz,                  ushort, 1    ) \
-    FIELD( 7, &out->key_share.x25519[0],          uchar,  32UL )
+    FIELD( 7, &in->key_share.x25519[0],           uchar,  32UL )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -541,9 +525,9 @@ fd_tls_encode_server_cert_x509( void const * x509,
 }
 
 long
-fd_tls_encode_enc_ext( fd_tls_enc_ext_t * in,
-                       void *             wire,
-                       ulong              wire_sz ) {
+fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
+                       void *                   wire,
+                       ulong                    wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
