@@ -12,8 +12,13 @@ assert_range( fd_histf_t * hist,
               ulong       idx,
               uint        left_edge,
               uint        right_edge ) { /* exclusive */
-  ulong expected = fd_histf_cnt( hist, idx );
-  fd_histf_sample( hist, left_edge-1U ); /* Might underflow, but okay */
+
+  FD_TEST( fd_histf_left ( hist, idx )== left_edge );
+  FD_TEST( fd_histf_right( hist, idx )==right_edge );
+
+  ulong expected    = fd_histf_cnt( hist, idx );
+  ulong initial_sum = fd_histf_sum( hist );
+  fd_histf_sample( hist, left_edge-1UL ); /* Might underflow, but okay */
   FD_TEST( fd_histf_cnt( hist, idx )==expected );
 
   for( uint i=left_edge; i<right_edge; i++ ) {
@@ -22,6 +27,7 @@ assert_range( fd_histf_t * hist,
   }
   fd_histf_sample( hist, right_edge );
   FD_TEST( fd_histf_cnt( hist, idx )==expected );
+  FD_TEST( fd_histf_sum( hist      )==initial_sum + (left_edge-1UL) + (left_edge+right_edge)*(right_edge-left_edge+1UL)/2UL );
 }
 
 int
@@ -64,6 +70,8 @@ main( int     argc,
   fd_histf_sample( hist, 21U );    FD_TEST( fd_histf_cnt( hist, 15UL )==2UL );
   fd_histf_sample( hist, 30U );    FD_TEST( fd_histf_cnt( hist, 15UL )==3UL );
   fd_histf_sample( hist, 99U );    FD_TEST( fd_histf_cnt( hist, 15UL )==4UL );
+
+  FD_TEST( fd_histf_sum( hist )==0UL+1UL+2UL+3UL+20UL+21UL+30UL+99UL );
 
   hist = fd_histf_join( fd_histf_new( fd_histf_delete( fd_histf_leave( hist ) ), 1U, 100U ) );
 
