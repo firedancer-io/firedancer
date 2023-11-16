@@ -5285,7 +5285,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
       break;
 
     case FD_IP_NO_ROUTE:
-      FD_LOG_WARNING(( "No route to address 0x%08x", dst_ip_addr ));
+      FD_LOG_WARNING(( "No route to address " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( dst_ip_addr ) ));
       break;
 
     default:
