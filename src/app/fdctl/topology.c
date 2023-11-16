@@ -226,7 +226,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       }
     }
 
-    if( FD_UNLIKELY( wksp->id == FD_TOPO_WKSP_KIND_PACK_BANK && tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
+    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_PACK_BANK && tile->kind==FD_TOPO_TILE_KIND_PACK ) ) {
       ulong bank_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
       FD_TEST( bank_cnt == fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK ) );
       FD_TEST( bank_cnt < sizeof( tile->extra ) );
