@@ -148,7 +148,9 @@ test_tls_client_respond( fd_tls_t *            client,
   while( (rec = test_record_recv( &test_server_out )) ) {
     long res = fd_tls_client_handshake( client, hs, rec->buf, rec->cur, rec->level );
     if( res<0L ) {
-      FD_LOG_ERR(( "fd_tls_client_handshake: %ld", res ));
+      FD_LOG_ERR(( "fd_tls_client_handshake failed (alert %ld-%s; reason %u-%s)",
+                   res,             fd_tls_alert_cstr( (uint)-res ),
+                   hs->base.reason, fd_tls_reason_cstr( hs->base.reason ) ));
       fd_halt();
     }
   }
@@ -161,7 +163,9 @@ test_tls_server_respond( fd_tls_t *            server,
   while( (rec = test_record_recv( &test_client_out )) ) {
     long res = fd_tls_server_handshake( server, hs, rec->buf, rec->cur, rec->level );
     if( res<0L ) {
-      FD_LOG_ERR(( "fd_tls_server_handshake: %ld", res ));
+      FD_LOG_ERR(( "fd_tls_server_handshake failed (alert %ld-%s; reason %u-%s)",
+                   res,             fd_tls_alert_cstr( (uint)-res ),
+                   hs->base.reason, fd_tls_reason_cstr( hs->base.reason ) ));
       fd_halt();
     }
   }
