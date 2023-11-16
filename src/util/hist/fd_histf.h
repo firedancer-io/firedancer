@@ -28,6 +28,7 @@ struct __attribute__((aligned(FD_HISTF_ALIGN))) fd_histf_private {
      operand.  Rather than perform the subtraction at each comparison,
      we pre-subtract here. */
   long  left_edge[ FD_HISTF_BUCKET_CNT+1 ];
+  ulong sum; /* the sum of all the samples, useful for computing mean */
 };
 
 typedef struct fd_histf_private fd_histf_t;
@@ -95,6 +96,7 @@ fd_histf_new( void * mem,
 
   fd_histf_t * hist = (fd_histf_t*)mem;
   fd_memset( hist->counts, 0, FD_HISTF_BUCKET_CNT*sizeof(ulong) );
+  hist->sum = 0UL;
   ulong left_edge[ FD_HISTF_BUCKET_CNT ]; /* without the -2^63 shift */
   left_edge[ 0 ] = 0;
   left_edge[ 1 ] = min_value;
@@ -128,6 +130,7 @@ FD_FN_PURE static inline ulong fd_histf_bucket_cnt( fd_histf_t * hist ) { (void)
 static inline void
 fd_histf_sample( fd_histf_t * hist,
                  ulong        value ) {
+  hist->sum += value;
   long shifted_v = (long)(value - (1UL<<63));
 #if FD_HAS_AVX
   wl_t x = wl_bcast( shifted_v );
@@ -152,13 +155,21 @@ fd_histf_sample( fd_histf_t * hist,
 #endif
 }
 
-/* Get the count of samples in a particular bucket of the historgram.
-   bucket in [0, 16) */
-FD_FN_PURE static inline ulong
-fd_histf_cnt( fd_histf_t * hist,
-              ulong        bucket ) {
-  return hist->counts[ bucket ];
-}
+/* fd_histf_cnt gets the count of samples in a particular bucket of the
+   historgram.
+
+   fd_histf_{left,right} get the sample values that map to bucket b,
+   with a half-open interval [left, right).
+
+   fd_histf_sum gets the sum of all samples that have been added.  I.e.
+   fd_histf_sum() / sum(fd_histf_cnt(j) for j in [0, 16)) is the average
+   sample value.
+
+   For these functions, b, the bucket index is in [0, 16). */
+FD_FN_PURE static inline ulong fd_histf_cnt  ( fd_histf_t const * hist, ulong b ) { return        hist->counts   [ b     ];           }
+FD_FN_PURE static inline ulong fd_histf_left ( fd_histf_t const * hist, ulong b ) { return (ulong)hist->left_edge[ b     ]+(1UL<<63); }
+FD_FN_PURE static inline ulong fd_histf_right( fd_histf_t const * hist, ulong b ) { return (ulong)hist->left_edge[ b+1UL ]+(1UL<<63); }
+FD_FN_PURE static inline ulong fd_histf_sum  ( fd_histf_t const * hist          ) { return        hist->sum;                          }
 
 FD_PROTOTYPES_END
 
