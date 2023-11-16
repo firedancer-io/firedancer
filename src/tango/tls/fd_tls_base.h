@@ -209,39 +209,60 @@ fd_tls_rand( fd_tls_rand_t const * rand,
    can help with debugging when the error cause is not evident by the
    alert itself. */
 
-#define FD_TLS_REASON_NULL           ( 0)
-#define FD_TLS_REASON_ILLEGAL_STATE  ( 1)  /* illegal hs state */
-#define FD_TLS_REASON_SENDMSG_FAIL   ( 2)  /* sendmsg callback failed */
-#define FD_TLS_REASON_WRONG_ENC_LVL  ( 3)  /* wrong encryption level */
-#define FD_TLS_REASON_RAND_FAIL      ( 4)  /* rand fn failed */
-#define FD_TLS_REASON_CH_EXPECTED    ( 5)  /* wanted ClientHello, got another msg type */
-#define FD_TLS_REASON_CH_TRAILING    ( 6)  /* trailing bytes in ClientHello */
-#define FD_TLS_REASON_CH_CRYPTO_NEG  ( 7)  /* ClientHello crypto negotiation failed */
-#define FD_TLS_REASON_CH_NO_QUIC     ( 8)  /* Missing QUIC transport params in ClientHello */
-#define FD_TLS_REASON_X25519_FAIL    ( 9)  /* fd_x25519_exchange failed */
-#define FD_TLS_REASON_NO_X509        (10)  /* no X.509 cert */
-#define FD_TLS_REASON_WRONG_PUBKEY   (11)  /* peer cert has different pubkey than expected */
-#define FD_TLS_REASON_ED25519_FAIL   (12)  /* Ed25519 signature validation failed */
-#define FD_TLS_REASON_FINI_FAIL      (13)  /* Finished data mismatch */
-#define FD_TLS_REASON_QUIC_TP_OVERSZ (14)  /* Buffer overflow in QUIC transport params callback */
-#define FD_TLS_REASON_EE_NO_QUIC     (15)  /* Missing QUIC transport params in EncryptedExtensions */
-#define FD_TLS_REASON_X509_PARSE     (16)  /* X.509 DER parse failed */
-#define FD_TLS_REASON_SPKI_PARSE     (17)  /* Subject public key info parse failed */
-#define FD_TLS_REASON_CV_EXPECTED    (18)  /* wanted CertificateVerify, got another msg type */
-#define FD_TLS_REASON_CV_SIGALG      (19)  /* CertificateVerify sig is not Ed25519 */
-#define FD_TLS_REASON_FINI_PARSE     (20)  /* invalid Finished message */
-#define FD_TLS_REASON_SH_EXPECTED    (21)  /* wanted ServerHello, got another msg type */
-#define FD_TLS_REASON_SH_TRAILING    (22)  /* trailing bytes in ServerHello */
-#define FD_TLS_REASON_EE_EXPECTED    (23)  /* wanted EncryptedExtensions, got another msg type */
-#define FD_TLS_REASON_EE_TRAILING    (24)  /* trailing bytes in EncryptedExtensions */
-#define FD_TLS_REASON_CERT_TYPE      (25)  /* unsupported certificate type */
-#define FD_TLS_REASON_CERT_EXPECTED  (26)  /* wanted Certificate, got another msg type */
-#define FD_TLS_REASON_FINI_EXPECTED  (27)  /* wanted Finished, got another msg type */
-#define FD_TLS_REASON_FINI_TRAILING  (28)  /* trailing bytes in Finished */
-#define FD_TLS_REASON_CERT_CR_EXPECTED (29)  /* wanted Certificate or CertificateRequest, got another msg type */
-#define FD_TLS_REASON_CERT_CHAIN_EMPTY (30)  /* cert chain contains no certs */
-#define FD_TLS_REASON_CERT_CHAIN_PARSE (31)  /* failed to parse cert chain */
-#define FD_TLS_REASON_CV_TRAILING      (32)  /* trailing bytes in CertificateVerify */
+#define FD_TLS_REASON_NULL            ( 0)
+
+#define FD_TLS_REASON_ILLEGAL_STATE   ( 1)  /* illegal hs state */
+#define FD_TLS_REASON_SENDMSG_FAIL    ( 2)  /* sendmsg callback failed */
+#define FD_TLS_REASON_WRONG_ENC_LVL   ( 3)  /* wrong encryption level */
+#define FD_TLS_REASON_RAND_FAIL       ( 4)  /* rand fn failed */
+
+#define FD_TLS_REASON_X25519_FAIL     ( 9)  /* fd_x25519_exchange failed */
+#define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
+#define FD_TLS_REASON_WRONG_PUBKEY    (11)  /* peer cert has different pubkey than expected */
+#define FD_TLS_REASON_ED25519_FAIL    (12)  /* Ed25519 signature validation failed */
+
+#define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
+#define FD_TLS_REASON_CH_TRAILING    (102)  /* trailing bytes in ClientHello */
+#define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */
+#define FD_TLS_REASON_CH_ENCODE      (104)  /* failed to encode ClientHello */
+#define FD_TLS_REASON_CH_CRYPTO_NEG  (105)  /* ClientHello crypto negotiation failed */
+#define FD_TLS_REASON_CH_NO_QUIC     (106)  /* Missing QUIC transport params in ClientHello */
+
+#define FD_TLS_REASON_SH_EXPECTED    (201)  /* wanted ServerHello, got another msg type */
+#define FD_TLS_REASON_SH_TRAILING    (202)  /* trailing bytes in ServerHello */
+#define FD_TLS_REASON_SH_PARSE       (203)  /* failed to parse ServerHello */
+#define FD_TLS_REASON_SH_ENCODE      (204)  /* failed to encode ServerHello */
+
+#define FD_TLS_REASON_EE_NO_QUIC     (301)  /* Missing QUIC transport params in EncryptedExtensions */
+#define FD_TLS_REASON_EE_EXPECTED    (302)  /* wanted EncryptedExtensions, got another msg type */
+#define FD_TLS_REASON_EE_TRAILING    (303)  /* trailing bytes in EncryptedExtensions */
+#define FD_TLS_REASON_EE_PARSE       (304)  /* failed to parse EncryptedExtensions */
+#define FD_TLS_REASON_EE_ENCODE      (305)  /* failed to encode EncryptedExtensions */
+#define FD_TLS_REASON_QUIC_TP_OVERSZ (306)  /* Buffer overflow in QUIC transport params callback */
+
+#define FD_TLS_REASON_CV_EXPECTED    (401)  /* wanted CertificateVerify, got another msg type */
+#define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig is not Ed25519 */
+#define FD_TLS_REASON_CV_TRAILING    (403)  /* trailing bytes in CertificateVerify */
+#define FD_TLS_REASON_CV_PARSE       (404)  /* failed to parse CertificateVerify */
+
+#define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
+#define FD_TLS_REASON_CERT_CR_TRAILING (502)  /* trailing bytes in Certificate or CertificateRequest */
+#define FD_TLS_REASON_CERT_CR_PARSE    (503)  /* failed to parse Certificate or CertificateRequest */
+
+#define FD_TLS_REASON_CERT_TYPE      (601)  /* unsupported certificate type */
+#define FD_TLS_REASON_CERT_EXPECTED  (602)  /* wanted Certificate, got another msg type */
+#define FD_TLS_REASON_CERT_PARSE     (603)  /* failed to parse Certificate */
+#define FD_TLS_REASON_X509_PARSE     (604)  /* X.509 DER parse failed */
+#define FD_TLS_REASON_SPKI_PARSE     (605)  /* Subject public key info parse failed */
+
+#define FD_TLS_REASON_CERT_CHAIN_EMPTY    (701)  /* cert chain contains no certs */
+#define FD_TLS_REASON_CERT_CHAIN_PARSE    (702)  /* failed to parse cert chain */
+#define FD_TLS_REASON_CERT_CHAIN_TRAILING (703)  /* trailing bytes in cert chain */
+
+#define FD_TLS_REASON_FINI_PARSE     (901)  /* invalid Finished message */
+#define FD_TLS_REASON_FINI_EXPECTED  (902)  /* wanted Finished, got another msg type */
+#define FD_TLS_REASON_FINI_TRAILING  (903)  /* trailing bytes in Finished */
+#define FD_TLS_REASON_FINI_FAIL      (904)  /* Finished data mismatch */
 
 FD_PROTOTYPES_BEGIN
 

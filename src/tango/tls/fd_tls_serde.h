@@ -2,7 +2,8 @@
 #define HEADER_src_ballet_tls_fd_tls_serde_h
 
 /* fd_tls_serde.h provides branch-minimizing (de-)serializer macros for
-   internal use. */
+   internal use.  This file specifically exists for fd_tls_proto.c and
+   should not be included elsewhere. */
 
 /* FD_TLS_SERDE_{BEGIN,END} create and terminate a bounds checking
    context.  Internally, creates a new do/while(0) scope. */
