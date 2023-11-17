@@ -99,10 +99,10 @@ init( config_t * const config ) {
     device_read_slaves( config->tiles.net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->layout.verify_tile_count );
+      init_device( token, config->layout.net_tile_count );
     }
   } else {
-    init_device( config->tiles.net.interface, config->layout.verify_tile_count );
+    init_device( config->tiles.net.interface, config->layout.net_tile_count );
   }
 }
 
