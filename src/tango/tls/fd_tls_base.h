@@ -90,7 +90,7 @@ typedef void
    immediately on return.  flush==1 hints that no more sendmsg callbacks
    are issued until the next call to fd_tls_server_handshake.  It is
    safe to "flush" (i.e. transmit data out through the NIC) even when
-   flush==0. */
+   flush==0.  Returns 1 on success and 0 on failure. */
 
 typedef int
 (* fd_tls_sendmsg_fn_t)( void const * handshake,
