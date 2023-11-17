@@ -844,11 +844,21 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     return FD_VM_SYSCALL_ERR_INVAL;
   }
 
-  ulong MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
+  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
+  if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
+    ulong MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
 
-  if( FD_UNLIKELY( acct_info_cnt > MAX_CPI_ACCOUNT_INFOS ) ) {
-    FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
-    return FD_VM_SYSCALL_ERR_INVAL;
+    if( FD_UNLIKELY( acct_info_cnt > MAX_CPI_ACCOUNT_INFOS ) ) {
+      FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
+      return FD_VM_SYSCALL_ERR_INVAL;
+    }
+  } else {
+    ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
+    if ( FD_UNLIKELY( adjusted_len > vm_compute_budget.max_cpi_instruction_size ) ) {
+      // Cap the number of account_infos a caller can pass to approximate
+      // maximum that accounts that could be passed in an instruction
+      return FD_VM_SYSCALL_ERR_INVAL;
+    }
   }
 
   return FD_VM_SYSCALL_SUCCESS;
@@ -923,7 +933,7 @@ static ulong
 fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
                                      ulong                        acct_cnt,
                                      ulong                        data_sz ) {
-
+  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */                                
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > 0x2800UL ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
@@ -1170,6 +1180,10 @@ fd_vm_syscall_cpi_c(
   res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
 
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
+    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+  }
+  
   /* Translate signers ************************************************/
 
   /* Order of operations is liberally rearranged.
@@ -1518,6 +1532,10 @@ fd_vm_syscall_cpi_rust(
 
   res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
+    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+  }
 
   /* Translate account infos ******************************************/
 
