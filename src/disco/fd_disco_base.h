@@ -22,6 +22,12 @@
    asserted in fd_shred_tile.c). */
 #define FD_SHRED_STORE_MTU (41792UL)
 
+/* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
+   largest microblock the pack tile will produce, plus the 48B of
+   microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
+   metadata. */
+#define FD_POH_SHRED_MTU (40UL + 48UL + FD_TPU_MTU * 31UL)
+
 /* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
 #define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
 /* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust

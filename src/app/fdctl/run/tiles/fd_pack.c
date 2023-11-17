@@ -28,10 +28,18 @@
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
 
+/* in bytes.  Defined this way to use the size field of mcache.  This
+   only includes the transaction payload and the fd_txn_t portions of
+   the microblock, as all the other portions (hash, etc) are generated
+   by PoH later. */
+#define MAX_MICROBLOCK_SZ USHORT_MAX
+
 #define MAX_TXN_PER_MICROBLOCK (MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t))
 
-/* in bytes.  Defined this way to use the size field of mcache */
-#define MAX_MICROBLOCK_SZ USHORT_MAX
+/* In order not to couple things excessively, the definition for
+   POH_SHRED_MTU assumes this value is 31.  If it changes, update
+   POH_SHRED_MTU. */
+FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK==31UL, poh_shred_mtu );
 
 /* Each block is limited to 32k parity shreds.  At worst, a microblock
    batch contains 67 parity shreds.  Right now, we're using one
