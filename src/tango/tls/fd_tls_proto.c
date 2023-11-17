@@ -644,14 +644,11 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
 
   ulong wire_laddr = (ulong)wire;
 
-  if( FD_UNLIKELY( wire_sz != sizeof(fd_tls_cert_verify_t) ) )
-    return -(long)FD_TLS_ALERT_DECODE_ERROR;
-
   ushort sig_sz;
 # define FIELDS( FIELD ) \
     FIELD( 0, &out->sig_alg, ushort,  1 ) \
     FIELD( 1, &sig_sz,       ushort,  1 ) \
-    FIELD( 2,  out->sig,     uchar,  32 )
+    FIELD( 2,  out->sig,     uchar,  64 )
   FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
@@ -659,7 +656,25 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
                  | (      sig_sz  != 0x40UL                   ) ) )
     return -(long)FD_TLS_ALERT_ILLEGAL_PARAMETER;
 
-  return (long)sizeof(fd_tls_cert_verify_t);
+  return (long)( wire_laddr - (ulong)wire );
+}
+
+long
+fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
+                           void *                       wire,
+                           ulong                        wire_sz ) {
+
+  ulong wire_laddr = (ulong)wire;
+
+  ushort sig_sz = 0x40;
+# define FIELDS( FIELD ) \
+    FIELD( 0, &in->sig_alg, ushort,  1 ) \
+    FIELD( 1, &sig_sz,      ushort,  1 ) \
+    FIELD( 2,  in->sig,     uchar,  64 )
+  FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
+# undef FIELDS
+
+  return (long)( wire_laddr - (ulong)wire );
 }
 
 long

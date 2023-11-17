@@ -3,12 +3,6 @@
 #include <assert.h>
 #include <tango/tls/fd_tls_proto.h>
 
-void __CPROVER_r_ok( void const *, ulong );
-void __CPROVER_rw_ok( void *, ulong );
-void __CPROVER_w_ok( void *, ulong );
-void __CPROVER_havoc_slice( void *, ulong );
-void __CPROVER_assume( int );
-
 static long
 generic_encode( void const * in,
                 ulong        in_sz,

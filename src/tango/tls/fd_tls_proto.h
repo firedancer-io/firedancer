@@ -15,6 +15,7 @@
    provided. */
 
 #include "fd_tls_base.h"
+#include <stddef.h>
 
 /* TLS Extensions *****************************************************/
 
@@ -163,7 +164,7 @@ typedef struct fd_tls_server_hello fd_tls_server_hello_t;
 /* fd_tls_enc_ext_t describes a TLS v1.3 EncryptedExtensions message
    (RFC 8446, Section 4.3.1). */
 
-struct fd_tls_enc_ext_t {
+struct fd_tls_enc_ext {
   fd_tls_ext_cert_type_t server_cert;
   fd_tls_ext_cert_type_t client_cert;
   fd_tls_ext_quic_tp_t   quic_tp;
@@ -172,13 +173,13 @@ struct fd_tls_enc_ext_t {
   uchar alpn[ FD_TLS_EXT_ALPN_SZ_MAX ];
 };
 
-typedef struct fd_tls_enc_ext_t fd_tls_enc_ext_t;
+typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
 
-/* fd_tls_cert_verify_t matches the wire representation of
-   CertificateVerify (RFC 8446, Section 4.4.3).  Only supports TLS
-   signature algorithms with 64 byte signature size (e.g. Ed25519). */
+/* fd_tls_cert_verify_t describes a CertificateVerify (RFC 8446, Section
+   4.4.3).  Only supports TLS signature algorithms with 64 byte
+   signature size (e.g. Ed25519). */
 
-struct __attribute__((packed)) fd_tls_cert_verify {
+struct fd_tls_cert_verify {
   ushort sig_alg;  /* FD_TLS_SIGNATURE_{...} */
   uchar  sig[ 64 ];
 };
@@ -446,6 +447,11 @@ long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
                            void const *           wire,
                            ulong                  wire_sz );
+
+long
+fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
+                           void *                       wire,
+                           ulong                        wire_sz );
 
 static inline void
 fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
