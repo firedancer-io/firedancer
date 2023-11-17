@@ -657,6 +657,17 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * outa, fd_ed25519_fe_t const * za,
 }
 
 void
+fd_ed25519_fe_pow22523_4( fd_ed25519_fe_t * outa, fd_ed25519_fe_t const * za,
+                          fd_ed25519_fe_t * outb, fd_ed25519_fe_t const * zb,
+                          fd_ed25519_fe_t * outc, fd_ed25519_fe_t const * zc,
+                          fd_ed25519_fe_t * outd, fd_ed25519_fe_t const * zd ) {
+  FE_AVX_INL_DECL(z);
+  FE_AVX_INL_SWIZZLE_IN4( z, za,zb,zc,zd );
+  FE_AVX_INL_POW22523( z, z );
+  FE_AVX_INL_SWIZZLE_OUT4( outa,outb,outc,outd, z );
+}
+
+void
 fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
                          fd_ed25519_fe_t const * f ) {
   int f0 = f->limb[0]; int f1 = f->limb[1];
@@ -715,14 +726,16 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
 
   /* r = (u * v^3) * (u * v^7)^((p-5)/8) */
 
-  fd_ed25519_fe_t  v2[1]; fd_ed25519_fe_sq (  v2, v      );
-  fd_ed25519_fe_t  v3[1]; fd_ed25519_fe_mul(  v3, v2, v  );
-  fd_ed25519_fe_t uv3[1]; fd_ed25519_fe_mul( uv3, u,  v3 );
-  fd_ed25519_fe_t  v6[1]; fd_ed25519_fe_sq (  v6, v3     );
-  fd_ed25519_fe_t  v7[1]; fd_ed25519_fe_mul(  v7, v6, v  );
-  fd_ed25519_fe_t uv7[1]; fd_ed25519_fe_mul( uv7, u,  v7 );
-  fd_ed25519_fe_pow22523( r, uv7     );
-  fd_ed25519_fe_mul     ( r, r, uv3 );
+  fd_ed25519_fe_t uv3[1];
+  fd_ed25519_fe_t uv7[1];
+  fd_ed25519_fe_sq ( uv3, v        );
+  fd_ed25519_fe_mul( uv3, uv3, v   );
+  fd_ed25519_fe_sq ( uv7, uv3      );
+  fd_ed25519_fe_mul( uv7, uv7, v   );
+  fd_ed25519_fe_mul( uv3, uv3, u   );
+  fd_ed25519_fe_mul( uv7, uv7, u   );
+  fd_ed25519_fe_pow22523( r,   uv7 );
+  fd_ed25519_fe_mul( r,   r,   uv3 );
 
   /* check = v * r^2 */
 
@@ -761,4 +774,114 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
 
   fd_ed25519_fe_abs( r, r );
   return correct_sign_sqrt|flipped_sign_sqrt;
+}
+
+void
+fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * ra, int *wsa, fd_ed25519_fe_t const * ua, fd_ed25519_fe_t const * va,
+                            fd_ed25519_fe_t * rb, int *wsb, fd_ed25519_fe_t const * ub, fd_ed25519_fe_t const * vb,
+                            fd_ed25519_fe_t * rc, int *wsc, fd_ed25519_fe_t const * uc, fd_ed25519_fe_t const * vc,
+                            fd_ed25519_fe_t * rd, int *wsd, fd_ed25519_fe_t const * ud, fd_ed25519_fe_t const * vd ) {
+  /* TODO Deduplicate constants */
+
+  static const fd_ed25519_fe_t sqrtm1[1] = {{
+    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
+  }};
+
+  /* r = (u * v^3) * (u * v^7)^((p-5)/8) */
+
+  fd_ed25519_fe_t uv3a[1], uv3b[1], uv3c[1], uv3d[1];
+  fd_ed25519_fe_t uv7a[1], uv7b[1], uv7c[1], uv7d[1];
+  fd_ed25519_fe_sqn4( uv3a,va,1L,   uv3b,vb,1L,   uv3c,vc,1L,   uv3d,vd,1L );
+  fd_ed25519_fe_mul4( uv3a,uv3a,va, uv3b,uv3b,vb, uv3c,uv3c,vc, uv3d,uv3d,vd );
+  fd_ed25519_fe_sqn4( uv7a,uv3a,1L, uv7b,uv3b,1L, uv7c,uv3c,1L, uv7d,uv3d,1L );
+  fd_ed25519_fe_mul4( uv7a,uv7a,va, uv7b,uv7b,vb, uv7c,uv7c,vc, uv7d,uv7d,vd );
+  fd_ed25519_fe_mul4( uv3a,uv3a,ua, uv3b,uv3b,ub, uv3c,uv3c,uc, uv3d,uv3d,ud );
+  fd_ed25519_fe_mul4( uv7a,uv7a,ua, uv7b,uv7b,ub, uv7c,uv7c,uc, uv7d,uv7d,ud );
+  fd_ed25519_fe_pow22523_4( ra,uv7a, rb,uv7b, rc,uv7c, rd,uv7d );
+  fd_ed25519_fe_mul4( ra,ra,uv3a, rb,rb,uv3b, rc,rc,uv3c, rd,rd,uv3d );
+
+  /* check = v * r^2 */
+
+  fd_ed25519_fe_t checka[1], checkb[1], checkc[1], checkd[1];
+  fd_ed25519_fe_sqn4( checka,ra,1L, checkb,rb,1L, checkc,rc,1L, checkd,rd,1L );
+  fd_ed25519_fe_mul4( checka,checka,va, checkb,checkb,vb, checkc,checkc,vc, checkd,checkd,vd );
+
+  /* (correct_sign_sqrt)    check == u
+     (flipped_sign_sqrt)    check == !u
+     (flipped_sign_sqrt_i)  check == (!u * SQRT_M1)
+
+     We don't have an fe_eq (due to malleability introduced by carry
+     handling), so we compress points to an unambiguous representation.
+     Consider using a constant-time memcmp. */
+
+  fd_ed25519_fe_t ua_neg[1], ub_neg[1], uc_neg[1], ud_neg[1];
+  fd_ed25519_fe_t ua_neg_sqrtm1[1], ub_neg_sqrtm1[1], uc_neg_sqrtm1[1], ud_neg_sqrtm1[1];
+  fd_ed25519_fe_neg( ua_neg, ua );
+  fd_ed25519_fe_neg( ub_neg, ub );
+  fd_ed25519_fe_neg( uc_neg, uc );
+  fd_ed25519_fe_neg( ud_neg, ud );
+  fd_ed25519_fe_mul4( ua_neg_sqrtm1,ua_neg,sqrtm1, ub_neg_sqrtm1,ub_neg,sqrtm1, uc_neg_sqrtm1,uc_neg,sqrtm1, ud_neg_sqrtm1,ud_neg,sqrtm1 );
+
+  uchar check_comp       [32];
+  uchar u_comp           [32];
+  uchar u_neg_comp       [32];
+  uchar u_neg_sqrtm1_comp[32];
+
+  fd_ed25519_fe_tobytes( check_comp,        checka        );
+  fd_ed25519_fe_tobytes( u_comp,            ua            );
+  fd_ed25519_fe_tobytes( u_neg_comp,        ua_neg        );
+  fd_ed25519_fe_tobytes( u_neg_sqrtm1_comp, ua_neg_sqrtm1 );
+
+  int correct_sign_sqrta   = 0==memcmp( check_comp, u_comp,            32 );
+  int flipped_sign_sqrta   = 0==memcmp( check_comp, u_neg_comp,        32 );
+  int flipped_sign_sqrt_ia = 0==memcmp( check_comp, u_neg_sqrtm1_comp, 32 );
+
+  fd_ed25519_fe_tobytes( check_comp,        checkb        );
+  fd_ed25519_fe_tobytes( u_comp,            ub            );
+  fd_ed25519_fe_tobytes( u_neg_comp,        ub_neg        );
+  fd_ed25519_fe_tobytes( u_neg_sqrtm1_comp, ub_neg_sqrtm1 );
+
+  int correct_sign_sqrtb   = 0==memcmp( check_comp, u_comp,            32 );
+  int flipped_sign_sqrtb   = 0==memcmp( check_comp, u_neg_comp,        32 );
+  int flipped_sign_sqrt_ib = 0==memcmp( check_comp, u_neg_sqrtm1_comp, 32 );
+
+  fd_ed25519_fe_tobytes( check_comp,        checkc        );
+  fd_ed25519_fe_tobytes( u_comp,            uc            );
+  fd_ed25519_fe_tobytes( u_neg_comp,        uc_neg        );
+  fd_ed25519_fe_tobytes( u_neg_sqrtm1_comp, uc_neg_sqrtm1 );
+
+  int correct_sign_sqrtc   = 0==memcmp( check_comp, u_comp,            32 );
+  int flipped_sign_sqrtc   = 0==memcmp( check_comp, u_neg_comp,        32 );
+  int flipped_sign_sqrt_ic = 0==memcmp( check_comp, u_neg_sqrtm1_comp, 32 );
+
+  fd_ed25519_fe_tobytes( check_comp,        checkd        );
+  fd_ed25519_fe_tobytes( u_comp,            ud            );
+  fd_ed25519_fe_tobytes( u_neg_comp,        ud_neg        );
+  fd_ed25519_fe_tobytes( u_neg_sqrtm1_comp, ud_neg_sqrtm1 );
+
+  int correct_sign_sqrtd   = 0==memcmp( check_comp, u_comp,            32 );
+  int flipped_sign_sqrtd   = 0==memcmp( check_comp, u_neg_comp,        32 );
+  int flipped_sign_sqrt_id = 0==memcmp( check_comp, u_neg_sqrtm1_comp, 32 );
+
+  /* r_prime = SQRT_M1 * r */
+
+  fd_ed25519_fe_t ra_prime[1], rb_prime[1], rc_prime[1], rd_prime[1];
+  fd_ed25519_fe_mul4( ra_prime,ra,sqrtm1, rb_prime,rb,sqrtm1, rc_prime,rc,sqrtm1, rd_prime,rd,sqrtm1 );
+
+  /* r = CT_SELECT(r_prime IF flipped_sign_sqrt | flipped_sign_sqrt_i ELSE r) */
+
+  fd_ed25519_fe_if( ra, flipped_sign_sqrta|flipped_sign_sqrt_ia, ra_prime, ra );
+  fd_ed25519_fe_if( rb, flipped_sign_sqrtb|flipped_sign_sqrt_ib, rb_prime, rb );
+  fd_ed25519_fe_if( rc, flipped_sign_sqrtc|flipped_sign_sqrt_ic, rc_prime, rc );
+  fd_ed25519_fe_if( rd, flipped_sign_sqrtd|flipped_sign_sqrt_id, rd_prime, rd );
+
+  fd_ed25519_fe_abs( ra, ra );
+  fd_ed25519_fe_abs( rb, rb );
+  fd_ed25519_fe_abs( rc, rc );
+  fd_ed25519_fe_abs( rd, rd );
+
+  *wsa = correct_sign_sqrta|flipped_sign_sqrta;
+  *wsb = correct_sign_sqrtb|flipped_sign_sqrtb;
+  *wsc = correct_sign_sqrtc|flipped_sign_sqrtc;
+  *wsd = correct_sign_sqrtd|flipped_sign_sqrtd;
 }

@@ -715,8 +715,20 @@ fd_r43x6_quad_sqr_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
   } while(0)
 
 void
-fd_r43x6_pow22523_2( fd_r43x6_t * _za, fd_r43x6_t za,
-                     fd_r43x6_t * _zb, fd_r43x6_t zb );
+fd_r43x6_pow22523_2( fd_r43x6_t * _za, fd_r43x6_t xa,
+                     fd_r43x6_t * _zb, fd_r43x6_t xb );
+
+#define FD_R43X6_POW22523_4_INL( za,xa, zb,xb, zc,xc, zd,xd ) do {     \
+    fd_r43x6_t _za; fd_r43x6_t _zb; fd_r43x6_t _zc; fd_r43x6_t _zd;    \
+    fd_r43x6_pow22523_4( &_za,(xa), &_zb,(xb), &_zc,(xc), &_zd,(xd) ); \
+    (za) = _za; (zb) = _zb; (zc) = _zc; (zd) = _zd;                    \
+  } while(0)
+
+void
+fd_r43x6_pow22523_4( fd_r43x6_t * _za, fd_r43x6_t xa,
+                     fd_r43x6_t * _zb, fd_r43x6_t xb,
+                     fd_r43x6_t * _zc, fd_r43x6_t xc,
+                     fd_r43x6_t * _zd, fd_r43x6_t xd );
 
 #endif /* HPC implementation */
 

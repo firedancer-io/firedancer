@@ -485,10 +485,54 @@ test_fe_pow22523( fd_rng_t * rng ) {
   
   fd_ed25519_fe_rng( f, rng );
   ulong iter = 100000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_ed25519_fe_pow22523( h, f ); }
-  dt = fd_log_wallclock() - dt;
-  log_bench( "fd_ed25519_fe_pow22523", iter, dt );
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_ed25519_fe_pow22523( h, f ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ed25519_fe_pow22523", iter, dt );
+  }
+
+  fd_ed25519_fe_t _fb[1]; fd_ed25519_fe_t * fb = _fb;
+  fd_ed25519_fe_t _hb[1]; fd_ed25519_fe_t * hb = _hb;
+  fd_ed25519_fe_t _fc[1]; fd_ed25519_fe_t * fc = _fc;
+  fd_ed25519_fe_t _hc[1]; fd_ed25519_fe_t * hc = _hc;
+  fd_ed25519_fe_t _fd[1]; fd_ed25519_fe_t * fd = _fd;
+  fd_ed25519_fe_t _hd[1]; fd_ed25519_fe_t * hd = _hd;
+  fd_ed25519_fe_t _ref_h[1]; fd_ed25519_fe_t * ref_h = _ref_h;
+  memset(ref_h, 0, sizeof(fd_ed25519_fe_t));
+  memset(h, 0, sizeof(fd_ed25519_fe_t));
+  memset(hb, 0, sizeof(fd_ed25519_fe_t));
+  memset(hc, 0, sizeof(fd_ed25519_fe_t));
+  memset(hd, 0, sizeof(fd_ed25519_fe_t));
+  fd_ed25519_fe_rng( fb, rng );
+  fd_ed25519_fe_rng( fc, rng );
+  fd_ed25519_fe_rng( fd, rng );
+
+  fd_ed25519_fe_pow22523( ref_h, f );
+  fd_ed25519_fe_pow22523_2( h,f, hb,f );
+  FD_TEST( !memcmp( h,  ref_h, sizeof(fd_ed25519_fe_t) ) );
+  FD_TEST( !memcmp( hb, ref_h, sizeof(fd_ed25519_fe_t) ) );
+
+  fd_ed25519_fe_pow22523_4( h,f, hb,f, hc,f, hd,f );
+  FD_TEST( !memcmp( h,  ref_h, sizeof(fd_ed25519_fe_t) ) );
+  FD_TEST( !memcmp( hb, ref_h, sizeof(fd_ed25519_fe_t) ) );
+  FD_TEST( !memcmp( hc, ref_h, sizeof(fd_ed25519_fe_t) ) );
+  FD_TEST( !memcmp( hd, ref_h, sizeof(fd_ed25519_fe_t) ) );
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_ed25519_fe_pow22523_2( h,f, hb,fb ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ed25519_fe_pow22523_2", iter, dt );
+  }
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( h ); fd_ed25519_fe_pow22523_4( h,f, hb,fb, hc,fc, hd,fd ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ed25519_fe_pow22523_4", iter, dt );
+  }
 }
 
 /* FIXME: ADD VMUL, VSQ, VSQN TESTS HERE */

@@ -245,7 +245,7 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
   }
 
   /* Benchmarks */
-  ulong iter = 100000UL;
+  ulong iter = 10000UL;
 
   {
     long dt = fd_log_wallclock();
@@ -253,6 +253,38 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_ristretto255_hash_to_curve", iter, dt );
   }
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_map_to_curve( h, s ); }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_map_to_curve", iter, dt );
+  }
+
+  {
+    fd_ristretto255_point_t _ha[1]; fd_ristretto255_point_t * ha = _ha;
+    fd_ristretto255_point_t _hb[1]; fd_ristretto255_point_t * hb = _hb;
+    fd_ristretto255_point_t _hc[1]; fd_ristretto255_point_t * hc = _hc;
+    fd_ristretto255_point_t _hd[1]; fd_ristretto255_point_t * hd = _hd;
+
+    fd_ristretto255_map_to_curve  ( h,s );
+    fd_ristretto255_map_to_curve_4( ha,s, hb,s, hc,s, hd,s );
+    FD_TEST( fd_ristretto255_point_eq( h, ha ) );
+    FD_TEST( fd_ristretto255_point_eq( h, hb ) );
+    FD_TEST( fd_ristretto255_point_eq( h, hc ) );
+    FD_TEST( fd_ristretto255_point_eq( h, hd ) );
+
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( s );
+      FD_COMPILER_FORGET( ha ); FD_COMPILER_FORGET( hb );
+      FD_COMPILER_FORGET( hc ); FD_COMPILER_FORGET( hd );
+      fd_ristretto255_map_to_curve_4( ha,s, hb,s, hc,s, hd,s );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_map_to_curve_4", iter, dt );
+  }
+
 }
 
 static void

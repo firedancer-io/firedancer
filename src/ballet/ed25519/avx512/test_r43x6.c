@@ -776,6 +776,8 @@ main( int     argc,
     fd_r43x6_t y = fd_r43x6_pow22523( x );
     fd_r43x6_t z; FD_R43X6_POW22523_1_INL( z,x      ); FD_TEST( fd_r43x6_eq( z,y ) );
     fd_r43x6_t w; FD_R43X6_POW22523_2_INL( z,x, w,x ); FD_TEST( fd_r43x6_eq( z,y ) ); FD_TEST( fd_r43x6_eq( w,y ) );
+    fd_r43x6_t zz; fd_r43x6_t ww;
+    FD_R43X6_POW22523_4_INL( z,x, w,x, zz,x, ww,x ); FD_TEST( fd_r43x6_eq( z,y ) ); FD_TEST( fd_r43x6_eq( w,y ) ); FD_TEST( fd_r43x6_eq( zz,y ) ); FD_TEST( fd_r43x6_eq( ww,y ) );
   }
 
   FD_LOG_NOTICE(( "Benchmarking" ));
@@ -864,6 +866,7 @@ main( int     argc,
     BENCH( x = fd_r43x6_pow22523( x ) );
     BENCH( FD_R43X6_POW22523_1_INL( x0,x0 ) );
     BENCH( FD_R43X6_POW22523_2_INL( x0,x0, x1,x1 ) );
+    BENCH( FD_R43X6_POW22523_4_INL( x0,x0, x1,x1, x2,x2, x3,x3 ) );
 
     /* Prevent compiler from optimizing away */
     dummy[0] = x0; dummy[0] = x1; dummy[0] = x2; dummy[0] = x3;

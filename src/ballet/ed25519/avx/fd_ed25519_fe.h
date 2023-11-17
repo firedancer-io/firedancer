@@ -228,6 +228,12 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
                           fd_ed25519_fe_t * out1, fd_ed25519_fe_t const * z1 );
 
 void
+fd_ed25519_fe_pow22523_4( fd_ed25519_fe_t * outa, fd_ed25519_fe_t const * za,
+                          fd_ed25519_fe_t * outb, fd_ed25519_fe_t const * zb,
+                          fd_ed25519_fe_t * outc, fd_ed25519_fe_t const * zc,
+                          fd_ed25519_fe_t * outd, fd_ed25519_fe_t const * zd );
+
+void
 fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
                          fd_ed25519_fe_t const * f );
 
@@ -235,6 +241,12 @@ int
 fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
                           fd_ed25519_fe_t const * u,
                           fd_ed25519_fe_t const * v );
+
+void
+fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * outa, int *out_wsa, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                            fd_ed25519_fe_t * outb, int *out_wsb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
+                            fd_ed25519_fe_t * outc, int *out_wsc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc,
+                            fd_ed25519_fe_t * outd, int *out_wsd, fd_ed25519_fe_t const * fd, fd_ed25519_fe_t const * gd );
 
 static inline int
 fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
