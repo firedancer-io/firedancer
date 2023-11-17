@@ -523,7 +523,7 @@ topo_initialize( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_STAKE_TO_OUT,    FD_TOPO_WKSP_KIND_STAKE_OUT,    128UL,                                    32UL + 40200UL * 40UL,  1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    FD_POH_SHRED_MTU,       1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
