@@ -3118,12 +3118,6 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
 
     /* successful, update rx_crypto_offset */
     conn->rx_crypto_offset[enc_level] += rcv_sz;
-
-    /* Deallocate tls_hs once completed */
-    if( conn->tls_hs->state == FD_QUIC_TLS_HS_STATE_COMPLETE ) {
-      fd_quic_tls_hs_delete( conn->tls_hs );
-      conn->tls_hs = NULL;
-    }
   }
 
   /* ack-eliciting */
@@ -6757,7 +6751,12 @@ fd_quic_frame_handle_handshake_done_frame(
 
     /* either we treat this as a fatal error, or just warn
        if we don't tear down the connection we must move to ACTIVE */
-    FD_LOG_WARNING(( "%s : handshake done frame received, but not in handshake complete state", __func__ ));
+    FD_LOG_WARNING(( "handshake done frame received, but not in handshake complete state" ));
+  }
+
+  if( FD_UNLIKELY( !conn->tls_hs ) ) {
+    /* sanity check */
+    return 0;
   }
 
   /* eliminate any remaining hs_data at application level */
@@ -6777,6 +6776,10 @@ fd_quic_frame_handle_handshake_done_frame(
 
   /* user callback */
   fd_quic_cb_conn_hs_complete( conn->quic, conn );
+
+  /* Deallocate tls_hs once completed */
+  fd_quic_tls_hs_delete( conn->tls_hs );
+  conn->tls_hs = NULL;
 
   return 0;
 }
