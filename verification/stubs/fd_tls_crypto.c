@@ -4,12 +4,6 @@
 #include <ballet/sha512/fd_sha512.h>
 #include <ballet/ed25519/fd_ed25519.h>
 
-void __CPROVER_r_ok( void const *, ulong );
-void __CPROVER_rw_ok( void *, ulong );
-void __CPROVER_w_ok( void *, ulong );
-void __CPROVER_havoc_slice( void *, ulong );
-void __CPROVER_assume( int );
-
 void *
 fd_ed25519_sign( void *        sig,
                  void const *  msg,

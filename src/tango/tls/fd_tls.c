@@ -5,6 +5,8 @@
 #include "../../ballet/ed25519/fd_x25519.h"
 #include "../../ballet/hmac/fd_hmac.h"
 
+#include <assert.h>
+
 /* Pre-generated keys */
 
 static char const fd_tls13_cli_sign_prefix[ 98 ] =
@@ -218,45 +220,66 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
   fd_sha256_t transcript_clone = *transcript;
   fd_sha256_fini( &transcript_clone, sign_msg+98 );
 
-  /* Create static size message layout */
-
-  struct __attribute__((packed)) {
-    fd_tls_record_hdr_t  hdr;
-    fd_tls_cert_verify_t cert_verify;
-  } cv_rec;
-  cv_rec.hdr = (fd_tls_record_hdr_t){
-    .type = FD_TLS_RECORD_CERT_VERIFY,
-    .sz   = fd_uint_to_tls_u24( 0x44 )
-  };
-  cv_rec.cert_verify = (fd_tls_cert_verify_t){
-    .sig_alg = FD_TLS_SIGNATURE_ED25519
-  };
-
-  fd_tls_record_hdr_bswap ( &cv_rec.hdr         );
-  fd_tls_cert_verify_bswap( &cv_rec.cert_verify );
-
   /* Sign certificate */
 
   fd_sha512_t sha512;
-  fd_ed25519_sign( cv_rec.cert_verify.sig,
+  uchar cert_verify_sig[ 64UL ];
+  fd_ed25519_sign( cert_verify_sig,
                    sign_msg, 130UL,
                    this->cert_public_key,
                    this->cert_private_key,
                    &sha512 );
 
+  /* Create CertificateVerify record */
+
+# define MSG_BUFSZ (512UL)
+  uchar msg_buf[ MSG_BUFSZ ];
+
+  ulong cv_sz;
+
+  do {
+    uchar *       wire     = msg_buf;
+    uchar * const wire_end = msg_buf + MSG_BUFSZ;
+
+    /* Leave space for record header */
+
+    void * hdr_ptr = wire;
+    wire += sizeof(fd_tls_record_hdr_t);
+    fd_tls_record_hdr_t hdr = { .type = FD_TLS_RECORD_CERT_VERIFY };
+
+    /* Construct CertificateVerify */
+
+    fd_tls_cert_verify_t cv = {
+      .sig_alg = FD_TLS_SIGNATURE_ED25519
+    };
+    fd_memcpy( cv.sig, cert_verify_sig, 64UL );
+
+    /* Encode CertificateVerify */
+
+    long encode_res = fd_tls_encode_cert_verify( &cv, wire, (ulong)(wire_end-wire) );
+    if( FD_UNLIKELY( encode_res<0L ) )
+      return fd_tls_alert( hs, (uint)(-encode_res), FD_TLS_REASON_CV_ENCODE );
+    wire += (ulong)encode_res;
+
+    hdr.sz = fd_uint_to_tls_u24( (uint)encode_res );
+    fd_tls_encode_record_hdr( &hdr, hdr_ptr, sizeof(fd_tls_record_hdr_t) );
+    cv_sz = (ulong)(wire - msg_buf);
+  } while(0);
+
   /* Send CertificateVerify record */
 
   if( FD_UNLIKELY( !this->sendmsg_fn(
         hs,
-        &cv_rec, sizeof(cv_rec),
+        msg_buf, cv_sz,
         FD_TLS_LEVEL_HANDSHAKE,
         /* flush */ 0 ) ) )
     return fd_tls_alert( hs, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
   /* Record CertificateVerify in transcript hash */
 
-  fd_sha256_append( transcript, &cv_rec, sizeof(cv_rec) );
+  fd_sha256_append( transcript, msg_buf, cv_sz );
 
+# undef MSG_BUFSZ
   return 0L;
 }
 
@@ -758,7 +781,8 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
 
     fd_tls_record_hdr_t record_hdr = {0};
     long decode_res = fd_tls_decode_record_hdr( &record_hdr, wire, (ulong)(wire_end-wire) );
-    if( FD_UNLIKELY( decode_res<0L ) )
+    if( FD_UNLIKELY( ( decode_res<0L ) |
+                     ( fd_tls_u24_to_uint( record_hdr.sz ) != 0x44UL ) ) )
       return fd_tls_alert( hs, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CV_PARSE );
     wire += (ulong)decode_res;
 
@@ -775,7 +799,7 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
     /* Fail if trailing bytes detected */
 
     if( FD_UNLIKELY( wire!=wire_end ) )
-      return fd_tls_alert( hs, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CH_TRAILING );
+      return fd_tls_alert( hs, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CV_TRAILING );
   } while(0);
 
   if( FD_UNLIKELY( vfy->sig_alg != FD_TLS_SIGNATURE_ED25519 ) )
@@ -1805,6 +1829,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "trailing bytes after CertificateVerify";
   case FD_TLS_REASON_CV_PARSE:
     return "failed to decode CertificateVerify";
+  case FD_TLS_REASON_CV_ENCODE:
+    return "failed to encode CertificateVerify";
   default:
     FD_LOG_WARNING(( "Missing fd_tls_reason_cstr code for %u (memory corruption?)", reason ));
     __attribute__((fallthrough));
