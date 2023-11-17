@@ -9,12 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
 #include <net/if.h>
 #include <linux/if.h>
 #include <arpa/inet.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/utsname.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
@@ -755,9 +756,11 @@ config_parse( int *      pargc,
     strncpy( config->user, user, 256 );
   }
 
-  if( FD_UNLIKELY( -1==gethostname( config->hostname, FD_LOG_NAME_MAX ) ) )
-    FD_LOG_ERR(( "could not get hostname (%i-%s)", errno, fd_io_strerror( errno ) ));
-  config->hostname[ FD_LOG_NAME_MAX-1UL ] = '\0';
+  struct utsname utsname;
+  if( FD_UNLIKELY( -1==uname( &utsname ) ) )
+    FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
+  strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
+  config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
   if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
