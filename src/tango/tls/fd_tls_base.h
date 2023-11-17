@@ -244,6 +244,7 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_REASON_CV_SIGALG      (402)  /* CertificateVerify sig is not Ed25519 */
 #define FD_TLS_REASON_CV_TRAILING    (403)  /* trailing bytes in CertificateVerify */
 #define FD_TLS_REASON_CV_PARSE       (404)  /* failed to parse CertificateVerify */
+#define FD_TLS_REASON_CV_ENCODE      (405)  /* failed to encode CertificateVerify */
 
 #define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
 #define FD_TLS_REASON_CERT_CR_TRAILING (502)  /* trailing bytes in Certificate or CertificateRequest */
