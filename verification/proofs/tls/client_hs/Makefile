@@ -1,12 +1,8 @@
 HARNESS_ENTRY = harness
 HARNESS_FILE = fd_tls_client_hs_harness
-
 PROOF_UID = fd_tls_client_hs
 
-DEFINES +=
 INCLUDES += -I$(SRCDIR)
-
-REMOVE_FUNCTION_BODY +=
 
 PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
 PROOF_SOURCES += $(PROOF_STUB)/fd_log.c
