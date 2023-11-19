@@ -1,6 +1,7 @@
 #include "fd_quic_crypto_suites.h"
 #include "../fd_quic.h"
 
+#include <assert.h>
 #include <limits.h>
 #include <sys/random.h>
 
@@ -214,11 +215,11 @@ fd_quic_gen_new_secrets(
   uchar client_secret_sz = secrets->secret_sz[enc_level][0];
   uchar server_secret_sz = secrets->secret_sz[enc_level][1];
 
-  char const key_update[] = FD_QUIC_CRYPTO_LABEL_KEY_UPDATE;
+  static char const key_update[] = FD_QUIC_CRYPTO_LABEL_KEY_UPDATE;
   if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
       client_secret,      client_secret_sz,
       old_client_secret,  client_secret_sz,
-      (uchar*)key_update, strlen( key_update ),
+      (uchar*)key_update, sizeof(key_update)-1UL,
       hmac_fn,            hash_sz ) ) ) {
     FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
@@ -227,7 +228,7 @@ fd_quic_gen_new_secrets(
   if( FD_UNLIKELY( !fd_quic_hkdf_expand_label(
       server_secret,      server_secret_sz,
       old_server_secret,  server_secret_sz,
-      (uchar*)key_update, strlen( key_update ),
+      (uchar*)key_update, sizeof(key_update)-1UL,
       hmac_fn,            hash_sz ) ) ) {
     FD_LOG_WARNING(( "fd_quic_hkdf_expand_label failed" ));
     return FD_QUIC_FAILED;
@@ -240,7 +241,7 @@ fd_quic_gen_new_secrets(
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz ) {
 
@@ -305,7 +306,7 @@ fd_quic_gen_keys(
 int
 fd_quic_gen_new_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz,
     fd_hmac_fn_t             hmac_fn,
@@ -380,7 +381,7 @@ fd_quic_crypto_encrypt(
     ulong                    const hdr_sz,
     uchar const *            const pkt,
     ulong                    const pkt_sz,
-    fd_quic_crypto_suite_t * const suite,
+    fd_quic_crypto_suite_t const * const suite,
     fd_quic_crypto_keys_t *  const pkt_keys,
     fd_quic_crypto_keys_t *  const hp_keys ) {
 
@@ -476,16 +477,14 @@ fd_quic_crypto_decrypt(
     ulong                    const in_sz,
     ulong                    const pkt_number_off,
     ulong                    const pkt_number,
-    fd_quic_crypto_suite_t * const suite,
-    fd_quic_crypto_keys_t *  const keys ) {
+    fd_quic_crypto_suite_t const * const suite,
+    fd_quic_crypto_keys_t  const * const keys ) {
 
   (void)suite;
 
   ulong const out_bufsz = *p_out_sz;
 
   /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
-  if( FD_UNLIKELY( in_sz < FD_QUIC_CRYPTO_TAG_SZ ) )
-    return FD_QUIC_FAILED;
   if( FD_UNLIKELY( out_bufsz + FD_QUIC_CRYPTO_TAG_SZ < in_sz ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
@@ -506,8 +505,11 @@ fd_quic_crypto_decrypt(
   fd_memcpy( nonce, quic_iv, nonce_tmp );
   for( uint k = 0; k < 4; ++k ) {
     uint j = nonce_tmp + k;
-    nonce[j] = (uchar)(quic_iv[j] ^ (uchar)( pkt_number >> ( (3u - k) * 8u ) ));
+    nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
   }
+
+  if( FD_UNLIKELY( in_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) )
+    return FD_QUIC_FAILED;
 
   /* AES-GCM decrypt */
   uchar *       const gcm_p   = out    + hdr_sz;
@@ -522,6 +524,14 @@ fd_quic_crypto_decrypt(
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
+
+  assert( FD_QUIC_CRYPTO_TAG_SZ<=in_sz  );
+  assert( gcm_p         >=out           );
+  assert( gcm_p+gcm_sz  <=out+out_bufsz );
+  assert( gcm_c         >=in            );
+  assert( gcm_c+gcm_sz  <=in+in_sz      );
+  assert( gcm_tag       >=in            );
+  assert( gcm_tag+FD_QUIC_CRYPTO_TAG_SZ<=in+in_sz );
 
   fd_aes_gcm_t pkt_cipher[1];
   fd_aes_128_gcm_init( pkt_cipher, keys->pkt_key, nonce );
@@ -541,12 +551,12 @@ fd_quic_crypto_decrypt(
 int
 fd_quic_crypto_decrypt_hdr(
     uchar *                  plain_text,
-    ulong *                  plain_text_sz,
+    ulong                    plain_text_sz,
     uchar const *            cipher_text,
     ulong                    cipher_text_sz,
     ulong                    pkt_number_off,
-    fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys ) {
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys ) {
 
   (void)suite;
 
@@ -557,7 +567,7 @@ fd_quic_crypto_decrypt_hdr(
   }
 
   /* must have capacity for header */
-  if( FD_UNLIKELY( *plain_text_sz < pkt_number_off + 4 ) ) {
+  if( FD_UNLIKELY( plain_text_sz < pkt_number_off + 4 ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
@@ -565,22 +575,21 @@ fd_quic_crypto_decrypt_hdr(
   uint          first      = cipher_text[0]; /* first byte */
   uint          long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
   ulong         sample_off = pkt_number_off + 4;
-  uchar const * sample     = cipher_text + sample_off;
 
-  if( FD_UNLIKELY( sample + FD_QUIC_HP_SAMPLE_SZ > cipher_text + cipher_text_sz ) ) {
+  if( FD_UNLIKELY( sample_off + FD_QUIC_HP_SAMPLE_SZ > cipher_text_sz ) ) {
     FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" )) );
     return FD_QUIC_FAILED;
   }
 
+  uchar const * sample = cipher_text + sample_off;
+
+  /* TODO this is hardcoded to AES-128 */
   uchar hp_cipher[16];
   fd_aes_key_t ecb[1];
   fd_aes_set_encrypt_key( keys->hp_key, 128, ecb );
   fd_aes_encrypt( sample, hp_cipher, ecb );
 
   /* copy header, up to packet number, into output */
-  if( sample_off > *plain_text_sz ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt: plain text buffer too short for header" ));
-  }
   fd_memcpy( plain_text, cipher_text, sample_off );
 
   /* hp_cipher is mask */
@@ -609,15 +618,15 @@ int
 fd_quic_crypto_rand( uchar * buf,
                      ulong   buf_sz ) {
   /* TODO buffer */
-  if( FD_UNLIKELY( 0!=getrandom( buf, buf_sz, 0 ) ) )
+  if( FD_UNLIKELY( (long)buf_sz!=getrandom( buf, buf_sz, 0 ) ) )
     return FD_QUIC_FAILED;
   return FD_QUIC_SUCCESS;
 }
 
 int fd_quic_retry_token_encrypt(
-    fd_quic_conn_id_t * orig_dst_conn_id,
+    fd_quic_conn_id_t const * orig_dst_conn_id,
     ulong               now,
-    fd_quic_conn_id_t * retry_src_conn_id,
+    fd_quic_conn_id_t const * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,
     uchar               retry_token[static FD_QUIC_RETRY_TOKEN_SZ]

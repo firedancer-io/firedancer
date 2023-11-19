@@ -85,6 +85,7 @@
   } while(0);
 
 
+#if !defined(CBMC)
 #if 0
 inline
 ulong
@@ -172,3 +173,18 @@ fd_quic_encode_bits( uchar * buf, ulong cur_bit, ulong val, ulong bits ) {
   return 0;
 }
 #endif
+
+#else /* defined(CBMC) */
+
+extern ulong
+fd_quic_parse_bits( uchar const * buf,
+                    ulong         cur_bit,
+                    ulong         bits );
+
+extern int
+fd_quic_encode_bits( uchar * buf,
+                     ulong   cur_bit,
+                     ulong   val,
+                     ulong   bits );
+
+#endif /* defined(CBMC) */
