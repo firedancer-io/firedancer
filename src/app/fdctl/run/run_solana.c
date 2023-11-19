@@ -85,6 +85,7 @@ solana_labs_main( void * args ) {
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );
+  if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
   if( config->ledger.bigtable_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
   for( ulong i=0; i<config->ledger.account_indexes_cnt; i++ )
