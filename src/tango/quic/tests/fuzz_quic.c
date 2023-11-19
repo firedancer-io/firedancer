@@ -35,27 +35,6 @@ int test_aio_send_func(void *ctx, fd_aio_pkt_info_t const *batch,
   return 0;
 }
 
-struct fd_quic_pkt {
-  fd_eth_hdr_t eth[1];
-  fd_ip4_hdr_t ip4[1];
-  fd_udp_hdr_t udp[1];
-
-  /* the following are the "current" values only. There may be more QUIC packets
-     in a UDP datagram */
-  fd_quic_long_hdr_t long_hdr[1];
-  ulong pkt_number; /* quic packet number currently being decoded/parsed */
-  ulong rcv_time;   /* time packet was received */
-  uint enc_level;   /* encryption level */
-  uint datagram_sz; /* length of the original datagram */
-  uint ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
-  uint ping;
-#define ACK_FLAG_NOT_RQD 0
-#define ACK_FLAG_RQD 1
-#define ACK_FLAG_CANCEL 2
-};
-
-typedef struct fd_quic_pkt fd_quic_pkt_t;
-
 uint send_packet(uchar const *payload, size_t payload_sz) {
 
   if (FD_UNLIKELY(payload_sz <= 0L)) {

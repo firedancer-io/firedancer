@@ -9,6 +9,10 @@
 #include "crypto/fd_quic_crypto_suites.h"
 #include "tls/fd_quic_tls.h"
 
+#include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
+#include "../../util/net/fd_udp.h"
+
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing.
    FIXME not fully implemented (#256) */
@@ -86,6 +90,27 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
 #define FD_QUIC_STATE_OFF (fd_ulong_align_up( sizeof(fd_quic_t), alignof(fd_quic_state_t) ))
+
+struct fd_quic_pkt {
+  fd_eth_hdr_t       eth[1];
+  fd_ip4_hdr_t       ip4[1];
+  fd_udp_hdr_t       udp[1];
+
+  /* the following are the "current" values only. There may be more QUIC packets
+     in a UDP datagram */
+  fd_quic_long_hdr_t long_hdr[1];
+  ulong              pkt_number;  /* quic packet number currently being decoded/parsed */
+  ulong              rcv_time;    /* time packet was received */
+  uint               enc_level;   /* encryption level */
+  uint               datagram_sz; /* length of the original datagram */
+  uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
+  uint ping;
+# define ACK_FLAG_NOT_RQD 0
+# define ACK_FLAG_RQD     1
+# define ACK_FLAG_CANCEL  2
+};
+
+typedef struct fd_quic_pkt fd_quic_pkt_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -274,6 +299,31 @@ void
 fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level );
+
+ulong
+fd_quic_send_retry( fd_quic_t *                  quic,
+                    fd_quic_pkt_t *              pkt,
+                    fd_quic_transport_params_t * tp,
+                    fd_quic_conn_id_t const *    orig_dst_conn_id,
+                    fd_quic_conn_id_t const *    new_conn_id,
+                    uchar const                  dst_mac_addr_u6[ 6 ],
+                    uint                         dst_ip_addr,
+                    ushort                       dst_udp_port );
+
+ulong
+fd_quic_handle_v1_initial( fd_quic_t *               quic,
+                           fd_quic_conn_t **         p_conn,
+                           fd_quic_pkt_t *           pkt,
+                           fd_quic_conn_id_t const * conn_id,
+                           uchar const *             cur_ptr,
+                           ulong                     cur_sz );
+
+ulong
+fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
+                           fd_quic_conn_t * conn,
+                           fd_quic_pkt_t *  pkt,
+                           uchar const *    cur_ptr,
+                           ulong            cur_sz );
 
 FD_PROTOTYPES_END
 
