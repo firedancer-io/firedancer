@@ -339,7 +339,7 @@ fd_quic_gen_new_secrets(
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz );
 
@@ -351,7 +351,7 @@ fd_quic_gen_keys(
 int
 fd_quic_gen_new_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz,
     fd_hmac_fn_t             hmac_fn,
@@ -385,7 +385,7 @@ fd_quic_crypto_encrypt(
     ulong                    hdr_sz,
     uchar const *            pkt,
     ulong                    pkt_sz,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t *  pkt_keys,
     fd_quic_crypto_keys_t *  hp_keys );
 
@@ -421,8 +421,8 @@ fd_quic_crypto_decrypt(
     ulong                    cipher_text_sz,
     ulong                    pkt_number_off,
     ulong                    pkt_number,
-    fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys );
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys );
 
 
 /* decrypt a quic protected packet header
@@ -440,9 +440,7 @@ fd_quic_crypto_decrypt(
 
    args
      plain_text         the resulting decrypted data
-     plain_text_sz      a pointer to the size of the decrypted data in bytes
-                          this is used on input as the capacity of the buffer and
-                            in output as the resulting output size
+     plain_text_cap     the capacity of the plain text buffer
      cipher_text        the input cypher text
      cipher_text_sz     the input size in bytes of the cipher text
      pkt_number_off     the offset of the packet number within the cipher text
@@ -453,12 +451,12 @@ fd_quic_crypto_decrypt(
 int
 fd_quic_crypto_decrypt_hdr(
     uchar *                  plain_text,
-    ulong *                  plain_text_sz,
+    ulong                    plain_text_cap,
     uchar const *            cipher_text,
     ulong                    cipher_text_sz,
     ulong                    pkt_number_off,
-    fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys );
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys );
 
 
 /* look up crypto suite by major/minor
@@ -512,10 +510,10 @@ fd_quic_crypto_lookup_suite( uchar major,
     to AEAD as plaintext vs. as associated data. */
 int fd_quic_retry_token_encrypt(
     /* plaintext (timestamp calculated in function) */
-    fd_quic_conn_id_t * orig_dst_conn_id,
+    fd_quic_conn_id_t const * orig_dst_conn_id,
     ulong               now,
     /* aad */
-    fd_quic_conn_id_t * retry_src_conn_id,
+    fd_quic_conn_id_t const * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,
     /* ciphertext */
