@@ -28,6 +28,3 @@ EXPORT_FILE_LOCAL_SYMBOLS =
 # include directories in your project.
 #
 # INCLUDES =
-
-# Preprocessor definitions -D...
-DEFINES += -D__STDC_VERSION__=201710L # Bypass C17 check made by fd_util_base.h
