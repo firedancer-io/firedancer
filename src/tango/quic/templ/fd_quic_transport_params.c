@@ -231,7 +231,7 @@ fd_quic_dump_transport_params( fd_quic_transport_params_t const * params, FILE *
 // returns the number of bytes written
 ulong
 fd_quic_encode_transport_params( uchar *                            buf,
-                                 ulong                             buf_sz,
+                                 ulong                              buf_sz,
                                  fd_quic_transport_params_t const * params ) {
   ulong orig_buf_sz = buf_sz;
 #define __( NAME, ID, TYPE, DFT, DESC, ... )                           \

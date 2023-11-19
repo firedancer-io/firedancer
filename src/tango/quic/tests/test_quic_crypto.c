@@ -256,7 +256,7 @@ main( int     argc,
 
   ulong pn_offset = 18; /* from example in rfc */
 
-  if( fd_quic_crypto_decrypt_hdr( revert, &revert_sz,
+  if( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
         cipher_text, cipher_text_sz,
         pn_offset,
         suite,
