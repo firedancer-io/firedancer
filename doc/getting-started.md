@@ -18,7 +18,7 @@ it is possible to run Firedancer to run on older hosts, it is not
 supported and the below assumes a reasonably modern host.
 
 While the Firedancer applications are meant to run from a normal user
-account, tuning a host to run Firedancer optimally requires a some
+account, tuning a host to run Firedancer optimally requires some
 administrative operations (should not be any more than the existing
 validator).  Though it is possible to run Firedancer without any of
 these tunings, it is not recommended and the below assumes the user has
