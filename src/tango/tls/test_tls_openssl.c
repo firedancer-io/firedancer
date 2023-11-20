@@ -214,6 +214,20 @@ _ossl_verify_callback( int              preverify_ok,
   return 1;
 }
 
+static int
+_ossl_alpn_select( SSL *          ssl,
+                   uchar const ** out,
+                   uchar *        outlen,
+                   uchar const *  in,
+                   uint           inlen,
+                   void *         arg ) {
+  (void)ssl; (void)arg;
+  if( SSL_select_next_proto( (unsigned char **)out, outlen, in, inlen, (uchar const *)"solana-tpu", 10 )==OPENSSL_NPN_NEGOTIATED ) {
+    return SSL_TLSEXT_ERR_OK;
+  }
+  return SSL_TLSEXT_ERR_NOACK;
+}
+
 /* test_server connects an OpenSSL client to an fd_tls server */
 
 void
@@ -240,6 +254,9 @@ test_server( SSL_CTX * ctx ) {
     .quic = 1,
     .quic_tp_peer_fn = _fdtls_quic_tp_peer,
     .quic_tp_self_fn = _fdtls_quic_tp_self,
+
+    .alpn    = "\xasolana-tpu",
+    .alpn_sz = 11UL,
   };
 
   fd_tls_estate_srv_t hs[1];
@@ -368,6 +385,9 @@ test_client( SSL_CTX * ctx ) {
     .quic = 1,
     .quic_tp_peer_fn = _fdtls_quic_tp_peer,
     .quic_tp_self_fn = _fdtls_quic_tp_self,
+
+    .alpn    = "\xasolana-tpu",
+    .alpn_sz = 11UL,
   };
 
   uchar server_public_key[ 32 ];
@@ -446,6 +466,9 @@ main( int     argc,
 
   SSL_CTX_set_info_callback  ( ctx, _ossl_info   );
   SSL_CTX_set_keylog_callback( ctx, _ossl_keylog );
+
+  SSL_CTX_set_alpn_protos( ctx, (uchar const *)"\xasolana-tpu", 11UL );
+  SSL_CTX_set_alpn_select_cb( ctx, _ossl_alpn_select, NULL );
 
   test_server( ctx );
 

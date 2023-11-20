@@ -395,6 +395,8 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     server->quic_tp_peer_fn( handshake, ch.quic_tp.buf, ch.quic_tp.bufsz );
   }
 
+  /* TODO check whether ALPN string contains our requested protocol */
+
   /* Record client hello in transcript hash */
 
   fd_sha256_append( &transcript, record, record_sz );
@@ -541,7 +543,10 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
       }
     };
 
-    /* TODO Add ALPN if requested */
+    if( server->alpn_sz > sizeof(ee.alpn) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_ALPN_OVERSZ );
+    fd_memcpy( ee.alpn, server->alpn, server->alpn_sz );
+    ee.alpn_sz = (uchar)server->alpn_sz;
 
     /* Negotiate raw public keys if available */
 
@@ -1751,6 +1756,8 @@ fd_tls_reason_cstr( uint reason ) {
     return "wrong encryption level (bug in user of fd_tls API)";
   case FD_TLS_REASON_RAND_FAIL:
     return "rand function failed";
+  case FD_TLS_REASON_ALPN_OVERSZ:
+    return "our ALPN list is too long";
   case FD_TLS_REASON_CH_EXPECTED:
     return "expected ClientHello, but got other message type";
   case FD_TLS_REASON_CH_TRAILING:
