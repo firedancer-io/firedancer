@@ -54,6 +54,7 @@ struct fd_tls {
      Format: <1 byte length prefix> <ASCII chars>.
      Is not NUL delimited. */
   uchar alpn[ 32 ];
+  ulong alpn_sz;
 
   /* Flags */
   ulong quic            :  1;
