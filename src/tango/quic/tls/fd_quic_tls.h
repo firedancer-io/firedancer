@@ -125,10 +125,6 @@ struct __attribute__((aligned(128))) fd_quic_tls {
 
   /* ssl related */
   fd_tls_t tls;
-
-  /* ALPNs in OpenSSL length-prefixed list format */
-  uchar const * alpns;
-  uint          alpns_sz;
 };
 
 #define FD_QUIC_TLS_HS_DATA_UNUSED ((ushort)~0u)
