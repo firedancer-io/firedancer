@@ -1945,6 +1945,51 @@
         { "name": "epoch_accounts_hash",                   "type": "option", "element": "hash", "ignore_underflow": true },
         { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status", "ignore_underflow": true }
       ]
+    },
+    {
+      "name": "repair_request_header",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "signature" },
+        { "name": "sender", "type": "pubkey" },
+        { "name": "recipient", "type": "pubkey" },
+        { "name": "timestamp", "type": "ulong" },
+        { "name": "nonce", "type": "uint" }
+      ]
+    },
+    {
+      "name": "repair_window_index",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "shred_index", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_highest_window_index",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "shred_index", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_orphan",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_ancestor_hashes",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" }
+      ]
     }
   ]
 }

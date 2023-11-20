@@ -2310,6 +2310,51 @@ typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
 #define FD_SOLANA_MANIFEST_ALIGN (16UL)
 
+struct __attribute__((aligned(8UL))) fd_repair_request_header {
+  fd_signature_t signature;
+  fd_pubkey_t sender;
+  fd_pubkey_t recipient;
+  ulong timestamp;
+  uint nonce;
+};
+typedef struct fd_repair_request_header fd_repair_request_header_t;
+#define FD_REPAIR_REQUEST_HEADER_FOOTPRINT sizeof(fd_repair_request_header_t)
+#define FD_REPAIR_REQUEST_HEADER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_window_index {
+  fd_repair_request_header_t header;
+  ulong slot;
+  ulong shred_index;
+};
+typedef struct fd_repair_window_index fd_repair_window_index_t;
+#define FD_REPAIR_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_window_index_t)
+#define FD_REPAIR_WINDOW_INDEX_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_highest_window_index {
+  fd_repair_request_header_t header;
+  ulong slot;
+  ulong shred_index;
+};
+typedef struct fd_repair_highest_window_index fd_repair_highest_window_index_t;
+#define FD_REPAIR_HIGHEST_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_highest_window_index_t)
+#define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_orphan {
+  fd_repair_request_header_t header;
+  ulong slot;
+};
+typedef struct fd_repair_orphan fd_repair_orphan_t;
+#define FD_REPAIR_ORPHAN_FOOTPRINT sizeof(fd_repair_orphan_t)
+#define FD_REPAIR_ORPHAN_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_ancestor_hashes {
+  fd_repair_request_header_t header;
+  ulong slot;
+};
+typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
+#define FD_REPAIR_ANCESTOR_HASHES_FOOTPRINT sizeof(fd_repair_ancestor_hashes_t)
+#define FD_REPAIR_ANCESTOR_HASHES_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -4660,6 +4705,61 @@ void fd_solana_manifest_walk(void * w, fd_solana_manifest_t const * self, fd_typ
 ulong fd_solana_manifest_size(fd_solana_manifest_t const * self);
 ulong fd_solana_manifest_footprint( void );
 ulong fd_solana_manifest_align( void );
+
+void fd_repair_request_header_new(fd_repair_request_header_t* self);
+int fd_repair_request_header_decode(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_request_header_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_request_header_decode_unsafe(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_request_header_encode(fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_request_header_destroy(fd_repair_request_header_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_request_header_walk(void * w, fd_repair_request_header_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_request_header_size(fd_repair_request_header_t const * self);
+ulong fd_repair_request_header_footprint( void );
+ulong fd_repair_request_header_align( void );
+
+void fd_repair_window_index_new(fd_repair_window_index_t* self);
+int fd_repair_window_index_decode(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_window_index_decode_unsafe(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_window_index_encode(fd_repair_window_index_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_window_index_destroy(fd_repair_window_index_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_window_index_walk(void * w, fd_repair_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_window_index_size(fd_repair_window_index_t const * self);
+ulong fd_repair_window_index_footprint( void );
+ulong fd_repair_window_index_align( void );
+
+void fd_repair_highest_window_index_new(fd_repair_highest_window_index_t* self);
+int fd_repair_highest_window_index_decode(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_highest_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_highest_window_index_decode_unsafe(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_highest_window_index_encode(fd_repair_highest_window_index_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_highest_window_index_destroy(fd_repair_highest_window_index_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_highest_window_index_walk(void * w, fd_repair_highest_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_highest_window_index_size(fd_repair_highest_window_index_t const * self);
+ulong fd_repair_highest_window_index_footprint( void );
+ulong fd_repair_highest_window_index_align( void );
+
+void fd_repair_orphan_new(fd_repair_orphan_t* self);
+int fd_repair_orphan_decode(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_orphan_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_orphan_decode_unsafe(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_orphan_encode(fd_repair_orphan_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_orphan_destroy(fd_repair_orphan_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_orphan_walk(void * w, fd_repair_orphan_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_orphan_size(fd_repair_orphan_t const * self);
+ulong fd_repair_orphan_footprint( void );
+ulong fd_repair_orphan_align( void );
+
+void fd_repair_ancestor_hashes_new(fd_repair_ancestor_hashes_t* self);
+int fd_repair_ancestor_hashes_decode(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_ancestor_hashes_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_ancestor_hashes_decode_unsafe(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_ancestor_hashes_encode(fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_ancestor_hashes_destroy(fd_repair_ancestor_hashes_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_ancestor_hashes_walk(void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_ancestor_hashes_size(fd_repair_ancestor_hashes_t const * self);
+ulong fd_repair_ancestor_hashes_footprint( void );
+ulong fd_repair_ancestor_hashes_align( void );
 
 FD_PROTOTYPES_END
 

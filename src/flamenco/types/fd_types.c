@@ -18600,6 +18600,315 @@ int fd_solana_manifest_encode(fd_solana_manifest_t const * self, fd_bincode_enco
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_repair_request_header_decode(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_request_header_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_request_header_new(self);
+  fd_repair_request_header_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_request_header_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_signature_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint32_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_repair_request_header_decode_unsafe(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_signature_decode_unsafe(&self->signature, ctx);
+  fd_pubkey_decode_unsafe(&self->sender, ctx);
+  fd_pubkey_decode_unsafe(&self->recipient, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->timestamp, ctx);
+  fd_bincode_uint32_decode_unsafe(&self->nonce, ctx);
+}
+void fd_repair_request_header_new(fd_repair_request_header_t* self) {
+  fd_memset(self, 0, sizeof(fd_repair_request_header_t));
+  fd_signature_new(&self->signature);
+  fd_pubkey_new(&self->sender);
+  fd_pubkey_new(&self->recipient);
+}
+void fd_repair_request_header_destroy(fd_repair_request_header_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_signature_destroy(&self->signature, ctx);
+  fd_pubkey_destroy(&self->sender, ctx);
+  fd_pubkey_destroy(&self->recipient, ctx);
+}
+
+ulong fd_repair_request_header_footprint( void ){ return FD_REPAIR_REQUEST_HEADER_FOOTPRINT; }
+ulong fd_repair_request_header_align( void ){ return FD_REPAIR_REQUEST_HEADER_ALIGN; }
+
+void fd_repair_request_header_walk(void * w, fd_repair_request_header_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_request_header", level++);
+  fd_signature_walk(w, &self->signature, fun, "signature", level);
+  fd_pubkey_walk(w, &self->sender, fun, "sender", level);
+  fd_pubkey_walk(w, &self->recipient, fun, "recipient", level);
+  fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->nonce, "nonce", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_request_header", level--);
+}
+ulong fd_repair_request_header_size(fd_repair_request_header_t const * self) {
+  ulong size = 0;
+  size += fd_signature_size(&self->signature);
+  size += fd_pubkey_size(&self->sender);
+  size += fd_pubkey_size(&self->recipient);
+  size += sizeof(ulong);
+  size += sizeof(uint);
+  return size;
+}
+
+int fd_repair_request_header_encode(fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_signature_encode(&self->signature, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->sender, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_pubkey_encode(&self->recipient, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_encode(&self->nonce, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_repair_window_index_decode(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_window_index_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_window_index_new(self);
+  fd_repair_window_index_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_repair_window_index_decode_unsafe(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_repair_request_header_decode_unsafe(&self->header, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->shred_index, ctx);
+}
+void fd_repair_window_index_new(fd_repair_window_index_t* self) {
+  fd_memset(self, 0, sizeof(fd_repair_window_index_t));
+  fd_repair_request_header_new(&self->header);
+}
+void fd_repair_window_index_destroy(fd_repair_window_index_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_request_header_destroy(&self->header, ctx);
+}
+
+ulong fd_repair_window_index_footprint( void ){ return FD_REPAIR_WINDOW_INDEX_FOOTPRINT; }
+ulong fd_repair_window_index_align( void ){ return FD_REPAIR_WINDOW_INDEX_ALIGN; }
+
+void fd_repair_window_index_walk(void * w, fd_repair_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_window_index", level++);
+  fd_repair_request_header_walk(w, &self->header, fun, "header", level);
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->shred_index, "shred_index", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_window_index", level--);
+}
+ulong fd_repair_window_index_size(fd_repair_window_index_t const * self) {
+  ulong size = 0;
+  size += fd_repair_request_header_size(&self->header);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_repair_window_index_encode(fd_repair_window_index_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_encode(&self->header, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->shred_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_repair_highest_window_index_decode(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_highest_window_index_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_highest_window_index_new(self);
+  fd_repair_highest_window_index_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_highest_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_repair_highest_window_index_decode_unsafe(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_repair_request_header_decode_unsafe(&self->header, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->shred_index, ctx);
+}
+void fd_repair_highest_window_index_new(fd_repair_highest_window_index_t* self) {
+  fd_memset(self, 0, sizeof(fd_repair_highest_window_index_t));
+  fd_repair_request_header_new(&self->header);
+}
+void fd_repair_highest_window_index_destroy(fd_repair_highest_window_index_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_request_header_destroy(&self->header, ctx);
+}
+
+ulong fd_repair_highest_window_index_footprint( void ){ return FD_REPAIR_HIGHEST_WINDOW_INDEX_FOOTPRINT; }
+ulong fd_repair_highest_window_index_align( void ){ return FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN; }
+
+void fd_repair_highest_window_index_walk(void * w, fd_repair_highest_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_highest_window_index", level++);
+  fd_repair_request_header_walk(w, &self->header, fun, "header", level);
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->shred_index, "shred_index", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_highest_window_index", level--);
+}
+ulong fd_repair_highest_window_index_size(fd_repair_highest_window_index_t const * self) {
+  ulong size = 0;
+  size += fd_repair_request_header_size(&self->header);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_repair_highest_window_index_encode(fd_repair_highest_window_index_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_encode(&self->header, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->shred_index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_repair_orphan_decode(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_orphan_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_orphan_new(self);
+  fd_repair_orphan_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_orphan_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_repair_orphan_decode_unsafe(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_repair_request_header_decode_unsafe(&self->header, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+}
+void fd_repair_orphan_new(fd_repair_orphan_t* self) {
+  fd_memset(self, 0, sizeof(fd_repair_orphan_t));
+  fd_repair_request_header_new(&self->header);
+}
+void fd_repair_orphan_destroy(fd_repair_orphan_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_request_header_destroy(&self->header, ctx);
+}
+
+ulong fd_repair_orphan_footprint( void ){ return FD_REPAIR_ORPHAN_FOOTPRINT; }
+ulong fd_repair_orphan_align( void ){ return FD_REPAIR_ORPHAN_ALIGN; }
+
+void fd_repair_orphan_walk(void * w, fd_repair_orphan_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_orphan", level++);
+  fd_repair_request_header_walk(w, &self->header, fun, "header", level);
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_orphan", level--);
+}
+ulong fd_repair_orphan_size(fd_repair_orphan_t const * self) {
+  ulong size = 0;
+  size += fd_repair_request_header_size(&self->header);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_repair_orphan_encode(fd_repair_orphan_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_encode(&self->header, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_repair_ancestor_hashes_decode(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_ancestor_hashes_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_ancestor_hashes_new(self);
+  fd_repair_ancestor_hashes_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_ancestor_hashes_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_repair_ancestor_hashes_decode_unsafe(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_repair_request_header_decode_unsafe(&self->header, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
+}
+void fd_repair_ancestor_hashes_new(fd_repair_ancestor_hashes_t* self) {
+  fd_memset(self, 0, sizeof(fd_repair_ancestor_hashes_t));
+  fd_repair_request_header_new(&self->header);
+}
+void fd_repair_ancestor_hashes_destroy(fd_repair_ancestor_hashes_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_request_header_destroy(&self->header, ctx);
+}
+
+ulong fd_repair_ancestor_hashes_footprint( void ){ return FD_REPAIR_ANCESTOR_HASHES_FOOTPRINT; }
+ulong fd_repair_ancestor_hashes_align( void ){ return FD_REPAIR_ANCESTOR_HASHES_ALIGN; }
+
+void fd_repair_ancestor_hashes_walk(void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_ancestor_hashes", level++);
+  fd_repair_request_header_walk(w, &self->header, fun, "header", level);
+  fun( w, &self->slot, "slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_ancestor_hashes", level--);
+}
+ulong fd_repair_ancestor_hashes_size(fd_repair_ancestor_hashes_t const * self) {
+  ulong size = 0;
+  size += fd_repair_request_header_size(&self->header);
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_repair_ancestor_hashes_encode(fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_repair_request_header_encode(&self->header, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2

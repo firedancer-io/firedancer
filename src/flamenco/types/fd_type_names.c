@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 184
+#define FD_TYPE_NAME_COUNT 189
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -185,4 +185,9 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_serializable_epoch_reward_status",
  "fd_solana_accounts_db_fields",
  "fd_solana_manifest",
+ "fd_repair_request_header",
+ "fd_repair_window_index",
+ "fd_repair_highest_window_index",
+ "fd_repair_orphan",
+ "fd_repair_ancestor_hashes",
 };
