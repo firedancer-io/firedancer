@@ -51,6 +51,9 @@ join this cluster with other validators, you can define
 `[rpc.entrypoints]` in the configuration file to point at your first
 validator and run `fddev dev` again.
 
+### Code Coverage
+Test and fuzzing coverage are available [here](https://storage.googleapis.com/firedancer-ci-artifacts-public/index.html).
+
 ## License
 Firedancer is available under the [Apache 2
 license](https://www.apache.org/licenses/LICENSE-2.0). Firedancer also
