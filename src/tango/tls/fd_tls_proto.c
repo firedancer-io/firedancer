@@ -536,12 +536,14 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
 
   if( in->alpn_sz ) {
     ushort ext_type = FD_TLS_EXT_ALPN;
-    ushort ext_sz   = (ushort)in->alpn_sz;
+    ushort ext_sz   = (ushort)( in->alpn_sz+2 );
+    ushort data_sz  = (ushort)in->alpn_sz;
     uchar * _data   = (uchar *)in->alpn;
-#   define FIELDS( FIELD )                       \
-      FIELD( 0, &ext_type, ushort, 1           ) \
-      FIELD( 1, &ext_sz,   ushort, 1           ) \
-        FIELD( 2, _data,   uchar,  in->alpn_sz )
+#   define FIELDS( FIELD )                        \
+      FIELD( 0, &ext_type,  ushort, 1           ) \
+      FIELD( 1, &ext_sz,    ushort, 1           ) \
+        FIELD( 2, &data_sz, ushort, 1           ) \
+        FIELD( 3, _data,    uchar,  in->alpn_sz )
       FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 #   undef FIELDS
   }

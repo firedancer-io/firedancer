@@ -215,6 +215,7 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_REASON_SENDMSG_FAIL    ( 2)  /* sendmsg callback failed */
 #define FD_TLS_REASON_WRONG_ENC_LVL   ( 3)  /* wrong encryption level */
 #define FD_TLS_REASON_RAND_FAIL       ( 4)  /* rand fn failed */
+#define FD_TLS_REASON_ALPN_OVERSZ     ( 5)  /* ALPN list too long */
 
 #define FD_TLS_REASON_X25519_FAIL     ( 9)  /* fd_x25519_exchange failed */
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
