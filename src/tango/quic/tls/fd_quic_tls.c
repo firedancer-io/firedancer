@@ -160,7 +160,7 @@ fd_quic_tls_new( void *              mem,
 static void
 fd_quic_tls_init( fd_tls_t *  tls,
                   uchar const cert_private_key[ static 32 ] ) {
-  fd_memset( tls, 0, sizeof(fd_tls_t) );
+  tls = fd_tls_new( tls );
   *tls = (fd_tls_t) {
     .quic = 1,
     .rand = {
@@ -193,6 +193,7 @@ fd_quic_tls_init( fd_tls_t *  tls,
       so anyways.) */
   tls->alpn[ 0 ] = 0x0a;
   memcpy( tls->alpn+1, "solana-tpu", 11UL );
+  tls->alpn_sz = 11UL;
 }
 
 void *
