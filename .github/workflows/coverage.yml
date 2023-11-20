@@ -9,17 +9,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   all-coverage:
     name: All Coverage
     runs-on:
       group: rhel85-icelake
-    environment:
-      name: github-pages
-      url: ${{ steps.pages-deploy.outputs.page_url }}
     env:
       CC: clang
       EXTRAS: llvm-cov
@@ -36,18 +31,20 @@ jobs:
         with:
           credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+
       - name: Generate all coverage
         run: ./.github/workflows/scripts/cov_all.sh
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
-
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          # Upload entire repository
-          path: './build/pages/'
+        run: gcloud storage cp -r ./build/pages/* ${{ vars.COVERAGE_BUCKET }}${{ github.sha }}/
 
-      # - name: Deploy to GitHub Pages
-      #   id: deployment
-      #   uses: actions/deploy-pages@v2
+      - name: Refresh top index
+        run: |
+          echo '<html><head>
+          <meta http-equiv="refresh" content="3; url=${{ github.sha }}/index.html"/>
+          <meta http-equiv="pragma" content="no-cache" />
+          <meta http-equiv="cache-control" content="no-cache" /></head>
+          <body>Redirecting to latest coverage... (${{ github.sha }})</body></html>' > ./build/index.html
+          gcloud storage cp -r ./build/index.html ${{ vars.COVERAGE_BUCKET }}/
