@@ -662,6 +662,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     fd_histf_t * hist_sz    = fd_ptr_if( filter, (fd_histf_t*)hist_filter2_frag_sz, (fd_histf_t*)hist_fin_frag_sz );
     fd_histf_sample( hist_ticks, (ulong)(next - now) );
     fd_histf_sample( hist_sz,    (ulong)sz );
+    now = next;
   }
 
   do {
