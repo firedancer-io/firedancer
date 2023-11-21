@@ -67,14 +67,8 @@ during_frag( void * _ctx,
              ulong chunk,
              ulong sz,
              int * opt_filter ) {
+  (void)sig;
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
-
-  /* This is a dummy mcache entry to keep frags from getting overrun, do
-     not process */
-  if( FD_UNLIKELY( sig ) ) {
-    *opt_filter = 1;
-    return;
-  }
 
   if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
