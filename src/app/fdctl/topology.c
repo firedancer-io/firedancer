@@ -49,6 +49,9 @@ tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
   fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
   if( FD_UNLIKELY( tile_wksp->id == wksp_id ) ) return 1;
 
+  /* Every tile needs to collect metrics, but there is no link involved. */
+  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) return 1;
+
   return 0;
 }
 
@@ -241,16 +244,27 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
         }
       }
     }
+
+    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
+      ulong * metrics = SCRATCH_ALLOC( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT() );
+      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+        snprintf1( path, sizeof(path), "metrics_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+        INSERT_POD( path, fd_metrics_new( metrics ) );
+      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+        tile->metrics = fd_metrics_join( metrics );
+        if( FD_UNLIKELY( !tile->metrics ) ) FD_LOG_ERR(( "fd_metrics_join failed" ));
+      }
+    }
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
 
-    void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( FD_CNC_APP_SZ ) );
+    void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
       snprintf1( path, sizeof(path), "cnc_%lu", tile->kind_id );
-      INSERT_POD( path, fd_cnc_new( cnc, FD_CNC_APP_SZ, 0, fd_tickcount() ) );
+      INSERT_POD( path, fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
     } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
       tile->cnc = fd_cnc_join( cnc );
       if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -284,7 +298,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
-  if( FD_LIKELY( mode == FD_TOPO_FILL_MODE_FOOTPRINT ) ) {
+  if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_FOOTPRINT ) ) {
     ulong loose_sz = 0UL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ i ];

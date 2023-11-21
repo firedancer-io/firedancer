@@ -10,6 +10,8 @@
 
 #include "../fd_disco_base.h"
 
+#include "../metrics/fd_metrics.h"
+
 /* Beyond the standard FD_CNC_SIGNAL_HALT, FD_MUX_CNC_SIGNAL_ACK can be
    raised by a cnc thread with an open command session while the mux is
    in the RUN state.  The mux will transition from ACK->RUN the next
@@ -103,10 +105,10 @@
 
 typedef struct {
    fd_frag_meta_t * mcache;
-   ulong depth;
-   ulong * cr_avail;
-   ulong * seq;
-   ulong   cr_decrement_amount;
+   ulong            depth;
+   ulong *          cr_avail;
+   ulong *          seq;
+   ulong            cr_decrement_amount;
 } fd_mux_context_t;
 
 /* fd_mux_during_housekeeping_fn is called during the housekeeping routine,
@@ -251,30 +253,18 @@ typedef void (fd_mux_after_frag_fn)( void *             ctx,
                                      int *              opt_filter,
                                      fd_mux_context_t * mux );
 
-/* By convention, the mux tile (and other tiles) use the app data region
-   of the joined cnc to store overall tile diagnostics like whether they
-   are backpressured.  fd_mux_cnc_diag_write is called back to let the
-   user add additional diagnostics.  This should not touch cnc_app[0] or
-   cnc_app[1] which are reserved for the mux tile (FD_CNC_DIAG_IN_BACKP
-   and FD_CNC_DIAG_BACKP_CNT).  The user can use cnc_app[2] and beyond,
-   if such additional space was reserved when the cnc was created.
-
-   fd_mux_cnc_diag_write and fd_mux_cnc_diag_clear are a pair of
-   functions to support accumulating counters.  fd_mux_cnc_diag_write is
-   called inside a compiler fence to ensure the writes do not get
-   reordered, which may be important for observers or monitoring tools,
-   but such a guarantee is not needed when clearing local values in the
-   ctx.  A typical usage for a counter is then to increment from a local
-   context counter in write(), and then reset the local context counter
-   to 0 in clear().
+/* By convention, tiles may wish to accumulate high traffic metrics
+   locally so they don't cause a lot of cache coherency traffic, and
+   then periodically publish them to external observers.  This callback
+   is here to support that use case.  It occurs infrequently during the
+   housekeeping loop, and is called inside a compiler fence to ensure
+   the writes do not get reordered, which may be important for observers
+   or monitoring tools.
 
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 
-typedef void (fd_mux_cnc_diag_write_fn)( void *  ctx,
-                                         ulong * cnc_app );
-
-typedef void (fd_mux_cnc_diag_clear_fn)( void * ctx );
+typedef void (fd_mux_metrics_write_fn)( void *  ctx );
 
 /* fd_mux_callbacks_t will be invoked during mux tile execution, and can
    be used to alter behavior of the mux tile from the default of copying
@@ -291,8 +281,7 @@ typedef struct {
   fd_mux_during_frag_fn * during_frag;
   fd_mux_after_frag_fn  * after_frag;
 
-  fd_mux_cnc_diag_write_fn * cnc_diag_write;
-  fd_mux_cnc_diag_clear_fn * cnc_diag_clear;
+  fd_mux_metrics_write_fn * metrics_write;
 } fd_mux_callbacks_t;
 
 FD_PROTOTYPES_BEGIN

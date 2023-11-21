@@ -104,7 +104,12 @@ tile_main( void * _args ) {
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
+
   FD_TEST( tile->cnc );
+  FD_TEST( tile->metrics );
+  fd_metrics_register( tile->metrics );
+
+  FD_MGAUGE_SET( TILE, PID, pid );
 
   if( FD_UNLIKELY( config->unprivileged_init ) )
     config->unprivileged_init( &args->config->topo, tile, scratch_mem );
@@ -143,8 +148,7 @@ tile_main( void * _args ) {
     .before_frag         = config->mux_before_frag,
     .during_frag         = config->mux_during_frag,
     .after_frag          = config->mux_after_frag,
-    .cnc_diag_write      = config->mux_cnc_diag_write,
-    .cnc_diag_clear      = config->mux_cnc_diag_clear,
+    .metrics_write       = config->mux_metrics_write,
   };
 
   void * ctx = NULL;
