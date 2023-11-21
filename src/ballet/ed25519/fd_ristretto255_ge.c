@@ -4,11 +4,6 @@
 fd_ed25519_ge_p3_t *
 fd_ristretto255_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
                                       uchar const          s_[ static 32 ] ) {
-
-  static const fd_ed25519_fe_t d[1] = {{
-    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
-  }};
-
   fd_ed25519_fe_t s[1];
   fd_ed25519_fe_frombytes( s, s_ );
 
@@ -34,10 +29,10 @@ fd_ristretto255_ge_frombytes_vartime( fd_ed25519_ge_p3_t * h,
   /* v = -(D * u1^2) - u2_sqr */
 
   fd_ed25519_fe_t v[1];
-  fd_ed25519_fe_sq ( v, u1      );
-  fd_ed25519_fe_mul( v, v, d    );
-  fd_ed25519_fe_neg( v, v       );
-  fd_ed25519_fe_sub( v, v, u2sq );
+  fd_ed25519_fe_sq ( v, u1          );
+  fd_ed25519_fe_mul( v, v, f25519_d );
+  fd_ed25519_fe_neg( v, v           );
+  fd_ed25519_fe_sub( v, v, u2sq     );
 
   /* (was_square, inv_sq) = SQRT_RATIO_M1(1, v * u2_sqr) */
 
@@ -78,14 +73,6 @@ uchar *
 fd_ristretto255_ge_tobytes( uchar *                    b,
                             fd_ed25519_ge_p3_t const * h ) {
 
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
-    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
-  }};
-
-  static const fd_ed25519_fe_t invsqrt_a_minus_d[1] = {{
-    { 6111466, 4156064, 39310137, 12243467, 41204824, 120896, 20826367, 26493656, 6093567, 31568420 }
-  }};
-
   /* u1 = (z0 + y0) * (z0 - y0) */
   fd_ed25519_fe_t tmp0 [1]; fd_ed25519_fe_add( tmp0, h->Z, h->Y );
   fd_ed25519_fe_t tmp1 [1]; fd_ed25519_fe_sub( tmp1, h->Z, h->Y );
@@ -112,12 +99,12 @@ fd_ristretto255_ge_tobytes( uchar *                    b,
 
   /* ix0 = x0 * SQRT_M1
      iy0 = y0 * SQRT_M1 */
-  fd_ed25519_fe_t ix0[1]; fd_ed25519_fe_mul( ix0, h->X, sqrtm1 );
-  fd_ed25519_fe_t iy0[1]; fd_ed25519_fe_mul( iy0, h->Y, sqrtm1 );
+  fd_ed25519_fe_t ix0[1]; fd_ed25519_fe_mul( ix0, h->X, f25519_sqrtm1 );
+  fd_ed25519_fe_t iy0[1]; fd_ed25519_fe_mul( iy0, h->Y, f25519_sqrtm1 );
 
   /* enchanted_denominator = den1 * INVSQRT_A_MINUS_D */
   fd_ed25519_fe_t enchanted_denominator[1];
-  fd_ed25519_fe_mul( enchanted_denominator, den1, invsqrt_a_minus_d );
+  fd_ed25519_fe_mul( enchanted_denominator, den1, f25519_invsqrt_a_minus_d );
 
   /* rotate = IS_NEGATIVE(t0 * z_inv) */
   fd_ed25519_fe_t rotate_[1]; fd_ed25519_fe_mul( rotate_, h->T, z_inv );
@@ -154,42 +141,15 @@ fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h_,
                               uchar const               t[ static 32 ] ) {
   fd_ed25519_ge_p3_t * h = fd_type_pun( h_ );
 
-  static const fd_ed25519_fe_t d[1] = {{
-    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
-  }};
-
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
-    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
-  }};
-
-  // "76c15f94c1097ce20f355ecd38a1812ce4df70beddab9499d7e0b3b2a8729002"
-  static const fd_ed25519_fe_t one_minus_d_sq[1] = {{
-    { 6275446, -16617371, -22938544, -3773710, 11667077, 7397348, -27922721, 1766195, -24433858, 672203 }
-	}};
-
-  // "204ded44aa5aad3199191eb02c4a9ed2eb4e9b522fd3dc4c41226cf67ab36859"
-  static const fd_ed25519_fe_t d_minus_one_sq[1] = {{
-    { 15551795, -11097455, -13425098, -10125071, -11896535, 10178284, -26634327, 4729244, -5282110, -10116402 }
-  }};
-
-  // "1b2e7b49a0f6977ebd54781b0c8e9daffdd1f531c9fc3c0fac48832bbf316937"
-  static const fd_ed25519_fe_t sqrt_ad_minus_one[1] = {{
-    { 24849947, -153582, -23613485, 6347715, -21072328, -667138, -25271143, -15367704, -870347, 14525639 }
-	}};
-
-  static const fd_ed25519_fe_t one[1] = {{
-    { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-  }};
-
   /* r = SQRT_M1 * t^2 */
   fd_ed25519_fe_t r0[1];
   fd_ed25519_fe_t r[1];
   fd_ed25519_fe_frombytes( r0, t );
-  fd_ed25519_fe_mul( r, sqrtm1, fd_ed25519_fe_sq( r, r0 ) );
+  fd_ed25519_fe_mul( r, f25519_sqrtm1, fd_ed25519_fe_sq( r, r0 ) );
 
   /* u = (r + 1) * ONE_MINUS_D_SQ */
   fd_ed25519_fe_t u[1];
-  fd_ed25519_fe_add( u, r, one );
+  fd_ed25519_fe_add( u, r, f25519_one );
   // fd_ed25519_fe_mul( u, u, one_minus_d_sq ); -> using mul2
 
   /* c = -1 */
@@ -200,9 +160,9 @@ fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h_,
 
   /* v = (c - r*D) * (r + D) */
   fd_ed25519_fe_t v[1], r_plus_d[1];
-  fd_ed25519_fe_add( r_plus_d, r, d );
+  fd_ed25519_fe_add( r_plus_d, r, f25519_d );
   // fd_ed25519_fe_mul( v, r, d ); -> using mul2
-  fd_ed25519_fe_mul2( v,r,d, u,u,one_minus_d_sq );
+  fd_ed25519_fe_mul2( v,r,f25519_d, u,u,f25519_one_minus_d_sq );
   fd_ed25519_fe_sub( v, c, v );
   fd_ed25519_fe_mul( v, v, r_plus_d );
 
@@ -221,8 +181,8 @@ fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h_,
 
   /* N = c * (r - 1) * D_MINUS_ONE_SQ - v */
   fd_ed25519_fe_t n[1];
-  fd_ed25519_fe_mul( n, c, fd_ed25519_fe_sub( n, r, one ) );
-  fd_ed25519_fe_sub( n, fd_ed25519_fe_mul( n, n, d_minus_one_sq ), v );
+  fd_ed25519_fe_mul( n, c, fd_ed25519_fe_sub( n, r, f25519_one ) );
+  fd_ed25519_fe_sub( n, fd_ed25519_fe_mul( n, n, f25519_d_minus_one_sq ), v );
 
   /* w0 = 2 * s * v
      w1 = N * SQRT_AD_MINUS_ONE
@@ -231,11 +191,11 @@ fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h_,
   fd_ed25519_fe_t s2[1];
   fd_ed25519_fe_sq( s2, s );
   fd_ed25519_fe_t w0[1], w1[1], w2[1], w3[1];
-  fd_ed25519_fe_mul2( w0,s,v, w1,n,sqrt_ad_minus_one );
+  fd_ed25519_fe_mul2( w0,s,v, w1,n,f25519_sqrt_ad_minus_one );
   fd_ed25519_fe_add( w0, w0, w0 );
   // fd_ed25519_fe_mul( w1, n, sqrt_ad_minus_one );
-  fd_ed25519_fe_sub( w2, one, s2 );
-  fd_ed25519_fe_add( w3, one, s2 );
+  fd_ed25519_fe_sub( w2, f25519_one, s2 );
+  fd_ed25519_fe_add( w3, f25519_one, s2 );
 
   // fd_ed25519_fe_mul( h->X, w0, w3 );
   // fd_ed25519_fe_mul( h->Y, w2, w1 );
@@ -271,33 +231,6 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
   fd_ed25519_ge_p3_t * hc = fd_type_pun( hc_ );
   fd_ed25519_ge_p3_t * hd = fd_type_pun( hd_ );
 
-  static const fd_ed25519_fe_t d[1] = {{
-    { -10913610, 13857413, -15372611, 6949391, 114729, -8787816, -6275908, -3247719, -18696448, -12055116 }
-  }};
-
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
-    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
-  }};
-
-  // "76c15f94c1097ce20f355ecd38a1812ce4df70beddab9499d7e0b3b2a8729002"
-  static const fd_ed25519_fe_t one_minus_d_sq[1] = {{
-    { 6275446, -16617371, -22938544, -3773710, 11667077, 7397348, -27922721, 1766195, -24433858, 672203 }
-	}};
-
-  // "204ded44aa5aad3199191eb02c4a9ed2eb4e9b522fd3dc4c41226cf67ab36859"
-  static const fd_ed25519_fe_t d_minus_one_sq[1] = {{
-    { 15551795, -11097455, -13425098, -10125071, -11896535, 10178284, -26634327, 4729244, -5282110, -10116402 }
-  }};
-
-  // "1b2e7b49a0f6977ebd54781b0c8e9daffdd1f531c9fc3c0fac48832bbf316937"
-  static const fd_ed25519_fe_t sqrt_ad_minus_one[1] = {{
-    { 24849947, -153582, -23613485, 6347715, -21072328, -667138, -25271143, -15367704, -870347, 14525639 }
-	}};
-
-  static const fd_ed25519_fe_t one[1] = {{
-    { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-  }};
-
   /* r = SQRT_M1 * t^2 */
   fd_ed25519_fe_t r0a[1], r0b[1], r0c[1], r0d[1];
   fd_ed25519_fe_t ra[1], rb[1], rc[1], rd[1];
@@ -307,15 +240,16 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
   fd_ed25519_fe_frombytes( r0d, td );
   fd_ed25519_fe_sqn4( ra,r0a,1L, rb,r0b,1L, rc,r0c,1L, rd,r0d,1L );
   /* TODO(ec): this can be made more efficient */
-  fd_ed25519_fe_mul4( ra,ra,sqrtm1, rb,rb,sqrtm1, rc,rc,sqrtm1, rd,rd,sqrtm1 );
+  fd_ed25519_fe_mul4( ra,ra,f25519_sqrtm1, rb,rb,f25519_sqrtm1, rc,rc,f25519_sqrtm1, rd,rd,f25519_sqrtm1 );
 
   /* u = (r + 1) * ONE_MINUS_D_SQ */
   fd_ed25519_fe_t ua[1], ub[1], uc[1], ud[1];
-  fd_ed25519_fe_add( ua, ra, one );
-  fd_ed25519_fe_add( ub, rb, one );
-  fd_ed25519_fe_add( uc, rc, one );
-  fd_ed25519_fe_add( ud, rd, one );
-  fd_ed25519_fe_mul4( ua,ua,one_minus_d_sq, ub,ub,one_minus_d_sq, uc,uc,one_minus_d_sq, ud,ud,one_minus_d_sq );
+  fd_ed25519_fe_add( ua, ra, f25519_one );
+  fd_ed25519_fe_add( ub, rb, f25519_one );
+  fd_ed25519_fe_add( uc, rc, f25519_one );
+  fd_ed25519_fe_add( ud, rd, f25519_one );
+  fd_ed25519_fe_mul4( ua,ua,f25519_one_minus_d_sq, ub,ub,f25519_one_minus_d_sq,
+                      uc,uc,f25519_one_minus_d_sq, ud,ud,f25519_one_minus_d_sq );
 
   /* c = -1
      note that c is overwritten later, hence we need 4 */
@@ -336,11 +270,11 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
   /* v = (c - r*D) * (r + D) */
   fd_ed25519_fe_t va[1], vb[1], vc[1], vd[1];
   fd_ed25519_fe_t d_plus_ra[1], d_plus_rb[1], d_plus_rc[1], d_plus_rd[1];
-  fd_ed25519_fe_add( d_plus_ra, ra, d );
-  fd_ed25519_fe_add( d_plus_rb, rb, d );
-  fd_ed25519_fe_add( d_plus_rc, rc, d );
-  fd_ed25519_fe_add( d_plus_rd, rd, d );
-  fd_ed25519_fe_mul4( va,ra,d, vb,rb,d, vc,rc,d, vd,rd,d );
+  fd_ed25519_fe_add( d_plus_ra, ra, f25519_d );
+  fd_ed25519_fe_add( d_plus_rb, rb, f25519_d );
+  fd_ed25519_fe_add( d_plus_rc, rc, f25519_d );
+  fd_ed25519_fe_add( d_plus_rd, rd, f25519_d );
+  fd_ed25519_fe_mul4( va,ra,f25519_d, vb,rb,f25519_d, vc,rc,f25519_d, vd,rd,f25519_d );
   fd_ed25519_fe_sub( va, ca, va );
   fd_ed25519_fe_sub( vb, cb, vb );
   fd_ed25519_fe_sub( vc, cc, vc );
@@ -374,11 +308,12 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
 
   /* N = c * (r - 1) * D_MINUS_ONE_SQ - v */
   fd_ed25519_fe_t na[1], nb[1], nc[1], nd[1];
-  fd_ed25519_fe_sub( na, ra, one );
-  fd_ed25519_fe_sub( nb, rb, one );
-  fd_ed25519_fe_sub( nc, rc, one );
-  fd_ed25519_fe_sub( nd, rd, one );
-  fd_ed25519_fe_mul4( ca,ca,d_minus_one_sq, cb,cb,d_minus_one_sq, cc,cc,d_minus_one_sq, cd,cd,d_minus_one_sq );
+  fd_ed25519_fe_sub( na, ra, f25519_one );
+  fd_ed25519_fe_sub( nb, rb, f25519_one );
+  fd_ed25519_fe_sub( nc, rc, f25519_one );
+  fd_ed25519_fe_sub( nd, rd, f25519_one );
+  fd_ed25519_fe_mul4( ca,ca,f25519_d_minus_one_sq, cb,cb,f25519_d_minus_one_sq,
+                      cc,cc,f25519_d_minus_one_sq, cd,cd,f25519_d_minus_one_sq );
   fd_ed25519_fe_mul4( na,na,ca, nb,nb,cb, nc,nc,cc, nd,nd,cd );
   fd_ed25519_fe_sub( na, na, va );
   fd_ed25519_fe_sub( nb, nb, vb );
@@ -400,15 +335,16 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
   fd_ed25519_fe_add( w0b, w0b, w0b );
   fd_ed25519_fe_add( w0c, w0c, w0c );
   fd_ed25519_fe_add( w0d, w0d, w0d );
-  fd_ed25519_fe_mul4( w1a,na,sqrt_ad_minus_one, w1b,nb,sqrt_ad_minus_one, w1c,nc,sqrt_ad_minus_one, w1d,nd,sqrt_ad_minus_one );
-  fd_ed25519_fe_sub( w2a, one, s2a );
-  fd_ed25519_fe_sub( w2b, one, s2b );
-  fd_ed25519_fe_sub( w2c, one, s2c );
-  fd_ed25519_fe_sub( w2d, one, s2d );
-  fd_ed25519_fe_add( w3a, one, s2a );
-  fd_ed25519_fe_add( w3b, one, s2b );
-  fd_ed25519_fe_add( w3c, one, s2c );
-  fd_ed25519_fe_add( w3d, one, s2d );
+  fd_ed25519_fe_mul4( w1a,na,f25519_sqrt_ad_minus_one, w1b,nb,f25519_sqrt_ad_minus_one,
+                      w1c,nc,f25519_sqrt_ad_minus_one, w1d,nd,f25519_sqrt_ad_minus_one );
+  fd_ed25519_fe_sub( w2a, f25519_one, s2a );
+  fd_ed25519_fe_sub( w2b, f25519_one, s2b );
+  fd_ed25519_fe_sub( w2c, f25519_one, s2c );
+  fd_ed25519_fe_sub( w2d, f25519_one, s2d );
+  fd_ed25519_fe_add( w3a, f25519_one, s2a );
+  fd_ed25519_fe_add( w3b, f25519_one, s2b );
+  fd_ed25519_fe_add( w3c, f25519_one, s2c );
+  fd_ed25519_fe_add( w3d, f25519_one, s2d );
 
   fd_ed25519_fe_mul4( ha->X,w0a,w3a, ha->Y,w2a,w1a, ha->Z,w1a,w3a, ha->T,w0a,w2a );
   fd_ed25519_fe_mul4( hb->X,w0b,w3b, hb->Y,w2b,w1b, hb->Z,w1b,w3b, hb->T,w0b,w2b );

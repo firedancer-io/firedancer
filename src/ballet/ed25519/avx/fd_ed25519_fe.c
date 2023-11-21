@@ -718,12 +718,6 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
                           fd_ed25519_fe_t const * u,
                           fd_ed25519_fe_t const * v ) {
 
-  /* TODO Deduplicate constants */
-
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
-    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
-  }};
-
   /* r = (u * v^3) * (u * v^7)^((p-5)/8) */
 
   fd_ed25519_fe_t uv3[1];
@@ -752,7 +746,7 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
      Consider using a constant-time memcmp. */
 
   fd_ed25519_fe_t u_neg[1];        fd_ed25519_fe_neg( u_neg,        u );
-  fd_ed25519_fe_t u_neg_sqrtm1[1]; fd_ed25519_fe_mul( u_neg_sqrtm1, u_neg, sqrtm1 );
+  fd_ed25519_fe_t u_neg_sqrtm1[1]; fd_ed25519_fe_mul( u_neg_sqrtm1, u_neg, f25519_sqrtm1 );
 
   uchar check_comp       [32]; fd_ed25519_fe_tobytes( check_comp,        check        );
   uchar u_comp           [32]; fd_ed25519_fe_tobytes( u_comp,            u            );
@@ -766,7 +760,7 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       r,
   /* r_prime = SQRT_M1 * r */
 
   fd_ed25519_fe_t r_prime[1];
-  fd_ed25519_fe_mul( r_prime, r, sqrtm1 );
+  fd_ed25519_fe_mul( r_prime, r, f25519_sqrtm1 );
 
   /* r = CT_SELECT(r_prime IF flipped_sign_sqrt | flipped_sign_sqrt_i ELSE r) */
 
@@ -781,11 +775,6 @@ fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * ra, int *wsa, fd_ed25519_fe_t cons
                             fd_ed25519_fe_t * rb, int *wsb, fd_ed25519_fe_t const * ub, fd_ed25519_fe_t const * vb,
                             fd_ed25519_fe_t * rc, int *wsc, fd_ed25519_fe_t const * uc, fd_ed25519_fe_t const * vc,
                             fd_ed25519_fe_t * rd, int *wsd, fd_ed25519_fe_t const * ud, fd_ed25519_fe_t const * vd ) {
-  /* TODO Deduplicate constants */
-
-  static const fd_ed25519_fe_t sqrtm1[1] = {{
-    { -32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482 }
-  }};
 
   /* r = (u * v^3) * (u * v^7)^((p-5)/8) */
 
@@ -820,7 +809,8 @@ fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * ra, int *wsa, fd_ed25519_fe_t cons
   fd_ed25519_fe_neg( ub_neg, ub );
   fd_ed25519_fe_neg( uc_neg, uc );
   fd_ed25519_fe_neg( ud_neg, ud );
-  fd_ed25519_fe_mul4( ua_neg_sqrtm1,ua_neg,sqrtm1, ub_neg_sqrtm1,ub_neg,sqrtm1, uc_neg_sqrtm1,uc_neg,sqrtm1, ud_neg_sqrtm1,ud_neg,sqrtm1 );
+  fd_ed25519_fe_mul4( ua_neg_sqrtm1,ua_neg,f25519_sqrtm1, ub_neg_sqrtm1,ub_neg,f25519_sqrtm1,
+                      uc_neg_sqrtm1,uc_neg,f25519_sqrtm1, ud_neg_sqrtm1,ud_neg,f25519_sqrtm1 );
 
   uchar check_comp       [32];
   uchar u_comp           [32];
@@ -866,7 +856,8 @@ fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * ra, int *wsa, fd_ed25519_fe_t cons
   /* r_prime = SQRT_M1 * r */
 
   fd_ed25519_fe_t ra_prime[1], rb_prime[1], rc_prime[1], rd_prime[1];
-  fd_ed25519_fe_mul4( ra_prime,ra,sqrtm1, rb_prime,rb,sqrtm1, rc_prime,rc,sqrtm1, rd_prime,rd,sqrtm1 );
+  fd_ed25519_fe_mul4( ra_prime,ra,f25519_sqrtm1, rb_prime,rb,f25519_sqrtm1, 
+                      rc_prime,rc,f25519_sqrtm1, rd_prime,rd,f25519_sqrtm1 );
 
   /* r = CT_SELECT(r_prime IF flipped_sign_sqrt | flipped_sign_sqrt_i ELSE r) */
 
