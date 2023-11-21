@@ -2355,6 +2355,23 @@ typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
 #define FD_REPAIR_ANCESTOR_HASHES_FOOTPRINT sizeof(fd_repair_ancestor_hashes_t)
 #define FD_REPAIR_ANCESTOR_HASHES_ALIGN (8UL)
 
+union fd_repair_protocol_inner {
+  fd_gossip_ping_t pong;
+  fd_repair_window_index_t window_index;
+  fd_repair_highest_window_index_t highest_window_index;
+  fd_repair_orphan_t orphan;
+  fd_repair_ancestor_hashes_t ancestor_hashes;
+};
+typedef union fd_repair_protocol_inner fd_repair_protocol_inner_t;
+
+struct fd_repair_protocol {
+  uint discriminant;
+  fd_repair_protocol_inner_t inner;
+};
+typedef struct fd_repair_protocol fd_repair_protocol_t;
+#define FD_REPAIR_PROTOCOL_FOOTPRINT sizeof(fd_repair_protocol_t)
+#define FD_REPAIR_PROTOCOL_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -4761,6 +4778,44 @@ ulong fd_repair_ancestor_hashes_size(fd_repair_ancestor_hashes_t const * self);
 ulong fd_repair_ancestor_hashes_footprint( void );
 ulong fd_repair_ancestor_hashes_align( void );
 
+void fd_repair_protocol_new_disc(fd_repair_protocol_t* self, uint discriminant);
+void fd_repair_protocol_new(fd_repair_protocol_t* self);
+int fd_repair_protocol_decode(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_protocol_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_protocol_decode_unsafe(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_protocol_encode(fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_protocol_destroy(fd_repair_protocol_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_protocol_walk(void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_protocol_size(fd_repair_protocol_t const * self);
+ulong fd_repair_protocol_footprint( void );
+ulong fd_repair_protocol_align( void );
+
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_pong(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_window_index(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_highest_window_index(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_orphan(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_ancestor_hashes(fd_repair_protocol_t const * self);
+enum {
+fd_repair_protocol_enum_LegacyWindowIndex = 0,
+fd_repair_protocol_enum_LegacyHighestWindowIndex = 1,
+fd_repair_protocol_enum_LegacyOrphan = 2,
+fd_repair_protocol_enum_LegacyWindowIndexWithNonce = 3,
+fd_repair_protocol_enum_LegacyHighestWindowIndexWithNonce = 4,
+fd_repair_protocol_enum_LegacyOrphanWithNonce = 5,
+fd_repair_protocol_enum_LegacyAncestorHashes = 6,
+fd_repair_protocol_enum_pong = 7,
+fd_repair_protocol_enum_window_index = 8,
+fd_repair_protocol_enum_highest_window_index = 9,
+fd_repair_protocol_enum_orphan = 10,
+fd_repair_protocol_enum_ancestor_hashes = 11,
+}; 
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

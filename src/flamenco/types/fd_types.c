@@ -18909,6 +18909,337 @@ int fd_repair_ancestor_hashes_encode(fd_repair_ancestor_hashes_t const * self, f
   return FD_BINCODE_SUCCESS;
 }
 
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex(fd_repair_protocol_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex(fd_repair_protocol_t const * self) {
+  return self->discriminant == 1;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan(fd_repair_protocol_t const * self) {
+  return self->discriminant == 2;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce(fd_repair_protocol_t const * self) {
+  return self->discriminant == 3;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce(fd_repair_protocol_t const * self) {
+  return self->discriminant == 4;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce(fd_repair_protocol_t const * self) {
+  return self->discriminant == 5;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes(fd_repair_protocol_t const * self) {
+  return self->discriminant == 6;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_pong(fd_repair_protocol_t const * self) {
+  return self->discriminant == 7;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_window_index(fd_repair_protocol_t const * self) {
+  return self->discriminant == 8;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_highest_window_index(fd_repair_protocol_t const * self) {
+  return self->discriminant == 9;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_orphan(fd_repair_protocol_t const * self) {
+  return self->discriminant == 10;
+}
+FD_FN_PURE uchar fd_repair_protocol_is_ancestor_hashes(fd_repair_protocol_t const * self) {
+  return self->discriminant == 11;
+}
+void fd_repair_protocol_inner_new(fd_repair_protocol_inner_t* self, uint discriminant);
+int fd_repair_protocol_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 2: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 3: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 4: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 5: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 6: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 7: {
+    err = fd_gossip_ping_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 8: {
+    err = fd_repair_window_index_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 9: {
+    err = fd_repair_highest_window_index_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 10: {
+    err = fd_repair_orphan_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  case 11: {
+    err = fd_repair_ancestor_hashes_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_repair_protocol_inner_decode_unsafe(fd_repair_protocol_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    fd_gossip_ping_decode_unsafe(&self->pong, ctx);
+    break;
+  }
+  case 8: {
+    fd_repair_window_index_decode_unsafe(&self->window_index, ctx);
+    break;
+  }
+  case 9: {
+    fd_repair_highest_window_index_decode_unsafe(&self->highest_window_index, ctx);
+    break;
+  }
+  case 10: {
+    fd_repair_orphan_decode_unsafe(&self->orphan, ctx);
+    break;
+  }
+  case 11: {
+    fd_repair_ancestor_hashes_decode_unsafe(&self->ancestor_hashes, ctx);
+    break;
+  }
+  }
+}
+int fd_repair_protocol_decode(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_protocol_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_protocol_new(self);
+  fd_repair_protocol_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_protocol_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode(&discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_repair_protocol_inner_decode_preflight(discriminant, ctx);
+}
+void fd_repair_protocol_decode_unsafe(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint32_decode_unsafe(&self->discriminant, ctx);
+  fd_repair_protocol_inner_decode_unsafe(&self->inner, self->discriminant, ctx);
+}
+void fd_repair_protocol_inner_new(fd_repair_protocol_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    break;
+  }
+  case 2: {
+    break;
+  }
+  case 3: {
+    break;
+  }
+  case 4: {
+    break;
+  }
+  case 5: {
+    break;
+  }
+  case 6: {
+    break;
+  }
+  case 7: {
+    fd_gossip_ping_new(&self->pong);
+    break;
+  }
+  case 8: {
+    fd_repair_window_index_new(&self->window_index);
+    break;
+  }
+  case 9: {
+    fd_repair_highest_window_index_new(&self->highest_window_index);
+    break;
+  }
+  case 10: {
+    fd_repair_orphan_new(&self->orphan);
+    break;
+  }
+  case 11: {
+    fd_repair_ancestor_hashes_new(&self->ancestor_hashes);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_repair_protocol_new_disc(fd_repair_protocol_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_repair_protocol_inner_new(&self->inner, self->discriminant);
+}
+void fd_repair_protocol_new(fd_repair_protocol_t* self) {
+  fd_memset(self, 0, sizeof(*self));
+  fd_repair_protocol_new_disc(self, UINT_MAX);
+}
+void fd_repair_protocol_inner_destroy(fd_repair_protocol_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 7: {
+    fd_gossip_ping_destroy(&self->pong, ctx);
+    break;
+  }
+  case 8: {
+    fd_repair_window_index_destroy(&self->window_index, ctx);
+    break;
+  }
+  case 9: {
+    fd_repair_highest_window_index_destroy(&self->highest_window_index, ctx);
+    break;
+  }
+  case 10: {
+    fd_repair_orphan_destroy(&self->orphan, ctx);
+    break;
+  }
+  case 11: {
+    fd_repair_ancestor_hashes_destroy(&self->ancestor_hashes, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_repair_protocol_destroy(fd_repair_protocol_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_protocol_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+ulong fd_repair_protocol_footprint( void ){ return FD_REPAIR_PROTOCOL_FOOTPRINT; }
+ulong fd_repair_protocol_align( void ){ return FD_REPAIR_PROTOCOL_ALIGN; }
+
+void fd_repair_protocol_walk(void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_protocol", level++);
+  switch (self->discriminant) {
+  case 7: {
+    fd_gossip_ping_walk(w, &self->inner.pong, fun, "pong", level);
+    break;
+  }
+  case 8: {
+    fd_repair_window_index_walk(w, &self->inner.window_index, fun, "window_index", level);
+    break;
+  }
+  case 9: {
+    fd_repair_highest_window_index_walk(w, &self->inner.highest_window_index, fun, "highest_window_index", level);
+    break;
+  }
+  case 10: {
+    fd_repair_orphan_walk(w, &self->inner.orphan, fun, "orphan", level);
+    break;
+  }
+  case 11: {
+    fd_repair_ancestor_hashes_walk(w, &self->inner.ancestor_hashes, fun, "ancestor_hashes", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_protocol", level--);
+}
+ulong fd_repair_protocol_size(fd_repair_protocol_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 7: {
+    size += fd_gossip_ping_size(&self->inner.pong);
+    break;
+  }
+  case 8: {
+    size += fd_repair_window_index_size(&self->inner.window_index);
+    break;
+  }
+  case 9: {
+    size += fd_repair_highest_window_index_size(&self->inner.highest_window_index);
+    break;
+  }
+  case 10: {
+    size += fd_repair_orphan_size(&self->inner.orphan);
+    break;
+  }
+  case 11: {
+    size += fd_repair_ancestor_hashes_size(&self->inner.ancestor_hashes);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_repair_protocol_inner_encode(fd_repair_protocol_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 7: {
+    err = fd_gossip_ping_encode(&self->pong, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 8: {
+    err = fd_repair_window_index_encode(&self->window_index, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 9: {
+    err = fd_repair_highest_window_index_encode(&self->highest_window_index, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 10: {
+    err = fd_repair_orphan_encode(&self->orphan, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 11: {
+    err = fd_repair_ancestor_hashes_encode(&self->ancestor_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_protocol_encode(fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_repair_protocol_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2

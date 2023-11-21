@@ -1990,6 +1990,24 @@
         { "name": "header", "type": "repair_request_header" },
         { "name": "slot", "type": "ulong" }
       ]
+    },
+    {
+      "name": "repair_protocol",
+      "type": "enum",
+      "variants": [
+        { "name": "LegacyWindowIndex" },
+        { "name": "LegacyHighestWindowIndex" },
+        { "name": "LegacyOrphan" },
+        { "name": "LegacyWindowIndexWithNonce" },
+        { "name": "LegacyHighestWindowIndexWithNonce" },
+        { "name": "LegacyOrphanWithNonce" },
+        { "name": "LegacyAncestorHashes" },
+        { "name": "pong", "type": "gossip_ping" },
+        { "name": "window_index", "type": "repair_window_index" },
+        { "name": "highest_window_index", "type": "repair_highest_window_index" },
+        { "name": "orphan", "type": "repair_orphan" },
+        { "name": "ancestor_hashes", "type": "repair_ancestor_hashes" }
+      ]
     }
   ]
 }
