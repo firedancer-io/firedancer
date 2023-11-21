@@ -145,6 +145,7 @@ struct fd_tls_client_hello {
   fd_tls_ext_cert_type_list_t       server_cert_types;
   fd_tls_ext_cert_type_list_t       client_cert_types;
   fd_tls_ext_quic_tp_t              quic_tp;
+  fd_tls_ext_alpn_t                 alpn;
 };
 
 typedef struct fd_tls_client_hello fd_tls_client_hello_t;
@@ -168,9 +169,7 @@ struct fd_tls_enc_ext {
   fd_tls_ext_cert_type_t server_cert;
   fd_tls_ext_cert_type_t client_cert;
   fd_tls_ext_quic_tp_t   quic_tp;
-
-  uchar alpn_sz;
-  uchar alpn[ FD_TLS_EXT_ALPN_SZ_MAX ];
+  fd_tls_ext_alpn_t      alpn;
 };
 
 typedef struct fd_tls_enc_ext fd_tls_enc_ext_t;
@@ -331,7 +330,7 @@ FD_PROTOTYPES_BEGIN
 #define STATIC_SERDE( NAME, TYPE_T )                                   \
   static inline long                                                   \
   fd_tls_decode_##NAME ( TYPE_T *     out,                             \
-                         void const * wire,                            \
+                         uchar const * wire,                            \
                          ulong        wire_sz ) {                      \
     if( FD_UNLIKELY( wire_sz < sizeof(TYPE_T) ) )                      \
       return -(long)FD_TLS_ALERT_DECODE_ERROR;                         \
@@ -403,54 +402,54 @@ STATIC_SERDE( finished, fd_tls_finished_t )
 
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
-                            void const *            wire,
+                            uchar const *           wire,
                             ulong                   wire_sz );
 
 long
 fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz );
 
 long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
-                            void const *            wire,
+                            uchar const *           wire,
                             ulong                   wire_sz );
 
 long
 fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz );
 
 long
 fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
-                       void const *       wire,
+                       uchar const *      wire,
                        ulong              wire_sz );
 
 long
 fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
-                       void *                   wire,
+                       uchar *                  wire,
                        ulong                    wire_sz );
 
 long
-fd_tls_encode_server_cert_x509( void const * x509,
-                                ulong        x509_sz,
-                                void *       wire,
-                                ulong        wire_sz );
+fd_tls_encode_server_cert_x509( uchar const * x509,
+                                ulong         x509_sz,
+                                uchar *       wire,
+                                ulong         wire_sz );
 
 
 long
-fd_tls_encode_raw_public_key( void const * ed25519_pubkey,
-                              void *       wire,
-                              ulong        wire_sz );
+fd_tls_encode_raw_public_key( uchar const * ed25519_pubkey,
+                              uchar *       wire,
+                              ulong         wire_sz );
 
 long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
-                           void const *           wire,
+                           uchar const *          wire,
                            ulong                  wire_sz );
 
 long
 fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
-                           void *                       wire,
+                           uchar *                      wire,
                            ulong                        wire_sz );
 
 static inline void
@@ -460,53 +459,53 @@ fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
 
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
-                               void const *               wire,
+                               uchar const *              wire,
                                ulong                      wire_sz );
 
 long
 fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
-                                    void const *                    wire,
+                                    uchar const *                   wire,
                                     ulong                           wire_sz );
 
 long
 fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
-                                      void const *                      wire,
+                                      uchar const *                     wire,
                                       ulong                             wire_sz );
 
 long
 fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
-                                        void const *                        wire,
+                                        uchar const *                       wire,
                                         ulong                               wire_sz );
 
 long
 fd_tls_decode_key_share( fd_tls_key_share_t * out,
-                         void const *         wire,
+                         uchar const *        wire,
                          ulong                wire_sz );
 
 long
 fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
-                              void const *         wire,
+                              uchar const *        wire,
                               ulong                wire_sz );
 
 long
 fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
-                                  void const *                  wire,
+                                  uchar const *                 wire,
                                   ulong                         wire_sz );
 
 long
 fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
-                                  void const *                wire,
+                                  uchar const *               wire,
                                   ulong                       wire_sz );
 
 
 long
 fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
-                              void const *            wire,
+                              uchar const *           wire,
                               ulong                   wire_sz );
 
 long
 fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
-                             void const *           wire,
+                             uchar const *          wire,
                              ulong                  wire_sz );
 
 /* fd_tls_decode_ext_opaque is special:
@@ -515,19 +514,24 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
 
 long
 fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
-                          void const *          const wire,
+                          uchar const *         const wire,
                           ulong                       wire_sz );
 
 static inline long
 fd_tls_decode_ext_quic_tp( fd_tls_ext_quic_tp_t * const out,
-                           void const *           const wire,
+                           uchar const *          const wire,
                            ulong                        wire_sz ) {
   return fd_tls_decode_ext_opaque( out, wire, wire_sz );
 }
 
 long
 fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
-                        void const *        const wire,
+                        uchar const *       const wire,
+                        ulong                     wire_sz );
+
+long
+fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
+                        uchar *                   wire,
                         ulong                     wire_sz );
 
 /* fd_tls_extract_cert_pubkey extracts the public key of a TLS cert

@@ -120,6 +120,7 @@ fd_x509_mock_cert( uchar         buf[ static FD_X509_MOCK_CERT_SZ ],
                    uchar         private_key[ static 32 ],
                    ulong         serial,
                    fd_sha512_t * sha ) {
+  serial &= 0xffffffffffffff7fUL;  /* webpki expects a positive integer */
 
   fd_memcpy( buf, fd_x509_mock_tpl, FD_X509_MOCK_CERT_SZ );
   fd_memcpy( buf+FD_X509_MOCK_SERIAL_OFF, &serial, 8UL );
