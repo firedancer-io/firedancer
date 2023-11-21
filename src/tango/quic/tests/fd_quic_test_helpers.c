@@ -51,7 +51,7 @@ static void
 fd_quic_test_cb_stream_notify( fd_quic_stream_t * stream,
                                void *             quic_ctx,
                                int                notify_type ) {
-  FD_LOG_DEBUG(( "cb_stream_notify(stream=%lu, quic_ctx=%p, notify_type=%#x)",
+  FD_LOG_DEBUG(( "cb_stream_notify(stream=%lu, quic_ctx=%p, notify_type=%d)",
                  stream->stream_id, quic_ctx, notify_type ));
 }
 
