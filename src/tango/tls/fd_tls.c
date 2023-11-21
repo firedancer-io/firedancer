@@ -1096,8 +1096,8 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .server_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
       .client_cert_types    = { .x509=!!client->cert_x509_sz, .raw_pubkey=1 },
       .quic_tp = {
-        .buf   = (quic_tp_sz>=0L) ? quic_tp : NULL,
-        .bufsz = (ushort)quic_tp_sz,
+        .buf   = (quic_tp_sz>=0L) ? quic_tp            : NULL,
+        .bufsz = (quic_tp_sz>=0L) ? (ushort)quic_tp_sz : 0,
       },
       .alpn = {
         .buf   = client->alpn,

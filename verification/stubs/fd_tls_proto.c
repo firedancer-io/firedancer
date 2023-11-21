@@ -29,6 +29,8 @@ long
 fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
                             uchar *                       wire,
                             ulong                         wire_sz ) {
+  if( in->alpn.bufsz    ) __CPROVER_r_ok( in->alpn.buf,    in->alpn.bufsz    );
+  if( in->quic_tp.bufsz ) __CPROVER_r_ok( in->quic_tp.buf, in->quic_tp.bufsz );
   return generic_encode( in, sizeof(fd_tls_client_hello_t), wire, wire_sz );
 }
 
@@ -44,11 +46,17 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
   __CPROVER_assume( out->server_name.host_name_len<=253UL );
   __CPROVER_assume( out->server_name.host_name_len==  0UL ||
                     out->server_name.host_name[ out->server_name.host_name_len-1UL ]=='\0' );
-  __CPROVER_assume( (ulong)out->quic_tp.buf >= (ulong)wire &&
-                    (ulong)out->quic_tp.buf <  (ulong)wire+wire_sz );
-  __CPROVER_assume( out->alpn.buf                   >= wire &&
-                    out->alpn.buf + out->alpn.bufsz <  wire+wire_sz &&
-                    out->alpn.bufsz                 <= wire_sz );
+
+  ulong quic_tp_off;  __CPROVER_assume( quic_tp_off < actual_sz               );
+  ulong quic_tp_sz;   __CPROVER_assume( quic_tp_sz  < actual_sz - quic_tp_off );
+  out->quic_tp.buf    = wire + quic_tp_off;
+  out->quic_tp.bufsz  = quic_tp_sz;
+
+  ulong alpn_off;   __CPROVER_assume( alpn_off < actual_sz            );
+  ulong alpn_sz;    __CPROVER_assume( alpn_sz  < actual_sz - alpn_off );
+  out->alpn.buf     = wire + alpn_off;
+  out->alpn.bufsz   = alpn_sz;
+
   return actual_sz;
 }
 
@@ -75,6 +83,8 @@ long
 fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
                        uchar *                  wire,
                        ulong                    wire_sz ) {
+  if( in->alpn.bufsz    ) __CPROVER_r_ok( in->alpn.buf,    in->alpn.bufsz    );
+  if( in->quic_tp.bufsz ) __CPROVER_r_ok( in->quic_tp.buf, in->quic_tp.bufsz );
   return generic_encode( in, sizeof(fd_tls_enc_ext_t), wire, wire_sz );
 }
 
@@ -87,11 +97,17 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
   ulong actual_sz; __CPROVER_assume( actual_sz!=0UL );
   if( actual_sz > wire_sz ) return -1L;
   __CPROVER_r_ok( wire, actual_sz );
-  __CPROVER_assume( (ulong)out->quic_tp.buf >= (ulong)wire &&
-                    (ulong)out->quic_tp.buf <  (ulong)wire+wire_sz );
-  __CPROVER_assume( out->alpn.buf                   >= wire &&
-                    out->alpn.buf + out->alpn.bufsz <  wire+wire_sz &&
-                    out->alpn.bufsz                 <= wire_sz );
+
+  ulong quic_tp_off;  __CPROVER_assume( quic_tp_off < actual_sz               );
+  ulong quic_tp_sz;   __CPROVER_assume( quic_tp_sz  < actual_sz - quic_tp_off );
+  out->quic_tp.buf    = wire + quic_tp_off;
+  out->quic_tp.bufsz  = quic_tp_sz;
+
+  ulong alpn_off;   __CPROVER_assume( alpn_off < actual_sz            );
+  ulong alpn_sz;    __CPROVER_assume( alpn_sz  < actual_sz - alpn_off );
+  out->alpn.buf     = wire + alpn_off;
+  out->alpn.bufsz   = alpn_sz;
+
   return actual_sz;
 }
 
