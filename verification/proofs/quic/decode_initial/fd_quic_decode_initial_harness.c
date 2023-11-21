@@ -1,6 +1,18 @@
 #include <assert.h>
 #include <tango/quic/fd_quic_proto.h>
 
+ulong
+fd_quic_parse_bits( uchar const * buf,
+                    ulong         cur_bit,
+                    ulong         bits ) {
+  assert( bits<64UL );
+  ulong b0 =  cur_bit          /8UL;
+  ulong b1 = (cur_bit+bits-1UL)/8UL;
+  __CPROVER_r_ok( buf+b0, b1-b0+1UL );
+  ulong res; __CPROVER_assume( res<(1UL<<bits) );
+  return res;
+}
+
 void
 harness( void ) {
   uint size;  __CPROVER_assume(size <= 1500);
