@@ -21,6 +21,11 @@
 #error "Unsupported FD_ED25519_FE_IMPL"
 #endif
 
+/* Constants used in multiple functions.
+   Currently the same no matter the backend (ref or avx).
+ */
+#include "fd_ed25519_private_const.h"
+
 /* Group element API **************************************************/
 
 /* A fd_ed25519_ge_*_t stores an ed25519 group element.  Here the group

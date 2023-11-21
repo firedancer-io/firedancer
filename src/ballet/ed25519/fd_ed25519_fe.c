@@ -7,4 +7,3 @@
 #else
 #error "Unsupported FD_ED25519_FE_IMPL"
 #endif
-

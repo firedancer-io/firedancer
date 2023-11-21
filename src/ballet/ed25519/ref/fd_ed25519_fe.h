@@ -423,10 +423,17 @@ void
 fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
                          fd_ed25519_fe_t const * f );
 
+/* fd_ed25519_fe_sqrt_ratio computes h = sqrt(u/v), using a single 
+   exponentiation in the field. In place operation is fine.
+   It return 1 if u was a square, 0 if not. */
+
 int
 fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       h,
-                          fd_ed25519_fe_t const * f,
-                          fd_ed25519_fe_t const * g );
+                          fd_ed25519_fe_t const * u,
+                          fd_ed25519_fe_t const * v );
+
+/* fd_ed25519_fe_sqrt_ratio_4 is like fd_ed25519_fe_sqrt_ratio,
+   and processes 4 inputs at a time for better performance. */
 
 static inline void
 fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * outa, int *out_wsa, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
@@ -439,12 +446,16 @@ fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * outa, int *out_wsa, fd_ed25519_fe_
   *out_wsd = fd_ed25519_fe_sqrt_ratio( outd, fd, gd );
 }
 
+/* fd_ed25519_fe_inv_sqrt computes h = sqrt(1/u).
+   It return 1 if u was a square, 0 if not. */
+
 static inline int
 fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
-                        fd_ed25519_fe_t const * f ) {
-  fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
-  return fd_ed25519_fe_sqrt_ratio( h, g, f );
+                        fd_ed25519_fe_t const * u ) {
+  return fd_ed25519_fe_sqrt_ratio( h, f25519_one, u );
 }
+
+/* fd_ed25519_fe_abs computes h = |f|. */
 
 static inline void
 fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
@@ -453,6 +464,8 @@ fd_ed25519_fe_abs( fd_ed25519_fe_t *       h,
   fd_ed25519_fe_neg( fneg, f );
   fd_ed25519_fe_if( h, fd_ed25519_fe_isnegative( f ), fneg, f );
 }
+
+/* fd_ed25519_fe_abs computes h = -|f|. */
 
 static inline void
 fd_ed25519_fe_neg_abs( fd_ed25519_fe_t *       h,
