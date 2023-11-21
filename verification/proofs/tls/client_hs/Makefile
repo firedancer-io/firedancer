@@ -6,7 +6,9 @@ INCLUDES += -I$(SRCDIR)
 
 PROOF_SOURCES += $(PROOFDIR)/$(HARNESS_FILE).c
 PROOF_SOURCES += $(PROOF_STUB)/fd_log.c
-PROOF_SOURCES += $(PROOF_STUB)/fd_tls_crypto.c
+PROOF_SOURCES += $(PROOF_STUB)/fd_ed25519.c
+PROOF_SOURCES += $(PROOF_STUB)/fd_aes.c
+PROOF_SOURCES += $(PROOF_STUB)/fd_sha.c
 PROOF_SOURCES += $(PROOF_STUB)/fd_tls_proto.c
 PROJECT_SOURCES = $(SRCDIR)/tango/tls/fd_tls.c
 

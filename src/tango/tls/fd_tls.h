@@ -46,8 +46,8 @@ struct fd_tls {
 
   /* Buffers storing the Certificate handshake message.  This is not a
      simple copy of the cert but also contains TLS headers/footers.
-     Written by fd_tls_server_set_x509.  Do not write directly. */
-  uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];  /* set using  */
+     Written by fd_tls_set_x509.  Do not write directly. */
+  uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
 
   /* ALPN protocol identifier.  Written by fd_tls_server_set_alpn.
@@ -85,10 +85,10 @@ fd_tls_leave( fd_tls_t * );
 void *
 fd_tls_delete( void * );
 
-/* fd_tls_server_set_x509 sets the server certificate.  cert points to
-   the first byte of the DER serialized X.509 certificate.  cert_sz is
-   the serialized size.  Returns 1 on success and 0 on failure.  Reasons
-   for failure include oversz cert. */
+/* fd_tls_set_x509 sets the server certificate.  cert points to the
+   first byte of the DER serialized X.509 certificate.  cert_sz is the
+   serialized size.  Returns 1 on success and 0 on failure.  Reasons for
+   failure include oversz cert. */
 
 static inline int
 fd_tls_set_x509( fd_tls_t * server,
