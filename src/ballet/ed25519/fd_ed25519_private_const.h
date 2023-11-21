@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_ballet_ed25519_fd_ed25519_private_h
+#error "Do not include this directly; use fd_ed25519_private.h"
+#endif
 
 static const fd_ed25519_fe_t f25519_one[1] = {{
   { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
