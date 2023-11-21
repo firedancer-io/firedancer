@@ -1,0 +1,5 @@
+{
+  "expected-missing-functions": [],
+  "proof-name": "fd_quic_decrypt_harness",
+  "proof-root": "verification/proofs"
+}

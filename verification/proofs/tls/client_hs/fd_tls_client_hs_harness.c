@@ -72,6 +72,7 @@ tls_quic_tp_peer( void  *       handshake,
 void
 harness( void ) {
   fd_tls_t * tls = fd_tls_join( fd_tls_new( malloc( fd_tls_footprint() ) ) );
+  if( !tls ) return;
 
   tls->rand = (fd_tls_rand_t) {
     .ctx     = tls_rand_ctx,
