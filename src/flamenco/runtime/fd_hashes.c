@@ -439,19 +439,8 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
 
 #ifdef _ENABLE_RHASH
   if (NULL != rhash) {
-    uchar hash512[64];
     fd_ristretto255_point_t p;
-
-    fd_blake3_init  ( b3 );
-    fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
-    fd_blake3_append( b3, &slot,       sizeof( ulong ) );
-    fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
-    fd_blake3_append( b3, data,        m->dlen         );
-    fd_blake3_append( b3, &executable, sizeof( uchar ) );
-    fd_blake3_append( b3, owner,       32UL            );
-    fd_blake3_append( b3, pubkey,      32UL            );
-    fd_blake3_fini_512  ( b3, hash512 );
-    fd_ristretto255_hash_to_curve( &p, hash512 );
+    fd_ristretto255_map_to_curve( &p, hash );
     fd_ristretto255_extended_tobytes( rhash, &p );
   }
 #else
@@ -485,18 +474,8 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
 
 #ifdef _ENABLE_RHASH
   if (NULL != rhash) {
-    uchar hash512[64];
     fd_ristretto255_point_t p;
-
-    fd_blake3_init  ( b3 );
-    fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
-    fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
-    fd_blake3_append( b3, data,        m->dlen         );
-    fd_blake3_append( b3, &executable, sizeof( uchar ) );
-    fd_blake3_append( b3, owner,       32UL            );
-    fd_blake3_append( b3, pubkey,      32UL            );
-    fd_blake3_fini_512  ( b3, hash512 );
-    fd_ristretto255_hash_to_curve( &p, hash512 );
+    fd_ristretto255_map_to_curve( &p, hash );
     fd_ristretto255_extended_tobytes( rhash, &p );
   }
 #else

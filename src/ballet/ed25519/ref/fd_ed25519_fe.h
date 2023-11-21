@@ -404,6 +404,17 @@ fd_ed25519_fe_pow22523_2( fd_ed25519_fe_t * out0, fd_ed25519_fe_t const * z0,
   fd_ed25519_fe_pow22523( out1, z1 );
 }
 
+static inline void
+fd_ed25519_fe_pow22523_4( fd_ed25519_fe_t * outa, fd_ed25519_fe_t const * za,
+                          fd_ed25519_fe_t * outb, fd_ed25519_fe_t const * zb,
+                          fd_ed25519_fe_t * outc, fd_ed25519_fe_t const * zc,
+                          fd_ed25519_fe_t * outd, fd_ed25519_fe_t const * zd ) {
+  fd_ed25519_fe_pow22523( outa, za );
+  fd_ed25519_fe_pow22523( outb, zb );
+  fd_ed25519_fe_pow22523( outc, zc );
+  fd_ed25519_fe_pow22523( outd, zd );
+}
+
 /* fd_ed25519_fe_mul121666 computes h = f * 121666.  In place operation
    is fine.  Returns h and, on return, the result will be stored in the
    fe pointed to by h. */
@@ -417,9 +428,20 @@ fd_ed25519_fe_sqrt_ratio( fd_ed25519_fe_t *       h,
                           fd_ed25519_fe_t const * f,
                           fd_ed25519_fe_t const * g );
 
+static inline void
+fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * outa, int *out_wsa, fd_ed25519_fe_t const * fa, fd_ed25519_fe_t const * ga,
+                            fd_ed25519_fe_t * outb, int *out_wsb, fd_ed25519_fe_t const * fb, fd_ed25519_fe_t const * gb,
+                            fd_ed25519_fe_t * outc, int *out_wsc, fd_ed25519_fe_t const * fc, fd_ed25519_fe_t const * gc,
+                            fd_ed25519_fe_t * outd, int *out_wsd, fd_ed25519_fe_t const * fd, fd_ed25519_fe_t const * gd ) {
+  *out_wsa = fd_ed25519_fe_sqrt_ratio( outa, fa, ga );
+  *out_wsb = fd_ed25519_fe_sqrt_ratio( outb, fb, gb );
+  *out_wsc = fd_ed25519_fe_sqrt_ratio( outc, fc, gc );
+  *out_wsd = fd_ed25519_fe_sqrt_ratio( outd, fd, gd );
+}
+
 static inline int
 fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
-                       fd_ed25519_fe_t const * f ) {
+                        fd_ed25519_fe_t const * f ) {
   fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
   return fd_ed25519_fe_sqrt_ratio( h, g, f );
 }
@@ -441,4 +463,3 @@ fd_ed25519_fe_neg_abs( fd_ed25519_fe_t *       h,
 }
 
 FD_PROTOTYPES_END
-

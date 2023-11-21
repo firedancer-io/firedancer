@@ -88,6 +88,20 @@ fd_ristretto255_point_eq( fd_ristretto255_point_t * const p_,
 }
 
 fd_ristretto255_point_t *
+fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
+                              uchar const               s[ static 32 ] );
+
+void
+fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
+                                uchar const               ta[ static 32 ],
+                                fd_ristretto255_point_t * hb_,
+                                uchar const               tb[ static 32 ],
+                                fd_ristretto255_point_t * hc_,
+                                uchar const               tc[ static 32 ],
+                                fd_ristretto255_point_t * hd_,
+                                uchar const               td[ static 32 ] );
+
+fd_ristretto255_point_t *
 fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
                                uchar const               s[ static 64 ] );
 
