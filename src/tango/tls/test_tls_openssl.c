@@ -222,10 +222,10 @@ _ossl_alpn_select( SSL *          ssl,
                    uint           inlen,
                    void *         arg ) {
   (void)ssl; (void)arg;
-  if( SSL_select_next_proto( (unsigned char **)out, outlen, in, inlen, (uchar const *)"solana-tpu", 10 )==OPENSSL_NPN_NEGOTIATED ) {
+  if( SSL_select_next_proto( (unsigned char **)out, outlen, in, inlen, (uchar const *)"\xasolana-tpu", 11 )==OPENSSL_NPN_NEGOTIATED ) {
     return SSL_TLSEXT_ERR_OK;
   }
-  return SSL_TLSEXT_ERR_NOACK;
+  FD_LOG_ERR(( "ALPN negotiation failed" ));
 }
 
 /* test_server connects an OpenSSL client to an fd_tls server */

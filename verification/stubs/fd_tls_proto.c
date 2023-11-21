@@ -27,14 +27,14 @@ generic_encode( void const * in,
 
 long
 fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz ) {
   return generic_encode( in, sizeof(fd_tls_client_hello_t), wire, wire_sz );
 }
 
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
-                            void const *            wire,
+                            uchar const *           wire,
                             ulong                   wire_sz ) {
   __CPROVER_havoc_slice( out, sizeof(fd_tls_client_hello_t) );
 
@@ -46,19 +46,22 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
                     out->server_name.host_name[ out->server_name.host_name_len-1UL ]=='\0' );
   __CPROVER_assume( (ulong)out->quic_tp.buf >= (ulong)wire &&
                     (ulong)out->quic_tp.buf <  (ulong)wire+wire_sz );
+  __CPROVER_assume( out->alpn.buf                   >= wire &&
+                    out->alpn.buf + out->alpn.bufsz <  wire+wire_sz &&
+                    out->alpn.bufsz                 <= wire_sz );
   return actual_sz;
 }
 
 long
 fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz ) {
   return generic_encode( in, sizeof(fd_tls_server_hello_t), wire, wire_sz );
 }
 
 long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
-                            void const *            wire,
+                            uchar const *           wire,
                             ulong                   wire_sz ) {
   __CPROVER_havoc_slice( out, sizeof(fd_tls_server_hello_t) );
 
@@ -70,14 +73,14 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
 long
 fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
-                       void *                   wire,
+                       uchar *                  wire,
                        ulong                    wire_sz ) {
   return generic_encode( in, sizeof(fd_tls_enc_ext_t), wire, wire_sz );
 }
 
 long
 fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
-                       void const *       wire,
+                       uchar const *      wire,
                        ulong              wire_sz ) {
   __CPROVER_havoc_slice( out, sizeof(fd_tls_enc_ext_t) );
 
@@ -86,13 +89,16 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
   __CPROVER_r_ok( wire, actual_sz );
   __CPROVER_assume( (ulong)out->quic_tp.buf >= (ulong)wire &&
                     (ulong)out->quic_tp.buf <  (ulong)wire+wire_sz );
+  __CPROVER_assume( out->alpn.buf                   >= wire &&
+                    out->alpn.buf + out->alpn.bufsz <  wire+wire_sz &&
+                    out->alpn.bufsz                 <= wire_sz );
   return actual_sz;
 }
 
 long
-fd_tls_encode_raw_public_key( void const * ed25519_pubkey,
-                              void *       wire,
-                              ulong        wire_sz ) {
+fd_tls_encode_raw_public_key( uchar const * ed25519_pubkey,
+                              uchar *       wire,
+                              ulong         wire_sz ) {
   ulong const encoded_sz = 57UL;
 
   if( wire_sz<encoded_sz ) return -1L;
@@ -103,7 +109,7 @@ fd_tls_encode_raw_public_key( void const * ed25519_pubkey,
 
 long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
-                           void const *           wire,
+                           uchar const *          wire,
                            ulong                  wire_sz ) {
   __CPROVER_havoc_slice( out, sizeof(fd_tls_cert_verify_t) );
 
@@ -136,4 +142,11 @@ fd_tls_extract_cert_pubkey( uchar const * cert,
   }
 
   return res;
+}
+
+long
+fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
+                           uchar *                     wire,
+                           ulong                       wire_sz ) {
+  return generic_encode( in, sizeof(fd_tls_cert_verify_t), wire, wire_sz );
 }

@@ -26,7 +26,7 @@ typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
-                            void const * const      wire,
+                            uchar const * const      wire,
                             ulong                   wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -96,7 +96,7 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
     /* Decode extension data */
-    void const * ext_data = (void const *)wire_laddr;
+    uchar const * ext_data = (uchar const *)wire_laddr;
     long ext_parse_res;
     switch( ext_type ) {
     case FD_TLS_EXT_SUPPORTED_VERSIONS:
@@ -123,6 +123,9 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       ext_parse_res = fd_tls_decode_ext_quic_tp( &out->quic_tp, ext_data, ext_sz );
       break;
+    case FD_TLS_EXT_ALPN:
+      ext_parse_res = fd_tls_decode_ext_alpn( &out->alpn, ext_data, ext_sz );
+      break;
     default:
       ext_parse_res = (long)ext_sz;
       break;
@@ -143,7 +146,7 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
 
 long
 fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -216,16 +219,24 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
+  /* Add ALPN */
+
+  if( in->alpn.bufsz ) {
+    fd_tls_ext_hdr_t ext_hdr = { .type = FD_TLS_EXT_ALPN,
+                                 .sz   = (ushort)( in->alpn.bufsz+2 ) };
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_hdr,  &ext_hdr  );
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_alpn, &in->alpn );
+  }
+
   /* Add QUIC transport params */
 
   if( in->quic_tp.buf ) {
     ushort  quic_tp_ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
     ushort  quic_tp_ext_sz   = (ushort)in->quic_tp.bufsz;
-    uchar * quic_tp          = (uchar *)in->quic_tp.buf;
 #   define FIELDS( FIELD )                    \
     FIELD( 0, &quic_tp_ext_type, ushort, 1 ); \
     FIELD( 1, &quic_tp_ext_sz,   ushort, 1 ); \
-    FIELD( 2,  quic_tp,          uchar,  in->quic_tp.bufsz );
+    FIELD( 2, in->quic_tp.buf,   uchar,  in->quic_tp.bufsz );
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
   }
@@ -262,7 +273,7 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
 
 long
 fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
-                            void const *            wire,
+                            uchar const *           wire,
                             ulong                   wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -321,7 +332,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
     ulong next_sz    = wire_sz    - ext_sz;
 
     /* Decode extension data */
-    void const * ext_data = (void const *)wire_laddr;
+    uchar const * ext_data = (uchar const *)wire_laddr;
     long ext_parse_res;
     switch( ext_type ) {
     case FD_TLS_EXT_SUPPORTED_VERSIONS: {
@@ -364,7 +375,7 @@ fd_tls_decode_server_hello( fd_tls_server_hello_t * out,
 
 long
 fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
-                            void *                        wire,
+                            uchar *                       wire,
                             ulong                         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -418,17 +429,10 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
 
 long
 fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
-                       void const *       const wire,
+                       uchar const *      const wire,
                        ulong                    wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
-
-  /* Initialize */
-  out->server_cert.cert_type = 0;
-  out->client_cert.cert_type = 0;
-  out->alpn_sz               = 0;
-  out->quic_tp.buf           = NULL;
-  out->quic_tp.bufsz         = 0;
 
   FD_TLS_DECODE_LIST_BEGIN( ushort, alignof(uchar) ) {
     ushort ext_type;
@@ -445,12 +449,14 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
 
     switch( ext_type ) {
-    case FD_TLS_EXT_ALPN:
-      if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_ALPN_SZ_MAX ) )
+    case FD_TLS_EXT_ALPN: {
+      long res = fd_tls_decode_ext_alpn( &out->alpn, (uchar const *)wire_laddr, ext_sz );
+      if( FD_UNLIKELY( res<0L ) )
+        return res;
+      if( FD_UNLIKELY( res!=(long)ext_sz ) )
         return -(long)FD_TLS_ALERT_DECODE_ERROR;
-      out->alpn_sz = (uchar)ext_sz;
-      fd_memcpy( out->alpn, (void const *)wire_laddr, ext_sz );
       break;
+    }
     case FD_TLS_EXT_QUIC_TRANSPORT_PARAMS:
       if( FD_UNLIKELY( ext_sz > FD_TLS_EXT_QUIC_PARAMS_SZ_MAX ) )
         return -(long)FD_TLS_ALERT_DECODE_ERROR;
@@ -482,10 +488,10 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
 }
 
 long
-fd_tls_encode_server_cert_x509( void const * x509,
-                                ulong        x509_sz,
-                                void *       wire,
-                                ulong        wire_sz ) {
+fd_tls_encode_server_cert_x509( uchar const * x509,
+                                ulong         x509_sz,
+                                uchar *       wire,
+                                ulong         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -503,10 +509,6 @@ fd_tls_encode_server_cert_x509( void const * x509,
      (Server certificate never has a request context) */
   uchar certificate_request_context_sz = (uchar)0;
 
-  /* TODO Ugly: Type cast required to make macro happy, though no
-          actual writes take place. */
-  uchar * _x509 = (uchar *)x509;
-
   /* No certificate extensions */
   ushort ext_sz = (ushort)0;
 
@@ -517,7 +519,7 @@ fd_tls_encode_server_cert_x509( void const * x509,
       FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
       FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
         FIELD( 4, &cert_sz,                      tls_u24, 1       ) \
-        FIELD( 5, _x509,                         uchar,   x509_sz ) \
+        FIELD( 5, x509,                          uchar,   x509_sz ) \
         FIELD( 6, &ext_sz,                       ushort,  1       )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
@@ -527,25 +529,18 @@ fd_tls_encode_server_cert_x509( void const * x509,
 
 long
 fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
-                       void *                   wire,
+                       uchar *                  wire,
                        ulong                    wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
   /* ALPN */
 
-  if( in->alpn_sz ) {
-    ushort ext_type = FD_TLS_EXT_ALPN;
-    ushort ext_sz   = (ushort)( in->alpn_sz+2 );
-    ushort data_sz  = (ushort)in->alpn_sz;
-    uchar * _data   = (uchar *)in->alpn;
-#   define FIELDS( FIELD )                        \
-      FIELD( 0, &ext_type,  ushort, 1           ) \
-      FIELD( 1, &ext_sz,    ushort, 1           ) \
-        FIELD( 2, &data_sz, ushort, 1           ) \
-        FIELD( 3, _data,    uchar,  in->alpn_sz )
-      FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
-#   undef FIELDS
+  if( in->alpn.bufsz ) {
+    fd_tls_ext_hdr_t ext_hdr = { .type = FD_TLS_EXT_ALPN,
+                                 .sz   = (ushort)( in->alpn.bufsz+2 ) };
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_hdr,  &ext_hdr  );
+    FD_TLS_ENCODE_SUB( fd_tls_encode_ext_alpn, &in->alpn );
   }
 
   /* QUIC transport params */
@@ -553,11 +548,10 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
   if( in->quic_tp.buf ) {
     ushort ext_type = FD_TLS_EXT_QUIC_TRANSPORT_PARAMS;
     ushort ext_sz   = (ushort)in->quic_tp.bufsz;
-    uchar * _data   = (uchar *)in->quic_tp.buf;
-#   define FIELDS( FIELD )                             \
-      FIELD( 0, &ext_type, ushort, 1                 ) \
-      FIELD( 1, &ext_sz,   ushort, 1                 ) \
-        FIELD( 2, _data,   uchar,  in->quic_tp.bufsz )
+#   define FIELDS( FIELD )             \
+      FIELD( 0, &ext_type, ushort, 1 ) \
+      FIELD( 1, &ext_sz,   ushort, 1 ) \
+        FIELD( 2, in->quic_tp.buf, uchar, in->quic_tp.bufsz )
       FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 #   undef FIELDS
   }
@@ -594,9 +588,9 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
 }
 
 long
-fd_tls_encode_raw_public_key( void const * key,
-                              void *       wire,
-                              ulong        wire_sz ) {
+fd_tls_encode_raw_public_key( uchar const * key,
+                              uchar *       wire,
+                              ulong         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -615,11 +609,6 @@ fd_tls_encode_raw_public_key( void const * key,
      (Server certificate never has a request context) */
   uchar certificate_request_context_sz = (uchar)0;
 
-  /* TODO Ugly: Type cast required to make macro happy, though no
-          actual writes take place. */
-  uchar * _asn1_prefix = (uchar *)fd_asn1_ed25519_pubkey_prefix;
-  uchar * _ed25519_pub = (uchar *)key;
-
   /* No certificate extensions */
   ushort ext_sz = (ushort)0;
 
@@ -630,8 +619,8 @@ fd_tls_encode_raw_public_key( void const * key,
       FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
       FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
         FIELD( 4, &cert_sz,                      tls_u24, 1       ) \
-        FIELD( 5,  _asn1_prefix,                 uchar,   sizeof(fd_asn1_ed25519_pubkey_prefix) ) \
-        FIELD( 6,  _ed25519_pub,                 uchar,   32UL    ) \
+        FIELD( 5, fd_asn1_ed25519_pubkey_prefix, uchar,   sizeof(fd_asn1_ed25519_pubkey_prefix) ) \
+        FIELD( 6, key,                           uchar,   32UL    ) \
         FIELD( 7, &ext_sz,                       ushort,  1       )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
@@ -641,7 +630,7 @@ fd_tls_encode_raw_public_key( void const * key,
 
 long
 fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
-                           void const *           wire,
+                           uchar const *          wire,
                            ulong                  wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -663,7 +652,7 @@ fd_tls_decode_cert_verify( fd_tls_cert_verify_t * out,
 
 long
 fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
-                           void *                       wire,
+                           uchar *                      wire,
                            ulong                        wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -681,7 +670,7 @@ fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
 
 long
 fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
-                               void const *               wire,
+                               uchar const *              wire,
                                ulong                      wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -707,7 +696,7 @@ fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
         & ( name_sz < 254                            )
         & ( out->host_name_len == 0                  ) ) ) {
       out->host_name_len = (uchar)name_sz;
-      memcpy( out->host_name, (void const *)wire_laddr, name_sz );
+      memcpy( out->host_name, (uchar const *)wire_laddr, name_sz );
       out->host_name[ name_sz ] = '\0';
     }
 
@@ -722,7 +711,7 @@ fd_tls_decode_ext_server_name( fd_tls_ext_server_name_t * out,
 
 long
 fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
-                                    void const *                    wire,
+                                    uchar const *                   wire,
                                     ulong                           wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -746,7 +735,7 @@ fd_tls_decode_ext_supported_groups( fd_tls_ext_supported_groups_t * out,
 
 long
 fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
-                                      void const *                      wire,
+                                      uchar const *                     wire,
                                       ulong                             wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -770,7 +759,7 @@ fd_tls_decode_ext_supported_versions( fd_tls_ext_supported_versions_t * out,
 
 long
 fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
-                                        void const *                        wire,
+                                        uchar const *                       wire,
                                         ulong                               wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -794,7 +783,7 @@ fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
 
 long
 fd_tls_decode_key_share( fd_tls_key_share_t * out,
-                         void const *         wire,
+                         uchar const *        wire,
                          ulong                wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -817,7 +806,7 @@ fd_tls_decode_key_share( fd_tls_key_share_t * out,
     if( FD_UNLIKELY( kex_data_sz != 32UL ) )
       return -(long)FD_TLS_ALERT_DECODE_ERROR;
     out->has_x25519 = 1;
-    memcpy( out->x25519, (void const *)wire_laddr, 32UL );
+    memcpy( out->x25519, (uchar const *)wire_laddr, 32UL );
     break;
   default:
     /* Ignore unsupported key share groups ... */
@@ -833,7 +822,7 @@ fd_tls_decode_key_share( fd_tls_key_share_t * out,
 
 long
 fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
-                              void const *         wire,
+                              uchar const *        wire,
                               ulong                wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -848,7 +837,7 @@ fd_tls_decode_key_share_list( fd_tls_key_share_t * out,
 
 long
 fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
-                                  void const *                  wire,
+                                  uchar const *                 wire,
                                   ulong                         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -872,7 +861,7 @@ fd_tls_decode_ext_cert_type_list( fd_tls_ext_cert_type_list_t * out,
 
 long
 fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
-                                  void const *                wire,
+                                  uchar const *               wire,
                                   ulong                       wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -891,7 +880,7 @@ fd_tls_encode_ext_cert_type_list( fd_tls_ext_cert_type_list_t in,
 
 long
 fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
-                              void const *            wire,
+                              uchar const *           wire,
                               ulong                   wire_sz ) {
   ulong wire_laddr = (ulong)wire;
   FD_TLS_DECODE_FIELD( &out->cert_type, uchar );
@@ -900,7 +889,7 @@ fd_tls_decode_ext_cert_type( fd_tls_ext_cert_type_t * out,
 
 long
 fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
-                             void const *           wire,
+                             uchar const *          wire,
                              ulong                  wire_sz ) {
   ulong wire_laddr = (ulong)wire;
   FD_TLS_ENCODE_FIELD( &in.cert_type, uchar );
@@ -909,7 +898,7 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
 
 long
 fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
-                          void const *          const wire,
+                          uchar const *         const wire,
                           ulong                       wire_sz ) {
   out->buf   = wire;
   out->bufsz = wire_sz;
@@ -918,14 +907,27 @@ fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
 
 long
 fd_tls_decode_ext_alpn( fd_tls_ext_alpn_t * const out,
-                        void const *        const wire,
+                        uchar const *       const wire,
                         ulong                     wire_sz ) {
   ulong wire_laddr = (ulong)wire;
   ushort alpn_sz;
   FD_TLS_DECODE_FIELD( &alpn_sz, ushort );
   if( FD_UNLIKELY( (ulong)alpn_sz != wire_sz ) )
     return -(long)FD_TLS_ALERT_DECODE_ERROR;
-  return fd_tls_decode_ext_opaque( out, (void const *)wire_laddr, wire_sz );
+  return 2L + (long)fd_tls_decode_ext_opaque( out, (uchar const *)wire_laddr, wire_sz );
+}
+
+long
+fd_tls_encode_ext_alpn( fd_tls_ext_alpn_t const * in,
+                        uchar *                   wire,
+                        ulong                     wire_sz ) {
+  ulong sz = 2UL + in->bufsz;
+  if( FD_UNLIKELY( sz>wire_sz ) )
+    return -(long)FD_TLS_ALERT_INTERNAL_ERROR;
+  wire[0] = (uchar)( (in->bufsz >> 8)&0xFF );
+  wire[1] = (uchar)(  in->bufsz      &0xFF );
+  fd_memcpy( wire+2UL, in->buf, in->bufsz );
+  return (long)sz;
 }
 
 /* fd_tls_client_handle_x509 extracts the Ed25519 subject public key

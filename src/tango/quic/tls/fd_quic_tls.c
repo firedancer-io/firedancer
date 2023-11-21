@@ -187,8 +187,10 @@ fd_quic_tls_init( fd_tls_t * tls ) {
   ulong cert_serial;
   if( FD_UNLIKELY( 8L!=getrandom( &cert_serial, 8UL, 0 ) ) )
     FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
-  fd_x509_mock_cert( tls->cert_x509, tls->cert_private_key, cert_serial, sha );
-  tls->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
+
+  uchar cert[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert, tls->cert_private_key, cert_serial, sha );
+  fd_tls_set_x509(tls, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set ALPN protocol ID
      (Technically, don't need to copy the length prefix but we'll do

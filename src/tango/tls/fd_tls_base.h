@@ -193,11 +193,6 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
 #define FD_TLS_SERVER_CERT_MSG_SZ_MAX (FD_TLS_SERVER_CERT_SZ_MAX+13UL)
 
-/* FD_TLS_EXT_ALPN_SZ_MAX is the max permitted byte size of the ALPN
-   list. */
-
-#define FD_TLS_EXT_ALPN_SZ_MAX (31UL)
-
 /* FD_TLS_EXT_QUIC_PARAMS_SZ is the max permitted byte size of encoded
    QUIC transport parameters */
 
@@ -215,7 +210,6 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_REASON_SENDMSG_FAIL    ( 2)  /* sendmsg callback failed */
 #define FD_TLS_REASON_WRONG_ENC_LVL   ( 3)  /* wrong encryption level */
 #define FD_TLS_REASON_RAND_FAIL       ( 4)  /* rand fn failed */
-#define FD_TLS_REASON_ALPN_OVERSZ     ( 5)  /* ALPN list too long */
 
 #define FD_TLS_REASON_X25519_FAIL     ( 9)  /* fd_x25519_exchange failed */
 #define FD_TLS_REASON_NO_X509         (10)  /* no X.509 cert installed */
@@ -265,6 +259,10 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_REASON_FINI_EXPECTED  (902)  /* wanted Finished, got another msg type */
 #define FD_TLS_REASON_FINI_TRAILING  (903)  /* trailing bytes in Finished */
 #define FD_TLS_REASON_FINI_FAIL      (904)  /* Finished data mismatch */
+
+#define FD_TLS_REASON_ALPN_PARSE     (1001)  /* failed to parse ALPN */
+#define FD_TLS_REASON_ALPN_NEG       (1002)  /* ALPN negotiation failed */
+#define FD_TLS_REASON_NO_ALPN        (1003)  /* no ALPN extension */
 
 FD_PROTOTYPES_BEGIN
 

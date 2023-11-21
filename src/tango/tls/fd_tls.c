@@ -184,6 +184,28 @@ fd_tls_hkdf_expand_label( uchar         out[ static 32 ],
 # undef LABEL_BUFSZ
 }
 
+static int
+fd_tls_has_alpn( uchar const * list,
+                 ulong const   list_sz,
+                 uchar const * target,
+                 ulong const   target_sz ) {
+  if( FD_UNLIKELY( target_sz<=1UL ) ) return 0;
+
+  uchar const * list_end = list + list_sz;
+  while( list < list_end ) {
+    ulong ele_sz = list[0];
+    list += 1UL;
+    uchar const * ele = list;
+    if( FD_UNLIKELY( (long)ele_sz > list_end-list ) ) return -1;
+    list += ele_sz;
+
+    if( ele_sz==target_sz-1UL )
+      if( 0==memcmp( ele, target+1UL, ele_sz ) )
+        return 1;
+  }
+  return 0;
+}
+
 /* fd_tls_alert is a convenience function for setting a handshake
    failure alert and reason code. */
 
@@ -395,7 +417,17 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     server->quic_tp_peer_fn( handshake, ch.quic_tp.buf, ch.quic_tp.bufsz );
   }
 
-  /* TODO check whether ALPN string contains our requested protocol */
+  /* Reject connection if ALPN not advertised */
+
+  if( server->alpn[0] ) {
+    if( FD_UNLIKELY( !ch.alpn.bufsz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_NO_APPLICATION_PROTOCOL, FD_TLS_REASON_NO_ALPN );
+    int ok = fd_tls_has_alpn( ch.alpn.buf, ch.alpn.bufsz, server->alpn, server->alpn_sz );
+    if( FD_UNLIKELY( ok==-1 ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_ALPN_PARSE );
+    if( FD_UNLIKELY( ok==0 ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_NO_APPLICATION_PROTOCOL, FD_TLS_REASON_ALPN_NEG );
+  }
 
   /* Record client hello in transcript hash */
 
@@ -540,13 +572,12 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
       .quic_tp = {
         .buf   = (quic_tp_sz>=0L) ? quic_tp : NULL,
         .bufsz = (ushort)quic_tp_sz,
+      },
+      .alpn = {
+        .buf   = server->alpn,
+        .bufsz = server->alpn_sz,
       }
     };
-
-    if( server->alpn_sz > sizeof(ee.alpn) )
-      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_ALPN_OVERSZ );
-    fd_memcpy( ee.alpn, server->alpn, server->alpn_sz );
-    ee.alpn_sz = (uchar)server->alpn_sz;
 
     /* Negotiate raw public keys if available */
 
@@ -1067,6 +1098,10 @@ fd_tls_client_hs_start( fd_tls_t const * const      client,
       .quic_tp = {
         .buf   = (quic_tp_sz>=0L) ? quic_tp : NULL,
         .bufsz = (ushort)quic_tp_sz,
+      },
+      .alpn = {
+        .buf   = client->alpn,
+        .bufsz = client->alpn_sz,
       }
     };
     memcpy( ch.random,           client_random,          32UL );
@@ -1261,17 +1296,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
       return fd_tls_alert( &handshake->base, (uint)(-decode_res), FD_TLS_REASON_EE_PARSE );
     wire += (ulong)decode_res;
 
-    if( client->quic ) {
-      /* QUIC transport parameters are mandatory in QUIC mode */
-      if( FD_UNLIKELY( !ee->quic_tp.buf ) )
-        return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_EE_NO_QUIC );
-
-      /* Remember that this is a QUIC-TLS handshake */
-      handshake->base.quic = 1;
-      /* Inform user of peer's QUIC transport parameters */
-      client->quic_tp_peer_fn( handshake, ee->quic_tp.buf, ee->quic_tp.bufsz );
-    }
-
     /* Fail if trailing bytes detected */
 
     if( FD_UNLIKELY( wire!=wire_end ) )
@@ -1300,6 +1324,29 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE, FD_TLS_REASON_CERT_TYPE );
   }
 
+  /* QUIC mode */
+
+  if( client->quic ) {
+    /* QUIC transport parameters are mandatory in QUIC mode */
+    if( FD_UNLIKELY( !ee->quic_tp.buf ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_EE_NO_QUIC );
+
+    /* Remember that this is a QUIC-TLS handshake */
+    handshake->base.quic = 1;
+    /* Inform user of peer's QUIC transport parameters */
+    client->quic_tp_peer_fn( handshake, ee->quic_tp.buf, ee->quic_tp.bufsz );
+  }
+
+  /* Check ALPN */
+
+  if( client->alpn_sz ) {
+    if( FD_UNLIKELY( !ee->alpn.bufsz ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_NO_ALPN );
+    if( FD_UNLIKELY( ee->alpn.bufsz != client->alpn_sz ||
+                     0!=memcmp( ee->alpn.buf, client->alpn, client->alpn_sz ) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_HANDSHAKE_FAILURE, FD_TLS_REASON_ALPN_NEG );
+  }
+
   /* Fail if server requested an X.509 client cert, but we can only
      serve a raw public key. */
 
@@ -1326,7 +1373,7 @@ fd_tls_client_handle_cert_req( fd_tls_estate_cli_t * const handshake,
   (void)req; (void)req_sz;
 
   handshake->client_cert = 1;
-  handshake->base.state       = FD_TLS_HS_WAIT_CERT;
+  handshake->base.state  = FD_TLS_HS_WAIT_CERT;
 
   return (long)req_sz;
 }
@@ -1756,8 +1803,6 @@ fd_tls_reason_cstr( uint reason ) {
     return "wrong encryption level (bug in user of fd_tls API)";
   case FD_TLS_REASON_RAND_FAIL:
     return "rand function failed";
-  case FD_TLS_REASON_ALPN_OVERSZ:
-    return "our ALPN list is too long";
   case FD_TLS_REASON_CH_EXPECTED:
     return "expected ClientHello, but got other message type";
   case FD_TLS_REASON_CH_TRAILING:
@@ -1838,6 +1883,12 @@ fd_tls_reason_cstr( uint reason ) {
     return "failed to decode CertificateVerify";
   case FD_TLS_REASON_CV_ENCODE:
     return "failed to encode CertificateVerify";
+  case FD_TLS_REASON_ALPN_PARSE:
+    return "failed to decode ALPN extension";
+  case FD_TLS_REASON_ALPN_NEG:
+    return "ALPN negotiation failed";
+  case FD_TLS_REASON_NO_ALPN:
+    return "peer did not send ALPN extension";
   default:
     FD_LOG_WARNING(( "Missing fd_tls_reason_cstr code for %u (memory corruption?)", reason ));
     __attribute__((fallthrough));
