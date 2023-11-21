@@ -136,6 +136,10 @@ fd_ristretto255_ge_tobytes( uchar *                    b,
   return b;
 }
 
+/* Elligator2 map to ristretto group:
+   https://ristretto.group/formulas/elligator.html
+   This follows closely the golang implementation:
+   https://github.com/gtank/ristretto255/blob/v0.1.2/ristretto255.go#L88 */
 fd_ristretto255_point_t *
 fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h_,
                               uchar const               t[ static 32 ] ) {
