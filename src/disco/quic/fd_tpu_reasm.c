@@ -227,7 +227,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       ulong                 seq,
                       ulong                 tspub ) {
 
-  if( FD_UNLIKELY( slot->state != FD_TPU_REASM_STATE_FREE ) )
+  if( FD_UNLIKELY( slot->state != FD_TPU_REASM_STATE_BUSY ) )
     return FD_TPU_REASM_ERR_STATE;
 
   /* Derive chunk index */

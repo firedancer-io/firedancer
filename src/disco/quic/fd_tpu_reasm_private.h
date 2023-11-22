@@ -1,5 +1,7 @@
 #include "fd_tpu.h"
 
+#include <assert.h>
+
 /* fd_tpu_reasm_private.h contains reusable logic of fd_tpu_reasm such
    that it can be included in test cases. */
 
@@ -73,6 +75,7 @@ slotq_push_tail( fd_tpu_reasm_t *      reasm,
 
   tail->next_idx = slot_idx;
   slot->prev_idx = tail_idx;
+  slot->next_idx = UINT_MAX;
   reasm->tail    = slot_idx;
 }
 
@@ -111,16 +114,20 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
   fd_tpu_reasm_slot_t * next = reasm->slots + next_idx;
 
   if( slot_idx==reasm->head ) {
+    assert( next_idx < reasm->slot_cnt );
     reasm->head    = next_idx;
     next->prev_idx = UINT_MAX;
     return;
   }
   if( slot_idx==reasm->tail ) {
+    assert( prev_idx < reasm->slot_cnt );
     reasm->tail    = prev_idx;
     prev->next_idx = UINT_MAX;
     return;
   }
 
+  assert( prev_idx < reasm->slot_cnt );
+  assert( next_idx < reasm->slot_cnt );
   prev->next_idx = next_idx;
   next->prev_idx = prev_idx;
 }
