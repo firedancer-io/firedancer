@@ -117,14 +117,14 @@ typedef struct fd_tls_ext_opaque fd_tls_ext_alpn_t;
 struct fd_tls_u24 { uchar v[3]; };
 typedef struct fd_tls_u24 fd_tls_u24_t;
 
-/* TODO is record header the correct term for this? */
+/* fd_tls_msg_hdr_t is the header that all message types share. */
 
-struct __attribute__((packed)) fd_tls_record_hdr {
-  uchar        type;   /* FD_TLS_RECORD_{...} */
+struct __attribute__((packed)) fd_tls_msg_hdr {
+  uchar        type;   /* FD_TLS_MSG_{...} */
   fd_tls_u24_t sz;     /* Byte size of fields following this header */
 };
 
-typedef struct fd_tls_record_hdr fd_tls_record_hdr_t;
+typedef struct fd_tls_msg_hdr fd_tls_msg_hdr_t;
 
 /* fd_tls_client_hello_t describes a TLS v1.3 ClientHello (RFC 8446,
    Section 4.1.2). */
@@ -269,16 +269,16 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 
 #define FD_TLS_KEY_SHARE_TYPE_X25519 ((ushort)29)
 
-/* TLS v1.3 record types */
+/* TLS v1.3 message types */
 
-#define FD_TLS_RECORD_CLIENT_HELLO       ((uchar)  1)
-#define FD_TLS_RECORD_SERVER_HELLO       ((uchar)  2)
-#define FD_TLS_RECORD_NEW_SESSION_TICKET ((uchar)  4)
-#define FD_TLS_RECORD_ENCRYPTED_EXT      ((uchar)  8)
-#define FD_TLS_RECORD_CERT               ((uchar) 11)
-#define FD_TLS_RECORD_CERT_REQ           ((uchar) 13)
-#define FD_TLS_RECORD_CERT_VERIFY        ((uchar) 15)
-#define FD_TLS_RECORD_FINISHED           ((uchar) 20)
+#define FD_TLS_MSG_CLIENT_HELLO       ((uchar)  1)
+#define FD_TLS_MSG_SERVER_HELLO       ((uchar)  2)
+#define FD_TLS_MSG_NEW_SESSION_TICKET ((uchar)  4)
+#define FD_TLS_MSG_ENCRYPTED_EXT      ((uchar)  8)
+#define FD_TLS_MSG_CERT               ((uchar) 11)
+#define FD_TLS_MSG_CERT_REQ           ((uchar) 13)
+#define FD_TLS_MSG_CERT_VERIFY        ((uchar) 15)
+#define FD_TLS_MSG_FINISHED           ((uchar) 20)
 
 /* TLS certificate_type extension (RFC 7250) */
 
@@ -383,14 +383,14 @@ fd_tls_ext_hdr_bswap( fd_tls_ext_hdr_t * x ) {
 
 STATIC_SERDE( ext_hdr, fd_tls_ext_hdr_t )
 
-/* Static serde methods for fd_tls_record_hdr_t */
+/* Static serde methods for fd_tls_msg_hdr_t */
 
 static inline void
-fd_tls_record_hdr_bswap( fd_tls_record_hdr_t * x ) {
+fd_tls_msg_hdr_bswap( fd_tls_msg_hdr_t * x ) {
   x->sz = fd_tls_u24_bswap( x->sz );
 }
 
-STATIC_SERDE( record_hdr, fd_tls_record_hdr_t )
+STATIC_SERDE( msg_hdr, fd_tls_msg_hdr_t )
 
 /* Static serde methods for fd_tls_finished_t */
 

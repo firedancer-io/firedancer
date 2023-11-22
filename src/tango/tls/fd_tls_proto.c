@@ -496,12 +496,12 @@ fd_tls_encode_server_cert_x509( uchar const * x509,
   ulong wire_laddr = (ulong)wire;
 
   /* TLS Record Header */
-  uchar record_type = (uchar)FD_TLS_RECORD_CERT;
+  uchar msg_type = (uchar)FD_TLS_MSG_CERT;
 
   /* TLS Certificate Message header preceding X.509 data */
 
   /* All size prefixes known in advance */
-  fd_tls_u24_t record_sz    = fd_uint_to_tls_u24( (uint)( x509_sz + 9UL ) );
+  fd_tls_u24_t msg_sz       = fd_uint_to_tls_u24( (uint)( x509_sz + 9UL ) );
   fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( (uint)( x509_sz + 5UL ) );
   fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( (uint)( x509_sz       ) );
 
@@ -512,10 +512,9 @@ fd_tls_encode_server_cert_x509( uchar const * x509,
   /* No certificate extensions */
   ushort ext_sz = (ushort)0;
 
-  /* TODO Should use fd_memcpy() instead of memcpy() _x509 */
 # define FIELDS( FIELD )                                            \
-    FIELD( 0, &record_type,                      uchar,   1       ) \
-    FIELD( 1, &record_sz,                        tls_u24, 1       ) \
+    FIELD( 0, &msg_type,                         uchar,   1       ) \
+    FIELD( 1, &msg_sz,                           tls_u24, 1       ) \
       FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
       FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
         FIELD( 4, &cert_sz,                      tls_u24, 1       ) \
@@ -595,13 +594,13 @@ fd_tls_encode_raw_public_key( uchar const * key,
   ulong wire_laddr = (ulong)wire;
 
   /* TLS Record Header */
-  uchar record_type = (uchar)FD_TLS_RECORD_CERT;
+  uchar msg_type = (uchar)FD_TLS_MSG_CERT;
 
   /* TLS Certificate Message header preceding X.509 data */
 
   /* All size prefixes known in advance */
   uint         rpk_sz       = sizeof(fd_asn1_ed25519_pubkey_prefix)+32UL;
-  fd_tls_u24_t record_sz    = fd_uint_to_tls_u24( (uint)( rpk_sz + 9UL ) );
+  fd_tls_u24_t msg_sz       = fd_uint_to_tls_u24( (uint)( rpk_sz + 9UL ) );
   fd_tls_u24_t cert_list_sz = fd_uint_to_tls_u24( (uint)( rpk_sz + 5UL ) );
   fd_tls_u24_t cert_sz      = fd_uint_to_tls_u24( (uint)( rpk_sz       ) );
 
@@ -614,8 +613,8 @@ fd_tls_encode_raw_public_key( uchar const * key,
 
   /* TODO Should use fd_memcpy() instead of memcpy() */
 # define FIELDS( FIELD )                                            \
-    FIELD( 0, &record_type,                      uchar,   1       ) \
-    FIELD( 1, &record_sz,                        tls_u24, 1       ) \
+    FIELD( 0, &msg_type,                         uchar,   1       ) \
+    FIELD( 1, &msg_sz,                           tls_u24, 1       ) \
       FIELD( 2, &certificate_request_context_sz, uchar,   1       ) \
       FIELD( 3, &cert_list_sz,                   tls_u24, 1       ) \
         FIELD( 4, &cert_sz,                      tls_u24, 1       ) \

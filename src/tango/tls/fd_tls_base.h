@@ -83,10 +83,10 @@ typedef void
                          uint         encryption_level );
 
 /* fd_tls_sendmsg_fn_t is called by fd_tls to request transmission of a
-   TLS record to the peer.  record points to a buffer containing
-   record_sz message bytes.  The smallest message size is 4 bytes (the
-   size of a record header).  encryption_level indicates which key to
-   use.  flush==0 when another message for the same conn will follow
+   TLS message to the peer.  msg points to a buffer containing msg_sz
+   message bytes.  The smallest message size is 4 bytes (the size of a
+   message header).  encryption_level indicates which key to use.
+   flush==0 when another message for the same conn will follow
    immediately on return.  flush==1 hints that no more sendmsg callbacks
    are issued until the next call to fd_tls_server_handshake.  It is
    safe to "flush" (i.e. transmit data out through the NIC) even when
@@ -94,8 +94,8 @@ typedef void
 
 typedef int
 (* fd_tls_sendmsg_fn_t)( void const * handshake,
-                         void const * record,
-                         ulong        record_sz,
+                         void const * msg,
+                         ulong        msg_sz,
                          uint         encryption_level,
                          int          flush );
 
