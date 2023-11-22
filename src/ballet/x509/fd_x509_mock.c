@@ -20,8 +20,7 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
 
       /* serialNumber CertificateSerialNumber INTEGER (62 bit) */
       0x02, 0x08,
-      #define FD_X509_MOCK_SERIAL_OFF (0x0d)
-      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
 
       /* signature AlgorithmIdentifier SEQUENCE (1 elem) */
       0x30, 0x05,
@@ -116,12 +115,8 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
 
 void
 fd_x509_mock_cert( uchar         buf[ static FD_X509_MOCK_CERT_SZ ],
-                   uchar         public_key[ static 32 ],
-                   ulong         serial ) {
-  serial &= 0xffffffffffffff7fUL;  /* webpki expects a positive integer */
-
+                   uchar         public_key[ static 32 ] ) {
   fd_memcpy( buf, fd_x509_mock_tpl, FD_X509_MOCK_CERT_SZ );
-  fd_memcpy( buf+FD_X509_MOCK_SERIAL_OFF, &serial,    8UL  );
   fd_memcpy( buf+FD_X509_MOCK_PUBKEY_OFF, public_key, 32UL );
 }
 
