@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/blake3/fd_blake3.h"
 #include "../../../ballet/ed25519/fd_ristretto255_ge.h"
