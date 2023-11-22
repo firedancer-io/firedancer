@@ -334,23 +334,27 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
       break;
   }
 
-  /* TODO ugly: the handshake functions mutate data in place for
-          endianness conversion.  Since we get a const pointer, we need
-          to make a copy here.  (However, there is no reason for the
-          incoming pointer to be const) */
-  uchar copy[ 4096 ];
-  if( FD_UNLIKELY( data_sz > sizeof(copy) ) )
-    return FD_QUIC_TLS_FAILED;
-  fd_memcpy( copy, data, data_sz );
+  /* QUIC-TLS allows coalescing multiple records into the same CRYPTO
+     frame.  It also allows fragmentation, but we don't support that. */
 
-  long res = fd_tls_handshake( &self->quic_tls->tls, &self->hs, copy, data_sz, enc_level );
+  do {
+    long res = fd_tls_handshake( &self->quic_tls->tls, &self->hs, data, data_sz, enc_level );
 
-  if( FD_UNLIKELY( res<0L ) ) {
-    int alert = (int)-res;
-    self->alert = (uint)alert;
-    self->quic_tls->alert_cb( self, self->context, alert );
-    return FD_QUIC_TLS_FAILED;
-  }
+    if( FD_UNLIKELY( res<0L ) ) {
+      int alert = (int)-res;
+      self->alert = (uint)alert;
+      FD_LOG_NOTICE(( "state %u reason %s", self->hs.base.state, fd_tls_reason_cstr( self->hs.base.reason ) ));
+      self->quic_tls->alert_cb( self, self->context, alert );
+      return FD_QUIC_TLS_FAILED;
+    }
+    if( FD_UNLIKELY( res==0UL ) ) {
+      FD_LOG_WARNING(( "preventing deadlock" ));
+      return FD_QUIC_TLS_FAILED;
+    }
+
+    data    += (ulong)res;
+    data_sz -= (ulong)res;
+  } while( data_sz );
 
   /* needs a call to fd_quic_tls_process */
   self->state = FD_QUIC_TLS_HS_STATE_NEED_SERVICE;
