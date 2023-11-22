@@ -36,14 +36,14 @@ main( int     argc,
 
   /* Params */
 
-  uchar private_key[ 32 ];
-  for( ulong j=0UL; j<32UL; j++ ) private_key[ j ] = fd_rng_uchar( rng );
+  uchar public_key[ 32 ];
+  for( ulong j=0UL; j<32UL; j++ ) public_key[ j ] = fd_rng_uchar( rng );
   ulong serial = fd_rng_ulong( rng );
 
   /* Generate certificate */
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, private_key, serial, sha );
+  fd_x509_mock_cert( cert, public_key, serial );
 
   FD_LOG_HEXDUMP_DEBUG(( "cert", cert, FD_X509_MOCK_CERT_SZ ));
 
@@ -79,19 +79,6 @@ main( int     argc,
   FD_TEST( parsed->spki_alg ==SPKI_ALG_ED25519 );
   FD_TEST( parsed->sig_alg  ==SIG_ALG_ED25519  );
   FD_TEST( parsed->hash_alg ==HASH_ALG_SHA512  );
-
-  /* Verify signature */
-
-  uchar const *  pubkey = cert + parsed->spki_alg_params.ed25519.ed25519_raw_pub_off;
-  uchar expected_pubkey[ 32 ];
-  fd_ed25519_public_from_private( expected_pubkey, private_key, sha );
-  FD_TEST( 0==memcmp( pubkey, expected_pubkey, 32UL ) );
-
-  uchar const * sig = cert + parsed->sig_alg_params.ed25519.r_raw_off;
-  int vfy_ok = fd_ed25519_verify( cert + parsed->tbs_start,
-                                  parsed->tbs_len,
-                                  sig, pubkey, sha );
-  FD_TEST( vfy_ok==FD_ED25519_SUCCESS );
 
   /* Parse certificate captured from Solana Labs client */
 
