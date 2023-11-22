@@ -87,7 +87,7 @@ read_key( char const * key_path,
           "keyfile at `%s` but there is no such file. Either update the "
           "configuration file to point to your validator identity "
           "keypair, or generate a new validator identity key by running "
-          "`fdctl keygen`", key_path ));
+          "`fdctl keys new identity`", key_path ));
     } else
       FD_LOG_ERR(( "Opening key file (%s) failed (%i-%s)", key_path,  errno, fd_io_strerror( errno ) ));
   }

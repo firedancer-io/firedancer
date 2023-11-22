@@ -559,7 +559,7 @@ quic_tx_aio_send( void *                    _ctx,
     uchar const * iphdr = packet + 14U;
 
     uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    uint ip_dstaddr = 0;
+    uint   ip_dstaddr  = 0;
     ushort udp_dstport = 0;
     if( FD_LIKELY( test_ethip==0x080011 ) ) {
       /* IPv4 is variable-length, so lookup IHL to find start of UDP */
@@ -570,7 +570,7 @@ quic_tx_aio_send( void *                    _ctx,
       if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
 
       /* Extract IP dest addr and UDP dest port */
-      ip_dstaddr    =                  *(uint   *)( iphdr+16UL );
+      ip_dstaddr  =                  *(uint   *)( iphdr+16UL );
       udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
     }
 

@@ -922,7 +922,7 @@ config_parse( int *      pargc,
         tile->net.xdp_aio_depth = config->tiles.net.xdp_aio_depth;
         tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
         tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
-        tile->net.src_ip_addr = result.tiles.net.ip_addr;
+        tile->net.src_ip_addr      = config->tiles.net.ip_addr;
         tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
         tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
         tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;

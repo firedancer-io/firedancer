@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
 jobs:
-  single-transaction:
+  functional-tests:
     runs-on:
       group: github-v1
     env:
@@ -24,7 +24,10 @@ jobs:
       - uses: ./.github/actions/deps
 
       - name: Build everything
-        run: make -j -Otarget fddev unit-test
+        run: make -j -Otarget fddev
 
-      - name: Run functional tests
+      - name: Run single transaction
         run: ./src/test/single-transaction.sh
+
+      - name: Run single transfer
+        run: ./src/test/single-transfer.sh
