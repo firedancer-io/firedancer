@@ -68,6 +68,8 @@ during_frag( void * _ctx,
              ulong sz,
              int * opt_filter ) {
   (void)sig;
+  (void)opt_filter;
+
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_TPU_DCACHE_MTU ) )

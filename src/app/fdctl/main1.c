@@ -91,8 +91,12 @@ fdctl_boot( int *        pargc,
   char * thread = "";
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
     copy_config_from_fd( config_fd, &config );
+    /* tick_per_ns needs to be synchronized across procesess so that they
+       can coordinate on metrics measurement. */
+    fd_tempo_set_tick_per_ns( config.tick_per_ns_mu, config.tick_per_ns_sigma );
   } else {
     config_parse( pargc, pargv, &config );
+    config.tick_per_ns_mu = fd_tempo_tick_per_ns( &config.tick_per_ns_sigma );
     config.log.lock_fd = init_log_memfd();
     config.log.log_fd  = -1;
     thread = "main";
