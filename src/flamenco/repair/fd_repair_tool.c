@@ -14,6 +14,7 @@
 #include "../types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/shred/fd_shred.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -173,7 +174,11 @@ fd_repair_recv_ping(fd_gossip_ping_t const * ping, fd_gossip_peer_addr_t const *
 static void
 fd_repair_recv_shred(uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
   ulong shredlen = msglen - sizeof(uint); /* Nonse is at the end */
-  FD_LOG_NOTICE(("received shred of size %lu", shredlen));
+  fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
+  FD_TEST(shred != NULL);
+  FD_LOG_NOTICE(( "shred variant 0x%02x slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
+                  (uint)shred->variant, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
+                  fd_shred_merkle_sz(shred->variant), fd_shred_payload_sz(shred) ));
 }
 
 static void
@@ -214,7 +219,7 @@ test_send() {
   fd_memcpy(wi->header.sender.uc, public_key.uc, 32U);
   fd_base58_decode_32("95hduWHW6BDrnVWzB2ekF9vmiFxpz62F1HNtRAQ19S71", wi->header.recipient.uc);
   wi->header.timestamp = (ulong)fd_log_wallclock()/1000000LU;
-  wi->slot = 16518;
+  wi->slot = 41500;
   wi->shred_index = 0;
   fd_repair_sign_and_send(&protocol);
 }
