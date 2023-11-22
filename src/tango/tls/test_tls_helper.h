@@ -89,16 +89,16 @@ test_record_log( uchar const * record,
 
   char const * type = NULL;
   switch( *(uchar const *)record ) {
-  case FD_TLS_RECORD_CLIENT_HELLO:       type = "ClientHello";         break;
-  case FD_TLS_RECORD_SERVER_HELLO:       type = "ServerHello";         break;
-  case FD_TLS_RECORD_ENCRYPTED_EXT:      type = "EncryptedExtensions"; break;
-  case FD_TLS_RECORD_CERT:               type = "Certificate";         break;
-  case FD_TLS_RECORD_CERT_VERIFY:        type = "CertificateVerify";   break;
-  case FD_TLS_RECORD_CERT_REQ:           type = "CertificateRequest";  break;
-  case FD_TLS_RECORD_FINISHED:           type = "Finished";            break;
-  case FD_TLS_RECORD_NEW_SESSION_TICKET: type = "NewSessionTicket";    break;
+  case FD_TLS_MSG_CLIENT_HELLO:       type = "ClientHello";         break;
+  case FD_TLS_MSG_SERVER_HELLO:       type = "ServerHello";         break;
+  case FD_TLS_MSG_ENCRYPTED_EXT:      type = "EncryptedExtensions"; break;
+  case FD_TLS_MSG_CERT:               type = "Certificate";         break;
+  case FD_TLS_MSG_CERT_VERIFY:        type = "CertificateVerify";   break;
+  case FD_TLS_MSG_CERT_REQ:           type = "CertificateRequest";  break;
+  case FD_TLS_MSG_FINISHED:           type = "Finished";            break;
+  case FD_TLS_MSG_NEW_SESSION_TICKET: type = "NewSessionTicket";    break;
   default:
-    FD_LOG_ERR(( "unknown TLS record type %u", *(uchar const *)record ));
+    FD_LOG_ERR(( "unknown TLS message type %u", *(uchar const *)record ));
   }
   str = fd_cstr_append_cstr( str, type );
   fd_cstr_fini( str );
