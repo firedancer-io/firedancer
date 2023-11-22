@@ -121,8 +121,27 @@ async fn run_server(args: &[String]) {
     let conn = endpoint
         .accept()
         .await
+        .expect("Failed to accept connection")
+        .await
         .expect("Failed to accept connection");
     eprintln!("Connected");
+
+    let mut stream = conn.accept_uni().await.expect("Failed to accept stream");
+    eprintln!("Accepted stream");
+
+    loop {
+        let mut buf = [0u8; 1024];
+        if stream
+            .read(&mut buf)
+            .await
+            .expect("Failed to read stream data")
+            .is_none()
+        {
+            break;
+        }
+    }
+    eprintln!("Consumed stream");
+
     drop(conn);
     eprintln!("OK");
     std::process::exit(0);
@@ -157,6 +176,16 @@ async fn run_client(args: &[String]) {
         .await
         .expect("Failed to connect to endpoint");
     eprintln!("Connected");
+
+    let mut stream = conn.open_uni().await.expect("Failed to open stream");
+    eprintln!("Created stream");
+
+    stream.write_all(b"Hello").await.expect("Failed to write stream data");
+    eprintln!("Wrote stream data");
+
+    stream.finish().await.expect("Failed to finish stream");
+    eprintln!("Peer acknowledged stream data");
+
     drop(conn);
     eprintln!("OK");
     std::process::exit(0);
