@@ -98,7 +98,6 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
       0x06, 0x03, 0x2b, 0x65, 0x70,
       /* signature BIT STRING (512 bit) */
       0x03, 0x41, 0x00,
-      #define FD_X509_MOCK_SIG_OFF (0xb4)
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -117,23 +116,12 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
 
 void
 fd_x509_mock_cert( uchar         buf[ static FD_X509_MOCK_CERT_SZ ],
-                   uchar         private_key[ static 32 ],
-                   ulong         serial,
-                   fd_sha512_t * sha ) {
+                   uchar         public_key[ static 32 ],
+                   ulong         serial ) {
   serial &= 0xffffffffffffff7fUL;  /* webpki expects a positive integer */
 
   fd_memcpy( buf, fd_x509_mock_tpl, FD_X509_MOCK_CERT_SZ );
-  fd_memcpy( buf+FD_X509_MOCK_SERIAL_OFF, &serial, 8UL );
-
-  /* Derive public key */
-  uchar public_key[ 32 ];
-  fd_ed25519_public_from_private( public_key, private_key, sha );
+  fd_memcpy( buf+FD_X509_MOCK_SERIAL_OFF, &serial,    8UL  );
   fd_memcpy( buf+FD_X509_MOCK_PUBKEY_OFF, public_key, 32UL );
-
-  /* Sign cert */
-  fd_ed25519_sign( buf+FD_X509_MOCK_SIG_OFF,
-                   buf+FD_X509_MOCK_TBS_OFF,
-                       FD_X509_MOCK_TBS_SZ,
-                   public_key, private_key, sha );
 }
 
