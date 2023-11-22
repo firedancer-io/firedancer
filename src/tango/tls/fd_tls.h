@@ -103,8 +103,9 @@ fd_tls_set_x509( fd_tls_t * server,
 
 /* fd_tls_server_handshake ingests a TLS record from the client.
    Synchronously processes the record (API may become async in the
-   future).  Record must be complete (does not defragment).  Returns 0L
-   on success.  On failure, returns negated TLS alert code. */
+   future).  Record must be complete (does not defragment).  Returns
+   number of bytes read on success.  On failure, returns negated TLS
+   alert code. */
 
 long
 fd_tls_server_handshake( fd_tls_t const *      tls,
@@ -120,14 +121,14 @@ fd_tls_server_handshake( fd_tls_t const *      tls,
 long
 fd_tls_client_handshake( fd_tls_t const *      client,
                          fd_tls_estate_cli_t * handshake,
-                         void *                record,
+                         void const *          record,
                          ulong                 record_sz,
                          uint                  encryption_level );
 
 static inline long
 fd_tls_handshake( fd_tls_t const *  tls,
                   fd_tls_estate_t * handshake,
-                  void *            record,
+                  void const *      record,
                   ulong             record_sz,
                   uint              encryption_level ) {
   if( handshake->base.server )
