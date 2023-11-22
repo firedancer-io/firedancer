@@ -12,11 +12,12 @@ To build quinn_test, use a standard Rust toolchain and run:
 Usage:
 
   quinn_test client 192.168.1.1:9090 connects to the given IP address
-  and UDP port.  If the connection suceeds, closes the connection
-  gracefully and exits with code 0.  Otherwise, exits with non-zero exit
-  code.
+  and UDP port, sends test data, and gracefully closes the connection.
+  If the test suceeds, exits with code 0.  Otherwise, exits with
+  non-zero exit code.
 
   quinn_test server 9090 indefinitely listens on any address and the
-  given UDP port.  If a client successfully connects, closes the server
-  and exits with code 0.  If a connection attempt was made, but that
-  attempt failed, exits with non-zero exit code.
+  given UDP port.  If a client successfully connects, sends test data,
+  and gracefully disconnects, closes the server, and exits with code 0.
+  If a connection attempt was made, but that attempt failed, exits with
+  non-zero exit code.
