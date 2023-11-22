@@ -98,21 +98,46 @@ after_frag( void *             _ctx,
 
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
+  /* Sanity check that should never fail. We should have atleast
+     FD_TPU_DCACHE_MTU bytes available. */
+  if( FD_UNLIKELY( *opt_sz < sizeof(ushort) ) ) {
+    FD_LOG_ERR( ("invalid opt_sz(%x)", *opt_sz ) );
+  }
+
   uchar * udp_payload = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   ushort payload_sz = *(ushort*)(udp_payload + *opt_sz - sizeof(ushort));
+
+  /* Make sure payload_sz is valid */
+  if( FD_UNLIKELY( payload_sz > FD_TPU_DCACHE_MTU ) ) {
+    FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
+  }
+
+  /* txn contents are located in shared memory accessible to the dedup tile 
+     and the contents are controlled by the quic tile. We must perform
+     validation */
   fd_txn_t * txn = (fd_txn_t*) fd_ulong_align_up( (ulong)(udp_payload) + payload_sz, 2UL );
 
-  ulong const * public_key = (ulong const *)(udp_payload + txn->acct_addr_off);
-  ulong const * sig        = (ulong const *)(udp_payload + txn->signature_off);
-  uchar const * msg        = (uchar const *)(udp_payload + txn->message_off);
-  ulong msg_sz             = (ulong)payload_sz - txn->message_off;
+  /* We do not want to deref any non-data field from the txn struct more than once */
+  ushort message_off    = txn->message_off;
+  ushort acct_addr_off  = txn->acct_addr_off;
+  ushort signature_off  = txn->signature_off;
+  
+  if( FD_UNLIKELY( message_off >= payload_sz  || acct_addr_off + FD_TXN_ACCT_ADDR_SZ > payload_sz || signature_off + FD_TXN_SIGNATURE_SZ > payload_sz ) ) {
+    FD_LOG_ERR( ("txn is invalid: payload_sz = %x, message_off = %x, acct_addr_off = %x, signature_off = %x", payload_sz, message_off, acct_addr_off, signature_off ) );
+  }
+  
+  uchar local_sig[FD_TXN_SIGNATURE_SZ]  __attribute__((aligned(8)));
+  ulong const * public_key = (ulong const *)(udp_payload + acct_addr_off);
+  uchar const * msg        = (uchar const *)(udp_payload + message_off);
+  ulong msg_sz             = (ulong)payload_sz - message_off;
+  fd_memcpy( local_sig, udp_payload + signature_off, FD_TXN_SIGNATURE_SZ );
 
   /* Sig is already effectively a cryptographically secure hash of
      public_key/private_key and message and sz.  So use this to do a
      quick dedup of ha traffic. */
 
   int ha_dup;
-  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *sig );
+  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
   if( FD_UNLIKELY( ha_dup ) ) {
     *opt_filter = 1;
     return;
@@ -120,11 +145,11 @@ after_frag( void *             _ctx,
 
   /* We appear to have a message to verify.  So verify it. */
 
-  int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, sig, public_key, ctx->sha );
+  int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, local_sig, public_key, ctx->sha );
   *opt_filter = verify_failed;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk = ctx->out_chunk;
-    *opt_sig = *sig;
+    *opt_sig = *(ulong *)local_sig;
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }
