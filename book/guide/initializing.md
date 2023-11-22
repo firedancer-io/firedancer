@@ -92,16 +92,18 @@ for best performance. The `sysctl` stage will check and configure these
 parameters. The stage will only increase values to meet the minimum, and
 will not decrease them if the minimum is already met.
 
-| Sysctl                            | Minimum     | Description
-| --------------------------------- | ----------- | -----------
-| /proc/sys/net/core/rmem_max       | 134217728   | Solana Labs network performance tuning.
-| /proc/sys/net/core/rmem_default   | 134217728   | Solana Labs network performance tuning.
-| /proc/sys/net/core/wmem_max       | 134217728   | Solana Labs network performance tuning.
-| /proc/sys/net/core/wmem_default   | 134217728   | Solana Labs network performance tuning.
-| /proc/sys/vm/max_map_count        | 1000000     | Solana Labs accounts database requires mapping many files.
-| /proc/sys/fs/file-max             | 1024000     | Solana Labs accounts database requires opening many files.
-| /proc/sys/fs/nr_open              | 1024000     | Solana Labs accounts database requires opening many files.
-| /proc/sys/net/core/bpf_jit_enable | 1           | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
+| Sysctl                                  | Minimum     | Description
+|-----------------------------------------| ----------- | -----------
+| /proc/sys/net/core/rmem_max             | 134217728   | Solana Labs network performance tuning.
+| /proc/sys/net/core/rmem_default         | 134217728   | Solana Labs network performance tuning.
+| /proc/sys/net/core/wmem_max             | 134217728   | Solana Labs network performance tuning.
+| /proc/sys/net/core/wmem_default         | 134217728   | Solana Labs network performance tuning.
+| /proc/sys/vm/max_map_count              | 1000000     | Solana Labs accounts database requires mapping many files.
+| /proc/sys/fs/file-max                   | 1024000     | Solana Labs accounts database requires opening many files.
+| /proc/sys/fs/nr_open                    | 1024000     | Solana Labs accounts database requires opening many files.
+| /proc/sys/net/core/bpf_jit_enable       | 1           | Firedancer uses BPF for kernel bypass networking. BPF JIT makes this faster.
+| /proc/sys/net/ipv4/conf/lo/rp_filter    | 2           | Enable loose mode for reverse path filtering on the loopback interface. Loose mode is required for the XSK socket to successfully send packets to loopback.
+| /proc/sys/net/ipv4/conf/lo/accept_local | 1           | Accept packets with local source addresses on the loopback interface. This is required for the XSK socket to successfully send packets to loopback.
 
 The `init` mode requires either `root` privileges, or to be run with
 `CAP_SYS_ADMIN`. The `fini` mode does nothing and kernel parameters

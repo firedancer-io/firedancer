@@ -2,7 +2,7 @@
 
 #include <sys/stat.h>
 
-#define NAME "keygen"
+#define NAME "keys"
 
 
 static void
@@ -64,7 +64,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t keygen = {
+configure_stage_t keys = {
   .name            = NAME,
   .always_recreate = 0,
   .enabled         = NULL,
