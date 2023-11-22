@@ -184,12 +184,8 @@ fd_quic_tls_init( fd_tls_t * tls ) {
   fd_ed25519_public_from_private( tls->cert_public_key, tls->cert_private_key, sha );
 
   /* Generate X.509 cert */
-  ulong cert_serial;
-  if( FD_UNLIKELY( 8L!=getrandom( &cert_serial, 8UL, 0 ) ) )
-    FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
-
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, tls->cert_public_key, cert_serial );
+  fd_x509_mock_cert( cert, tls->cert_public_key );
   fd_tls_set_x509(tls, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set ALPN protocol ID

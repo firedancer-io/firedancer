@@ -24,7 +24,6 @@
 
 void
 fd_x509_mock_cert( uchar         buf[ static FD_X509_MOCK_CERT_SZ ],
-                   uchar         public_key[ static 32 ],
-                   ulong         serial );
+                   uchar         public_key[ static 32 ] );
 
 #endif /* HEADER_fd_src_ballet_x509_fd_x509_gen_h */
