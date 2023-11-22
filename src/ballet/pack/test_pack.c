@@ -174,6 +174,7 @@ insert( ulong i,
         fd_pack_t * pack ) {
   fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
   fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
+  slot->payload_sz = payload_sz[ i ];
   fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ] );
   fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -202,7 +203,6 @@ schedule_validate_microblock( fd_pack_t * pack,
   FD_TEST( pre_txn_cnt-post_txn_cnt == txn_cnt );
 
   ulong total_rewards = 0UL;
-
 
   aset_t  read_accts = aset_null( );
   aset_t write_accts = aset_null( );
@@ -395,32 +395,169 @@ test_delete( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
-void performance_test( void ) {
+void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
-  fd_pack_t * pack = init_all( 10240UL, 1UL, 2UL, &outcome );
-  make_transaction( i,   800U, 12.0, "ABC", "DEF" );
-  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" );
+  make_transaction( i,   800U, 12.0, "ABC", "DEF" );    /* Total cost 2873 */
+  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 2575 */
 
-  long start = fd_log_wallclock( );
-  for( ulong j=0UL; j<1024UL; j++ ) {
-    payload_scratch[j&1][ 1+(j%8) ]++;
-    fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
-    fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
-    fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
-    fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
 
-    fd_pack_insert_txn_fini( pack, slot );
+  /* Above 8192, we start running into MAX_WRITE_COST_PER_ACCT.
+     Obviously, calling end_block fixes that, but it muddies the
+     performance measurements. */
+  ulong max_heap_sz = fd_ulong_if( (!!wksp) & extra_bench, 8192UL, 2048UL );
+  ulong linear_inc  = fd_ulong_if( extra_bench, 256UL, 9999999UL );
+
+  FD_LOG_NOTICE(( "All columns in units ns/txn except depth and End block (ns/call)" ));
+  FD_LOG_NOTICE(( "Depth\tPreinsert\tInsert\tEnd block\tSchedule\tSkip fast\tSkip normal 1\tSkip normal 2" ));
+
+#define ITER_CNT 10UL
+#define WARMUP    2UL
+  for( ulong heap_sz=16UL; heap_sz<=max_heap_sz; heap_sz = fd_ulong_min( heap_sz*2UL, heap_sz+linear_inc ) ) {
+    ulong footprint = fd_pack_footprint( heap_sz, 1UL, 3UL );
+    void * _mem;
+    if( FD_LIKELY( wksp ) ) _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
+    else                    { FD_TEST( footprint<PACK_SCRATCH_SZ ); _mem = pack_scratch; }
+
+    long preinsert = 0L;
+    long insert    = 0L;
+    long end_block = 0L;
+    long skip0     = 0L;
+    long skip1     = 0L;
+    long skip2     = 0L;
+    long schedule  = 0L;
+
+    for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, 3UL, heap_sz, rng ) );
+
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+
+      if( FD_LIKELY( iter>=WARMUP ) ) preinsert -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz; j++ ) {
+        memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
+        slot->payload_sz        = payload_sz[ j&1 ];
+        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+        fd_pack_insert_txn_cancel( pack, slot );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) preinsert += fd_log_wallclock( );
+
+      if( FD_LIKELY( iter>=WARMUP ) ) insert    -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz; j++ ) {
+        memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
+        slot->payload_sz        = payload_sz[ j&1 ];
+        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) insert   += fd_log_wallclock( );
+
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
+
+      if( FD_LIKELY( iter>=WARMUP ) ) end_block -= fd_log_wallclock( );
+      for( ulong j=0UL; j<5UL; j++ ) {
+        fd_pack_end_block( pack );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) end_block += fd_log_wallclock( );
+
+      if( FD_LIKELY( iter>=WARMUP ) ) skip0     -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
+        /* With a cap of 2000 CUs, nothing fits, but we scan the whole heap
+           each time to figure that out. */
+        fd_pack_schedule_next_microblock( pack, 2000UL, 0.0f, 0UL, outcome.results );
+        fd_pack_microblock_complete( pack, 0UL );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) skip0     += fd_log_wallclock( );
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
+
+      fd_pack_end_block( pack );
+
+      if( FD_LIKELY( iter>=WARMUP ) ) schedule  -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz; j++ ) {
+        /* With a cap of 3000 CUs, we schedule 1 transaction and then
+           immediately break. */
+        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 3000UL, 0.0f, 0UL, outcome.results ) );
+        fd_pack_microblock_complete( pack, 0UL );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) schedule += fd_log_wallclock( );
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+
+      fd_pack_end_block( pack );
+
+      /* Fill the heap back up */
+      for( ulong j=0UL; j<heap_sz; j++ ) {
+        memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
+        slot->payload_sz        = payload_sz[ j&1 ];
+        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot );
+      }
+
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
+      if( FD_LIKELY( iter>=WARMUP ) ) skip1  -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
+        /* With a cap of 6000 CUs, we schedule a copy of transaction 1,
+           scan through all the duplicates of transaction 1 (which
+           conflict because of accounts), finally find an instance of
+           transaction 2, schedule it, and then immediately break. */
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 6000UL, 0.0f, 0UL, outcome.results ) );
+        fd_pack_microblock_complete( pack, 0UL );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) skip1 += fd_log_wallclock( );
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+
+      fd_pack_end_block( pack );
+
+      /* Fill the heap back up */
+      for( ulong j=0UL; j<heap_sz; j++ ) {
+        memcpy( payload_scratch[j&1]+1UL, &j, sizeof(ulong) );
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j&1 ];
+        slot->payload_sz        = payload_sz[ j&1 ];
+        fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
+        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot );
+      }
+
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
+      if( FD_LIKELY( iter>=WARMUP ) ) skip2  -= fd_log_wallclock( );
+      for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
+        /* With a huge CU cap, we schedule a copy of transaction 1,
+           scan through all the duplicates of transaction 1 (which
+           conflict because of accounts), finally find an instance of
+           transaction 2, schedule it, then continue skipping through
+           all the copies of transaction 2. */
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 5000000UL, 0.0f, 0UL, outcome.results ) );
+        fd_pack_microblock_complete( pack, 0UL );
+      }
+      if( FD_LIKELY( iter>=WARMUP ) ) skip2 += fd_log_wallclock( );
+      FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+    }
+    double denominator = (double)(heap_sz*(ITER_CNT-WARMUP));
+    FD_LOG_NOTICE(( "%5lu\t%9.3f\t%6.3f\t%9.0f\t%8.3f\t%9.3f\t%13.3f\t%13.3f", heap_sz,
+          (double)(preinsert         )/denominator,
+          (double)(insert-preinsert  )/denominator,
+          (double)(end_block         )/(double)5.0,
+          (double)(schedule          )/denominator,
+          (double)(skip0             )/(denominator*(double)(heap_sz    )/2.0),
+          (double)(skip1-schedule    )/(denominator*(double)(heap_sz+2UL)/8.0),
+          (double)(skip2-schedule    )/(denominator*(double)(heap_sz+2UL)/4.0) ));
+
+
+    if( FD_LIKELY( wksp ) ) fd_wksp_free_laddr( _mem );
   }
-  long end = fd_log_wallclock( );
-  FD_LOG_NOTICE(( "Inserting when not full: %f ns", ((double)(end-start))/10240.0 ));
-  start = fd_log_wallclock( );
-  for( ulong j=0UL; j<10240UL; j++ ) {
-    fd_pack_schedule_next_microblock( pack, 2000UL, 0.0f, 0UL, outcome.results );
-    fd_pack_microblock_complete( pack, 0UL );
-  }
-  end = fd_log_wallclock( );
-  FD_LOG_NOTICE(( "Scheduling: %f ns", ((double)(end-start))/10240.0 ));
+#undef WARMUP
+#undef ITER_CNT
 }
 
 
@@ -432,6 +569,7 @@ void heap_overflow_test( void ) {
     make_transaction( j, 800U, 4.0, "ABC", "DEF" );
     fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
+    slot->payload_sz        = payload_sz[ j ];
     fd_memcpy( slot->payload, payload_scratch[ j ], payload_sz[ j ]                                                );
     fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -439,13 +577,14 @@ void heap_overflow_test( void ) {
   }
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 
-  /* Now insert higher-paying transactions. They should mostly take the place
-     of the low-paying transactions */
+  /* Now insert higher-paying transactions. They should take the
+     place of the low-paying transactions */
   ulong r_hi = make_transaction( 1UL, 500U, 10.0, "GHJ", "KLMNOP" );
   for( ulong j=0UL; j<1024UL; j++ ) {
     payload_scratch[1][ 1+(j%8) ]++;
     fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 1UL ];
+    slot->payload_sz        = payload_sz[ 1UL ];
     fd_memcpy( slot->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -651,16 +790,18 @@ main( int     argc,
   rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
+  int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
+
   test0();
   test1();
   test2();
   test_vote();
-  performance_test();
   heap_overflow_test();
   test_delete();
   test_gap();
   test_limits();
   test_reject_writes_to_sysvars();
+  performance_test( extra_benchmark );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
