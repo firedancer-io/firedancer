@@ -1,0 +1,21 @@
+[package]
+name = "quinn_test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies.quinn]
+version = "0.10"
+default-features = false
+features = ["tls-rustls", "runtime-tokio"]
+
+[dependencies.rustls]
+version = "0.21"
+features = ["dangerous_configuration"]
+
+[dependencies.tokio]
+version = "1"
+features = ["net", "rt"]
+
+[dependencies.ring]
+version = "0"
