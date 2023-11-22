@@ -189,7 +189,7 @@ fd_quic_tls_init( fd_tls_t * tls ) {
     FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, tls->cert_private_key, cert_serial, sha );
+  fd_x509_mock_cert( cert, tls->cert_public_key, cert_serial );
   fd_tls_set_x509(tls, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set ALPN protocol ID

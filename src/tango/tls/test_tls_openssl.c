@@ -275,7 +275,7 @@ test_server( SSL_CTX * ctx ) {
   /* Set up server cert */
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, server->cert_private_key, fd_rng_ulong( rng ), sha );
+  fd_x509_mock_cert( cert, server->cert_public_key, fd_rng_ulong( rng ) );
   fd_tls_set_x509( server, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Initialize OpenSSL */
@@ -287,12 +287,14 @@ test_server( SSL_CTX * ctx ) {
 
   uchar client_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) client_private_key[b] = fd_rng_uchar( rng );
+  uchar client_public_key[ 32 ];
+  fd_ed25519_public_from_private( client_public_key, client_private_key, sha );
   EVP_PKEY * client_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, client_private_key, 32UL );
   FD_TEST( client_pkey );
   SSL_use_PrivateKey( ssl, client_pkey );
   EVP_PKEY_free( client_pkey );
 
-  fd_x509_mock_cert( cert, client_private_key, fd_rng_ulong( rng ), sha );
+  fd_x509_mock_cert( cert, client_public_key, fd_rng_ulong( rng ) );
   SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   SSL_set_connect_state( ssl );
@@ -357,6 +359,8 @@ test_client( SSL_CTX * ctx ) {
 
   uchar server_private_key[ 32 ];
   for( ulong b=0; b<32UL; b++ ) server_private_key[b] = fd_rng_uchar( rng );
+  uchar server_public_key[ 32 ];
+  fd_ed25519_public_from_private( server_public_key, server_private_key, sha );
 
   EVP_PKEY * server_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, server_private_key, 32UL );
   FD_TEST( server_pkey );
@@ -364,7 +368,7 @@ test_client( SSL_CTX * ctx ) {
   EVP_PKEY_free( server_pkey );
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, server_private_key, fd_rng_ulong( rng ), sha );
+  fd_x509_mock_cert( cert, server_public_key, fd_rng_ulong( rng ) );
   SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set server QUIC transport params */
@@ -390,9 +394,6 @@ test_client( SSL_CTX * ctx ) {
     .alpn_sz = 11UL,
   };
 
-  uchar server_public_key[ 32 ];
-  FD_TEST( fd_ed25519_public_from_private( server_public_key, server_private_key, sha ) );
-
   fd_tls_estate_cli_t hs[1];
   FD_TEST( fd_tls_estate_cli_new( hs ) );
   memcpy( hs->server_pubkey, server_public_key, 32UL );
@@ -409,7 +410,7 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up client cert */
 
-  fd_x509_mock_cert( cert, client->cert_private_key, fd_rng_ulong( rng ), sha );
+  fd_x509_mock_cert( cert, client->cert_public_key, fd_rng_ulong( rng ) );
   fd_tls_set_x509( client, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Do handshake */
