@@ -121,8 +121,8 @@ typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  fd_tpu_reasm_slot_t * slots;   /* slots mem   */
-  uchar *               chunks;  /* payload mem */
+  ulong slots_off;   /* slots mem   */
+  ulong chunks_off;  /* payload mem */
 
   uint   depth;      /* mcache depth */
   uint   burst;      /* max concurrent reassemblies */
@@ -246,6 +246,26 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot );
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t *
+fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
+  return (fd_tpu_reasm_slot_t *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
+fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE uchar *
+fd_tpu_reasm_chunks_laddr( fd_tpu_reasm_t * reasm ) {
+  return (uchar *)( (ulong)reasm + reasm->chunks_off );
+}
+
+static inline FD_FN_PURE uchar const *
+fd_tpu_reasm_chunks_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (uchar const *)( (ulong)reasm + reasm->chunks_off );
+}
 
 FD_PROTOTYPES_END
 

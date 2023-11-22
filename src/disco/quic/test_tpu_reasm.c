@@ -9,10 +9,10 @@ static uint
 verify_state( fd_tpu_reasm_t * reasm,
               fd_frag_meta_t * mcache ) {
 
-  FD_TEST( reasm->slots  );
-  FD_TEST( reasm->chunks );
+  FD_TEST( reasm->slots_off  );
+  FD_TEST( reasm->chunks_off );
 
-  fd_tpu_reasm_slot_t * slots = reasm->slots;
+  fd_tpu_reasm_slot_t * slots  = fd_tpu_reasm_slots_laddr( reasm );
 
   uint depth    = reasm->depth;
   uint burst    = reasm->burst;
@@ -111,6 +111,11 @@ main( int     argc,
 
   /* Verify initial state of reasm */
 
+  fd_tpu_reasm_slot_t * slots = fd_tpu_reasm_slots_laddr( reasm );
+  FD_TEST( slots );
+  uchar * chunks = fd_tpu_reasm_chunks_laddr( reasm );
+  FD_TEST( chunks );
+
   verify_state( reasm, mcache );
 
   /* Confirm that invalid transactions don't get published */
@@ -145,7 +150,7 @@ main( int     argc,
     fd_frag_meta_t * mline = mcache + seq;
     FD_TEST( mline->seq == seq );
     FD_TEST( mline->sz >= transaction4_sz+sizeof(fd_txn_t) );
-    FD_TEST( (ulong)(slot - reasm->slots) == mline->sig );
+    FD_TEST( (ulong)(slot - slots) == mline->sig );
 
     uchar const * data = fd_chunk_to_laddr_const( tpu_reasm_mem, mline->chunk );
     FD_TEST( 0==memcmp( data, transaction4, transaction4_sz ) );
@@ -175,7 +180,7 @@ main( int     argc,
   for( ulong j=0UL; j<iter; j++ ) {
     uint slot_idx = fd_rng_uint( rng ) & (slot_cnt-1U);
     FD_TEST( slot_idx<slot_cnt );
-    fd_tpu_reasm_slot_t * slot = reasm->slots + slot_idx;
+    fd_tpu_reasm_slot_t * slot = slots + slot_idx;
 
     switch( slot->state ) {
     case FD_TPU_REASM_STATE_FREE:
