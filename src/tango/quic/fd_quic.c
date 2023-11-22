@@ -4668,6 +4668,10 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             /* user callback */
             fd_quic_cb_conn_new( quic, conn );
           }
+
+          /* if we're the client, fd_quic_conn_tx will flush the hs
+             buffer so we can receive the HANDSHAKE_DONE frame, and
+             transition from CONN_STATE HANDSHAKE_COMPLETE to ACTIVE. */
         }
 
         /* do we have data to transmit? */
