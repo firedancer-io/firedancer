@@ -23,6 +23,9 @@ typedef struct {
   char user[ 256 ];
   char hostname[ FD_LOG_NAME_MAX ];
 
+  double tick_per_ns_mu;
+  double tick_per_ns_sigma;
+
   fd_topo_t topo;
 
   int is_live_cluster;
