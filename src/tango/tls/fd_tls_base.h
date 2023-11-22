@@ -167,14 +167,13 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 #define FD_TLS_HS_FAIL          ( 0)
 #define FD_TLS_HS_CONNECTED     ( 1)
 #define FD_TLS_HS_START         ( 2)
-#define FD_TLS_HS_WAIT_FLIGHT2  ( 3)
-#define FD_TLS_HS_WAIT_CERT     ( 4)
-#define FD_TLS_HS_WAIT_CV       ( 5)
-#define FD_TLS_HS_WAIT_FINISHED ( 6)
+#define FD_TLS_HS_WAIT_CERT     ( 3)
+#define FD_TLS_HS_WAIT_CV       ( 4)
+#define FD_TLS_HS_WAIT_FINISHED ( 5)
 /* Client */
-#define FD_TLS_HS_WAIT_SH       ( 7)
-#define FD_TLS_HS_WAIT_EE       ( 8)
-#define FD_TLS_HS_WAIT_CERT_CR  ( 9)
+#define FD_TLS_HS_WAIT_SH       ( 6)
+#define FD_TLS_HS_WAIT_EE       ( 7)
+#define FD_TLS_HS_WAIT_CERT_CR  ( 8)
 
 /* TLS encryption levels */
 

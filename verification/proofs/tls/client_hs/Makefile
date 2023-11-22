@@ -14,6 +14,7 @@ PROJECT_SOURCES = $(SRCDIR)/tango/tls/fd_tls.c
 
 CBMC_OBJECT_BITS = 16
 UNWINDSET += harness.0:8
+UNWINDSET += memcmp.0:16
 UNWINDSET += fd_tls_client_hs_wait_finished.1:128
 
 CBMC_FLAG_UNSIGNED_OVERFLOW_CHECK =

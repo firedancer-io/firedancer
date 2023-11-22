@@ -2,6 +2,9 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+/* fuzz_tls_msg_parser specifically targets the parsers of some complex
+   message types.  It might be obsoleted by fuzz_tls. */
+
 #include "fd_tls_proto.h"
 
 #include <stdlib.h>
