@@ -46,7 +46,9 @@ struct fd_tls {
 
   /* Buffers storing the Certificate handshake message.  This is not a
      simple copy of the cert but also contains TLS headers/footers.
-     Written by fd_tls_set_x509.  Do not write directly. */
+     Written by fd_tls_set_x509.  Do not write directly.
+     (TODO This is too easy to misuse, so this should be removed from
+           the public API) */
   uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
 
@@ -101,8 +103,8 @@ fd_tls_set_x509( fd_tls_t * server,
   return 1;
 }
 
-/* fd_tls_server_handshake ingests a TLS record from the client.
-   Synchronously processes the record (API may become async in the
+/* fd_tls_server_handshake ingests a TLS message from the client.
+   Synchronously processes the message (API may become async in the
    future).  Record must be complete (does not defragment).  Returns
    number of bytes read on success.  On failure, returns negated TLS
    alert code. */
@@ -115,7 +117,7 @@ fd_tls_server_handshake( fd_tls_t const *      tls,
                          uint                  encryption_level );
 
 /* fd_tls_client_handshake is the client-side equivalent of
-   fd_tls_server_handshake.  Must not be called with records sent after
+   fd_tls_server_handshake.  Must not be called with messages sent after
    the handshake was completed (such as NewSessionTicket). */
 
 long
