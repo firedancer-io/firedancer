@@ -2855,12 +2855,7 @@ fd_quic_tls_cb_alert( fd_quic_tls_hs_t * hs,
   (void)conn;
   (void)alert;
   FD_DEBUG( FD_LOG_DEBUG(( "TLS callback: %s", conn->server ? "SERVER" : "CLIENT" ));
-            FD_LOG_DEBUG(( "TLS alert: %d", alert )); );
-
-  /* may use the following to retrieve alert information:
-
-     SSL_alert_type_string_long( alert )
-     SSL_alert_desc_string_long( alert ) */
+            FD_LOG_DEBUG(( "TLS alert: (%d-%s)", alert, fd_tls_alert_cstr( (uint)alert ) )); );
 
   /* TODO store alert to reply to peer */
 }
