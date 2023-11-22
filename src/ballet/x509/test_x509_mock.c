@@ -38,12 +38,11 @@ main( int     argc,
 
   uchar public_key[ 32 ];
   for( ulong j=0UL; j<32UL; j++ ) public_key[ j ] = fd_rng_uchar( rng );
-  ulong serial = fd_rng_ulong( rng );
 
   /* Generate certificate */
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, public_key, serial );
+  fd_x509_mock_cert( cert, public_key );
 
   FD_LOG_HEXDUMP_DEBUG(( "cert", cert, FD_X509_MOCK_CERT_SZ ));
 

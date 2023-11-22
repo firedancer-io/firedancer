@@ -275,7 +275,7 @@ test_server( SSL_CTX * ctx ) {
   /* Set up server cert */
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, server->cert_public_key, fd_rng_ulong( rng ) );
+  fd_x509_mock_cert( cert, server->cert_public_key );
   fd_tls_set_x509( server, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Initialize OpenSSL */
@@ -294,7 +294,7 @@ test_server( SSL_CTX * ctx ) {
   SSL_use_PrivateKey( ssl, client_pkey );
   EVP_PKEY_free( client_pkey );
 
-  fd_x509_mock_cert( cert, client_public_key, fd_rng_ulong( rng ) );
+  fd_x509_mock_cert( cert, client_public_key );
   SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   SSL_set_connect_state( ssl );
@@ -368,7 +368,7 @@ test_client( SSL_CTX * ctx ) {
   EVP_PKEY_free( server_pkey );
 
   uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, server_public_key, fd_rng_ulong( rng ) );
+  fd_x509_mock_cert( cert, server_public_key );
   SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Set server QUIC transport params */
@@ -410,7 +410,7 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up client cert */
 
-  fd_x509_mock_cert( cert, client->cert_public_key, fd_rng_ulong( rng ) );
+  fd_x509_mock_cert( cert, client->cert_public_key );
   fd_tls_set_x509( client, cert, FD_X509_MOCK_CERT_SZ );
 
   /* Do handshake */
