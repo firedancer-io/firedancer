@@ -2008,6 +2008,13 @@
         { "name": "orphan", "type": "repair_orphan" },
         { "name": "ancestor_hashes", "type": "repair_ancestor_hashes" }
       ]
+    },
+    {
+      "name": "repair_response",
+      "type": "enum",
+      "variants": [
+        { "name": "ping", "type": "gossip_ping" }
+      ]
     }
   ]
 }

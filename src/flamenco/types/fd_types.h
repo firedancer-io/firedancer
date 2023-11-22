@@ -2372,6 +2372,19 @@ typedef struct fd_repair_protocol fd_repair_protocol_t;
 #define FD_REPAIR_PROTOCOL_FOOTPRINT sizeof(fd_repair_protocol_t)
 #define FD_REPAIR_PROTOCOL_ALIGN (8UL)
 
+union fd_repair_response_inner {
+  fd_gossip_ping_t ping;
+};
+typedef union fd_repair_response_inner fd_repair_response_inner_t;
+
+struct fd_repair_response {
+  uint discriminant;
+  fd_repair_response_inner_t inner;
+};
+typedef struct fd_repair_response fd_repair_response_t;
+#define FD_REPAIR_RESPONSE_FOOTPRINT sizeof(fd_repair_response_t)
+#define FD_REPAIR_RESPONSE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -4815,6 +4828,22 @@ fd_repair_protocol_enum_window_index = 8,
 fd_repair_protocol_enum_highest_window_index = 9,
 fd_repair_protocol_enum_orphan = 10,
 fd_repair_protocol_enum_ancestor_hashes = 11,
+}; 
+void fd_repair_response_new_disc(fd_repair_response_t* self, uint discriminant);
+void fd_repair_response_new(fd_repair_response_t* self);
+int fd_repair_response_decode(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_response_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_response_decode_unsafe(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_response_encode(fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_response_destroy(fd_repair_response_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_response_walk(void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_response_size(fd_repair_response_t const * self);
+ulong fd_repair_response_footprint( void );
+ulong fd_repair_response_align( void );
+
+FD_FN_PURE uchar fd_repair_response_is_ping(fd_repair_response_t const * self);
+enum {
+fd_repair_response_enum_ping = 0,
 }; 
 FD_PROTOTYPES_END
 

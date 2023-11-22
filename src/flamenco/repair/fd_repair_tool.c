@@ -13,6 +13,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -31,6 +32,8 @@ static void stop(int sig) { (void)sig; stopflag = 1; }
 static int sockfd = -1;
 static fd_pubkey_t public_key;
 static uchar private_key[32];
+static fd_valloc_t my_valloc;
+static fd_gossip_peer_addr_t peer_addr;
 
 /* Convert my style of address to UNIX style */
 static int
@@ -127,9 +130,80 @@ fd_repair_sign_and_send(fd_repair_protocol_t * protocol) {
                    sha );
   fd_memcpy(buf + 4U, &sig, 64U);
   
-  fd_gossip_peer_addr_t peer_addr;
-  resolve_hostport("127.0.0.1:1032", &peer_addr);
   send_packet(buf, buflen, &peer_addr);
+}
+
+static void test_send();
+
+static void
+fd_repair_recv_ping(fd_gossip_ping_t const * ping, fd_gossip_peer_addr_t const * from) {
+  fd_repair_protocol_t protocol;
+  fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
+  fd_gossip_ping_t * pong = &protocol.inner.pong;
+  
+  fd_memcpy( &pong->from, &public_key, 32U );
+
+  /* Generate response hash token */
+  fd_sha256_t sha[1];
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, ping->token.uc,     32UL );
+  fd_sha256_fini( sha, pong->token.uc );
+
+  /* Sign it */
+  fd_sha512_t sha2[1];
+  fd_ed25519_sign( /* sig */ pong->signature.uc,
+                   /* msg */ pong->token.uc,
+                   /* sz  */ 32UL,
+                   /* public_key  */ public_key.uc,
+                   /* private_key */ private_key,
+                   sha2 );
+
+  fd_bincode_encode_ctx_t ctx;
+  uchar buf[1024];
+  ctx.data = buf;
+  ctx.dataend = buf + sizeof(buf);
+  FD_TEST(0 == fd_repair_protocol_encode(&protocol, &ctx));
+  ulong buflen = (ulong)((uchar*)ctx.data - buf);
+  send_packet(buf, buflen, &peer_addr);
+
+  test_send();
+}
+
+static void
+fd_repair_recv_shred(uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+  ulong shredlen = msglen - sizeof(uint); /* Nonse is at the end */
+  FD_LOG_NOTICE(("received shred of size %lu", shredlen));
+}
+
+static void
+fd_repair_recv_packet(uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+  fd_repair_response_t gmsg;
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data    = msg;
+  ctx.dataend = msg + msglen;
+  ctx.valloc  = my_valloc;
+  if (fd_repair_response_decode(&gmsg, &ctx)) {
+    /* Solana falls back to assuming we got a shred in this case
+       https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1198 */
+    fd_repair_recv_shred(msg, msglen, from);
+    return;
+  }
+  fd_bincode_destroy_ctx_t ctx2;
+  ctx2.valloc = my_valloc;
+  if (ctx.data != ctx.dataend) {
+    fd_repair_response_destroy(&gmsg, &ctx2);
+    fd_repair_recv_shred(msg, msglen, from);
+    return;
+  }
+
+  switch (gmsg.discriminant) {
+  case fd_repair_response_enum_ping:
+    fd_repair_recv_ping(&gmsg.inner.ping, from);
+    break;
+  }
+
+  fd_repair_response_destroy(&gmsg, &ctx2);
 }
 
 static void
@@ -140,7 +214,7 @@ test_send() {
   fd_memcpy(wi->header.sender.uc, public_key.uc, 32U);
   fd_base58_decode_32("95hduWHW6BDrnVWzB2ekF9vmiFxpz62F1HNtRAQ19S71", wi->header.recipient.uc);
   wi->header.timestamp = (ulong)fd_log_wallclock()/1000000LU;
-  wi->slot = 1;
+  wi->slot = 16518;
   wi->shred_index = 0;
   fd_repair_sign_and_send(&protocol);
 }
@@ -207,7 +281,8 @@ main_loop(fd_gossip_peer_addr_t const * my_addr, volatile int * stopflag ) {
     for (uint i = 0; i < (uint)retval; ++i) {
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      (void)from;
+      FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], msgs[i].msg_len));
+      fd_repair_recv_packet(bufs[i], msgs[i].msg_len, &from);
     }
   }
 
@@ -219,6 +294,8 @@ int main(int argc, char **argv) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
+  my_valloc = fd_libc_alloc_virtual();
+
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
@@ -228,6 +305,7 @@ int main(int argc, char **argv) {
 
   fd_gossip_peer_addr_t my_addr;
   resolve_hostport(":1185", &my_addr);
+  resolve_hostport("127.0.0.1:1032", &peer_addr);
   
   if ( main_loop(&my_addr, &stopflag) )
     return 1;

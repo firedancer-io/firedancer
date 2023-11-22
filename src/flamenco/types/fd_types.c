@@ -19240,6 +19240,121 @@ int fd_repair_protocol_encode(fd_repair_protocol_t const * self, fd_bincode_enco
   return fd_repair_protocol_inner_encode(&self->inner, self->discriminant, ctx);
 }
 
+FD_FN_PURE uchar fd_repair_response_is_ping(fd_repair_response_t const * self) {
+  return self->discriminant == 0;
+}
+void fd_repair_response_inner_new(fd_repair_response_inner_t* self, uint discriminant);
+int fd_repair_response_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_ping_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+void fd_repair_response_inner_decode_unsafe(fd_repair_response_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_ping_decode_unsafe(&self->ping, ctx);
+    break;
+  }
+  }
+}
+int fd_repair_response_decode(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_repair_response_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_repair_response_new(self);
+  fd_repair_response_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_response_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode(&discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_repair_response_inner_decode_preflight(discriminant, ctx);
+}
+void fd_repair_response_decode_unsafe(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint32_decode_unsafe(&self->discriminant, ctx);
+  fd_repair_response_inner_decode_unsafe(&self->inner, self->discriminant, ctx);
+}
+void fd_repair_response_inner_new(fd_repair_response_inner_t* self, uint discriminant) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_ping_new(&self->ping);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_repair_response_new_disc(fd_repair_response_t* self, uint discriminant) {
+  self->discriminant = discriminant;
+  fd_repair_response_inner_new(&self->inner, self->discriminant);
+}
+void fd_repair_response_new(fd_repair_response_t* self) {
+  fd_memset(self, 0, sizeof(*self));
+  fd_repair_response_new_disc(self, UINT_MAX);
+}
+void fd_repair_response_inner_destroy(fd_repair_response_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
+  switch (discriminant) {
+  case 0: {
+    fd_gossip_ping_destroy(&self->ping, ctx);
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_repair_response_destroy(fd_repair_response_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_repair_response_inner_destroy(&self->inner, self->discriminant, ctx);
+}
+
+ulong fd_repair_response_footprint( void ){ return FD_REPAIR_RESPONSE_FOOTPRINT; }
+ulong fd_repair_response_align( void ){ return FD_REPAIR_RESPONSE_ALIGN; }
+
+void fd_repair_response_walk(void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_repair_response", level++);
+  switch (self->discriminant) {
+  case 0: {
+    fd_gossip_ping_walk(w, &self->inner.ping, fun, "ping", level);
+    break;
+  }
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_repair_response", level--);
+}
+ulong fd_repair_response_size(fd_repair_response_t const * self) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 0: {
+    size += fd_gossip_ping_size(&self->inner.ping);
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_repair_response_inner_encode(fd_repair_response_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    err = fd_gossip_ping_encode(&self->ping, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_repair_response_encode(fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return fd_repair_response_inner_encode(&self->inner, self->discriminant, ctx);
+}
+
 #define REDBLK_T fd_vote_accounts_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_accounts_pair_t_map
 #define REDBLK_IMPL_STYLE 2
