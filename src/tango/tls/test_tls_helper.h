@@ -55,7 +55,7 @@ test_record_reset( test_record_buf_t * buf ) {
   buf->recv = buf->send = 0UL;
 }
 
-static void
+static FD_FN_UNUSED void
 test_record_send( test_record_buf_t * buf,
                   uint                level,
                   uchar const *       record,
@@ -67,13 +67,13 @@ test_record_send( test_record_buf_t * buf,
   fd_memcpy( r->buf, record, record_sz );
 }
 
-static test_record_t *
+static FD_FN_UNUSED test_record_t *
 test_record_recv( test_record_buf_t * buf ) {
   if( buf->recv==buf->send ) return NULL;
   return &buf->records[ buf->recv++ ];
 }
 
-static void
+static FD_FN_UNUSED void
 test_record_log( uchar const * record,
                  ulong         record_sz,
                  int           from_server ) {
