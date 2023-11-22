@@ -2,6 +2,7 @@
 
 #include "run/tiles/tiles.h"
 #include "../../disco/fd_disco_base.h"
+#include "../../disco/quic/fd_tpu.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
@@ -206,6 +207,20 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_dcache_join( dcache );
         if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
+      }
+    }
+
+    if( FD_LIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      FD_TEST( !link->mtu );
+      void * reasm = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( link->depth, link->burst ) );
+      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+        fd_frag_meta_t * joined_mcache = fd_mcache_join( mcache );
+        snprintf1( path, sizeof(path), "reasm_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
+        INSERT_POD( path, fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL, joined_mcache ) );
+        fd_mcache_leave( joined_mcache );
+      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+        link->dcache = fd_tpu_reasm_join( reasm );
+        if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_tpu_reasm_join failed" ));
       }
     }
   }
@@ -746,7 +761,11 @@ fd_topo_print_log( int         stdout,
     fd_topo_link_t * link = &topo->links[ i ];
 
     char size[ 24 ];
-    fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
+    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      fd_topo_mem_sz_string( fd_tpu_reasm_footprint( link->depth, link->burst ), size );
+    } else {
+      fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
+    }
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 

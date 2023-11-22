@@ -143,7 +143,6 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_aio_align(), fd_aio_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( tile->quic.depth, tile->quic.reasm_cnt ) );
   fd_quic_limits_t limits = quic_limits( tile );
   l = FD_LAYOUT_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -632,9 +631,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  uint  reasm_cnt = tile->quic.reasm_cnt;
-  void * reasm_buf = FD_SCRATCH_ALLOC_APPEND( l, fd_tpu_reasm_align(), fd_tpu_reasm_footprint( depth, reasm_cnt ) );
-
   fd_ip_arp_fetch( ctx->ip );
   fd_ip_route_fetch( ctx->ip );
   fd_quic_limits_t limits = quic_limits( tile );
@@ -698,8 +694,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->verify_out_mem    = topo->workspaces[ verify_out->wksp_id ].wksp;
 
-  ulong orig = 0UL;
-  ctx->reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( reasm_buf, depth, reasm_cnt, orig, verify_out->mcache ) );
+  ctx->reasm = verify_out->dcache;
   if( FD_UNLIKELY( !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 
