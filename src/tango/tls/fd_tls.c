@@ -409,8 +409,6 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     if( FD_UNLIKELY( !ch.quic_tp.buf ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_CH_NO_QUIC );
 
-    /* Remember that this is a QUIC-TLS handshake */
-    handshake->base.quic = 1;
     /* Inform user of peer's QUIC transport parameters */
     server->quic_tp_peer_fn( handshake, ch.quic_tp.buf, ch.quic_tp.bufsz );
   }
@@ -1357,8 +1355,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
     if( FD_UNLIKELY( !ee->quic_tp.buf ) )
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_MISSING_EXTENSION, FD_TLS_REASON_EE_NO_QUIC );
 
-    /* Remember that this is a QUIC-TLS handshake */
-    handshake->base.quic = 1;
     /* Inform user of peer's QUIC transport parameters */
     client->quic_tp_peer_fn( handshake, ee->quic_tp.buf, ee->quic_tp.bufsz );
   }
