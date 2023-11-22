@@ -452,7 +452,8 @@ fd_ed25519_fe_sqrt_ratio_4( fd_ed25519_fe_t * outa, int *out_wsa, fd_ed25519_fe_
 static inline int
 fd_ed25519_fe_inv_sqrt( fd_ed25519_fe_t *       h,
                         fd_ed25519_fe_t const * u ) {
-  return fd_ed25519_fe_sqrt_ratio( h, f25519_one, u );
+  fd_ed25519_fe_t g[1]; fd_ed25519_fe_1( g );
+  return fd_ed25519_fe_sqrt_ratio( h, g, u );
 }
 
 /* fd_ed25519_fe_abs computes h = |f|. */
