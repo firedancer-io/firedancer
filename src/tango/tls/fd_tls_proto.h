@@ -1,5 +1,5 @@
-#ifndef HEADER_src_ballet_tls_fd_tls_proto_h
-#define HEADER_src_ballet_tls_fd_tls_proto_h
+#ifndef HEADER_src_tango_tls_fd_tls_proto_h
+#define HEADER_src_tango_tls_fd_tls_proto_h
 
 /* fd_tls_proto.h declares various TLS v1.3 data structures and provides
    internal APIs to decode and encode them from/to wire format.
@@ -431,10 +431,10 @@ fd_tls_encode_enc_ext( fd_tls_enc_ext_t const * in,
                        ulong                    wire_sz );
 
 long
-fd_tls_encode_server_cert_x509( uchar const * x509,
-                                ulong         x509_sz,
-                                uchar *       wire,
-                                ulong         wire_sz );
+fd_tls_encode_cert_x509( uchar const * x509,
+                         ulong         x509_sz,
+                         uchar *       wire,
+                         ulong         wire_sz );
 
 
 long
@@ -553,4 +553,4 @@ fd_tls_extract_cert_pubkey( uchar const * cert,
 FD_PROTOTYPES_END
 
 #undef STATIC_SERDE
-#endif /* HEADER_src_ballet_tls_fd_tls_proto_h */
+#endif /* HEADER_src_tango_tls_fd_tls_proto_h */

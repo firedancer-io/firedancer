@@ -644,32 +644,29 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   /* Send Certificate *************************************************/
 
-  void const * cert_msg;
-  ulong        cert_msg_sz;
-
+  ulong cert_msg_sz;
   if( ch.server_cert_types.raw_pubkey ) {
     long sz = fd_tls_encode_raw_public_key( server->cert_public_key, msg_buf, MSG_BUFSZ );
     FD_TEST( sz>=0L );
-    cert_msg    = msg_buf;
     cert_msg_sz = (ulong)sz;
   } else {
-    /* Send pre-prepared X.509 Certificate message */
-    cert_msg    = server->cert_x509;
-    cert_msg_sz = server->cert_x509_sz;
+    long sz = fd_tls_encode_cert_x509( server->cert_x509, server->cert_x509_sz, msg_buf, MSG_BUFSZ );
+    FD_TEST( sz>=0L );
+    cert_msg_sz = (ulong)sz;
   }
 
   /* Send certificate message */
 
   if( FD_UNLIKELY( !server->sendmsg_fn(
         handshake,
-        cert_msg, cert_msg_sz,
+        msg_buf, cert_msg_sz,
         FD_TLS_LEVEL_HANDSHAKE,
         /* flush */ 0 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
   /* Record Certificate message in transcript hash */
 
-  fd_sha256_append( &transcript, cert_msg, cert_msg_sz );
+  fd_sha256_append( &transcript, msg_buf, cert_msg_sz );
 
   /* Send CertificateVerify *******************************************/
 
@@ -1668,22 +1665,19 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
        first place, unless post-handshake auth is used (which is not
        the case) */
 
-    void const * cert_msg;
-    ulong        cert_msg_sz;
-
+    ulong cert_msg_sz;
     if( hs->client_cert_rpk ) {
       long sz = fd_tls_encode_raw_public_key( client->cert_public_key, msg_buf, MSG_BUFSZ );
       FD_TEST( sz>=0L );
-      cert_msg    = msg_buf;
       cert_msg_sz = (ulong)sz;
     } else if( client->cert_x509_sz ) {
       /* TODO: Technically should check whether the server supports
          X.509.  There could be servers that support neither X.509 nor
          raw public keys. */
 
-      /* Send pre-prepared X.509 Certificate message */
-      cert_msg    = client->cert_x509;
-      cert_msg_sz = client->cert_x509_sz;
+      long sz = fd_tls_encode_cert_x509( client->cert_x509, client->cert_x509_sz, msg_buf, MSG_BUFSZ );
+      FD_TEST( sz>=0L );
+      cert_msg_sz = (ulong)sz;
     } else {
       /* TODO: Unreachable:  We should have verified whether we have
          an appropriate certificate in wait_cert_cr. */
@@ -1694,14 +1688,14 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
 
     if( FD_UNLIKELY( !client->sendmsg_fn(
           hs,
-          cert_msg, cert_msg_sz,
+          msg_buf, cert_msg_sz,
           FD_TLS_LEVEL_HANDSHAKE,
           /* flush */ 0 ) ) )
       return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
     /* Record Certificate message in transcript hash */
 
-    fd_sha256_append( &hs->transcript, cert_msg, cert_msg_sz );
+    fd_sha256_append( &hs->transcript, msg_buf, cert_msg_sz );
 
     /* Send client CertificateVerify **********************************/
 
