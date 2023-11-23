@@ -184,9 +184,8 @@ fd_quic_tls_init( fd_tls_t * tls ) {
   fd_ed25519_public_from_private( tls->cert_public_key, tls->cert_private_key, sha );
 
   /* Generate X.509 cert */
-  uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, tls->cert_public_key );
-  fd_tls_set_x509(tls, cert, FD_X509_MOCK_CERT_SZ );
+  fd_x509_mock_cert( tls->cert_x509, tls->cert_public_key );
+  tls->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
 
   /* Set ALPN protocol ID
      (Technically, don't need to copy the length prefix but we'll do
