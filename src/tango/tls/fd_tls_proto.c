@@ -488,10 +488,10 @@ fd_tls_decode_enc_ext( fd_tls_enc_ext_t * const out,
 }
 
 long
-fd_tls_encode_server_cert_x509( uchar const * x509,
-                                ulong         x509_sz,
-                                uchar *       wire,
-                                ulong         wire_sz ) {
+fd_tls_encode_cert_x509( uchar const * x509,
+                         ulong         x509_sz,
+                         uchar *       wire,
+                         ulong         wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
 
@@ -611,7 +611,6 @@ fd_tls_encode_raw_public_key( uchar const * key,
   /* No certificate extensions */
   ushort ext_sz = (ushort)0;
 
-  /* TODO Should use fd_memcpy() instead of memcpy() */
 # define FIELDS( FIELD )                                            \
     FIELD( 0, &msg_type,                         uchar,   1       ) \
     FIELD( 1, &msg_sz,                           tls_u24, 1       ) \

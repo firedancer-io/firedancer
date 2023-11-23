@@ -44,11 +44,8 @@ struct fd_tls {
   uchar cert_private_key[ 32 ];
   uchar cert_public_key [ 32 ];
 
-  /* Buffers storing the Certificate handshake message.  This is not a
-     simple copy of the cert but also contains TLS headers/footers.
-     Written by fd_tls_set_x509.  Do not write directly.
-     (TODO This is too easy to misuse, so this should be removed from
-           the public API) */
+  /* X.509 certificate to present to peer (optional).
+     SubjectPublicKeyInfo must be Ed25519 and match cert_public_key. */
   uchar cert_x509[ FD_TLS_SERVER_CERT_MSG_SZ_MAX ];
   ulong cert_x509_sz;
 
@@ -86,22 +83,6 @@ fd_tls_leave( fd_tls_t * );
 
 void *
 fd_tls_delete( void * );
-
-/* fd_tls_set_x509 sets the server certificate.  cert points to the
-   first byte of the DER serialized X.509 certificate.  cert_sz is the
-   serialized size.  Returns 1 on success and 0 on failure.  Reasons for
-   failure include oversz cert. */
-
-static inline int
-fd_tls_set_x509( fd_tls_t * server,
-                 void const *      cert,
-                 ulong             cert_sz ) {
-
-  long res = fd_tls_encode_server_cert_x509( cert, cert_sz, server->cert_x509, FD_TLS_SERVER_CERT_MSG_SZ_MAX );
-  if( FD_UNLIKELY( res<0 ) ) return 0;
-  server->cert_x509_sz = (ulong)res;
-  return 1;
-}
 
 /* fd_tls_server_handshake ingests a TLS message from the client.
    Synchronously processes the message (API may become async in the
