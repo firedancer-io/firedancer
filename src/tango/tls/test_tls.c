@@ -63,8 +63,9 @@ test_client_hello_decode( void ) {
   };
   /* TODO compare QUIC transport params */
   /* Clear out QUIC transport params, as those will have to be compared separately */
-  client_hello.quic_tp = (fd_tls_ext_quic_tp_t){0};
-  client_hello.alpn    = (fd_tls_ext_alpn_t   ){0};
+  client_hello.quic_tp    = (fd_tls_ext_quic_tp_t){0};
+  client_hello.alpn       = (fd_tls_ext_alpn_t   ){0};
+  client_hello.session_id = (fd_tls_ext_opaque_t ){0};
   FD_TEST( 0==memcmp( &client_hello, &client_hello_expected, sizeof(fd_tls_client_hello_t) ) );
 }
 

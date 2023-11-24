@@ -26,7 +26,7 @@ typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
 long
 fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
-                            uchar const * const      wire,
+                            uchar const * const     wire,
                             ulong                   wire_sz ) {
 
   ulong wire_laddr = (ulong)wire;
@@ -44,8 +44,14 @@ fd_tls_decode_client_hello( fd_tls_client_hello_t * out,
     FD_TLS_DECODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
-  if( FD_UNLIKELY( legacy_session_id_sz != 0 ) )
-    return -(long)FD_TLS_ALERT_PROTOCOL_VERSION;
+  if( FD_UNLIKELY( ( legacy_session_id_sz > 32      ) |
+                   ( wire_sz < legacy_session_id_sz ) ) )
+    return -(long)FD_TLS_ALERT_DECODE_ERROR;
+
+  out->session_id.buf   = (void *)wire_laddr;
+  out->session_id.bufsz = legacy_session_id_sz;
+  wire_laddr += legacy_session_id_sz;
+  wire_sz    -= legacy_session_id_sz;
 
   /* Decode cipher suite list */
 
@@ -384,7 +390,7 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
      (Assuming that session ID field is of a certain size) */
 
   ushort legacy_version            = FD_TLS_VERSION_TLS12;
-  uchar  legacy_session_id_sz      = 0;
+  uchar  legacy_session_id_sz      = (uchar)in->session_id.bufsz;
   ushort cipher_suite              = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256;
   uchar  legacy_compression_method = 0;
 
@@ -392,8 +398,9 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
     FIELD( 0, &legacy_version,            ushort, 1    ) \
     FIELD( 1, &in->random[0],             uchar,  32UL ) \
     FIELD( 2, &legacy_session_id_sz,      uchar,  1    ) \
-    FIELD( 3, &cipher_suite,              ushort, 1    ) \
-    FIELD( 4, &legacy_compression_method, uchar,  1    )
+    FIELD( 3,  in->session_id.buf,        uchar,  legacy_session_id_sz ) \
+    FIELD( 4, &cipher_suite,              ushort, 1    ) \
+    FIELD( 5, &legacy_compression_method, uchar,  1    )
     FD_TLS_ENCODE_STATIC_BATCH( FIELDS )
 # undef FIELDS
 
