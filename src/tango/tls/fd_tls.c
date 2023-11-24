@@ -120,24 +120,9 @@ fd_tls_estate_cli_new( void * mem ) {
   return hs;
 }
 
-/* fd_tls_hkdf_expand_label implements the TLS 1.3 HKDF-Expand function
-   with SHA-256.  Writes the resulting hash to out.  secret is a 32 byte
-   secret value.  label points to the label string.  label_sz is the
-   number of chars in label (not including terminating NUL).  context
-   points to the context byte array.  context_sz is the number of bytes
-   in context.
-
-   Constraints:
-
-     out   !=NULL
-     secret!=NULL
-     label_sz  ==0 || label  !=NULL
-     context_sz==0 || context!=NULL
-     0<=label_sz  <=64
-     0<=context_sz<=64 */
-
-static void *
-fd_tls_hkdf_expand_label( uchar         out[ static 32 ],
+void *
+fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+                          ulong         out_sz,
                           uchar const   secret[ static 32 ],
                           char const *  label,
                           ulong         label_sz,
@@ -147,13 +132,14 @@ fd_tls_hkdf_expand_label( uchar         out[ static 32 ],
 # define LABEL_BUFSZ (64UL)
   FD_TEST( label_sz  <=LABEL_BUFSZ );
   FD_TEST( context_sz<=LABEL_BUFSZ );
+  FD_TEST( out_sz    <=32UL        );
 
   /* Create HKDF info */
   uchar info[ 2+1+6+LABEL_BUFSZ+1+LABEL_BUFSZ+1 ];
   ulong info_sz = 0UL;
 
-  /* Length of hash output (hardcoded to be 32) */
-  info[0]=0; info[1]=32;
+  /* Length of hash output */
+  info[0]=0; info[1]=(uchar)out_sz;
   info_sz += 2UL;
 
   /* Length prefix of label */
@@ -179,7 +165,9 @@ fd_tls_hkdf_expand_label( uchar         out[ static 32 ],
   info_sz += 1UL;
 
   /* Compute result of HKDF-Expand-Label */
-  fd_hmac_sha256( info, info_sz, secret, 32UL, out );
+  uchar hash[ 32 ];
+  fd_hmac_sha256( info, info_sz, secret, 32UL, hash );
+  fd_memcpy( out, hash, out_sz );
   return out;
 # undef LABEL_BUFSZ
 }
@@ -456,6 +444,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
     fd_tls_server_hello_t sh = {
       .cipher_suite = FD_TLS_CIPHER_SUITE_AES_128_GCM_SHA256,
       .key_share    = { .has_x25519 = 1 },
+      .session_id   = ch.session_id,
     };
     memcpy( sh.random,           server_random,          32UL );
     memcpy( sh.key_share.x25519, server->kex_public_key, 32UL );
@@ -478,7 +467,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
         handshake,
         msg_buf, server_hello_sz,
         FD_TLS_LEVEL_INITIAL,
-        /* flush */ 0 ) ) )
+        /* flush */ 1 ) ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
 
   /* Record server hello in transcript hash */
@@ -512,14 +501,14 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Derive client/server handshake secrets */
 
   uchar client_hs_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( client_hs_secret,
+  fd_tls_hkdf_expand_label( client_hs_secret, 32UL,
                             handshake_secret,
                             "c hs traffic",  12UL,
                             transcript_hash, 32UL );
   memcpy( handshake->client_hs_secret, client_hs_secret, 32UL );
 
   uchar server_hs_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( server_hs_secret,
+  fd_tls_hkdf_expand_label( server_hs_secret, 32UL,
                             handshake_secret,
                             "s hs traffic",  12UL,
                             transcript_hash, 32UL );
@@ -534,7 +523,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Derive master secret */
 
   uchar master_derive[ 32 ];
-  fd_tls_hkdf_expand_label( master_derive,
+  fd_tls_hkdf_expand_label( master_derive, 32UL,
                             handshake_secret,
                             "derived",   7UL,
                             empty_hash, 32UL );
@@ -697,7 +686,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Derive "Finished" key */
 
   uchar finished_key[ 32 ];
-  fd_tls_hkdf_expand_label( finished_key,
+  fd_tls_hkdf_expand_label( finished_key, 32UL,
                             server_hs_secret,
                             "finished", 8UL,
                             NULL,       0UL );
@@ -731,13 +720,13 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   /* Derive client/server application secrets */
 
   uchar client_app_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( client_app_secret,
+  fd_tls_hkdf_expand_label( client_app_secret, 32UL,
                             master_secret,
                             "c ap traffic",  12UL,
                             transcript_hash, 32UL );
 
   uchar server_app_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( server_app_secret,
+  fd_tls_hkdf_expand_label( server_app_secret, 32UL,
                             master_secret,
                             "s ap traffic",  12UL,
                             transcript_hash, 32UL );
@@ -998,7 +987,7 @@ fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
   /* Derive "Finished" key */
 
   uchar finished_key[ 32 ];
-  fd_tls_hkdf_expand_label( finished_key,
+  fd_tls_hkdf_expand_label( finished_key, 32UL,
                             handshake->client_hs_secret,
                             "finished", 8UL,
                             NULL,       0UL );
@@ -1240,12 +1229,12 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
 
   /* Derive client/server handshake secrets */
 
-  fd_tls_hkdf_expand_label( handshake->client_hs_secret,
+  fd_tls_hkdf_expand_label( handshake->client_hs_secret, 32UL,
                             handshake_secret,
                             "c hs traffic",  12UL,
                             transcript_hash, 32UL );
 
-  fd_tls_hkdf_expand_label( handshake->server_hs_secret,
+  fd_tls_hkdf_expand_label( handshake->server_hs_secret, 32UL,
                             handshake_secret,
                             "s hs traffic",  12UL,
                             transcript_hash, 32UL );
@@ -1260,7 +1249,7 @@ fd_tls_client_hs_wait_sh( fd_tls_t const *      const client,
   /* Derive master secret */
 
   uchar master_derive[ 32 ];
-  fd_tls_hkdf_expand_label( master_derive,
+  fd_tls_hkdf_expand_label( master_derive, 32UL,
                             handshake_secret,
                             "derived",   7UL,
                             empty_hash, 32UL );
@@ -1566,7 +1555,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   /* Derive "Finished" key */
 
   uchar server_finished_key[ 32 ];
-  fd_tls_hkdf_expand_label( server_finished_key,
+  fd_tls_hkdf_expand_label( server_finished_key, 32UL,
                             hs->server_hs_secret,
                             "finished", 8UL,
                             NULL,       0UL );
@@ -1630,13 +1619,13 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   /* Derive client/server application secrets */
 
   uchar client_app_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( client_app_secret,
+  fd_tls_hkdf_expand_label( client_app_secret, 32UL,
                             hs->master_secret,
                             "c ap traffic",  12UL,
                             transcript_hash, 32UL );
 
   uchar server_app_secret[ 32UL ];
-  fd_tls_hkdf_expand_label( server_app_secret,
+  fd_tls_hkdf_expand_label( server_app_secret, 32UL,
                             hs->master_secret,
                             "s ap traffic",  12UL,
                             transcript_hash, 32UL );
@@ -1726,7 +1715,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   /* Derive "Finished" key */
 
   uchar client_finished_key[ 32 ];
-  fd_tls_hkdf_expand_label( client_finished_key,
+  fd_tls_hkdf_expand_label( client_finished_key, 32UL,
                             hs->client_hs_secret,
                             "finished", 8UL,
                             NULL,       0UL );

@@ -28,6 +28,7 @@
    processing can still be vectorized by processing independent packets
    in parallel. */
 
+#define AES_GCM_TAG_SZ (16UL)
 
 FD_PROTOTYPES_BEGIN
 
