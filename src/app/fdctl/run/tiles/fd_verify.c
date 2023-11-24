@@ -1,6 +1,9 @@
 #include "tiles.h"
 
 #include "generated/verify_seccomp.h"
+
+#include "../../../../disco/quic/fd_tpu.h"
+
 #include <linux/unistd.h>
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
@@ -67,14 +70,10 @@ during_frag( void * _ctx,
              ulong chunk,
              ulong sz,
              int * opt_filter ) {
-  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  (void)sig;
+  (void)opt_filter;
 
-  /* This is a dummy mcache entry to keep frags from getting overrun, do
-     not process */
-  if( FD_UNLIKELY( sig ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
@@ -153,9 +152,14 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
 
-    ctx->in[i].mem    = link_wksp->wksp;
-    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
-    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+    ctx->in[i].mem = link_wksp->wksp;
+    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->dcache );
+      ctx->in[i].wmark  = ctx->in[i].chunk0 + (link->depth+link->burst-1) * FD_TPU_REASM_CHUNK_MTU;
+    } else {
+      ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
+      ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+    }
   }
 
   ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;

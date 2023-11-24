@@ -48,14 +48,14 @@ fd_tpu_reasm_new( void *           shmem,
 
   /* Initialize reasm object */
 
-  reasm->slots    = slots;
-  reasm->chunks   = chunks;
-  reasm->depth    = (uint)depth;
-  reasm->burst    = (uint)burst;
-  reasm->head     = (uint)slot_cnt-1U;
-  reasm->tail     = (uint)depth;
-  reasm->slot_cnt = (uint)slot_cnt;
-  reasm->orig     = (ushort)orig;
+  reasm->slots_off  = (ulong)( (uchar *)slots  - (uchar *)reasm );
+  reasm->chunks_off = (ulong)( (uchar *)chunks - (uchar *)reasm );
+  reasm->depth      = (uint)depth;
+  reasm->burst      = (uint)burst;
+  reasm->head       = (uint)slot_cnt-1U;
+  reasm->tail       = (uint)depth;
+  reasm->slot_cnt   = (uint)slot_cnt;
+  reasm->orig       = (ushort)orig;
 
   /* Initial slot distribution */
 
@@ -75,7 +75,7 @@ fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm,
   uint depth    = reasm->depth;
   uint burst    = reasm->burst;
   uint node_cnt = depth+burst;
-  fd_tpu_reasm_slot_t * slots = reasm->slots;
+  fd_tpu_reasm_slot_t * slots = fd_tpu_reasm_slots_laddr( reasm );
 
   for( uint j=0U; j<depth; j++ ) {
     slots [ j ].state = FD_TPU_REASM_STATE_PUB;
@@ -227,7 +227,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       ulong                 seq,
                       ulong                 tspub ) {
 
-  if( FD_UNLIKELY( slot->state != FD_TPU_REASM_STATE_FREE ) )
+  if( FD_UNLIKELY( slot->state != FD_TPU_REASM_STATE_BUSY ) )
     return FD_TPU_REASM_ERR_STATE;
 
   /* Derive chunk index */
@@ -267,7 +267,7 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   slot->state = FD_TPU_REASM_STATE_PUB;
 
   /* Free oldest published slot */
-  fd_tpu_reasm_slot_t * free_slot = reasm->slots + free_slot_idx;
+  fd_tpu_reasm_slot_t * free_slot = fd_tpu_reasm_slots_laddr( reasm ) + free_slot_idx;
   if( FD_UNLIKELY( free_slot->state != FD_TPU_REASM_STATE_PUB ) ) {
     /* mcache/slots out of sync (memory leak) */
     FD_LOG_WARNING(( "mcache corruption detected! tpu_reasm slot %u not published",

@@ -81,9 +81,6 @@
 
 #define FD_SHRED_TILE_SCRATCH_ALIGN 128UL
 
-/* FD_BANK_SHRED_MTU comes from the maximum size payload can fit in one
-   FEC set plus the fd_entry_batch_meta_t header. */
-#define FD_BANK_SHRED_MTU 63719UL
 
 #define NET_IN_IDX      0
 #define POH_IN_IDX      1
@@ -112,7 +109,7 @@ FD_STATIC_ASSERT( sizeof(fd_shred34_t) < USHORT_MAX, shred_34 );
 FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX, shred_34 );
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
-FD_STATIC_ASSERT( ( FD_BANK_SHRED_MTU-sizeof(fd_entry_batch_meta_t) ) < 2*31840, bank_shred_mtu );
+FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==40UL, poh_shred_mtu );
 
 /* Part 2: Shred destinations */
 struct __attribute__((packed)) fd_shred_dest_wire {
@@ -200,7 +197,25 @@ typedef struct {
   ulong       store_out_chunk0;
   ulong       store_out_wmark;
   ulong       store_out_chunk;
+
+  struct {
+    ulong pos; /* in payload, so 0<=pos<63671 */
+    ulong slot; /* set to 0 when pos==0 */
+    union {
+      struct {
+        ulong microblock_cnt;
+        uchar payload[ 63679UL - 8UL ];
+      };
+      uchar raw[ 63679UL ]; /* The largest that fits in 1 FEC set */
+    };
+  } pending_batch;
 } fd_shred_ctx_t;
+
+/* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
+   microblocks until either the slot ends or we excede the watermark.
+   We know that if we're <= watermark, we can always accept a message of
+   maximum size. */
+#define PENDING_BATCH_WMARK (63679UL - 8UL - FD_POH_SHRED_MTU)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -342,35 +357,58 @@ during_frag( void * _ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_idx!=NET_IN_IDX ) ) {
-    /* This is a frag from the bank tile. We can just go ahead and shred
-       it here, even though we may get overrun.  If we do end up getting
-       overrun, we just won't send these shreds out and we'll reuse the
-       FEC set for the next one.  From a higher level though, if we do
-       get overrun, a bunch of shreds will never be transmitted, and
-       we'll end up producing a block that never lands on chain. */
+  if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
+    /* This is a frag from the bank tile.  We'll copy it to our pending
+       microblock batch and shred it if necessary (last in block or
+       above watermark).  We just go ahead and shred it here, even
+       though we may get overrun.  If we do end up getting overrun, we
+       just won't send these shreds out and we'll reuse the FEC set for
+       the next one.  From a higher level though, if we do get overrun,
+       a bunch of shreds will never be transmitted, and we'll end up
+       producing a block that never lands on chain. */
     fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->poh_in_mem, chunk );
-    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark ) || sz>FD_BANK_SHRED_MTU )
+    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark ) || sz>FD_POH_SHRED_MTU )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->poh_in_chunk0, ctx->poh_in_wmark ));
 
-    fd_entry_batch_meta_t const * entry_batch_meta = (fd_entry_batch_meta_t const *)dcache_entry;
-    uchar const *                 entry_batch      = dcache_entry + sizeof(fd_entry_batch_meta_t);
-    ulong                         entry_batch_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+    fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
+    uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
+    ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
 
-    fd_shredder_init_batch( ctx->shredder, entry_batch, entry_batch_sz, entry_batch_meta );
+    /* It should never be possible for this to fail, but we check it
+       anyway. */
+    FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
+    FD_TEST( (ctx->pending_batch.microblock_cnt==0) | (ctx->pending_batch.slot==entry_meta->slot) );
 
-    /* We're depending on the pack tile to produce microblocks that can
-       fit in 1 FEC set. */
-    FD_TEST( fd_shredder_next_fec_set( ctx->shredder, ctx->shred_signing_key, out ) );
-    fd_shredder_fini_batch( ctx->shredder );
+    ctx->pending_batch.slot = entry_meta->slot;
+    /* Ugh, yet another memcpy */
+    fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
+    ctx->pending_batch.pos += entry_sz;
+    ctx->pending_batch.microblock_cnt++;
 
-    d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
-    p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
+    int last_in_batch = (entry_meta->tick==entry_meta->bank_max_tick_height) | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
 
-    ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
+    if( FD_UNLIKELY( last_in_batch )) {
+      fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, entry_meta );
+
+      /* We sized this so it fits in one FEC set */
+      FD_TEST( fd_shredder_next_fec_set( ctx->shredder, ctx->shred_signing_key, out ) );
+      fd_shredder_fini_batch( ctx->shredder );
+
+      d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
+      p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
+
+      ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
+
+      /* reset state */
+      ctx->pending_batch.slot           = 0UL;
+      ctx->pending_batch.pos            = 0UL;
+      ctx->pending_batch.microblock_cnt = 0UL;
+    } else {
+      ctx->send_fec_set_idx = ULONG_MAX;
+    }
   } else { /* the common case, from the netmux tile */
     /* The FEC resolver API does not present a prepare/commit model. If we
        get overrun between when the FEC resolver verifies the signature
@@ -452,6 +490,11 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
+    return;
+  }
+
+  if( FD_UNLIKELY( (in_idx==POH_IN_IDX) & (ctx->send_fec_set_idx==ULONG_MAX) ) ) {
+    /* Entry from PoH that didn't trigger a new FEC set to be made */
     return;
   }
 
@@ -787,6 +830,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_ip_addr = tile->shred.ip_addr;
   fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
   ctx->shred_listen_port = tile->shred.shred_listen_port;
+
+  ctx->pending_batch.microblock_cnt = 0UL;
+  ctx->pending_batch.pos            = 0UL;
+  ctx->pending_batch.slot           = 0UL;
+  fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
 
   fd_ip_arp_fetch( ctx->ip );
   fd_ip_route_fetch( ctx->ip );

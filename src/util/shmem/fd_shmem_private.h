@@ -14,6 +14,10 @@
 #define FD_SHMEM_PRIVATE_PATH_BUF_MAX (256UL)
 #define FD_SHMEM_PRIVATE_BASE_MAX     (FD_SHMEM_PRIVATE_PATH_BUF_MAX-FD_SHMEM_NAME_MAX-FD_SHMEM_PAGE_SZ_CSTR_MAX-1UL)
 
+#define FD_SHMEM_PRIVATE_MMAP_NORMAL_MASK 0x7ffffffff000
+#define FD_SHMEM_PRIVATE_MMAP_HUGE_MASK 0x7fffffc00000
+#define FD_SHMEM_PRIVATE_MMAP_GIGANTIC_MASK 0x7fffc0000000
+
 #if FD_HAS_THREADS
 #define FD_SHMEM_LOCK   pthread_mutex_lock(   fd_shmem_private_lock )
 #define FD_SHMEM_UNLOCK pthread_mutex_unlock( fd_shmem_private_lock )
