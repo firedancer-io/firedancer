@@ -317,6 +317,34 @@ fd_tls_transcript_load( fd_tls_transcript_t const * script,
   sha->buf_used = (uint )( script->len % 64U );
 }
 
+/* fd_tls_hkdf_expand_label implements the TLS 1.3 HKDF-Expand function
+   with SHA-256.  Writes the resulting hash to out.  secret is a 32 byte
+   secret value.  label points to the label string.  label_sz is the
+   number of chars in label (not including terminating NUL).  context
+   points to the context byte array.  context_sz is the number of bytes
+   in context.
+
+   Constraints:
+
+     out   !=NULL
+     secret!=NULL
+     label_sz  ==0 || label  !=NULL
+     context_sz==0 || context!=NULL
+     1<=out_sz    <=32
+     0<=label_sz  <=64
+     0<=context_sz<=64
+
+   TODO this function should probably be in src/ballet */
+
+void *
+fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+                          ulong         out_sz,
+                          uchar const   secret[ static 32 ],
+                          char const *  label,
+                          ulong         label_sz,
+                          uchar const * context,
+                          ulong         context_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_ballet_tls_fd_tls_h */

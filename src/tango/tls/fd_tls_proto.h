@@ -137,6 +137,8 @@ struct fd_tls_client_hello {
     /* Add more cipher suites here */
   } cipher_suites;
 
+  fd_tls_ext_opaque_t session_id;
+
   fd_tls_ext_supported_versions_t   supported_versions;
   fd_tls_ext_server_name_t          server_name;
   fd_tls_ext_supported_groups_t     supported_groups;
@@ -157,7 +159,8 @@ struct fd_tls_server_hello {
   uchar  random[ 32 ];
   ushort cipher_suite;
 
-  fd_tls_key_share_t key_share;
+  fd_tls_ext_opaque_t session_id;
+  fd_tls_key_share_t  key_share;
 };
 
 typedef struct fd_tls_server_hello fd_tls_server_hello_t;
