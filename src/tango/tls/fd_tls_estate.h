@@ -1,7 +1,8 @@
 #ifndef HEADER_fd_src_tango_tls_fd_tls_estate_h
 #define HEADER_fd_src_tango_tls_fd_tls_estate_h
 
-#include "fd_tls_base.h"
+#include "../fd_tango_base.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 /* Base ***************************************************************/
 
@@ -19,6 +20,56 @@ struct fd_tls_estate_base {
 
 typedef struct fd_tls_estate_base fd_tls_estate_base_t;
 
+/* The transcript is a running hash over all handshake messages.  The
+   hash state depends on the current handshake progression.  The hash
+   order is as follows:
+
+     client   ClientHello           always
+     server   ServerHello           always
+     server   EncryptedExtensions   always
+     server   CertificateRequest    optional
+     server   Certificate           always
+     server   CertificateVerify     always
+     server   Finished              always
+     client   Certificate           optional
+     client   CertificateVerify     optional
+     client   Finished              always */
+
+struct fd_tls_transcript {
+  uchar buf[ 64 ];  /* Pending SHA block */
+  uint  sha[ 8 ];   /* Current internal SHA state */
+  uint  len;        /* Number of bytes so far compressed into SHA state
+                       plus number of bytes in pending in buf */
+};
+
+typedef struct fd_tls_transcript fd_tls_transcript_t;
+
+/* Note:  An experimental memory optimization that is not implemented
+   here is alignment of SHA state.  It might be possible to craft a
+   transcript preimage that is aligned to SHA block size.  This allows
+   omitting the SHA block buffer, saving 64 bytes per transcript (and
+   thus per in-flight handshake). */
+
+FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_tls_transcript_store( fd_tls_transcript_t * script,
+                         fd_sha256_t const *   sha ) {
+  memcpy( script->buf, sha->buf,   64UL );
+  memcpy( script->sha, sha->state, 32UL );
+  script->len = (uint)( sha->bit_cnt / 8UL );
+}
+
+static inline void
+fd_tls_transcript_load( fd_tls_transcript_t const * script,
+                        fd_sha256_t *               sha ) {
+  memcpy( sha->buf,   script->buf, 64UL );
+  memcpy( sha->state, script->sha, 32UL );
+  sha->bit_cnt  = (ulong)( script->len * 8U  );
+  sha->buf_used = (uint )( script->len % 64U );
+}
+
+FD_PROTOTYPES_END
 
 /* Server *************************************************************/
 

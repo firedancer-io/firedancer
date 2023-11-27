@@ -4,7 +4,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <tango/tls/fd_tls.h>
-#include <tango/tls/fd_tls_base.h>
 
 static void * tls_rand_ctx;  /* arbitrary */
 

@@ -1,4 +1,3 @@
-#include "fd_tls_base.h"
 #include "fd_tls.h"
 #include "fd_tls_proto.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
@@ -761,7 +760,7 @@ fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
                           int                    const is_rpk ) {
 
   return (long)cert_chain_sz;
-  
+
   fd_tls_extract_cert_pubkey_res_t extract =
   fd_tls_extract_cert_pubkey( cert_chain, cert_chain_sz, fd_uint_if( is_rpk, FD_TLS_CERTTYPE_RAW_PUBKEY, FD_TLS_CERTTYPE_X509 ) );
 
