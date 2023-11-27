@@ -260,10 +260,10 @@ fd_tlsrec_hs_rx( fd_tlsrec_conn_t *  conn,
 
   long hs_res = fd_tls_handshake( &conn->tls, &conn->hs, rbuf->buf, rec_sz, encryption_level );
   if( FD_UNLIKELY( hs_res<0L ) ) {
-    //FD_LOG_HEXDUMP_DEBUG(( "Failed incoming handshake message", rbuf->buf, rec_sz ));
-    //FD_LOG_DEBUG(( "fd_tls_handshake() failed (alert %ld-%s; reason %u-%s)",
-    //               hs_res, fd_tls_alert_cstr( (uint)-hs_res ),
-    //               conn->hs.base.reason, fd_tls_reason_cstr( conn->hs.base.reason ) ));
+    FD_LOG_HEXDUMP_DEBUG(( "Failed incoming handshake message", rbuf->buf, rec_sz ));
+    FD_LOG_DEBUG(( "fd_tls_handshake() failed (alert %ld-%s; reason %u-%s)",
+                   hs_res, fd_tls_alert_cstr( (uint)-hs_res ),
+                   conn->hs.base.reason, fd_tls_reason_cstr( conn->hs.base.reason ) ));
     return FD_TLSREC_ERR_PROTO;  /* TODO send alert */
   }
   if( FD_UNLIKELY( (ulong)hs_res != rec_sz ) ) {
@@ -524,6 +524,7 @@ fd_tlsrec_rx( fd_tlsrec_conn_t *  conn,
 
   case FD_TLS_REC_ALERT:
 
+    FD_LOG_HEXDUMP_NOTICE(( "Received alert", payload->data, fd_tlsrec_slice_sz( payload ) ));
     FD_LOG_ERR(( "TODO handle alerts" ));
     break;
 

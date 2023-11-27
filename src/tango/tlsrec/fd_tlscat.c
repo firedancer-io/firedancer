@@ -55,8 +55,6 @@ handshake( fd_tlsrec_conn_t * conn,
     if( FD_UNLIKELY( hs_res!=FD_TLSREC_SUCCESS ) )
       FD_LOG_ERR(( "fd_tlsrec_conn_handshake() failed (%d-%s)", hs_res, fd_tlsrec_strerror( hs_res ) ));
 
-    if( !fd_tlsrec_conn_is_server( conn ) ) assert( tx_buf_sz>0UL );
-
     if( tx_buf_sz ) {
       long send_res = send( sock_fd, tx_buf, tx_buf_sz, 0 );
       if( FD_UNLIKELY( send_res<0L ) )
