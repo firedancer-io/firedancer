@@ -916,7 +916,7 @@ merge_delegation_stake_and_credits_observed( fd_exec_instr_ctx_t const * invoke_
         stake, absorbed_lamports, absorbed_credits_observed, &stake->credits_observed );
     if( FD_UNLIKELY( !is_some ) ) return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   }
-  rc = fd_instr_checked_add( stake->delegation.stake, absorbed_lamports, &stake->delegation.stake );
+  rc = fd_ulong_checked_add( stake->delegation.stake, absorbed_lamports, &stake->delegation.stake );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
   return FD_PROGRAM_OK;
 }
@@ -963,7 +963,7 @@ merge_kind_merge( merge_kind_t                  self,
     fd_stake_meta_t meta            = self.inner.activation_epoch.meta;
     fd_stake_t      stake           = self.inner.activation_epoch.stake;
     ulong           source_lamports = source.inner.inactive.active_stake;
-    rc = fd_instr_checked_add( stake.delegation.stake, source_lamports, &stake.delegation.stake );
+    rc = fd_ulong_checked_add( stake.delegation.stake, source_lamports, &stake.delegation.stake );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
     *merged_state = ( fd_stake_state_v2_t ){
         .discriminant = fd_stake_state_v2_enum_stake,
@@ -980,7 +980,7 @@ merge_kind_merge( merge_kind_t                  self,
     fd_stake_flags_t source_stake_flags = source.inner.activation_epoch.stake_flags;
 
     ulong source_lamports = ULONG_MAX;
-    rc                    = fd_instr_checked_add(
+    rc                    = fd_ulong_checked_add(
         source_meta.rent_exempt_reserve, source_stake.delegation.stake, &source_lamports );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
@@ -1040,7 +1040,7 @@ get_stake_status( fd_exec_instr_ctx_t *          invoke_context,
                                          &stake_history,
                                          fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  return OK;
+  return FD_PROGRAM_OK;
 }
 
 static int
@@ -1937,7 +1937,7 @@ withdraw( fd_exec_instr_ctx_t *         invoke_context,
         stake->delegation.stake );
 
     ulong staked_and_reserve = ULONG_MAX;
-    rc = fd_instr_checked_add( staked, meta->rent_exempt_reserve, &staked_and_reserve );
+    rc = fd_ulong_checked_add( staked, meta->rent_exempt_reserve, &staked_and_reserve );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     lockup    = meta->lockup;
@@ -1998,7 +1998,7 @@ withdraw( fd_exec_instr_ctx_t *         invoke_context,
   };
 
   ulong lamports_and_reserve = ULONG_MAX;
-  rc                         = fd_instr_checked_add( lamports, reserve, &lamports_and_reserve );
+  rc                         = fd_ulong_checked_add( lamports, reserve, &lamports_and_reserve );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   if( FD_UNLIKELY( is_staked && lamports_and_reserve > stake_account->meta->info.lamports ) ) {

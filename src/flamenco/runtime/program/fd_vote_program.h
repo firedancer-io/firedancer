@@ -13,8 +13,6 @@ FD_PROTOTYPES_BEGIN
 /* Vote Program                                                       */
 /**********************************************************************/
 
-#define OK FD_EXECUTOR_INSTR_SUCCESS /* Corresponds to Result::Ok in Rust */
-
 /* Vote error codes */
 /* TODO: serialize these in the correct */
 #define FD_VOTE_ERROR_VOTE_TOO_OLD                  ( 0 )

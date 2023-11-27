@@ -16,7 +16,7 @@
 #define FD_DEBUG( ... )
 #endif
 
-#define FD_PROGRAM_OK 0
+#define FD_PROGRAM_OK FD_EXECUTOR_INSTR_SUCCESS
 
 FD_PROTOTYPES_BEGIN
 
@@ -26,16 +26,30 @@ FD_PROTOTYPES_BEGIN
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
 static inline int
-fd_instr_checked_add( ulong a, ulong b, ulong * out ) {
+fd_ulong_checked_add( ulong a, ulong b, ulong * out ) {
   bool cf = __builtin_uaddl_overflow( a, b, out );
   return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, FD_PROGRAM_OK );
 }
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
 static inline int FD_FN_UNUSED
-fd_instr_checked_sub( ulong a, ulong b, ulong * out ) {
+fd_ulong_checked_sub( ulong a, ulong b, ulong * out ) {
   bool cf = __builtin_usubl_overflow( a, b, out );
   return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, FD_PROGRAM_OK );
+}
+
+static inline ulong
+fd_ulong_checked_add_expect( ulong a, ulong b, char const * expect ) {
+  ulong out = ULONG_MAX;
+  if( FD_UNLIKELY( fd_ulong_checked_add( a, b, &out ) ) ) { FD_LOG_ERR( ( expect ) ); }
+  return out;
+}
+
+static inline ulong
+fd_ulong_checked_sub_expect( ulong a, ulong b, char const * expect ) {
+  ulong out = ULONG_MAX;
+  if( FD_UNLIKELY( fd_ulong_checked_sub( a, b, &out ) ) ) { FD_LOG_ERR( ( expect ) ); }
+  return out;
 }
 
 /**********************************************************************/
@@ -74,7 +88,7 @@ static FD_FN_UNUSED int
 fd_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t const * self,
                                         uchar                     index_in_transaction,
                                         /* out */ fd_pubkey_t *   pubkey ) {
-  if ( FD_UNLIKELY( index_in_transaction >= self->accounts_cnt ) ) {
+  if( FD_UNLIKELY( index_in_transaction >= self->accounts_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
   *pubkey = self->accounts[index_in_transaction];
@@ -85,13 +99,12 @@ fd_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t const * self,
 /* impl InstructionContext                                            */
 /**********************************************************************/
 
-
 static FD_FN_UNUSED int
 fd_instr_ctx_get_index_of_instruction_account_in_transaction(
     fd_instr_info_t const * self,
     uchar                   instruction_account_index,
     /* out */ uchar *       index_in_transaction ) {
-  if ( FD_UNLIKELY( instruction_account_index >= self->acct_cnt ) ) {
+  if( FD_UNLIKELY( instruction_account_index >= self->acct_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
   *index_in_transaction = self->acct_txn_idxs[instruction_account_index];
@@ -105,7 +118,7 @@ fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
                                  uchar                     index_in_instruction,
                                  fd_borrowed_account_t **  out ) {
   int rc;
-  if ( FD_UNLIKELY( index_in_transaction >= transaction_context->accounts_cnt ) ) {
+  if( FD_UNLIKELY( index_in_transaction >= transaction_context->accounts_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }
   // FIXME implement `const` versions for instructions that don't need write
@@ -115,7 +128,7 @@ fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
                                              1,
                                              0, // FIXME
                                              out );
-  switch ( rc ) {
+  switch( rc ) {
   case FD_ACC_MGR_SUCCESS:
     return FD_PROGRAM_OK;
   case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
@@ -137,14 +150,14 @@ fd_instr_ctx_try_borrow_instruction_account( fd_exec_instr_ctx_t *     self,
   uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
   rc                         = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
       self->instr, instruction_account_index, &index_in_transaction );
-  if ( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   rc = fd_instr_ctx_try_borrow_account( self,
                                         transaction_context,
                                         index_in_transaction,
                                         instruction_account_index, // FIXME add to program accounts?
                                         out );
-  if ( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   return FD_PROGRAM_OK;
 }
@@ -154,7 +167,7 @@ static FD_FN_UNUSED int
 fd_instr_ctx_is_instruction_account_signer( fd_instr_info_t const * self,
                                             uchar                   instruction_account_index,
                                             bool *                  out ) {
-  if ( FD_UNLIKELY( instruction_account_index >= self->acct_cnt ) ) {
+  if( FD_UNLIKELY( instruction_account_index >= self->acct_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   *out = fd_instr_acc_is_signer_idx( self, instruction_account_index );
@@ -168,8 +181,8 @@ fd_instr_ctx_get_signers( fd_instr_info_t const *   self,
                           fd_pubkey_t const *       signers[static FD_TXN_SIG_MAX] ) {
   // int   rc;
   uchar j = 0;
-  for ( uchar i = 0; i < self->acct_cnt && j < FD_TXN_SIG_MAX; i++ ) {
-    if ( FD_UNLIKELY( fd_instr_acc_is_signer_idx( self, i ) ) ) {
+  for( uchar i = 0; i < self->acct_cnt && j < FD_TXN_SIG_MAX; i++ ) {
+    if( FD_UNLIKELY( fd_instr_acc_is_signer_idx( self, i ) ) ) {
       signers[j++] = &transaction_context->accounts[self->acct_txn_idxs[i]];
       // FIXME
       // rc =
@@ -184,8 +197,8 @@ fd_instr_ctx_get_signers( fd_instr_info_t const *   self,
 static inline bool
 fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
                                fd_pubkey_t const * pubkey ) {
-  for ( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ ) {
-    if ( FD_UNLIKELY( 0 == memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) ) return true;
+  for( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ ) {
+    if( FD_UNLIKELY( 0 == memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) ) return true;
   }
   return false;
 }
@@ -202,13 +215,13 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
     uchar index_in_transaction = FD_TXN_ACCT_ADDR_MAX;                                                   \
     rc                         = fd_instr_ctx_get_index_of_instruction_account_in_transaction(           \
         instruction_context, instruction_account_index, &index_in_transaction ); \
-    if ( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;                                                 \
-    if ( FD_UNLIKELY( 0 != memcmp( &transaction_context->accounts[index_in_transaction],                 \
-                                   fd_sysvar_id.key,                                                     \
-                                   sizeof( fd_pubkey_t ) ) ) ) {                                         \
+    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;                                                  \
+    if( FD_UNLIKELY( 0 != memcmp( &transaction_context->accounts[index_in_transaction],                  \
+                                  fd_sysvar_id.key,                                                      \
+                                  sizeof( fd_pubkey_t ) ) ) ) {                                          \
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                                          \
     }                                                                                                    \
-  } while ( 0 )
+  } while( 0 )
 
 #define FD_SYSVAR_CHECKED_READ( invoke_context,                                                    \
                                 instruction_context,                                               \
@@ -220,10 +233,9 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
     FD_SYSVAR_CHECK_SYSVAR_ACCOUNT(                                                                \
         invoke_context->txn_ctx, instruction_context, instruction_account_index, fd_sysvar_id );   \
     int rc = fd_sysvar_read( invoke_context->slot_ctx, out );                                      \
-    if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) )                                                 \
-      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                             \
+    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR; \
     return FD_PROGRAM_OK;                                                                          \
-  } while ( 0 )
+  } while( 0 )
 
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
 static FD_FN_UNUSED int

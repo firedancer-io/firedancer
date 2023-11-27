@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_account_h
 
 #include "../../ballet/txn/fd_txn.h"
-#include "program/fd_vote_program.h"
+#include "program/fd_program_util.h"
 #include "fd_system_ids.h"
 #include "fd_runtime.h"
 
@@ -57,7 +57,7 @@ int fd_account_is_early_verification_of_account_modifications_enabled(FD_FN_UNUS
 
 static inline
 int fd_account_touch(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, FD_FN_UNUSED fd_account_meta_t const * acct, FD_FN_UNUSED fd_pubkey_t const * key, FD_FN_UNUSED int *err) {
-  return OK;
+  return FD_PROGRAM_OK;
 }
 
 static inline
@@ -216,7 +216,7 @@ int fd_account_set_owner(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct, fd_
     if (memcmp(acct->info.owner, fd_solana_system_program_id.key, sizeof(acct->info.owner)) != 0)
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     // shouldn't the touch and compare here be outside the if?
-    if (fd_account_touch(ctx, acct, key, &err) != OK)
+    if (fd_account_touch(ctx, acct, key, &err) != FD_PROGRAM_OK)
       return err;
   }
   memcpy(&acct->info.owner, pubkey, sizeof(fd_pubkey_t));

@@ -21,6 +21,8 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_upgradeable_loader_program.h"
 
+#include "../vm/fd_vm_context.h"
+
 #include "../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
@@ -171,20 +173,20 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx, fd_raw
 
 /* todo rent exempt check */
 static void
-fd_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t * slot_ctx,
+fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
                               void const *         addr ) {
 
   FD_BORROWED_ACCOUNT_DECL(rec);
 
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)addr, rec);
+  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)addr, rec);
   if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
     return;
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( slot_ctx, rec->const_meta->dlen ) ) return;
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( txn_ctx->slot_ctx, rec->const_meta->dlen ) ) return;
   if( rec->const_meta->info.rent_epoch == ULONG_MAX ) return;
 
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
+  err = fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
   rec->meta->info.rent_epoch = ULONG_MAX;
@@ -218,16 +220,22 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
     err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
     if ( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      err = FD_EXECUTOR_INSTR_SUCCESS;
+      continue;
     }
     ulong o_dlen = (NULL != o->meta) ? o->meta->dlen : (NULL != o->const_meta) ? o->const_meta->dlen : 0UL;
     total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, o_dlen);
   }
 
+  if (0 == txn_ctx->loaded_accounts_data_size_limit) {
+    txn_ctx->custom_err = 33;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
+
   if ( total_accounts_data_size > txn_ctx->loaded_accounts_data_size_limit ) {
     FD_LOG_WARNING(( "Total loaded accounts data size %lu has exceeded its set limit %lu", total_accounts_data_size, txn_ctx->loaded_accounts_data_size_limit ));
     return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_SIZE_EXCEEDED;
-  };
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -493,6 +501,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     .accounts_cnt       = 0,
     .executable_cnt     = 0,
     .return_data        = return_data,
+    .loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES
   };
 
   uint use_sysvar_instructions = 0;
@@ -545,7 +554,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     for( ulong i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
           i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
       if( i==0 ) continue;
-      fd_set_exempt_rent_epoch_max( slot_ctx, &tx_accs[i] );
+      fd_set_exempt_rent_epoch_max( &txn_ctx, &tx_accs[i] );
     }
   }
 
@@ -559,6 +568,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {
     int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );
     if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
+      FD_LOG_WARNING(( "fd_cap_transaction_accounts_data_size failed" ));
       fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
       txn_ctx.funk_txn = parent_txn;
       return -1;

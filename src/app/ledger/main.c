@@ -779,7 +779,9 @@ main( int     argc,
 
       slot_ctx->slot_bank.slot = 0UL;
 
-      FD_TEST( fd_runtime_save_slot_bank( slot_ctx )==FD_RUNTIME_EXECUTE_SUCCESS );
+      FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
+
+      FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
 
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);

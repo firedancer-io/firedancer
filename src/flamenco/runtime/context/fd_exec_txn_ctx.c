@@ -1,6 +1,7 @@
 #include "fd_exec_txn_ctx.h"
 
 #include "../fd_acc_mgr.h"
+#include "../../vm/fd_vm_context.h"
 
 int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
@@ -113,6 +114,8 @@ fd_exec_txn_ctx_new( void * mem ) {
   fd_memset(mem, 0, FD_EXEC_TXN_CTX_FOOTPRINT);
 
   fd_exec_txn_ctx_t * self = (fd_exec_txn_ctx_t *) mem;
+
+  self->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_TXN_CTX_MAGIC;

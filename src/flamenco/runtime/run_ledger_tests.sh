@@ -2,7 +2,7 @@
 
 # this assumes the test_runtime has already been built
 
-LEDGER="v17-multi"
+LEDGER="v175-test-ledger"
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
 
@@ -50,9 +50,9 @@ set -x
 "$OBJDIR"/bin/fd_frank_ledger \
   --reset true \
   --cmd ingest \
-  --snapshotfile dump/$LEDGER/snapshot-800-3vyLp4DbPnomGAqcxZcBfm58bbZh25EGrkTvF9PvoVc2.tar.zst \
   --rocksdb dump/$LEDGER/rocksdb \
-  --indexmax 10000 \
+  --genesis dump/$LEDGER/genesis.bin \
+  --indexmax 100000 \
   --txnmax 100 \
   --backup test_ledger_backup \
   --pages 1
