@@ -1,4 +1,3 @@
-#include "fd_tls_base.h"
 #include "fd_tls.h"
 #include "fd_tls_proto.h"
 #include "../../ballet/ed25519/fd_ed25519.h"

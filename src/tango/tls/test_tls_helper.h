@@ -2,6 +2,7 @@
 #define HEADER_fd_src_tango_tls_test_tls_helper_h
 
 #include "fd_tls.h"
+#include "fd_tls_proto.h"
 
 /* Common routines for fd_tls unit tests */
 
