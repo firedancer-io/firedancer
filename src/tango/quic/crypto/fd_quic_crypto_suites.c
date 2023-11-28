@@ -1040,14 +1040,14 @@ int gcm_encrypt(
 
   if( FD_UNLIKELY( 1 != EVP_EncryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return -1;
+    goto fail_free_ctx;
   }
 
   int len;
   /* The associated data ("AD" in AEAD). */
   if( FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return -1;
+    goto fail_free_ctx;
   }
 
   /* The encryption of plaintext ("E" in AEAD). */
@@ -1055,23 +1055,28 @@ int gcm_encrypt(
   if ( plaintext_len > 0 &&
        FD_UNLIKELY( 1 != EVP_EncryptUpdate( ctx, ciphertext, &len, plaintext, plaintext_len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptUpdate (plaintext) failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return -1;
+    goto fail_free_ctx;
   }
   ciphertext_len = len;
   if ( FD_UNLIKELY( 1 != EVP_EncryptFinal_ex( ctx, ciphertext + len, &len ) ) ) {
     FD_DEBUG( FD_LOG_ERR( ( "EVP_EncryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ); )
-    return -1;
+    goto fail_free_ctx;
   }
   ciphertext_len += len;
 
   /* The authentication tag ("A" in AEAD). */
   if( FD_UNLIKELY( 1 != EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, 16, tag ) ) ) {
     FD_DEBUG( FD_LOG_ERR(( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() )) );
-    return -1;
+    goto fail_free_ctx;
   }
 
   EVP_CIPHER_CTX_free( ctx );
   return ciphertext_len;
+
+  /* The function failed while EVP_CIPHER_CTX was live */
+fail_free_ctx:
+  EVP_CIPHER_CTX_free( ctx );
+  return -1;
 }
 
 int gcm_decrypt(
@@ -1094,33 +1099,38 @@ int gcm_decrypt(
 
   if( FD_UNLIKELY( !EVP_DecryptInit_ex( ctx, cipher, NULL, key, iv ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptInit_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return -1;
+    goto fail_free_ctx;
   }
 
   int len;
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, NULL, &len, aad, aad_len ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (AAD) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return -1;
+    goto fail_free_ctx;
   }
 
   if( FD_UNLIKELY( !EVP_DecryptUpdate( ctx, plaintext, &len, ciphertext, ciphertext_len ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptUpdate (ciphertext) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return -1;
+    goto fail_free_ctx;
   }
 
   int plaintext_len = len;
   if( FD_UNLIKELY( !EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, FD_QUIC_CRYPTO_TAG_SZ, tag ) ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_CIPHER_CTX_ctrl (get tag) failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return -1;
+    goto fail_free_ctx;
   }
 
   int rc = EVP_DecryptFinal_ex( ctx, plaintext + len, &len );
   if( FD_UNLIKELY( rc <= 0 ) ) {
     FD_DEBUG( FD_LOG_WARNING( ( "EVP_DecryptFinal_ex failed. Error: %s", fd_quic_openssl_strerror() ) ) );
-    return -1;
+    goto fail_free_ctx;
   }
   plaintext_len += len;
 
   EVP_CIPHER_CTX_free( ctx );
   return plaintext_len;
+
+  /* The function failed while EVP_CIPHER_CTX was live */
+fail_free_ctx:
+  EVP_CIPHER_CTX_free( ctx );
+  return -1;
 }
