@@ -65,7 +65,8 @@ struct fd_sbpf_elf_info {
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
-  uint entry_pc;  /* Program counter of entry point */
+  uint entry_pc;  /* Program counter of entry point
+                     NOTE: MIGHT BE OUT OF BOUNDS! */
 
   /* Bitmap of sections to be loaded (LSB => MSB) */
   ulong loaded_sections[ 1024UL ];
