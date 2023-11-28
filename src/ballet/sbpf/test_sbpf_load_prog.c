@@ -95,6 +95,8 @@ main( int     argc,
 
   int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls );
 
+  FD_LOG_HEXDUMP_NOTICE(( "Output rodata segment", prog->rodata, prog->rodata_sz ));
+
   /* Clean up */
 
   fd_sbpf_program_delete( prog );
