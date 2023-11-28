@@ -2,10 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
-
+#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_executor.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -44,19 +43,21 @@ int
 fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
 void
-fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * vote_acc, ulong timestamp );
+fd_vote_record_timestamp_vote( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_pubkey_t const *  vote_acc,
+                               ulong                timestamp );
 
 void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_pubkey_t const * vote_acc,
-                                         ulong               timestamp,
-                                         ulong               slot );
+                                         fd_pubkey_t const *  vote_acc,
+                                         ulong                timestamp,
+                                         ulong                slot );
 
 int
 fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx );
 
 int
-fd_vote_acc_credits( fd_exec_instr_ctx_t         ctx,
+fd_vote_acc_credits( fd_exec_instr_ctx_t       ctx,
                      fd_account_meta_t const * vote_acc_meta,
                      uchar const *             vote_acc_data,
                      ulong *                   result );
@@ -79,11 +80,23 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 
 int
 fd_vote_get_state( fd_borrowed_account_t const *            self,
-                   fd_exec_instr_ctx_t                        ctx,
+                   fd_exec_instr_ctx_t                      ctx,
                    /* return */ fd_vote_state_versioned_t * versioned );
 
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx );
+
+int
+fd_vote_decode_compact_update( fd_exec_instr_ctx_t              ctx,
+                               fd_compact_vote_state_update_t * compact_update,
+                               fd_vote_state_update_t *         vote_update );
+
+ulong
+fd_vote_transcoding_state_versioned_size( fd_vote_state_versioned_t const * self );
+
+int
+fd_vote_transcoding_state_versioned_encode( fd_vote_state_versioned_t const * self,
+                                            fd_bincode_encode_ctx_t *         ctx );
 
 FD_PROTOTYPES_END
 
