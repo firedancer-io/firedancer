@@ -417,18 +417,24 @@ fd_quic_gen_new_keys(
 
   if( FD_UNLIKELY( EVP_CipherInit_ex( pkt_cipher_ctx, suite->pkt_cipher, NULL, NULL, NULL, 1 /* encryption */ ) != 1 ) ) {
     FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CipherInit_ex failed" ));
-    return FD_QUIC_FAILED;
+    goto fail_free_ctx;
   }
 
   if( FD_UNLIKELY( EVP_CIPHER_CTX_ctrl( pkt_cipher_ctx, EVP_CTRL_AEAD_SET_IVLEN, FD_QUIC_NONCE_SZ, NULL ) != 1 ) ) {
     FD_LOG_WARNING(( "fd_quic_crypto_encrypt: EVP_CIPHER_CTX_ctrl failed" ));
-    return FD_QUIC_FAILED;
+    goto fail_free_ctx;
   }
 
   keys->pkt_cipher_ctx = pkt_cipher_ctx;
   keys->hp_cipher_ctx  = NULL;
 
   return FD_QUIC_SUCCESS;
+
+  /* The function failed while EVP_CIPHER_CTX was live */
+fail_free_ctx:
+  keys->pkt_cipher_ctx = NULL;
+  EVP_CIPHER_CTX_free( pkt_cipher_ctx );
+  return FD_QUIC_FAILED;
 }
 
 
