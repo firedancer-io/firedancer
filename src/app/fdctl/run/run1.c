@@ -127,10 +127,10 @@ tile_main( void * _args ) {
   ulong out_cnt_reliable = 0;
   ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &args->config->topo.tiles[ i ];
+    fd_topo_tile_t * consumer_tile = &args->config->topo.tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( tile->in_link_id[ j ] == tile->out_link_id_primary && tile->in_link_reliable[ j ] ) ) {
-        out_fseq[ out_cnt_reliable ] = tile->in_link_fseq[ j ];
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+        out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
         FD_TEST( out_fseq[ out_cnt_reliable ] );
         out_cnt_reliable++;
         /* Need to test this, since each link may connect to many outs,
