@@ -1,18 +1,20 @@
 /**
 
-   export RUST_LOG=solana_repair=TRACE
+   export RUST_LOG=solana_gossip=TRACE
    cargo run --bin solana-test-validator
 
  **/
 
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 
-#include "fd_repair.h"
+#include "../repair/fd_repair.h"
 #include "../fd_flamenco.h"
 #include "../../util/fd_util.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
+#include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/shred/fd_shred.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
@@ -29,10 +31,14 @@ volatile int stopflag = 0;
 static void stop(int sig) { (void)sig; stopflag = 1; }
 
 static int sockfd = -1;
+static fd_pubkey_t public_key;
+static uchar private_key[32];
+static fd_valloc_t my_valloc;
+static fd_gossip_peer_addr_t peer_addr;
 
 /* Convert my style of address to UNIX style */
 static int
-repair_to_sockaddr( uchar * dst, fd_repair_peer_addr_t const * src ) {
+gossip_to_sockaddr( uchar * dst, fd_gossip_peer_addr_t const * src ) {
   fd_memset(dst, 0, sizeof(struct sockaddr_in));
   struct sockaddr_in * t = (struct sockaddr_in *)dst;
   t->sin_family = AF_INET;
@@ -43,8 +49,8 @@ repair_to_sockaddr( uchar * dst, fd_repair_peer_addr_t const * src ) {
 
 /* Convert my style of address from UNIX style */
 static int
-repair_from_sockaddr( fd_repair_peer_addr_t * dst, uchar const * src ) {
-  FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
+gossip_from_sockaddr( fd_gossip_peer_addr_t * dst, uchar const * src ) {
+  FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   dst->l = 0;
   const struct sockaddr_in * sa = (const struct sockaddr_in *)src;
   dst->addr = sa->sin_addr.s_addr;
@@ -53,22 +59,20 @@ repair_from_sockaddr( fd_repair_peer_addr_t * dst, uchar const * src ) {
 }
 
 static void
-send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
-  FD_LOG_HEXDUMP_NOTICE(("send: ", data, sz));
-  (void)arg;
+send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr ) {
   uchar saddr[sizeof(struct sockaddr_in)];
-  int saddrlen = repair_to_sockaddr(saddr, addr);
+  int saddrlen = gossip_to_sockaddr(saddr, addr);
   if ( sendto(sockfd, data, sz, MSG_DONTWAIT,
               (const struct sockaddr *)saddr, (socklen_t)saddrlen) < 0 ) {
     FD_LOG_WARNING(("sendto failed: %s", strerror(errno)));
   }
 }
 
-/* Convert a host:port string to a repair network address. If host is
+/* Convert a host:port string to a gossip network address. If host is
  * missing, it assumes the local hostname. */
-static fd_repair_peer_addr_t *
-resolve_hostport(const char* str /* host:port */, fd_repair_peer_addr_t * res) {
-  fd_memset(res, 0, sizeof(fd_repair_peer_addr_t));
+static fd_gossip_peer_addr_t *
+resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
+  fd_memset(res, 0, sizeof(fd_gossip_peer_addr_t));
 
   /* Find the : and copy out the host */
   char buf[128];
@@ -93,7 +97,7 @@ resolve_hostport(const char* str /* host:port */, fd_repair_peer_addr_t * res) {
     FD_LOG_WARNING(("unable to resolve host %s", buf));
     return NULL;
   }
-  /* Convert result to repair address */
+  /* Convert result to gossip address */
   res->l = 0;
   res->addr = ((struct in_addr *)host->h_addr)->s_addr;
   int port = atoi(str + i + 1);
@@ -106,8 +110,58 @@ resolve_hostport(const char* str /* host:port */, fd_repair_peer_addr_t * res) {
   return res;
 }
 
+static void
+fd_repair_sign_and_send(fd_repair_protocol_t * protocol) {
+  fd_bincode_encode_ctx_t ctx;
+  uchar buf[1024];
+  ctx.data = buf;
+  ctx.dataend = buf + sizeof(buf);
+  FD_TEST(0 == fd_repair_protocol_encode(protocol, &ctx));
+
+  // https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874
+  ulong buflen = (ulong)((uchar*)ctx.data - buf);
+  fd_memcpy(buf + 64U, buf, 4U);
+  fd_sha512_t sha[1];
+  fd_signature_t sig;
+  fd_ed25519_sign( /* sig */ &sig,
+                   /* msg */ buf + 64U,
+                   /* sz  */ buflen - 64U,
+                   /* public_key  */ public_key.uc,
+                   /* private_key */ private_key,
+                   sha );
+  fd_memcpy(buf + 4U, &sig, 64U);
+  
+  send_packet(buf, buflen, &peer_addr);
+}
+
+static void test_send();
+
+static void
+fd_repair_recv_shred(uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+  (void)from;
+  ulong shredlen = msglen - sizeof(uint); /* Nonse is at the end */
+  fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
+  FD_TEST(shred != NULL);
+  FD_LOG_NOTICE(( "shred variant 0x%02x slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
+                  (uint)shred->variant, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
+                  fd_shred_merkle_sz(shred->variant), fd_shred_payload_sz(shred) ));
+}
+
+static void
+test_send() {
+  fd_repair_protocol_t protocol;
+  fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
+  fd_repair_window_index_t * wi = &protocol.inner.window_index;
+  fd_memcpy(wi->header.sender.uc, public_key.uc, 32U);
+  fd_base58_decode_32("95hduWHW6BDrnVWzB2ekF9vmiFxpz62F1HNtRAQ19S71", wi->header.recipient.uc);
+  wi->header.timestamp = (ulong)fd_log_wallclock()/1000000LU;
+  wi->slot = 41768;
+  wi->shred_index = 0;
+  fd_repair_sign_and_send(&protocol);
+}
+
 static int
-main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopflag ) {
+main_loop(fd_gossip_peer_addr_t const * my_addr, volatile int * stopflag ) {
   int fd;
   if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
     FD_LOG_ERR(("socket failed: %s", strerror(errno)));
@@ -124,33 +178,25 @@ main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopf
     return -1;
   }
   uchar saddr[sizeof(struct sockaddr_in6)];
-  int saddrlen = repair_to_sockaddr(saddr, &config->my_addr);
+  int saddrlen = gossip_to_sockaddr(saddr, my_addr);
   if (saddrlen < 0 || bind(fd, (struct sockaddr*)saddr, (uint)saddrlen) < 0) {
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
   
-  fd_repair_settime(glob, fd_log_wallclock());
-  fd_repair_start(glob);
-
-  fd_pubkey_t id;
-  fd_base58_decode_32("95hduWHW6BDrnVWzB2ekF9vmiFxpz62F1HNtRAQ19S71", id.uc);
-  fd_repair_peer_addr_t peeraddr;
-  if ( fd_repair_add_active_peer(glob, resolve_hostport("127.0.0.1:1032", &peeraddr), &id) )
-    return -1;
-
-  if ( fd_repair_need_shred(glob, 55550, 0) )
-    return -1;
-
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
   struct iovec iovecs[VLEN];
   uchar bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof(struct sockaddr_in6)]; /* sockaddr is smaller than sockaddr_in6 */
 
+  int need_test = 1;
+  
   while ( !*stopflag ) {
-    fd_repair_settime(glob, fd_log_wallclock());
-    fd_repair_continue(glob);
+    if (need_test) {
+      test_send();
+      need_test = 0;
+    }
     
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
@@ -174,10 +220,10 @@ main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopf
       continue;
 
     for (uint i = 0; i < (uint)retval; ++i) {
-      fd_repair_peer_addr_t from;
-      repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_gossip_peer_addr_t from;
+      gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], msgs[i].msg_len));
-      fd_repair_recv_packet(glob, bufs[i], msgs[i].msg_len, &from);
+      fd_repair_recv_packet(bufs[i], msgs[i].msg_len, &from);
     }
   }
 
@@ -185,56 +231,25 @@ main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopf
   return 0;
 }
 
-static void
-recv_shred(fd_shred_t const * shred, fd_gossip_peer_addr_t const * from, void * arg) {
-  (void)from;
-  (void)arg;
-  FD_LOG_NOTICE(( "shred variant 0x%02x slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
-                  (uint)shred->variant, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
-                  fd_shred_merkle_sz(shred->variant), fd_shred_payload_sz(shred) ));
-}
-
 int main(int argc, char **argv) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
+  my_valloc = fd_libc_alloc_virtual();
 
-  fd_repair_config_t config;
-  fd_memset(&config, 0, sizeof(config));
-
-  uchar private_key[32];
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
-
-  config.private_key = private_key;
-  config.public_key = &public_key;
-
-  char hostname[64];
-  gethostname(hostname, sizeof(hostname));
-
-  FD_TEST( resolve_hostport(":1125", &config.my_addr) );
-
-  config.deliver_fun = recv_shred;
-  config.send_fun = send_packet;
-
-  ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
-
-  void * shm = fd_valloc_malloc(valloc, fd_repair_align(), fd_repair_footprint());
-  fd_repair_t * glob = fd_repair_join(fd_repair_new(shm, seed, valloc));
-
-  if ( fd_repair_set_config(glob, &config) )
-    return 1;
 
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
-  if ( main_loop(glob, &config, &stopflag) )
+  fd_gossip_peer_addr_t my_addr;
+  resolve_hostport(":1185", &my_addr);
+  resolve_hostport("127.0.0.1:1032", &peer_addr);
+  
+  if ( main_loop(&my_addr, &stopflag) )
     return 1;
-
-  fd_valloc_free(valloc, fd_repair_delete(fd_repair_leave(glob), valloc));
 
   fd_halt();
 
