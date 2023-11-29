@@ -151,7 +151,7 @@ fd_histf_sample( fd_histf_t * hist,
   wv_st( hist->counts+ 8UL,  wv_sub( wv_ld( hist->counts+ 8UL ), wc_to_wv_raw( select2 ) ) );
   wv_st( hist->counts+12UL,  wv_sub( wv_ld( hist->counts+12UL ), wc_to_wv_raw( select3 ) ) );
 #else
-  for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]);
+  for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += (ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
 #endif
 }
 
