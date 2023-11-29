@@ -144,7 +144,6 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
   ulong const phoff = ehdr->e_phoff;
   ulong const phnum = ehdr->e_phnum;
   REQUIRE( ( fd_ulong_is_aligned( phoff, 8UL ) )
-         & ( (phnum==0) | (phoff>=sizeof(fd_elf64_ehdr)) )    /* overlaps file header */
          & ( phoff<=elf_sz ) ); /* out of bounds */
 
   REQUIRE( phnum<=(ULONG_MAX/sizeof(fd_elf64_phdr)) ); /* overflow */
@@ -152,7 +151,9 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
 
   ulong const phoff_end = phoff+phsz;
   REQUIRE( ( phoff_end>=phoff  )    /* overflow */
-         & ( phoff_end<=elf_sz ) ); /* out of bounds */
+         & ( phoff_end<=elf_sz )    /* out of bounds */
+         & ( (phoff_end==0UL)       /* overlaps file header */
+           | (phoff>=sizeof(fd_elf64_ehdr)) ) );
 
   /* Bounds check section header table */
 
@@ -878,7 +879,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
        This relocation type seems to make little sense but is required
        for most programs. */
 
-    REQUIRE( r_offset+16UL<=elf_sz );
+    REQUIRE( (r_offset+16UL>r_offset) & (r_offset+16UL<=elf_sz) );
     ulong imm_lo_off = r_offset+ 4UL;
     ulong imm_hi_off = r_offset+12UL;
 
@@ -901,7 +902,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
     /* Outside .text do a 64-bit write */
 
     /* Bounds checks */
-    REQUIRE( (r_offset+12UL>r_offset) & (r_offset+12UL<=elf_sz) );
+    REQUIRE( (r_offset+8UL>r_offset) & (r_offset+8UL<=elf_sz) );
 
     /* Skip if side effects not visible in VM */
     if( FD_UNLIKELY( r_offset > info->rodata_sz ) ) return 0;
