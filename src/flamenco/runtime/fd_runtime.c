@@ -924,7 +924,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong max_workers ) {
-  
+
   if (fake_root == NULL) {
     fd_funk_txn_xid_t xid;
 
@@ -1291,7 +1291,8 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t *   slot_ctx,
             .is_active(&solana_sdk::feature_set::set_exempt_rent_epoch_max::id()); */
     /* entry point here: https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L5972-L5982 */
     if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-      info->rent_epoch = ULONG_MAX;
+      // Why is this wrong?
+//      info->rent_epoch = ULONG_MAX;
       return 0;
     }
     return 1;
@@ -1825,6 +1826,10 @@ int fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
   epoch_bank->inflation = oldbank->inflation;
   epoch_bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   epoch_bank->rent = oldbank->rent_collector.rent;
+
+  if (NULL != manifest->epoch_accounts_hash)
+    fd_memcpy(&slot_bank->epoch_account_hash, manifest->epoch_accounts_hash, FD_SHA256_HASH_SZ);
+
   slot_bank->collected_rent = oldbank->collected_rent;
   slot_bank->collected_fees = oldbank->collector_fees;
   slot_bank->capitalization = oldbank->capitalization;
@@ -2049,6 +2054,8 @@ fd_process_new_epoch(
   // new.update_fees();
   fd_sysvar_fees_init( slot_ctx );
   // new.update_last_restart_slot()
+
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 }
 
 fd_borrowed_account_t *

@@ -85,6 +85,9 @@ fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx );
 void
 fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx );
 
+void
+fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_hashes_h */

@@ -13,6 +13,7 @@ $(call make-unit-test,test_hashes,test_hashes,fd_ballet fd_funk fd_util fd_flame
 
 run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/run_ledger_tests.sh
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/run_old_ledger.sh
 #	src/flamenco/runtime/run_bpf_tests.sh
 
 endif

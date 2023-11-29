@@ -167,42 +167,50 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
   // If the level at the `height' was rolled into, do something about it
 }
 
-// https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
 
-static int
-fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+void
+fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
   if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
-    return 0;
-
-  // This came from the vote program.. maybe we need to put it into a header?
-  const ulong MAX_LOCKOUT_HISTORY = 31UL;
-
-  const ulong CALCULATION_INTERVAL_BUFFER = 150UL;
-  const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
-
-  // The calculation buffer is a best-attempt at median worst-case for how many bank ancestors can
-  // accumulate before the bank is rooted.
-  // [brooks] On Wed Oct 26 12:15:21 2022, over the previous 6 hour period against mainnet-beta,
-  // I saw multiple validators reporting metrics in the 120s for `total_parent_banks`.  The mean
-  // is 2 to 3, but a number of nodes also reported values in the low 20s.  A value of 150 should
-  // capture the majority of validators, and will not be an issue for clusters running with
-  // normal slots-per-epoch; this really will only affect tests and epoch schedule warmup.
+    return;
 
   ulong slot_idx = 0;
   ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
 
   ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
-  ulong calculation_offset_start = slots_per_epoch / 4;
-  ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
-
   ulong first_slot_in_epoch           = fd_epoch_slot0   ( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
 
-  ulong calculation_stop = first_slot_in_epoch + calculation_offset_stop;
+  ulong calculation_offset_start = slots_per_epoch / 4;
+  ulong calculation_offset_stop = slots_per_epoch / 4 * 3;
   ulong calculation_interval = fd_ulong_sat_sub(calculation_offset_stop, calculation_offset_start);
 
-  if (calculation_interval < MINIMUM_CALCULATION_INTERVAL)
+  // This came from the vote program.. maybe we need to put it into a header?
+  const ulong MAX_LOCKOUT_HISTORY = 31UL;
+  const ulong CALCULATION_INTERVAL_BUFFER = 150UL;
+  const ulong MINIMUM_CALCULATION_INTERVAL = MAX_LOCKOUT_HISTORY + CALCULATION_INTERVAL_BUFFER;
+
+  if (calculation_interval < MINIMUM_CALCULATION_INTERVAL) {
+    slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+    slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = ULONG_MAX;
+    slot_ctx->epoch_ctx->epoch_bank.eah_interval = ULONG_MAX;
+    return;
+  }
+
+  slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = first_slot_in_epoch + calculation_offset_start;
+  if (slot_ctx->slot_bank.slot > slot_ctx->epoch_ctx->epoch_bank.eah_start_slot)
+    slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+  slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = first_slot_in_epoch + calculation_offset_stop;
+  if (slot_ctx->slot_bank.slot > slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot)
+    slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot = ULONG_MAX;
+  slot_ctx->epoch_ctx->epoch_bank.eah_interval = calculation_interval;
+}
+
+// https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
+static int
+fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
     return 0;
 
+  ulong calculation_stop = slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot;
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot_bank.slot >= calculation_stop);
 }
 
@@ -226,9 +234,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_ve
     fd_sha256_init( &sha );
     fd_sha256_append( &sha, (uchar const *) &hash->hash, sizeof( fd_hash_t ) );
 
-    fd_hash_t epoch_accounts_hash;
-    fd_accounts_hash(slot_ctx, &epoch_accounts_hash);
-    fd_sha256_append( &sha, (uchar const *) &epoch_accounts_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
 
     fd_sha256_fini( &sha, hash->hash );
   }
@@ -404,6 +410,11 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, hash, &dirty_keys );
+
+  if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
+    fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash);
+    slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+  }
 
   for (ulong i = 0; i < erase_recs.cnt; i++) {
     fd_funk_rec_t const * erase_rec = erase_recs.elems[i];

@@ -97,19 +97,3 @@ then
 fi
 
 rm $log
-
-# Running this twice, but whatever
-"$OBJDIR"/unit-test/test_native_programs >& native.log
-
-status=$?
-
-if [ $status -ne 0 ]
-then
-  echo 'native test failed'
-  grep "not_ignored" native.log | tail -20
-  exit $status
-fi
-
-grep "Progress" native.log
-
-echo 'simple tests passed'

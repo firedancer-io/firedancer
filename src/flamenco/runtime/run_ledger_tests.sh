@@ -2,7 +2,7 @@
 
 # this assumes the test_runtime has already been built
 
-LEDGER="v175-test-ledger"
+LEDGER="v1176-big"
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
 

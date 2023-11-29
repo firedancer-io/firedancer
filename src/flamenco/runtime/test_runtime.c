@@ -171,6 +171,8 @@ replay( global_state_t * state,
 
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
+  fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
+
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
   for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;

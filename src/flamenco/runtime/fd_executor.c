@@ -171,11 +171,9 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx, fd_raw
   }
 }
 
-/* todo rent exempt check */
-static void
+void
 fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
                               void const *         addr ) {
-
   FD_BORROWED_ACCOUNT_DECL(rec);
 
   int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)addr, rec);
@@ -183,8 +181,11 @@ fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
     return;
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
 
-  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance( txn_ctx->slot_ctx, rec->const_meta->dlen ) ) return;
-  if( rec->const_meta->info.rent_epoch == ULONG_MAX ) return;
+
+  if( rec->const_meta->info.lamports < fd_rent_exempt_minimum_balance2( &txn_ctx->slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) )
+    return;
+  if( rec->const_meta->info.rent_epoch == ULONG_MAX )
+    return;
 
   err = fd_acc_mgr_modify( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)addr, 0, 0, rec);
   FD_TEST( err==FD_ACC_MGR_SUCCESS );
@@ -281,9 +282,11 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
   }
   slot_ctx->slot_bank.collected_fees += fee;
 
-  /* todo rent exempt check */
-  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) )
-    rec->meta->info.rent_epoch = ULONG_MAX;
+  if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
+    if( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) )
+      rec->meta->info.rent_epoch = ULONG_MAX;
+  }
+
   return 0;
 }
 
