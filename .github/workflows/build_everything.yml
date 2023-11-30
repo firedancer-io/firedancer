@@ -1,9 +1,17 @@
 name: Build everything
 on:
-  workflow_call:
+  push:
+    branches:
+      - main
+      - next
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
-  build-frankendancer:
+  make-test:
     strategy:
       # Since this build is on main, it's not rushed for feedback. Avoid wasting runner minutes by limiting parallelism.
       max-parallel: 1

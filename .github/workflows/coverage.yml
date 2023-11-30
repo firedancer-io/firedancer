@@ -1,5 +1,3 @@
-# Runs every day regardless of new commits
-
 name: All Coverage
 on:
   schedule:
