@@ -186,7 +186,7 @@ fd_txntrace_capture_pre( fd_soltrace_TxnInput * input,
       FD_BORROWED_ACCOUNT_DECL(acc_rec);
       int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &id->id, acc_rec );
       if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-        if( FD_UNLIKELY( *fd_features_ptr_const( &slot_ctx->epoch_ctx->features, id ) <= slot_ctx->slot_bank.slot ) ) {
+        if( FD_UNLIKELY( fd_features_query( &slot_ctx->epoch_ctx->features, id ) <= slot_ctx->slot_bank.slot ) ) {
           FD_LOG_ERR(( "Feature %32J activated at slot %lu according to cache, "
                        "but corresponding feature account does not exist",
                        id->id.uc ));
