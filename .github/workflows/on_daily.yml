@@ -50,3 +50,6 @@ jobs:
           <meta http-equiv="cache-control" content="no-cache" /></head>
           <body>Redirecting to latest coverage... (${{ github.sha }})</body></html>' > ./build/index.html
           gcloud storage cp -r ./build/index.html ${{ vars.COVERAGE_BUCKET }}/
+
+      - name: Check fuzz canaries
+        run: ./contrib/find_uncovered_fuzz_canaries.py $(find ./build/ -name 'fuzz_*\.lcov' -type f)

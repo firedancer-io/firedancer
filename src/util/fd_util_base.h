@@ -179,6 +179,12 @@
 #define FD_HAS_GFNI 0
 #endif
 
+/* FD_HAS_FUZZ indicates that the build target is a fuzz target. */
+
+#ifndef FD_HAS_FUZZ
+#define FD_HAS_FUZZ 0
+#endif
+
 /* FD_HAS_ASAN indicates that the build target is using ASAN. */
 
 #ifndef FD_HAS_ASAN

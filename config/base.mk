@@ -31,6 +31,7 @@ RUST_PROFILE=debug
 
 # lcov
 GENHTML=genhtml
+# newer versions of genhtml will require '-ignore-errors unmapped'
 
 # FD_HAS_MAIN: Target supports linking objects with main function.
 # If set to 0, programs and unit tests will not be built. This is
