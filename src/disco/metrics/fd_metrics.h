@@ -106,6 +106,20 @@ extern FD_TL ulong * fd_metrics_tl;
 
 #define FD_MHIST_SUM( group, measurement ) (fd_metrics_tl[ MIDX(HISTOGRAM, group, measurement) + FD_HISTF_BUCKET_CNT ])
 
+#define FD_MCNT_ENUM_COPY( group, measurement, values ) do {                    \
+    ulong __fd_metrics_off = MIDX(COUNTER, group, measurement);                 \
+    for( ulong i=0; i<FD_METRICS_COUNTER_##group##_##measurement##_CNT; i++ ) { \
+      fd_metrics_tl[ __fd_metrics_off + i ] = values[ i ];                      \
+    }                                                                           \
+  } while(0)
+
+#define FD_MGAUGE_ENUM_COPY( group, measurement, values ) do {                \
+    ulong __fd_metrics_off = MIDX(GAUGE, group, measurement);                 \
+    for( ulong i=0; i<FD_METRICS_GAUGE_##group##_##measurement##_CNT; i++ ) { \
+      fd_metrics_tl[ __fd_metrics_off + i ] = values[ i ];                    \
+    }                                                                         \
+  } while(0)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_metrics_tile returns a pointer to the tile-specific metrics area

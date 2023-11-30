@@ -3,15 +3,29 @@ from collections import defaultdict
 import re
 import os
 
-# define metric object as python type
+class EnumValue:
+    def __init__(self, value, name, label):
+        self.value = value
+        self.name = name
+        self.label = label
+
+class Enum:
+    def __init__(self, name, values):
+        self.name = name
+        self.values = values
+
 class Metric:
-    def __init__(self, _type, link, linkside, group_id, group_name, tile, name, summary, min, max, converter):
+    def __init__(self, _type, link, linkside, group_id, group_name, enum, enum_idx, enum_cnt, tile, shortname, name, summary, min, max, converter):
         self.type = _type
         self.link = link
         self.linkside = linkside
-        self.group_name = group_name.upper()
+        self.group_name = re.sub(r'(?<!^)(?=[A-Z])', '_', group_name).upper()
         self.group_id = group_id
+        self.enum = enum
+        self.enum_idx = enum_idx
+        self.enum_cnt = enum_cnt
         self.tile = tile
+        self.shortname = re.sub(r'(?<!^)(?=[A-Z])', '_', shortname).upper()
         self.name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).upper()
         self.summary = ' '.join([line.strip() for line in summary.split('\n')]).strip()
         self.min = min
@@ -47,8 +61,15 @@ class Metric:
 
 def parse_metrics(xml_data):
     root = ET.fromstring(xml_data)
+    enums = {}
     metrics = []
     group_id = 0
+    for enum_element in root.findall('enum'):
+        values = []
+        name = enum_element.attrib['name']
+        for value in enum_element.findall('int'):
+            values.append(EnumValue(value=int(value.attrib['value']), name=value.attrib['name'], label=value.attrib['label']))
+        enums[name] = Enum(name=name, values=values)
     for group_element in root.findall('group'):
         group_id += 1
         for metric_element in group_element:
@@ -59,18 +80,44 @@ def parse_metrics(xml_data):
             else:
                 minval = str(int(metric_element.attrib['min']) if 'min' in metric_element.attrib else 0) + "UL"
                 maxval = str(int(metric_element.attrib['max']) if 'max' in metric_element.attrib else 0) + "UL"
-            metrics.append(Metric(_type=metric_element.tag,
-                                  link='link' in group_element.attrib,
-                                  linkside=group_element.attrib['linkside'] if 'linkside' in group_element.attrib else None,
-                                  group_id=group_id,
-                                  group_name=group_element.attrib['name'],
-                                  tile=group_element.attrib['tile'] if 'link' not in group_element.attrib else 'all',
-                                  name=metric_element.attrib['name'],
-                                  summary=metric_element.find('summary').text if metric_element.find('summary') is not None else metric_element.attrib['summary'],
-                                  min=minval,
-                                  max=maxval,
-                                  converter=converter))
-    return metrics
+
+            enum=metric_element.attrib['enum'] if 'enum' in metric_element.attrib else None
+            if enum:
+                enum = enums[enum]
+                for (i, value) in enumerate(enum.values):
+                    summary = metric_element.find('summary').text if metric_element.find('summary') is not None else metric_element.attrib['summary']
+                    metrics.append(Metric(_type=metric_element.tag,
+                                        link='link' in group_element.attrib,
+                                        linkside=group_element.attrib['linkside'] if 'linkside' in group_element.attrib else None,
+                                        group_id=group_id,
+                                        group_name=group_element.attrib['name'],
+                                        enum=enum,
+                                        enum_idx=i,
+                                        enum_cnt=len(enum.values),
+                                        tile=group_element.attrib['tile'] if 'link' not in group_element.attrib else 'all',
+                                        shortname=metric_element.attrib["name"],
+                                        name=f'{metric_element.attrib["name"]}{value.name}',
+                                        summary=f'{summary} ({value.label})',
+                                        min=minval,
+                                        max=maxval,
+                                        converter=converter))
+            else:
+                metrics.append(Metric(_type=metric_element.tag,
+                                    link='link' in group_element.attrib,
+                                    linkside=group_element.attrib['linkside'] if 'linkside' in group_element.attrib else None,
+                                    group_id=group_id,
+                                    group_name=group_element.attrib['name'],
+                                    enum=None,
+                                    enum_idx=0,
+                                    enum_cnt=0,
+                                    tile=group_element.attrib['tile'] if 'link' not in group_element.attrib else 'all',
+                                    shortname="",
+                                    name=metric_element.attrib['name'],
+                                    summary=metric_element.find('summary').text if metric_element.find('summary') is not None else metric_element.attrib['summary'],
+                                    min=minval,
+                                    max=maxval,
+                                    converter=converter))
+    return (enums, metrics)
 
 
 OFFSETS = {
@@ -84,7 +131,7 @@ if __name__ == '__main__':
     with open('metrics.xml', 'r') as f:
         xml_data = f.read()
 
-    metrics = parse_metrics(xml_data)
+    (enums, metrics) = parse_metrics(xml_data)
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
     max_offset = 0
@@ -117,6 +164,10 @@ if __name__ == '__main__':
                         f.write('/* Start of LINK IN metrics */\n\n')
                     elif metric.linkside == 'out':
                         f.write('/* Start of LINK OUT metrics */\n\n')
+
+                if metric.enum and metric.enum_idx == 0:
+                    f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.group_name}_{metric.shortname}_OFF  ({offset}UL)\n')
+                    f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.group_name}_{metric.shortname}_CNT  ({metric.enum_cnt}UL)\n\n')
 
                 f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_OFF  ({offset}UL)\n')
                 f.write(f'#define FD_METRICS_{metric.type.upper()}_{metric.full_name()}_NAME "{metric.full_name().lower()}"\n')
