@@ -134,12 +134,12 @@ main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopf
   fd_repair_start(glob);
 
   fd_pubkey_t id;
-  fd_base58_decode_32("95hduWHW6BDrnVWzB2ekF9vmiFxpz62F1HNtRAQ19S71", id.uc);
+  fd_base58_decode_32("75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ", id.uc);
   fd_repair_peer_addr_t peeraddr;
   if ( fd_repair_add_active_peer(glob, resolve_hostport("127.0.0.1:1032", &peeraddr), &id) )
     return -1;
 
-  if ( fd_repair_need_shred(glob, 55550, 0) )
+  if ( fd_repair_need_window_index(glob, 676, 0) )
     return -1;
 
 #define VLEN 32U

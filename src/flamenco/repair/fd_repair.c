@@ -68,36 +68,38 @@ fd_active_new_value(fd_active_elem_t * val) {
   fd_memset(val->id.uc, 0, 32U);
 }
 
-struct fd_repair_shred_key {
-  ulong slot;
-  uint shred_index;
+typedef uint fd_repair_nonce_t;
+
+int fd_repair_nonce_eq( const fd_repair_nonce_t * key1, const fd_repair_nonce_t * key2 ) {
+  return *key1 == *key2;
+}
+
+ulong fd_repair_nonce_hash( const fd_repair_nonce_t * key, ulong seed ) {
+  return (*key + seed + 7242237688154252699UL)*9540121337UL;
+}
+
+void fd_repair_nonce_copy( fd_repair_nonce_t * keyd, const fd_repair_nonce_t * keys ) {
+  *keyd = *keys;
+}
+
+enum fd_needed_elem_type {
+  fd_needed_window_index, fd_needed_highest_window_index, fd_needed_orphan
 };
-typedef struct fd_repair_shred_key fd_repair_shred_key_t;
-
-int fd_repair_shred_key_eq( const fd_repair_shred_key_t * key1, const fd_repair_shred_key_t * key2 ) {
-  return (key1->slot == key2->slot) & (key1->shred_index == key2->shred_index);;
-}
-
-ulong fd_repair_shred_key_hash( const fd_repair_shred_key_t * key, ulong seed ) {
-  return (key->slot + key->shred_index*137U + seed + 7242237688154252699UL)*9540121337UL;
-}
-
-void fd_repair_shred_key_copy( fd_repair_shred_key_t * keyd, const fd_repair_shred_key_t * keys ) {
-  keyd->slot = keys->slot;
-  keyd->shred_index = keys->shred_index;
-}
 
 struct fd_needed_elem {
-  fd_repair_shred_key_t key;
+  fd_repair_nonce_t key;
   ulong next;
+  enum fd_needed_elem_type type;
+  ulong slot;
+  uint shred_index;
   long when;
 };
 typedef struct fd_needed_elem fd_needed_elem_t;
 #define MAP_NAME     fd_needed_table
-#define MAP_KEY_T    fd_repair_shred_key_t
-#define MAP_KEY_EQ   fd_repair_shred_key_eq
-#define MAP_KEY_HASH fd_repair_shred_key_hash
-#define MAP_KEY_COPY fd_repair_shred_key_copy
+#define MAP_KEY_T    fd_repair_nonce_t
+#define MAP_KEY_EQ   fd_repair_nonce_eq
+#define MAP_KEY_HASH fd_repair_nonce_hash
+#define MAP_KEY_COPY fd_repair_nonce_copy
 #define MAP_T        fd_needed_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
@@ -142,6 +144,8 @@ struct fd_repair {
     fd_active_elem_t * actives;
     /* Table of needed shreds */
     fd_needed_elem_t * needed;
+    fd_repair_nonce_t oldest_nonce;
+    fd_repair_nonce_t next_nonce;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -169,6 +173,7 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX));
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
+  glob->oldest_nonce = glob->next_nonce = 0;
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
   glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
   shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
@@ -296,29 +301,63 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
     return;
   fd_active_elem_t * active = fd_active_table_iter_ele( glob->actives, aiter );
 
-  ulong j = 0;
+  /* Garbage collect old requests */
   long expire = glob->now - (long)10e9; /* 10 seconds */
-  for( fd_needed_table_iter_t iter = fd_needed_table_iter_init( glob->needed );
-       !fd_needed_table_iter_done( glob->needed, iter );
-       iter = fd_needed_table_iter_next( glob->needed, iter ) ) {
-    fd_needed_elem_t * ele = fd_needed_table_iter_ele( glob->needed, iter );
-    
-    if (ele->when < expire) {
-      fd_needed_table_remove( glob->needed, &ele->key );
+  fd_repair_nonce_t n;
+  for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
+    fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
+    if ( NULL == ele )
       continue;
-    }
-    
+    if (ele->when > expire)
+      break;
+    fd_needed_table_remove( glob->needed, &n );
+  }
+  glob->oldest_nonce = n;
+
+  /* Send requests */
+  ulong j = 0;
+  for ( ; n != glob->next_nonce; ++n ) {
+    fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
+    if ( NULL == ele )
+      continue;
     if (++j == 500U)
       break;
 
     fd_repair_protocol_t protocol;
-    fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
-    fd_repair_window_index_t * wi = &protocol.inner.window_index;
-    fd_hash_copy(&wi->header.sender, glob->public_key);
-    fd_hash_copy(&wi->header.recipient, &active->id);
-    wi->header.timestamp = (ulong)glob->now/1000000LU;
-    wi->slot = ele->key.slot;
-    wi->shred_index = ele->key.shred_index;
+    switch (ele->type) {
+    case fd_needed_window_index: {
+      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
+      fd_repair_window_index_t * wi = &protocol.inner.window_index;
+      fd_hash_copy(&wi->header.sender, glob->public_key);
+      fd_hash_copy(&wi->header.recipient, &active->id);
+      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->slot = ele->slot;
+      wi->shred_index = ele->shred_index;
+      break;
+    }
+
+    case fd_needed_highest_window_index: {
+      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
+      fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
+      fd_hash_copy(&wi->header.sender, glob->public_key);
+      fd_hash_copy(&wi->header.recipient, &active->id);
+      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->slot = ele->slot;
+      wi->shred_index = ele->shred_index;
+      break;
+    }
+
+    case fd_needed_orphan: {
+      fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
+      fd_repair_orphan_t * wi = &protocol.inner.orphan;
+      fd_hash_copy(&wi->header.sender, glob->public_key);
+      fd_hash_copy(&wi->header.recipient, &active->id);
+      wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->slot = ele->slot;
+      break;
+    }
+    }
+    
     fd_repair_sign_and_send(glob, &protocol, &active->key);
 }
 }
@@ -412,21 +451,62 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
     fd_repair_response_destroy(&gmsg, &ctx2);
     return 0;
   }
+
+  /* Look at the nonse */
+  if ( msglen < sizeof(fd_repair_nonce_t) )
+    return 0;
+  ulong shredlen = msglen - sizeof(fd_repair_nonce_t); /* Nonse is at the end */
+  fd_repair_nonce_t key = *(fd_repair_nonce_t const *)(msg + shredlen);
+  fd_needed_elem_t * val = fd_needed_table_query(glob->needed, &key, NULL);
+  if ( NULL == val )
+    return 0;
+  fd_needed_table_remove(glob->needed, &key);
+  if ( key == glob->oldest_nonce )
+    glob->oldest_nonce = key + 1U;
   
-  ulong shredlen = msglen - sizeof(uint); /* Nonse is at the end */
   fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
   if (shred == NULL)
     FD_LOG_WARNING(("invalid shread"));
   else
     (*glob->deliver_fun)(shred, from, glob->fun_arg);
+  return 0;
 }
 
 int
-fd_repair_need_shred( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  fd_repair_shred_key_t key;
-  key.slot = slot;
-  key.shred_index = shred_index;
+fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+  if (fd_needed_table_is_full(glob->needed))
+    return -1;
+  fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  val->type = fd_needed_window_index;
+  val->slot = slot;
+  val->shred_index = shred_index;
+  val->when = glob->now;
+  return 0;
+}
+
+int
+fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+  if (fd_needed_table_is_full(glob->needed))
+    return -1;
+  fd_repair_nonce_t key = glob->next_nonce++;
+  fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  val->type = fd_needed_highest_window_index;
+  val->slot = slot;
+  val->shred_index = shred_index;
+  val->when = glob->now;
+  return 0;
+}
+
+int
+fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
+  if (fd_needed_table_is_full(glob->needed))
+    return -1;
+  fd_repair_nonce_t key = glob->next_nonce++;
+  fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  val->type = fd_needed_orphan;
+  val->slot = slot;
+  val->shred_index = 0; /* unused */
   val->when = glob->now;
   return 0;
 }

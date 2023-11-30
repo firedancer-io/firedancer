@@ -56,6 +56,10 @@ int fd_repair_continue( fd_repair_t * glob );
 int fd_repair_recv_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
 
 /* Register a request for a shred */
-int fd_repair_need_shred( fd_repair_t * glob, ulong slot, uint shred_index );
+int fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
+
+int fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
+
+int fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */
