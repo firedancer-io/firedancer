@@ -261,10 +261,16 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
 
     if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
-      ulong * metrics = SCRATCH_ALLOC( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT() );
+      ulong out_reliable_consumer_cnt = 0UL;
+      if( FD_LIKELY( tile->out_link_id_primary!=ULONG_MAX ) ) {
+        fd_topo_link_t * link = &topo->links[ tile->out_link_id_primary ];
+        out_reliable_consumer_cnt = fd_topo_link_reliable_consumer_cnt( topo, link );
+      }
+
+      ulong * metrics = SCRATCH_ALLOC( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT(tile->in_cnt, out_reliable_consumer_cnt) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
         snprintf1( path, sizeof(path), "metrics_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
-        INSERT_POD( path, fd_metrics_new( metrics ) );
+        INSERT_POD( path, fd_metrics_new( metrics, tile->in_cnt, out_reliable_consumer_cnt ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         tile->metrics = fd_metrics_join( metrics );
         if( FD_UNLIKELY( !tile->metrics ) ) FD_LOG_ERR(( "fd_metrics_join failed" ));

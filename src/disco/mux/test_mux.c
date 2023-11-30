@@ -11,6 +11,17 @@ FD_STATIC_ASSERT( FD_MUX_TILE_OUT_MAX==8192UL, unit_test );
 
 FD_STATIC_ASSERT( FD_MUX_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
+#define FD_CNC_DIAG_IN_BACKP   (0UL)
+#define FD_CNC_DIAG_BACKP_CNT  (1UL)
+
+#define FD_FSEQ_DIAG_PUB_CNT   (0UL)
+#define FD_FSEQ_DIAG_PUB_SZ    (1UL)
+#define FD_FSEQ_DIAG_FILT_CNT  (2UL)
+#define FD_FSEQ_DIAG_FILT_SZ   (3UL)
+#define FD_FSEQ_DIAG_OVRNP_CNT (4UL)
+#define FD_FSEQ_DIAG_OVRNR_CNT (5UL)
+#define FD_FSEQ_DIAG_SLOW_CNT  (6UL)
+
 struct test_cfg {
   fd_wksp_t * wksp;
 
