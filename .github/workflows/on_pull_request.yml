@@ -13,8 +13,8 @@ jobs:
 
   build-frankandancer:
     name: Build Frankendancer
-    uses: ./.github/workflows/_build_frankendancer.yml
+    uses: ./.github/workflows/build_everything.yml
 
   whitespace-check:
     name: Check for Whitespaces
-    uses: ./.github/workflows/_trailing_whitespace.yml
+    uses: ./.github/workflows/trailing_whitespace.yml

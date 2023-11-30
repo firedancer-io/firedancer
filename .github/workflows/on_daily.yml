@@ -1,6 +1,6 @@
-# Runs every day regardless of new commits
+# This workflow runs every day regardless of new commits
 
-name: All Coverage
+name: On Daily
 on:
   schedule:
     - cron: '0 0 * * *'
