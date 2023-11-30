@@ -10,6 +10,21 @@ metric introduced.
 
 <metrics>
 
+<enum name="TpuReasm">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="ErrorOversize" label="Oversize message" />
+    <int value="2" name="ErrorSkip" label="Out-of-order data within QUIC stream" />
+    <int value="3" name="ErrorTransaction" label="Rejected transaction" />
+    <int value="4" name="ErrorState" label="Unexpected slot state" />
+</enum>
+
+<enum name="QuicStreamType">
+    <int value="0" name="BidiClient" label="Bidirectional client" />
+    <int value="1" name="BidiServer" label="Bidirectional server" />
+    <int value="2" name="UniClient" label="Unidirectional client" />
+    <int value="3" name="UniServer" label="Unidirectional server" />
+</enum>
+
 <group name="Link" link="all" linkside="out">
     <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
 </group>
@@ -78,9 +93,44 @@ metric introduced.
     </histogram>
 </group>
 
+<group name="QuicTile" tile="quic">
+    <counter name="NonQuicReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a non-QUIC UDP transaction." />
+    <counter name="NonQuicReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a non-QUIC UDP transaction." />
+    <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
+    <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
+
+    <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
+
+    <counter name="CryptoMallocFailure" summary="Number of tiles crypto_malloc failed to allocate bytes for OpenSSL." />
+
+    <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
+
+    <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
+    <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
+</group>
+
 <group name="Quic" tile="quic">
-    <gauge name="ConnectionsActiveCount" summary="The number of active QUIC connections." />
-    <counter name="ConnectionsTotalCount" summary="The total number of connections that have been opened." />
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
+    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
+    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
+    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
+    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
+    <counter name="ConnectionErrorTlsFail" summary="Number of connections that aborted due to TLS failure." />
+    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
+    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
+
+    <counter name="StreamOpened" enum="QuicStreamType" summary="Number of streams opened." />
+    <counter name="StreamClosed" enum="QuicStreamType" summary="Number of streams closed." />
+    <gauge name="StreamActive" enum="QuicStreamType" summary="Number of active streams." />
+
+    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
+    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
 </group>
 
 </metrics>
