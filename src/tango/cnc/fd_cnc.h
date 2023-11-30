@@ -116,30 +116,6 @@
 #define FD_CNC_ERR_AGAIN (-3) /* potentially transient failure */
 #define FD_CNC_ERR_FAIL  (-4) /* permanent failure */
 
-/* FD_CNC_DIAG_* specify standard locations in a producers cnc's
-   application region that can be used across a wide variety
-   communicating producers and consumers for accumulating flow control
-   diagnostics in a standard remote monitoring friendly way.  This will
-   be on the first cache line of the application region, require the cnc
-   application region size to be at least 16 bytes and reserve the first
-   16 bytes for these.  Treating the application region as an array of
-   ulongs:
-
-     IN_BACKP is 1 if the producer is currently waiting for one or more
-     consumers to catch up enough enough to resume publishing.
-
-     BACKP_CNT is the number of times the producer had to wait for one
-     or more consumers to catch up to resume publishing.
-
-   If the application wants to accumulate other counters in the cnc app
-   region (and, practically, because of alignment constraints, there is
-   always an implied app region of size 64 bytes currently), it is
-   recommended that the counters 2:7 be either rarely updated or
-   producer updated. */
-
-#define FD_CNC_DIAG_IN_BACKP  (0UL) /* updated by the producer, ideally never */
-#define FD_CNC_DIAG_BACKP_CNT (1UL) /* updated by the producer, ideally never */
-
 /* fd_cnc_t is an opaque handle of a command-and-control object.
    Details are exposed here to facilitate inlining of many cnc
    operations in performance critical app thread paths. */

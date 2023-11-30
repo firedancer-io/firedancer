@@ -234,6 +234,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
+  ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
 
@@ -554,6 +556,7 @@ topo_initialize( config_t * config ) {
   TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
 
   topo->tile_cnt = tile_cnt;
 
@@ -981,6 +984,9 @@ config_parse( int *      pargc,
         tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        break;
+      case FD_TOPO_TILE_KIND_METRIC:
+        tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

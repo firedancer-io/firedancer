@@ -188,6 +188,9 @@ typedef struct {
       ushort shred_listen_port;
     } shred;
 
+    struct {
+      ushort prometheus_listen_port;
+    } metric;
   } tiles;
 } config_t;
 

@@ -24,44 +24,6 @@
 #define FD_FSEQ_APP_ALIGN     (32UL)
 #define FD_FSEQ_APP_FOOTPRINT (96UL)
 
-/* FD_FSEQ_DIAG_* specify standard locations in the fseq's application
-   region that can be used across a wide variety communicating producers
-   and consumers for accumulating flow control diagnostics in a standard
-   remote monitoring friendly way.  Treating the application region as
-   an array of ulongs:
-
-     PUB_CNT   is the number of received fragments processed/forwarded by the consumer
-     PUB_SZ    is the number of received fragment payload bytes processed/forward by the consumer
-     FILT_CNT  is the number of received fragments skipped/ignored/filtered by the consumer
-     FILT_SZ   is the number of received fragment payload bytes skipped/ignored/filtered by the consumer
-     OVRNP_CNT is the number of input overruns detected while polling for metadata by the consumer
-     OVRNR_CNT is the number of input overruns detected while reading metadata by the consumer
-     SLOW_CNT  is the number of times the consumer was detected as rate limiting consumer by the producer
-
-   It is worth noting that, given properly configured flow control:
-
-     OVRNP_CNT==OVRNR_CNT==0
-     PUB_CNT+FILT_CNT==RX_CNT==TX_CNT
-     PUB_SZ +FILT_SZ ==RX_SZ ==TX_SZ
-
-   so there isn't much utility adding additional counters for RX_CNT,
-   RX_SZ, TX_CNT and/or TX_SZ as these can be strictly derived from the
-   counters that are already there under normal operating conditions and
-   abnormal operating conditions can be detected.
-
-   Note that application that use these counters, counters 7:11 remain
-   available for application specific usage.  To avoid cache line ping
-   pong, it recommend that any use of these be for rare events and/or
-   for events counted by the producer. */
-
-#define FD_FSEQ_DIAG_PUB_CNT   (0UL) /* On the 1st fseq cache line, updated by the consumer frequently */
-#define FD_FSEQ_DIAG_PUB_SZ    (1UL) /* " */
-#define FD_FSEQ_DIAG_FILT_CNT  (2UL) /* " */
-#define FD_FSEQ_DIAG_FILT_SZ   (3UL) /* " */
-#define FD_FSEQ_DIAG_OVRNP_CNT (4UL) /* On the 2nd fseq cache line, updated by the consumer, ideally never */
-#define FD_FSEQ_DIAG_OVRNR_CNT (5UL) /* " */
-#define FD_FSEQ_DIAG_SLOW_CNT  (6UL) /* ", updated by the producer, rarely */
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_fseq_{align,footprint} return the required alignment and footprint

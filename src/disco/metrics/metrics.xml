@@ -10,47 +10,77 @@ metric introduced.
 
 <metrics>
 
+<group name="Link" link="all" linkside="out">
+    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
+</group>
+
+<group name="Link" link="all" linkside="in">
+    <counter name="PublishedCount" summary="The number of times the link has consumed and published a fragment." />
+    <counter name="PublishedSizeBytes" summary="The total number of bytes read by the link consumer." />
+    <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
+    <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
+    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
+    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
+</group>
+
 <group name="Tile" tile="all">
-    <gauge name="Pid" units="pid" summary="The process ID of the tile." />
+    <gauge name="Pid" summary="The process ID of the tile." />
 </group>
 
 <group name="Stem" tile="all">
-    <gauge name="InBackpressure" units="bool" summary="Whether the tile is currently backpressured or not." />
-    <counter name="Backpressure" units="count" summary="Number of times the times the tile has transitioned from not backpressured to backpressured." />
+    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
+    <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
 
-    <histogram name="LoopDuration{StemLoopType}" units="seconds">
+    <!-- The "ticks" converter means that the measurement is sampled in
+         ticks (so it can be done quickly) but reported to the metrics
+         observer as seconds.  The min and max are in terms of seconds,
+         not ticks, from 50 nanoseconds to 50 microseconds. -->
+    <histogram name="LoopHousekeepingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
         <summary>
-            The time it took to turn one core loop of the tile. The loop types
-            are mutually exclusive and exhaustive, so the sum of time across all
-            of them should give the total running time of the total, less some
-            measurement error.
+            Duration of one iteration of the run loop which did
+            housekeeping. The various loop durations are mutually
+            exclusive and exhaustive, so the sum of time across all of
+            them is roughly the total running time of the tile. Loop
+            durations are per iteration of the run loop and
+            non-blocking, so for example each 'caught up' sample does
+            not represent the time we waited for new input data, but
+            rather how long each iteration of the spin loop waiting for
+            the data took.
         </summary>
-        <variants name="StemLoopType">
-            <variant name="Housekeeping" />
-            <variant name="Backpressure" />
-            <variant name="CaughtUp" />
-            <variant name="OverrunPolling" />
-            <variant name="OverrunReading" />
-            <variant name="FilterBeforeFragment" />
-            <variant name="FilterAfterFragment" />
-            <variant name="Finish" />
-        </variants>
+    </histogram>
+    <histogram name="LoopBackpressureDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were backpressured by a consumer.</summary>
+    </histogram>
+    <histogram name="LoopCaughtUpDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because there was no new data to process.</summary>
+    </histogram>
+    <histogram name="LoopOverrunPollingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were overrun while polling.</summary>
+    </histogram>
+    <histogram name="LoopOverrunReadingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were overrun while reading.</summary>
+    </histogram>
+    <histogram name="LoopFilterBeforeFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment before reading it.</summary>
+    </histogram>
+    <histogram name="LoopFilterAfterFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment after reading it.</summary>
+    </histogram>
+    <histogram name="LoopFinishDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which received, did not filter, and processed the fragment.</summary>
     </histogram>
 
-    <histogram name="FragmentSize{StemHandledType}" units="bytes">
-        <summary>
-            The size of the fragments that are being processed by the tile.
-        </summary>
-        <variants name="StemHandledType">
-            <variant name="Filtered" />
-            <variant name="Handled" />
-        </variants>
+    <histogram name="FragmentFilteredSizeBytes" min="0" max="2094">
+        <summary>Size of each fragment that was filtered and not processed by the tile.</summary>
+    </histogram>
+    <histogram name="FragmentHandledSizeBytes" min="0" max="2094">
+        <summary>Size of each fragment that was processed (not filtered) by the tile.</summary>
     </histogram>
 </group>
 
 <group name="Quic" tile="quic">
-    <gauge name="ActiveConnections" units="connections" summary="The number of active QUIC connections." />
-    <counter name="TotalConnections" units="connections" summary="The total number of connections that have been opened." />
+    <gauge name="ConnectionsActiveCount" summary="The number of active QUIC connections." />
+    <counter name="ConnectionsTotalCount" summary="The total number of connections that have been opened." />
 </group>
 
 </metrics>

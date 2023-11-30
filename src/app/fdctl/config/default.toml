@@ -477,7 +477,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-15"
+    affinity = "0-16"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -696,6 +696,7 @@ dynamic_port_range = "8900-9000"
         # the client nor the server has sent any packet to the other for
         # a period of time.  Once this timeout is reached the connection
         # will be terminated.
+        #
         # An idle connection will be terminated if it remains idle longer than
         # some threshold. "idle_timeout_millis" represents this threshold in
         # milliseconds
@@ -783,6 +784,15 @@ dynamic_port_range = "8900-9000"
         # is broadcast over gossip so other validators know how to reach
         # this one.
         shred_listen_port = 8003
+
+    # The metric tile receives metrics updates published from the rest
+    # of the tiles and serves them via. a Prometheus compatible HTTP
+    # endpoint.
+    [tiles.metric]
+        # The port to listen on for HTTP request for Prometheus metrics.
+        # Firedancer serves metrics at a URI like
+        # 127.0.0.1:7999/metrics
+        prometheus_listen_port = 7999
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to

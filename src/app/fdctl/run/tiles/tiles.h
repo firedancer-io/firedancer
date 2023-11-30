@@ -10,6 +10,7 @@
 typedef struct {
   ulong                         mux_flags;
   ulong                         burst;
+  ulong                         rlimit_file_cnt;
   void * (*mux_ctx           )( void * scratch );
 
   fd_mux_during_housekeeping_fn * mux_during_housekeeping;
@@ -41,6 +42,7 @@ extern fd_tile_config_t fd_tile_pack;
 extern fd_tile_config_t fd_tile_bank;
 extern fd_tile_config_t fd_tile_shred;
 extern fd_tile_config_t fd_tile_store;
+extern fd_tile_config_t fd_tile_metric;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,

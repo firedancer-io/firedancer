@@ -23,8 +23,6 @@ pub use crate::gentango::{
     fd_cstr_to_cnc_signal,
     FD_CNC_ALIGN,
     FD_CNC_APP_ALIGN,
-    FD_CNC_DIAG_BACKP_CNT,
-    FD_CNC_DIAG_IN_BACKP,
     FD_CNC_ERR_AGAIN,
     FD_CNC_ERR_FAIL,
     FD_CNC_ERR_INVAL,

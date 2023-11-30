@@ -225,6 +225,10 @@ typedef struct {
     ushort shred_listen_port;
     ulong  expected_shred_version;
   } shred;
+
+  struct {
+    ushort prometheus_listen_port;
+  } metric;
 } fd_topo_tile_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -413,6 +417,22 @@ fd_topo_link_consumer_cnt( fd_topo_t *      topo,
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id ) ) cnt++;
+    }
+  }
+
+  return cnt;
+}
+
+/* Given a link, count the number of reliable consumers of that link
+   among all the tiles in the topology. */
+FD_FN_PURE static inline ulong
+fd_topo_link_reliable_consumer_cnt( fd_topo_t *      topo,
+                                    fd_topo_link_t * link ) {
+  ulong cnt = 0;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    for( ulong j=0; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id && tile->in_link_reliable[ j ] ) ) cnt++;
     }
   }
 

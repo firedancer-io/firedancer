@@ -32,24 +32,7 @@
    packets being received by net tiles and forwarded on via. a mux
    (multiplexer).  An arbitrary number of QUIC tiles can be run, and
    these will round-robin packets from the networking queues based on
-   the source IP address.
-
-   An fd_quic_tile will use the cnc application region to accumulate the
-   following tile specific counters:
-
-     TPU_CONN_LIVE_CNT  is the number of currently open QUIC conns
-
-     TPU_CONN_SEQ       is the sequence number of the last QUIC conn
-                        opened
-
-   As such, the cnc app region must be at least 64B in size.
-
-   Except for IN_BACKP, none of the diagnostics are cleared at tile
-   startup (as such that they can be accumulated over multiple runs).
-   Clearing is up to monitoring scripts. */
-
-#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (6UL)
-#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (7UL)
+   the source IP address. */
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
@@ -280,8 +263,8 @@ static inline void
 metrics_write( void * _ctx ) {
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  FD_MGAUGE_SET( QUIC, ACTIVE_CONNECTIONS, ctx->conn_cnt );
-  FD_MGAUGE_SET( QUIC, TOTAL_CONNECTIONS,  ctx->conn_seq );
+  FD_MGAUGE_SET( QUIC, CONNECTIONS_ACTIVE_COUNT, ctx->conn_cnt );
+  FD_MCNT_SET( QUIC, CONNECTIONS_TOTAL_COUNT,  ctx->conn_seq );
 }
 
 static void
@@ -299,7 +282,7 @@ before_frag( void * _ctx,
   ulong  src_ip_addr = fd_disco_netmux_sig_ip_addr( sig );
   ushort src_tile    = fd_disco_netmux_sig_src_tile( sig );
 
-  if( FD_UNLIKELY( src_tile != SRC_TILE_NET ) ) {
+  if( FD_UNLIKELY( src_tile!=SRC_TILE_NET ) ) {
     *opt_filter = 1;
     return;
   }
@@ -357,12 +340,12 @@ after_frag( void *             _ctx,
 
   ushort dst_port    = fd_disco_netmux_sig_port( *opt_sig );
 
-  if( FD_LIKELY( dst_port == ctx->quic->config.net.listen_udp_port ) ) {
+  if( FD_LIKELY( dst_port==ctx->quic->config.net.listen_udp_port ) ) {
     fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
-  } else if( FD_LIKELY( dst_port == ctx->legacy_transaction_port ) ) {
+  } else if( FD_LIKELY( dst_port==ctx->legacy_transaction_port ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz < network_hdr_sz ) ) {
+    if( FD_UNLIKELY( *opt_sz<network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
       return;

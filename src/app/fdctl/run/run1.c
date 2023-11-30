@@ -56,11 +56,6 @@ tile_main( void * _args ) {
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_log_group_id() ));
 
-  /* calling fd_tempo_tick_per_ns requires nanosleep, it is cached with
-     a FD_ONCE.  We do this for all tiles before sandboxing so that we
-     don't need to allow the nanosleep syscall. */
-  fd_tempo_tick_per_ns( NULL );
-
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( args->config->name,
                                 &args->config->topo,
@@ -96,7 +91,7 @@ tile_main( void * _args ) {
   fd_sandbox( args->config->development.sandbox,
               args->config->uid,
               args->config->gid,
-              0UL,
+              config->rlimit_file_cnt,
               allow_fds_cnt+allow_fds_offset,
               allow_fds,
               seccomp_filter_cnt,
@@ -170,7 +165,7 @@ tile_main( void * _args ) {
                fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
                ctx,
                &callbacks );
-
+  FD_LOG_ERR(( "tile run loop returned" ));
   return 0;
 }
 
