@@ -18,8 +18,7 @@ typedef struct {
   fd_mux_before_frag_fn         * mux_before_frag;
   fd_mux_during_frag_fn         * mux_during_frag;
   fd_mux_after_frag_fn          * mux_after_frag;
-  fd_mux_cnc_diag_write_fn      * mux_cnc_diag_write;
-  fd_mux_cnc_diag_clear_fn      * mux_cnc_diag_clear;
+  fd_mux_metrics_write_fn       * mux_metrics_write;
 
   ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
@@ -29,9 +28,6 @@ typedef struct {
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
 } fd_tile_config_t;
-
-FD_FN_CONST ulong
-fd_quic_dcache_app_footprint( ulong depth );
 
 FD_FN_CONST fd_tile_config_t *
 fd_topo_tile_to_config( fd_topo_tile_t * tile );

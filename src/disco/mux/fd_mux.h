@@ -10,6 +10,8 @@
 
 #include "../fd_disco_base.h"
 
+#include "../metrics/fd_metrics.h"
+
 /* Beyond the standard FD_CNC_SIGNAL_HALT, FD_MUX_CNC_SIGNAL_ACK can be
    raised by a cnc thread with an open command session while the mux is
    in the RUN state.  The mux will transition from ACK->RUN the next
@@ -103,21 +105,21 @@
 
 typedef struct {
    fd_frag_meta_t * mcache;
-   ulong depth;
-   ulong * cr_avail;
-   ulong * seq;
-   ulong   cr_decrement_amount;
+   ulong            depth;
+   ulong *          cr_avail;
+   ulong *          seq;
+   ulong            cr_decrement_amount;
 } fd_mux_context_t;
 
 /* fd_mux_during_housekeeping_fn is called during the housekeeping routine,
    which happens infrequently on a schedule determined by the mux (based on
    the lazy parameter, see fd_tempo.h for more information).
-   
+
    It is appropriate to do slightly expensive things here that wouldn't be
    OK to do in the main loop, like updating sequence numbers that are shared
    with other tiles (e.g. synchronization information), or sending batched
    information somewhere.
-   
+
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 typedef void (fd_mux_during_housekeeping_fn)( void * ctx );
@@ -251,30 +253,18 @@ typedef void (fd_mux_after_frag_fn)( void *             ctx,
                                      int *              opt_filter,
                                      fd_mux_context_t * mux );
 
-/* By convention, the mux tile (and other tiles) use the app data region
-   of the joined cnc to store overall tile diagnostics like whether they
-   are backpressured.  fd_mux_cnc_diag_write is called back to let the
-   user add additional diagnostics.  This should not touch cnc_app[0] or
-   cnc_app[1] which are reserved for the mux tile (FD_CNC_DIAG_IN_BACKP
-   and FD_CNC_DIAG_BACKP_CNT).  The user can use cnc_app[2] and beyond,
-   if such additional space was reserved when the cnc was created.
-
-   fd_mux_cnc_diag_write and fd_mux_cnc_diag_clear are a pair of
-   functions to support accumulating counters.  fd_mux_cnc_diag_write is
-   called inside a compiler fence to ensure the writes do not get
-   reordered, which may be important for observers or monitoring tools,
-   but such a guarantee is not needed when clearing local values in the
-   ctx.  A typical usage for a counter is then to increment from a local
-   context counter in write(), and then reset the local context counter
-   to 0 in clear().
+/* By convention, tiles may wish to accumulate high traffic metrics
+   locally so they don't cause a lot of cache coherency traffic, and
+   then periodically publish them to external observers.  This callback
+   is here to support that use case.  It occurs infrequently during the
+   housekeeping loop, and is called inside a compiler fence to ensure
+   the writes do not get reordered, which may be important for observers
+   or monitoring tools.
 
    The ctx is a user-provided context object from when the mux tile was
    initialized. */
 
-typedef void (fd_mux_cnc_diag_write_fn)( void *  ctx,
-                                         ulong * cnc_app );
-
-typedef void (fd_mux_cnc_diag_clear_fn)( void * ctx );
+typedef void (fd_mux_metrics_write_fn)( void *  ctx );
 
 /* fd_mux_callbacks_t will be invoked during mux tile execution, and can
    be used to alter behavior of the mux tile from the default of copying
@@ -291,8 +281,7 @@ typedef struct {
   fd_mux_during_frag_fn * during_frag;
   fd_mux_after_frag_fn  * after_frag;
 
-  fd_mux_cnc_diag_write_fn * cnc_diag_write;
-  fd_mux_cnc_diag_clear_fn * cnc_diag_clear;
+  fd_mux_metrics_write_fn * metrics_write;
 } fd_mux_callbacks_t;
 
 FD_PROTOTYPES_BEGIN
@@ -465,17 +454,32 @@ fd_mux_tile( fd_cnc_t *              cnc,         /* Local join to the mux's com
              void *                  ctx,         /* User supplied context to be passed to the read and process functions */
              fd_mux_callbacks_t *    callbacks ); /* User supplied callbacks to be invoked during mux tile execution */
 
+static inline ulong
+fd_mux_advance( fd_mux_context_t * ctx ) {
+  ulong * seqp = ctx->seq;
+  ulong   seq  = *seqp;
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
+  *seqp = fd_seq_inc( seq, 1UL );
+  return seq;
+}
+
 /* If the mux is operating with FD_MUX_FLAG_NO_PUBLISH, the caller can optionally
    publish fragments to the consumers themself.  To do this, they should call
    fd_mux_publish with the mux context provided in the  */
-void
+static inline void
 fd_mux_publish( fd_mux_context_t * ctx,
                 ulong              sig,
                 ulong              chunk,
                 ulong              sz,
                 ulong              ctl,
                 ulong              tsorig,
-                ulong              tspub );
+                ulong              tspub ) {
+  ulong * seqp = ctx->seq;
+  ulong   seq  = *seqp;
+  fd_mcache_publish( ctx->mcache, ctx->depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+  *ctx->cr_avail -= ctx->cr_decrement_amount;
+  *seqp = fd_seq_inc( seq, 1UL );
+}
 
 FD_PROTOTYPES_END
 

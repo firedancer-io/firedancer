@@ -31,10 +31,23 @@ run1_cmd_args( int *    pargc,
   (*pargv)++;
 }
 
+extern int * fd_log_private_shared_lock;
+
 int
 tile_main( void * _args ) {
   tile_main_args_t * args = _args;
   fd_topo_tile_t * tile = args->tile;
+
+  if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
+    if( FD_UNLIKELY( tile->id==args->config->development.debug_tile-1 ) ) {
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%d", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, getpid1() ));
+      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
+        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_log_private_shared_lock[1] = 0;
+    } else {
+      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
+    }
+  }
 
   ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_group_id_set( pid );
@@ -91,7 +104,12 @@ tile_main( void * _args ) {
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
+
   FD_TEST( tile->cnc );
+  FD_TEST( tile->metrics );
+  fd_metrics_register( tile->metrics );
+
+  FD_MGAUGE_SET( TILE, PID, pid );
 
   if( FD_UNLIKELY( config->unprivileged_init ) )
     config->unprivileged_init( &args->config->topo, tile, scratch_mem );
@@ -109,10 +127,10 @@ tile_main( void * _args ) {
   ulong out_cnt_reliable = 0;
   ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &args->config->topo.tiles[ i ];
-    for( ulong j=0; j<tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( tile->in_link_id[ j ] == tile->out_link_id_primary && tile->in_link_reliable[ j ] ) ) {
-        out_fseq[ out_cnt_reliable ] = tile->in_link_fseq[ j ];
+    fd_topo_tile_t * consumer_tile = &args->config->topo.tiles[ i ];
+    for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+        out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
         FD_TEST( out_fseq[ out_cnt_reliable ] );
         out_cnt_reliable++;
         /* Need to test this, since each link may connect to many outs,
@@ -130,8 +148,7 @@ tile_main( void * _args ) {
     .before_frag         = config->mux_before_frag,
     .during_frag         = config->mux_during_frag,
     .after_frag          = config->mux_after_frag,
-    .cnc_diag_write      = config->mux_cnc_diag_write,
-    .cnc_diag_clear      = config->mux_cnc_diag_clear,
+    .metrics_write       = config->mux_metrics_write,
   };
 
   void * ctx = NULL;

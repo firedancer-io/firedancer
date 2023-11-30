@@ -23,7 +23,7 @@ propagate it throughout the language pervasively).
 But since that's a big change from what modern developer practice
 (through no fault of their own ... they are saddled with the legacy), FD
 takes a principle of least surprise approach and guarantee integer types
-behave they way developers naturally behave (and rejects any platform
+behave the way developers naturally behave (and rejects any platform
 that doesn't behave like developers expect as too unsafe and
 unproductive for real world use).
 
@@ -64,7 +64,7 @@ most later stuff carried on the tradition), everything looks like it is
 using superficially different types even if you get religion.
 
 So developers get sloppy and silent implicit conversions start appearing
-everywhere. And nobody can turns on things like `-Wconversion` to clean
+everywhere. And nobody can turn on things like `-Wconversion` to clean
 it up because its false positive rate is too high. Worse, nobody is
 really sure which are false positives because the documentation isn't
 there to make it straightforward to tell a narrowing conversion is safe

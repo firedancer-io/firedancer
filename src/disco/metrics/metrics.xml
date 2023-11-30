@@ -1,0 +1,56 @@
+<!--
+This file describes all possible metrics that could potentially be
+collected and reported by Firedancer.  Metrics are grouped into
+categories.
+
+These metrics must be backwards compatible and you should not change
+existing metric names.  Instead they should be deprecated and a new
+metric introduced.
+-->
+
+<metrics>
+
+<group name="Tile" tile="all">
+    <gauge name="Pid" units="pid" summary="The process ID of the tile." />
+</group>
+
+<group name="Stem" tile="all">
+    <gauge name="InBackpressure" units="bool" summary="Whether the tile is currently backpressured or not." />
+    <counter name="Backpressure" units="count" summary="Number of times the times the tile has transitioned from not backpressured to backpressured." />
+
+    <histogram name="LoopDuration{StemLoopType}" units="seconds">
+        <summary>
+            The time it took to turn one core loop of the tile. The loop types
+            are mutually exclusive and exhaustive, so the sum of time across all
+            of them should give the total running time of the total, less some
+            measurement error.
+        </summary>
+        <variants name="StemLoopType">
+            <variant name="Housekeeping" />
+            <variant name="Backpressure" />
+            <variant name="CaughtUp" />
+            <variant name="OverrunPolling" />
+            <variant name="OverrunReading" />
+            <variant name="FilterBeforeFragment" />
+            <variant name="FilterAfterFragment" />
+            <variant name="Finish" />
+        </variants>
+    </histogram>
+
+    <histogram name="FragmentSize{StemHandledType}" units="bytes">
+        <summary>
+            The size of the fragments that are being processed by the tile.
+        </summary>
+        <variants name="StemHandledType">
+            <variant name="Filtered" />
+            <variant name="Handled" />
+        </variants>
+    </histogram>
+</group>
+
+<group name="Quic" tile="quic">
+    <gauge name="ActiveConnections" units="connections" summary="The number of active QUIC connections." />
+    <counter name="TotalConnections" units="connections" summary="The total number of connections that have been opened." />
+</group>
+
+</metrics>

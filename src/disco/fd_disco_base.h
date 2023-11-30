@@ -22,39 +22,18 @@
    asserted in fd_shred_tile.c). */
 #define FD_SHRED_STORE_MTU (41792UL)
 
+/* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
+   largest microblock the pack tile will produce, plus the 48B of
+   microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
+   metadata. */
+#define FD_POH_SHRED_MTU (40UL + 48UL + FD_TPU_MTU * 31UL)
+
 /* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
 #define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
 /* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust
    shims, so if the value changes, this acts as a reminder to change it
    in the Rust code. */
 FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
-
-#define SCRATCH_ALLOC( a, s ) (__extension__({                    \
-    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
-    scratch_top = _scratch_alloc + (s);                           \
-    (void *)_scratch_alloc;                                       \
-  }))
-
-/* FD_APP_CNC_DIAG_* are FD_CNC_DIAG_* style diagnostics and thus the
-   same considerations apply.  Further they are harmonized with the
-   standard FD_CNC_DIAG_*.  Specifically:
-
-     IN_BACKP is same as standard IN_BACKP
-
-     BACKP_CNT is same as standard BACKP_CNT
-
-     {HA,SV}_FILT_{CNT,SZ} is app specific and the number of times a
-     transaction was dropped by a verify tile due to failing signature
-     verification. */
-
-#define FD_APP_CNC_DIAG_IN_BACKP    FD_CNC_DIAG_IN_BACKP  /* ==0 */
-#define FD_APP_CNC_DIAG_BACKP_CNT   FD_CNC_DIAG_BACKP_CNT /* ==1 */
-#define FD_APP_CNC_DIAG_HA_FILT_CNT (2UL)                 /* updated by verify tile, frequently in ha situations, never o.w. */
-#define FD_APP_CNC_DIAG_HA_FILT_SZ  (3UL)                 /* " */
-#define FD_APP_CNC_DIAG_SV_FILT_CNT (4UL)                 /* ", ideally never */
-#define FD_APP_CNC_DIAG_SV_FILT_SZ  (5UL)                 /* " */
-
-#define FD_APP_CNC_DIAG_LOG_GROUP_ID (128UL)
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
@@ -79,7 +58,7 @@ fd_disco_netmux_sig( ulong  ip_addr,
   return (((ulong)ip_addr)<<32UL) | (((ulong)port)<<16UL) | ((src_tile&0xFUL)<<12UL) | ((hdr_sz_i&0xFUL)<<4UL) | (dst_idx&0xFUL);
 }
 
-FD_FN_CONST static inline ulong  fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (sig>>32UL) & 0xFFFFUL; }
+FD_FN_CONST static inline uint   fd_disco_netmux_sig_ip_addr ( ulong sig ) { return (uint)((sig>>32UL) & 0xFFFFFFFFUL); }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_port    ( ulong sig ) { return (sig>>16UL) & 0xFFFFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_src_tile( ulong sig ) { return (sig>>12UL) & 0xFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_dst_idx ( ulong sig ) { return (sig>> 0UL) & 0xFUL; }

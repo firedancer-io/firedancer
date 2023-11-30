@@ -54,7 +54,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # NOT overlap with any of the static ports used by Firedancer below.
 dynamic_port_range = "8900-9000"
 
-# Firedancer logs to two places by default: stderr and a logfile. 
+# Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
 # as fully detailed as those to the log file.  The log file is intended
@@ -66,7 +66,7 @@ dynamic_port_range = "8900-9000"
 #   - NOTICE   More important informational notice.
 #   - WARNING  Unexpected condition, shouldn't happen. Should be
 #              investigated.
-#   - ERR      Kills Firedancer. Routine error, likely programmer error. 
+#   - ERR      Kills Firedancer. Routine error, likely programmer error.
 #   - CRIT     Kills Firedancer. Critical errors.
 #   - ALERT    Kills Firedancer. Alert requiring immediate attention.
 #   - EMERG    Kills Firedancer. Emergency requiring immediate
@@ -227,7 +227,9 @@ dynamic_port_range = "8900-9000"
     # none is provided, the default is to ask the first entrypoint which
     # replies to the port check described above what our IP address is.
     # If no entrypoints are specified, then this will be defaulted to
-    # 127.0.0.1. 
+    # 127.0.0.1.  If connecting to a public cluster like mainnet or
+    # testnet, this IP must be externally resolvable and should not be
+    # on a local subnet.
     #
     # This option is passed to the Solana Labs client with the
     # `--gossip-host` argument.
@@ -647,6 +649,18 @@ dynamic_port_range = "8900-9000"
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
         max_concurrent_streams_per_connection = 16
+
+        # Controls how much transactions coming in via TPU can be
+        # reassembled at the same time.  Reassembly is required for user
+        # transactions larger than ca ~1200 bytes, as these arrive
+        # fragmented.  This parameter should scale linearly with line
+        # rate.  Usually, clients send all fragments at once, such that
+        # each reassembly only takes a few microseconds.
+        #
+        # Higher values reduce TPU packet loss over unreliable networks.
+        # If this parameter is set too low, packet loss can cause some
+        # large transactions to get dropped.  Must be 2 or larger.
+        txn_reassembly_count = 16384
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The structures for this can

@@ -14,8 +14,6 @@
    topology. */
 #define FD_TOPO_MAX_TILE_IN_LINKS ( 16UL)
 
-#define FD_CNC_APP_SZ (4032UL)
-
 /* FD_TOPO_FILL_MODE_* are used with the fd_topo_fill functions to
    determine what they do.  See comments on those functions for more
    details. */
@@ -35,16 +33,18 @@
 #define FD_TOPO_WKSP_KIND_BANK_SHRED   ( 5UL)
 #define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 6UL)
 #define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 7UL)
-#define FD_TOPO_WKSP_KIND_NET          ( 8UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       ( 9UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (10UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (11UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (12UL)
-#define FD_TOPO_WKSP_KIND_PACK         (13UL)
-#define FD_TOPO_WKSP_KIND_BANK         (14UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (15UL)
-#define FD_TOPO_WKSP_KIND_STORE        (16UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_METRIC_IN    ( 8UL)
+#define FD_TOPO_WKSP_KIND_NET          ( 9UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (10UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (11UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (12UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (13UL)
+#define FD_TOPO_WKSP_KIND_PACK         (14UL)
+#define FD_TOPO_WKSP_KIND_BANK         (15UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (16UL)
+#define FD_TOPO_WKSP_KIND_STORE        (17UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (18UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -84,7 +84,8 @@
 #define FD_TOPO_TILE_KIND_BANK   ( 6UL)
 #define FD_TOPO_TILE_KIND_SHRED  ( 7UL)
 #define FD_TOPO_TILE_KIND_STORE  ( 8UL)
-#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_METRIC ( 9UL)
+#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -166,6 +167,7 @@ typedef struct {
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_cnc_t * cnc;
+    ulong *    metrics;            /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
     ulong *    in_link_fseq[ 16 ]; /* The fseq of each link that this tile reads from.  Multiple fseqs may point to the link, if there are multiple consumers.
                                       An fseq can be uniquely identified via (link_id, tile_id), or (link_kind, link_kind_id, tile_kind, tile_kind_id) */
 
@@ -185,11 +187,13 @@ typedef struct {
     ulong  xdp_rx_queue_size;
     ulong  xdp_tx_queue_size;
     ulong  xdp_aio_depth;
+    uint   src_ip_addr;
     ushort allow_ports[ 3 ];
   } net;
 
   struct {
     ulong  depth;
+    uint   reasm_cnt;
     ulong  max_concurrent_connections;
     ulong  max_concurrent_handshakes;
     ulong  max_inflight_quic_packets;
@@ -326,6 +330,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_BANK_SHRED:   return "bank_shred";
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
     case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
+    case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
     case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
     case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
@@ -335,6 +340,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_BANK:         return "bank";
     case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
+    case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -367,7 +373,7 @@ fd_topo_link_kind_str( ulong kind ) {
    readable string describing it.  This string does not uniquely
    identify a tile, since there can be multiple of each tile kind
    in the topology.
-   
+
    Tile names must be <= 7 chars, so that we can print them easily in
    diagnostic output and monitoring tools. */
 FD_FN_CONST static inline char *
@@ -382,6 +388,7 @@ fd_topo_tile_kind_str( ulong kind ) {
      case FD_TOPO_TILE_KIND_BANK:   return "bank";
      case FD_TOPO_TILE_KIND_SHRED:  return "shred";
      case FD_TOPO_TILE_KIND_STORE:  return "store";
+     case FD_TOPO_TILE_KIND_METRIC: return "metric";
      default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }
@@ -454,9 +461,9 @@ fd_topo_create_workspaces( char *      app_name,
    into the topo object. This must be called after all of the tile
    workspaces have been joined, either by calling
    fd_topo_join_workspaces, or fd_topo_join_tile_workspaces.
-   
+
    The mode should be one of FD_TOPO_FILL_MODE_* and determines
-   what the function actually does. 
+   what the function actually does.
 
      FD_TOPO_FILL_MODE_FOOTPRINT
         The footprint of every workspace in the topology is calculated

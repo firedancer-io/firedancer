@@ -1,30 +1,47 @@
 #include "fdctl.h"
 
-#include "../../ballet/ed25519/fd_ed25519.h"
-
-#include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/random.h>
 
-#define KEYGEN_KEY_IDENTITY     (0UL)
-#define KEYGEN_KEY_VOTE_ACCOUNT (1UL)
+typedef enum {
+  CMD_NEW_IDENTITY,
+  CMD_NEW_VOTE_ACCOUNT,
+  CMD_PUBKEY,
+} cmd_type_t;
 
 void
-keygen_cmd_args( int *    pargc,
-                 char *** pargv,
-                 args_t * args) {
-  char * usage = "usage: keygen <identity|vote>";
-  if( FD_UNLIKELY( *pargc < 1 ) ) FD_LOG_ERR(( "%s", usage ));
+keys_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args) {
+  if( FD_UNLIKELY( *pargc < 2 ) ) goto err;
 
-  if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) ) args->keygen.key_type = KEYGEN_KEY_IDENTITY;
-  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) ) args->keygen.key_type = KEYGEN_KEY_VOTE_ACCOUNT;
-  else FD_LOG_ERR(( "unrecognized subcommand `%s`, %s", *pargv[0], usage ));
+  if( FD_LIKELY( !strcmp( *pargv[ 0 ], "new" ) ) ) {
+    (*pargc)--;
+    (*pargv)++;
+    if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) )     args->keys.cmd = CMD_NEW_IDENTITY;
+    else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) )   args->keys.cmd = CMD_NEW_VOTE_ACCOUNT;
+  }
+  else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pubkey"  ) ) ) {
+    (*pargc)--;
+    (*pargv)++;
+    if( FD_UNLIKELY( *pargc < 1 ) ) goto err;
+    args->keys.cmd = CMD_PUBKEY;
+    fd_memcpy( args->keys.file_path, *pargv[ 0 ], sizeof( args->keys.file_path ) );
+  }
+  else goto err;
 
   (*pargc)--;
   (*pargv)++;
 
   return;
+
+err:
+    FD_LOG_ERR(( "unrecognized subcommand `%s`\nusage:\n"
+                 "  keys new identity\n"
+                 "  keys new vote\n"
+                 "  keys pubkey <path-to-keyfile>\n",
+                 *pargv[0] ));
 }
 
 void
@@ -58,7 +75,7 @@ generate_keypair( const char * keyfile,
   if( FD_UNLIKELY( !fp ) ) {
     if( FD_LIKELY( errno == EEXIST ) )
       FD_LOG_ERR(( "could not create keypair as the keyfile `%s` already exists", keyfile ));
-    else 
+    else
       FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
   }
 
@@ -85,17 +102,27 @@ generate_keypair( const char * keyfile,
 }
 
 void
-keygen_cmd_fn( args_t *         args,
-               config_t * const config ) {
-  if( FD_LIKELY( args->keygen.key_type == KEYGEN_KEY_IDENTITY ) ) {
+keys_pubkey( const char * file_path ) {
+  uchar const * pubkey = load_key_into_protected_memory( file_path, 1 );
+  char pubkey_str[FD_BASE58_ENCODED_32_SZ];
+  fd_base58_encode_32( pubkey, NULL, pubkey_str );
+  printf( "%s\n", pubkey_str );
+}
+
+void
+keys_cmd_fn( args_t *         args,
+             config_t * const config ) {
+  if( FD_LIKELY( args->keys.cmd == CMD_NEW_IDENTITY ) ) {
     generate_keypair( config->consensus.identity_path, config );
-  } else if( FD_LIKELY( args->keygen.key_type == KEYGEN_KEY_VOTE_ACCOUNT ) ) {
+  } else if( FD_LIKELY( args->keys.cmd == CMD_NEW_VOTE_ACCOUNT ) ) {
     if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
       FD_LOG_ERR(( "Cannot create a vote account keypair because your validator is not configured "
                    "to vote. Please set [consensus.vote_account_path] in your configuration file." ));
 
     generate_keypair( config->consensus.vote_account_path, config );
+  } else if( FD_LIKELY( args->keys.cmd == CMD_PUBKEY ) ) {
+    keys_pubkey( args->keys.file_path );
   } else {
-    FD_LOG_ERR(( "unknown key type `%lu`", args->keygen.key_type ));
+    FD_LOG_ERR(( "unknown key type `%lu`", args->keys.cmd ));
   }
 }

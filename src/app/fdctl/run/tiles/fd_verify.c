@@ -1,6 +1,9 @@
 #include "tiles.h"
 
 #include "generated/verify_seccomp.h"
+
+#include "../../../../disco/quic/fd_tpu.h"
+
 #include <linux/unistd.h>
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
@@ -44,11 +47,11 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
-  SCRATCH_ALLOC( fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
-  SCRATCH_ALLOC( fd_sha512_align(),          fd_sha512_footprint() );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  l = FD_LAYOUT_APPEND( l, fd_sha512_align(),          fd_sha512_footprint() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -67,14 +70,10 @@ during_frag( void * _ctx,
              ulong chunk,
              ulong sz,
              int * opt_filter ) {
-  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  (void)sig;
+  (void)opt_filter;
 
-  /* This is a dummy mcache entry to keep frags from getting overrun, do
-     not process */
-  if( FD_UNLIKELY( sig ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
@@ -99,21 +98,46 @@ after_frag( void *             _ctx,
 
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
 
+  /* Sanity check that should never fail. We should have atleast
+     FD_TPU_DCACHE_MTU bytes available. */
+  if( FD_UNLIKELY( *opt_sz < sizeof(ushort) ) ) {
+    FD_LOG_ERR( ("invalid opt_sz(%x)", *opt_sz ) );
+  }
+
   uchar * udp_payload = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   ushort payload_sz = *(ushort*)(udp_payload + *opt_sz - sizeof(ushort));
+
+  /* Make sure payload_sz is valid */
+  if( FD_UNLIKELY( payload_sz > FD_TPU_DCACHE_MTU ) ) {
+    FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
+  }
+
+  /* txn contents are located in shared memory accessible to the dedup tile 
+     and the contents are controlled by the quic tile. We must perform
+     validation */
   fd_txn_t * txn = (fd_txn_t*) fd_ulong_align_up( (ulong)(udp_payload) + payload_sz, 2UL );
 
-  ulong const * public_key = (ulong const *)(udp_payload + txn->acct_addr_off);
-  ulong const * sig        = (ulong const *)(udp_payload + txn->signature_off);
-  uchar const * msg        = (uchar const *)(udp_payload + txn->message_off);
-  ulong msg_sz             = (ulong)payload_sz - txn->message_off;
+  /* We do not want to deref any non-data field from the txn struct more than once */
+  ushort message_off    = txn->message_off;
+  ushort acct_addr_off  = txn->acct_addr_off;
+  ushort signature_off  = txn->signature_off;
+  
+  if( FD_UNLIKELY( message_off >= payload_sz  || acct_addr_off + FD_TXN_ACCT_ADDR_SZ > payload_sz || signature_off + FD_TXN_SIGNATURE_SZ > payload_sz ) ) {
+    FD_LOG_ERR( ("txn is invalid: payload_sz = %x, message_off = %x, acct_addr_off = %x, signature_off = %x", payload_sz, message_off, acct_addr_off, signature_off ) );
+  }
+  
+  uchar local_sig[FD_TXN_SIGNATURE_SZ]  __attribute__((aligned(8)));
+  ulong const * public_key = (ulong const *)(udp_payload + acct_addr_off);
+  uchar const * msg        = (uchar const *)(udp_payload + message_off);
+  ulong msg_sz             = (ulong)payload_sz - message_off;
+  fd_memcpy( local_sig, udp_payload + signature_off, FD_TXN_SIGNATURE_SZ );
 
   /* Sig is already effectively a cryptographically secure hash of
      public_key/private_key and message and sz.  So use this to do a
      quick dedup of ha traffic. */
 
   int ha_dup;
-  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *sig );
+  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
   if( FD_UNLIKELY( ha_dup ) ) {
     *opt_filter = 1;
     return;
@@ -121,11 +145,11 @@ after_frag( void *             _ctx,
 
   /* We appear to have a message to verify.  So verify it. */
 
-  int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, sig, public_key, ctx->sha );
+  int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, local_sig, public_key, ctx->sha );
   *opt_filter = verify_failed;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk = ctx->out_chunk;
-    *opt_sig = *sig;
+    *opt_sig = *(ulong *)local_sig;
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }
@@ -134,11 +158,11 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  ulong scratch_top = (ulong)scratch;
-  fd_verify_ctx_t * ctx = (fd_verify_ctx_t*)SCRATCH_ALLOC( alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
-  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( SCRATCH_ALLOC( FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( SCRATCH_ALLOC( alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
   if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
 
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
@@ -153,9 +177,14 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
 
-    ctx->in[i].mem    = link_wksp->wksp;
-    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
-    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+    ctx->in[i].mem = link_wksp->wksp;
+    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->dcache );
+      ctx->in[i].wmark  = ctx->in[i].chunk0 + (link->depth+link->burst-1) * FD_TPU_REASM_CHUNK_MTU;
+    } else {
+      ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
+      ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+    }
   }
 
   ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
@@ -163,6 +192,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

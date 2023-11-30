@@ -17,6 +17,7 @@
 //#include "scratch/fd_scratch.h"   /* includes tile/fd_tile.h sanitize/fd_sanitize.h valloc/fd_valloc.h */
 #include "math/fd_stat.h"           /* includes bits/fd_bits.h */
 #include "bits/fd_sat.h"
+#include "hist/fd_histf.h"
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
 #include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
 #include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h valloc/fd_valloc.h */

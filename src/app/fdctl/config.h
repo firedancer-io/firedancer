@@ -23,6 +23,9 @@ typedef struct {
   char user[ 256 ];
   char hostname[ FD_LOG_NAME_MAX ];
 
+  double tick_per_ns_mu;
+  double tick_per_ns_sigma;
+
   fd_topo_t topo;
 
   int is_live_cluster;
@@ -127,6 +130,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_solana_labs;
+    uint debug_tile;
     struct {
       int  enabled;
       char interface0     [ 256 ];
@@ -156,6 +160,7 @@ typedef struct {
       ushort regular_transaction_listen_port;
       ushort quic_transaction_listen_port;
 
+      uint txn_reassembly_count;
       uint max_concurrent_connections;
       uint max_concurrent_streams_per_connection;
       uint max_concurrent_handshakes;

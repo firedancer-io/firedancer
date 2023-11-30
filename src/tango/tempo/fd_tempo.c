@@ -100,45 +100,60 @@ fd_tempo_tickcount_model( double * opt_tau ) {
   return t0;
 }
 
+static double mu;
+static double sigma;
+static int explicit_set;
+
+void
+fd_tempo_set_tick_per_ns( double _mu,
+                          double _sigma ) {
+  explicit_set = 1;
+  mu    = _mu;
+  sigma = _sigma;
+}
+
 double
 fd_tempo_tick_per_ns( double * opt_sigma ) {
-  static double mu;
-  static double sigma;
 
   FD_ONCE_BEGIN {
 
-    /* We measure repeatedly how much the tickcount and wallclock change
-       over the same approximately constant time interval.  We do a pair
-       observations to minimize errors in computing the interval (note
-       that any remaining jitters should be zero mean such that they
-       should statistically cancel in the rate calculation).  We use a
-       robust estimate to get the avg and rms in the face of random
-       sources of noise, assuming the sample distribution is reasonably
-       well modeled as normal. */
+    /* If the value has already been set explicitly, no need to sample. */
 
-    ulong iter = 0UL;
-    for(;;) { 
-#     define TRIAL_CNT 32UL
-#     define TRIM_CNT   4UL
-      double trial[ TRIAL_CNT ]; 
-      for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
-        long then; long toc; fd_tempo_observe_pair( &then, &toc );
-        fd_log_sleep( 16777216L ); /* ~16.8 ms */
-        long now; long tic; fd_tempo_observe_pair( &now, &tic );
-        trial[ trial_idx ] = (double)(tic-toc) / (double)(now-then);
-      }
-      double * sample     = trial + TRIM_CNT;
-      ulong    sample_cnt = TRIAL_CNT - 2UL*TRIM_CNT;
-      ulong    thresh     = sample_cnt >> 1;
-      if( FD_LIKELY( fd_stat_robust_norm_fit_double( &mu, &sigma, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( mu>0. ) )
-        break;
-#     undef TRIM_CNT
-#     undef TRIAL_CNT
-      iter++;
-      if( iter==3UL ) {
-        FD_LOG_WARNING(( "unable to measure tick_per_ns accurately; using fallback and attempting to continue" ));
-        mu = 3.; sigma = 1e-7;
-        break;
+    if( FD_LIKELY( !explicit_set ) ) {
+
+      /* We measure repeatedly how much the tickcount and wallclock change
+         over the same approximately constant time interval.  We do a pair
+         observations to minimize errors in computing the interval (note
+         that any remaining jitters should be zero mean such that they
+         should statistically cancel in the rate calculation).  We use a
+         robust estimate to get the avg and rms in the face of random
+         sources of noise, assuming the sample distribution is reasonably
+         well modeled as normal. */
+
+      ulong iter = 0UL;
+      for(;;) { 
+  #     define TRIAL_CNT 32UL
+  #     define TRIM_CNT   4UL
+        double trial[ TRIAL_CNT ]; 
+        for( ulong trial_idx=0UL; trial_idx<TRIAL_CNT; trial_idx++ ) {
+          long then; long toc; fd_tempo_observe_pair( &then, &toc );
+          fd_log_sleep( 16777216L ); /* ~16.8 ms */
+          long now; long tic; fd_tempo_observe_pair( &now, &tic );
+          trial[ trial_idx ] = (double)(tic-toc) / (double)(now-then);
+        }
+        double * sample     = trial + TRIM_CNT;
+        ulong    sample_cnt = TRIAL_CNT - 2UL*TRIM_CNT;
+        ulong    thresh     = sample_cnt >> 1;
+        if( FD_LIKELY( fd_stat_robust_norm_fit_double( &mu, &sigma, sample, sample_cnt, sample )>thresh ) && FD_LIKELY( mu>0. ) )
+          break;
+  #     undef TRIM_CNT
+  #     undef TRIAL_CNT
+        iter++;
+        if( iter==3UL ) {
+          FD_LOG_WARNING(( "unable to measure tick_per_ns accurately; using fallback and attempting to continue" ));
+          mu = 3.; sigma = 1e-7;
+          break;
+        }
       }
     }
 

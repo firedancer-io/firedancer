@@ -223,7 +223,7 @@ void test_mutate( uchar const * payload,
 
 void test_performance( uchar const * payload,
                        ulong sz ) {
-  const ulong test_count = 1000000;
+  const ulong test_count = 10000000UL;
   long start = fd_log_wallclock( );
   for( ulong i = 0; i < test_count; i++ ) {
     FD_TEST( fd_txn_parse( payload, sz, out_buf, NULL ) );
