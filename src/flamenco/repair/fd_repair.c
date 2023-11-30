@@ -21,6 +21,19 @@
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 
+/* Test if two hash values are equal */
+int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+  for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
+    if (key1->ul[i] != key2->ul[i])
+      return 0;
+  return 1;
+}
+
+/* Hash a hash value */
+ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
+  return key->ul[0] ^ seed;
+}
+
 /* Copy a hash value */
 void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
@@ -48,25 +61,19 @@ void fd_repair_peer_addr_copy( fd_repair_peer_addr_t * keyd, const fd_repair_pee
 /* Active table element. This table is all validators that we are
    asking for repairs. */
 struct fd_active_elem {
-    fd_repair_peer_addr_t key;
+    fd_pubkey_t key;  /* Public indentifier */
+    fd_repair_peer_addr_t addr;
     ulong next;
-    fd_pubkey_t id;  /* Public indentifier */
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
 #define MAP_NAME     fd_active_table
-#define MAP_KEY_T    fd_repair_peer_addr_t
-#define MAP_KEY_EQ   fd_repair_peer_addr_eq
-#define MAP_KEY_HASH fd_repair_peer_addr_hash
-#define MAP_KEY_COPY fd_repair_peer_addr_copy
+#define MAP_KEY_T    fd_pubkey_t
+#define MAP_KEY_EQ   fd_hash_eq
+#define MAP_KEY_HASH fd_hash_hash
+#define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_active_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
-
-/* Initialize an active table element value */
-void
-fd_active_new_value(fd_active_elem_t * val) {
-  fd_memset(val->id.uc, 0, 32U);
-}
 
 typedef uint fd_repair_nonce_t;
 
@@ -89,6 +96,7 @@ enum fd_needed_elem_type {
 struct fd_needed_elem {
   fd_repair_nonce_t key;
   ulong next;
+  fd_pubkey_t id;
   enum fd_needed_elem_type type;
   ulong slot;
   uint shred_index;
@@ -237,15 +245,14 @@ fd_repair_add_pending( fd_repair_t * glob, long when ) {
 /* Initiate connection to a peer */
 int
 fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id ) {
-  fd_active_elem_t * val = fd_active_table_query(glob->actives, addr, NULL);
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
     if (fd_active_table_is_full(glob->actives)) {
       FD_LOG_WARNING(("too many actives"));
       return -1;
     }
-    val = fd_active_table_insert(glob->actives, addr);
-    fd_active_new_value(val);
-    fd_hash_copy(&val->id, id);
+    val = fd_active_table_insert(glob->actives, id);
+    fd_repair_peer_addr_copy(&val->addr, addr);
   }
   return 0;
 }
@@ -296,11 +303,6 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
     ev->fun = fd_repair_send_requests;
   }
 
-  fd_active_table_iter_t aiter = fd_active_table_iter_init( glob->actives );
-  if ( fd_active_table_iter_done( glob->actives, aiter ) )
-    return;
-  fd_active_elem_t * active = fd_active_table_iter_ele( glob->actives, aiter );
-
   /* Garbage collect old requests */
   long expire = glob->now - (long)10e9; /* 10 seconds */
   fd_repair_nonce_t n;
@@ -320,16 +322,20 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
     if ( NULL == ele )
       continue;
+    fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id, NULL );
+    if ( NULL == active )
+      continue;
+
     if (++j == 500U)
       break;
-
+    
     fd_repair_protocol_t protocol;
     switch (ele->type) {
     case fd_needed_window_index: {
       fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
       fd_repair_window_index_t * wi = &protocol.inner.window_index;
       fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->id);
+      fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
       wi->slot = ele->slot;
       wi->shred_index = ele->shred_index;
@@ -340,7 +346,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
       fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
       fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->id);
+      fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
       wi->slot = ele->slot;
       wi->shred_index = ele->shred_index;
@@ -351,14 +357,14 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
       fd_repair_orphan_t * wi = &protocol.inner.orphan;
       fd_hash_copy(&wi->header.sender, glob->public_key);
-      fd_hash_copy(&wi->header.recipient, &active->id);
+      fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
       wi->slot = ele->slot;
       break;
     }
     }
     
-    fd_repair_sign_and_send(glob, &protocol, &active->key);
+    fd_repair_sign_and_send(glob, &protocol, &active->addr);
 }
 }
 
@@ -473,11 +479,12 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
 }
 
 int
-fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
   if (fd_needed_table_is_full(glob->needed))
     return -1;
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  fd_hash_copy(&val->id, id);
   val->type = fd_needed_window_index;
   val->slot = slot;
   val->shred_index = shred_index;
@@ -486,11 +493,12 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
 }
 
 int
-fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
+fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
   if (fd_needed_table_is_full(glob->needed))
     return -1;
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  fd_hash_copy(&val->id, id);
   val->type = fd_needed_highest_window_index;
   val->slot = slot;
   val->shred_index = shred_index;
@@ -499,11 +507,12 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
 }
 
 int
-fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
+fd_repair_need_orphan( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot ) {
   if (fd_needed_table_is_full(glob->needed))
     return -1;
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
+  fd_hash_copy(&val->id, id);
   val->type = fd_needed_orphan;
   val->slot = slot;
   val->shred_index = 0; /* unused */

@@ -153,7 +153,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   if ( idx_cstr == NULL )
     FD_LOG_ERR(("--idx command line argument required"));
   ulong idx = strtoul(idx_cstr, NULL, 10);
-  if ( fd_repair_need_window_index(glob, slot, (uint)idx) )
+  if ( fd_repair_need_window_index(glob, &id, slot, (uint)idx) )
     return -1;
 
 #define VLEN 32U
