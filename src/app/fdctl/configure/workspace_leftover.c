@@ -136,6 +136,8 @@ fini( config_t * const config ) {
   if( FD_UNLIKELY( result.result != CONFIGURE_OK ) )
     FD_LOG_ERR(( "not enough free huge/gigantic pages left to proceed, "
                  "see log for details of processes using them" ));
+
+  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 configure_stage_t workspace_leftover = {
