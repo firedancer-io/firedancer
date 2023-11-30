@@ -14,6 +14,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   NULL,
   NULL,
   NULL,
+  NULL,
 };
 
 int

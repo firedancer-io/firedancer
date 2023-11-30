@@ -9,11 +9,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+extern configure_stage_t _kill;
 extern configure_stage_t netns;
 extern configure_stage_t genesis;
 extern configure_stage_t keys;
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
+  &_kill,
   &netns,
   &large_pages,
   &shmem,
