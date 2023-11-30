@@ -18,11 +18,11 @@ jobs:
 
   build-frankendancer:
     name: Build Frankendancer
-    uses: ./.github/workflows/_build_frankendancer.yml
+    uses: ./.github/workflows/build_everything.yml
 
   test-functional:
     name: Functional Tests
-    uses: ./.github/workflows/_test_functional.yml
+    uses: ./.github/workflows/functional_tests.yml
 
   publish-to-clusterfuzz:
     name: Publish to Clusterfuzz
@@ -31,4 +31,4 @@ jobs:
 
   whitespace-check:
     name: Check for Whitespaces
-    uses: ./.github/workflows/_trailing_whitespace.yml
+    uses: ./.github/workflows/trailing_whitespace.yml
