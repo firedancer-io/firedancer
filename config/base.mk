@@ -13,6 +13,7 @@ ARFLAGS:=rv
 RANLIB:=ranlib
 CP:=cp -pv
 RM:=rm -fv
+PATCH:=patch
 MKDIR:=mkdir -pv
 RMDIR:=rm -rfv
 SED:=sed
