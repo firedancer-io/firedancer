@@ -10,3 +10,5 @@ src/ballet/http/fd_picohttpparser.c: src/ballet/http/picohttpparser.c src/ballet
 	$(RM) src/ballet/http/picohttpparsertemp.c
 
 $(OBJDIR)/obj/ballet/http/fd_picohttpparser.o: src/ballet/http/fd_picohttpparser.c
+
+$(call fuzz-test,fuzz_picohttpparser,fuzz_picohttpparser,fd_ballet fd_util)
