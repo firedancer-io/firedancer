@@ -4,14 +4,28 @@
 #include "../../../util/net/fd_ip4.h"
 
 #include <sched.h>
+#include <sys/wait.h>
 
 #define NAME "run-solana"
 
 extern void solana_validator_main( const char ** args );
 
+extern int * fd_log_private_shared_lock;
+
 int
 solana_labs_main( void * args ) {
   config_t * const config = args;
+
+  if( FD_UNLIKELY( config->development.debug_tile ) ) {
+    if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%d", getpid1() ));
+      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
+        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_log_private_shared_lock[1] = 0;
+    } else {
+      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
+    }
+  }
 
   ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_group_id_set( pid );
@@ -71,6 +85,7 @@ solana_labs_main( void * args ) {
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );
+  if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
   if( config->ledger.bigtable_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
   for( ulong i=0; i<config->ledger.account_indexes_cnt; i++ )

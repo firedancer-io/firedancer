@@ -812,7 +812,7 @@ main( int     argc,
     for( fd_feature_id_t const * id = fd_feature_iter_init();
                                      !fd_feature_iter_done( id );
                                  id = fd_feature_iter_next( id ) ) {
-      ulong activated_at = *fd_features_ptr_const( &slot_ctx->epoch_ctx->features, id );
+      ulong activated_at = fd_features_query( &slot_ctx->epoch_ctx->features, id );
       if( activated_at )
         FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
     }

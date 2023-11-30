@@ -25,8 +25,8 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
 
-  assert( !posix_memalign( (void **) &sip, sizeof(fd_siphash13_t), alignof(fd_siphash13_t) ) );
-  assert( !posix_memalign( (void **) &sip_fast, sizeof(fd_siphash13_t), alignof(fd_siphash13_t) ) );
+  assert( !posix_memalign( (void **) &sip,      alignof(fd_siphash13_t), sizeof(fd_siphash13_t) ) );
+  assert( !posix_memalign( (void **) &sip_fast, alignof(fd_siphash13_t), sizeof(fd_siphash13_t) ) );
 
   atexit( fuzz_exit );
   return 0;

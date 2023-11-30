@@ -201,10 +201,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
           FD_TEST( err==FD_BINCODE_SUCCESS );
           if( feature.has_activated_at ) {
             FD_LOG_DEBUG(( "Feature %32J activated at %lu (genesis)", acc->key.key, feature.activated_at ));
-            *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = feature.activated_at;
+            fd_features_set( &slot_ctx->epoch_ctx->features, found, feature.activated_at);
           } else {
             FD_LOG_DEBUG(( "Feature %32J not activated (genesis)", acc->key.key, feature.activated_at ));
-            *fd_features_ptr( &slot_ctx->epoch_ctx->features, found ) = ULONG_MAX;
+            fd_features_set( &slot_ctx->epoch_ctx->features, found, ULONG_MAX);
           }
         } FD_SCRATCH_SCOPE_END;
       }
@@ -1912,7 +1912,7 @@ int fd_global_import_solana_manifest( fd_exec_slot_ctx_t * slot_ctx,
 
 static void
 fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
-                    ulong *           f,
+                    fd_feature_id_t const * id,
                     uchar const       acct[ static 32 ] ) {
 
   FD_BORROWED_ACCOUNT_DECL(acct_rec);
@@ -1937,7 +1937,7 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
 
     if( feature->has_activated_at ) {
       FD_LOG_DEBUG(( "Feature %32J activated at %lu", acct, feature->activated_at ));
-      *f = feature->activated_at;
+      fd_features_set(&slot_ctx->epoch_ctx->features, id, feature->activated_at);
     }
     /* No need to call destroy, since we are using fd_scratch allocator. */
   } FD_SCRATCH_SCOPE_END;
@@ -1948,7 +1948,7 @@ fd_features_restore( fd_exec_slot_ctx_t * slot_ctx ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( slot_ctx, fd_features_ptr( &slot_ctx->epoch_ctx->features, id ), id->id.key );
+    fd_feature_restore( slot_ctx, id, id->id.key );
   }
 }
 

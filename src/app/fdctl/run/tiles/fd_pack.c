@@ -21,24 +21,73 @@
 #define BLOCK_DURATION_NS    (400UL*1000UL*1000UL)
 
 /* Right now with no batching in pack, we want to make sure we don't
-   produce more than about 400 microblocks.  Setting this to 8ms gives
-   us about 50 microblocks per bank.  TODO: adjust this. */
-#define MICROBLOCK_DURATION_NS (8L*1000L*1000L)
+   produce more than about 800 microblocks.  Setting this to 2ms gives
+   us about 200 microblocks per bank. */
+#define MICROBLOCK_DURATION_NS (2L*1000L*1000L)
 
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
 
-#define MAX_TXN_PER_MICROBLOCK (MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t))
-
-/* in bytes.  Defined this way to use the size field of mcache */
+/* in bytes.  Defined this way to use the size field of mcache.  This
+   only includes the transaction payload and the fd_txn_t portions of
+   the microblock, as all the other portions (hash, etc) are generated
+   by PoH later. */
 #define MAX_MICROBLOCK_SZ USHORT_MAX
 
-/* Each block is limited to 32k parity shreds.  At worst, a microblock
-   batch contains 67 parity shreds.  Right now, we're using one
-   microblock per microblock batch, giving 32k/67 microblocks.  However,
-   the PoH service can also produce empty microblocks for ticks, so we
-   subtract 64. */
-#define FD_PACK_MAX_MICROBLOCKS_PER_BLOCK 425UL
+#define MAX_TXN_PER_MICROBLOCK (MAX_MICROBLOCK_SZ/sizeof(fd_txn_p_t))
+
+/* In order not to couple things excessively, the definition for
+   POH_SHRED_MTU assumes this value is 31.  If it changes, update
+   POH_SHRED_MTU. */
+FD_STATIC_ASSERT( MAX_TXN_PER_MICROBLOCK==31UL, poh_shred_mtu );
+
+/* Each block is limited to 32k parity shreds.  At worst, the shred tile
+   generates 40 parity shreds per microblock (see #1 below).  We need to
+   adjust the parity shred count to account for the empty tick
+   microblocks which can be produced in the worst case, but that
+   consumes at most 64 parity shreds (see #2 below).  Thus, the limit of
+   the number of microblocks is (32*1024 - 64)/40 = 817.
+
+   Proof of #1: In the current mode of operation, the shredder only
+   produces microblock batches that fit in a single FEC set.  This means
+   that each FEC set contains an integral number of microblocks.  Since
+   each FEC set has at most 67 parity shreds, any FEC set containing >=
+   2 microblocks has at most 34 parity shreds per microblock, which
+   means we don't need to consider them further.  Thus, the only need to
+   consider the case where we have a single microblock in an FEC set.
+   In this case, the largest number of parity shreds comes from making
+   the largest possible microblock, which is achieved by
+   MAX_MICROBLOCK_SZ MTU-sized transactions.  This microblock has
+   31*1232=38192 B of transaction data, which means 38248B of microblock
+   data after being stamped by the PoH thread, putting it in the
+   975B/data shred and 1:1 data/parity shred buckets, giving 40 parity
+   shreds.
+
+   Proof of #2: In the worst case, the PoH thread can produce 64
+   microblocks with no transactions, one for each tick.  If these are
+   not part of the last FEC set in the block, then they're part of an
+   FEC set with at least HEADROOM bytes of data.  In that case, the
+   addition of 48B to an FEC set can cause the addition of at most 1
+   parity shred to the FEC set.  There is only one last FEC set, so even
+   if all 64 of these were somehow part of the last FEC set, it would
+   add at most 3072B to the last FEC set, which can add at most 4 parity
+   shreds.
+
+   Note that the number of parity shreds in each FEC set is always at
+   least as many as the number of data shreds, so we don't need to
+   consider the data shreds limit.
+
+   It's also possible to guarantee <= 32k parity shreds by bounding the
+   total data size.  That bound is 27,337,191 bytes, including the 48
+   byte overhead for each microblock.  This comes from taking 1057 of
+   the worst case FEC set we might produce (worst as in lowest rate of
+   bytes/parity shred) of 25871 bytes -> 31 parity shreds.  Both this
+   byte limit and the microblock limit are sufficient but not necessary,
+   i.e.  if either of these limits is satisfied, the block will have no
+   more than 32k parity shreds.  Interestingly, neither bound strictly
+   implies the other, but max microblocks is simpler, so we go with that
+   for now. */
+#define FD_PACK_MAX_MICROBLOCKS_PER_BLOCK 817UL
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -94,13 +143,13 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
-  ulong scratch_top = 0UL;
-  SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  SCRATCH_ALLOC( fd_rng_align(),           fd_rng_footprint() );
-  SCRATCH_ALLOC( fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
                                                      tile->pack.bank_tile_count,
                                                      MAX_TXN_PER_MICROBLOCK ) );
-  return fd_ulong_align_up( scratch_top, scratch_align() );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 FD_FN_CONST static inline void *
@@ -354,8 +403,8 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
 
-  ulong scratch_top = (ulong)scratch;
-  fd_pack_ctx_t * ctx = SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
 
   if( FD_UNLIKELY( !strcmp( tile->pack.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -379,13 +428,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, out_cnt, MAX_TXN_PER_MICROBLOCK );
 
-  ulong scratch_top = (ulong)scratch;
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t*)SCRATCH_ALLOC( alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  fd_rng_t *      rng = fd_rng_join( fd_rng_new( SCRATCH_ALLOC( fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  fd_rng_t *      rng = fd_rng_join( fd_rng_new( FD_SCRATCH_ALLOC_APPEND( l, fd_rng_align(), fd_rng_footprint() ), 0U, 0UL ) );
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
-  ctx->pack = fd_pack_join( fd_pack_new( SCRATCH_ALLOC( fd_pack_align(), pack_footprint ), tile->pack.max_pending_transactions,
-                                                        out_cnt, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
+  ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
+                                         tile->pack.max_pending_transactions, out_cnt, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   ctx->cur_spot = NULL;
@@ -426,6 +475,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, out_cnt ));
 
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

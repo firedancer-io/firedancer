@@ -6,17 +6,18 @@
 #define SORT_BEFORE(a,b) (memcmp( (a).pubkey.uc, (b).pubkey.uc, 32UL )<0)
 #include "../../util/tmpl/fd_sort.c"
 
+/* We don't have or need real contact info for the local validator, but
+   we want to be able to distinguish it from staked nodes with no
+   contact info. */
+#define SELF_DUMMY_IP 1U
+
 void *
 fd_stake_ci_new( void             * mem,
                 fd_pubkey_t const * identity_key ) {
   fd_stake_ci_t * info = (fd_stake_ci_t *)mem;
 
-  if( FD_UNLIKELY( MAX_SHRED_DEST_FOOTPRINT != fd_shred_dest_footprint( MAX_SHRED_DESTS ) ) )
-    FD_LOG_ERR(( "MAX_SHRED_DEST_FOOTPRINT should be set to %lu", fd_shred_dest_footprint( MAX_SHRED_DESTS ) ));
-
-
   fd_stake_weight_t dummy_stakes[ 1 ] = {{ .key = {{0}}, .stake = 1UL }};
-  fd_shred_dest_weighted_t dummy_dests[ 1 ] = {{ .pubkey = *identity_key }};
+  fd_shred_dest_weighted_t dummy_dests[ 1 ] = {{ .pubkey = *identity_key, .ip4 = SELF_DUMMY_IP }};
 
   /* Initialize first 2 to satisfy invariants */
   info->stake_weight[ 0 ] = dummy_stakes[ 0 ];
@@ -82,6 +83,10 @@ log_summary( char const * msg, fd_stake_ci_t * info ) {
 #endif
 }
 
+#define SET_NAME unhit_set
+#define SET_MAX  MAX_SHRED_DESTS
+#include "../../util/tmpl/fd_set.c"
+
 void
 fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   /* The grossness here is a sign our abstractions are wrong and need to
@@ -92,10 +97,19 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
   ulong staked_cnt             = info->scratch->staked_cnt;
 
   /* Just take the first one arbitrarily because they both have the same
-     contact info. */
-  fd_shred_dest_t * existing_sdest        = info->epoch_info->sdest;
-  ulong             existing_staked_cnt   = fd_shred_dest_cnt_staked( existing_sdest );
-  ulong             existing_unstaked_cnt = fd_shred_dest_cnt_unstaked( existing_sdest );
+     contact info, other than possibly some staked nodes with no contact
+     info. */
+  fd_shred_dest_t * existing_sdest    = info->epoch_info->sdest;
+  ulong             existing_dest_cnt = fd_shred_dest_cnt_all( existing_sdest );
+
+  /* Keep track of the destinations in existing_sdest that are not
+     staked in this new epoch, i.e. the ones we don't hit in the loop
+     below. */
+  unhit_set_t _unhit[ unhit_set_word_cnt ];
+  /* This memsets to 0, right before we memset to 1, and is probably
+     unnecessary, but using it without joining seems like a hack. */
+  unhit_set_t * unhit = unhit_set_join( unhit_set_new( _unhit ) );
+  unhit_set_full( unhit );
 
   for( ulong i=0UL; i<staked_cnt; i++ ) {
     fd_shred_dest_idx_t old_idx = fd_shred_dest_pubkey_to_idx( existing_sdest, &(info->stake_weight[ i ].key) );
@@ -104,25 +118,36 @@ fd_stake_ci_stake_msg_fini( fd_stake_ci_t * info ) {
     if( FD_UNLIKELY( old_idx==FD_SHRED_DEST_NO_DEST ) ) {
       /* We got the generic empty entry, so fixup the pubkey */
       info->shred_dest[ i ].pubkey = info->stake_weight[ i ].key;
-    } else if( FD_UNLIKELY( old_idx >= existing_staked_cnt ) ) {
-      /* This was known and unstaked in the existing epoch, but is now
-         staked.  We have to be careful not to add it to the unstaked
-         list for this epoch.  Temporarily mark it so that we know to
-         skip it and unmark it later. */
-      in_prev->stake_lamports = 1UL;
+    } else {
+      unhit_set_remove( unhit, old_idx );
     }
     info->shred_dest[ i ].stake_lamports = info->stake_weight[ i ].stake;
   }
-  /* Now we have to copy over all the unstaked nodes */
 
+  int any_destaked = 0;
   ulong j = staked_cnt;
-  for( ulong unstaked_idx=0UL; unstaked_idx<existing_unstaked_cnt; unstaked_idx++ ) {
-    fd_shred_dest_weighted_t * in_prev = fd_shred_dest_idx_to_dest( existing_sdest, (fd_shred_dest_idx_t)(existing_staked_cnt + unstaked_idx) );
-    if( FD_UNLIKELY( in_prev->stake_lamports ) ) {
-      in_prev->stake_lamports = 0UL;
-    } else if( FD_LIKELY( j<MAX_SHRED_DESTS ) ) {
-      info->shred_dest[ j++ ] = *in_prev;
-    } /* don't break because we need to finish unmarking any */
+  for( ulong idx=unhit_set_iter_init( unhit ); (idx<existing_dest_cnt) & (!unhit_set_iter_done( idx )) & (j<MAX_SHRED_DESTS);
+             idx=unhit_set_iter_next( unhit, idx ) ) {
+    fd_shred_dest_weighted_t * in_prev = fd_shred_dest_idx_to_dest( existing_sdest, (fd_shred_dest_idx_t)idx );
+    if( FD_LIKELY( in_prev->ip4 ) ) {
+      info->shred_dest[ j ] = *in_prev;
+      any_destaked |= (in_prev->stake_lamports > 0UL);
+      info->shred_dest[ j ].stake_lamports = 0UL;
+      j++;
+    }
+  }
+
+  unhit_set_delete( unhit_set_leave( unhit ) );
+
+  if( FD_UNLIKELY( any_destaked ) ) {
+    /* The unstaked list might be a little out of order because the
+       destinations that were previously staked will be at the start of
+       the unstaked list, sorted by their previous stake, instead of
+       where they should be.  If there weren't any destaked, then the
+       only unstaked nodes come from the previous list, which we know
+       was in order, perhaps skipping some, which doesn't ruin the
+       order. */
+    sort_pubkey_inplace( info->shred_dest + staked_cnt, j - staked_cnt );
   }
 
   /* Now we have a plausible shred_dest list. */
@@ -221,7 +246,7 @@ fd_stake_ci_dest_add_fini( fd_stake_ci_t * info,
   /* The Rust side uses tvu_peers which excludes the local validator.
      Add the local validator back. */
   FD_TEST( cnt<MAX_SHRED_DESTS );
-  fd_shred_dest_weighted_t self_dests[ 1 ] = {{ .pubkey = info->identity_key[ 0 ] }};
+  fd_shred_dest_weighted_t self_dests[ 1 ] = {{ .pubkey = info->identity_key[ 0 ], .ip4 = SELF_DUMMY_IP }};
   info->shred_dest[ cnt++ ] = self_dests[ 0 ];
 
   /* Update both of them */

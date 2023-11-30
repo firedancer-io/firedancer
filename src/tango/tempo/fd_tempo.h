@@ -30,6 +30,18 @@ fd_tempo_wallclock_model( double * opt_tau );
 double
 fd_tempo_tickcount_model( double * opt_tau );
 
+/* fd_tempo_set_tick_per_ns explicitly sets the return values of
+   fd_tempo_tick_per_ns below, subsequent calls to that function will
+   return the values given here.
+   
+   These should not be arbitrarily provided, and this function is here
+   primarily to enable different processes to synchronize their
+   tick_per_ns value. */
+
+void
+fd_tempo_set_tick_per_ns( double _mu,
+                          double _sigma );
+
 /* fd_tempo_tick_per_ns is the same as the above but gives an estimate
    of the rate fd_tickcount() ticks relative to fd_log_wallclock() (this
    is in Ghz).  The returned value is the observed rate when

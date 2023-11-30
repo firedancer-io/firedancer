@@ -195,6 +195,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
   fd_quic_config_t *server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
+  server_config->retry = 1;
 
   server_quic->cb.now = test_clock;
   server_quic->cb.now_ctx = NULL;

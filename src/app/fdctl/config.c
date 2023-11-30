@@ -9,12 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
 #include <net/if.h>
 #include <linux/if.h>
 #include <arpa/inet.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/utsname.h>
 
 FD_IMPORT_CSTR( default_config, "src/app/fdctl/config/default.toml" );
 
@@ -215,6 +216,7 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
+  ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
@@ -479,6 +481,7 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_SHRED   }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_STORE  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STAKE_OUT    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC_IN    }; wksp_cnt++;
 
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NET    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX }; wksp_cnt++;
@@ -489,6 +492,7 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK   }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -512,14 +516,14 @@ topo_initialize( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0,                      1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, 0,                      config->tiles.quic.txn_reassembly_count );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_STAKE_TO_OUT,    FD_TOPO_WKSP_KIND_STAKE_OUT,    128UL,                                    32UL + 40200UL * 40UL,  1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    FD_POH_SHRED_MTU,       1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
@@ -752,9 +756,11 @@ config_parse( int *      pargc,
     strncpy( config->user, user, 256 );
   }
 
-  if( FD_UNLIKELY( -1==gethostname( config->hostname, FD_LOG_NAME_MAX ) ) )
-    FD_LOG_ERR(( "could not get hostname (%i-%s)", errno, fd_io_strerror( errno ) ));
-  config->hostname[ FD_LOG_NAME_MAX-1UL ] = '\0';
+  struct utsname utsname;
+  if( FD_UNLIKELY( -1==uname( &utsname ) ) )
+    FD_LOG_ERR(( "could not get uname (%i-%s)", errno, fd_io_strerror( errno ) ));
+  strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
+  config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
   if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
     int ifindex = internet_routing_interface();
@@ -790,11 +796,27 @@ config_parse( int *      pargc,
     if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
     uint iface_ip = listen_address( config->tiles.net.interface );
-    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && config->is_live_cluster ) )
+    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
+      uint gossip_ip_addr = iface_ip;
+      int  has_gossip_ip4 = 0;
+      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
+        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+      }
+      if ( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                     "transactions, but it is part of a private network and will not be routable "
+                     "for other Solana network nodes.",
+                     FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    } else if ( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
       FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                   "but it has IPv4 address " FD_IP4_ADDR_FMT " "
-                   "which is part of a private network and will not be routable for other Solana network nodes.", 
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                   "and will not be routable for other Solana network nodes. If you are running "
+                   "behind a NAT and this interface is publicly reachable, you can continue by "
+                   "manually specifying the IP address to advertise in your configuration under "
+                   "[gossip.host].",
                    config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    }
 
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
@@ -916,6 +938,7 @@ config_parse( int *      pargc,
         tile->net.xdp_aio_depth = config->tiles.net.xdp_aio_depth;
         tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
         tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
+        tile->net.src_ip_addr      = config->tiles.net.ip_addr;
         tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
         tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
         tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
@@ -924,6 +947,7 @@ config_parse( int *      pargc,
         break;
       case FD_TOPO_TILE_KIND_QUIC:
         tile->quic.depth = config->topo.links[ tile->out_link_id_primary ].depth;
+        tile->quic.reasm_cnt = config->tiles.quic.txn_reassembly_count;
         tile->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
         tile->quic.max_concurrent_handshakes = config->tiles.quic.max_concurrent_handshakes;
         tile->quic.max_inflight_quic_packets = config->tiles.quic.max_inflight_quic_packets;

@@ -12,8 +12,8 @@ fn main() {
 
     let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
         (
-            "linux_clang_x86_64_fuzz_asan",
-            out_dir.join("build/linux/clang/fuzz_asan"),
+            "native_fuzz_asan",
+            out_dir.join("build/native/fuzz_asan"),
         )
     } else {
         ("native_ffi", out_dir.join("build/linux/gcc/x86_64_ffi"))
@@ -175,7 +175,6 @@ fn main() {
             .arg(format!("{}/lib/libfd_{lib}.a", build_dir.display()))
             .current_dir(&dir.join(prefix))
             .env("MACHINE", machine)
-            .env("CC", "gcc") // Always use GCC for building FFI
             .env("BASEDIR", out_dir.join("build"));
 
         let key = format!("{}_STATIC_EXTERN_OBJECT", lib.to_uppercase());

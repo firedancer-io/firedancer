@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/random.h>
 
 /* fd_shmem_private_key converts the cstr pointed to by name into a
    valid key and stores it at the location pointed to by key assumed
@@ -72,6 +73,65 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
     if( ((!fd_shmem_private_map_key_inval( map[slot_idx].key )) & (a1>=j0) & (a0<=j1)) ) return &map[slot_idx];
   }
   return def;
+}
+
+/*
+ * fd_shmem_private_grab_region will attempt to map a region at the passed 
+ * address with the passed size. If the return value of `mmap` equals the 
+ * passed address this means the area of memory was unmapped previously and
+ * we have succesfully "grabbed" the region. We can then call `mmap` with 
+ * MAP_FIXED over the region and be certain no corruption occurs. If the 
+ * return value of `mmap` does not return the passed address this means that 
+ * the passed region is already atleast partially mapped and we cannot grab it.
+ */
+static int
+fd_shmem_private_grab_region( ulong addr,
+                              ulong size ) {
+  void *mmap_ret;
+  int err;
+
+  mmap_ret = mmap( (void*)addr, size, PROT_READ, MAP_ANON|MAP_PRIVATE, -1, 0 );
+
+  if( mmap_ret == MAP_FAILED )
+    return 0;
+
+  /* Only call munmap on failure case. On success we want to keep the mapping */
+  if( (ulong)mmap_ret != addr ) {
+    err = munmap( mmap_ret, size );
+    if ( err == -1 ) {
+      FD_LOG_ERR(( "failed to unmap temporary mapping, munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    return 0;
+  }
+
+  return 1;
+}
+
+static ulong
+fd_shmem_private_get_random_mappable_addr( ulong size, 
+                                           ulong page_size ) {
+  ulong ret_addr = 0;
+
+  /* Failure is unlikely, 1000 iterations should guarantee success */
+  for( ulong i = 0; i < 1000; i++ ) {
+    long n = getrandom( &ret_addr, sizeof(ret_addr), 0 );
+    if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* The type of region determines the alignment we need for the region */
+    if( page_size == FD_SHMEM_GIGANTIC_PAGE_SZ ) 
+      ret_addr &= FD_SHMEM_PRIVATE_MMAP_GIGANTIC_MASK;
+    else if( page_size == FD_SHMEM_HUGE_PAGE_SZ )
+      ret_addr &= FD_SHMEM_PRIVATE_MMAP_HUGE_MASK;
+    else
+      ret_addr &= FD_SHMEM_PRIVATE_MMAP_NORMAL_MASK;
+
+    if( fd_shmem_private_grab_region( ret_addr, size ) ) {
+      return ret_addr;
+    }
+  }
+  
+  FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
+  return (ulong)MAP_FAILED;
 }
 
 static fd_shmem_join_info_t fd_shmem_private_map[ FD_SHMEM_PRIVATE_MAP_SLOT_CNT ]; /* Empty on thread group start */
@@ -145,8 +205,13 @@ fd_shmem_join( char const *               name,
     FD_LOG_WARNING(( "open(\"%s\",%s,0) failed (%i-%s)", path, rw ? "O_RDWR" : "O_RDONLY", errno, fd_io_strerror( errno ) ));
     return NULL;
   }
+
+  /* Generate a random address that we are guaranteed to be able to map */
+  ulong rand_addr = fd_shmem_private_get_random_mappable_addr( sz, page_sz );
+
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
-  void * shmem = mmap( NULL, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED, fd, (off_t)0 );
+  void * shmem = mmap( (void*)rand_addr, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED | MAP_FIXED, fd, (off_t)0 );
+  
   int mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
@@ -154,9 +219,6 @@ fd_shmem_join( char const *               name,
   /* Validate the mapping */
 
   if( FD_UNLIKELY( shmem==MAP_FAILED ) ) {
-    if( FD_UNLIKELY( munmap( shmem, sz ) ) )
-      FD_LOG_WARNING(( "munmap(\"%s\",%lu KiB) failed (%i-%s); attempting to continue",
-                       path, sz>>10, errno, fd_io_strerror( errno ) ));
     FD_SHMEM_UNLOCK;
     FD_LOG_WARNING(( "mmap(NULL,%lu KiB,%s,MAP_SHARED,\"%s\",0) failed (%i-%s)",
                      sz>>10, rw ? "PROT_READ|PROT_WRITE" : "PROT_READ", path, mmap_errno, fd_io_strerror( mmap_errno ) ));

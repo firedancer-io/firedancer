@@ -1,11 +1,11 @@
 PYTHON?=python3
-UNCRUSTIFY?=uncrustify
 BLACK?=$(PYTHON) -m black
 
-features.h features.c: gen_features.py $(wildcard *.json)
-	$(PYTHON) gen_features.py fd_features.h fd_features.c
-	$(UNCRUSTIFY) -c ../../../contrib/lint.cfg --no-backup --replace fd_features.h
-	$(UNCRUSTIFY) -c ../../../contrib/lint.cfg --no-backup --replace fd_features.c
+.PHONY: generate
+generate: fd_features_generated.h fd_features_generated.c
+
+fd_features_generated.h fd_features_generated.c: gen_features.py feature_map.json
+	$(PYTHON) gen_features.py
 
 .PHONY: format
 format:

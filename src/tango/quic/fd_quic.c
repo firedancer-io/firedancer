@@ -569,7 +569,8 @@ fd_quic_reconstruct_pkt_num( ulong * pkt_number,
 
 /* set a connection to aborted, and set a reason code */
 void
-fd_quic_conn_error( fd_quic_conn_t * conn, uint reason ) {
+fd_quic_conn_error( fd_quic_conn_t * conn,
+                    uint             reason ) {
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_DEAD ) ) return;
 
   FD_LOG_WARNING(( "Connection terminating with reason code %u", reason ));
@@ -1229,13 +1230,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
          closed.  (Mitigates UDP amplification) */
 
       if( pkt->datagram_sz < FD_QUIC_INITIAL_PAYLOAD_SZ_MIN ) {
-        if( conn ) {
-          /* This allows attackers to reset non-initialize */
-          conn->state  = FD_QUIC_CONN_STATE_ABORT;
-          conn->reason = FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION;
-          FD_LOG_WARNING(( "Protocol violation: small packet" ));
-          /* FIXME Reschedule */
-        }
         /* FIXME Arguably no need to inform client of misbehavior */
         return FD_QUIC_PARSE_FAIL;
       }
@@ -1456,9 +1450,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
            (which is also an initial packet). */
         if( FD_UNLIKELY( initial->token_len != FD_QUIC_RETRY_TOKEN_SZ ) ) {
           quic->metrics.conn_err_retry_fail_cnt++;
-          /* The server SHOULD immediately close (Section 10.2) the connection
-             with an INVALID_TOKEN error */
-          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
+          /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         }
 
@@ -1472,7 +1464,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong issued;
         if (FD_UNLIKELY(fd_quic_retry_token_decrypt((uchar *) initial->token, &retry_src_conn_id, dst_ip_addr, dst_udp_port, &retry_odcid, &issued))) {
           quic->metrics.conn_err_retry_fail_cnt++;
-          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
+          /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         };
         tp->original_destination_connection_id_len     = retry_odcid.sz;
@@ -1482,7 +1474,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         ulong now = fd_quic_now(quic);
         if ( FD_UNLIKELY( now < issued || ( now - issued ) > FD_QUIC_RETRY_TOKEN_LIFETIME ) ) {
           quic->metrics.conn_err_retry_fail_cnt++;
-          fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INVALID_TOKEN );
+          /* No need to set conn error, no conn object exists */
           return FD_QUIC_PARSE_FAIL;
         }
         quic->metrics.conn_retry_cnt++;

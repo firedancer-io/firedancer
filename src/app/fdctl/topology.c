@@ -2,6 +2,7 @@
 
 #include "run/tiles/tiles.h"
 #include "../../disco/fd_disco_base.h"
+#include "../../disco/quic/fd_tpu.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
@@ -48,6 +49,9 @@ tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
 
   fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
   if( FD_UNLIKELY( tile_wksp->id == wksp_id ) ) return 1;
+
+  /* Every tile needs to collect metrics, but there is no link involved. */
+  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) return 1;
 
   return 0;
 }
@@ -149,6 +153,13 @@ static void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         ulong            mode ) {
+
+# define SCRATCH_ALLOC( a, s ) (__extension__({                   \
+    ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
+    scratch_top = _scratch_alloc + (s);                           \
+    (void *)_scratch_alloc;                                       \
+  }))
+
   /* Our first (and only) allocation is always at gaddr_lo in the workspace. */
   ulong scratch_top = 0UL;
   if( FD_LIKELY( mode != FD_TOPO_FILL_MODE_FOOTPRINT ) )
@@ -179,17 +190,6 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ i ];
     if( FD_LIKELY( link->wksp_id!=wksp->id ) ) continue;
 
-    ulong dcache_app_sz = 0UL;
-    switch( link->kind ) {
-      case FD_TOPO_LINK_KIND_QUIC_TO_VERIFY:
-        /* The QUIC tile stashes some information in the dcache app region, this
-            should probably be changed. */
-        dcache_app_sz = fd_quic_dcache_app_footprint( link->depth );
-        break;
-      default:
-        break;
-    }
-
     void * mcache = SCRATCH_ALLOC( fd_mcache_align(), fd_mcache_footprint( link->depth, 0UL ) );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
       snprintf1( path, sizeof(path), "mcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
@@ -198,15 +198,29 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       link->mcache = fd_mcache_join( mcache );
       if( FD_UNLIKELY( !link->mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
     }
-  
+
     if( FD_LIKELY( link->mtu ) ) {
-      void * dcache = SCRATCH_ALLOC( fd_dcache_align(), fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), dcache_app_sz ) );
+      void * dcache = SCRATCH_ALLOC( fd_dcache_align(), fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
         snprintf1( path, sizeof(path), "dcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
-        INSERT_POD( path, fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), dcache_app_sz ) );
+        INSERT_POD( path, fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_dcache_join( dcache );
         if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
+      }
+    }
+
+    if( FD_LIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      FD_TEST( !link->mtu );
+      void * reasm = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( link->depth, link->burst ) );
+      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+        fd_frag_meta_t * joined_mcache = fd_mcache_join( mcache );
+        snprintf1( path, sizeof(path), "reasm_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
+        INSERT_POD( path, fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL, joined_mcache ) );
+        fd_mcache_leave( joined_mcache );
+      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+        link->dcache = fd_tpu_reasm_join( reasm );
+        if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_tpu_reasm_join failed" ));
       }
     }
   }
@@ -230,7 +244,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       }
     }
 
-    if( FD_UNLIKELY( wksp->id == FD_TOPO_WKSP_KIND_PACK_BANK && tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
+    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_PACK_BANK && tile->kind==FD_TOPO_TILE_KIND_PACK ) ) {
       ulong bank_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
       FD_TEST( bank_cnt == fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK ) );
       FD_TEST( bank_cnt < sizeof( tile->extra ) );
@@ -245,16 +259,27 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
         }
       }
     }
+
+    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
+      ulong * metrics = SCRATCH_ALLOC( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT() );
+      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+        snprintf1( path, sizeof(path), "metrics_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+        INSERT_POD( path, fd_metrics_new( metrics ) );
+      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+        tile->metrics = fd_metrics_join( metrics );
+        if( FD_UNLIKELY( !tile->metrics ) ) FD_LOG_ERR(( "fd_metrics_join failed" ));
+      }
+    }
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
 
-    void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( FD_CNC_APP_SZ ) );
+    void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
       snprintf1( path, sizeof(path), "cnc_%lu", tile->kind_id );
-      INSERT_POD( path, fd_cnc_new( cnc, FD_CNC_APP_SZ, 0, fd_tickcount() ) );
+      INSERT_POD( path, fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
     } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
       tile->cnc = fd_cnc_join( cnc );
       if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -288,7 +313,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
-  if( FD_LIKELY( mode == FD_TOPO_FILL_MODE_FOOTPRINT ) ) {
+  if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_FOOTPRINT ) ) {
     ulong loose_sz = 0UL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -336,6 +361,8 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     wksp->page_sz = page_sz;
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
+
+# undef SCRATCH_ALLOC
 }
 
 void
@@ -372,7 +399,7 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t * tile ) {
     /* Shred and pack tiles use 5 normal pages to hold key material. */
     key_pages = 5UL;
   }
-  
+
   /* All tiles lock one normal page for the fd_log shared lock. */
   return key_pages + 1UL;
 }
@@ -734,7 +761,11 @@ fd_topo_print_log( int         stdout,
     fd_topo_link_t * link = &topo->links[ i ];
 
     char size[ 24 ];
-    fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
+    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+      fd_topo_mem_sz_string( fd_tpu_reasm_footprint( link->depth, link->burst ), size );
+    } else {
+      fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
+    }
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 

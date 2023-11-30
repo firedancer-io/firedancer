@@ -21,6 +21,8 @@ static const char * params[] = {
   "/proc/sys/net/core/bpf_jit_enable",
   "/proc/sys/fs/file-max",
   "/proc/sys/fs/nr_open",
+  "/proc/sys/net/ipv4/conf/lo/rp_filter",
+  "/proc/sys/net/ipv4/conf/lo/accept_local",
 };
 
 static uint limits[] = {
@@ -32,6 +34,8 @@ static uint limits[] = {
   1,
   CONFIGURE_NR_OPEN_FILES,
   CONFIGURE_NR_OPEN_FILES,
+  2,
+  1,
 };
 
 static const char * ERR_MSG = "system might not support configuring sysctl,";

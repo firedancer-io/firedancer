@@ -155,6 +155,8 @@ execve_tile( fd_topo_tile_t * tile,
   return 0;
 }
 
+extern int * fd_log_private_shared_lock;
+
 int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
@@ -186,11 +188,11 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( affinity_tile_cnt<tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
                                                                "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
                                                                "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                                                               config->topo.tile_cnt, affinity_tile_cnt ));
+                                                               tile_cnt, affinity_tile_cnt ));
   if( FD_UNLIKELY( affinity_tile_cnt>tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
                                                                    "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
                                                                    "individual tile counts in the [layout] section of the configuration file.",
-                                                                    config->topo.tile_cnt, affinity_tile_cnt ));
+                                                                    tile_cnt, affinity_tile_cnt ));
 
   /* Save the current affinity, it will be restored after creating any child tiles */
   cpu_set_t floating_cpu_set[1];
@@ -202,6 +204,10 @@ main_pid_namespace( void * _args ) {
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
   int config_memfd = config_write_memfd( config );
+
+  if( FD_UNLIKELY( config->development.debug_tile ) ) {
+    fd_log_private_shared_lock[1] = 1;
+  }
 
   ulong child_cnt = 0UL;
   if( FD_LIKELY( !config->development.no_solana_labs ) ) {

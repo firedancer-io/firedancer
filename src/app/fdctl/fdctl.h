@@ -33,9 +33,10 @@ typedef union {
   } configure;
 
   struct {
-    int monitor;
-    int no_configure;
-    int no_solana_labs;
+    int  monitor;
+    int  no_configure;
+    int  no_solana_labs;
+    char debug_tile[ 32 ];
   } dev;
 
   struct {
@@ -44,8 +45,9 @@ typedef union {
   } dev1;
 
   struct {
-    ulong key_type;
-  } keygen;
+    ulong cmd;
+    char  file_path[ 256 ];
+  } keys;
 
   struct {
     const char * payload_base64;
@@ -128,13 +130,13 @@ monitor_cmd_fn( args_t *         args,
                 config_t * const config );
 
 void
-keygen_cmd_args( int *    pargc,
-                 char *** pargv,
-                 args_t * args );
+keys_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args );
 
 void
-keygen_cmd_fn( args_t *         args,
-               config_t * const config );
+keys_cmd_fn( args_t *         args,
+             config_t * const config );
 
 void
 ready_cmd_fn( args_t *         args,
