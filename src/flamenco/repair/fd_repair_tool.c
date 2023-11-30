@@ -3,6 +3,8 @@
    export RUST_LOG=solana_repair=TRACE
    cargo run --bin solana-test-validator
 
+   build/native/gcc/bin/fd_repair_tool --peer_id 75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ --slot 1533 --idx 0
+   
  **/
 
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
@@ -107,7 +109,7 @@ resolve_hostport(const char* str /* host:port */, fd_repair_peer_addr_t * res) {
 }
 
 static int
-main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopflag ) {
+main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopflag ) {
   int fd;
   if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
     FD_LOG_ERR(("socket failed: %s", strerror(errno)));
@@ -133,13 +135,25 @@ main_loop( fd_repair_t * glob, fd_repair_config_t * config, volatile int * stopf
   fd_repair_settime(glob, fd_log_wallclock());
   fd_repair_start(glob);
 
+  char const * id_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--peer_id", NULL, NULL );
+  if ( id_cstr == NULL )
+    FD_LOG_ERR(("--peer_id command line argument required"));
   fd_pubkey_t id;
-  fd_base58_decode_32("75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ", id.uc);
+  fd_base58_decode_32(id_cstr, id.uc);
+  char const * addr_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--peer_addr", NULL, "127.0.0.1:1032" );
   fd_repair_peer_addr_t peeraddr;
-  if ( fd_repair_add_active_peer(glob, resolve_hostport("127.0.0.1:1032", &peeraddr), &id) )
+  if ( fd_repair_add_active_peer(glob, resolve_hostport(addr_cstr, &peeraddr), &id) )
     return -1;
 
-  if ( fd_repair_need_window_index(glob, 676, 0) )
+  char const * slot_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--slot", NULL, NULL );
+  if ( slot_cstr == NULL )
+    FD_LOG_ERR(("--slot command line argument required"));
+  ulong slot = strtoul(slot_cstr, NULL, 10);
+  char const * idx_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--idx", NULL, NULL );
+  if ( idx_cstr == NULL )
+    FD_LOG_ERR(("--idx command line argument required"));
+  ulong idx = strtoul(idx_cstr, NULL, 10);
+  if ( fd_repair_need_window_index(glob, slot, (uint)idx) )
     return -1;
 
 #define VLEN 32U
@@ -215,7 +229,8 @@ int main(int argc, char **argv) {
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
 
-  FD_TEST( resolve_hostport(":1125", &config.my_addr) );
+  char const * my_addr = fd_env_strip_cmdline_cstr ( &argc, &argv, "--my_addr", NULL, ":1125");
+  FD_TEST( resolve_hostport(my_addr, &config.my_addr) );
 
   config.deliver_fun = recv_shred;
   config.send_fun = send_packet;
@@ -231,7 +246,7 @@ int main(int argc, char **argv) {
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
-  if ( main_loop(glob, &config, &stopflag) )
+  if ( main_loop(&argc, &argv, glob, &config, &stopflag) )
     return 1;
 
   fd_valloc_free(valloc, fd_repair_delete(fd_repair_leave(glob), valloc));
