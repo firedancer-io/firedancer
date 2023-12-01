@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "picohttpparser.h"
 
 int
@@ -48,6 +49,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         headers, &header_cnt, 0UL );
 
     if( res==0 ) {
+      FD_FUZZ_MUST_BE_COVERED;
       assert( method_len < size );
       assert( path_len   < size );
       assert( header_cnt <= HEADER_CAP );
@@ -55,6 +57,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
         assert( headers[i].name_len  < size );
         assert( headers[i].value_len < size );
       }
+    } else {
+      FD_FUZZ_MUST_BE_COVERED;
     }
   } while(0);
 
@@ -71,6 +75,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     int               ok = 0;
 
     for( ulong cursor=0UL; cursor<size; cursor++ ) {
+      FD_FUZZ_MUST_BE_COVERED;
       int res = phr_parse_request(
           (char const *)data + cursor, 1UL,
           &method, &method_len,
@@ -86,6 +91,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     }
 
     if( ok ) {
+      FD_FUZZ_MUST_BE_COVERED;
       assert( method_len < size );
       assert( path_len   < size );
       assert( header_cnt <= HEADER_CAP );
@@ -93,8 +99,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
         assert( headers[i].name_len  < size );
         assert( headers[i].value_len < size );
       }
+    } else {
+      FD_FUZZ_MUST_BE_COVERED;
     }
   } while(0);
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

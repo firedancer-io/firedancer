@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "../fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "./fd_pcapng_private.h"
 
 int
@@ -51,6 +52,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   };
 
   for(;;) {
+    FD_FUZZ_MUST_BE_COVERED;
     fd_pcapng_frame_t const * frame = fd_pcapng_iter_next( &iter );
     if( !frame ) break;
 
@@ -68,6 +70,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   }
 
   FD_TEST( 0==fclose( file ) );
+
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
 

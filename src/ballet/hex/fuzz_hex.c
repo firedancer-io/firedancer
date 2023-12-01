@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_hex.h"
 
 int
@@ -47,9 +49,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar decoded[ MAX_DECODED_SZ ];
   ulong decoded_sz = fd_hex_decode( decoded, encoded, size/2UL );
 
-  if( FD_UNLIKELY( decoded_sz!=( check_hex_encoding( encoded, size )/2UL ) ) ) {
-    __builtin_trap();
-  }
+  assert( decoded_sz == ( check_hex_encoding( encoded, size )/2UL ) );
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
