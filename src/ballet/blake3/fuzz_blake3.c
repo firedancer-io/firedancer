@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_blake3.h"
 
 int
@@ -28,29 +30,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar hash2[ 32 ] __attribute__((aligned(32)));
 
   fd_blake3_t sha[1];
-  if( FD_UNLIKELY( fd_blake3_init( sha )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_blake3_append( sha, msg, size )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_blake3_fini( sha, hash1 )!=hash1 ) ) {
-    __builtin_trap();
-  }
+  assert( fd_blake3_init( sha ) == sha );
+  assert( fd_blake3_append( sha, msg, size ) == sha );
+  assert( fd_blake3_fini( sha, hash1 ) == hash1 );
+  assert( fd_blake3_init( sha ) == sha );
+  assert( fd_blake3_append( sha, msg, size ) == sha );
+  assert( fd_blake3_fini( sha, hash2 ) == hash2 );
+  assert( !memcmp( hash1, hash2, 32UL ) );
 
-  if( FD_UNLIKELY( fd_blake3_init( sha )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_blake3_append( sha, msg, size )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_blake3_fini( sha, hash2 )!=hash2 ) ) {
-    __builtin_trap();
-  }
-
-  if( FD_UNLIKELY( memcmp( hash1, hash2, 32UL ) ) ) {
-    __builtin_trap();
-  }
-
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

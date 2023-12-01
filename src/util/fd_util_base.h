@@ -179,6 +179,12 @@
 #define FD_HAS_GFNI 0
 #endif
 
+/* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
+
+#ifndef FD_HAS_COVERAGE
+#define FD_HAS_COVERAGE 0
+#endif
+
 /* FD_HAS_FUZZ indicates that the build target is a fuzz target. */
 
 #ifndef FD_HAS_FUZZ

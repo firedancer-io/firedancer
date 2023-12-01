@@ -7,6 +7,8 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
+
 #include "fd_base64.h"
 
 /* fuzz_base64_enc verifies that decode(encode(x)) is the identity
@@ -48,5 +50,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   free( enc );
   free( dec );
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
