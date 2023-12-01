@@ -89,7 +89,7 @@ def eliminate_canaries_with_lcov(path_to_lcov, canaries):
             line = lcov.readline()
             if line == "":
                 break
-            
+
             if line.startswith("SF:"): # new source file context: track node if applicable
                 source_path = line[len(f"SF:{cwd}/"):].strip() # make path relative
                 node_of_interest = canaries.get(source_path, None)
