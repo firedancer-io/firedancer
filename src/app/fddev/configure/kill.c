@@ -111,7 +111,7 @@ wait_dead( long  started,
     if( FD_LIKELY( err==-1 && errno==ESRCH) ) return;
     else if( FD_LIKELY( err==-1 ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    if( FD_UNLIKELY( fd_log_wallclock() - started ) >= 1e9 )
+    if( FD_UNLIKELY( fd_log_wallclock() - started >= (long)1e9 ) )
       FD_LOG_ERR(( "waited too long for process to exit" ));
   }
 }
