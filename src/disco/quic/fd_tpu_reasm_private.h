@@ -31,7 +31,7 @@ slot_get_idx( fd_tpu_reasm_t const *      reasm,
 FD_FN_PURE static inline uchar *
 slot_get_data( fd_tpu_reasm_t * reasm,
                ulong            slot_idx ) {
-  return fd_tpu_reasm_chunks_laddr( reasm ) + (slot_idx << FD_CHUNK_LG_SZ);
+  return fd_tpu_reasm_chunks_laddr( reasm ) + (slot_idx * FD_TPU_REASM_MTU);
 }
 
 static FD_FN_UNUSED void
