@@ -458,6 +458,16 @@ fd_topo_join_tile_workspaces( char * const     app_name,
                               fd_topo_t *      topo,
                               fd_topo_tile_t * tile );
 
+/* Join (map into the process) the shared memory (huge/gigantic pages)
+   for the given workspace.  Mode is one of
+   FD_SHMEM_JOIN_MODE_READ_WRITE or FD_SHMEM_JOIN_MODE_READ_ONLY and
+   determines the prot argument that will be passed to mmap when mapping
+   the pages in (PROT_WRITE or PROT_READ respectively). */
+void
+fd_topo_join_workspace( char * const     app_name,
+                        fd_topo_wksp_t * wksp,
+                        int              mode );
+
 /* Join (map into the process) all shared memory (huge/gigantic pages)
    needed by all tiles in the topology.  Mode is one of
    FD_SHMEM_JOIN_MODE_READ_WRITE or FD_SHMEM_JOIN_MODE_READ_ONLY and
