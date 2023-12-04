@@ -15,7 +15,7 @@ uchar txn_scratch[ MAX_TEST_TXNS ][ FD_TXN_MAX_SZ ];
 uchar payload_scratch[ MAX_TEST_TXNS ][ DUMMY_PAYLOAD_MAX_SZ ];
 ulong payload_sz[ MAX_TEST_TXNS ];
 
-#define PACK_SCRATCH_SZ (128UL*1024UL*1024UL)
+#define PACK_SCRATCH_SZ (272UL*1024UL*1024UL)
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
