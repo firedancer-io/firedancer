@@ -373,6 +373,12 @@ fd_topo_link_kind_str( ulong kind ) {
   }
 }
 
+FD_FN_CONST static inline int
+fd_topo_tile_kind_is_labs( ulong kind ) {
+  return kind==FD_TOPO_TILE_KIND_BANK ||
+    kind==FD_TOPO_TILE_KIND_STORE;
+}
+
 /* Given a tile kind, one of FD_TOPO_TILE_KIND_*, produce a human
    readable string describing it.  This string does not uniquely
    identify a tile, since there can be multiple of each tile kind

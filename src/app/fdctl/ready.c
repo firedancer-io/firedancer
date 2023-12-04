@@ -16,8 +16,8 @@ ready_cmd_fn( args_t *         args,
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
     fd_topo_tile_t * tile = &config->topo.tiles[i];
 
-    /* don't wait for bank tiles yet, not a real firedancer tile */
-    if( tile->kind == FD_TOPO_TILE_KIND_BANK ) continue;
+    /* don't wait for solana labs hosted tiles yet, they will take a long time */
+    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
     
     int first_iter = 1;
     do {
