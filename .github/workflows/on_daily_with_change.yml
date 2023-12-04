@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Check date of last commit
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - id: should_run
         continue-on-error: true
         name: check latest commit is less than a day
