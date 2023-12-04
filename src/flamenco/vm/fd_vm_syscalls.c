@@ -822,7 +822,34 @@ fd_vm_syscall_sol_memmove(
 /* FD_CPI_MAX_SIGNER_CNT is the max amount of PDA signer addresses that
    a cross-program invocation can include in an instruction. */
 
-#define FD_CPI_MAX_SIGNER_CNT (16UL)
+#define FD_CPI_MAX_SIGNER_CNT              (16UL)
+
+/* Maximum number of account info structs that can be used in a single CPI
+   invocation. A limit on account info structs is effectively the same as
+   limiting the number of unique accounts. 128 was chosen to match the max
+   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS). */
+
+#define FD_CPI_MAX_ACCOUNT_INFOS           (FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit) ? 128UL : 64UL)
+
+/* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
+   instructions are not more limited than transaction instructions if the size
+   of transactions is doubled in the future. */
+
+#define FD_CPI_MAX_INSTRUCTION_DATA_LEN    (10240UL)
+
+/* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
+   accounts are always within the maximum instruction account limit for BPF
+   program instructions. */
+
+#define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
+
+/* Maximum number of seeds */
+
+#define FD_CPI_MAX_SEEDS                   (16UL)
+
+/* Maximum length of derived `Pubkey` seed */
+
+#define FD_CPI_MAX_SEED_LEN                (32UL)
 
 /* fd_vm_syscall_cpi_preflight_check contains common argument checks
    for cross-program invocations.
@@ -837,8 +864,6 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
                                    ulong acct_info_cnt,
                                    fd_exec_slot_ctx_t const * slot_ctx ) {
 
-  /* TODO use MAX_SIGNERS constant */
-
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     FD_LOG_WARNING(("TODO: return too many signers" ));
     return FD_VM_SYSCALL_ERR_INVAL;
@@ -846,10 +871,8 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
   if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
-    ulong MAX_CPI_ACCOUNT_INFOS = FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ) ? 128UL : 64UL;
-
-    if( FD_UNLIKELY( acct_info_cnt > MAX_CPI_ACCOUNT_INFOS ) ) {
-      FD_LOG_ERR(( "TODO: return max instruction account infos exceeded" ));
+    if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {      
+      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));      
       return FD_VM_SYSCALL_ERR_INVAL;
     }
   } else {
@@ -857,6 +880,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     if ( FD_UNLIKELY( adjusted_len > vm_compute_budget.max_cpi_instruction_size ) ) {
       // Cap the number of account_infos a caller can pass to approximate
       // maximum that accounts that could be passed in an instruction
+      // todo: correct return code type. Too many accounts passed to inner instruction.
       return FD_VM_SYSCALL_ERR_INVAL;
     }
   }
@@ -935,11 +959,11 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
                                      ulong                        data_sz ) {
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */                                
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( data_sz > 0x2800UL ) ) {
+    if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
       return FD_VM_SYSCALL_ERR_INVAL;
     }
-    if( FD_UNLIKELY( acct_cnt > 0xFFUL ) ) {
+    if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
       return FD_VM_SYSCALL_ERR_INVAL;
     }
@@ -1064,8 +1088,7 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
     FD_LOG_WARNING(( "FD_VM_SCDS B: %lu", i ));
 
     /* Check seed count (avoid overflow) */
-    /* TODO use constant */
-    if( FD_UNLIKELY( seeds[i].len > 16UL ) ) return FD_VM_SYSCALL_ERR_INVAL;
+    if( FD_UNLIKELY( seeds[i].len > FD_CPI_MAX_SEEDS ) ) return FD_VM_SYSCALL_ERR_INVAL;
 
     /* Translate inner seed slice.  Each element points to a byte array. */
     fd_vm_vec_t const * seed = fd_vm_translate_vm_to_host_const(
@@ -1160,6 +1183,10 @@ fd_vm_syscall_cpi_c(
       FD_VM_C_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
+    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+  }
+
   fd_vm_c_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const(
       ctx,
@@ -1179,10 +1206,6 @@ fd_vm_syscall_cpi_c(
 
   res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-
-  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
-    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
-  }
   
   /* Translate signers ************************************************/
 
@@ -1507,6 +1530,10 @@ fd_vm_syscall_cpi_rust(
       FD_VM_RUST_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
+  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
+    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+  }
+
     /* Translate signers ************************************************/
 
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
@@ -1532,10 +1559,6 @@ fd_vm_syscall_cpi_rust(
 
   res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
   if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-
-  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
-    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
-  }
 
   /* Translate account infos ******************************************/
 
@@ -1930,8 +1953,7 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
                               ulong                  seeds_cnt,
                               uchar *                bump_seed ) {
 
-  /* TODO use constant macro */
-  if( FD_UNLIKELY( seeds_cnt > 16UL ) ) return NULL;
+  if( FD_UNLIKELY( seeds_cnt > FD_CPI_MAX_SEEDS ) ) return NULL;
 
   /* Translate program ID address */
 
@@ -1965,7 +1987,7 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 
     /* Refuse to hash overlong parts */
 
-    if( FD_UNLIKELY( seeds[ i ].len > 32UL ) ) {
+    if( FD_UNLIKELY( seeds[ i ].len > FD_CPI_MAX_SEED_LEN ) ) {
       FD_LOG_DEBUG(("Seed %lu len %lu exceeded", i, seeds[i].len));
       return NULL;
     }
@@ -2100,7 +2122,7 @@ fd_vm_syscall_sol_try_find_program_address(
     fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
     uchar suffix[1] = {(uchar)(255UL - i)};
 
-    if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) ) {
+    if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) ) { 
       return FD_VM_MEM_MAP_ERR_ACC_VIO;
     }
 
