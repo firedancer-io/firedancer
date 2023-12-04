@@ -32,28 +32,34 @@ fd_topo_join_workspace( char * const     app_name,
 
 FD_FN_PURE static int
 tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
-  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
-    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
-  }
+  /* Tile needs read/write access to its own workspace for scratch space. */
+  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
+  if( FD_UNLIKELY( tile_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
 
+  /* Tile needs read/write access workspaces where it has an outgoing
+     link to write fragments. */
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
-    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
+    if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
   }
 
-  if( FD_LIKELY( tile->out_link_id_primary != ULONG_MAX ) ) {
+  if( FD_LIKELY( tile->out_link_id_primary!=ULONG_MAX ) ) {
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
-    if( FD_UNLIKELY( link_wksp->id == wksp_id ) ) return 1;
+    if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
   }
 
-  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
-  if( FD_UNLIKELY( tile_wksp->id == wksp_id ) ) return 1;
+  /* All tiles need to write metrics to the shared metrics workspace,
+     and return fseq objects are also placed here for convenience. */
+  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
 
-  /* Every tile needs to collect metrics, but there is no link involved. */
-  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) return 1;
+  /* Tiles only need readonly access to workspaces they consume links
+     from. */
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
+    if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_ONLY;
+  }
 
-  return 0;
+  return -1;
 }
 
 void
@@ -61,8 +67,10 @@ fd_topo_join_tile_workspaces( char * const     app_name,
                               fd_topo_t *      topo,
                               fd_topo_tile_t * tile ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
-      fd_topo_join_workspace( app_name, &topo->workspaces[ i ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    int needs_wksp = tile_needs_wksp( topo, tile, i );
+    if( FD_LIKELY( -1!=needs_wksp ) ) {
+      fd_topo_join_workspace( app_name, &topo->workspaces[ i ], needs_wksp );
+    }
   }
 }
 
@@ -228,22 +236,6 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
-      fd_topo_link_t * link = &topo->links[ tile->in_link_id[ j ] ];
-      if( FD_LIKELY( link->wksp_id!=wksp->id ) ) continue;
-
-      void * fseq = SCRATCH_ALLOC( fd_fseq_align(), fd_fseq_footprint() );
-      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-        snprintf1( path, sizeof(path), "fseq_%s_%lu_%s_%lu",
-                   fd_topo_link_kind_str( link->kind ), link->kind_id,
-                   fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
-        INSERT_POD( path, fd_fseq_new( fseq, 0UL ) );
-      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
-        tile->in_link_fseq[ j ] = fd_fseq_join( fseq );
-        if( FD_UNLIKELY( !tile->in_link_fseq[ j ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
-      }
-    }
-
     if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_PACK_BANK && tile->kind==FD_TOPO_TILE_KIND_PACK ) ) {
       ulong bank_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
       FD_TEST( bank_cnt == fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK ) );
@@ -261,6 +253,8 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
 
     if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
+      /* cnc object goes into the metrics workspace, so that monitor
+         applications only need to map this workspace as readonly. */
       void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
         snprintf1( path, sizeof(path), "cnc_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
@@ -268,6 +262,27 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         tile->cnc = fd_cnc_join( cnc );
         if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      }
+
+      /* All fseqs go into the metrics workspace.  You might want to put
+         these in the link workspace itself, but then tiles would need to
+         map input workspaces as read/write to update the fseq so it's
+         not good for security.  Instead, it's better to just place them
+         all in another workspace.  We use metrics because it's already
+         taking up a page in the TLB and writable by everyone anyway. */
+      for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+        fd_topo_link_t * link = &topo->links[ tile->in_link_id[ j ] ];
+
+        void * fseq = SCRATCH_ALLOC( fd_fseq_align(), fd_fseq_footprint() );
+        if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+          snprintf1( path, sizeof(path), "fseq_%s_%lu_%s_%lu",
+                    fd_topo_link_kind_str( link->kind ), link->kind_id,
+                    fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+          INSERT_POD( path, fd_fseq_new( fseq, 0UL ) );
+        } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+          tile->in_link_fseq[ j ] = fd_fseq_join( fseq );
+          if( FD_UNLIKELY( !tile->in_link_fseq[ j ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
+        }
       }
 
       ulong out_reliable_consumer_cnt = 0UL;
@@ -376,7 +391,7 @@ fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    ulong            mode ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
+    if( FD_UNLIKELY( -1!=tile_needs_wksp( topo, tile, i ) ) )
       fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode );
   }
 }
@@ -416,7 +431,7 @@ fd_topo_mlock_max_tile1( fd_topo_t *      topo,
   ulong tile_mem = 0UL;
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_UNLIKELY( tile_needs_wksp( topo, tile, i ) ) )
+    if( FD_UNLIKELY( -1!=tile_needs_wksp( topo, tile, i ) ) )
       tile_mem += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
 
