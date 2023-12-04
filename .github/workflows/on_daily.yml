@@ -29,7 +29,7 @@ jobs:
       - uses: ./.github/actions/hugepages
 
       - name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@v1'
+        uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
