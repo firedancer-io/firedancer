@@ -134,8 +134,8 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
    result.  In-place operation fine. */
 
 uchar *
-fd_ed25519_sc_reduce( uchar *       out, 
-                      uchar const * in );
+fd_ed25519_sc_reduce( uchar       out[ static 32 ],
+                      uchar const in [ static 64 ] );
 
 /* fd_ed25519_sc_muladd computes s = (a*b+c) mod l where a, b and c
    are 256-bit values.  a is stored in 32-byte little endian form and a

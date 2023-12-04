@@ -44,7 +44,24 @@ fd_ed25519_ge_p3_is_small_order( fd_ed25519_ge_p3_t * const p ) {
 
 uchar const *
 fd_ed25519_scalar_validate( uchar const s[ static 32 ] ) {
-  uchar r[ 32 ];
-  fd_ed25519_sc_reduce( r, s );
+  uchar r[ 64 ];
+  memset( r, 0, 64 );
+  memcpy( r, s, 32 );
+  fd_ed25519_sc_reduce( r, r );
   return (0==memcmp( r, s, 32 )) ? s : NULL;
+}
+
+fd_ed25519_point_t *
+fd_ed25519_multiscalar_mul( fd_ed25519_point_t *     h,
+                            uchar const              a[ /* n * 32 */ ],
+                            fd_ed25519_point_t const A[ /* n */ ],
+                            ulong const              n ) {
+  /* naive */
+  fd_ed25519_point_0( h );
+  for ( ulong i=0; i<n; i++ ) {
+    fd_ed25519_point_t g[1];
+    fd_ed25519_point_scalarmult( g, &a[32*i], &A[i] );
+    fd_ed25519_point_add( h, h, g );
+  }
+  return h;
 }

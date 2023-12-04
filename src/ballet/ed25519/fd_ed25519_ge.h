@@ -18,6 +18,7 @@
 
 #define FD_ED25519_POINT_ALIGN     ( 64UL)
 #define FD_ED25519_POINT_FOOTPRINT (256UL)
+#define FD_ED25519_SCALAR_FOOTPRINT (32UL)
 
 /* fd_ed25519_point_t is a opaque handle to an Ed25519 group element.
    User of this API must not read or write contents of this struct
@@ -78,6 +79,17 @@ fd_ed25519_point_t *
 fd_ed25519_point_scalarmult( fd_ed25519_point_t *       h,
                              uchar const                a[ static 32 ],
                              fd_ed25519_point_t const * A );
+
+/* fd_ed25519_multiscalar_mul computes a multi scalar multiplication (MSM).
+   Stores the result of `[a0]A0 + [a1]A1 + ... + [an]An` into h.
+   All scalars and points are expected to be valid.
+   Returns h. */
+
+fd_ed25519_point_t *
+fd_ed25519_multiscalar_mul( fd_ed25519_point_t *     h,
+                            uchar const              a[ /* n * 32 */ ],
+                            fd_ed25519_point_t const A[ /* n */ ],
+                            ulong const              n );
 
 FD_PROTOTYPES_END
 

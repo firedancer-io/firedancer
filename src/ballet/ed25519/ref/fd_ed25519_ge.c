@@ -605,8 +605,8 @@ fd_ed25519_point_scalarmult( fd_ed25519_point_t *       h_,
   for( i=255; i>=0; i-- ) if( aslide[i] ) break;
   for(      ; i>=0; i-- ) {
     fd_ed25519_ge_p2_dbl( t, r );
-    if(      aslide[i] > 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_add ( t, u, Ai        [  aslide[i]  / 2] ); }
-    else if( aslide[i] < 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_sub ( t, u, Ai        [(-aslide[i]) / 2] ); }
+    if(      aslide[i] > 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_add ( t, u, Ai[  aslide[i]  / 2] ); }
+    else if( aslide[i] < 0 ) { fd_ed25519_ge_p1p1_to_p3( u, t ); fd_ed25519_ge_sub ( t, u, Ai[(-aslide[i]) / 2] ); }
     fd_ed25519_ge_p1p1_to_p2( r, t );
   }
 
