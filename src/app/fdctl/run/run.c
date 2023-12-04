@@ -178,10 +178,10 @@ main_pid_namespace( void * _args ) {
       FD_LOG_ERR(( "prctl(PR_SET_CHILD_SUBREAPER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* Bank and store tiles are not real tiles yet. */
-  ulong tile_cnt = config->topo.tile_cnt
-    - fd_topo_tile_kind_cnt( &config->topo, FD_TOPO_TILE_KIND_BANK )
-    - fd_topo_tile_kind_cnt( &config->topo, FD_TOPO_TILE_KIND_STORE );
+  ulong tile_cnt = config->topo.tile_cnt;
+  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
+    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( config->topo.tiles[ i ].kind ) ) ) tile_cnt--;
+  }
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
@@ -227,7 +227,7 @@ main_pid_namespace( void * _args ) {
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_BANK || tile->kind == FD_TOPO_TILE_KIND_STORE ) ) continue;
+    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
