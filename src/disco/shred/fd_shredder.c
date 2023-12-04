@@ -109,7 +109,7 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
 
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
-                          void const * signing_private_key,
+                          fd_ed25519_keypair_t const * signing_keypair,
                           fd_fec_set_t * result ) {
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
@@ -215,7 +215,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   uchar * root = fd_bmtree_commit_fini( bmtree );
 
   /* Sign Merkle Root */
-  fd_ed25519_sign( root_signature, root, 32UL, shredder->leader_pubkey, signing_private_key, shredder->sha512 );
+  fd_ed25519_sign( root_signature, root, 32UL, signing_keypair, shredder->sha512 );
 
   /* Write signature and Merkle proof */
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {

@@ -1,5 +1,6 @@
 #include "fd_shredder.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 
 /* An entry batch of 64 entries with 20 transactions per entry takes up
@@ -13,8 +14,9 @@ uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
 uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 /* First 32B of what Solana calls the private key is what we call the
-   private key, second 32B are what we call the public key. */
-FD_IMPORT_BINARY( test_private_key, "src/disco/shred/fixtures/demo-shreds.key"  );
+   private key, second 32B are what we call the public key. 
+   Together they form a keypair. */
+FD_IMPORT_BINARY_CAST( test_keypair, "src/disco/shred/fixtures/demo-shreds.key", fd_ed25519_keypair_t );
 
 #if FD_HAS_HOSTED
 #include "../../util/net/fd_pcap.h"
@@ -27,7 +29,7 @@ fd_shredder_t _shredder[ 1 ];
 
 static void
 test_shredder_pcap( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, fd_ed25519_pubkey_from_keypair(test_keypair), (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   /* Manually counted values from the pcap */
@@ -53,7 +55,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_keypair, _set );
     FD_TEST( set );
 
     FD_TEST( set->data_shred_cnt  ==(i<6UL ? 32UL : 48UL) );
@@ -86,7 +88,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_keypair, _set );
     FD_TEST( set );
 
     FD_TEST( set->parity_shred_cnt==(i<6UL ? 32UL : 48UL) );
@@ -161,8 +163,9 @@ perf_test( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  uchar const * pubkey = (uchar const *)fd_ed25519_pubkey_from_keypair( test_keypair );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -176,7 +179,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, (fd_ed25519_keypair_t const *)test_keypair, _set );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -195,7 +198,8 @@ perf_test2( void ) {
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  uchar const * pubkey = (uchar const *)fd_ed25519_pubkey_from_keypair( test_keypair );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -210,7 +214,7 @@ perf_test2( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, test_keypair, _set );
       bytes_produced += _set->data_shred_cnt * FD_SHRED_MIN_SZ + _set->parity_shred_cnt * FD_SHRED_MAX_SZ;
     }
     fd_shredder_fini_batch( shredder );

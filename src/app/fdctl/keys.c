@@ -47,19 +47,9 @@ err:
 void
 generate_keypair( const char * keyfile,
                   config_t * const config ) {
-  uchar keys[ 64 ];
 
-  long bytes_produced = 0L;
-  while( FD_LIKELY( bytes_produced<32 ) ) {
-    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), GRND_RANDOM );
-    if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create keypair, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    bytes_produced += n;
-  }
-
-  fd_sha512_t _sha[1];
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
-  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "could not create keypair, fd_sha512 join failed" ));
-  fd_ed25519_public_from_private( keys+32, keys, sha );
+  fd_ed25519_keypair_t _kpr_managed[ 1 ];
+  fd_ed25519_keypair_t * keypair = fd_ed25519_keypair_init_random( fd_ed25519_keypair_new( _kpr_managed ) );
 
   /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
   gid_t gid = getgid();
@@ -82,10 +72,10 @@ generate_keypair( const char * keyfile,
   if( fwrite( "[", 1, 1, fp ) != 1 )
       FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
 
-  if( fprintf( fp, "%d", keys[ 0 ] ) < 1 )
+  if( fprintf( fp, "%d", keypair->__keypair[ 0 ] ) < 1 )
       FD_LOG_ERR(( "could not create keypair, fprintf() failed" ));
-  for( int i=1; i<64; i++ ) {
-    if( fprintf( fp, ",%d", keys[ i ] ) < 1 )
+  for( ulong i=1; i<FD_ED25519_KEYPAIR_SIZE; i++ ) {
+    if( fprintf( fp, ",%d", keypair->__keypair[ i ] ) < 1 )
         FD_LOG_ERR(( "could not create keypair, fprintf() failed" ));
   }
 
@@ -99,6 +89,8 @@ generate_keypair( const char * keyfile,
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  fd_ed25519_keypair_delete( keypair );
 }
 
 void

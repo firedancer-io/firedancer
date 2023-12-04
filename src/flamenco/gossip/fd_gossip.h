@@ -30,8 +30,7 @@ typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
 typedef void (*fd_gossip_send_packet_fun)( uchar const * msg, size_t msglen, fd_gossip_peer_addr_t const * addr, void * arg );
 
 struct fd_gossip_config {
-    fd_pubkey_t * public_key;
-    uchar * private_key;
+    fd_ed25519_keypair_t * keypair;
     fd_gossip_peer_addr_t my_addr;
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;

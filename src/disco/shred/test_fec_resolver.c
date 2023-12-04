@@ -2,6 +2,7 @@
 #include "fd_fec_resolver.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 
 /* An entry batch of 64 entries with 20 transactions per entry takes up
@@ -16,7 +17,7 @@ uchar resolver_mem[ 1024UL*1024UL ] __attribute__((aligned(FD_FEC_RESOLVER_ALIGN
 
 /* First 32B of what Solana calls the private key is what we call the
    private key, second 32B are what we call the public key. */
-FD_IMPORT_BINARY( test_private_key, "src/disco/shred/fixtures/demo-shreds.key"  );
+FD_IMPORT_BINARY_CAST( test_keypair, "src/disco/shred/fixtures/demo-shreds.key", fd_ed25519_keypair_t );
 
 FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
 
@@ -56,10 +57,11 @@ allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
 
 static void
 test_one_batch( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  uchar const * pubkey = fd_ed25519_pubkey_from_keypair( test_keypair )->b;
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
-  uchar const * pubkey = test_private_key+32UL;
+
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
@@ -91,7 +93,7 @@ test_one_batch( void ) {
   /* To complete an FEC set, you need at least (# of data shreds) total
      shreds and at least one parity shred. */
   for( ulong i=0UL; i<7UL; i++ ) {
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_keypair, _set );
 
     for( ulong j=0UL; j<set->data_shred_cnt;       j++ ) ADD_SHRED( r1, set->data_shreds  [ j ], OKAY    );
     ADD_SHRED( r1, set->parity_shreds[ 0 ], COMPLETES );
@@ -119,10 +121,10 @@ test_one_batch( void ) {
 
 static void
 test_interleaved( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  uchar const * pubkey = (uchar const *) fd_ed25519_pubkey_from_keypair( test_keypair );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
-  uchar const * pubkey = test_private_key+32UL;
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->tick = meta->bank_max_tick_height = 100UL;
@@ -138,8 +140,8 @@ test_interleaved( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_keypair, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_keypair, _set+1UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_set_t const * out_fec[1];
@@ -147,6 +149,7 @@ test_interleaved( void ) {
 
   fd_fec_resolver_t * resolver = fd_fec_resolver_join( fd_fec_resolver_new( resolver_mem, 2UL, 1UL, 1UL, 1UL, out_sets ) );
   for( ulong j=0UL; j<set0->data_shred_cnt; j++ ) {
+    printf("i: %d=\n", (void *)set0);
     ADD_SHRED( resolver, set0->data_shreds[ j ], OKAY );
     ADD_SHRED( resolver, set1->data_shreds[ j ], OKAY );
   }
@@ -159,9 +162,9 @@ test_interleaved( void ) {
 
 static void
 test_rolloff( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  uchar const * pubkey = (uchar const *) fd_ed25519_pubkey_from_keypair( test_keypair );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
-  uchar const * pubkey = test_private_key+32UL;
   fd_fec_set_t const * out_fec[1];
   fd_shred_t   const * out_shred[1];
 
@@ -182,9 +185,9 @@ test_rolloff( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
-  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_private_key, _set+2UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_keypair, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_keypair, _set+1UL );
+  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_keypair, _set+2UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
@@ -215,7 +218,8 @@ perf_test( void ) {
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->tick = meta->bank_max_tick_height = 100UL;
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  uchar const * pubkey = (uchar const *) fd_ed25519_pubkey_from_keypair( test_keypair );
+  FD_TEST( _shredder==fd_shredder_new( _shredder, pubkey, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -230,7 +234,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, test_keypair, _set );
     }
     fd_shredder_fini_batch( shredder );
   }

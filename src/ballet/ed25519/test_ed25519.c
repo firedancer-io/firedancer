@@ -579,8 +579,8 @@ test_sc_muladd( fd_rng_t * rng ) {
 static void
 test_public_from_private( fd_rng_t *    rng,
                           fd_sha512_t * sha ) {
-  uchar _prv[32]; uchar * prv = _prv;
-  uchar _pub[32]; uchar * pub = _pub;
+  uchar _prv[ FD_ED25519_PRIVKEY_SIZE ]; uchar * prv = _prv;
+  uchar _pub[  FD_ED25519_PUBKEY_SIZE ]; uchar * pub = _pub;
 # if OPENSSL_COMPARE
   for( ulong rem=10000UL; rem; rem-- ) {
     uchar ref_prv[32]; uchar ref_pub[32]; ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
@@ -605,38 +605,37 @@ test_public_from_private( fd_rng_t *    rng,
 static void
 test_sign( fd_rng_t *    rng,
            fd_sha512_t * sha ) {
-  uchar _msg[ 1024 ]; uchar * msg = _msg;
-  uchar _pub[   32 ]; uchar * pub = _pub;
-  uchar _prv[   32 ]; uchar * prv = _prv;
-  uchar _sig[   64 ]; uchar * sig = _sig;
+  uchar _msg[ 1024 ];           uchar * msg = _msg;
+  uchar _sig[   64 ];           uchar * sig = _sig;
+  fd_ed25519_keypair_t _kpr[1]; fd_ed25519_keypair_t * kpr = _kpr;
 # if OPENSSL_COMPARE
   for( ulong rem=10000UL; rem; rem-- ) {
-    uchar ref_msg[ 1024 ]; uchar ref_pub[32]; uchar ref_prv[32]; uchar ref_sig[64]; 
+    uchar ref_msg[ 1024 ]; uchar ref_key[ FD_ED25519_KEYPAIR_SIZE ]; uchar ref_sig[64]; 
     ulong sz = (ulong)fd_rng_uint_roll( rng, 1025U );
     for( ulong b=0; b<sz; b++ ) ref_msg[b] = fd_rng_uchar( rng );
-    ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
-    ED25519_sign( ref_sig, ref_msg, sz, ref_pub, ref_prv );
-    fd_memcpy( msg, ref_msg, sz   );
-    fd_memcpy( pub, ref_pub, 32UL );
-    fd_memcpy( prv, ref_prv, 32UL );
-    FD_TEST( fd_ed25519_sign( sig, msg, sz, pub, prv, sha )==sig );
+    ED25519_public_from_private( ref_key+FD_ED25519_PRIVKEY_SIZE, fd_rng_b256( rng, ref_key ) );
+    ED25519_sign( ref_sig, ref_msg, sz, ref_key+FD_ED25519_PRIVKEY_SIZE, ref_key );
+    fd_memcpy( msg, ref_msg, sz );
+    fd_memcpy( kpr+FD_ED25519_PRIVKEY_SIZE, ref_key+FD_ED25519_PRIVKEY_SIZE, FD_ED25519_PUBKEY_SIZE );
+    fd_memcpy( kpr, ref_prv, FD_ED25519_PRIVKEY_SIZE );
+    FD_TEST( fd_ed25519_sign( sig, msg, sz, key, sha )==sig );
     FD_TEST( !memcmp( msg, ref_msg, sz   ) );
-    FD_TEST( !memcmp( pub, ref_pub, 32UL ) );
-    FD_TEST( !memcmp( prv, ref_prv, 32UL ) );
+    FD_TEST( !memcmp( kpr+FD_ED25519_PRIVKEY_SIZE, ref_key+FD_ED25519_PRIVKEY_SIZE, FD_ED25519_PUBKEY_SIZE ) );
+    FD_TEST( !memcmp( kpr, ref_key, FD_ED25519_PRIVKEY_SIZE ) );
     FD_TEST( !memcmp( sig, ref_sig, 32UL ) );
   }
 # endif
   
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
-  fd_ed25519_public_from_private( pub, fd_rng_b256( rng, prv ), sha );
+  fd_ed25519_keypair_from_private( kpr, fd_rng_b256( rng, (uchar *)kpr ), sha );
   ulong iter = 10000UL;
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( sig ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );
-      FD_COMPILER_FORGET( prv ); FD_COMPILER_FORGET( pub ); FD_COMPILER_FORGET( sha );
-      fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
+      FD_COMPILER_FORGET( kpr ); FD_COMPILER_FORGET( sha );
+      fd_ed25519_sign( sig, msg, sz, kpr, sha );
     }
     dt = fd_log_wallclock() - dt;
 
@@ -648,17 +647,18 @@ test_sign( fd_rng_t *    rng,
 static void
 test_verify( fd_rng_t *    rng,
              fd_sha512_t * sha ) {
-  uchar _msg[ 1024 ]; uchar * msg = _msg;
-  uchar _pub[   32 ]; uchar * pub = _pub;
-  uchar _sig[   64 ]; uchar * sig = _sig;
-  uchar _prv[   32 ]; uchar * prv = _prv;
+  printf("sha: %d\n", (long)sha);
+  uchar _msg[ 1024 ];           uchar * msg = _msg;
+  uchar _sig[   64 ];           uchar * sig = _sig;
+  uchar _pub[   32 ];           uchar * pub = _pub;
+  fd_ed25519_keypair_t _kpr[1]; fd_ed25519_keypair_t * kpr = _kpr;
 # if OPENSSL_COMPARE
   for( ulong rem=10000UL; rem; rem-- ) {
-    uchar ref_msg[ 1024 ]; uchar ref_pub[ 32 ]; uchar ref_sig[ 64 ]; uchar ref_prv[ 32 ]; 
+    uchar ref_msg[ 1024 ]; uchar ref_key[ FD_ED25519_KEYPAIR_SIZE ]; uchar ref_sig[64]; 
     ulong sz = (ulong)fd_rng_uint_roll( rng, 1025U );
     for( ulong b=0; b<sz; b++ ) ref_msg[b] = fd_rng_uchar( rng );
-    ED25519_public_from_private( ref_pub, fd_rng_b256( rng, ref_prv ) );
-    ED25519_sign( ref_sig, ref_msg, sz, ref_pub, ref_prv );
+    ED25519_public_from_private( ref_key+FD_ED25519_PRIVKEY_SIZE, fd_rng_b256( rng, ref_key ) );
+    ED25519_sign( ref_sig, ref_msg, sz, ref_key+FD_ED25519_PRIVKEY_SIZE, ref_key );
 
     uint r = fd_rng_uint( rng );
     int corrupt_sig = !(r & 31U); r >>= 5;
@@ -690,14 +690,14 @@ test_verify( fd_rng_t *    rng,
       ulong idx  = (ulong)fd_rng_uint_roll( rng, 256UL );
       ulong byte = idx>>3;
       ulong bit  = idx & 7UL;
-      ref_pub[ byte ] = (uchar)(((ulong)ref_pub[ byte ]) ^ (1UL<<bit));
+      ref_key[ byte + FD_ED25519_PRIVKEY_SIZE ] = (uchar)(((ulong)ref_key[ byte + FD_ED25519_PRIVKEY_SIZE ]) ^ (1UL<<bit));
     }
 
     int ref_good = ED25519_verify( ref_msg, sz, ref_sig, ref_pub );
 
     fd_memcpy( msg, ref_msg, sz   );
     fd_memcpy( sig, ref_sig, 64UL );
-    fd_memcpy( pub, ref_pub, 32UL );
+    fd_memcpy( pub, ref_key+FD_ED25519_PRIVKEY_SIZE, 32UL );
     int err = fd_ed25519_verify( msg, sz, sig, pub, sha );
     FD_TEST( !memcmp( msg, ref_msg, sz   ) );
     FD_TEST( !memcmp( sig, ref_sig, 64UL ) );
@@ -707,11 +707,12 @@ test_verify( fd_rng_t *    rng,
 # endif
   
   for( ulong b=0; b<1024UL; b++ ) msg[b] = fd_rng_uchar( rng );
-  fd_ed25519_public_from_private( pub, fd_rng_b256( rng, prv ), sha );
+  //fd_ed25519_keypair_t _keypair[1]; fd_ed25519_keypair_t * keypair = _keypair;
+  fd_ed25519_keypair_from_private( kpr, fd_rng_b256( rng, (uchar *)kpr ), sha );
   ulong iter = 10000UL;
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
-    fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
+    fd_ed25519_sign( sig, msg, sz, kpr, sha );
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( sig ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );
@@ -724,7 +725,7 @@ test_verify( fd_rng_t *    rng,
   }
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
-    fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
+    fd_ed25519_sign( sig, msg, sz, kpr, sha );
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( sig ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );
@@ -742,7 +743,7 @@ test_verify( fd_rng_t *    rng,
   }
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
-    fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
+    fd_ed25519_sign( sig, msg, sz, kpr, sha );
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( sig ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );
@@ -760,7 +761,7 @@ test_verify( fd_rng_t *    rng,
   }
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
-    fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
+    fd_ed25519_sign( sig, msg, sz, kpr, sha );
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( sig ); FD_COMPILER_FORGET( msg ); FD_COMPILER_FORGET( sz  );

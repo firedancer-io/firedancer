@@ -472,8 +472,9 @@ __extension__ typedef unsigned __int128 uint128;
    number of bytes in the file and name_sz will be strlen(name)+1.  name
    can have arbitrary alignment. */
 
-#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 128, ""        )
-#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char,   1, ".byte 0" )
+#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 128, ""           )
+#define FD_IMPORT_BINARY_CAST(name, path, type) FD_IMPORT( name, path, type, 128, "" )
+#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char,   1, ".byte 0"    )
 
 /* Optimizer tricks ***************************************************/
 

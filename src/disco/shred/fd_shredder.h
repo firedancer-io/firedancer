@@ -184,7 +184,7 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
    has been consumed already by previous calls to this function.  On
    success, advances the position of the shredder within the batch
    without finishing the batch. */
-fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, void const * signing_private_key, fd_fec_set_t * result );
+fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, fd_ed25519_keypair_t const * signing_keypair, fd_fec_set_t * result );
 
 /* fd_shredder_fini_batch finishes the in process batch.  shredder must
    be a valid local join that is currently in a batch.  Upon return,

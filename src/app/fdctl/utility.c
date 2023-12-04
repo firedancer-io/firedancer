@@ -17,6 +17,8 @@
 #include <linux/rtnetlink.h>
 #include <linux/unistd.h>
 
+#include "../../ballet/ed25519/fd_ed25519.h"
+
 static int namespace_original_fd = 0;
 
 int
@@ -137,6 +139,9 @@ read_key( char const * key_path,
   return key;
 }
 
+/* load_key_into_protected_memory loads a key in protected memory.
+   If public_key_only is false, it returns a fd_ed25519_keypair const *. 
+   Otherwise, it returns a fd_ed25519_pubkey const *. */
 uchar const *
 load_key_into_protected_memory( char const * key_path, int public_key_only ) {
   /* Load the signing key. Since this is key material, we load it into
@@ -146,7 +151,7 @@ load_key_into_protected_memory( char const * key_path, int public_key_only ) {
 
   read_key( key_path, key_page );
 
-  if( public_key_only ) explicit_bzero( key_page, 32UL );
+  if( public_key_only ) explicit_bzero( key_page, FD_ED25519_PRIVKEY_SIZE );
 
   /* For good measure, make the key page read-only */
   if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )

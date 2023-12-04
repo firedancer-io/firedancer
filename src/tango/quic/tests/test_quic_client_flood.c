@@ -145,13 +145,14 @@ run_quic_client(
 
       /* Generate a public_key / private_key pair for this message */
       ulong private_key[4]; for( ulong i=0UL; i<4UL; i++ ) private_key[i] = fd_rng_ulong( rng );
-      fd_ed25519_public_from_private( public_key, private_key, sha );
+      fd_ed25519_keypair_t keypair;
+      fd_ed25519_keypair_from_private( &keypair, private_key, sha );
 
       /* Make a random message */
       for( ulong b=0UL; b<msg_sz; b++ ) msg[b] = fd_rng_uchar( rng );
 
       /* Sign it */
-      fd_ed25519_sign( sig, msg, msg_sz, public_key, private_key, sha );
+      fd_ed25519_sign( sig, msg, msg_sz, &keypair, sha );
     }
 
     /* Sanity check the ref messages verify */

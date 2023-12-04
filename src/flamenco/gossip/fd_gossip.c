@@ -215,9 +215,8 @@ typedef struct fd_stats_elem fd_stats_elem_t;
 struct fd_gossip {
     /* Current time in nanosecs */
     long now;
-    /* My public/private key */
-    fd_pubkey_t * public_key;
-    uchar * private_key;
+    /* My keypair */
+    fd_ed25519_keypair_t * keypair;
     /* My gossip port address */
     fd_gossip_peer_addr_t my_addr;
     /* My official contact info in the gossip protocol */
@@ -359,12 +358,13 @@ int
 fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( config->public_key->uc, NULL, keystr );
+  fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  fd_base58_encode_32( (uchar const *)pubkey, NULL, keystr );
   FD_LOG_NOTICE(("configuring address %s key %s", fd_gossip_addr_str(tmp, sizeof(tmp), &config->my_addr), keystr));
 
-  glob->public_key = config->public_key;
-  glob->private_key = config->private_key;
-  fd_hash_copy(&glob->my_contact_info.id, config->public_key);
+  glob->keypair = config->keypair;
+  memcpy( &glob->my_contact_info.id, pubkey, FD_ED25519_PUBKEY_SIZE );
+  
   fd_gossip_peer_addr_copy(&glob->my_addr, &config->my_addr);
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
   glob->my_contact_info.shred_version = config->shred_version;
@@ -454,7 +454,10 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_hash_copy( &ping->from, glob->public_key );
+
+  fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  memcpy( &ping->from, pubkey, FD_ED25519_PUBKEY_SIZE );
+
   fd_hash_copy( &ping->token, &val->pingtoken );
 
   /* Sign it */
@@ -462,8 +465,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_ed25519_sign( /* sig */ ping->signature.uc,
                    /* msg */ ping->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* keypair */ glob->keypair,
                    sha );
 
   fd_gossip_send( glob, key, &gmsg );
@@ -488,7 +490,8 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
-  fd_hash_copy( &pong->from, glob->public_key );
+  fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  memcpy( &pong->from, pubkey, FD_ED25519_PUBKEY_SIZE );
 
   /* Generate response hash token */
   fd_sha256_t sha[1];
@@ -501,8 +504,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* keypair  */ glob->keypair,
                    sha2 );
 
   fd_gossip_send(glob, from, &gmsg);
@@ -512,57 +514,59 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
 void
 fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   /* Update the identifier and timestamp */
-  fd_pubkey_t * pubkey;
+  fd_pubkey_t * pubkey_d;
   ulong * wallclock;
   switch (crd->data.discriminant) {
   case fd_crds_data_enum_contact_info:
-    pubkey = &crd->data.inner.contact_info.id;
+    pubkey_d = &crd->data.inner.contact_info.id;
     wallclock = &crd->data.inner.contact_info.wallclock;
     break;
   case fd_crds_data_enum_vote:
-    pubkey = &crd->data.inner.vote.from;
+    pubkey_d = &crd->data.inner.vote.from;
     wallclock = &crd->data.inner.vote.wallclock;
     break;
   case fd_crds_data_enum_lowest_slot:
-    pubkey = &crd->data.inner.lowest_slot.from;
+    pubkey_d = &crd->data.inner.lowest_slot.from;
     wallclock = &crd->data.inner.lowest_slot.wallclock;
     break;
   case fd_crds_data_enum_snapshot_hashes:
-    pubkey = &crd->data.inner.snapshot_hashes.from;
+    pubkey_d = &crd->data.inner.snapshot_hashes.from;
     wallclock = &crd->data.inner.snapshot_hashes.wallclock;
     break;
   case fd_crds_data_enum_accounts_hashes:
-    pubkey = &crd->data.inner.accounts_hashes.from;
+    pubkey_d = &crd->data.inner.accounts_hashes.from;
     wallclock = &crd->data.inner.accounts_hashes.wallclock;
     break;
   case fd_crds_data_enum_epoch_slots:
-    pubkey = &crd->data.inner.epoch_slots.from;
+    pubkey_d = &crd->data.inner.epoch_slots.from;
     wallclock = &crd->data.inner.epoch_slots.wallclock;
     break;
   case fd_crds_data_enum_legacy_version:
-    pubkey = &crd->data.inner.legacy_version.from;
+    pubkey_d = &crd->data.inner.legacy_version.from;
     wallclock = &crd->data.inner.legacy_version.wallclock;
     break;
   case fd_crds_data_enum_version:
-    pubkey = &crd->data.inner.version.from;
+    pubkey_d = &crd->data.inner.version.from;
     wallclock = &crd->data.inner.version.wallclock;
     break;
   case fd_crds_data_enum_node_instance:
-    pubkey = &crd->data.inner.node_instance.from;
+    pubkey_d = &crd->data.inner.node_instance.from;
     wallclock = &crd->data.inner.node_instance.wallclock;
     break;
   case fd_crds_data_enum_duplicate_shred:
-    pubkey = &crd->data.inner.duplicate_shred.from;
+    pubkey_d = &crd->data.inner.duplicate_shred.from;
     wallclock = &crd->data.inner.duplicate_shred.wallclock;
     break;
   case fd_crds_data_enum_incremental_snapshot_hashes:
-    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+    pubkey_d = &crd->data.inner.incremental_snapshot_hashes.from;
     wallclock = &crd->data.inner.incremental_snapshot_hashes.wallclock;
     break;
   default:
     return;
   }
-  fd_hash_copy(pubkey, glob->public_key);
+  
+  fd_ed25519_pubkey_t const * pubkey_s = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  memcpy( pubkey_d, pubkey_s, FD_ED25519_PUBKEY_SIZE );
   *wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
 
   /* Sign it */
@@ -578,8 +582,7 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   fd_ed25519_sign( /* sig */ crd->signature.uc,
                    /* msg */ buf,
                    /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* keypair  */ glob->keypair,
                    sha );
 }
 
@@ -879,7 +882,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
     break;
   }
-  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
+  fd_ed25519_pubkey_t const * glob_pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  if (memcmp(pubkey->uc, glob_pubkey, FD_ED25519_PUBKEY_SIZE) == 0)
     /* Ignore my own messages */
     return;
   uchar buf[FD_ETH_PAYLOAD_MAX];
@@ -1003,7 +1007,8 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   (void)from;
 
   /* Confirm the message is for me */
-  if (memcmp(msg->data.destination.uc, glob->public_key->uc, 32U) != 0)
+  fd_ed25519_pubkey_t const * glob_pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  if (memcmp(msg->data.destination.uc, glob_pubkey, 32U) != 0)
     return;
 
   /* Verify the signature. This is hacky for prune messages */
@@ -1074,7 +1079,9 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pull_resp);
   fd_gossip_pull_resp_t * pull_resp = &gmsg.inner.pull_resp;
-  fd_hash_copy( &pull_resp->pubkey, glob->public_key );
+
+  fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  memcpy( &pull_resp->pubkey, pubkey, FD_ED25519_PUBKEY_SIZE );
 
   uchar buf[FD_ETH_PAYLOAD_MAX];
   fd_bincode_encode_ctx_t ctx;
@@ -1272,7 +1279,8 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     fd_gossip_msg_t gmsg;
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_push_msg);
     fd_gossip_push_msg_t * push_msg = &gmsg.inner.push_msg;
-    fd_hash_copy( &push_msg->pubkey, glob->public_key );
+    fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+    memcpy( &push_msg->pubkey, pubkey, FD_ED25519_PUBKEY_SIZE );
     fd_bincode_encode_ctx_t ctx;
     ctx.data = s->packet;
     ctx.dataend = s->packet + FD_ETH_PAYLOAD_MAX;
@@ -1399,7 +1407,8 @@ fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t * data ) {
   }
   msg = fd_value_table_insert(glob->values, &key);
   msg->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
-  fd_hash_copy(&msg->origin, glob->public_key);
+  fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+  memcpy( &msg->origin, pubkey, FD_ED25519_PUBKEY_SIZE );
   /* We store the serialized form for convenience */
   msg->data = fd_valloc_malloc(glob->valloc, 1U, datalen);
   fd_memcpy(msg->data, buf, datalen);
@@ -1459,14 +1468,15 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_gossip_msg_t gmsg;
     fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_prune_msg);
     fd_gossip_prune_msg_t * prune_msg = &gmsg.inner.prune_msg;
-    fd_hash_copy(&prune_msg->data.pubkey, glob->public_key);
+    fd_ed25519_pubkey_t const * pubkey = fd_ed25519_pubkey_from_keypair( glob->keypair );
+    memcpy( &prune_msg->data.pubkey, pubkey, FD_ED25519_PUBKEY_SIZE );
     prune_msg->data.prunes_len = origins_cnt;
     prune_msg->data.prunes = origins;;
     fd_hash_copy(&prune_msg->data.destination, &peerval->id);
     ulong wc = prune_msg->data.wallclock = FD_NANOSEC_TO_MILLI(glob->now);
 
     fd_gossip_prune_sign_data_t signdata;
-    fd_hash_copy(&signdata.pubkey, glob->public_key);
+    memcpy( &signdata.pubkey, pubkey, FD_ED25519_PUBKEY_SIZE );
     signdata.prunes_len = origins_cnt;
     signdata.prunes = origins;;
     fd_hash_copy(&signdata.destination, &peerval->id);
@@ -1484,8 +1494,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_ed25519_sign( /* sig */ prune_msg->data.signature.uc,
                      /* msg */ buf,
                      /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                     /* public_key  */ glob->public_key->uc,
-                     /* private_key */ glob->private_key,
+                     /* keypair  */ glob->keypair,
                      sha );
 
     fd_gossip_send(glob, &peerval->key, &gmsg);

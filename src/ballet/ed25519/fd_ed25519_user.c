@@ -305,13 +305,63 @@ fd_ed25519_public_from_private( void *        public_key,
   return public_key;
 }
 
+
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_new( void * mem ) {
+  fd_ed25519_keypair_t zero = { 0 };
+  fd_ed25519_keypair_t * mem_c = (fd_ed25519_keypair_t *) mem;
+  *mem_c = zero;
+  return mem_c;
+}
+
+#if FD_HAS_HOSTED
+#include <sys/random.h>
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_init_random( fd_ed25519_keypair_t *kpr ) {
+  fd_sha512_t sha[ 1 ];
+  FD_TEST( 32UL==getrandom( kpr, FD_ED25519_PRIVKEY_SIZE, 0 ) );
+  fd_ed25519_keypair_from_private( kpr, kpr, sha );
+  return kpr;
+}
+#endif
+
+void
+fd_ed25519_keypair_delete( fd_ed25519_keypair_t * kpr ) {
+  fd_ed25519_keypair_t zero = { 0 };
+  *kpr = zero;
+}
+
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_from_private( fd_ed25519_keypair_t * keypair,
+                                 void const * private_key,
+                                 fd_sha512_t * sha ) {
+
+  fd_memcpy( keypair->__keypair, private_key, FD_ED25519_PRIVKEY_SIZE );
+
+  fd_ed25519_public_from_private(
+    keypair->__keypair + FD_ED25519_PRIVKEY_SIZE,
+    private_key,
+    sha
+  );
+
+  return keypair;
+}
+
+fd_ed25519_pubkey_t const *
+fd_ed25519_pubkey_from_keypair( fd_ed25519_keypair_t const * keypair ) {
+   return (fd_ed25519_pubkey_t const *) (keypair->__keypair + FD_ED25519_PRIVKEY_SIZE);
+}
+
+
 void *
 fd_ed25519_sign( void *        sig,
                  void const *  msg,
                  ulong         sz,
-                 void const *  public_key,
-                 void const *  private_key,
+                 fd_ed25519_keypair_t const * keypair,
                  fd_sha512_t * sha ) {
+
+  void const * private_key = keypair->__keypair;
+  void const * public_key = keypair->__keypair + FD_ED25519_PRIVKEY_SIZE;
 
   uchar az[ FD_SHA512_HASH_SZ ];
   fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), private_key, 32UL ), az );

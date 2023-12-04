@@ -210,11 +210,9 @@ int main(int argc, char **argv) {
   uchar private_key[32];
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
-
-  config.private_key = private_key;
-  config.public_key = &public_key;
+  fd_ed25519_keypair_t keypair;
+  FD_TEST( fd_ed25519_keypair_from_private( &keypair, private_key, sha ) );
+  config.keypair = &keypair;
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));

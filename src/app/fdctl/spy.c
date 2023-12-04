@@ -189,14 +189,8 @@ spy_cmd_fn( args_t *         args,
   fd_gossip_config_t gconfig;
   fd_memset(&gconfig, 0, sizeof(gconfig));
 
-  uchar private_key[32];
-  FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
-  fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
-
-  gconfig.private_key = private_key;
-  gconfig.public_key = &public_key;
+  fd_ed25519_keypair_t _kpr_managed[ 1 ];
+  gconfig.keypair = fd_ed25519_keypair_init_random( fd_ed25519_keypair_new( _kpr_managed ) );
 
   char gossiphost[256];
   if ( config->gossip.host[0] == '\0' )
@@ -243,8 +237,12 @@ spy_cmd_fn( args_t *         args,
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
-  if ( main_loop(glob, &gconfig, &stopflag) )
+  int res = main_loop(glob, &gconfig, &stopflag);
+  fd_ed25519_keypair_delete( _kpr_managed );
+  if ( res )
     return;
+
+  
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
 

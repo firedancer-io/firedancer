@@ -132,13 +132,14 @@ typedef struct __attribute__((packed)) {
 typedef struct {
   fd_shredder_t      * shredder;
   fd_fec_resolver_t  * resolver;
-  fd_pubkey_t          identity_key[1]; /* Just the public key */
+  fd_pubkey_t          identity_key[1]; /* Just the public key */ /* todo: consider removing */
 
   uint                 src_ip_addr;
   uchar                src_mac_addr[ 6 ];
   ushort               shred_listen_port;
   fd_ip_t            * ip;
-  uchar const        * shred_signing_key;
+
+  fd_ed25519_keypair_t const * shred_signing_keypair;
 
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
@@ -394,7 +395,7 @@ during_frag( void * _ctx,
       fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, entry_meta );
 
       /* We sized this so it fits in one FEC set */
-      FD_TEST( fd_shredder_next_fec_set( ctx->shredder, ctx->shred_signing_key, out ) );
+      FD_TEST( fd_shredder_next_fec_set( ctx->shredder, ctx->shred_signing_keypair, out ) );
       fd_shredder_fini_batch( ctx->shredder );
 
       d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
@@ -664,7 +665,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->shred_signing_key = load_key_into_protected_memory( tile->shred.identity_key_path, /* pubkey only: */ 0 );
+  ctx->shred_signing_keypair = (fd_ed25519_keypair_t const *)load_key_into_protected_memory( tile->shred.identity_key_path, /* pubkey only: */ 0 );
 }
 
 static void
@@ -742,7 +743,7 @@ unprivileged_init( fd_topo_t *      topo,
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) parity_shred[ j ] = p34_base[ 2UL + j/34UL ].pkts[ j%34UL ].buffer;
   }
 
-  ctx->identity_key[ 0 ]    = *(fd_pubkey_t *)(ctx->shred_signing_key+32UL);
+  ctx->identity_key[ 0 ]    = *(fd_pubkey_t *)(fd_ed25519_pubkey_from_keypair(ctx->shred_signing_keypair));
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \

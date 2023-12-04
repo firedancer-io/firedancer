@@ -14,10 +14,31 @@
 #define FD_ED25519_ERR_MSG    (-3) /* Operation failed because the message didn't match the signature for the given key */
 
 /* FD_ED25519_SIG_SZ: the size of an Ed25519 signature in bytes. */
-#define FD_ED25519_SIG_SZ (64UL)
+#define FD_ED25519_SIG_SZ       (64UL)
+/* FD_ED25519_PRIVKEY_SIZE: the required to store an ED25519 privkey */
+#define FD_ED25519_PRIVKEY_SIZE (32UL)
+/* FD_ED25519_PRIVKEY_SIZE: the required to store an ED25519 pubkey */
+#define FD_ED25519_PUBKEY_SIZE  (32UL)
+#define FD_ED25519_KEYPAIR_SIZE ( FD_ED25519_PRIVKEY_SIZE + FD_ED25519_PUBKEY_SIZE )
+
 
 /* An Ed25519 signature. */
 typedef uchar fd_ed25519_sig_t[ FD_ED25519_SIG_SZ ];
+
+/* An Ed25519 keypair. */
+struct fd_ed25519_keypair_private {
+   uchar __keypair [ FD_ED25519_KEYPAIR_SIZE ]; /* [0-32): priv, [32-64): pub */
+};
+typedef struct fd_ed25519_keypair_private fd_ed25519_keypair_t;
+
+/* An Ed25519 public key */
+struct __attribute((packed)) fd_ed25519_pubkey_private {
+   uchar b[ FD_ED25519_PUBKEY_SIZE ];
+};
+typedef struct fd_ed25519_pubkey_private fd_ed25519_pubkey_t;
+
+fd_ed25519_pubkey_t const *
+fd_ed25519_pubkey_from_keypair( fd_ed25519_keypair_t const * keypair );
 
 FD_PROTOTYPES_BEGIN
 
@@ -41,6 +62,22 @@ void *
 fd_ed25519_public_from_private( void *        public_key,
                                 void const *  private_key,
                                 fd_sha512_t * sha );
+
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_from_private( fd_ed25519_keypair_t * keypair,
+                                 void const * private_key,
+                                 fd_sha512_t * sha );
+
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_new( void * mem );
+
+#if FD_HAS_HOSTED
+fd_ed25519_keypair_t *
+fd_ed25519_keypair_init_random( fd_ed25519_keypair_t *kpr );
+#endif
+
+void
+fd_ed25519_keypair_delete( fd_ed25519_keypair_t * );
 
 /* fd_ed25519_sign signs a message according to the ED25519 standard.
 
@@ -68,8 +105,7 @@ void *
 fd_ed25519_sign( void *        sig,
                  void const *  msg,
                  ulong         sz,
-                 void const *  public_key,
-                 void const *  private_key,
+                 fd_ed25519_keypair_t const *  keypair,
                  fd_sha512_t * sha );
 
 /* fd_ed25519_verify verifies message according to the ED25519 standard.
