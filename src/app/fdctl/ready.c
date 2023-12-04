@@ -9,14 +9,18 @@ ready_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+  ulong wksp_id = fd_topo_find_wksp( &config->topo, FD_TOPO_WKSP_KIND_METRIC_IN );
+  FD_TEST( wksp_id!=ULONG_MAX );
+
+  fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
 
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
     fd_topo_tile_t * tile = &config->topo.tiles[i];
 
-    /* don't wait for solana labs hosted tiles yet, they will take a long time */
+    /* Don't wait for solana labs hosted tiles yet, they will take a
+       long time, and aren't needed to start sending transactions
+       anyway. */
     if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
     
     int first_iter = 1;

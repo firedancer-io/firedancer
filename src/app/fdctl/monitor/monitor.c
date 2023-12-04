@@ -428,9 +428,11 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  /* join all workspaces needed by the topology before sandboxing, so
-     we can access them later */
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  /* Join just the metrics workspace readonly, which should have
+     everything the monitor needs. */
+  ulong wksp_id = fd_topo_find_wksp( &config->topo, FD_TOPO_WKSP_KIND_METRIC_IN );
+  FD_TEST( wksp_id!=ULONG_MAX );
+  fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;

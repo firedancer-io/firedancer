@@ -19,7 +19,7 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-static void
+void
 fd_topo_join_workspace( char * const     app_name,
                         fd_topo_wksp_t * wksp,
                         int              mode ) {
@@ -261,6 +261,15 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
 
     if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
+      void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
+      if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+        snprintf1( path, sizeof(path), "cnc_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+        INSERT_POD( path, fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
+      } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+        tile->cnc = fd_cnc_join( cnc );
+        if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
+      }
+
       ulong out_reliable_consumer_cnt = 0UL;
       if( FD_LIKELY( tile->out_link_id_primary!=ULONG_MAX ) ) {
         fd_topo_link_t * link = &topo->links[ tile->out_link_id_primary ];
@@ -281,15 +290,6 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
-
-    void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
-    if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-      snprintf1( path, sizeof(path), "cnc_%lu", tile->kind_id );
-      INSERT_POD( path, fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
-    } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
-      tile->cnc = fd_cnc_join( cnc );
-      if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
-    }
 
     switch( tile->kind ) {
       case FD_TOPO_TILE_KIND_PACK: {
