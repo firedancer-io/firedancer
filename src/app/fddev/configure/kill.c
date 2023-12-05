@@ -24,11 +24,12 @@ cmdline( char * buf,
   snprintf1( path, PATH_MAX, "/proc/%lu/cmdline", pid );
 
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fp && errno==ENOENT ) ) { buf[ 0 ] = '\0'; return; }
+  else if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
 
   ulong read = fread( buf, 1, len - 1, fp );
-  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
 
   buf[ read ] = '\0';
 }
@@ -108,7 +109,7 @@ wait_dead( long  started,
      process. */
   while( 1 ) {
     int err = kill( (int)pid, 0 );
-    if( FD_LIKELY( err==-1 && errno==ESRCH) ) return;
+    if( FD_LIKELY( err==-1 && errno==ESRCH ) ) return;
     else if( FD_LIKELY( err==-1 ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     if( FD_UNLIKELY( fd_log_wallclock() - started >= (long)1e9 ) )

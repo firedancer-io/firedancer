@@ -186,6 +186,7 @@ fd_wksp_new( void *       shmem,
   wksp->part_free_cidx = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
   wksp->cycle_tag      = 4UL;  /* Verify uses tags 0-3 */
   wksp->owner          = 0UL;  /* Mark as locked and in construction */
+  wksp->frozen         = 0;    /* Mark as not frozen */
 
   /* Note that wksp->owner was set to zero above, "locking" the wksp by
      group_id 0.  And the memset above set all the partition tags to
@@ -288,6 +289,13 @@ fd_wksp_owner( fd_wksp_t const * wksp ) {
   return owner;
 }
 
+void
+fd_wksp_freeze( fd_wksp_t * wksp ) {
+  FD_COMPILER_MFENCE();
+  wksp->frozen = 1;
+  FD_COMPILER_MFENCE();
+}
+
 char const *
 fd_wksp_strerror( int err ) {
   switch( err ) {
@@ -295,6 +303,7 @@ fd_wksp_strerror( int err ) {
   case FD_WKSP_ERR_INVAL:   return "inval";
   case FD_WKSP_ERR_FAIL:    return "fail";
   case FD_WKSP_ERR_CORRUPT: return "corrupt";
+  case FD_WKSP_ERR_FROZEN:  return "frozen";
   default: break;
   }
   return "unknown";
@@ -310,6 +319,7 @@ fd_wksp_verify( fd_wksp_t * wksp ) {
   /* Validate metadata */
 
   TEST( wksp );
+  TEST( !wksp->frozen );
   TEST( wksp->magic==FD_WKSP_MAGIC );
 
   ulong part_max = wksp->part_max;
@@ -577,6 +587,11 @@ fd_wksp_rebuild( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return FD_WKSP_ERR_CORRUPT;
+  }
+
+  if( FD_UNLIKELY( wksp->frozen ) ) {
+    FD_LOG_WARNING(( "frozen" ));
+    return FD_WKSP_ERR_FROZEN;
   }
 
   ulong magic     = wksp->magic;

@@ -368,6 +368,21 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     wksp->page_cnt = wksp_aligned_footprint / page_sz;
   }
 
+  /* Freeze workspace so nobody can try to use it again. */
+  if( FD_UNLIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+    int frozen = 1;
+
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ i ];
+      if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
+
+      fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+      if( FD_UNLIKELY( config->unfrozen_wksp ) ) frozen = 0;
+    }
+
+    if( FD_LIKELY( frozen ) ) fd_wksp_freeze( wksp->wksp );
+  }
+
 # undef SCRATCH_ALLOC
 }
 

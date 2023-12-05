@@ -807,8 +807,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 

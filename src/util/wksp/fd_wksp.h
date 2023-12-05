@@ -109,6 +109,7 @@
 #define FD_WKSP_ERR_INVAL   (-1) /* Failed due to obviously invalid inputs */
 #define FD_WKSP_ERR_FAIL    (-2) /* Failed due to shared memory limitation */
 #define FD_WKSP_ERR_CORRUPT (-3) /* Workspace memory corruption detected (potentially recoverable by rebuilding) */
+#define FD_WKSP_ERR_FROZEN  (-4) /* Failed because the workspace has been frozen */
 
 /* FD_WKSP_{ALIGN,FOOTPRINT} describe the alignment and footprint of a
    fd_wksp_t.  ALIGN is a positive integer power of 2.  FOOTPRINT is a
@@ -295,6 +296,16 @@ ulong fd_wksp_owner( fd_wksp_t const * wksp );
 
 FD_FN_CONST char const *
 fd_wksp_strerror( int err );
+
+/* fd_wksp_freeze freezes the workspace so that future allocations or
+   attempts to use it will fail with a FD_WKSP_ERR_FROZEN.  In some
+   cases this is useful to prevent programmer error, as reading certain
+   workspace metadata at runtime is dangerous.  fd_wksp_rebuild for
+   example is not fully sanitized against arbitrarily writes by other
+   compromised tiles. */
+
+void
+fd_wksp_freeze( fd_wksp_t * wksp );
 
 /* fd_wksp_verify does extensive verification of wksp.  Returns
    FD_WKSP_SUCCESS (0) if there are no issues detected with the wksp or

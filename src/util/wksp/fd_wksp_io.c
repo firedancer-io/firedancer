@@ -17,6 +17,11 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
     return FD_WKSP_ERR_INVAL;
   }
 
+  if( FD_UNLIKELY( wksp->frozen ) ) {
+    FD_LOG_WARNING(( "frozen" ));
+    return FD_WKSP_ERR_FROZEN;
+  }
+
   if( FD_UNLIKELY( !path ) ) {
     FD_LOG_WARNING(( "NULL path" ));
     return FD_WKSP_ERR_INVAL;
@@ -253,6 +258,11 @@ fd_wksp_restore( fd_wksp_t *  wksp,
   if( FD_UNLIKELY( !wksp ) ) {
     FD_LOG_WARNING(( "NULL wksp" ));
     return FD_WKSP_ERR_INVAL;
+  }
+
+  if( FD_UNLIKELY( wksp->frozen ) ) {
+    FD_LOG_WARNING(( "frozen" ));
+    return FD_WKSP_ERR_FROZEN;
   }
 
   if( FD_UNLIKELY( !path ) ) {

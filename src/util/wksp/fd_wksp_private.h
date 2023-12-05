@@ -161,6 +161,7 @@ struct fd_wksp_private {
   uint  part_free_cidx;            /* Treap of partitions that are currently free (tag==0), searchable by size */
   ulong cycle_tag;                 /* Used for cycle detection */
   ulong owner;                     /* thread group id of the owner or NULL otherwise */
+  uchar frozen;                    /* 0 or 1 indicating if the workspace has been frozen */
 
   /* IMPORTANT!  The "single-source-of-truth" for what is currently
      used (and its tags) is the set of non-zero tagged partitions in the
