@@ -209,6 +209,8 @@ typedef struct {
       uchar raw[ 63679UL ]; /* The largest that fits in 1 FEC set */
     };
   } pending_batch;
+  long batch_endtime; /* in fd_tickcount ticks */
+  long batch_duration_ticks;
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -216,6 +218,7 @@ typedef struct {
    We know that if we're <= watermark, we can always accept a message of
    maximum size. */
 #define PENDING_BATCH_WMARK (63679UL - 8UL - FD_POH_SHRED_MTU)
+#define BATCH_DURATION_NS   (50UL*1000UL*1000UL) /* 50 millis */
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -388,8 +391,22 @@ during_frag( void * _ctx,
     ctx->pending_batch.pos += entry_sz;
     ctx->pending_batch.microblock_cnt++;
 
-    int last_in_batch = (entry_meta->tick==entry_meta->bank_max_tick_height) | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
+    long now = fd_tickcount();
+    /* We intentionally only update batch_endtime when we finish a
+       batch, and not when we start a new batch.  This means that if we
+       haven't been leader for a while, when we process the first
+       microblock, batch_endtime will be way before now, and it'll
+       trigger the batch to end immediately.  This signals to the other
+       validators that we are still there, and they seem less likely to
+       skip our blocks. */
+    int last_in_batch = (entry_meta->tick==entry_meta->bank_max_tick_height) | (ctx->pending_batch.pos>PENDING_BATCH_WMARK)
+                                                                             | (now                   >ctx->batch_endtime );
 
+    FD_LOG_INFO(( "slot %lu: last_in_batch: %i. Tick %lu/%lu. ublock cnt = %lu. pos=%lu/%lu. now=%ld/%ld",
+          entry_meta->slot, last_in_batch,
+          entry_meta->tick, entry_meta->bank_max_tick_height, ctx->pending_batch.microblock_cnt,
+          ctx->pending_batch.pos, PENDING_BATCH_WMARK,
+          now, ctx->batch_endtime ));
     if( FD_UNLIKELY( last_in_batch )) {
       fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, entry_meta );
 
@@ -406,6 +423,7 @@ during_frag( void * _ctx,
       ctx->pending_batch.slot           = 0UL;
       ctx->pending_batch.pos            = 0UL;
       ctx->pending_batch.microblock_cnt = 0UL;
+      ctx->batch_endtime                = now + ctx->batch_duration_ticks;
     } else {
       ctx->send_fec_set_idx = ULONG_MAX;
     }
@@ -835,6 +853,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_batch.pos            = 0UL;
   ctx->pending_batch.slot           = 0UL;
   fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
+  ctx->batch_endtime                = 0L;
+  ctx->batch_duration_ticks         = (long)(fd_tempo_tick_per_ns( NULL ) * (double)BATCH_DURATION_NS);
 
   fd_ip_arp_fetch( ctx->ip );
   fd_ip_route_fetch( ctx->ip );
