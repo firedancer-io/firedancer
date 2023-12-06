@@ -18,6 +18,10 @@ solana_labs_main( void * args );
 int
 tile_main( void * _args );
 
+int
+clone_firedancer( config_t * const config,
+                  int *            out_pipe );
+
 void
 run_firedancer( config_t * const config );
 
