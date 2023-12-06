@@ -13,6 +13,7 @@ ready_cmd_fn( args_t *         args,
   FD_TEST( wksp_id!=ULONG_MAX );
 
   fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
 
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
@@ -37,5 +38,6 @@ ready_cmd_fn( args_t *         args,
     } while(1);
   }
 
+  fd_topo_leave_workspaces( &config->topo );
   FD_LOG_NOTICE(( "all tiles ready" ));
 }
