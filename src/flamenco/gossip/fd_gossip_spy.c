@@ -24,18 +24,32 @@
 #include <netdb.h>
 #include <stdlib.h>
 
-/*
-static void usage(const char* progname) {
-  fprintf( stderr, "USAGE: %s\n", progname );
-  fprintf( stderr,
-           " --config      <file>       startup configuration file\n" );
-}
-*/
-
 static void print_data(fd_crds_data_t* data, void* arg) {
   fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
   FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
   fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U);
+
+  if (data->discriminant == fd_crds_data_enum_vote) {
+    fd_gossip_vote_t * v = &data->inner.vote;
+    fd_txn_t * txn = v->txn.txn;
+    for ( ushort i = 0; i < txn->instr_cnt; ++i ) {
+      fd_txn_instr_t const * txn_instr = &txn->instr[i];
+      uchar * data = v->txn.raw + txn_instr->data_off;
+      ushort data_sz = txn_instr->data_sz;
+      fd_bincode_decode_ctx_t decode_ctx;
+      decode_ctx.data    = data;
+      decode_ctx.dataend = data + data_sz;
+      decode_ctx.valloc  = fd_libc_alloc_virtual();
+      fd_vote_instruction_t vinstruction;
+      int rc = fd_vote_instruction_decode( &vinstruction, &decode_ctx );
+      if ( rc || decode_ctx.data != decode_ctx.dataend ) {
+        FD_LOG_WARNING(("failed to decode vote instruction"));
+      } else {
+        fd_vote_instruction_walk(yamldump, &vinstruction, fd_flamenco_yaml_walk, NULL, 1U);
+      }
+    }
+  }
+
   fflush(dumpfile);
 }
 
@@ -101,7 +115,13 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
-  
+  if( getsockname( fd, (struct sockaddr *)saddr, (uint*)&saddrlen ) < 0 ) {
+    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+  gossip_from_sockaddr( &config->my_addr, saddr );
+  fd_gossip_update_addr( glob, &config->my_addr );
+
   fd_gossip_settime(glob, fd_log_wallclock());
   fd_gossip_start(glob);
 
@@ -114,7 +134,7 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
   while ( !*stopflag ) {
     fd_gossip_settime(glob, fd_log_wallclock());
     fd_gossip_continue(glob);
-    
+
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
       iovecs[i].iov_base          = bufs[i];
@@ -180,7 +200,7 @@ resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
   res->l = 0;
   res->addr = ((struct in_addr *)host->h_addr)->s_addr;
   int port = atoi(str + i + 1);
-  if (port < 1024 || port > (int)USHORT_MAX) {
+  if ((port > 0 && port < 1024) || port > (int)USHORT_MAX) {
     FD_LOG_ERR(("invalid port number"));
     return NULL;
   }
@@ -194,15 +214,6 @@ int main(int argc, char **argv) {
   fd_flamenco_boot( &argc, &argv );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-
-  /*
-  const char* config_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--config", NULL, NULL );
-  if ( config_file == NULL ) {
-    fprintf( stderr, "--config flag required\n" );
-    usage( argv[0] );
-    return 1;
-  }
-  */
 
   fd_gossip_config_t config;
   fd_memset(&config, 0, sizeof(config));
@@ -219,9 +230,9 @@ int main(int argc, char **argv) {
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
 
-  FD_TEST( resolve_hostport(":1125", &config.my_addr) );
+  FD_TEST( resolve_hostport(":0", &config.my_addr) );
 
-  config.shred_version = 61807;
+  config.shred_version = 4274;
 
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
@@ -250,14 +261,14 @@ int main(int argc, char **argv) {
   // return 1;
   // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint5.mainnet-beta.solana.com:8001", &peeraddr)) )
   // return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
-    return 1;
-  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("86.109.3.165:1024", &peeraddr)) )
-  // return 1;
+  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint.testnet.solana.com:8001", &peeraddr)) )
+  //   return 1;
+  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint2.testnet.solana.com:8001", &peeraddr)) )
+  //   return 1;
+  // if ( fd_gossip_add_active_peer(glob, resolve_hostport("entrypoint3.testnet.solana.com:8001", &peeraddr)) )
+  //   return 1;
+  if ( fd_gossip_add_active_peer(glob, resolve_hostport(":1024", &peeraddr)) )
+  return 1;
 
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);

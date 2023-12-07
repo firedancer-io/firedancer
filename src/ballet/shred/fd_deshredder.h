@@ -1,13 +1,16 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_deshredder_h
 #define HEADER_fd_src_ballet_shred_fd_deshredder_h
 
+#include "../fd_ballet_base.h"
+#include "fd_shred.h"
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_deshredder_t: Deserializes a vector of shreds into block entries. */
 
 struct fd_deshredder {
   /* Vector of data shreds */
-  fd_shred_t const * const * shreds;
+  fd_shred_t const ** shreds;
 
   /* Number of shreds left in buffer */
   uint shred_cnt;
@@ -47,7 +50,7 @@ void
 fd_deshredder_init( fd_deshredder_t *          shredder,
                     void *                     buf,
                     ulong                      bufsz,
-                    fd_shred_t const * const * shreds,
+                    fd_shred_t const ** shreds,
                     ulong                      shred_cnt );
 
 /* fd_deshredder_next: Concatenates a batch of shreds.

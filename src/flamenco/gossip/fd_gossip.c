@@ -374,6 +374,21 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   return 0;
 }
 
+int
+fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating address %s", fd_gossip_addr_str(tmp, sizeof(tmp), my_addr)));
+
+  fd_gossip_peer_addr_copy(&glob->my_addr, my_addr);
+  fd_gossip_to_soladdr(&glob->my_contact_info.gossip, my_addr);
+  return 0;
+}
+
+void
+fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
+  glob->my_contact_info.shred_version = shred_version;
+}
+
 /* Add an event to the queue of pending timed events. The resulting
    value needs "fun" and "fun_arg" to be set. */
 fd_pending_event_t *
@@ -747,7 +762,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_hash_t pongtoken;
   fd_sha256_fini( sha, pongtoken.uc );
   if (memcmp(pongtoken.uc, pong->token.uc, 32UL) != 0) {
-    FD_LOG_WARNING(("received pong with wrong token"));
+    // FD_LOG_WARNING(("received pong with wrong token"));
     return;
   }
 

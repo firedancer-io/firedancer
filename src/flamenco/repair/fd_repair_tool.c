@@ -3,7 +3,7 @@
    export RUST_LOG=solana_repair=TRACE
    cargo run --bin solana-test-validator
 
-   build/native/gcc/bin/fd_repair_tool --peer_id 75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ --slot 1533 --idx 0
+   build/native/gcc/bin/fd_repair_tool --peer_id 75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ --slot 1533:0,1534:0
    
  **/
 
@@ -56,7 +56,7 @@ repair_from_sockaddr( fd_repair_peer_addr_t * dst, uchar const * src ) {
 
 static void
 send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
-  FD_LOG_HEXDUMP_NOTICE(("send: ", data, sz));
+  // FD_LOG_HEXDUMP_NOTICE(("send: ", data, sz));
   (void)arg;
   uchar saddr[sizeof(struct sockaddr_in)];
   int saddrlen = repair_to_sockaddr(saddr, addr);
@@ -148,13 +148,20 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   char const * slot_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--slot", NULL, NULL );
   if ( slot_cstr == NULL )
     FD_LOG_ERR(("--slot command line argument required"));
-  ulong slot = strtoul(slot_cstr, NULL, 10);
-  char const * idx_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--idx", NULL, NULL );
-  if ( idx_cstr == NULL )
-    FD_LOG_ERR(("--idx command line argument required"));
-  ulong idx = strtoul(idx_cstr, NULL, 10);
-  if ( fd_repair_need_window_index(glob, &id, slot, (uint)idx) )
-    return -1;
+  do {
+    ulong slot = strtoul(slot_cstr, (char **)&slot_cstr, 10);
+    if ( *slot_cstr != ':' )
+      FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
+    ++slot_cstr;
+    ulong idx = strtoul(slot_cstr, (char **)&slot_cstr, 10);
+    if ( fd_repair_need_highest_window_index(glob, &id, slot, (uint)idx) )
+      return -1;
+    if ( *slot_cstr == '\0' )
+      break;
+    if ( *slot_cstr != ',' )
+      FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
+    ++slot_cstr;
+  } while (1);
 
 #define VLEN 32U
   struct mmsghdr msgs[VLEN];
@@ -200,11 +207,11 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
 }
 
 static void
-recv_shred(fd_shred_t const * shred, fd_gossip_peer_addr_t const * from, void * arg) {
+recv_shred(fd_shred_t const * shred, ulong shred_sz, fd_gossip_peer_addr_t const * from, void * arg) {
   (void)from;
   (void)arg;
-  FD_LOG_NOTICE(( "shred variant 0x%02x slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
-                  (uint)shred->variant, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
+  FD_LOG_NOTICE(( "shred variant=0x%02x sz=%lu slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
+                  (uint)shred->variant, shred_sz, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
                   fd_shred_merkle_sz(shred->variant), fd_shred_payload_sz(shred) ));
 }
 

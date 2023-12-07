@@ -217,14 +217,10 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
     }
     fd_account_meta_t const * p_meta = p->const_meta ? p->const_meta : p->meta;
 
-    fd_borrowed_account_t * o = NULL;
-    err = fd_txn_borrowed_account_view( txn_ctx, (fd_pubkey_t const *) &p_meta->info.owner, &o );
-    if ( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "Error in ix borrowed acc view %d", err));
-      err = FD_EXECUTOR_INSTR_SUCCESS;
-      continue;
-    }
-    ulong o_dlen = (NULL != o->meta) ? o->meta->dlen : (NULL != o->const_meta) ? o->const_meta->dlen : 0UL;
+    FD_BORROWED_ACCOUNT_DECL(rec);
+    int read_result = FD_ACC_MGR_SUCCESS;
+    fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *) &p_meta->info.owner, &rec->const_rec, &read_result);
+    ulong o_dlen = (NULL != acc_meta) ? acc_meta->dlen : 0UL;
     total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, o_dlen);
   }
 

@@ -35,9 +35,9 @@ fd_hash_account_deltas(fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t
   // Init the number of hashes
   fd_memset( num_hashes, 0, sizeof(num_hashes) );
 
-  FD_LOG_WARNING(("sorting %d", pairs_len));
+  FD_LOG_DEBUG(("sorting %d", pairs_len));
   sort_pubkey_hash_pair_inplace( pairs, pairs_len );
-  FD_LOG_WARNING(("fancy bmtree started"));
+  FD_LOG_DEBUG(("fancy bmtree started"));
   for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
     fd_sha256_init( &shas[j] );
   }
@@ -282,12 +282,14 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
+    fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
+    FD_LOG_WARNING(("account %32J",  acc_key->uc));
+
     if( !fd_acc_mgr_is_key( rec->pair.key  ) ) continue;
     if( !fd_funk_rec_is_modified(funk, rec ) ) continue;
 
     /* Get dirty account */
 
-    fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
     fd_funk_rec_t const *     rec      = NULL;
 
     int           err = 0;
@@ -532,7 +534,7 @@ typedef struct accounts_hash accounts_hash_t;
 
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
-  FD_LOG_WARNING(("accounts_hash start"));
+  FD_LOG_DEBUG(("accounts_hash start"));
 
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
@@ -567,16 +569,16 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 
   int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
 
-  FD_LOG_WARNING(("allocating memory for hash.  num_iter_accounts: %d   slots: %d", num_iter_accounts, accounts_hash_slots));
+  FD_LOG_DEBUG(("allocating memory for hash.  num_iter_accounts: %d   slots: %d", num_iter_accounts, accounts_hash_slots));
   void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
-  FD_LOG_WARNING(("initializing memory for hash"));
+  FD_LOG_DEBUG(("initializing memory for hash"));
   accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
 
   FD_LOG_WARNING(("copying in accounts"));
 
   // walk up the transactions...
   for (ulong idx = 0; idx < txn_cnt; idx++) {
-    FD_LOG_WARNING(("txn idx %d", idx));
+    FD_LOG_DEBUG(("txn idx %d", idx));
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {
@@ -590,7 +592,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
     }
   }
 
-  FD_LOG_WARNING(("creating flat array that account_deltas expects"));
+  FD_LOG_DEBUG(("creating flat array that account_deltas expects"));
 
   ulong slot_cnt = accounts_hash_slot_cnt(hash_map);;
 

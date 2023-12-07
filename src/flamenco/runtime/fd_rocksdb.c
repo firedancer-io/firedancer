@@ -139,6 +139,7 @@ fd_rocksdb_get_block( fd_rocksdb_t *   db,
                       fd_slot_meta_t * m,
                       fd_valloc_t      valloc,
                       ulong *          result_sz ) {
+  FD_LOG_DEBUG(("getting block"));
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -153,8 +154,12 @@ fd_rocksdb_get_block( fd_rocksdb_t *   db,
 
   ulong bufsize = m->consumed * 1500;
   void* buf = fd_valloc_malloc( valloc, 1UL, bufsize );
+  FD_LOG_DEBUG(("sz %lu", m->consumed));
+  FD_LOG_DEBUG(("sz %lu", m->consumed * 1500));
+  FD_LOG_DEBUG(("sz %lu", bufsize));
+  FD_LOG_DEBUG(("buf %p", buf));
 
-  fd_deshredder_t deshred;
+  fd_deshredder_t deshred = { 0 };
   fd_deshredder_init(&deshred, buf, bufsize, NULL, 0);
 
   for (ulong i = start_idx; i < end_idx; i++) {
@@ -195,7 +200,7 @@ fd_rocksdb_get_block( fd_rocksdb_t *   db,
     // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
 
-    fd_shred_t const * const shred_list[1] = { shred };
+    fd_shred_t const * shred_list[1] = { shred };
     deshred.shreds    = shred_list;
     deshred.shred_cnt = 1U;
 
@@ -212,6 +217,7 @@ fd_rocksdb_get_block( fd_rocksdb_t *   db,
   rocksdb_iter_destroy(iter);
 
   *result_sz = (ulong)((uchar*)deshred.buf - (uchar*)buf);
+  FD_LOG_DEBUG(("%p", buf));
   return buf;
 }
 

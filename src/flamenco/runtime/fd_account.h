@@ -474,7 +474,6 @@ static inline
 fd_hash_t const *
 fd_get_bank_hash( fd_funk_t * funk,
                   ulong       slot ) {
-
   fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
   if( !rec ) {

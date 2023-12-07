@@ -13,6 +13,7 @@ fd_gossip_t * fd_gossip_join     ( void * shmap );
 void *        fd_gossip_leave    ( fd_gossip_t * join );
 void *        fd_gossip_delete   ( void * shmap, fd_valloc_t valloc );
 
+
 union fd_gossip_peer_addr {
     struct {
         uint   addr;  /* IPv4 address, network byte order (big endian) */
@@ -22,6 +23,12 @@ union fd_gossip_peer_addr {
     ulong l;          /* Combined port and address */
 };
 typedef union fd_gossip_peer_addr fd_gossip_peer_addr_t;
+
+int
+fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t const * src );
+
+int
+fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src );
 
 /* Callback when a new message is received */
 typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
@@ -42,6 +49,12 @@ typedef struct fd_gossip_config fd_gossip_config_t;
 
 /* Initialize the gossip data structure */
 int fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config );
+
+/* Update the binding addr */
+int fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * addr );
+/* Set the shred version (after receiving a contact info msg) */
+void
+fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
 
 /* Add a peer to talk to */
 int fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t * addr );

@@ -14,6 +14,8 @@ $(call add-hdrs, \
 	fd_system_ids.h \
 	fd_rawtxn.h \
 	fd_pubkey_utils.h \
+	fd_blockstore.h \
+	fd_snapshot_loader.h \
 )
 
 $(call add-hdrs,tests/fd_tests.h)
@@ -26,6 +28,8 @@ $(call add-objs, \
 	fd_runtime \
 	fd_system_ids \
 	fd_pubkey_utils \
+	fd_blockstore \
+	fd_snapshot_loader \
 	tests/fd_tests \
 	, \
 	fd_flamenco \
@@ -35,6 +39,8 @@ $(call make-unit-test,test_runtime,test_runtime,fd_ballet fd_funk fd_util fd_fla
 $(call make-unit-test,test_sysvar_epoch_schedule,sysvar/test_sysvar_epoch_schedule,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_sysvar_rent,sysvar/test_sysvar_rent,fd_flamenco fd_funk fd_ballet fd_util)  # This should not depend on funk!
 $(call make-unit-test,test_bpf_loader_v4_program,program/test_bpf_loader_v4_program,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_blockstore,test_blockstore,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_tvu,test_tvu,fd_flamenco fd_funk fd_ballet fd_util fd_tango)
 
 $(call run-unit-test,test_sysvar_rent)
 

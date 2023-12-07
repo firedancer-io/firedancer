@@ -924,6 +924,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong max_workers ) {
+  FD_LOG_WARNING(("executing slot %lu", slot_ctx->slot_bank.slot));
 
   if (fake_root == NULL) {
     fd_funk_txn_xid_t xid;
@@ -1596,7 +1597,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2) );;
 
     rec->meta->info.lamports += fees;
-    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, fees ));
+    FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
 
     ulong old = slot_ctx->slot_bank.capitalization;
     slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, fees);

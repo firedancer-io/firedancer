@@ -22,7 +22,7 @@
 #define FD_PENDING_MAX (1<<9)
 
 /* Test if two hash values are equal */
-int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     if (key1->ul[i] != key2->ul[i])
       return 0;
@@ -30,12 +30,12 @@ int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
 }
 
 /* Hash a hash value */
-ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
+static ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   return key->ul[0] ^ seed;
 }
 
 /* Copy a hash value */
-void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
+static void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     keyd->ul[i] = keys->ul[i];
 }
@@ -230,6 +230,15 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   return 0;
 }
 
+int
+fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * my_addr ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), my_addr)));
+
+  fd_repair_peer_addr_copy(&glob->my_addr, my_addr);
+  return 0;
+}
+
 /* Add an event to the queue of pending timed events. The resulting
    value needs "fun" and "fun_arg" to be set. */
 fd_pending_event_t *
@@ -245,6 +254,11 @@ fd_repair_add_pending( fd_repair_t * glob, long when ) {
 /* Initiate connection to a peer */
 int
 fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id ) {
+  char tmp[100];
+  char keystr[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( id->uc, NULL, keystr );
+  FD_LOG_NOTICE(("adding active peer address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), addr), keystr));
+
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
     if (fd_active_table_is_full(glob->actives)) {
@@ -337,6 +351,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.nonce = n;
       wi->slot = ele->slot;
       wi->shred_index = ele->shred_index;
       break;
@@ -348,6 +363,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.nonce = n;
       wi->slot = ele->slot;
       wi->shred_index = ele->shred_index;
       break;
@@ -359,6 +375,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       fd_hash_copy(&wi->header.sender, glob->public_key);
       fd_hash_copy(&wi->header.recipient, &active->key);
       wi->header.timestamp = (ulong)glob->now/1000000LU;
+      wi->header.nonce = n;
       wi->slot = ele->slot;
       break;
     }
@@ -461,7 +478,7 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   /* Look at the nonse */
   if ( msglen < sizeof(fd_repair_nonce_t) )
     return 0;
-  ulong shredlen = msglen - sizeof(fd_repair_nonce_t); /* Nonse is at the end */
+  ulong shredlen = msglen - sizeof(fd_repair_nonce_t); /* Nonce is at the end */
   fd_repair_nonce_t key = *(fd_repair_nonce_t const *)(msg + shredlen);
   fd_needed_elem_t * val = fd_needed_table_query(glob->needed, &key, NULL);
   if ( NULL == val )
@@ -474,7 +491,7 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   if (shred == NULL)
     FD_LOG_WARNING(("invalid shread"));
   else
-    (*glob->deliver_fun)(shred, from, glob->fun_arg);
+    (*glob->deliver_fun)(shred, shredlen, from, glob->fun_arg);
   return 0;
 }
 
@@ -494,9 +511,12 @@ fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong s
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
-  if (fd_needed_table_is_full(glob->needed))
+  if (fd_needed_table_is_full(glob->needed)) {
+    FD_LOG_WARNING(("table full"));
     return -1;
+  }
   fd_repair_nonce_t key = glob->next_nonce++;
+  FD_LOG_DEBUG(("inserting nonce %lu", key));
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);
   val->type = fd_needed_highest_window_index;

@@ -18,7 +18,7 @@ void *        fd_repair_delete   ( void * shmap, fd_valloc_t valloc );
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 
 /* Callback when a new shred is received */
-typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, fd_gossip_peer_addr_t const * from, void * arg );
+typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shred_len, fd_repair_peer_addr_t const * from, void * arg );
 
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
@@ -35,6 +35,9 @@ typedef struct fd_repair_config fd_repair_config_t;
 
 /* Initialize the repair data structure */
 int fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config );
+
+/* Update the binding addr */
+int fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * addr );
 
 /* Add a peer to talk to */
 int fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id );

@@ -27,6 +27,7 @@
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../../flamenco/runtime/fd_snapshot_loader.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
@@ -47,169 +48,6 @@ static void usage(char const * progname) {
   fprintf(stderr, " --verifypoh true                                 verify proof-of-history while importing blocks\n");
   fprintf(stderr, " --loglevel <level>                               Set logging level\n");
   fprintf(stderr, " --network <net>                                  main/dev/testnet\n");
-}
-
-struct SnapshotParser {
-#ifdef OLD_TAR
-  struct fd_tar_old_stream  tarreader_;
-#else
-  struct fd_tar_stream  tarreader_;
-#endif /* OLD_TAR */
-  char*                 tmpstart_;
-  char*                 tmpcur_;
-  char*                 tmpend_;
-
-  fd_exec_slot_ctx_t *  slot_ctx_;
-
-  fd_solana_manifest_t* manifest_;
-};
-
-void SnapshotParser_init(struct SnapshotParser* self, fd_exec_slot_ctx_t * slot_ctx) {
-#ifdef OLD_TAR
-  fd_tar_old_stream_init( &self->tarreader_, slot_ctx->valloc );
-#else
-  fd_tar_stream_init( &self->tarreader_, slot_ctx->valloc );
-#endif /* OLD_TAR */
-  size_t tmpsize = 1<<30;
-  self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
-  self->tmpend_ = self->tmpstart_ + tmpsize;
-
-  self->slot_ctx_ = slot_ctx;
-
-  self->manifest_ = NULL;
-}
-
-void SnapshotParser_destroy(struct SnapshotParser* self) {
-  if (self->manifest_) {
-    fd_exec_slot_ctx_t * slot_ctx = self->slot_ctx_;
-    fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-    fd_solana_manifest_destroy(self->manifest_, &ctx);
-    fd_valloc_free( slot_ctx->valloc, self->manifest_ );
-    self->manifest_ = NULL;
-  }
-
-#ifdef OLD_TAR
-  fd_tar_old_stream_delete(&self->tarreader_);
-#else
-  fd_tar_stream_delete(&self->tarreader_);
-#endif /* OLD_TAR */
-  free(self->tmpstart_);
-}
-
-/* why is this creatively named "parse" if it actually loads the
-   snapshot into the database? */
-
-void SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const * name, const void* data, size_t datalen) {
-  ulong id, slot;
-  if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
-    return;
-
-  fd_slot_account_pair_t_mapnode_t key1;
-  key1.elem.slot = slot;
-  fd_slot_account_pair_t_mapnode_t* node1 = fd_slot_account_pair_t_map_find(
-    self->manifest_->accounts_db.storages_pool, self->manifest_->accounts_db.storages_root, &key1);
-  if (node1 == NULL)
-    return;
-
-  fd_serializable_account_storage_entry_t_mapnode_t key2;
-  key2.elem.id = id;
-  fd_serializable_account_storage_entry_t_mapnode_t* node2 = fd_serializable_account_storage_entry_t_map_find(
-    node1->elem.accounts_pool, node1->elem.accounts_root, &key2);
-  if (node2 == NULL)
-    return;
-
-  if (node2->elem.accounts_current_len < datalen)
-    datalen = node2->elem.accounts_current_len;
-
-  fd_acc_mgr_t *  acc_mgr = self->slot_ctx_->acc_mgr;
-  fd_funk_txn_t * txn     = self->slot_ctx_->funk_txn;
-
-  while (datalen) {
-    size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
-    if (roundedlen > datalen)
-      return;
-
-    fd_solana_account_hdr_t const * hdr = (fd_solana_account_hdr_t const *)data;
-    uchar const * acc_data = (uchar const *)hdr + sizeof(fd_solana_account_hdr_t);
-
-    fd_pubkey_t const * acc_key = (fd_pubkey_t const *)&hdr->meta.pubkey;
-
-    do {
-      /* Check existing account */
-      FD_BORROWED_ACCOUNT_DECL(rec);
-
-      int read_result = FD_ACC_MGR_SUCCESS;
-      fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec->const_rec, &read_result);
-
-      /* Skip if we previously inserted a newer version */
-      if( read_result == FD_ACC_MGR_SUCCESS ) {
-        if( acc_meta->slot > slot ) break;
-      } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
-      }
-
-      if( FD_UNLIKELY( hdr->meta.data_len > MAX_ACC_SIZE ) )
-        FD_LOG_ERR(("account too large: %lu bytes", hdr->meta.data_len));
-
-      /* Write account */
-      int write_result = fd_acc_mgr_modify(acc_mgr, txn, acc_key, /* do_create */ 1, hdr->meta.data_len, rec);
-      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
-        FD_LOG_ERR(("writing account failed"));
-
-      rec->meta->dlen = hdr->meta.data_len;
-      rec->meta->slot = slot;
-      memcpy( &rec->meta->hash, hdr->hash.value, 32UL );
-      memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-      if( hdr->meta.data_len )
-        memcpy( rec->data, acc_data, hdr->meta.data_len );
-
-      /* TODO Check if calculated hash fails to match account hash from snapshot. */
-    } while (0);
-
-    roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
-    if (roundedlen > datalen)
-      return;
-    data = (char const *)data + roundedlen;
-    datalen -= roundedlen;
-  }
-}
-
-void SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  fd_exec_slot_ctx_t * slot_ctx = self->slot_ctx_;
-
-  self->manifest_ = fd_valloc_malloc( slot_ctx->valloc, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT );
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = data;
-  ctx.dataend = (char const *)data + datalen;
-  ctx.valloc  = slot_ctx->valloc;
-  if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
-    FD_LOG_ERR(("fd_solana_manifest_decode failed"));
-
-  if ( fd_global_import_solana_manifest(slot_ctx, self->manifest_) )
-    FD_LOG_ERR(("fd_global_import_solana_manifest failed"));
-}
-
-void SnapshotParser_tarEntry(void* arg, char const * name, const void* data, size_t datalen) {
-  if (datalen == 0)
-    return;
-  if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, name, data, datalen);
-  if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
-      strcmp(name, "snapshots/status_cache") != 0)
-    SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);
-}
-
-// Return non-zero on end of tarball
-int
-SnapshotParser_moreData( void *        arg,
-                         uchar const * data,
-                         ulong         datalen ) {
-  struct SnapshotParser* self = (struct SnapshotParser*)arg;
-#ifdef OLD_TAR
-  return fd_tar_old_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
-#else
-  return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
-#endif /* OLD_TAR */
 }
 
 #define VECT_NAME vec_fd_txnstatusidx
@@ -360,8 +198,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(("funky insert failed with code %d", ret));
   ulong sz = fd_slot_meta_meta_size(&mm);
   rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
-  if (rec == NULL)
-    FD_LOG_ERR(("funky insert failed with code %d", ret));
+  if ( rec == NULL ) FD_LOG_ERR( ( "funky insert failed with code %d", ret ) );
   void * val = fd_funk_val( rec, funk_wksp );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = val;
@@ -591,74 +428,6 @@ main( int     argc,
     // Do nothing
 
   } else if (strcmp(cmd, "ingest") == 0) {
-    uchar snapshot_used = 0;
-
-    if( snapshotfile ) {
-      struct SnapshotParser parser;
-      SnapshotParser_init(&parser, slot_ctx);
-
-      FD_LOG_NOTICE(( "reading %s", snapshotfile ));
-      int fd = open( snapshotfile, O_RDONLY );
-      if( FD_UNLIKELY( fd<0 ) )
-        FD_LOG_ERR(( "open(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
-
-      int err = 0;
-      if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
-        err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
-      else if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".bz2" ) )
-        err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
-      else
-        FD_LOG_ERR(( "unknown snapshot compression suffix" ));
-
-      if( err ) FD_LOG_ERR(( "failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
-
-      err = close(fd);
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
-
-      SnapshotParser_destroy(&parser);
-      snapshot_used = 1;
-
-//      fd_hash_t accounts_hash;
-//      fd_accounts_hash(slot_ctx, &accounts_hash);
-//      FD_LOG_WARNING(("main snapshot accounts_hash %32J", accounts_hash.hash));
-
-      // TODO: regexp the hash out of the filename and compare..
-    }
-
-    if( incremental ) {
-      struct SnapshotParser parser;
-      SnapshotParser_init(&parser, slot_ctx);
-
-      FD_LOG_NOTICE(( "reading %s", incremental ));
-      int fd = open( incremental, O_RDONLY );
-      if( FD_UNLIKELY( fd<0 ) )
-        FD_LOG_ERR(( "open(%s) failed (%d-%s)", incremental, errno, fd_io_strerror( errno ) ));
-
-      int err = 0;
-      if( 0==strcmp( incremental + strlen(incremental) - 4, ".zst" ) )
-        err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
-      else if( 0==strcmp( incremental + strlen(incremental) - 4, ".bz2" ) )
-        err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
-      else
-        FD_LOG_ERR(( "unknown snapshot compression suffix" ));
-
-      if( err ) FD_LOG_ERR(( "failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
-
-      err = close(fd);
-      if( FD_UNLIKELY( err ) )
-        FD_LOG_ERR(( "close(%s) failed (%d-%s)", incremental, errno, fd_io_strerror( errno ) ));
-
-      SnapshotParser_destroy(&parser);
-      snapshot_used = 1;
-
-//      fd_hash_t accounts_hash;
-//      fd_accounts_hash(slot_ctx, &accounts_hash);
-//      FD_LOG_WARNING(("incremental accounts_hash %32J", accounts_hash.hash));
-
-      // TODO: regexp the hash out of the filename and compare..
-    }
-
 #ifdef _ENABLE_RHASH
     if ((NULL != rhash) && (strcmp(rhash, "true") == 0)) {
       fd_accounts_init_rhash(slot_ctx);
@@ -666,22 +435,12 @@ main( int     argc,
     }
 #endif
 
-    if (snapshot_used) {
-      FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
-      int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec);
-
-      if( err != FD_ACC_MGR_SUCCESS )
-        FD_LOG_ERR(( "missing recent block hashes account" ));
-
-      fd_bincode_decode_ctx_t ctx = {
-        .data       = block_hashes_rec->const_data,
-        .dataend    = block_hashes_rec->const_data + block_hashes_rec->const_meta->dlen,
-        .valloc     = slot_ctx->valloc
-      };
-
-      fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
-
-      fd_runtime_save_slot_bank( slot_ctx );
+    if( snapshotfile ) {
+      const char * snapshotfiles[3];
+      snapshotfiles[0] = snapshotfile;
+      snapshotfiles[1] = incremental;
+      snapshotfiles[2] = NULL;
+      fd_snapshot_load(snapshotfiles, slot_ctx);
     }
 
     if( genesis ) {

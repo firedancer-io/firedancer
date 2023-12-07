@@ -110,6 +110,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 /* Mask of the "data batch complete" bit in shred.data.flags */
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
 
+/* Maximum number of shreds in a slot */
+#define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32kb */
+
 /* Firedancer-specific internal error codes.
 
    These are not part of the Solana protocol. */
@@ -162,7 +165,7 @@ struct __attribute__((packed)) fd_shred {
       /* Bit field (MSB first)
          See FD_SHRED_DATA_FLAG_*
 
-          [XX.. ....] Block complete?       0b00=no 0b11=yes (implies Entry batch complete)
+          [XX.. ....] Block complete?       0b00=no 0b01=no 0b11=yes (implies Entry batch complete)
           [.X.. ....] Entry batch complete?  0b0=no  0b1=yes
           [..XX XXXX] Reference tick number */
       /* 0x55 */ uchar  flags;
