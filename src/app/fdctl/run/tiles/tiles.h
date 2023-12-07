@@ -11,6 +11,7 @@ typedef struct {
   ulong                         mux_flags;
   ulong                         burst;
   ulong                         rlimit_file_cnt;
+  int                           unfrozen_wksp;
   void * (*mux_ctx           )( void * scratch );
 
   fd_mux_during_housekeeping_fn * mux_during_housekeeping;

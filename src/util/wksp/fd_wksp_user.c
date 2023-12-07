@@ -229,6 +229,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !fd_ulong_is_pow2( align ) ) ) { FD_LOG_WARNING(( "bad align"   )); goto fail; }
   if( FD_UNLIKELY( footprint < sz             ) ) { FD_LOG_WARNING(( "sz overflow" )); goto fail; }
   if( FD_UNLIKELY( !tag                       ) ) { FD_LOG_WARNING(( "bad tag"     )); goto fail; }
+  if( FD_UNLIKELY( wksp->frozen               ) ) { FD_LOG_WARNING(( "frozen"      )); goto fail; }
 
   fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
 
@@ -330,6 +331,7 @@ fd_wksp_free( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !gaddr ) ) return;
 
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen" )); return; }
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
@@ -348,6 +350,7 @@ ulong
 fd_wksp_tag( fd_wksp_t * wksp,
              ulong       gaddr ) {
   if( FD_UNLIKELY( !wksp ) ) return 0UL;
+  if( FD_UNLIKELY( wksp->frozen ) ) return 0UL;
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
@@ -371,8 +374,9 @@ fd_wksp_tag_query( fd_wksp_t *                wksp,
 
   if( FD_UNLIKELY( !tag_cnt ) ) return 0UL; /* No tags to query */
 
-  if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return 0UL; }
-  if( FD_UNLIKELY( !tag  ) ) { FD_LOG_WARNING(( "bad tag" ));   return 0UL; }
+  if( FD_UNLIKELY( !wksp        ) ) { FD_LOG_WARNING(( "NULL wksp" )); return 0UL; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen"    )); return 0UL; }
+  if( FD_UNLIKELY( !tag         ) ) { FD_LOG_WARNING(( "bad tag"   )); return 0UL; }
 
   if( FD_UNLIKELY( (!!info_max) & (!info) ) ) { FD_LOG_WARNING(( "NULL info" )); return 0UL; }
 
@@ -420,8 +424,9 @@ fd_wksp_tag_free( fd_wksp_t *   wksp,
                   ulong         tag_cnt ) {
   if( FD_UNLIKELY( !tag_cnt ) ) return; /* No tags to free */
 
-  if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
-  if( FD_UNLIKELY( !tag  ) ) { FD_LOG_WARNING(( "bad tag" ));   return; }
+  if( FD_UNLIKELY( !wksp        ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen"    )); return; }
+  if( FD_UNLIKELY( !tag         ) ) { FD_LOG_WARNING(( "bad tag"   )); return; }
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
@@ -470,6 +475,7 @@ fd_wksp_memset( fd_wksp_t * wksp,
                 ulong       gaddr,
                 int         c ) {
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen" )); return; }
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
@@ -494,6 +500,7 @@ void
 fd_wksp_reset( fd_wksp_t * wksp,
                uint        seed ) {
   if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen" )); return; }
 
   ulong                     part_max = wksp->part_max;
   fd_wksp_private_pinfo_t * pinfo    = fd_wksp_private_pinfo( wksp );
@@ -521,6 +528,7 @@ fd_wksp_usage( fd_wksp_t *       wksp,
   fd_memset( usage, 0, sizeof(fd_wksp_usage_t) );
 
   if( FD_UNLIKELY( !wksp                ) ) { FD_LOG_WARNING(( "bad wksp" )); return usage; }
+  if( FD_UNLIKELY( wksp->frozen         ) ) { FD_LOG_WARNING(( "frozen" ));   return usage; }
   if( FD_UNLIKELY( (!tag) & (!!tag_cnt) ) ) { FD_LOG_WARNING(( "bad tag" ));  return usage; }
 
   ulong                     part_max = wksp->part_max;

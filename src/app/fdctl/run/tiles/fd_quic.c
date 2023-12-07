@@ -706,8 +706,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
-  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
@@ -770,6 +770,7 @@ populate_allowed_fds( void * scratch,
 fd_tile_config_t fd_tile_quic = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
+  .unfrozen_wksp            = 1, /* OpenSSL crypto_alloc overrides need to use the wksp at runtime */
   .mux_ctx                  = mux_ctx,
   .mux_during_housekeeping  = during_housekeeping,
   .mux_before_credit        = before_credit,

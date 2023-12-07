@@ -334,8 +334,9 @@ char *
 fd_wksp_cstr( fd_wksp_t const * wksp,
               ulong             gaddr,
               char *            cstr ) {
-  if( FD_UNLIKELY( !cstr ) ) { FD_LOG_WARNING(( "NULL cstr" )); return NULL; }
-  if( FD_UNLIKELY( !wksp ) ) { FD_LOG_WARNING(( "NULL wksp" )); return NULL; }
+  if( FD_UNLIKELY( !cstr        ) ) { FD_LOG_WARNING(( "NULL cstr" )); return NULL; }
+  if( FD_UNLIKELY( !wksp        ) ) { FD_LOG_WARNING(( "NULL wksp" )); return NULL; }
+  if( FD_UNLIKELY( wksp->frozen ) ) { FD_LOG_WARNING(( "frozen" ));    return NULL; }
 
   if( FD_UNLIKELY( !( (!gaddr) | ((wksp->gaddr_lo<=gaddr) & (gaddr<=wksp->gaddr_hi)) ) ) ) {
     FD_LOG_WARNING(( "unmappable gaddr" ));
