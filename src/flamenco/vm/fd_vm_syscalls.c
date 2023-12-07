@@ -83,7 +83,7 @@ fd_vm_prepare_instruction(
   fd_instruction_account_t deduplicated_instruction_accounts[256];
   ulong duplicate_indicies_cnt = 0;
   ulong duplicate_indices[256];
-  FD_LOG_DEBUG(("Num accounts %lu", callee_instr->acct_cnt));
+  FD_LOG_WARNING(("Num accounts %lu", callee_instr->acct_cnt));
   for( ulong i = 0; i < callee_instr->acct_cnt; i++ ) {
     fd_pubkey_t const * callee_pubkey = &callee_instr->acct_pubkeys[i];
 
@@ -504,16 +504,6 @@ fd_vm_syscall_sol_secp256k1_recover(
     return FD_VM_SYSCALL_SUCCESS;
   }
 
-  for( ulong j = 0; j < 16; ++j ) {
-    uchar tmp0 = secp256k1_pubkey[31-j];
-    secp256k1_pubkey[31-j] = secp256k1_pubkey[j];
-    secp256k1_pubkey[j] = tmp0;
-
-    uchar tmp1 = secp256k1_pubkey[63-j];
-    secp256k1_pubkey[63-j] = secp256k1_pubkey[j+32];
-    secp256k1_pubkey[j+32] = tmp1;
-  }
-
   fd_memcpy(pubkey_result, secp256k1_pubkey, 64);
   *pr0 = 0;
 
@@ -660,11 +650,11 @@ fd_vm_syscall_sol_log_data(
   for (ulong i = 0; i < len; ++i) {
     total += untranslated_fields[i].len;
     void const * translated_addr = fd_vm_translate_vm_to_host_const( ctx, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
-    char encoded[1024];
+    char encoded[1500];
     ulong encoded_len = fd_base64_encode( encoded, (const uchar *) translated_addr, untranslated_fields[i].len );
-    if ( i !=0 ) {
+    if ( i != len-1 ) {
       sprintf( msg + msg_len, " ");
-      ++ msg_len;
+      msg_len++;
     }
     memcpy( msg + msg_len, encoded, encoded_len);
     msg_len += encoded_len;
@@ -889,6 +879,73 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 }
 
 static void
+fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
+                                          fd_vm_c_instruction_t const * cpi_instr,
+                                          fd_vm_c_account_meta_t const * cpi_acct_metas,
+                                          fd_pubkey_t const * signers,
+                                          ulong signers_cnt,
+                                          uchar const * cpi_instr_data,
+                                          fd_instr_info_t * instr ) {
+  fd_pubkey_t * txn_accs = ctx->instr_ctx.txn_ctx->accounts;
+  for( ulong i = 0; i < ctx->instr_ctx.txn_ctx->accounts_cnt; i++ ) {
+    fd_pubkey_t const * program_id_pubkey = fd_vm_translate_vm_to_host_const(
+      ctx,
+      cpi_instr->program_id_addr,
+      sizeof(fd_pubkey_t),
+      alignof(uchar)
+    );
+    if( memcmp( program_id_pubkey->uc, &txn_accs[i], sizeof( fd_pubkey_t ) )==0 ) {
+      instr->program_id = (uchar)i;
+      instr->program_id_pubkey = txn_accs[i];
+      break;
+    }
+  }
+
+  for( ulong i = 0; i < cpi_instr->accounts_len; i++ ) {
+    fd_vm_c_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
+    fd_pubkey_t const * acct_pubkey = fd_vm_translate_vm_to_host_const(
+      ctx,
+      cpi_acct_meta->pubkey_addr,
+      sizeof(fd_pubkey_t),
+      alignof(uchar)
+    );
+    FD_LOG_DEBUG(("Accounts cnt %lu, account %32J addr %lu", ctx->instr_ctx.txn_ctx->accounts_cnt, acct_pubkey->uc, cpi_acct_meta->pubkey_addr));
+    for( ulong j = 0; j < ctx->instr_ctx.txn_ctx->accounts_cnt; j++ ) {
+      if( memcmp( acct_pubkey->uc, &txn_accs[j], sizeof( fd_pubkey_t ) )==0 ) {
+        // TODO: error if not found, if flags are wrong;
+        memcpy( instr->acct_pubkeys[i].uc, acct_pubkey->uc, sizeof( fd_pubkey_t ) );
+        instr->acct_txn_idxs[i] = (uchar)j;
+        instr->acct_flags[i] = 0;
+        instr->borrowed_accounts[i] = &ctx->instr_ctx.txn_ctx->borrowed_accounts[j];
+          // TODO: should check the parent has writable flag set
+        if( cpi_acct_meta->is_writable ) {
+          instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+        }
+        // TODO: should check the parent has signer flag set
+        if( cpi_acct_meta->is_signer ) {
+          instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+        } else {
+          for( ulong k = 0; k < signers_cnt; k++ ) {
+            if( memcmp( &signers[k], acct_pubkey->uc, sizeof( fd_pubkey_t ) )==0 ) {
+              instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+              break;
+            }
+          }
+        }
+
+        FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)ctx->instr_ctx.instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, acct_pubkey, instr->acct_flags[i] ));
+
+        break;
+      }
+    }
+  }
+
+  instr->data_sz = (ushort)cpi_instr->data_len;
+  instr->data = (uchar *)cpi_instr_data;
+  instr->acct_cnt = (ushort)cpi_instr->accounts_len;  
+}
+
+static void
 fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
                                              fd_vm_rust_instruction_t const * cpi_instr,
                                              fd_vm_rust_account_meta_t const * cpi_acct_metas,
@@ -901,7 +958,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
   for( ulong i = 0; i < ctx->instr_ctx.txn_ctx->accounts_cnt; i++ ) {
     if( memcmp( &cpi_instr->pubkey, &txn_accs[i], sizeof( fd_pubkey_t ) )==0 ) {
       // TODO: error if not found
-      FD_LOG_WARNING(( "CPI PI: %lu %32J", i, &cpi_instr->pubkey ));
+      FD_LOG_DEBUG(( "CPI PI: %lu %32J", i, &cpi_instr->pubkey ));
 
       instr->program_id = (uchar)i;
       instr->program_id_pubkey = txn_accs[i];
@@ -909,7 +966,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
     }
   }
 
-  FD_LOG_WARNING(("Accounts cnt %lu %lu", ctx->instr_ctx.txn_ctx->accounts_cnt, ctx->instr_ctx.txn_ctx->txn_descriptor->acct_addr_cnt));
+  FD_LOG_DEBUG(("Accounts cnt %lu %lu", ctx->instr_ctx.txn_ctx->accounts_cnt, ctx->instr_ctx.txn_ctx->txn_descriptor->acct_addr_cnt));
   for( ulong i = 0; i < cpi_instr->accounts.len; i++ ) {
     fd_vm_rust_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
 
@@ -936,7 +993,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
           }
         }
 
-        FD_LOG_WARNING(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)ctx->instr_ctx.instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, instr->acct_flags[i] ));
+        FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)ctx->instr_ctx.instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, instr->acct_flags[i] ));
 
         break;
       }
@@ -1149,90 +1206,11 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_exec_context_t * ctx,
 }
 
 /**********************************************************************
-   CROSS PROGRAM INVOCATION (C ABI)
+  CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
-
-/* fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c. */
-
-ulong
-fd_vm_syscall_cpi_c(
-    void *  _ctx,
-    ulong   instruction_va,
-    ulong   acct_infos_va,
-    ulong   acct_info_cnt,
-    ulong   signers_seeds_va,
-    ulong   signers_seeds_cnt,
-    ulong * pr0
-) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.invoke_units);
-  if ( FD_UNLIKELY( err ) ) return err;
-  /* Pre-flight checks ************************************************/
-
-  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, ctx->instr_ctx.slot_ctx);
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-
-  /* Translate instruction ********************************************/
-
-  fd_vm_c_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host_const(
-      ctx,
-      instruction_va,
-      sizeof(fd_vm_c_instruction_t),
-      FD_VM_C_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  if( FD_FEATURE_ACTIVE( ctx->instr_ctx.slot_ctx, loosen_cpi_size_restriction ) ) {
-    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
-  }
-
-  fd_vm_c_account_meta_t const * accounts =
-    fd_vm_translate_vm_to_host_const(
-      ctx,
-      acct_infos_va,
-      acct_info_cnt * sizeof(fd_vm_c_account_meta_t),
-      FD_VM_C_ACCOUNT_META_ALIGN );
-  if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  uchar const * data = fd_vm_translate_vm_to_host_const(
-      ctx,
-      instruction->data.addr,
-      instruction->data.len,
-      alignof(uchar) );
-  if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  /* Instruction checks ***********************************************/
-
-  res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-  
-  /* Translate signers ************************************************/
-
-  /* Order of operations is liberally rearranged.
-     For inputs that cause multiple errors, this means that Solana Labs
-     and Firedancer may return different error codes (as we abort at the
-     first error).  (See above) */
-
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
-  res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
-
-  /* TODO: Dispatch CPI to executor.
-           For now, we'll just log parameters. */
-
-  FD_LOG_WARNING(( "TODO implement CPIs" ));
-  *pr0 = 0UL;
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
-}
-
-/**********************************************************************
-   CROSS PROGRAM INVOCATION (Rust ABI)
- **********************************************************************/
-
 
 static ulong
-fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
+fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t * ctx,
                                  fd_vm_rust_account_info_t const * caller_acc_info,
                                  fd_pubkey_t const * callee_acc_pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(callee_acc_rec);
@@ -1262,7 +1240,7 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     caller_acc_lamports_box->addr,
     sizeof(ulong),
     alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
   *caller_acc_lamports = updated_lamports;
 
   fd_vm_rc_refcell_vec_t * caller_acc_data_box = fd_vm_translate_vm_to_host(
@@ -1301,6 +1279,74 @@ fd_vm_cpi_update_caller_account( fd_vm_exec_context_t * ctx,
     ulong * caller_len = fd_vm_translate_vm_to_host(
       ctx,
       fd_ulong_sat_sub(caller_acc_data_box->addr, sizeof(ulong)),
+      sizeof(ulong),
+      alignof(ulong)
+    );
+    *caller_len = data_len;
+    // TODO return instruction error account data size too small.
+  }
+
+  fd_memcpy( caller_acc_data, callee_acc_rec->const_data, data_len );
+
+  return 0;
+}
+
+static ulong
+fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
+                                   fd_vm_c_account_info_t const * caller_acc_info,
+                                   fd_pubkey_t const * callee_acc_pubkey ) {
+  FD_BORROWED_ACCOUNT_DECL(callee_acc_rec);
+  int err = fd_acc_mgr_view(ctx->instr_ctx.acc_mgr, ctx->instr_ctx.funk_txn, callee_acc_pubkey, callee_acc_rec);
+  ulong updated_lamports, data_len;
+  uchar const * updated_owner = NULL;
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_WARNING(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
+    // TODO: do we need to do something anyways
+    updated_lamports = 0;
+    data_len = 0;
+  } else {
+    updated_lamports = callee_acc_rec->const_meta->info.lamports;
+    data_len = callee_acc_rec->const_meta->dlen;
+    updated_owner = callee_acc_rec->const_meta->info.owner;
+  }
+
+  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host(
+    ctx,
+    caller_acc_info->lamports_addr,
+    sizeof(ulong),
+    alignof(ulong) );
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  *caller_acc_lamports = updated_lamports;
+
+  uchar * caller_acc_data = fd_vm_translate_vm_to_host(
+    ctx,
+    caller_acc_info->data_addr,
+    caller_acc_info->data_sz,
+    alignof(uchar)
+  );
+  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host(
+    ctx,
+    caller_acc_info->owner_addr,
+    sizeof(fd_pubkey_t),
+    alignof(uchar) );
+  if (updated_owner) {
+    fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
+  } else {
+    fd_memset( caller_acc_owner, 0, sizeof(fd_pubkey_t) );
+  }
+
+  // TODO: deal with all functionality in update_caller_account
+  if (data_len == 0) {
+   fd_memset(caller_acc_data, 0, caller_acc_info->data_sz);
+  }
+  if( caller_acc_info->data_sz != data_len ) {
+    FD_LOG_WARNING(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_info->data_sz, data_len ));
+
+    ulong * caller_len = fd_vm_translate_vm_to_host(
+      ctx,
+      fd_ulong_sat_sub(caller_acc_info->data_addr, sizeof(ulong)),
       sizeof(ulong),
       alignof(ulong)
     );
@@ -1392,7 +1438,7 @@ static ulong check_authorized_program(const uchar * program_id, fd_exec_slot_ctx
 }
 
 static ulong
-from_account_info(
+from_account_info_rust(
     fd_vm_exec_context_t * ctx,
     fd_vm_rust_account_info_t const * account_info,
     fd_caller_account_t * out
@@ -1409,7 +1455,7 @@ from_account_info(
     caller_acc_lamports_box->addr,
     sizeof(ulong),
     alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   out->lamports = *caller_acc_lamports;
 
@@ -1446,12 +1492,53 @@ from_account_info(
 }
 
 static ulong
+from_account_info_c(
+    fd_vm_exec_context_t * ctx,
+    fd_vm_c_account_info_t const * account_info,
+    fd_caller_account_t * out
+) {
+
+  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host(
+    ctx,
+    account_info->lamports_addr,
+    sizeof(ulong),
+    alignof(ulong) );
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  out->lamports = *caller_acc_lamports;
+
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host(
+    ctx,
+    account_info->owner_addr,
+    sizeof(fd_pubkey_t),
+    alignof(uchar) );
+
+  fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
+
+  ulong err = fd_vm_consume_compute_meter( ctx, account_info->data_sz / vm_compute_budget.cpi_bytes_per_unit );
+  if ( FD_UNLIKELY( err ) ) return err;
+
+  uchar * caller_acc_data = fd_vm_translate_vm_to_host(
+    ctx,
+    account_info->data_addr,
+    account_info->data_sz,
+    alignof(uchar)
+  );
+
+  out->serialized_data = caller_acc_data;
+  out->serialized_data_len = account_info->data_sz;
+  out->executable = account_info->executable;
+  out->rent_epoch = account_info->rent_epoch;
+  return 0;
+}
+
+static ulong
 translate_and_update_accounts(
     fd_vm_exec_context_t * ctx,
     fd_instruction_account_t * instruction_accounts,
     ulong instruction_accounts_cnt,
     fd_pubkey_t const * account_info_keys,
-    fd_vm_rust_account_info_t const * account_infos,
+    fd_vm_account_info_t const * account_info,
     ulong account_info_cnt,
     ulong * out_callee_indices,
     ulong * out_caller_indices,
@@ -1475,7 +1562,20 @@ translate_and_update_accounts(
       for (ulong j = 0; j < account_info_cnt; j++) {
         if (memcmp(account_key->uc, account_info_keys[j].uc, sizeof(fd_pubkey_t)) == 0) {
           fd_caller_account_t caller_account;
-          ulong err = from_account_info(ctx, &account_infos[j], &caller_account);
+          ulong err;
+          switch (account_info->discriminant) {
+            case fd_vm_cpi_rust: {
+              err = from_account_info_rust(ctx, &account_info->inner.rust_acct_infos[j], &caller_account);
+              break;
+            }
+            case fd_vm_cpi_c: {
+              err = from_account_info_c(ctx, &account_info->inner.c_acct_infos[j], &caller_account);
+              break;
+            }
+            default: {
+              err = 1005;
+            }
+          }
           if ( FD_UNLIKELY( err ) ) {
             return err;
           }
@@ -1499,6 +1599,146 @@ translate_and_update_accounts(
   }
   return 0;
 }
+
+/**********************************************************************
+  CROSS PROGRAM INVOCATION (C ABI)
+ **********************************************************************/
+
+/* fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c. */
+
+ulong
+fd_vm_syscall_cpi_c(
+    void *  _ctx,
+    ulong   instruction_va,
+    ulong   acct_infos_va,
+    ulong   acct_info_cnt,
+    ulong   signers_seeds_va,
+    ulong   signers_seeds_cnt,
+    ulong * pr0
+) {
+  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
+
+  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.invoke_units);
+  if ( FD_UNLIKELY( err ) ) return err;
+  /* Pre-flight checks ************************************************/
+
+  ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, ctx->instr_ctx.slot_ctx);
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  /* Translate instruction ********************************************/
+
+  fd_vm_c_instruction_t const * instruction =
+    fd_vm_translate_vm_to_host_const(
+      ctx,
+      instruction_va,
+      sizeof(fd_vm_c_instruction_t),
+      FD_VM_C_INSTRUCTION_ALIGN );
+  if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  fd_vm_c_account_meta_t const * accounts =
+    fd_vm_translate_vm_to_host_const(
+      ctx,
+      instruction->accounts_addr,
+      instruction->accounts_len * sizeof(fd_vm_c_account_meta_t),
+      FD_VM_C_ACCOUNT_META_ALIGN );
+  if( FD_UNLIKELY( !accounts ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  uchar const * data = fd_vm_translate_vm_to_host_const(
+      ctx,
+      instruction->data_addr,
+      instruction->data_len,
+      alignof(uchar) );
+  if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Instruction checks ***********************************************/
+
+  res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts_len, instruction->data_len );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  /* Translate signers ************************************************/
+
+  /* Order of operations is liberally rearranged.
+     For inputs that cause multiple errors, this means that Solana Labs
+     and Firedancer may return different error codes (as we abort at the
+     first error).  (See above) */
+
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
+  res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+
+  fd_vm_c_account_info_t const * acc_infos =
+    fd_vm_translate_vm_to_host_const(
+      ctx,
+      acct_infos_va,
+      acct_info_cnt * sizeof(fd_vm_c_account_info_t),
+      FD_VM_C_ACCOUNT_INFO_ALIGN );
+  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+
+  /* Collect pubkeys */
+
+  fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
+  for( ulong i=0UL; i<acct_info_cnt; i++ ) {
+    fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host_const(
+        ctx,
+        acc_infos[i].key_addr,
+        sizeof(fd_pubkey_t),
+        alignof(uchar) );
+    FD_LOG_WARNING(( "CPI9: %lu %lx %32J", i, acc_infos[i].key_addr, acct_addr->uc ));
+    if( FD_UNLIKELY( !acct_addr ) ) {
+      FD_LOG_WARNING(("Translate failed %lu", i));
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    }
+    memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
+  }
+
+  /* TODO: Dispatch CPI to executor.
+           For now, we'll just log parameters. */
+
+  fd_instruction_account_t instruction_accounts[256];
+  ulong instruction_accounts_cnt;
+  fd_instr_info_t cpi_instr;
+
+  fd_vm_syscall_cpi_c_instruction_to_instr( ctx, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
+  err = fd_vm_prepare_instruction(ctx->instr_ctx.instr, &cpi_instr, &ctx->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  if( err != 0 ) {
+    FD_LOG_WARNING(("PREPARE FAILED"));
+    return err;
+  }
+
+  ulong callee_account_keys[256];
+  ulong caller_accounts_to_update[256];
+  ulong update_len = 0;
+  fd_vm_account_info_t acc_info = {.discriminant = 1, .inner = {.c_acct_infos = acc_infos }};
+  err = translate_and_update_accounts(ctx, instruction_accounts, instruction_accounts_cnt, acct_keys, &acc_info, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
+  if ( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(("translate failed %lu", err));
+    return err;
+  }
+
+  ctx->instr_ctx.txn_ctx->compute_meter = ctx->compute_meter;
+  int err_exec = fd_execute_instr( &cpi_instr, ctx->instr_ctx.txn_ctx );
+  ulong instr_exec_res = (ulong)err_exec;
+  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx.txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx.txn_ctx->compute_meter));
+  ctx->compute_meter = ctx->instr_ctx.txn_ctx->compute_meter;
+  FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *pr0, ctx->compute_meter, err_exec ));
+
+  *pr0 = instr_exec_res;
+  if( instr_exec_res != 0) {
+    return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  }
+
+  for( ulong i = 0; i < update_len; i++ ) {
+    fd_pubkey_t const * callee = &ctx->instr_ctx.instr->acct_pubkeys[callee_account_keys[i]];
+    res = fd_vm_cpi_update_caller_account_c(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
+    if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+  }
+
+  return FD_VM_SYSCALL_SUCCESS;
+}
+
+/**********************************************************************
+   CROSS PROGRAM INVOCATION (Rust ABI)
+ **********************************************************************/
 
 ulong
 fd_vm_syscall_cpi_rust(
@@ -1604,8 +1844,8 @@ fd_vm_syscall_cpi_rust(
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong update_len = 0;
-
-  err = translate_and_update_accounts(ctx, instruction_accounts, instruction_accounts_cnt, acct_keys, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
+  fd_vm_account_info_t acc_info = {.discriminant = 0, .inner = {.rust_acct_infos = acc_infos }};
+  err = translate_and_update_accounts(ctx, instruction_accounts, instruction_accounts_cnt, acct_keys, &acc_info, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
   if ( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(("translate failed %lu", err));
     return err;
@@ -1625,7 +1865,7 @@ fd_vm_syscall_cpi_rust(
 
   for( ulong i = 0; i < update_len; i++ ) {
     fd_pubkey_t const * callee = &ctx->instr_ctx.instr->acct_pubkeys[callee_account_keys[i]];
-    res = fd_vm_cpi_update_caller_account(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
+    res = fd_vm_cpi_update_caller_account_rust(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   }
 

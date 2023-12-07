@@ -110,10 +110,8 @@ int fd_account_is_writable_idx( fd_txn_t const * txn_descriptor,
   if (idx == program_id)
     return 0;
 
-  if (txn_descriptor->transaction_version == FD_TXN_VLEGACY) {
-    if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
-      return 0;
-    }
+  if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
+    return 0;
   }
 
   return fd_txn_is_writable(txn_descriptor, idx);
@@ -131,10 +129,8 @@ int fd_txn_account_is_writable_idx( fd_txn_t const * txn_descriptor,
   if (idx == acct_addr_cnt)
     return 0;
 
-  if (txn_descriptor->transaction_version == FD_TXN_VLEGACY) {
-    if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
-      return 0;
-    }
+  if (fd_pubkey_is_builtin_program(&accounts[idx]) || fd_pubkey_is_sysvar_id(&accounts[idx])) {
+    return 0;
   }
 
   return fd_txn_is_writable(txn_descriptor, idx);

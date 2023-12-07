@@ -118,17 +118,6 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
     if ( fd_secp256k1_recover( pubkey, msg_hash, sig, *(const uchar*)recovery_id ) == NULL )
       return FD_EXECUTOR_SIGN_ERR_SIGNATURE;
 
-    // Swap endianness
-    for( ulong j = 0; j < 16; ++j ) {
-      uchar tmp0 = pubkey[31-j];
-      pubkey[31-j] = pubkey[j];
-      pubkey[j] = tmp0;
-
-      uchar tmp1 = pubkey[63-j];
-      pubkey[63-j] = pubkey[j+32];
-      pubkey[j+32] = tmp1;
-    }
-
     uchar pubkey_hash[ FD_KECCAK256_HASH_SZ ];
     fd_keccak256_hash( pubkey, 64, pubkey_hash );
 

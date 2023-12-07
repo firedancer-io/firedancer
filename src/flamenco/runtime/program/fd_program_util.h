@@ -128,7 +128,11 @@ fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
                                              1,
                                              0, // FIXME
                                              out );
-  switch( rc ) {
+
+  rc = fd_instr_borrowed_account_view_idx( self,
+                                           index_in_instruction,
+                                           out );
+  switch ( rc ) {
   case FD_ACC_MGR_SUCCESS:
     return FD_PROGRAM_OK;
   case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:

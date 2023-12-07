@@ -288,61 +288,64 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_pubkey_t const * txn_accs = txn_ctx->accounts;
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_pubkey_t const * txn_accs = txn_ctx->accounts;
 
-  fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
-  ctx->instr = instr;
-  ctx->txn_ctx = txn_ctx;
-  ctx->epoch_ctx = txn_ctx->epoch_ctx;
-  ctx->slot_ctx = txn_ctx->slot_ctx;
-  ctx->valloc = txn_ctx->valloc;
-  ctx->acc_mgr = txn_ctx->acc_mgr;
-  ctx->funk_txn = txn_ctx->funk_txn;
+    fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[txn_ctx->instr_stack_sz++];
+    ctx->instr = instr;
+    ctx->txn_ctx = txn_ctx;
+    ctx->epoch_ctx = txn_ctx->epoch_ctx;
+    ctx->slot_ctx = txn_ctx->slot_ctx;
+    // ctx->valloc = txn_ctx->valloc;
+    ctx->valloc = fd_scratch_virtual();
+    ctx->acc_mgr = txn_ctx->acc_mgr;
+    ctx->funk_txn = txn_ctx->funk_txn;
 
-  // defense in depth
-  if (instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt) {
-    FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
-    int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    txn_ctx->instr_stack_sz--;
+    // defense in depth
+    if (instr->program_id >= txn_ctx->txn_descriptor->acct_addr_cnt + txn_ctx->txn_descriptor->addr_table_adtl_cnt) {
+      FD_LOG_WARNING(( "INVALID PROGRAM ID, RUNTIME BUG!!!" ));
+      int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      txn_ctx->instr_stack_sz--;
 
-    //FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
-    return exec_result;
-  }
+      //FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
+      return exec_result;
+    }
 
-  /* TODO: allow instructions to be failed, and the transaction to be reverted */
-  fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
-  execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
+    /* TODO: allow instructions to be failed, and the transaction to be reverted */
+    fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
+    execute_instruction_func_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
-  int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
-  if (exec_instr_func != NULL) {
-    exec_result = exec_instr_func( *ctx );
-
-  } else {
-    if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
-      FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
-
-      exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
-
-    } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
-      FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
-
-      exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
+    int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
+    if (exec_instr_func != NULL) {
+      exec_result = exec_instr_func( *ctx );
 
     } else {
-      FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
+      if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
+        FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
 
-      exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+        exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
+
+      } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
+        FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
+
+        exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
+
+      } else {
+        FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
+
+        exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      }
     }
-  }
 
-//  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-//    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-//  }
+  //  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+  //    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+  //  }
 
-  txn_ctx->instr_stack_sz--;
+    txn_ctx->instr_stack_sz--;
 
-  /* TODO: sanity before/after checks: total lamports unchanged etc */
-  return exec_result;
+    /* TODO: sanity before/after checks: total lamports unchanged etc */
+    return exec_result;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /* fd_executor_dump_txntrace creates a new file in the trace dir
@@ -481,7 +484,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
   }
 
   fd_transaction_return_data_t return_data = {0};
-  return_data.data = (uchar*)fd_valloc_malloc(slot_ctx->valloc, 1, 1024);
+  return_data.data = (uchar*)fd_scratch_alloc(1, 1024);
 
   fd_exec_txn_ctx_t txn_ctx = {
     .epoch_ctx          = slot_ctx->epoch_ctx,
@@ -634,7 +637,7 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
     }
   }
 
-  fd_valloc_free(txn_ctx.valloc, txn_ctx.return_data.data);
+  // fd_valloc_free(txn_ctx.valloc, txn_ctx.return_data.data);
 
   if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
     ret = fd_sysvar_instructions_cleanup_account( &txn_ctx );
@@ -662,6 +665,14 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
       if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
         fd_executor_retrace( slot_ctx, trace_pre, trace_post, NULL /* FIXME: set this to a reasonable local_wksp */);
       }
+    }
+  }
+
+  for ( ulong i = 0; i < txn_ctx.accounts_cnt; i++) {
+    fd_borrowed_account_t * acc = &txn_ctx.borrowed_accounts[i];
+    if ( fd_txn_account_is_writable_idx(txn_descriptor, txn_ctx.accounts, (int)i) && acc->meta->info.lamports == 0) {
+      acc->meta->dlen = 0;
+      fd_memset(acc->meta->info.owner, 0, sizeof(fd_pubkey_t));
     }
   }
 

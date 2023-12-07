@@ -220,8 +220,9 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
   err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, me, 1, sz, me_rec);
   if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-
-  me_rec->meta->dlen = sz;
+  if ( sz > me_rec->meta->dlen ) {
+    me_rec->meta->dlen = sz;
+  }
   fd_memcpy(me_rec->data, enc, sz);
 
   return fd_acc_mgr_commit(ctx.acc_mgr, me_rec, ctx.slot_ctx);
@@ -261,11 +262,13 @@ int fd_withdraw_nonce_account(
   if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
+  fd_pubkey_t const * signer = NULL;
   switch (state.inner.current.discriminant) {
   case fd_nonce_state_enum_uninitialized: {
     // Why are we not also checking rent here?
     if ( FD_UNLIKELY( from_rec->const_meta->info.lamports < requested_lamports ) )
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+    signer = from;
     break;
   }
   case fd_nonce_state_enum_initialized: {
@@ -287,6 +290,7 @@ int fd_withdraw_nonce_account(
       if ( FD_UNLIKELY (amount > from_rec->const_meta->info.lamports) )
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
+    signer = &state.inner.current.inner.initialized.authority;
     break;
   }
   default: {
@@ -296,8 +300,9 @@ int fd_withdraw_nonce_account(
   }
   }
 
-  if (!fd_instr_acc_is_signer(ctx.instr, from))
+  if (!fd_instr_acc_is_signer(ctx.instr, signer)) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
 
   fd_borrowed_account_t * to_rec = NULL;
   ulong              res = requested_lamports;

@@ -6,7 +6,6 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../fd_executor.h"
 
-FD_PROTOTYPES_BEGIN
 
 /**********************************************************************/
 /* Vote Program                                                       */
@@ -38,6 +37,8 @@ FD_PROTOTYPES_BEGIN
 /**********************************************************************/
 /* Entry point for the Vote Program                                   */
 /**********************************************************************/
+
+FD_PROTOTYPES_BEGIN
 
 int
 fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx );

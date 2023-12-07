@@ -54,16 +54,18 @@ typedef struct fd_vm_rc_refcell fd_vm_rc_refcell_t;
 #define FD_VM_C_INSTRUCTION_ALIGN (8UL)
 
 struct FD_TYPE_PACKED fd_vm_c_instruction {
-  ulong       program_id_addr;
-  fd_vm_vec_t accounts;
-  fd_vm_vec_t data;
+  ulong  program_id_addr;
+  ulong  accounts_addr;
+  ulong  accounts_len;
+  ulong  data_addr;
+  ulong  data_len;
 };
 
 typedef struct fd_vm_c_instruction fd_vm_c_instruction_t;
 
 #define FD_VM_C_ACCOUNT_META_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_c_account_meta {
+struct fd_vm_c_account_meta {
   ulong pubkey_addr;
   uchar is_writable;
   uchar is_signer;
@@ -73,7 +75,7 @@ typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
 
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_c_account_info {
+struct fd_vm_c_account_info {
   ulong key_addr;
   ulong lamports_addr;
   ulong data_sz;
@@ -139,5 +141,24 @@ struct FD_TYPE_PACKED fd_vm_rust_account_info {
 };
 
 typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
+
+union fd_vm_account_info_inner {
+  fd_vm_rust_account_info_t const * rust_acct_infos;
+  fd_vm_c_account_info_t const * c_acct_infos;
+};
+
+typedef union fd_vm_account_info_inner fd_vm_account_info_inner_t;
+
+struct FD_TYPE_PACKED fd_vm_account_info {
+  uint discriminant;
+  fd_vm_account_info_inner_t inner;
+};
+
+typedef struct fd_vm_account_info fd_vm_account_info_t;
+
+enum {
+fd_vm_cpi_rust = 0,
+fd_vm_cpi_c = 1,
+};
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_cpi_h */

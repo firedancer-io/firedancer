@@ -266,7 +266,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
       memcpy( fd_funk_val( rec, funk_wksp ), hash.hash, sizeof(fd_hash_t) );
-      FD_LOG_DEBUG(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
+      FD_LOG_NOTICE(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
     }
 
     if ( strcmp(txnstatus, "true") == 0 )

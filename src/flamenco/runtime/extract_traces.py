@@ -11,7 +11,7 @@ import string
 
 reg_val_pattern = lambda x: "(?P<r{}>[0-9A-F]{{16}})".format(x)
 
-trace_line_pattern = "^\ *(?P<ic>\d+)\ \[{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\]\ *(?P<pc>\d+): (?P<instr>[\w\ \,\-\+\_\[\]]+)\n$".format(
+trace_line_pattern = "^\ *(?P<ic>\d+)\ \[{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}\]\ *(?P<pc>\d+): (?P<instr>[\w\ \,\-\+\_\[\]]+).*\n$".format(
     reg_val_pattern(0),
     reg_val_pattern(1),
     reg_val_pattern(2),
@@ -81,7 +81,7 @@ def traces_diff(fd_traces, sl_traces):
                 continue
             n_matches = 0
             for ((fd_line, fd_match), (sl_line, sl_match)) in zip(fd_trace, sl_trace):
-                if fd_match["pc"] == sl_match["pc"]:
+                if int(fd_match["pc"]) == int(sl_match["pc"]):
                     if not check_strict_match(fd_line, sl_line):
                         break
                     n_matches += 1

@@ -511,7 +511,7 @@ fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                elf_sz ) {
-  return _fd_sbpf_elf_peek( info, bin, elf_sz )==0 ? info : NULL;
+  return (_fd_sbpf_elf_peek( info, bin, elf_sz ) == 0) ? info : NULL;
 }
 
 /* ELF loader, part 2 **************************************************

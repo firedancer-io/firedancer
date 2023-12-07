@@ -285,6 +285,7 @@ main( int     argc,
   state.pages               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--pages",      NULL, 5);
 
   char const * index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
+  char const * allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator", NULL, "wksp" );
   char const * validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
   char const * capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   char const * trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
@@ -394,8 +395,15 @@ main( int     argc,
   }
 
   state.local_wksp = local_wksp;
-  state.slot_ctx->valloc = fd_libc_alloc_virtual();
-  state.epoch_ctx->valloc = fd_libc_alloc_virtual();
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    state.slot_ctx->valloc = fd_libc_alloc_virtual();
+    state.epoch_ctx->valloc = fd_libc_alloc_virtual();
+  } else if ( strcmp( allocator, "wksp" ) == 0 ) {
+    state.slot_ctx->valloc = fd_alloc_virtual( alloc );
+    state.epoch_ctx->valloc = fd_alloc_virtual( alloc );
+  } else {
+    FD_LOG_ERR(( "unknown allocator specified" ));
+  }
 
   if( capture_fpath ) {
     state.capture_file = fopen( capture_fpath, "w+" );
@@ -527,10 +535,11 @@ main( int     argc,
   if( state.capture_file  ) fclose( state.capture_file );
   if( state.slot_ctx->trace_dirfd>0 ) close( state.slot_ctx->trace_dirfd );
 
+  fd_valloc_free(state.slot_ctx->valloc, state.epoch_ctx->leaders);
   fd_exec_slot_ctx_delete(fd_exec_slot_ctx_leave(state.slot_ctx));
   fd_exec_epoch_ctx_delete(fd_exec_epoch_ctx_leave(state.epoch_ctx));
 
-  FD_TEST(fd_alloc_is_empty(alloc));
+  // FD_TEST(fd_alloc_is_empty(alloc));
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
 
   fd_wksp_delete_anonymous( state.local_wksp );

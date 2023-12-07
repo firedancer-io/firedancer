@@ -1273,7 +1273,7 @@ delegate( fd_exec_instr_ctx_t *                   invoke_context,
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   if( FD_UNLIKELY(
-           0 != memcmp( &vote_account->meta->info.owner, fd_solana_vote_program_id.key, 32UL ) ) ) {
+           0 != memcmp( &vote_account->const_meta->info.owner, fd_solana_vote_program_id.key, 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
@@ -2226,6 +2226,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
+  FD_LOG_DEBUG(("Stake program type %ld", instruction.discriminant));
+
   /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR LABS IMPL:
    * https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L76
    */
@@ -2411,8 +2413,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
       // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L442
       fd_bincode_decode_ctx_t decode_ctx;
-      decode_ctx.data    = config_account->data;
-      decode_ctx.dataend = config_account->data + config_account->meta->dlen;
+      decode_ctx.data    = config_account->const_data;
+      decode_ctx.dataend = config_account->const_data + config_account->const_meta->dlen;
       decode_ctx.valloc  = decode_ctx.valloc;
 
       fd_stake_config_t stake_config;

@@ -146,7 +146,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
       FD_STORE( uchar, serialized_params, is_signer );
       serialized_params += sizeof(uchar);
 
-      uchar is_writable = (uchar)(fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i ) && !fd_pubkey_is_sysvar_id( acc ));
+      uchar is_writable = (uchar)(fd_instr_acc_is_writable_idx( ctx.instr, (uchar)i ) && !fd_pubkey_is_sysvar_id( acc ) && !fd_pubkey_is_builtin_program( acc ));
       FD_STORE( uchar, serialized_params, is_writable );
       serialized_params += sizeof(uchar);
 

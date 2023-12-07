@@ -146,6 +146,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
+    
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
   FD_TEST( ret->magic == FD_ACCOUNT_META_MAGIC );

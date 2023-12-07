@@ -144,9 +144,10 @@ void fd_calculate_stake_weighted_timestamp(
   treap_t * treap = treap_join( shtreap );
   ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
+  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
 
-  fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
+  fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
   for (
     fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
     n;
@@ -164,8 +165,8 @@ void fd_calculate_stake_weighted_timestamp(
       .valloc  = slot_ctx->valloc,
     };
     fd_vote_state_versioned_t vote_state[1] = {0};
-    ulong vote_timestamp = 0L;
-    ulong vote_slot = 0L;
+    ulong vote_timestamp = 0UL;
+    ulong vote_slot = 0UL;
     if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
     switch (vote_state->discriminant) {
@@ -185,12 +186,15 @@ void fd_calculate_stake_weighted_timestamp(
         __builtin_unreachable();
     }
 
+    fd_vote_state_versioned_destroy( vote_state, &destroy);
+
     ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
     if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {
       continue;
     }
-    long offset = ((((long)slot_ctx->slot_bank.slot - (long)vote_slot) * (long)slot_duration) / NS_IN_S );
-    long estimate = (long)vote_timestamp + offset;
+  
+    ulong offset = fd_ulong_sat_mul(slot_duration, slot_delta);
+    long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
     /* get stake */
     total_stake += n->elem.stake;
     ulong treap_idx = treap_idx_query( treap, estimate, pool );
@@ -208,6 +212,7 @@ void fd_calculate_stake_weighted_timestamp(
   if (total_stake == 0) {
     return;
   }
+
   // FIXME: this should be a uint128
   ulong stake_accumulator = 0;
   for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
@@ -215,30 +220,32 @@ void fd_calculate_stake_weighted_timestamp(
        iter = treap_fwd_iter_next( iter, pool ) ) {
     ulong idx = treap_fwd_iter_idx( iter );
     stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
+    // FD_LOG_WARNING(("Ts %ld Elem stake %lu Curr stake %lu Total stake cmp %lu", pool[ idx ].timestamp, pool[ idx ].stake, stake_accumulator, total_stake/2));
     if (stake_accumulator > (total_stake / 2)) {
       *result_timestamp = pool[ idx ].timestamp;
       break;
     }
   }
 
-  FD_LOG_DEBUG(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
+  FD_LOG_WARNING(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( slot_ctx, &schedule );
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
+  FD_LOG_WARNING(("Epoch start slot %lu", epoch_start_slot));
   ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(slot_ctx->slot_bank.slot, epoch_start_slot));
   ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
   ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
   ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
-
+  FD_LOG_WARNING(("poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow));
   if (estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
   } else if (estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_WARNING(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
   if (*result_timestamp < clock.unix_timestamp) {
     FD_LOG_DEBUG(( "updated timestamp to ancestor" ));

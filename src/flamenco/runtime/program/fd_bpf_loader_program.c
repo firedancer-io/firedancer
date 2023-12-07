@@ -47,7 +47,9 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t
 static int
 setup_program(fd_exec_instr_ctx_t ctx, uchar * program_data, ulong program_data_len) {
   fd_sbpf_elf_info_t elf_info;
-  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Allocate rodata segment */
   void * rodata = fd_valloc_malloc( ctx.valloc, 1UL,  elf_info.rodata_footprint );
@@ -123,7 +125,9 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   ulong program_data_len = metadata->dlen;
 
   fd_sbpf_elf_info_t elf_info;
-  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Allocate rodata segment */
 
@@ -188,7 +192,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
     .alloc               = {.offset = 0}
   };
 
-  ulong trace_sz = 16 * 1024 * 1024;
+  ulong trace_sz = 1024 * 1024;
   fd_vm_trace_entry_t * trace = NULL;
   fd_vm_trace_context_t trace_ctx;
   (void) trace_sz;
@@ -196,13 +200,14 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   (void) trace_ctx;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
   
-  // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
-  trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
+  trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+  // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
   trace_ctx.trace_entries_used = 0;
   trace_ctx.trace_entries_sz = trace_sz;
   trace_ctx.trace_entries = trace;
+  trace_ctx.valloc = ctx.txn_ctx->valloc;
   vm_ctx.trace_ctx = &trace_ctx;
 }
 #endif
@@ -220,7 +225,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
 
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -234,7 +239,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
@@ -260,23 +265,26 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
     trace_buf_out += out_len;
     trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
     prev_cus = trace[i].cus;
-
-    for( ulong j = 0; j < trace_ent.mem_entries_used; j++ ) {
-      fd_vm_trace_mem_entry_t mem_ent = trace_ent.mem_entries[j];
-      if( mem_ent.type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
+    fd_vm_trace_mem_entry_t * mem_ent = trace_ent.mem_entries_head;
+    ulong j = 0;
+    while( j < trace_ent.mem_entries_used ) {
+      j++;
+      if( mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
         ulong prev_mod = 0;
         // for( long k = (long)i-1; k >= 0; k-- ) {
         //   fd_vm_trace_entry_t prev_trace_ent = trace[k];
         //   if (prev_trace_ent.mem_entries_used > 0) {
+        //     fd_vm_trace_mem_entry_t * prev_mem_ent = prev_trace_ent.mem_entries_head;
         //     for( ulong l = 0; l < prev_trace_ent.mem_entries_used; l++ ) {
-        //       fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
-        //       if( prev_mem_ent.type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
-        //         if ((prev_mem_ent.addr <= mem_ent.addr && mem_ent.addr < prev_mem_ent.addr + prev_mem_ent.sz)
-        //             || (mem_ent.addr <= prev_mem_ent.addr && prev_mem_ent.addr < mem_ent.addr + mem_ent.sz)) {
+        //       // fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
+        //       if( prev_mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
+        //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
+        //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
         //           prev_mod = (ulong)k;
         //           break;              
         //         }
         //       }
+        //       prev_mem_ent = prev_mem_ent->next;
         //     }
         //   }
         //   if (prev_mod != 0) {
@@ -284,29 +292,29 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
         //   }
         // }
 
-        trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent.addr, mem_ent.sz, prev_mod);
-      } else {
-        trace_buf_out += sprintf(trace_buf_out, "        W: vm_addr: 0x%016lX, sz: %8lu, data: ", mem_ent.addr, mem_ent.sz);
-      }
+        trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent->addr, mem_ent->sz, prev_mod);
 
-      if (mem_ent.sz < 10*1024) {
-        for( ulong k = 0; k < mem_ent.sz; k++ ) {
-          trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent.data[k]);
+      if (mem_ent->sz < 10*1024) {
+        for( ulong k = 0; k < mem_ent->sz; k++ ) {
+          trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
         }
       }
       
 
-      free(mem_ent.data);
+      fd_valloc_free(ctx.txn_ctx->valloc, mem_ent->data);
 
       trace_buf_out += sprintf(trace_buf_out, "\n");
+      mem_ent = mem_ent->next;
     }
     trace_buf_out += sprintf(trace_buf_out, "\0");
     fputs(trace_buf, stderr);
   }
 
   // fclose(trace_fd);
-  free(trace);
-  // fd_valloc_free( ctx.global->valloc, trace);
+  // free(trace);
+  fd_vm_trace_context_destroy( &trace_ctx );
+  fd_valloc_free( ctx.txn_ctx->valloc, trace);
+  }
   }
 #endif
   ctx.txn_ctx->compute_meter = vm_ctx.compute_meter;

@@ -7,23 +7,13 @@
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
-struct fd_pubkey_hash_pair {
+#define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
+struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
   fd_pubkey_t const * pubkey;
   fd_hash_t   const * hash;
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
-
-#define VECT_NAME fd_pubkey_hash_vector
-#define VECT_ELEMENT fd_pubkey_hash_pair_t
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
-
-#define VECT_NAME fd_funk_rec_vector
-#define VECT_ELEMENT fd_funk_rec_t const *
-#include "fd_vector.h"
-#undef VECT_NAME
-#undef VECT_ELEMENT
+#define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
 FD_PROTOTYPES_BEGIN
 

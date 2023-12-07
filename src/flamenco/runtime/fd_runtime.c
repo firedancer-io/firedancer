@@ -438,7 +438,7 @@ fd_runtime_block_prepare( void const * buf,
 }
 
 void
-fd_runtime_microblock_teardown( fd_valloc_t valloc,
+fd_runtime_microblock_destroy( fd_valloc_t valloc,
                                 fd_microblock_info_t * microblock_info ) {
   if( microblock_info == NULL ) {
     return;
@@ -450,15 +450,28 @@ fd_runtime_microblock_teardown( fd_valloc_t valloc,
 }
 
 void
-fd_runtime_microblock_batch_teardown( fd_valloc_t valloc,
+fd_runtime_microblock_batch_destroy( fd_valloc_t valloc,
                                       fd_microblock_batch_info_t * microblock_batch_info ) {
   if( microblock_batch_info == NULL ) {
     return;
   }
 
+  for( ulong i = 0; i < microblock_batch_info->microblock_cnt; i++ ) {
+    fd_runtime_microblock_destroy( valloc, &microblock_batch_info->microblock_infos[i] );
+  }
+
   fd_valloc_free( valloc, microblock_batch_info->microblock_infos );
 }
 
+void
+fd_runtime_block_destroy( fd_valloc_t valloc,
+                          fd_block_info_t * block_info ) {
+  for( ulong i = 0; i < block_info->microblock_batch_cnt; i++ ) {
+    fd_runtime_microblock_batch_destroy( valloc, &block_info->microblock_batch_infos[i] );
+  }
+
+  fd_valloc_free(valloc, block_info->microblock_batch_infos);
+}
 
 int
 fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
@@ -596,11 +609,11 @@ fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
     return result;
   }
 
-  result = fd_runtime_save_epoch_bank( slot_ctx );
-  if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-    FD_LOG_WARNING(( "save epoch bank failed" ));
-    return result;
-  }
+  // result = fd_runtime_save_epoch_bank( slot_ctx );
+  // if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+  //   FD_LOG_WARNING(( "save epoch bank failed" ));
+  //   return result;
+  // }
 
   return fd_runtime_save_slot_bank( slot_ctx );
 }
@@ -986,6 +999,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   if ( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
     ret = fd_runtime_block_execute( slot_ctx, &block_info );
   }
+
+  fd_runtime_block_destroy( slot_ctx->valloc, &block_info );
 
   // FIXME: better way of using starting slot
   if (FD_RUNTIME_EXECUTE_SUCCESS != ret && slot_ctx->slot_bank.slot == 223338038 ) {

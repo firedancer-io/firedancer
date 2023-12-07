@@ -52,13 +52,13 @@ read_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx,
 }
 
 static fd_account_meta_t const *
-read_bpf_upgradeable_loader_state_executable( fd_exec_txn_ctx_t * txn_ctx, 
+read_bpf_upgradeable_loader_state_executable( fd_exec_instr_ctx_t * instr_ctx, 
                                    fd_pubkey_t const * program_acc, 
                                    fd_bpf_upgradeable_loader_state_t * result, 
                                    int * opt_err ) {
 
   fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_executable_view( txn_ctx, program_acc, &rec );
+  int err = fd_txn_borrowed_account_executable_view( instr_ctx->txn_ctx, program_acc, &rec );
   if( err ) {
     *opt_err = err;
     return NULL;
@@ -67,7 +67,7 @@ read_bpf_upgradeable_loader_state_executable( fd_exec_txn_ctx_t * txn_ctx,
   fd_bincode_decode_ctx_t ctx = {
     .data    = rec->const_data,
     .dataend = rec->const_data + rec->const_meta->dlen,
-    .valloc  = txn_ctx->valloc,
+    .valloc  = instr_ctx->valloc,
   };
 
   if ( fd_bpf_upgradeable_loader_state_decode( result, &ctx ) ) {
@@ -185,6 +185,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
     return err;
 
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = ctx.valloc };
+  fd_bincode_destroy_ctx_t txn_ctx_d = { .valloc = ctx.txn_ctx->valloc };
 
   if( !fd_bpf_upgradeable_loader_state_is_program( &program_loader_state ) ) {
     fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
@@ -196,7 +197,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   fd_bpf_upgradeable_loader_state_t programdata_loader_state;
 
   err = 0;
-  fd_account_meta_t const * programdata_metadata = read_bpf_upgradeable_loader_state_executable( ctx.txn_ctx, programdata_acc, &programdata_loader_state, &err );
+  fd_account_meta_t const * programdata_metadata = read_bpf_upgradeable_loader_state_executable( &ctx, programdata_acc, &programdata_loader_state, &err );
   if( FD_UNLIKELY( !programdata_metadata ) ) {
     return err;
   }
@@ -205,7 +206,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
 
   if( !fd_bpf_upgradeable_loader_state_is_program_data( &programdata_loader_state ) ) {
     fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
-    fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
+    fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &txn_ctx_d );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   fd_bpf_upgradeable_loader_state_destroy( &programdata_loader_state, &ctx_d );
@@ -213,10 +214,12 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   ulong program_data_len = programdata_metadata->dlen - PROGRAMDATA_METADATA_SIZE;
   uchar const * program_data = (uchar const *)programdata_metadata + programdata_metadata->hlen + PROGRAMDATA_METADATA_SIZE;
 
-  fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &ctx_d );
+  fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &txn_ctx_d );
 
   fd_sbpf_elf_info_t elf_info;
-  fd_sbpf_elf_peek( &elf_info, program_data, program_data_len );
+  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Allocate rodata segment */
 
@@ -282,13 +285,14 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   (void) trace;
   (void) trace_ctx;
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
   
-  // fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.global->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
-  trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
+  trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+  // trace = (fd_vm_trace_entry_t *)malloc(trace_sz * sizeof(fd_vm_trace_entry_t));
   trace_ctx.trace_entries_used = 0;
   trace_ctx.trace_entries_sz = trace_sz;
   trace_ctx.trace_entries = trace;
+  trace_ctx.valloc = ctx.txn_ctx->valloc;
   vm_ctx.trace_ctx = &trace_ctx;
 }
 #endif
@@ -306,7 +310,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
   // FD_LOG_WARNING(( "fd_vm_context_validate() success" ));
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -320,11 +324,10 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
+  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
-    make_buf();
     char * trace_buf_out = trace_buf;
 
     trace_buf_out += sprintf(trace_buf_out, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
@@ -348,22 +351,26 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
     trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
     prev_cus = trace[i].cus;
   
-    for( ulong j = 0; j < trace_ent.mem_entries_used; j++ ) {
-      fd_vm_trace_mem_entry_t mem_ent = trace_ent.mem_entries[j];
-      if( mem_ent.type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
+    fd_vm_trace_mem_entry_t * mem_ent = trace_ent.mem_entries_head;
+    ulong j = 0;
+    while( j < trace_ent.mem_entries_used ) {
+      j++;
+      if( mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_READ ) {
         ulong prev_mod = 0;
         // for( long k = (long)i-1; k >= 0; k-- ) {
         //   fd_vm_trace_entry_t prev_trace_ent = trace[k];
         //   if (prev_trace_ent.mem_entries_used > 0) {
+        //     fd_vm_trace_mem_entry_t * prev_mem_ent = prev_trace_ent.mem_entries_head;
         //     for( ulong l = 0; l < prev_trace_ent.mem_entries_used; l++ ) {
-        //       fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
-        //       if( prev_mem_ent.type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
-        //         if ((prev_mem_ent.addr <= mem_ent.addr && mem_ent.addr < prev_mem_ent.addr + prev_mem_ent.sz)
-        //             || (mem_ent.addr <= prev_mem_ent.addr && prev_mem_ent.addr < mem_ent.addr + mem_ent.sz)) {
+        //       // fd_vm_trace_mem_entry_t prev_mem_ent = prev_trace_ent.mem_entries[l];
+        //       if( prev_mem_ent->type == FD_VM_TRACE_MEM_ENTRY_TYPE_WRITE ) {
+        //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
+        //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
         //           prev_mod = (ulong)k;
         //           break;              
         //         }
         //       }
+        //       prev_mem_ent = prev_mem_ent->next;
         //     }
         //   }
         //   if (prev_mod != 0) {
@@ -371,27 +378,30 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223338184) {
         //   }
         // }
 
-        trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent.addr, mem_ent.sz, prev_mod);
+        trace_buf_out += sprintf(trace_buf_out, "        R: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ", mem_ent->addr, mem_ent->sz, prev_mod);
       } else {
-        trace_buf_out += sprintf(trace_buf_out, "        W: vm_addr: 0x%016lX, sz: %8lu, data: ", mem_ent.addr, mem_ent.sz);
+        trace_buf_out += sprintf(trace_buf_out, "        W: vm_addr: 0x%016lX, sz: %8lu, data: ", mem_ent->addr, mem_ent->sz);
       }
 
-      if (mem_ent.sz < 10*1024) {
-        for( ulong k = 0; k < mem_ent.sz; k++ ) {
-          trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent.data[k]);
+      if (mem_ent->sz < 10*1024) {
+        for( ulong k = 0; k < mem_ent->sz; k++ ) {
+          trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
         }
       }
       
-      free(mem_ent.data);
+
+      fd_valloc_free(ctx.txn_ctx->valloc, mem_ent->data);
+
       trace_buf_out += sprintf(trace_buf_out, "\n");
-  }
-  trace_buf_out += sprintf(trace_buf_out, "\0");
-  fputs(trace_buf, stderr);
-  free_buf();
+      mem_ent = mem_ent->next;
+    }
+    trace_buf_out += sprintf(trace_buf_out, "\0");
+    fputs(trace_buf, stderr);
   }
   // fclose(trace_fd);
-  free(trace);
-  // fd_valloc_free( ctx.global->valloc, trace);
+  // free(trace);
+  fd_vm_trace_context_destroy( &trace_ctx );
+  fd_valloc_free( ctx.txn_ctx->valloc, trace);
   }
 #endif
 

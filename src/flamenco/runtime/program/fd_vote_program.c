@@ -1751,7 +1751,10 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
       &vote_state, slot_hashes, clock->epoch, clock->slot, vote_state_update, ctx );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-  return set_vote_account_state( vote_account, &vote_state, &ctx );
+  rc = set_vote_account_state( vote_account, &vote_state, &ctx );
+  fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
+  fd_vote_state_destroy( &vote_state, &destroy );
+  return rc;
 }
 
 /**********************************************************************/
@@ -1998,6 +2001,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   /* FD-specific init */
   int                      rc      = FD_EXECUTOR_INSTR_SUCCESS;
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
+  fd_bincode_destroy_ctx_t sysvar_destroy = {.valloc = ctx.slot_ctx->valloc};
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L61-L63
   fd_pubkey_t const * txn_accs       = ctx.txn_ctx->accounts;
@@ -2434,6 +2438,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       decode.timestamp = NULL;
 
       fd_vote_state_update_destroy( &decode, &destroy );
+      fd_slot_hashes_destroy( &slot_hashes, &sysvar_destroy );
     } else {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L223
       rc = FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

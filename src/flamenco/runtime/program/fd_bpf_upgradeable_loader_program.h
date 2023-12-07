@@ -22,7 +22,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
 int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx ) ;
 
 fd_account_meta_t const *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * instr_ctx, 
+read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx, 
                                                uchar program_id, 
                                                fd_bpf_upgradeable_loader_state_t * result, 
                                                int * opt_err );

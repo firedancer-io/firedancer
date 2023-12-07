@@ -195,6 +195,28 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
   return fd_execute_instr( instr_info, ctx->txn_ctx );
 }
 
+// static ulong
+// find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
+
+//   ulong start = 0;
+//   ulong end = deq_fd_slot_hash_t_cnt( hashes );
+
+//   while (start < end) {
+//     ulong mid = start + (end - start) / 2;
+//     fd_slot_hash_t const * ele = deq_fd_slot_hash_t_peek_index_const( hashes, mid );
+
+//     if ( ele->slot == slot ) {
+//       return slot;
+//     } else if ( ele->slot < slot ) {
+//       start = mid + 1;
+//     } else {
+//       end = mid - 1;
+//     }
+//   }
+
+//   return ULONG_MAX;
+// }
+
 /* Note on uses of fd_borrowed_account_acquire_write_is_safe:
 
    In some places of this program, the Labs implementation acquires a
@@ -298,6 +320,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
+  ulong derivation_slot = 1UL;
+
   do {
     fd_slot_hashes_t slot_hashes[1];
     int slot_hashes_err = fd_sysvar_slot_hashes_read( ctx->slot_ctx, slot_hashes );
@@ -324,17 +348,12 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     if( FD_UNLIKELY( !is_recent_slot ) ) {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
-      /* TODO Log: "{} is not a recent slot" */
+      FD_LOG_WARNING(("%lu is not a recent slot", create->recent_slot));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    } else {
+      derivation_slot = create->recent_slot;
     }
   } while(0);
-
-  /* TODO Binary search derivation slot in slot hashes sysvar */
-  ulong derivation_slot = 1UL;
-  if( 1 ) {
-    /* TODO Log: {} is not a recent slot */
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L109-L118 */
   fd_pubkey_t derived_tbl_key[1];
@@ -347,8 +366,9 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
     fd_sha256_fini( sha, derived_tbl_key->key );
   } while(0);
-  if( FD_UNLIKELY( !fd_ed25519_point_validate( derived_tbl_key->key ) ) )
+  if( FD_UNLIKELY( fd_ed25519_point_validate( derived_tbl_key->key ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
   if( FD_UNLIKELY( 0!=memcmp( lut_key->key, derived_tbl_key->key, 32UL ) ) ) {
@@ -450,10 +470,17 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   state->discriminant = fd_address_lookup_table_state_enum_lookup_table;
   fd_address_lookup_table_new( &state->inner.lookup_table );
   fd_memcpy( state->inner.lookup_table.meta.authority.key, authority_key->key, 32UL );
+  state->inner.lookup_table.meta.has_authority = 1;
+  state->inner.lookup_table.meta.deactivation_slot = ULONG_MAX;
 
+  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, 0, sizeof(fd_address_lookup_table_state_t), &lut_acct );
+  FD_TEST( lut_acct->meta );
+
+  int state_err = fd_addrlut_serialize_meta( state, lut_acct->data, sizeof(fd_address_lookup_table_state_t) );
+  if( FD_UNLIKELY( state_err ) ) { return state_err; }
   /* Implicit drop */
   fd_borrowed_account_release_write( lut_acct );
-  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
@@ -646,7 +673,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L253-L255 */
     if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE; break;
+      err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE; 
+      break;
     }
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L256-L258 */
@@ -1090,8 +1118,11 @@ fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_
     };
     fd_addrlut_instruction_t instr[1];
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) != FD_BINCODE_SUCCESS ) )
+    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) != FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_WARNING(("Failed to decode instruction"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    }
+      
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:
