@@ -20,6 +20,8 @@
   THE SOFTWARE.
 */
 
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+
 /* cJSON */
 /* JSON parser in C. */
 
@@ -371,6 +373,8 @@ loop_end:
     {
         item->valueint = (int)number;
     }
+
+    item->valueulong = strtoul((const char*)number_c_string, NULL, 10);
 
     item->type = cJSON_Number;
 
@@ -2725,6 +2729,7 @@ CJSON_PUBLIC(cJSON *) cJSON_Duplicate(const cJSON *item, cJSON_bool recurse)
     newitem->type = item->type & (~cJSON_IsReference);
     newitem->valueint = item->valueint;
     newitem->valuedouble = item->valuedouble;
+    newitem->valueulong = item->valueulong;
     if (item->valuestring)
     {
         newitem->valuestring = (char*)cJSON_strdup((unsigned char*)item->valuestring, &global_hooks);
