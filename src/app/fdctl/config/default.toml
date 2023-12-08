@@ -498,6 +498,11 @@ dynamic_port_range = "8900-9000"
     # that the Solana network can run as fast as possible.
     affinity = "0-16"
 
+    # Which CPU core to use for the POH service.  This is a special core
+    # because it's the only one pinned by the Solana Labs.  This should
+    # not overlap with the affinity specified above.
+    poh_core = 17
+
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
     # there are less net tiles than queues, some queues will not get
