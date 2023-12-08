@@ -674,6 +674,8 @@ main( int argc, char ** argv ) {
 
   slot_ctx->slot_bank.slot = startslot + 1;
   slot_ctx->slot_bank.prev_slot = startslot;
+  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
 
   fd_features_restore( slot_ctx );
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
