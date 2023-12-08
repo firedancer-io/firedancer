@@ -31,9 +31,10 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
 };
 
 static action_t DEV_ACTIONS[] = {
-  { .name = "dev",  .args = dev_cmd_args,  .fn = dev_cmd_fn,  .perm = dev_cmd_perm },
-  { .name = "dev1", .args = dev1_cmd_args, .fn = dev1_cmd_fn, .perm = dev_cmd_perm },
-  { .name = "txn",  .args = txn_cmd_args,  .fn = txn_cmd_fn,  .perm = txn_cmd_perm },
+  { .name = "dev",   .args = dev_cmd_args,   .fn = dev_cmd_fn,   .perm = dev_cmd_perm },
+  { .name = "dev1",  .args = dev1_cmd_args,  .fn = dev1_cmd_fn,  .perm = dev_cmd_perm },
+  { .name = "txn",   .args = txn_cmd_args,   .fn = txn_cmd_fn,   .perm = txn_cmd_perm },
+  { .name = "bench", .args = bench_cmd_args, .fn = bench_cmd_fn, .perm = bench_cmd_perm },
 };
 
 #define MAX_ARGC 32

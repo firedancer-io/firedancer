@@ -24,11 +24,15 @@ cmdline( char * buf,
   snprintf1( path, PATH_MAX, "/proc/%lu/cmdline", pid );
 
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fp && errno==ENOENT ) ) {
+    buf[ 0 ] = '\0';
+    return;
+  }
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
 
   ulong read = fread( buf, 1, len - 1, fp );
-  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/%lu/cmdline` (%i-%s)", pid, errno, fd_io_strerror( errno ) ));
 
   buf[ read ] = '\0';
 }
@@ -59,7 +63,8 @@ maybe_kill( config_t * const config,
   char path[ PATH_MAX ];
   snprintf1( path, PATH_MAX, "/proc/%lu/maps", pid );
   FILE * fp = fopen( path, "r" );
-  if( FD_UNLIKELY( !fp && errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( !fp && errno==ENOENT ) ) return 0;
+  else if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
