@@ -148,7 +148,10 @@ link_snap( link_snap_t * snap_cur,
       snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
       snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
 
-      snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
+      if( FD_LIKELY( out_metrics ) )
+        snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
+      else
+        snap->fseq_diag_slow_cnt  = 0UL;
       FD_COMPILER_MFENCE();
       snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
       snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;
@@ -428,11 +431,7 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  /* Join just the metrics workspace readonly, which should have
-     everything the monitor needs. */
-  ulong wksp_id = fd_topo_find_wksp( &config->topo, FD_TOPO_WKSP_KIND_METRIC_IN );
-  FD_TEST( wksp_id!=ULONG_MAX );
-  fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
