@@ -44,6 +44,7 @@ run_cmd_perm( args_t *         args,
 struct pidns_clone_args {
   config_t * config;
   int      * pipefd;
+  int        closefd;
 };
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
@@ -164,6 +165,9 @@ int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
   if( FD_UNLIKELY( close( args->pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1!=args->closefd ) ) {
+    if( FD_UNLIKELY( close( args->closefd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   config_t * const config = args->config;
 
@@ -340,6 +344,7 @@ main_pid_namespace( void * _args ) {
 
 int
 clone_firedancer( config_t * const config,
+                  int              close_fd,
                   int *            out_pipe ) {
   /* This pipe is here just so that the child process knows when the
      parent has died (it will get a HUP). */
@@ -348,7 +353,7 @@ clone_firedancer( config_t * const config,
 
   /* clone into a pid namespace */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
-  struct pidns_clone_args args = { .config = config, .pipefd = pipefd, };
+  struct pidns_clone_args args = { .config = config, .closefd = close_fd, .pipefd = pipefd, };
 
   void * stack = fd_tile_private_stack_new( 0, 65535UL );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
@@ -406,7 +411,7 @@ run_firedancer( config_t * const config ) {
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int pipefd;
-  pid_namespace = clone_firedancer( config, &pipefd );
+  pid_namespace = clone_firedancer( config, -1, &pipefd );
 
   /* Print the location of the logfile on SIGINT or SIGTERM, and also
      kill the child.  They are connected by a pipe which the child is

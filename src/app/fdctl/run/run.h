@@ -20,6 +20,7 @@ tile_main( void * _args );
 
 int
 clone_firedancer( config_t * const config,
+                  int              close_fd,
                   int *            out_pipe );
 
 void
