@@ -157,7 +157,7 @@ fd_topo_create_workspaces( char *      app_name,
   }
 }
 
-static void
+void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         ulong            mode ) {

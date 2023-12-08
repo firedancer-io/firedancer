@@ -522,6 +522,13 @@ fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    ulong            mode );
 
+/* Same as fd_topo_fill_tile but fills in all the objects for a
+   particular workspace with the given mode. */
+void
+fd_topo_workspace_fill( fd_topo_t *      topo,
+                        fd_topo_wksp_t * wksp,
+                        ulong            mode );
+
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology with
    the given mode. */
 void
