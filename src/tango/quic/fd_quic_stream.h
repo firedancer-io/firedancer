@@ -42,8 +42,6 @@ struct fd_quic_stream {
   uchar *          tx_ack;     /* ack - 1 bit per byte of tx_buf */
   ulong            tx_sent;    /* first unsent byte of tx_buf */
 
-  fd_quic_buffer_t rx_buf;                       /* receive reorder buffer */
-
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
 # define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
@@ -177,8 +175,7 @@ fd_quic_stream_align( void ) {
 /* returns the required footprint of fd_quic_stream_t
 
    args
-     tx_buf_sz    the size of the tx buffer
-     rx_buf_sz    the size of the rx buffer */
+     tx_buf_sz    the size of the tx buffer */
 FD_FN_CONST
 ulong
 fd_quic_stream_footprint( ulong tx_buf_sz );
@@ -188,8 +185,7 @@ fd_quic_stream_footprint( ulong tx_buf_sz );
    args
      mem          the memory aligned to fd_quic_stream_align, and at least fd_quic_stream_footprint
                     bytes
-     tx_buf_sz    the size of the tx buffer
-     rx_buf_sz    the size of the rx buffer */
+     tx_buf_sz    the size of the tx buffer */
 fd_quic_stream_t *
 fd_quic_stream_new( void * mem, fd_quic_conn_t * conn, ulong tx_buf_sz );
 
