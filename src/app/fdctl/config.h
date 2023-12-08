@@ -131,6 +131,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_solana_labs;
+    int bootstrap;
     uint debug_tile;
     struct {
       int  enabled;

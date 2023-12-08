@@ -456,11 +456,12 @@ run_cmd_fn( args_t *         args,
             config_t * const config ) {
   (void)args;
 
-  if( FD_UNLIKELY( !config->gossip.entrypoints_cnt ) )
+  if( FD_UNLIKELY( !config->gossip.entrypoints_cnt && !config->development.bootstrap ) )
     FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
                  "at least one is needed to determine how to connect to the Solana cluster. If "
                  "you want to start a new cluster in a development environment, use `fddev` instead "
-                 "of `fdctl`." ));
+                 "of `fdctl`. If you want to use an existing genesis, set [development.bootstrap] "
+                 "to \"true\" in the configuration file." ));
 
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) {
     if( FD_UNLIKELY( !strcmp( config->gossip.entrypoints[ i ], "" ) ) )
