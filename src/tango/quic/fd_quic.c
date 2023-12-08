@@ -1497,6 +1497,26 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
         return FD_QUIC_PARSE_FAIL;
       }
 
+      /* insert into connection map at orig_dst_conn_id */
+      fd_quic_conn_entry_t * insert_entry =
+        fd_quic_conn_map_insert( state->conn_map, &orig_dst_conn_id );
+
+      /* if insert failed (should be impossible) fail, and do not remove connection
+         from free list */
+      if( FD_UNLIKELY( insert_entry == NULL ) ) {
+        FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
+        fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+        return FD_QUIC_PARSE_FAIL;
+      }
+
+      /* set connection map insert_entry to new connection */
+      insert_entry->conn = conn;
+
+      /* keep orig_dst_conn_id */
+
+      memcpy( &conn->orig_dst_conn_id, &orig_dst_conn_id, sizeof( orig_dst_conn_id ) );
+
+
       /* set the value for the caller */
       *p_conn = conn;
 
@@ -1584,14 +1604,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
-    /* TODO need min packet allowed AND expected packet number */
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
-
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
   } else {
@@ -1629,14 +1641,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-    /* TODO need min packet allowed AND expected packet number */
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -1807,14 +1811,6 @@ fd_quic_handle_v1_handshake(
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
-    /* TODO need min packet allowed AND expected packet number */
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
-
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
   } else {
@@ -1850,13 +1846,6 @@ fd_quic_handle_v1_handshake(
 
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[enc_level] ) ) {
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
 
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
@@ -2098,14 +2087,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
 
-    /* TODO need min packet allowed AND expected packet number */
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
-
     /* set packet number on the context */
     pkt->pkt_number = pkt_number;
 
@@ -2152,15 +2133,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_
 
     /* reconstruct packet number */
     fd_quic_reconstruct_pkt_num( &pkt_number, pkt_number_sz, conn->exp_pkt_number[pn_space] );
-
-    /* packet number must be greater than the last processed
-       on a new connection, the minimum allowed is set to zero */
-    if( FD_UNLIKELY( pkt_number < conn->exp_pkt_number[pn_space] ) ) {
-      FD_DEBUG( FD_LOG_DEBUG(( "packet number less than expected. Discarding" )) );
-
-      /* packet already processed or abandoned, simply discard */
-      return tot_sz; /* return bytes to allow for more packets to be processed */
-    }
 
     /* since the packet number is greater than the highest last seen,
        do spin bit processing */
@@ -2409,6 +2381,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   /* packet contains ack-eliciting frame */
   if( ack_mandatory ) {
     pkt->ack_flag = 0;
+    /* initial and handshake packets get ack'ed immediately */
     if( enc_level != fd_quic_enc_level_initial_id &&
         enc_level != fd_quic_enc_level_handshake_id ) {
       ulong peer_max_ack_delay = fd_ulong_max( 1, conn->peer_max_ack_delay );
@@ -3637,7 +3610,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
   fd_quic_pkt_hdr_t pkt_hdr;
 
-  fd_quic_pkt_meta_t * pkt_meta = NULL;
+  fd_quic_pkt_meta_t * pkt_meta         = NULL;
+  ulong                pkt_meta_var_idx = 0UL;
 
   if( conn->tx_ptr != conn->tx_buf ) {
     fd_quic_tx_buffered( quic, conn, 0 );
@@ -3979,9 +3953,11 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
       ulong                   hs_offset = 0; /* offset within the current hs_data */
 
       /* either include handshake data or stream data, but not both */
+      ulong sent_offset = conn->hs_sent_bytes[enc_level];
+      ulong ackd_offset = conn->hs_ackd_bytes[enc_level];
       if( hs_data ) {
         /* offset within stream */
-        ulong offset = conn->hs_sent_bytes[enc_level];
+        ulong offset = fd_ulong_max( sent_offset, ackd_offset );
 
         /* track pkt_meta values */
         ulong offset_lo = offset;
@@ -4047,8 +4023,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             offset_hi += cur_data_sz;
 
             /* move to next hs_data */
-            offset           += cur_data_sz;
-            data_sz          += cur_data_sz;
+            offset      += cur_data_sz;
+            data_sz     += cur_data_sz;
 
             /* TODO load more hs_data into a crypto frame, if available
                currently tricky, because encode_crypto_frame copies payload */
@@ -4070,7 +4046,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
-        if( conn->handshake_done_send ) {
+        if( conn->handshake_done_send /* && !conn->handshake_done_ackd TODO */ ) {
           /* send handshake done frame */
           frame_sz = 1;
           pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
@@ -4080,7 +4056,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         }
 
         if( conn->upd_pkt_number >= pkt_number ) {
-          if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_DATA ) {
+          if( ( conn->flags & FD_QUIC_CONN_FLAGS_MAX_DATA ) &&
+              ( conn->rx_max_data > conn->rx_max_data_ackd ) ) {
             /* send max_data frame */
             frame.max_data.max_data = conn->rx_max_data;
 
@@ -4096,6 +4073,16 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
               /* set flag on pkt meta */
               pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_MAX_DATA;
               pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+
+              if( pkt_meta_var_idx < FD_QUIC_PKT_META_VAR_MAX ) {
+                pkt_meta->var[pkt_meta_var_idx].key =
+                    (fd_quic_pkt_meta_key_t){
+                      .type      = FD_QUIC_PKT_META_TYPE_OTHER,
+                      .flags     = FD_QUIC_CONN_FLAGS_MAX_DATA
+                    };
+                pkt_meta_var_idx++;
+                pkt_meta->var_sz = (uchar)pkt_meta_var_idx; /* TODO consolidate var_sz updates */
+              }
 
               conn->upd_pkt_number = pkt_number;
             }
@@ -5253,7 +5240,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* crypto offset for first packet always starts at 0 */
   fd_memset( conn->rx_crypto_offset, 0, sizeof( conn->rx_crypto_offset ) );
 
+  /* TODO lots of fd_memset calls that should really be builtin memset */
   fd_memset( conn->hs_sent_bytes, 0, sizeof( conn->hs_sent_bytes ) );
+  fd_memset( conn->hs_ackd_bytes, 0, sizeof( conn->hs_ackd_bytes ) );
 
   fd_memset( &conn->secrets, 0, sizeof( conn->secrets ) );
   fd_memset( &conn->keys, 0, sizeof( conn->keys ) );
@@ -5479,6 +5468,11 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( enc_level < peer_enc_level ) {
       /* free pkt_meta */
 
+      /* treat the original packet as-if it were ack'ed */
+      fd_quic_reclaim_pkt_meta( conn,
+                                pkt_meta,
+                                enc_level );
+
       /* remove from list */
       fd_quic_pkt_meta_remove( sent, prior, pkt_meta );
 
@@ -5498,12 +5492,10 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA            ) {
       /* find handshake data to retry */
       /* reset offset to beginning of retried range if necessary */
-      ulong offset = pkt_meta->range.offset_lo;
+      ulong offset = fd_ulong_max( conn->hs_ackd_bytes[enc_level], pkt_meta->range.offset_lo );
       if( offset < conn->hs_sent_bytes[enc_level] ) {
         conn->hs_sent_bytes[enc_level] = offset;
-        /* TODO might need to have a member "hs_ackd_bytes" so we don't
-           try to resend bytes that were acked (and may have been discarded) */
-        /* TODO do we need to set upd_pkt_number etc? */
+        conn->upd_pkt_number           = FD_QUIC_PKT_NUM_PENDING;
       }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_STREAM             ) {
@@ -5542,8 +5534,11 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       conn->upd_pkt_number      = FD_QUIC_PKT_NUM_PENDING;
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA           ) {
-      conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
-      conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+      /* set max_data to be sent only if unacked */
+      if( conn->rx_max_data_ackd < conn->rx_max_data ) {
+        conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
+        conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+      }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAM_DATA    ) {
       /* we don't have the stream id for the max_stream_data stream
@@ -5633,8 +5628,9 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level ) {
 
-  uint  flags      = pkt_meta->flags;
-  ulong pkt_number = pkt_meta->pkt_number;
+  uint            flags      = pkt_meta->flags;
+  ulong           pkt_number = pkt_meta->pkt_number;
+  fd_quic_range_t range      = pkt_meta->range;
 
   if( FD_UNLIKELY( flags & FD_QUIC_PKT_META_FLAGS_KEY_UPDATE ) ) {
     /* what key phase was used for packet? */
@@ -5685,8 +5681,29 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DATA ) {
-    /* actually, it is assumed the offsets are from the beginning of this
-       data... so we can't free any here */
+    /* is this ack'ing the next consecutive bytes?
+       if so, we can increase the ack'd bytes
+       if not, we retransmit the bytes expected to be ack'd
+         we assume a gap means a dropped packet, and
+         this policy allows us to free up the pkt_meta here */
+    ulong hs_ackd_bytes = conn->hs_ackd_bytes[enc_level];
+    if( range.offset_lo <= hs_ackd_bytes ) {
+      hs_ackd_bytes = conn->hs_ackd_bytes[enc_level]
+                    = fd_ulong_max( hs_ackd_bytes, range.offset_hi );
+
+      /* remove any unused hs_data */
+      fd_quic_tls_hs_data_t * hs_data = NULL;
+
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+      while( hs_data && hs_data->offset + hs_data->data_sz <= hs_ackd_bytes ) {
+        fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
+        hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
+      }
+    } else {
+      conn->hs_sent_bytes[enc_level] =
+          fd_ulong_min( conn->hs_sent_bytes[enc_level], hs_ackd_bytes );
+      conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    }
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE ) {
@@ -5700,7 +5717,31 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
-    conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_DATA;
+    ulong max_data_ackd = 0UL;
+    for( ulong j = 0UL; j < pkt_meta->var_sz; ++j ) {
+      if( pkt_meta->var[j].key.type  == FD_QUIC_PKT_META_TYPE_OTHER &&
+          pkt_meta->var[j].key.flags == FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
+        max_data_ackd = pkt_meta->var[j].value;
+      }
+    }
+
+    /* ack can only increase max_data_ackd */
+    max_data_ackd = fd_ulong_max( max_data_ackd, conn->rx_max_data_ackd );
+
+    /* max_data_ackd > rx_max_data is a protocol violation */
+    if( FD_UNLIKELY( max_data_ackd > conn->rx_max_data ) ) {
+      /* this is a protocol violation, so inform the peer */
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+      return;
+    }
+
+    /* clear flag only if acked value == current value */
+    if( FD_LIKELY( max_data_ackd == conn->rx_max_data ) ) {
+      conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_DATA;
+    }
+
+    /* set the ackd value */
+    conn->rx_max_data_ackd = max_data_ackd;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
@@ -5730,8 +5771,6 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_STREAM ) {
-    fd_quic_range_t range = pkt_meta->range;
-
     /* find stream */
     ulong                  stream_id    = pkt_meta->stream_id;
     fd_quic_stream_t *     stream       = NULL;
