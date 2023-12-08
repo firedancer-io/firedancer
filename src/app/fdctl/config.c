@@ -238,6 +238,7 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
+  ENTRY_BOOL  ( ., development,         bootstrap                                                 );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );

@@ -819,6 +819,21 @@ dynamic_port_range = "8900-9000"
     # the `--no-solana-labs` argument to `fddev`.
     no_solana_labs = false
 
+    # Sometimes, it may be useful to run a bootstrap firedancer validator,
+    # either for development or for testing purposes.  The `fddev` tool is
+    # provided for this purpose, which creates the bootstrap keys and does
+    # the cluster genesis using some parameters that are typically useful
+    # for development.
+    #
+    # Enabling this allows de-coupling the genesis and key creation from
+    # the validator startup.  The bootstrap validator can then be started
+    # up with `fdctl`.  It will expect the genesis to already exist at
+    # [ledger.path].  The keys used during genesis should be the same as
+    # the ones supplied in the [consensus.identity_path] and
+    # [consensus.vote_account_path].  This option will not be effective if
+    # [gossip.entrypoints] is non-empty.
+    bootstrap = false
+
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel
