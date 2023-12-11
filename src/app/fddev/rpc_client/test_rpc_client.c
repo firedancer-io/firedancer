@@ -122,6 +122,7 @@ fd_rpc_serve_one( void * args ) {
     FD_LOG_WARNING(( "%s", method ));
     FD_TEST( 0 );
   }
+  cJSON_Delete( json );
   FD_TEST( printed>=0 && (ulong)printed<sizeof(response_content) );
 
   char response[ 1024 ];
