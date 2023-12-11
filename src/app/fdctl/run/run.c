@@ -118,7 +118,6 @@ execve_tile( fd_topo_tile_t * tile,
   if( FD_LIKELY( cpu_idx<65535UL ) ) {
       /* set the thread affinity before we clone the new process to ensure
          kernel first touch happens on the desired thread. */
-      cpu_set_t cpu_set[1];
       CPU_ZERO( cpu_set );
       CPU_SET( cpu_idx, cpu_set );
       if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
