@@ -286,11 +286,11 @@ read_conn( fd_metric_ctx_t * ctx,
 
   long sz = read( ctx->fds[ idx ].fd, conn->input + conn->bytes_read, sizeof( conn->input ) - conn->bytes_read );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data to read, continue. */
-  else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
-  else if( FD_UNLIKELY( !sz ) ) {
+  else if( FD_UNLIKELY( !sz || (-1==sz && errno==ECONNRESET) ) ) {
     close_conn( ctx, idx ); /* EOF, peer closed connection */
     return;
   }
+  else if( FD_UNLIKELY( -1==sz ) ) FD_LOG_ERR(( "read failed (%i-%s)", errno, strerror( errno ) )); /* Unexpected programmer error, abort */
 
   /* New data was read... process it */
   conn->bytes_read += (ulong)sz;
@@ -354,7 +354,7 @@ write_conn( fd_metric_ctx_t *        ctx,
 
   long sz = write( ctx->fds[ idx ].fd, conn->output + conn->bytes_written, conn->output_len - conn->bytes_written );
   if( FD_UNLIKELY( -1==sz && (errno==EAGAIN || errno==EINTR) ) ) return; /* No data to write, continue. */
-  if( FD_UNLIKELY( -1==sz && errno==EPIPE ) ) {
+  if( FD_UNLIKELY( -1==sz && (errno==EPIPE || errno==ECONNRESET) ) ) {
     close_conn( ctx, idx ); /* Peer closed connection */
     return;
   }
