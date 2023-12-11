@@ -242,13 +242,13 @@ prometheus_print( fd_topo_t * topo,
 
   long result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\r\n" );
+  PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
   if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\r\n" );
+  PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
   if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\r\n" );
+  PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_QUIC, FD_METRICS_QUIC_TOTAL, FD_METRICS_QUIC, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
 
