@@ -7,7 +7,8 @@
      2. put them in the Blockstore
      3. validate and execute them
 
-   ./build/native/gcc/unit-test/test_tvu --snapshotfile <PATH_TO_SNAPSHOT_FILE> [--repair-peer-identity <SOLANA_TEST_VALIDATOR_IDENTITY>]
+   ./build/native/gcc/unit-test/test_tvu --snapshotfile <PATH_TO_SNAPSHOT_FILE>
+   [--repair-peer-identity <SOLANA_TEST_VALIDATOR_IDENTITY>]
 */
 
 #define _GNU_SOURCE /* See feature_test_macros(7) */
@@ -404,10 +405,12 @@ tvu_main( fd_gossip_t *        gossip,
     FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
     return -1;
   }
+
   if( setsockopt( gossip_fd, SOL_SOCKET, SO_SNDBUF, (char *)&gossip_optval, sizeof( int ) ) < 0 ) {
     FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
     return -1;
   }
+
   uchar gossip_saddr[sizeof( struct sockaddr_in6 )];
   int   gossip_addrlen = gossip_to_sockaddr( gossip_saddr, &gossip_config->my_addr );
   if( gossip_addrlen < 0 ||
@@ -459,6 +462,7 @@ tvu_main( fd_gossip_t *        gossip,
     FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
     return -1;
   }
+
   gossip_from_sockaddr( &repair_config->my_addr, repair_saddr );
   fd_repair_update_addr( repair, &repair_config->my_addr );
 
@@ -480,11 +484,10 @@ tvu_main( fd_gossip_t *        gossip,
                                        &repair_peer_identity ) ) ) {
       FD_LOG_ERR( ( "error adding repair active peer" ) );
     }
-  fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_identity );
-  peer->first_slot        = 0;
-  peer->last_slot         = 0;
-  has_peer                = 1;
-
+    fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_identity );
+    peer->first_slot        = 0;
+    peer->last_slot         = 0;
+    has_peer                = 1;
   }
 
   (void)argc;
@@ -497,8 +500,13 @@ tvu_main( fd_gossip_t *        gossip,
   uchar          repair_sockaddrs[VLEN]
                         [sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
 
+  long last_call = fd_log_wallclock();
   while( !*stopflag ) {
-    if( has_peer ) repair_missing_shreds( repair, blockstore, repair_peers );
+    long now = fd_log_wallclock();
+    if( FD_UNLIKELY( has_peer && ( now - last_call ) > (long)10e6 ) ) {
+      repair_missing_shreds( repair, blockstore, repair_peers );
+      last_call = now;
+    }
 
     /* Loop gossip */
     fd_gossip_settime( gossip, fd_log_wallclock() );
@@ -515,9 +523,9 @@ tvu_main( fd_gossip_t *        gossip,
     }
 
     /* Read more packets */
-    int gossip_rc = recvmmsg( gossip_fd, gossip_msgs, VLEN, MSG_DONTWAIT, NULL );
+    int  gossip_rc = recvmmsg( gossip_fd, gossip_msgs, VLEN, MSG_DONTWAIT, NULL );
     if( gossip_rc < 0 ) {
-      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
+      if( errno == EINTR || errno == EWOULDBLOCK ) goto repair_loop;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
       return -1;
     }
@@ -528,6 +536,7 @@ tvu_main( fd_gossip_t *        gossip,
       fd_gossip_recv_packet( gossip, gossip_bufs[i], gossip_msgs[i].msg_len, &from );
     }
 
+repair_loop:
     /* Loop repair */
     fd_repair_settime( repair, fd_log_wallclock() );
     fd_repair_continue( repair );
@@ -738,17 +747,23 @@ main( int argc, char ** argv ) {
 
   int lg_slot_cnt = 10; // 1024 slots of history
 
-  uchar * blockstore_slot_meta_mem = (uchar *)fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_slot_meta_map_align(), fd_blockstore_slot_meta_map_footprint(lg_slot_cnt), 1UL );
+  uchar * blockstore_slot_meta_mem =
+      (uchar *)fd_wksp_alloc_laddr( wksp,
+                                    fd_blockstore_slot_meta_map_align(),
+                                    fd_blockstore_slot_meta_map_footprint( lg_slot_cnt ),
+                                    1UL );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_blockstore_slot_meta_map_join(
       fd_blockstore_slot_meta_map_new( blockstore_slot_meta_mem, lg_slot_cnt ) );
   FD_TEST( slot_meta_map );
   blockstore.slot_meta_map = slot_meta_map;
 
-  uchar * blockstore_block_mem = (uchar *)fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_block_map_align(), fd_blockstore_block_map_footprint(lg_slot_cnt), 1UL );
-  fd_blockstore_block_map_t * block_map =
-      fd_blockstore_block_map_join( fd_blockstore_block_map_new( blockstore_block_mem, lg_slot_cnt ) );
+  uchar * blockstore_block_mem =
+      (uchar *)fd_wksp_alloc_laddr( wksp,
+                                    fd_blockstore_block_map_align(),
+                                    fd_blockstore_block_map_footprint( lg_slot_cnt ),
+                                    1UL );
+  fd_blockstore_block_map_t * block_map = fd_blockstore_block_map_join(
+      fd_blockstore_block_map_new( blockstore_block_mem, lg_slot_cnt ) );
   FD_TEST( block_map );
   blockstore.block_map = block_map;
 
