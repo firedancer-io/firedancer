@@ -35,7 +35,7 @@ fd_deshredder_next( fd_deshredder_t * const shredder ) {
       return -FD_SHRED_EINVAL;
 
     /* Ensure entry fits next shred */
-    if( FD_UNLIKELY( shredder->bufsz < shred->data.size ) )
+    if( FD_UNLIKELY( shredder->bufsz < fd_shred_payload_sz(shred) ) )
       return -FD_SHRED_ENOMEM;
 
     /* Copy shred data into entry buffer.

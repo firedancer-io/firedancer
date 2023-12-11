@@ -7,7 +7,7 @@
      2. put them in the Blockstore
      3. validate and execute them
 
-   ./build/native/gcc/unit-test/test_tvu --repair-peer-pubkey <SOLANA_TEST_VALIDATOR_IDENTITY>
+   ./build/native/gcc/unit-test/test_tvu --snapshotfile <PATH_TO_SNAPSHOT_FILE> [--repair-peer-identity <SOLANA_TEST_VALIDATOR_IDENTITY>]
 */
 
 #define _GNU_SOURCE /* See feature_test_macros(7) */
@@ -68,8 +68,6 @@ typedef struct {
   fd_repair_t *        repair;
   fd_repair_peer_t *   repair_peers;
   fd_blockstore_t *    blockstore;
-  void *               block_buf;
-  ulong                block_buf_sz;
   fd_exec_slot_ctx_t * slot_ctx;
   bool                 requested_highest;
   bool                 requested_idxs[FD_SHRED_MAX_PER_SLOT];
@@ -86,7 +84,6 @@ static void
 repair_missing_shreds( fd_repair_t *      repair,
                        fd_blockstore_t *  blockstore,
                        fd_repair_peer_t * repair_peers ) {
-  int   rc;
   ulong slot = blockstore->consumed + 1;
 
   fd_pubkey_t * peer = NULL;
@@ -97,21 +94,17 @@ repair_missing_shreds( fd_repair_t *      repair,
     }
   }
 
-  fd_blockstore_missing_shreds_t missing_shreds = { 0 };
-  rc = fd_blockstore_query_missing_shreds( blockstore, slot, &missing_shreds );
-  if( FD_UNLIKELY( rc == FD_BLOCKSTORE_ERR_QUERY_KEY_MISSING ) ) {
+  // fd_blockstore_shred_idx_set_t missing_shreds = { 0 };
+  // rc = fd_blockstore_missing_shreds_query( blockstore, slot, &missing_shreds );
+
+  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( blockstore, slot );
+  if( FD_UNLIKELY( !slot_meta ) ) {
     if( requested_highest ) return;
-    requested_highest = true;
-    FD_LOG_NOTICE(
-        ( "requesting highest shred - slot: %lu", slot ) );
+    FD_LOG_NOTICE( ( "requesting highest shred - slot: %lu", slot ) );
     if( FD_UNLIKELY( fd_repair_need_highest_window_index( repair, peer, slot, 0 ) ) ) {
       FD_LOG_ERR( ( "error requesting highest window idx shred for slot %lu", slot ) );
     };
-  } else if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-    FD_LOG_ERR( ( "gossip_deliver_fun: fd_blockstore_query_missing_shreds error. slot: "
-                  "%lu. reason: %d",
-                  slot,
-                  rc ) );
+    requested_highest = true;
   } else {
     // placeholder to only request missing shreds in the future... for now request all since we
     // know we aren't plugged into turbine this can also probably be windowed to be made more
@@ -125,16 +118,18 @@ repair_missing_shreds( fd_repair_t *      repair,
     //   shred.data.flags = 0;
     //   fd_repair_need_window_index( repair, epoch_slots );
     // }
-    fd_blockstore_slot_meta_t * slot_meta_entry =
-        fd_blockstore_slot_meta_query( blockstore->slot_metas, slot, NULL );
+    fd_blockstore_slot_meta_map_t * slot_meta_entry =
+        fd_blockstore_slot_meta_map_query( blockstore->slot_meta_map, slot, NULL );
     fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
     for( ulong shred_idx = slot_meta->consumed; shred_idx <= slot_meta->last_index; shred_idx++ ) {
       if( requested_idxs[shred_idx] ) continue;
-      requested_idxs[shred_idx] = true;
-      FD_LOG_DEBUG( ( "requesting shred - slot: %lu idx: %u", slot, shred_idx ) );
+      if( fd_blockstore_shred_query( blockstore, slot, (uint)shred_idx == FD_BLOCKSTORE_OK ) )
+        continue;
+      FD_LOG_DEBUG( ( "requesting shred - slot: %lu, idx: %u", slot, shred_idx ) );
       if( FD_UNLIKELY( fd_repair_need_window_index( repair, peer, slot, (uint)shred_idx ) ) ) {
         FD_LOG_ERR( ( "error requesting shreds" ) );
       };
+      requested_idxs[shred_idx] = true;
     }
   }
 }
@@ -165,60 +160,54 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
             gossip_ctx->repair, &repair_peer_addr, &data->inner.contact_info.id ) ) ) {
       FD_LOG_ERR( ( "error adding peer" ) );
     };
-    FD_LOG_NOTICE( ( "added peer %32J", &data->inner.contact_info.id ) );
-    has_peer = 1;
 
     fd_repair_peer_t * peer =
         fd_repair_peer_insert( gossip_ctx->repair_peers, data->inner.contact_info.id );
     peer->first_slot = 0;
     peer->last_slot  = 0;
+    has_peer         = 1;
   }
 }
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
-                    ulong                                         shred_sz,
+                    FD_PARAM_UNUSED ulong                         shred_sz,
                     FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
                     void *                                        arg ) {
   int                   rc;
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
   fd_blockstore_t *     blockstore = repair_ctx->blockstore;
-  if( FD_UNLIKELY( rc = fd_blockstore_upsert_shred( blockstore, shred, shred_sz ) !=
-                        FD_BLOCKSTORE_OK ) ) {
+  if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( blockstore, shred ) != FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", rc ) );
   };
-  fd_blockstore_slot_meta_t * slot_meta_entry;
-  if( FD_UNLIKELY( !( slot_meta_entry = fd_blockstore_slot_meta_query(
-                          blockstore->slot_metas, shred->slot, NULL ) ) ) ) {
+  fd_blockstore_slot_meta_map_t * slot_meta_entry;
+  if( FD_UNLIKELY( !( slot_meta_entry = fd_blockstore_slot_meta_map_query(
+                          blockstore->slot_meta_map, shred->slot, NULL ) ) ) ) {
     FD_LOG_ERR( ( "no slot meta despite just inserting a shred for that slot" ) );
   }
   fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
   // block is complete
   if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
     FD_LOG_NOTICE(
-        ( "received all shreds for slot %lu! now building a block, executing, and verifying...",
-          slot_meta->slot ) );
-    ulong out = 0;
-    rc        = fd_blockstore_query_block(
-        blockstore, slot_meta->slot, repair_ctx->block_buf, repair_ctx->block_buf_sz, &out );
-    if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
-      FD_LOG_WARNING( ( "fd_blockstore_query_block error: slot %lu, reason: %02x", rc ) );
-      return;
-    }
+        ( "received all shreds for slot %lu! now executing, and verifying...", slot_meta->slot ) );
+    fd_blockstore_block_t * block = fd_blockstore_block_query( blockstore, slot_meta->slot );
+    if( FD_UNLIKELY( !block ) ) FD_LOG_ERR( ( "block is missing after receiving all shreds" ) );
 
     // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
     // dcache?
     FD_TEST(
         // FIXME multi thread once it works
-        fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, repair_ctx->block_buf, out, NULL, 1 ) ==
+        fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, block->data, block->sz, NULL, 1 ) ==
         FD_RUNTIME_EXECUTE_SUCCESS );
 
-    FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J", slot_meta->slot, repair_ctx->slot_ctx->slot_bank.banks_hash.hash ));
+    FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
+                     slot_meta->slot,
+                     repair_ctx->slot_ctx->slot_bank.banks_hash.hash ) );
 
+    /* progress to next slot */
     requested_highest = 0;
     memset( requested_idxs, 0, sizeof( requested_idxs ) );
     blockstore->consumed++;
-
     repair_ctx->slot_ctx->slot_bank.prev_slot = repair_ctx->slot_ctx->slot_bank.slot;
     repair_ctx->slot_ctx->slot_bank.slot++;
 
@@ -247,6 +236,20 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     }
 #endif
   }
+}
+
+static void
+repair_deliver_fail_fun( fd_pubkey_t const * id,
+                         ulong               slot,
+                         uint                shred_index,
+                         void *              arg,
+                         int                 reason ) {
+  (void)arg;
+  FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %32J, slot: %lu, idx: %u, reason: %d",
+                    id,
+                    slot,
+                    shred_index,
+                    reason ) );
 }
 
 // SIGINT signal handler
@@ -385,7 +388,9 @@ tvu_main( fd_gossip_t *        gossip,
           fd_repair_config_t * repair_config,
           fd_repair_peer_t *   repair_peers,
           fd_blockstore_t *    blockstore,
-          volatile int *       stopflag ) {
+          volatile int *       stopflag,
+          int                  argc,
+          char **              argv ) {
 
   /* initialize gossip */
   int gossip_fd;
@@ -459,6 +464,31 @@ tvu_main( fd_gossip_t *        gossip,
 
   fd_repair_settime( repair, fd_log_wallclock() );
   fd_repair_start( repair );
+
+  /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
+  char const * repair_peer_identity_ =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-identity", NULL, NULL );
+  char const * repair_peer_addr_ =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
+  if( repair_peer_identity_ ) {
+    fd_pubkey_t repair_peer_identity;
+    fd_base58_decode_32( repair_peer_identity_, repair_peer_identity.uc );
+    fd_repair_peer_addr_t repair_peer_addr = { 0 };
+    if( FD_UNLIKELY(
+            fd_repair_add_active_peer( repair,
+                                       resolve_hostport( repair_peer_addr_, &repair_peer_addr ),
+                                       &repair_peer_identity ) ) ) {
+      FD_LOG_ERR( ( "error adding repair active peer" ) );
+    }
+  fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_identity );
+  peer->first_slot        = 0;
+  peer->last_slot         = 0;
+  has_peer                = 1;
+
+  }
+
+  (void)argc;
+  (void)argv;
 
 #define VLEN 32U
   struct mmsghdr repair_msgs[VLEN];
@@ -543,7 +573,7 @@ main( int argc, char ** argv ) {
   /* Wksp                                                               */
   /**********************************************************************/
 
-  ulong  page_cnt = 50;
+  ulong  page_cnt = 64;
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
@@ -577,6 +607,7 @@ main( int argc, char ** argv ) {
 
   char const * snapshotfile =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshotfile", NULL, NULL );
+  FD_TEST( snapshotfile );
   char const * incremental = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental", NULL, NULL );
 
   fd_wksp_t *  funkwksp;
@@ -672,8 +703,8 @@ main( int argc, char ** argv ) {
     fd_snapshot_load( snapshotfiles, slot_ctx );
   }
 
-  slot_ctx->slot_bank.slot = startslot + 1;
-  slot_ctx->slot_bank.prev_slot = startslot;
+  slot_ctx->slot_bank.slot           = startslot + 1;
+  slot_ctx->slot_bank.prev_slot      = startslot;
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
@@ -686,24 +717,40 @@ main( int argc, char ** argv ) {
 
   fd_blockstore_t blockstore = { 0 };
 
-  ulong   blockstore_key_max   = 1 << 16; // 64kb shreds
-  uchar * blockstore_shred_mem = (uchar *)fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_shred_align(), fd_blockstore_shred_footprint( blockstore_key_max ), 1UL );
+  void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
+  fd_alloc_t * alloc     = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 0UL );
+  blockstore.alloc       = alloc;
+
+  // TODO use fd_alloc
+  blockstore.valloc = valloc;
+
+  ulong   blockstore_shred_max = 1 << 16; // 64kb
+  uchar * blockstore_shred_mem =
+      (uchar *)fd_wksp_alloc_laddr( wksp,
+                                    fd_blockstore_shred_map_align(),
+                                    fd_blockstore_shred_map_footprint( blockstore_shred_max ),
+                                    1UL );
   FD_TEST( blockstore_shred_mem );
-  fd_blockstore_shred_t * shreds = fd_blockstore_shred_join(
-      fd_blockstore_shred_new( blockstore_shred_mem, blockstore_key_max, 1UL ) );
-  FD_TEST( shreds );
-  blockstore.shreds = shreds;
+  fd_blockstore_shred_map_t * shred_map = fd_blockstore_shred_map_join(
+      fd_blockstore_shred_map_new( blockstore_shred_mem, blockstore_shred_max, 42UL ) );
+  FD_TEST( shred_map );
+  blockstore.shred_map = shred_map;
+
+  int lg_slot_cnt = 10; // 1024 slots of history
 
   uchar * blockstore_slot_meta_mem = (uchar *)fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_slot_meta_align(), fd_blockstore_slot_meta_footprint(), 1UL );
-  fd_blockstore_slot_meta_t * slot_metas =
-      fd_blockstore_slot_meta_join( fd_blockstore_slot_meta_new( blockstore_slot_meta_mem ) );
-  FD_TEST( slot_metas );
-  blockstore.slot_metas = slot_metas;
+      wksp, fd_blockstore_slot_meta_map_align(), fd_blockstore_slot_meta_map_footprint(lg_slot_cnt), 1UL );
+  fd_blockstore_slot_meta_map_t * slot_meta_map = fd_blockstore_slot_meta_map_join(
+      fd_blockstore_slot_meta_map_new( blockstore_slot_meta_mem, lg_slot_cnt ) );
+  FD_TEST( slot_meta_map );
+  blockstore.slot_meta_map = slot_meta_map;
 
-  ulong  block_buf_sz = FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ;
-  void * block_buf    = fd_wksp_alloc_laddr( wksp, 128UL, block_buf_sz, 1UL ); /* ~40 mb */
+  uchar * blockstore_block_mem = (uchar *)fd_wksp_alloc_laddr(
+      wksp, fd_blockstore_block_map_align(), fd_blockstore_block_map_footprint(lg_slot_cnt), 1UL );
+  fd_blockstore_block_map_t * block_map =
+      fd_blockstore_block_map_join( fd_blockstore_block_map_new( blockstore_block_mem, lg_slot_cnt ) );
+  FD_TEST( block_map );
+  blockstore.block_map = block_map;
 
   if( FD_UNLIKELY( startslot != 0 ) ) blockstore.consumed = startslot;
 
@@ -736,10 +783,11 @@ main( int argc, char ** argv ) {
   repair_config.public_key  = &public_key;
 
   char const * my_repair_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--my_repair_addr", NULL, ":0" );
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
   FD_TEST( resolve_hostport( my_repair_addr, &repair_config.my_addr ) );
 
-  repair_config.deliver_fun = repair_deliver_fun;
+  repair_config.deliver_fun      = repair_deliver_fun;
+  repair_config.deliver_fail_fun = repair_deliver_fail_fun;
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
@@ -759,8 +807,6 @@ main( int argc, char ** argv ) {
   fd_tvu_repair_ctx_t repair_ctx = { .repair            = repair,
                                      .repair_peers      = repair_peers,
                                      .blockstore        = &blockstore,
-                                     .block_buf         = block_buf,
-                                     .block_buf_sz      = block_buf_sz,
                                      .slot_ctx          = slot_ctx,
                                      .requested_highest = 0,
                                      .requested_idxs    = { 0 } };
@@ -799,7 +845,7 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_gossip_peer_addr_t gossip_peer_addr;
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( ":8000", &gossip_peer_addr ) ) )
+  if( fd_gossip_add_active_peer( gossip, resolve_hostport( ":1024", &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
 
   /**********************************************************************/
@@ -809,8 +855,15 @@ main( int argc, char ** argv ) {
   signal( SIGINT, stop );
   signal( SIGPIPE, SIG_IGN );
 
-  if( tvu_main(
-          gossip, &gossip_config, repair, &repair_config, repair_peers, &blockstore, &stopflag ) )
+  if( tvu_main( gossip,
+                &gossip_config,
+                repair,
+                &repair_config,
+                repair_peers,
+                &blockstore,
+                &stopflag,
+                argc,
+                argv ) )
     return 1;
 
   /***********************************************************************/

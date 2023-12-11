@@ -6,6 +6,9 @@
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 
+#define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
+#define FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED -2
+
 /* Global state of repair protocol */
 typedef struct fd_repair fd_repair_t;
 ulong         fd_repair_align    ( void );
@@ -23,12 +26,16 @@ typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shr
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
 
+/* Callback for when a request fails. Echoes back the request parameters. */
+typedef void (*fd_repair_shred_deliver_fail_fun)( fd_pubkey_t const * id, ulong slot, uint shred_index, void * arg, int reason );
+
 struct fd_repair_config {
     fd_pubkey_t * public_key;
     uchar * private_key;
     fd_repair_peer_addr_t my_addr;
     fd_repair_shred_deliver_fun deliver_fun;
     fd_repair_send_packet_fun send_fun;
+    fd_repair_shred_deliver_fail_fun deliver_fail_fun;
     void * fun_arg;
 };
 typedef struct fd_repair_config fd_repair_config_t;

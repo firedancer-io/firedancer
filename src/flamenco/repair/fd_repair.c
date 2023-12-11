@@ -147,6 +147,8 @@ struct fd_repair {
     fd_repair_shred_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
     fd_repair_send_packet_fun send_fun;
+    /* Function used to deliver repair failure on the network */
+    fd_repair_shred_deliver_fail_fun deliver_fail_fun;
     void * fun_arg;
     /* Table of validators that we are actively pinging, keyed by repair address */
     fd_active_elem_t * actives;
@@ -227,6 +229,7 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   glob->deliver_fun = config->deliver_fun;
   glob->send_fun = config->send_fun;
   glob->fun_arg = config->fun_arg;
+  glob->deliver_fail_fun = config->deliver_fail_fun;
   return 0;
 }
 
@@ -326,6 +329,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       continue;
     if (ele->when > expire)
       break;
+    (*glob->deliver_fail_fun)( &ele->id, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
     fd_needed_table_remove( glob->needed, &n );
   }
   glob->oldest_nonce = n;
@@ -497,8 +501,10 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
 
 int
 fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
-  if (fd_needed_table_is_full(glob->needed))
+  if (fd_needed_table_is_full(glob->needed)) {
+    ( *glob->deliver_fail_fun )(id, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
+  }
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);
@@ -512,7 +518,7 @@ fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong s
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
   if (fd_needed_table_is_full(glob->needed)) {
-    FD_LOG_WARNING(("table full"));
+    ( *glob->deliver_fail_fun )(id, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
   fd_repair_nonce_t key = glob->next_nonce++;
@@ -528,8 +534,10 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const * id,
 
 int
 fd_repair_need_orphan( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot ) {
-  if (fd_needed_table_is_full(glob->needed))
+  if (fd_needed_table_is_full(glob->needed)) {
+    ( *glob->deliver_fail_fun )(id, slot, UINT_MAX, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
+  }
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);

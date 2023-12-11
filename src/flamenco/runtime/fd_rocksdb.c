@@ -138,8 +138,7 @@ void *
 fd_rocksdb_get_block( fd_rocksdb_t *   db,
                       fd_slot_meta_t * m,
                       fd_valloc_t      valloc,
-                      ulong *          result_sz ) {
-  FD_LOG_DEBUG(("getting block"));
+                      ulong *          result_sz ) { FD_LOG_DEBUG(("getting block"));
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
