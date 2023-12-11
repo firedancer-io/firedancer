@@ -543,7 +543,7 @@ main( int argc, char ** argv ) {
   /* Wksp                                                               */
   /**********************************************************************/
 
-  ulong  page_cnt = 1;
+  ulong  page_cnt = 50;
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
@@ -584,7 +584,7 @@ main( int argc, char ** argv ) {
   char const * wkspname = fd_env_strip_cmdline_cstr( &argc, &argv, "--wksp", NULL, NULL );
   if( wkspname == NULL ) {
     funkwksp      = wksp;
-    def_index_max = 10000;
+    def_index_max = 100000000;
   } else {
     funkwksp = fd_wksp_attach( wkspname );
     if( funkwksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", wkspname ) );
@@ -799,7 +799,7 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_gossip_peer_addr_t gossip_peer_addr;
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( ":1024", &gossip_peer_addr ) ) )
+  if( fd_gossip_add_active_peer( gossip, resolve_hostport( ":8000", &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
 
   /**********************************************************************/
