@@ -34,7 +34,7 @@ jobs:
           credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
       - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@v1'
+        uses: 'google-github-actions/setup-gcloud@v2'
 
       - name: Generate all coverage
         run: ./.github/workflows/scripts/cov_all.sh
