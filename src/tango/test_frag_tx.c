@@ -11,6 +11,17 @@ FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );
 static uchar  fctl_mem[ FD_FCTL_FOOTPRINT( RX_MAX ) ] __attribute__((aligned(FD_FCTL_ALIGN)));
 static char * _fseq[ RX_MAX ];
 
+#define FD_CNC_DIAG_IN_BACKP   (0UL)
+#define FD_CNC_DIAG_BACKP_CNT  (1UL)
+
+#define FD_FSEQ_DIAG_PUB_CNT   (0UL)
+#define FD_FSEQ_DIAG_PUB_SZ    (1UL)
+#define FD_FSEQ_DIAG_FILT_CNT  (2UL)
+#define FD_FSEQ_DIAG_FILT_SZ   (3UL)
+#define FD_FSEQ_DIAG_OVRNP_CNT (4UL)
+#define FD_FSEQ_DIAG_OVRNR_CNT (5UL)
+#define FD_FSEQ_DIAG_SLOW_CNT  (6UL)
+
 int
 main( int     argc,
       char ** argv ) {

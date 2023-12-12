@@ -1,4 +1,6 @@
-name: All Coverage
+# This workflow runs every day regardless of new commits
+
+name: On Daily
 on:
   schedule:
     - cron: '0 0 * * *'
@@ -27,12 +29,12 @@ jobs:
       - uses: ./.github/actions/hugepages
 
       - name: 'Authenticate to Google Cloud'
-        uses: 'google-github-actions/auth@v1'
+        uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
 
       - name: 'Set up Cloud SDK'
-        uses: 'google-github-actions/setup-gcloud@v1'
+        uses: 'google-github-actions/setup-gcloud@v2'
 
       - name: Generate all coverage
         run: ./.github/workflows/scripts/cov_all.sh
@@ -48,3 +50,6 @@ jobs:
           <meta http-equiv="cache-control" content="no-cache" /></head>
           <body>Redirecting to latest coverage... (${{ github.sha }})</body></html>' > ./build/index.html
           gcloud storage cp -r ./build/index.html ${{ vars.COVERAGE_BUCKET }}/
+
+      - name: Check fuzz canaries
+        run: ./contrib/find_uncovered_fuzz_canaries.py $(find ./build/ -name 'fuzz_*\.lcov' -type f)

@@ -1,0 +1,48 @@
+93c93
+<         toklen = buf - tok_start;                                                                                                  \
+---
+>         toklen = (size_t)(buf - tok_start);                                                                                        \
+112c112
+<         size_t left = (buf_end - buf) & ~15;
+---
+>         size_t left = (size_t)((buf_end - buf) & ~15);
+115c115
+<             int r = _mm_cmpestri(ranges16, ranges_size, b16, 16, _SIDD_LEAST_SIGNIFICANT | _SIDD_CMP_RANGES | _SIDD_UBYTE_OPS);
+---
+>             int r = (int)_mm_cmpestri(ranges16, (int)ranges_size, b16, 16, _SIDD_LEAST_SIGNIFICANT | _SIDD_CMP_RANGES | _SIDD_UBYTE_OPS);
+184c184
+<         *token_len = buf - 2 - token_start;
+---
+>         *token_len = (size_t)(buf - 2 - token_start);
+186c186
+<         *token_len = buf - token_start;
+---
+>         *token_len = (size_t)(buf - token_start);
+275c275
+<     *token_len = buf - buf_start;
+---
+>     *token_len = (size_t)(buf - buf_start);
+350c350
+<         headers[*num_headers].value_len = value_end - value;
+---
+>         headers[*num_headers].value_len = (size_t)(value_end - value);
+566c566
+<                 decoder->bytes_left_in_chunk = decoder->bytes_left_in_chunk * 16 + v;
+---
+>                 decoder->bytes_left_in_chunk = decoder->bytes_left_in_chunk * 16 + (size_t)v;
+570a571
+>             __attribute__((fallthrough));
+589a591
+>             __attribute__((fallthrough));
+607a610
+>         __attribute__((fallthrough));
+632a636
+>             __attribute__((fallthrough));
+645c649
+<             assert(!"decoder is corrupt");
+---
+>             assert(0); // assert(!"decoder is corrupt");
+650c654
+<     ret = bufsz - src;
+---
+>     ret = (ssize_t)(bufsz - src);

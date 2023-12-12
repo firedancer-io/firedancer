@@ -173,7 +173,7 @@ main( int     argc,
 
       printf( "\n\t  stream_opened_cnt       %20lu"
               "\n\t  stream_closed_cnt       %20lu"
-              "\n\t  stream_active_cnt       %20ld"
+              "\n\t  stream_active_cnt       %20lu"
               "\n\t  stream_rx_event_cnt     %20lu"
               "\n\t  stream_rx_byte_cnt      %20lu"
               "\n",
@@ -188,7 +188,6 @@ main( int     argc,
               + metrics->stream_closed_cnt[2]
               + metrics->stream_closed_cnt[3],
 
-                (long)
                 metrics->stream_active_cnt[0]
               + metrics->stream_active_cnt[1]
               + metrics->stream_active_cnt[2]

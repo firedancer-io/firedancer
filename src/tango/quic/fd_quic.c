@@ -272,9 +272,6 @@ fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->tx_sent            = 0;
   memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
 
-  stream->rx_buf.head        = 0;
-  stream->rx_buf.tail        = 0;
-
   stream->stream_flags       = 0;
   /* don't update next here, since it's still in use */
 
@@ -889,7 +886,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* track current number of streams */
   conn->num_streams[type]++;
 
-  /* stream tx_buf and rx_buf are already set */
+  /* stream tx_buf already set */
   stream->conn      = conn;
   stream->stream_id = next_stream_id;
   stream->context   = NULL;
@@ -6294,9 +6291,6 @@ fd_quic_frame_handle_stream_frame(
       stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
       stream->tx_sent     = 0; /* first unsent byte of tx_buf */
       memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
-
-      stream->rx_buf.head = 0;
-      stream->rx_buf.tail = 0;
 
       stream->stream_flags = 0UL;
       stream->state        = bidir ? 0u : FD_QUIC_STREAM_STATE_TX_FIN;

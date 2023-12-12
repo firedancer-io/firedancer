@@ -1,0 +1,4 @@
+GET /hoge HTTP/1.1
+Host: example.com
+Cookie: 
+

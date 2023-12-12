@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_reedsol.h"
 
 int
@@ -130,5 +131,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   else                     p[ corrupt_idx-d_cnt ][ byte_idx ] ^= (uchar)1;
 
   fd_rng_delete( fd_rng_leave( rng ) );
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

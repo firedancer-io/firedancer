@@ -117,6 +117,7 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    uint poh_core;
     uint net_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
@@ -130,6 +131,7 @@ typedef struct {
   struct {
     int sandbox;
     int no_solana_labs;
+    int bootstrap;
     uint debug_tile;
     struct {
       int  enabled;
@@ -188,6 +190,9 @@ typedef struct {
       ushort shred_listen_port;
     } shred;
 
+    struct {
+      ushort prometheus_listen_port;
+    } metric;
   } tiles;
 } config_t;
 

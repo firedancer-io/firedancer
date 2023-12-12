@@ -1,39 +1,29 @@
-# On every PR and main commit:
-# - Build on GCC and Clang
-# - Test on GCC
-
-name: Unit Tests
+name: Test Unit
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - next
-      - runtime
-  merge_group:
-    types: [checks_requested]
+  workflow_call:
   workflow_dispatch:
 jobs:
-  make-test:
+  test-unit:
+    continue-on-error: true
     strategy:
-      fail-fast: false
       matrix:
-        compiler: [gcc]
+        feature_set: [modern, highend]
+        compiler: [gcc, clang]
+      fail-fast: true
     runs-on:
-      group: github-v1
+      group: ${{ matrix.feature_set == 'highend' && 'rhel85-icelake' || 'github-v1' }}
     env:
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
       CC: ${{ matrix.compiler }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.69.0
-
       - uses: ./.github/actions/deps
 
-      - name: Build everything
-        run: make -j -Otarget all rust
+      - name: Build unit tests
+        run: make -j unit-test
 
       - uses: ./.github/actions/hugepages
 

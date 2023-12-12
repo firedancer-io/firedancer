@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_base64.h"
 
 /* fuzz_base64_dec verifies that Base64 decoding is safe against
@@ -33,8 +34,15 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( dec );
 
   long dec_res = fd_base64_decode( dec, (char const *)data, data_sz );
-  assert( dec_res>=0L || dec_res==-1L );
+  if ( dec_res>=0L ) {
+    FD_FUZZ_MUST_BE_COVERED;
+  } else if ( dec_res==-1L ) {
+    FD_FUZZ_MUST_BE_COVERED;
+  } else {
+    abort();
+  }
 
   free( dec );
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

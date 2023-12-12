@@ -2,6 +2,7 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_sbpf_loader.h"
 #include "fd_sbpf_maps.c"
 
@@ -35,7 +36,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_sbpf_elf_info_t info;
   if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size ) ) )
-    return 0;
+    return -1;
 
   /* Allocate objects */
 
@@ -53,12 +54,18 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Load program */
   int res = fd_sbpf_program_load( prog, data, size, syscalls );
-  FD_COMPILER_FORGET( res );
+
+  /* Should be able to load at least one program and not load at least one program */
+  if ( FD_UNLIKELY( !res ) ) {
+    FD_FUZZ_MUST_BE_COVERED;
+  } else {
+    FD_FUZZ_MUST_BE_COVERED;
+  }
 
   /* Clean up */
   free( rodata );
   free( fd_sbpf_syscalls_delete( syscalls ) );
   free( fd_sbpf_program_delete( prog ) );
+
   return 0;
 }
-

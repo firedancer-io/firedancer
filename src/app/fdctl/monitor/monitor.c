@@ -100,15 +100,15 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
     FD_COMPILER_MFENCE();
     snap->pid                      = FD_MGAUGE_GET( TILE, PID );
     snap->in_backp                 = FD_MGAUGE_GET( STEM, IN_BACKPRESSURE );
-    snap->backp_cnt                = FD_MCNT_GET( STEM, BACKPRESSURE );
-    snap->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_DURATION_HOUSEKEEPING );
-    snap->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_DURATION_BACKPRESSURE );
-    snap->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_DURATION_CAUGHT_UP );
-    snap->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_DURATION_OVERRUN_POLLING );
-    snap->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_DURATION_OVERRUN_READING );
-    snap->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_DURATION_FILTER_BEFORE_FRAGMENT );
-    snap->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_DURATION_FILTER_AFTER_FRAGMENT );
-    snap->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_DURATION_FINISH );
+    snap->backp_cnt                = FD_MCNT_GET( STEM, BACKPRESSURE_COUNT );
+    snap->housekeeping_ticks       = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
+    snap->backpressure_ticks       = FD_MHIST_SUM( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS );
+    snap->caught_up_ticks          = FD_MHIST_SUM( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS );
+    snap->overrun_polling_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS );
+    snap->overrun_reading_ticks    = FD_MHIST_SUM( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS );
+    snap->filter_before_frag_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS );
+    snap->filter_after_frag_ticks  = FD_MHIST_SUM( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS );
+    snap->finish_ticks             = FD_MHIST_SUM( STEM, LOOP_FINISH_DURATION_SECONDS );
     FD_COMPILER_MFENCE();
   }
 }
@@ -126,15 +126,32 @@ link_snap( link_snap_t * snap_cur,
 
       ulong const * fseq = topo->tiles[ tile_idx ].in_link_fseq[ in_idx ];
       snap->fseq_seq = fd_fseq_query( fseq );
-      ulong const * fseq_diag = (ulong const *)fd_fseq_app_laddr_const( fseq );
+
+      ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
+
+      fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+      ulong producer_id = fd_topo_find_link_producer( topo, link );
+      ulong const * out_metrics = NULL;
+      if( FD_LIKELY( producer_id!=ULONG_MAX && topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
+        fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
+        ulong out_idx;
+        for( out_idx=0UL; out_idx<producer->out_cnt; out_idx++ ) {
+          if( producer->out_link_id[ out_idx ]==link->id ) break;
+        }
+        out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
+      }
       FD_COMPILER_MFENCE();
-      snap->fseq_diag_tot_cnt   = fseq_diag[ FD_FSEQ_DIAG_PUB_CNT   ];
-      snap->fseq_diag_tot_sz    = fseq_diag[ FD_FSEQ_DIAG_PUB_SZ    ];
-      snap->fseq_diag_filt_cnt  = fseq_diag[ FD_FSEQ_DIAG_FILT_CNT  ];
-      snap->fseq_diag_filt_sz   = fseq_diag[ FD_FSEQ_DIAG_FILT_SZ   ];
-      snap->fseq_diag_ovrnp_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNP_CNT ];
-      snap->fseq_diag_ovrnr_cnt = fseq_diag[ FD_FSEQ_DIAG_OVRNR_CNT ];
-      snap->fseq_diag_slow_cnt  = fseq_diag[ FD_FSEQ_DIAG_SLOW_CNT  ];
+      snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF ];
+      snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_SIZE_BYTES_OFF ];
+      snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+      snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
+      snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
+      snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
+
+      if( FD_LIKELY( out_metrics ) )
+        snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
+      else
+        snap->fseq_diag_slow_cnt  = 0UL;
       FD_COMPILER_MFENCE();
       snap->fseq_diag_tot_cnt += snap->fseq_diag_filt_cnt;
       snap->fseq_diag_tot_sz  += snap->fseq_diag_filt_sz;
@@ -414,8 +431,6 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  /* join all workspaces needed by the topology before sandboxing, so
-     we can access them later */
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   struct sock_filter seccomp_filter[ 128UL ];

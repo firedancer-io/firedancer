@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_hmac.h"
 #include "../sha256/fd_sha256.h"
 #include "../sha512/fd_sha512.h"
@@ -45,35 +47,18 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar hash1[ 64 ] __attribute__((aligned(64)));
   uchar hash2[ 64 ] __attribute__((aligned(64)));
 
-  if( FD_UNLIKELY( fd_hmac_sha256( msg, msg_size, key, key_size, hash1 )!=hash1 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_hmac_sha256( msg, msg_size, key, key_size, hash2 )!=hash2 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( memcmp( hash1, hash2, FD_SHA256_HASH_SZ ) ) ) {
-    __builtin_trap();
-  }
+  assert( fd_hmac_sha256( msg, msg_size, key, key_size, hash1 ) == hash1 );
+  assert( fd_hmac_sha256( msg, msg_size, key, key_size, hash2 ) == hash2 );
+  assert( !memcmp( hash1, hash2, FD_SHA256_HASH_SZ ) );
 
-  if( FD_UNLIKELY( fd_hmac_sha384( msg, msg_size, key, key_size, hash1 )!=hash1 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_hmac_sha384( msg, msg_size, key, key_size, hash2 )!=hash2 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( memcmp( hash1, hash2, FD_SHA384_HASH_SZ ) ) ) {
-    __builtin_trap();
-  }
+  assert( fd_hmac_sha384( msg, msg_size, key, key_size, hash1 ) == hash1 );
+  assert( fd_hmac_sha384( msg, msg_size, key, key_size, hash2 ) == hash2 );
+  assert( !memcmp( hash1, hash2, FD_SHA384_HASH_SZ ) );
 
-  if( FD_UNLIKELY( fd_hmac_sha512( msg, msg_size, key, key_size, hash1 )!=hash1 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_hmac_sha512( msg, msg_size, key, key_size, hash2 )!=hash2 ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( memcmp( hash1, hash2, FD_SHA512_HASH_SZ ) ) ) {
-    __builtin_trap();
-  }
+  assert( fd_hmac_sha512( msg, msg_size, key, key_size, hash1 ) == hash1 );
+  assert( fd_hmac_sha512( msg, msg_size, key, key_size, hash2 ) == hash2 );
+  assert( !memcmp( hash1, hash2, FD_SHA512_HASH_SZ ) );
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
