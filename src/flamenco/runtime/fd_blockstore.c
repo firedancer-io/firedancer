@@ -1,7 +1,7 @@
 #include "fd_blockstore.h"
 
 /* txn map helpers */
-fd_blockstore_txn_key_t fd_blockstore_txn_key_null() {
+fd_blockstore_txn_key_t fd_blockstore_txn_key_null(void) {
   static fd_blockstore_txn_key_t k = { .v = { 0 } };
   return k;
 }
@@ -20,11 +20,11 @@ int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_ke
   return 1;
 }
 
-ulong fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k) {
+uint fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k) {
   ulong h = 0;
   for (ulong i = 0; i < FD_ED25519_SIG_SZ/sizeof(ulong); ++i)
     h ^= k.v[i];
-  return h;
+  return (uint)(h ^ (h>>32U));
 }
 
 static void

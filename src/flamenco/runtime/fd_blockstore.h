@@ -118,7 +118,7 @@ typedef struct fd_blockstore_txn_key fd_blockstore_txn_key_t;
 
 struct fd_blockstore_txn_map {
   fd_blockstore_txn_key_t sig;
-  ulong hash;
+  uint hash;
   ulong slot;
   ulong offset;
 };
@@ -130,13 +130,13 @@ typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 #define MAP_KEY   sig
 #define MAP_KEY_T fd_blockstore_txn_key_t
 #define MAP_KEY_EQUAL_IS_SLOW 1
-fd_blockstore_txn_key_t fd_blockstore_txn_key_null();
+fd_blockstore_txn_key_t fd_blockstore_txn_key_null(void);
 #define MAP_KEY_NULL         fd_blockstore_txn_key_null()
 int fd_blockstore_txn_key_inval(fd_blockstore_txn_key_t k);
 #define MAP_KEY_INVAL(k)     fd_blockstore_txn_key_inval(k)
 int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_key_t k1);
 #define MAP_KEY_EQUAL(k0,k1) fd_blockstore_txn_key_equal(k0,k1)
-ulong fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k);
+uint fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k);
 #define MAP_KEY_HASH(k)      fd_blockstore_txn_key_hash(k)
 #include "../../util/tmpl/fd_map_dynamic.c"
 /* clang-format on */
