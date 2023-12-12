@@ -108,7 +108,7 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     return process_close_proof_context( ctx );
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
-  case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_EQUALITY:
+  case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER:
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER_WITH_FEE:
   case FD_ZKTPP_INSTR_VERIFY_PUBKEY_VALIDITY:
