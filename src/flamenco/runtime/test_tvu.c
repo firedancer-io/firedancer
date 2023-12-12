@@ -614,6 +614,8 @@ main( int argc, char ** argv ) {
   gethostname( hostname, sizeof( hostname ) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
+  char const * peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--peer_addr", NULL, ":1024" );
+
   char const * snapshotfile =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshotfile", NULL, NULL );
   FD_TEST( snapshotfile );
@@ -860,7 +862,7 @@ main( int argc, char ** argv ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_gossip_peer_addr_t gossip_peer_addr;
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( ":1024", &gossip_peer_addr ) ) )
+  if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
 
   /**********************************************************************/

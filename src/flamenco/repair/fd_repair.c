@@ -15,7 +15,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* Max number of validators that can be actively queried */
-#define FD_ACTIVE_KEY_MAX (1<<8)
+#define FD_ACTIVE_KEY_MAX (1<<10)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<12)
 /* Max number of pending timed events */
@@ -306,7 +306,7 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
                    /* private_key */ glob->private_key,
                    sha );
   fd_memcpy(buf + 4U, &sig, 64U);
-  
+
   (*glob->send_fun)(buf, buflen, addr, glob->fun_arg);
 }
 
@@ -346,7 +346,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
 
     if (++j == 500U)
       break;
-    
+
     fd_repair_protocol_t protocol;
     switch (ele->type) {
     case fd_needed_window_index: {
@@ -384,7 +384,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       break;
     }
     }
-    
+
     fd_repair_sign_and_send(glob, &protocol, &active->addr);
 }
 }
@@ -420,7 +420,7 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;
-  
+
   fd_hash_copy( &pong->from, glob->public_key );
 
   /* Generate response hash token */
@@ -490,7 +490,7 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   fd_needed_table_remove(glob->needed, &key);
   if ( key == glob->oldest_nonce )
     glob->oldest_nonce = key + 1U;
-  
+
   fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
   if (shred == NULL)
     FD_LOG_WARNING(("invalid shread"));
