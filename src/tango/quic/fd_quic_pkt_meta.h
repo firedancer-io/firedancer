@@ -17,21 +17,59 @@ struct fd_quic_range {
 
 /* TODO convert to a union with various types of metadata overlaid */
 
+/* fd_quic_pkt_meta_var used for tracking max_data, max_stream_data and
+ * max_streams
+ *
+ * type:      FD_QUIC_PKT_META_TYPE_STREAM_DATA
+ *            FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA
+ *            FD_QUIC_PKT_META_TYPE_OTHER
+ * flags:     FD_QUIC_PKT_META_FLAGS_*
+ * value:     max_data          number of bytes
+ *            max_stream_data   number of bytes
+ *            max_streams       number of streams
+ */
+union fd_quic_pkt_meta_key {
+  union {
+    ulong stream_id:62;
+    struct {
+      ulong flags:62;
+      ulong type:2;
+#define FD_QUIC_PKT_META_TYPE_OTHER           0
+#define FD_QUIC_PKT_META_TYPE_STREAM_DATA     1
+#define FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA 2
+    };
+  };
+};
+typedef union fd_quic_pkt_meta_key fd_quic_pkt_meta_key_t;
+
+struct fd_quic_pkt_meta_var {
+  fd_quic_pkt_meta_key_t key;
+  ulong                  value;
+};
+typedef struct fd_quic_pkt_meta_var fd_quic_pkt_meta_var_t;
+
+/* the max number of pkt_meta_var entries in pkt_meta
+   this limits the number of max_data, max_stream_data and max_streams
+   allowed in a single quic packet */
+#define FD_QUIC_PKT_META_VAR_MAX 16
+
 /* fd_quic_pkt_meta
 
    tracks the metadata of data sent to the peer
    used when acks arrive to determine what is being acked specifically */
 struct fd_quic_pkt_meta {
   /* stores metadata about what was sent in the identified packet */
-  ulong                pkt_number;  /* the packet number */
-  uchar                enc_level;   /* every packet is sent at a specific
+  ulong                  pkt_number;  /* the packet number */
+  uchar                  enc_level;   /* every packet is sent at a specific
                                        enc_level */
-  uchar                pn_space;    /* packet number space (must be consistent
+  uchar                  pn_space;    /* packet number space (must be consistent
                                        with enc_level)  */
-  uchar                status;
+  uchar                  status;
 # define FD_QUIC_PKT_META_STATUS_UNUSED  ((uchar)0)
 # define FD_QUIC_PKT_META_STATUS_PENDING ((uchar)1)
 # define FD_QUIC_PKT_META_STATUS_SENT    ((uchar)2)
+
+  uchar                  var_sz;      /* number of populated entries in var */
 
   /* does/should the referenced packet contain:
        FD_QUIC_PKT_META_FLAGS_HS_DATA             handshake data
@@ -47,7 +85,7 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_KEY_PHASE           set only if key_phase was set in the short-header
 
      some of these flags are mutually exclusive */
-  uint                 flags;       /* flags */
+  uint                   flags;       /* flags */
 # define          FD_QUIC_PKT_META_FLAGS_HS_DATA            (1u<<0u)
 # define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
@@ -59,16 +97,18 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_UPDATE         (1u<<9u)
 # define          FD_QUIC_PKT_META_FLAGS_KEY_PHASE          (1u<<10u)
-  fd_quic_range_t      range;       /* range of bytes referred to by this meta */
-                               /* stream data or crypto data */
-                               /* we currently do not put both in the same packet */
-  ulong                stream_id;   /* if this contains stream data,
-                                       the stream id, else zero */
+  fd_quic_range_t        range;       /* range of bytes referred to by this meta */
+                                      /* stream data or crypto data */
+                                      /* we currently do not put both in the same packet */
+  ulong                  stream_id;   /* if this contains stream data,
+                                         the stream id, else zero */
 
-  ulong                expiry; /* time pkt_meta expires... this is the time the
+  ulong                  expiry; /* time pkt_meta expires... this is the time the
                                   ack is expected by */
 
-  fd_quic_pkt_meta_t * next;   /* next in current list */
+  fd_quic_pkt_meta_var_t var[FD_QUIC_PKT_META_VAR_MAX];
+
+  fd_quic_pkt_meta_t *   next;   /* next in current list */
 };
 
 

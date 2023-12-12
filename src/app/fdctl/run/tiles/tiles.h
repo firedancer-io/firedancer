@@ -21,6 +21,7 @@ typedef struct {
   fd_mux_after_frag_fn          * mux_after_frag;
   fd_mux_metrics_write_fn       * mux_metrics_write;
 
+  long  (*lazy                    )( fd_topo_tile_t * tile );
   ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
   ulong (*loose_footprint         )( fd_topo_tile_t * tile );

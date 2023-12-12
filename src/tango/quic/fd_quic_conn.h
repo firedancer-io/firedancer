@@ -17,6 +17,8 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
+#define FD_QUIC_CONN_STATE_CLOSING            8 /* waiting for a clean close (initiator) */
+#define FD_QUIC_CONN_STATE_DRAIN              9 /* waiting for a clean close (peer) */
 
 enum {
   FD_QUIC_CONN_REASON_NO_ERROR                     = 0x00,    /* No error */
@@ -116,6 +118,7 @@ struct fd_quic_conn {
   /* handshake members */
   int                handshake_complete;  /* have we completed a successful handshake? */
   int                handshake_done_send; /* do we need to send handshake-done to peer? */
+  int                handshake_done_ackd; /* was handshake_done ack'ed? */
   fd_quic_tls_hs_t * tls_hs;
 
   /* expected handshake data offset - one per encryption level
@@ -130,6 +133,9 @@ struct fd_quic_conn {
 
   /* amount of handshake data already sent from head of queue */
   ulong hs_sent_bytes[4];
+
+  /* amount of handshake data ack'ed by peer counted from head of queue */
+  ulong hs_ackd_bytes[4];
 
   /* secret members */
   fd_quic_crypto_secrets_t secrets;
@@ -242,6 +248,7 @@ struct fd_quic_conn {
                                               send to us */
   ulong                rx_tot_data;        /* total of all bytes received across all streams
                                               and including implied bytes */
+  ulong                rx_max_data_ackd;   /* max max_data acked by peer */
 
   uint                 flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
