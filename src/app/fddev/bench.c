@@ -264,6 +264,169 @@ clone_child( config_t * const config,
   return bencher_pid;
 }
 
+static void
+printf_left( fd_topo_t * topo ,
+             ulong       row_idx,
+             char *      buf,
+             ulong       buf_sz ) {
+  if( 0UL==row_idx ) {
+    snprintf( buf, buf_sz, "\n             link |  ovrnp cnt |  ovrnr cnt |   slow cnt |     tx seq |     rx seq" );
+    return;
+  } else if( 1UL==row_idx ) {
+    snprintf( buf, buf_sz,   "------------------+------------+------------+------------+------------+-----------" );
+    return;
+  }
+
+  ulong link_idx = row_idx-2UL;
+  ulong tile_idx=0UL;
+  ulong in_idx=0UL;
+  for( ; link_idx && tile_idx<topo->tile_cnt; tile_idx++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ tile_idx ];
+    for( in_idx=0UL; in_idx<tile->in_cnt; in_idx++ ) {
+      if( !--link_idx ) break;
+    }
+    if( !link_idx ) break;
+  }
+
+  if( tile_idx>=topo->tile_cnt ) {
+    snprintf( buf, buf_sz,   "                                                                                  " );
+    return;
+  }
+
+  fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+  fd_topo_tile_t * link_consumer = &topo->tiles[ tile_idx ];
+  ulong link_consumer_in_idx = in_idx;
+
+  char * producer;
+  switch( link->kind ) {
+    /* Special case Solana produced link names for now since we can't find them
+        in the topology. */
+    case FD_TOPO_LINK_KIND_POH_TO_SHRED: {
+      producer = "poh";
+      break;
+    }
+    case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
+      producer = "stakes";
+      break;
+    }
+    case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
+      producer = "gossip";
+      break;
+    }
+    case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
+      producer = "crds";
+      break;
+    }
+    default: {
+      ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
+      FD_TEST( producer_tile_id != ULONG_MAX );
+      producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
+    }
+  }
+
+  ulong const * in_metrics = (ulong const *)fd_metrics_link_in( link_consumer->metrics, link_consumer_in_idx );
+
+  ulong producer_id = fd_topo_find_link_producer( topo, link );
+  ulong const * out_metrics = NULL;
+  if( FD_LIKELY( producer_id!=ULONG_MAX && link_consumer->in_link_reliable[ link_consumer_in_idx ] ) ) {
+    fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
+    ulong out_idx;
+    for( out_idx=0UL; out_idx<producer->out_cnt; out_idx++ ) {
+      if( producer->out_link_id[ out_idx ]==link->id ) break;
+    }
+    out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
+  }
+
+  ulong printed = 0;
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " %7s->%-7s", producer, fd_topo_tile_kind_str( link_consumer->kind ) );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ] );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ] );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", out_metrics ? out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ] : 0UL );
+
+  ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( link->mcache );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", fd_mcache_seq_query( seq ) );
+
+  ulong const * fseq = link_consumer->in_link_fseq[ link_consumer_in_idx ];
+  if( fseq ) {
+    printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", fd_fseq_query( fseq ) );
+  } else {
+    printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", 0UL );
+  }
+}
+
+static void
+printf_right( fd_topo_t * topo ,
+              ulong       row_idx,
+              char *      buf,
+              ulong       buf_sz ) {
+  ulong tile_kind=0UL;
+  for( tile_kind=0UL; tile_kind<FD_TOPO_TILE_KIND_MAX; tile_kind++ ) {
+    ulong cnt = fd_topo_tile_kind_cnt( topo, tile_kind );
+    if( cnt==0UL ) continue;
+
+    if( tile_kind==FD_TOPO_TILE_KIND_MAX-1 && 2+cnt<=row_idx ) {
+      row_idx -= 2+cnt;
+      continue;
+    } else if( 3+cnt<=row_idx ) {
+      row_idx -= 3+cnt;
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  if( tile_kind>=FD_TOPO_TILE_KIND_MAX ) {
+    return;
+  }
+
+  if( 0UL==row_idx ) {
+    snprintf( buf, buf_sz, "        tile |  backp cnt | %% hkeep | %% backp |  %% wait | %% ovrnp | %% ovrnr | %% filt1 | %% filt2 | %% finish" );
+    return;
+  } else if( 1UL==row_idx ) {
+    snprintf( buf, buf_sz, "-------------+------------+---------+---------+---------+---------+---------+---------+---------+----------" );
+    return;
+  } else if( 2UL+fd_topo_tile_kind_cnt( topo, tile_kind )==row_idx ) {
+    snprintf( buf, buf_sz, "" );
+    return;
+  }
+
+  ulong tile_idx=row_idx-2UL;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    if( topo->tiles[ i ].kind==tile_kind ) {
+      if( !tile_idx-- ) {
+        tile_idx = i;
+        break;
+      }
+    }
+  }
+  
+  fd_topo_tile_t * tile = &topo->tiles[ tile_idx ];
+
+  fd_metrics_register( tile->metrics );
+
+  ulong hkeep_ticks = FD_MHIST_SUM( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS );
+  ulong backp_ticks = FD_MHIST_SUM( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS );
+  ulong caught_ticks = FD_MHIST_SUM( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS );
+  ulong ovrnp_ticks = FD_MHIST_SUM( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS );
+  ulong ovrnr_ticks = FD_MHIST_SUM( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS );
+  ulong filt1_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS );
+  ulong filt2_ticks = FD_MHIST_SUM( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS );
+  ulong finish_ticks = FD_MHIST_SUM( STEM, LOOP_FINISH_DURATION_SECONDS );
+  ulong total_ticks = hkeep_ticks + backp_ticks + caught_ticks + ovrnp_ticks + ovrnr_ticks + filt1_ticks + filt2_ticks + finish_ticks;
+
+  ulong printed = 0;
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " %7s(%lu) ", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %10lu", FD_MCNT_GET( STEM, BACKPRESSURE_COUNT ) );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)hkeep_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)backp_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)caught_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)ovrnp_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)ovrnr_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)filt1_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)filt2_ticks/(double)total_ticks );
+  printed += (ulong)snprintf( buf+printed, buf_sz-printed, " | %7.3lf", 100.0*(double)finish_ticks/(double)total_ticks );
+}
+
 void
 bench_cmd_fn( args_t *         args,
               config_t * const config ) {
@@ -330,67 +493,35 @@ bench_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( -1==dup2( STDERR_FILENO, STDOUT_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  printf( "\n             link |  ovrnp cnt |  ovrnr cnt |   slow cnt |     tx seq |     rx seq\n" );
-  printf(   "------------------+------------+------------+------------+------------+-----------\n" );
-
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
   
   fd_topo_t * topo = &config->topo;
+
+  ulong link_cnt = 0UL;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
-      fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-      char * producer;
-      switch( link->kind ) {
-        /* Special case Solana produced link names for now since we can't find them
-            in the topology. */
-        case FD_TOPO_LINK_KIND_POH_TO_SHRED: {
-          producer = "poh";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
-          producer = "stakes";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
-          producer = "gossip";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
-          producer = "crds";
-          break;
-        }
-        default: {
-          ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
-          FD_TEST( producer_tile_id != ULONG_MAX );
-          producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
-        }
-      }
-
-      ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
-
-      ulong producer_id = fd_topo_find_link_producer( topo, link );
-      ulong const * out_metrics = NULL;
-      if( FD_LIKELY( producer_id!=ULONG_MAX && topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
-        fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
-        ulong out_idx;
-        for( out_idx=0UL; out_idx<producer->out_cnt; out_idx++ ) {
-          if( producer->out_link_id[ out_idx ]==link->id ) break;
-        }
-        out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
-      }
-
-      printf( " %7s->%-7s", producer, fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
-      printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ] );
-      printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ] );
-      printf( " | %10lu", out_metrics ? out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ] : 0UL );
-
-      fd_frag_meta_t const * mcache = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx  ] ].mcache;
-      ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( mcache );
-      printf( " | %10lu", fd_mcache_seq_query( seq ) );
-
-      ulong const * fseq = topo->tiles[ tile_idx ].in_link_fseq[ in_idx ];
-      printf( " | %10lu\n", fd_fseq_query( fseq ) );
+      link_cnt++;
     }
+  }
+
+  ulong tile_kind_cnt = 0UL;
+  int tile_kind_seen[ FD_TOPO_TILE_KIND_MAX ] = {0};
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    if( !tile_kind_seen[ topo->tiles[ tile_idx ].kind ] ) {
+      tile_kind_seen[ topo->tiles[ tile_idx ].kind ] = 1;
+      tile_kind_cnt++;
+    }
+  }
+
+  ulong row_cnt = fd_ulong_max( topo->tile_cnt + 3UL*tile_kind_cnt - 1, 2UL+link_cnt );
+  for( ulong row_idx=0UL; row_idx<row_cnt; row_idx++ ) {
+      char left[ 1024UL ];
+      char right[ 1024UL ];
+
+      printf_left( topo, row_idx, left, 1024UL );
+      printf_right( topo, row_idx, right, 1024UL );
+
+      printf( "%s      %s\n", left, right );
   }
 }
