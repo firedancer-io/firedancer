@@ -79,20 +79,6 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 #define FD_SBPF_MM_PROGRAM_ADDR (0x100000000UL) /* readonly program data */
 #define FD_SBPF_MM_STACK_ADDR   (0x200000000UL) /* stack (with gaps) */
 
-/* FD_SBPF_RODATA_GUARD is the size of the guard area after the rodata
-   segment.  This is required because relocations can be partially
-   out-of-bounds. The largest relocation type is 16 bytes of read/write,
-   so there should be 16 minus 1 bytes of guard area past the end.
-   Guard area at the beginning is not required, as the rodata segment
-   always starts at file offset zero.
-
-   Example:
-
-     [ RODATA segment ....... ] [ Guard area .................... ]
-                    [ Relocation .................... ] */
-
-#define FD_SBPF_RODATA_GUARD (15UL)
-
 /* _fd_int_store_if_negative stores x to *p if *p is negative (branchless) */
 
 static inline int
@@ -441,7 +427,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   }
 
   info->rodata_sz        = (uint)segment_end;
-  info->rodata_footprint = (uint)( segment_end+FD_SBPF_RODATA_GUARD );
+  info->rodata_footprint = (uint)elf_sz;
 
   return 0;
 }
@@ -801,6 +787,8 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_loader_t   const * loader,
                      fd_sbpf_elf_info_t const * info,
                      fd_elf64_rel       const * rel ) {
 
+  (void)info;
+
   uint  r_sym    = FD_ELF64_R_SYM( rel->r_info );
   ulong r_offset = rel->r_offset;
 
@@ -821,9 +809,6 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_loader_t   const * loader,
   fd_elf64_sym const * dynsyms = (fd_elf64_sym const *)( elf->bin + loader->dynsym_off );
   fd_elf64_sym const * sym     = &dynsyms[ r_sym ];
   ulong S = sym->st_value;
-
-  /* Skip if side effects not visible in VM */
-  if( FD_UNLIKELY( A_off_lo > info->rodata_sz ) ) return 0;
 
   /* Relocate */
   ulong A = FD_LOAD( uint, &rodata[ A_off_lo ] );
@@ -876,9 +861,6 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
     REQUIRE( va!=0UL );
     va = va<FD_SBPF_MM_PROGRAM_ADDR ? va+FD_SBPF_MM_PROGRAM_ADDR : va;
 
-    /* Skip if side effects not visible in VM */
-    if( FD_UNLIKELY( imm_lo_off > info->rodata_sz ) ) return 0;
-
     /* Write back
        Skip bounds check as .text is guaranteed to be writable */
     FD_STORE( uint, rodata+imm_lo_off, (uint)( va       ) );
@@ -888,9 +870,6 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
 
     /* Bounds checks */
     REQUIRE( (r_offset+8UL>r_offset) & (r_offset+8UL<=elf_sz) );
-
-    /* Skip if side effects not visible in VM */
-    if( FD_UNLIKELY( r_offset > info->rodata_sz ) ) return 0;
 
     /* Read implicit addend */
     ulong va = FD_LOAD( uint, rodata+r_offset+4UL );
@@ -979,9 +958,6 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
   /* Bounds checks */
   REQUIRE( (r_offset+8UL>r_offset) & (r_offset+8UL<=elf_sz) );
   ulong A_off = r_offset+4UL;
-
-  /* Skip if side effects not visible in VM */
-  if( FD_UNLIKELY( A_off > info->rodata_sz ) ) return 0;
 
   /* Apply relocation */
   FD_STORE( uint, rodata+A_off, V );
