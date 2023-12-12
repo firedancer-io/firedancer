@@ -82,15 +82,16 @@ struct fd_blockstore_shred {
 typedef struct fd_blockstore_shred fd_blockstore_shred_t;
 
 /* An entry / microblock that has been parsed and is part of a block */
-struct fd_blockstore_entry {
-  fd_microblock_hdr_t hdr;  /* entry header */
-  fd_txn_t *          txns; /* ptr to the txns */
+struct fd_blockstore_micro {
+  ulong offset;             /* offset into block data */
 };
-typedef struct fd_blockstore_entry fd_blockstore_entry_t;
+typedef struct fd_blockstore_micro fd_blockstore_micro_t;
 
 struct fd_blockstore_block {
   fd_blockstore_shred_t * shreds;  /* each shred in the block region */
-  fd_blockstore_entry_t * entries; /* each entry in the block region */
+  ulong shreds_cnt;
+  fd_blockstore_micro_t * micros;  /* each microblock in the block region */
+  ulong micros_cnt;
   uchar *                 data;    /* ptr to the beginning of the block's allocated data region */
   ulong                   sz;      /* block size */
 };
@@ -110,12 +111,43 @@ typedef struct fd_blockstore_block_map fd_blockstore_block_map_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 /* clang-format on */
 
+struct fd_blockstore_txn_key {
+  ulong v[FD_ED25519_SIG_SZ/sizeof(ulong)];
+};
+typedef struct fd_blockstore_txn_key fd_blockstore_txn_key_t;
+
+struct fd_blockstore_txn_map {
+  fd_blockstore_txn_key_t sig;
+  ulong hash;
+  ulong slot;
+  ulong offset;
+};
+typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
+
+/* clang-format off */
+#define MAP_NAME  fd_blockstore_txn_map
+#define MAP_T     fd_blockstore_txn_map_t
+#define MAP_KEY   sig
+#define MAP_KEY_T fd_blockstore_txn_key_t
+#define MAP_KEY_EQUAL_IS_SLOW 1
+fd_blockstore_txn_key_t fd_blockstore_txn_key_null();
+#define MAP_KEY_NULL         fd_blockstore_txn_key_null()
+int fd_blockstore_txn_key_inval(fd_blockstore_txn_key_t k);
+#define MAP_KEY_INVAL(k)     fd_blockstore_txn_key_inval(k)
+int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_key_t k1);
+#define MAP_KEY_EQUAL(k0,k1) fd_blockstore_txn_key_equal(k0,k1)
+ulong fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k);
+#define MAP_KEY_HASH(k)      fd_blockstore_txn_key_hash(k)
+#include "../../util/tmpl/fd_map_dynamic.c"
+/* clang-format on */
+
 struct fd_blockstore {
   fd_alloc_t *                    alloc;
   fd_valloc_t                     valloc;
   fd_blockstore_slot_meta_map_t * slot_meta_map; /* map of slot->slot_meta */
   fd_blockstore_shred_map_t *     shred_map;     /* map of (slot, shred_idx)->shred */
   fd_blockstore_block_map_t *     block_map;     /* map of slot->block */
+  fd_blockstore_txn_map_t *       txn_map;       /* map of transaction signature to block/offset */
   ulong                           root;          /* the current root slot */
   ulong                           consumed;      /* the highest contiguous shred-complete slot */
   ulong                           received;      /* the highest received shred-complete slot */

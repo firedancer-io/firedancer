@@ -26,6 +26,9 @@
 #include "../repair/fd_repair.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
+#ifdef FD_HAS_LIBMICROHTTP
+#include "../rpc/fd_rpc_service.h"
+#endif
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
@@ -37,7 +40,11 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static int  gossip_sockfd = -1;
+#ifdef FD_HAS_LIBMICROHTTP
+static fd_rpc_ctx_t * rpc_ctx = NULL;
+#endif
+
+static int gossip_sockfd = -1;
 
 struct fd_repair_peer {
   fd_pubkey_t identity;
@@ -207,7 +214,11 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     fd_blockstore_block_t * block = fd_blockstore_block_query( blockstore, slot_meta->slot );
     if( FD_UNLIKELY( !block ) ) FD_LOG_ERR( ( "block is missing after receiving all shreds" ) );
 
-    // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
+#ifdef FD_HAS_LIBMICROHTTP
+    fd_rpc_set_slot(rpc_ctx, slot_meta->slot);
+#endif
+
+  // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
     // dcache?
     FD_TEST(
         // FIXME multi thread once it works
@@ -783,7 +794,28 @@ main( int argc, char ** argv ) {
   FD_TEST( block_map );
   blockstore.block_map = block_map;
 
+  int lg_txn_cnt = 20; // 1M transactions
+
+  uchar * blockstore_txn_mem =
+      (uchar *)fd_wksp_alloc_laddr( wksp,
+                                    fd_blockstore_txn_map_align(),
+                                    fd_blockstore_txn_map_footprint( lg_txn_cnt ),
+                                    1UL );
+  fd_blockstore_txn_map_t * txn_map = fd_blockstore_txn_map_join(
+      fd_blockstore_txn_map_new( blockstore_txn_mem, lg_txn_cnt ) );
+  FD_TEST( txn_map );
+  blockstore.txn_map = txn_map;
+
   if( FD_UNLIKELY( startslot != 0 ) ) blockstore.consumed = startslot;
+
+#ifdef FD_HAS_LIBMICROHTTP
+  /**********************************************************************/
+  /* rpc service                                                        */
+  /**********************************************************************/
+  rpc_ctx = fd_rpc_alloc_ctx(funk, &blockstore, valloc);
+  ushort rpc_port = fd_env_strip_cmdline_ushort(&argc, &argv, "--rpc-port", NULL, 8899U);
+  fd_rpc_start_service(rpc_port, rpc_ctx);
+#endif
 
   /**********************************************************************/
   /* Identity                                                           */
@@ -901,6 +933,10 @@ main( int argc, char ** argv ) {
   /* Cleanup                                                             */
   /***********************************************************************/
 
+#ifdef FD_HAS_LIBMICROHTTP
+  fd_rpc_stop_service(rpc_ctx);
+  fd_valloc_free( valloc, rpc_ctx );
+#endif
   fd_valloc_free( valloc, fd_gossip_delete( fd_gossip_leave( gossip ), valloc ) );
   fd_valloc_free( valloc, fd_repair_delete( fd_repair_leave( repair ), valloc ) );
   fd_halt();

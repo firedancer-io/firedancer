@@ -9,7 +9,7 @@ struct fd_webserver {
 };
 typedef struct fd_webserver fd_webserver_t;
 
-int fd_webserver_start(uint portno, fd_webserver_t * ws);
+int fd_webserver_start(uint portno, fd_webserver_t * ws, void * cb_arg);
 
 int fd_webserver_stop(fd_webserver_t * ws);
 
@@ -20,7 +20,7 @@ long fd_webserver_json_keyword(const char* keyw, size_t keyw_sz);
 const char* un_fd_webserver_json_keyword(long id);
 
 struct fd_web_replier;
-void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values);
+void fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* values, void * cb_arg);
 
 fd_textstream_t * fd_web_replier_textstream(struct fd_web_replier* replier);
 void fd_web_replier_done(struct fd_web_replier* replier);

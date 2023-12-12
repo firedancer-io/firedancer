@@ -1,5 +1,97 @@
 #include "fd_blockstore.h"
 
+/* txn map helpers */
+fd_blockstore_txn_key_t fd_blockstore_txn_key_null() {
+  static fd_blockstore_txn_key_t k = { .v = { 0 } };
+  return k;
+}
+
+int fd_blockstore_txn_key_inval(fd_blockstore_txn_key_t k) {
+  for (ulong i = 0; i < FD_ED25519_SIG_SZ/sizeof(ulong); ++i)
+    if (k.v[i])
+      return 0;
+  return 1;
+}
+
+int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_key_t k1) {
+  for (ulong i = 0; i < FD_ED25519_SIG_SZ/sizeof(ulong); ++i)
+    if (k0.v[i] != k1.v[i])
+      return 0;
+  return 1;
+}
+
+ulong fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k) {
+  ulong h = 0;
+  for (ulong i = 0; i < FD_ED25519_SIG_SZ/sizeof(ulong); ++i)
+    h ^= k.v[i];
+  return h;
+}
+
+static void
+fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_blockstore_block_map_t * blk ) {
+#define MAX_MICROS (16<<10)
+  fd_blockstore_micro_t micros[MAX_MICROS];
+  ulong micros_cnt = 0;
+
+  uchar * data = blk->block.data;
+  ulong sz = blk->block.sz;
+  ulong blockoff = 0;
+  while (blockoff < sz) {
+    if ( blockoff + sizeof(ulong) > sz )
+      FD_LOG_ERR(("premature end of block"));
+    ulong mcount = *(const ulong *)((const uchar *)data + blockoff);
+    blockoff += sizeof(ulong);
+
+    /* Loop across microblocks */
+    for (ulong mblk = 0; mblk < mcount; ++mblk) {
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > sz )
+        FD_LOG_ERR(("premature end of block"));
+      if ( micros_cnt < MAX_MICROS ) {
+        fd_blockstore_micro_t * m = micros + (micros_cnt++);
+        m->offset = blockoff;
+      }
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)data + blockoff);
+      blockoff += sizeof(fd_microblock_hdr_t);
+
+      /* Loop across transactions */
+      for ( ulong txn_idx = 0; txn_idx < hdr->txn_cnt; txn_idx++ ) {
+        uchar txn_out[FD_TXN_MAX_SZ];
+        uchar const * raw = (uchar const *)data + blockoff;
+        ulong pay_sz = 0;
+        ulong txn_sz = fd_txn_parse_core( (uchar const *)raw, fd_ulong_min(sz - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0 );
+        if ( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, slot));
+        }
+        fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+        
+        if ( pay_sz == 0UL )
+          FD_LOG_ERR(("failed to parse transaction %lu in microblock %lu in slot %lu", txn_idx, mblk, slot));
+          
+        fd_blockstore_txn_key_t const * sigs = (fd_blockstore_txn_key_t const *)((ulong)raw + (ulong)txn->signature_off);
+        for ( ulong j = 0; j < txn->signature_cnt; j++ ) {
+          if( FD_UNLIKELY( fd_blockstore_txn_map_key_cnt( blockstore->txn_map ) ==
+                           fd_blockstore_txn_map_key_max( blockstore->txn_map ) ) ) {
+            return;
+          }
+          fd_blockstore_txn_key_t sig;
+          fd_memcpy(&sig, sigs+j, sizeof(sig));
+          fd_blockstore_txn_map_t * elem = fd_blockstore_txn_map_insert( blockstore->txn_map, sig );
+          elem->slot = slot;
+          elem->offset = blockoff;
+        }
+          
+        blockoff += pay_sz;
+      }
+    }
+  }
+
+  blk->block.micros = fd_valloc_malloc( blockstore->valloc,
+                                        sizeof( fd_blockstore_micro_t ),
+                                        sizeof( fd_blockstore_micro_t ) * micros_cnt );
+  fd_memcpy( blk->block.micros, micros, sizeof( fd_blockstore_micro_t ) * micros_cnt );
+  blk->block.micros_cnt = micros_cnt;
+}
+
 /* helper to "deshred" once we've received all shreds for a slot. private to the blockstore. */
 static int
 fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
@@ -35,6 +127,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
                                            sizeof( fd_blockstore_shred_t ),
                                            sizeof( fd_blockstore_shred_t ) * shred_cnt );
   FD_TEST( insert->block.shreds );
+  insert->block.shreds_cnt = shred_cnt;
   insert->block.data = fd_valloc_malloc( blockstore->valloc, 1UL, block_sz );
   insert->block.sz   = block_sz;
 
@@ -79,6 +172,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   switch( deshredder.result ) {
   case FD_SHRED_ESLOT:
+    fd_blockstore_scan_block(blockstore, slot, insert);
     return FD_BLOCKSTORE_OK;
   case FD_SHRED_EBATCH:
   case FD_SHRED_EPIPE:

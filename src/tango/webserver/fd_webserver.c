@@ -158,7 +158,7 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
 #undef CLEANUP
 
 // Parse the top level json request object
-void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
+void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex, void* cb_arg) {
   struct json_values values;
   json_values_new(&values);
 
@@ -166,7 +166,7 @@ void json_parse_root(struct fd_web_replier* replier, json_lex_state_t* lex) {
   path.len = 0;
   if (json_parse_params_value(replier, lex, &values, &path)) {
     json_values_printout(&values);
-    fd_webserver_method_generic(replier, &values);
+    fd_webserver_method_generic(replier, &values, cb_arg);
   }
 
   json_values_delete(&values);
@@ -334,8 +334,6 @@ static enum MHD_Result handler(void* cls,
   if (0 != strcmp (method, "POST"))
     return MHD_NO;              /* unexpected method */
 
-  // fd_webserver_t * ws = (fd_webserver_t *)cls;
-  (void)cls;
   struct fd_web_replier* replier;
   if (*con_cls == NULL)
     *con_cls = replier = fd_web_replier_new();
@@ -348,7 +346,7 @@ static enum MHD_Result handler(void* cls,
     replier->upload_data_size = sz;
     json_lex_state_t lex;
     json_lex_state_new(&lex, upload_data, sz);
-    json_parse_root(replier, &lex);
+    json_parse_root(replier, &lex, cls);
     json_lex_state_delete(&lex);
     *upload_data_size = 0;
   }
@@ -363,13 +361,13 @@ static enum MHD_Result handler(void* cls,
   return MHD_YES;
 }
 
-int fd_webserver_start(uint portno, fd_webserver_t * ws) {
+int fd_webserver_start(uint portno, fd_webserver_t * ws, void * cb_arg) {
   ws->daemon = MHD_start_daemon(
     MHD_USE_INTERNAL_POLLING_THREAD
       | MHD_USE_SUPPRESS_DATE_NO_CLOCK
       | MHD_USE_EPOLL | MHD_USE_TURBO,
     (ushort) portno,
-    NULL, NULL, &handler, ws,
+    NULL, NULL, &handler, cb_arg,
     MHD_OPTION_CONNECTION_TIMEOUT, (unsigned int) 120,
     MHD_OPTION_THREAD_POOL_SIZE, (unsigned int) NUMBER_OF_THREADS,
     MHD_OPTION_NOTIFY_COMPLETED, &completed_cb, ws,
