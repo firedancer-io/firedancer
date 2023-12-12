@@ -1,0 +1,11 @@
+pull_resp: 
+  pubkey: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+  (null): 
+    - signature: '4ovwbuxF1k5hAej248Eay3ZLDssxXi9P4UWtsU6vu3jZmAHedtsZ55fkdSjLp4GicXCZCoCmHLbk5nHMnhYZ2QWq'
+      data: 
+        snapshot_hashes: 
+          from: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+          (null): 
+            - slot: 47411
+              hash: 'CDhgJ4hV9WK3KNTQK5mMcS2RtfphCeDsZeqesAgnbrkh'
+          wallclock: 1660658416429
