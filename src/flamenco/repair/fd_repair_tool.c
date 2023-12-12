@@ -4,7 +4,7 @@
    cargo run --bin solana-test-validator
 
    build/native/gcc/bin/fd_repair_tool --peer_id 75dLVGm338wpo2SsfM7pWestidAjJL1Y9nw9Rb1x7yQQ --slot 1533:0,1534:0
-   
+
  **/
 
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
@@ -131,7 +131,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
-  
+
   fd_repair_settime(glob, fd_log_wallclock());
   fd_repair_start(glob);
 
@@ -172,7 +172,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   while ( !*stopflag ) {
     fd_repair_settime(glob, fd_log_wallclock());
     fd_repair_continue(glob);
-    
+
     fd_memset(msgs, 0, sizeof(msgs));
     for (uint i = 0; i < VLEN; i++) {
       iovecs[i].iov_base          = bufs[i];
@@ -215,6 +215,20 @@ recv_shred(fd_shred_t const * shred, ulong shred_sz, fd_gossip_peer_addr_t const
                   fd_shred_merkle_sz(shred->variant), fd_shred_payload_sz(shred) ));
 }
 
+static void
+deliver_fail_fun( fd_pubkey_t const * id,
+                         ulong               slot,
+                         uint                shred_index,
+                         void *              arg,
+                         int                 reason ) {
+  (void)arg;
+  FD_LOG_WARNING( ( "repair_deliver_fail_fun - shred: %32J, slot: %lu, idx: %u, reason: %d",
+                    id,
+                    slot,
+                    shred_index,
+                    reason ) );
+}
+
 int main(int argc, char **argv) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
@@ -241,6 +255,7 @@ int main(int argc, char **argv) {
 
   config.deliver_fun = recv_shred;
   config.send_fun = send_packet;
+  config.deliver_fail_fun = deliver_fail_fun;
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 
