@@ -150,7 +150,8 @@
 #define FD_QUIC_DEFAULT_SPARSITY (2.5)
 
 /* FD_QUIC_STREAM_TYPE_* indicate stream type (two least significant
-   bits of a stream ID) */
+   bits of a stream ID).  These values are persisted to logs.  Entries
+   should not be renumbered and numeric values should never be reused. */
 #define FD_QUIC_STREAM_TYPE_BIDI_CLIENT 0
 #define FD_QUIC_STREAM_TYPE_BIDI_SERVER 1
 #define FD_QUIC_STREAM_TYPE_UNI_CLIENT  2
@@ -389,7 +390,7 @@ typedef struct fd_quic_callbacks fd_quic_callbacks_t;
 /* TODO: evaluate performance impact of metrics */
 
 union fd_quic_metrics {
-  ulong ul[ 26 ];
+  ulong  ul[ 30 ];
   struct {
     /* Network metrics */
     ulong net_rx_pkt_cnt;  /* number of IP packets received */
@@ -398,7 +399,7 @@ union fd_quic_metrics {
     ulong net_tx_byte_cnt; /* total bytes sent */
 
     /* Conn metrics */
-    long  conn_active_cnt;         /* number of active conns */
+    ulong conn_active_cnt;        /* number of active conns */
     ulong conn_created_cnt;        /* number of conns created */
     ulong conn_closed_cnt;         /* number of conns gracefully closed */
     ulong conn_aborted_cnt;        /* number of conns aborted */
@@ -415,7 +416,7 @@ union fd_quic_metrics {
     ulong stream_opened_cnt  [ 4 ]; /* number of streams opened (per type) */
     ulong stream_closed_cnt  [ 4 ]; /* number of streams closed (per type) */
        /* TODO differentiate between FIN (graceful) and STOP_SENDING/RESET_STREAM (forcibly)? */
-    int   stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
+    ulong stream_active_cnt  [ 4 ]; /* number of active streams (per type) */
     ulong stream_rx_event_cnt;      /* number of stream RX events */
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
   };

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_siphash13.h"
 
 fd_siphash13_t * sip;
@@ -76,5 +77,6 @@ LLVMFuzzerTestOneInput( uchar const * fuzz_data,
   ulong hash_fast = fd_siphash13_fini( sip_fast );
   assert( hash == hash_fast );
 
+  FD_FUZZ_MUST_BE_COVERED;  
   return 0;
 }

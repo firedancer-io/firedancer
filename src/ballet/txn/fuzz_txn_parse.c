@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_txn.h"
 
 int
@@ -30,9 +31,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
   __asm__ volatile( "" : "+m,r"(sz) : : "memory" ); /* prevent optimization */
 
   if( FD_LIKELY( sz>0UL ) ) {
+    FD_FUZZ_MUST_BE_COVERED;
     fd_txn_t * txn = (fd_txn_t *)txn_buf;
     FD_TEST( fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )<=FD_TXN_MAX_SZ );
   }
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

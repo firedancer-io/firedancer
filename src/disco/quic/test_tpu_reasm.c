@@ -1,4 +1,5 @@
 #include "fd_tpu.h"
+#include "fd_tpu_reasm_private.h"
 
 /* An arbitrary valid transaction */
 FD_IMPORT_BINARY( transaction4, "src/ballet/txn/fixtures/transaction4.bin" );
@@ -116,6 +117,35 @@ main( int     argc,
   uchar * chunks = fd_tpu_reasm_chunks_laddr( reasm );
   FD_TEST( chunks );
 
+  verify_state( reasm, mcache );
+
+  /* Confirm that memory regions are within bounds */
+
+  FD_TEST( reasm->slots_off  + (slot_cnt * sizeof(fd_tpu_reasm_slot_t)) <= sizeof(tpu_reasm_mem) );
+  FD_TEST( reasm->chunks_off + (slot_cnt * FD_TPU_REASM_MTU)            <= sizeof(tpu_reasm_mem) );
+
+  /* Confirm that the data regions of slots don't overlap */
+
+  memset( (uchar *)( (ulong)reasm + reasm->chunks_off ), 0, slot_cnt * FD_TPU_REASM_MTU );
+
+  for( ulong j=0UL; j<burst; j++ ) {
+    fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_prepare( reasm, 0UL );
+    FD_TEST( slot );
+    uint idx = slot_get_idx( reasm, slot );
+
+    uchar * data = slot_get_data( reasm, idx );
+    FD_TEST( (ulong)data                    >= (ulong)reasm + reasm->chunks_off     );
+    FD_TEST( (ulong)data + FD_TPU_REASM_MTU <= (ulong)reasm + sizeof(tpu_reasm_mem) );
+
+    for( ulong b=0UL; b<FD_TPU_REASM_MTU; b++ )
+      FD_TEST( data[b]==0 );
+
+    memset( data, 0xFF, FD_TPU_REASM_MTU );
+  }
+
+  /* Reininitalize */
+
+  fd_tpu_reasm_reset( reasm, mcache );
   verify_state( reasm, mcache );
 
   /* Confirm that invalid transactions don't get published */

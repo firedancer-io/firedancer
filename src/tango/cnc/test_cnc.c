@@ -20,9 +20,6 @@ FD_STATIC_ASSERT( FD_CNC_ERR_INVAL==-2, unit_test );
 FD_STATIC_ASSERT( FD_CNC_ERR_AGAIN==-3, unit_test );
 FD_STATIC_ASSERT( FD_CNC_ERR_FAIL ==-4, unit_test );
 
-FD_STATIC_ASSERT( FD_CNC_DIAG_IN_BACKP ==0UL, unit_test );
-FD_STATIC_ASSERT( FD_CNC_DIAG_BACKP_CNT==1UL, unit_test );
-
 #define APP_MIN (32UL)
 #define APP_MAX (192UL)
 uchar __attribute__((aligned(FD_CNC_ALIGN))) shmem[ FD_CNC_FOOTPRINT( APP_MAX ) ];

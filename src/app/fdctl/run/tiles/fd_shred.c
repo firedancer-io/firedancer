@@ -380,7 +380,19 @@ during_frag( void * _ctx,
     /* It should never be possible for this to fail, but we check it
        anyway. */
     FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
-    FD_TEST( (ctx->pending_batch.microblock_cnt==0) | (ctx->pending_batch.slot==entry_meta->slot) );
+
+    if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=entry_meta->slot) ) ) {
+      /* TODO: The Labs client sends a dummy entry batch with only 1
+         byte and the block-complete bit set.  This helps other
+         validators know that the block is dead and they should not try
+         to continue building a fork on it.  We probably want a similar
+         approach eventually. */
+      FD_LOG_WARNING(( "Abandoning %lu microblocks for slot %lu and switching to slot %lu",
+            ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, entry_meta->slot ));
+      ctx->pending_batch.slot           = 0UL;
+      ctx->pending_batch.pos            = 0UL;
+      ctx->pending_batch.microblock_cnt = 0UL;
+    }
 
     ctx->pending_batch.slot = entry_meta->slot;
     /* Ugh, yet another memcpy */

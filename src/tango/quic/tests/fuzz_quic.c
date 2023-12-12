@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "../../../util/sanitize/fd_fuzz.h"
+
 #include "../fd_quic.h"
 #include "../fd_quic_private.h"
 #include "../fd_quic_proto.h"
@@ -213,14 +215,17 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   fd_quic_init(server_quic);
 
   while (s > 2) {
+    FD_FUZZ_MUST_BE_COVERED;
     ushort payload_sz = (ushort)( ptr[0] + ( ptr[1] << 8u ) );
     ptr += 2;
     s -= 2;
     if (payload_sz <= s) {
       send_packet(ptr, payload_sz);
+      FD_FUZZ_MUST_BE_COVERED;
       ptr += payload_sz;
       s -= payload_sz;
     } else {
+      FD_FUZZ_MUST_BE_COVERED;
       fd_quic_fini(server_quic);
       return 0;
     }
@@ -228,5 +233,6 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
 
   fd_quic_fini(server_quic);
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

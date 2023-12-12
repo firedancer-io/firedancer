@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_murmur3.h"
 
 int
@@ -27,9 +29,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uint hash1 = fd_murmur3_32( msg, size, 0 );
   uint hash2 = fd_murmur3_32( msg, size, 0 );
 
-  if( FD_UNLIKELY( hash1!=hash2 ) ) {
-    __builtin_trap();
-  }
+  assert( hash1 == hash2 );
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

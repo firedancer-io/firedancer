@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "../fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "./fd_pcap.h"
 
 int
@@ -26,7 +27,9 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
-  if( FD_UNLIKELY( size==0UL ) ) return 0;
+/* > Before glibc 2.22, if size is specified as zero, fmemopen() fails with the error EINVAL.
+   - https://man7.org/linux/man-pages/man3/fmemopen.3.html */
+if( FD_UNLIKELY( size==0UL ) ) return 0;
 
   FILE * file = fmemopen( (void *)data, size, "rb" );
   FD_TEST( file );
@@ -34,6 +37,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Open "pcap". */
   fd_pcap_iter_t * pcap = fd_pcap_iter_new( file );
   if ( FD_LIKELY( pcap ) ) {
+    FD_FUZZ_MUST_BE_COVERED;
     /* Loop over all packets */
     uchar buf[128];
     long  pkt_ts;
@@ -44,5 +48,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   }
 
   FD_TEST( 0==fclose( file ) );
+
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
