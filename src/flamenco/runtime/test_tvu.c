@@ -37,7 +37,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static int gossip_sockfd = -1;
+static int  gossip_sockfd = -1;
 
 struct fd_repair_peer {
   fd_pubkey_t identity;
@@ -87,12 +87,20 @@ repair_missing_shreds( fd_repair_t *      repair,
                        fd_repair_peer_t * repair_peers ) {
   ulong slot = blockstore->consumed + 1;
 
-  fd_pubkey_t * peer = NULL;
+  fd_pubkey_t * peer  = NULL;
+  bool          found = 0;
   for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
-    // FIXME check slot ranges too
     if( FD_UNLIKELY( memcmp( &repair_peers[i].identity, &pubkey_null, sizeof( fd_pubkey_t ) ) ) ) {
-      peer = &repair_peers[i].identity;
+      if( FD_UNLIKELY( slot >= repair_peers[i].first_slot && slot <= repair_peers[i].last_slot ) ) {
+        peer  = &repair_peers[i].identity;
+        found = 1;
+        break;
+      }
     }
+  }
+  if( FD_UNLIKELY( !found ) ) {
+    FD_LOG_WARNING( ( "unable to find any peers shreds in range of requested slot %lu", slot ) );
+    return;
   }
 
   // fd_blockstore_shred_idx_set_t missing_shreds = { 0 };
@@ -145,8 +153,13 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     //  an EpochSlots message indicates which slots the validator has all shreds
     fd_gossip_epoch_slots_t * epoch_slots = &data->inner.epoch_slots;
     if( epoch_slots->slots->discriminant == fd_gossip_slots_enum_enum_uncompressed ) {
-      // fd_gossip_slots_t slots = epoch_slots->slots->inner.uncompressed;
-      // fd_blockstore_upsert_root( blockstore, slots.first_slot + slots.num );
+      fd_gossip_slots_t  slots = epoch_slots->slots->inner.uncompressed;
+      fd_repair_peer_t * peer =
+          fd_repair_peer_query( gossip_ctx->repair_peers, data->inner.contact_info_v1.id, NULL );
+      if( FD_UNLIKELY( peer ) ) {
+        peer->first_slot = slots.first_slot;
+        peer->last_slot  = slots.first_slot + slots.num;
+      }
     }
   } else if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
     if( FD_LIKELY( fd_repair_peer_query(
@@ -485,13 +498,14 @@ tvu_main( fd_gossip_t *        gossip,
       FD_LOG_ERR( ( "error adding repair active peer" ) );
     }
     fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_identity );
-    peer->first_slot        = 0;
-    peer->last_slot         = 0;
-    has_peer                = 1;
+    // FIXME hack to be able to immediately send a msg for the CLI-specified peer
+    peer->first_slot = blockstore->consumed + 1;
+    peer->last_slot  = ULONG_MAX;
+    has_peer         = 1;
   }
 
-  (void)argc;
-  (void)argv;
+  // char const * skip_gossip =
+  //     fd_env_strip_cmdline_char( &argc, &argv, "--skip-gossip", NULL, 0 );
 
 #define VLEN 32U
   struct mmsghdr repair_msgs[VLEN];
@@ -523,7 +537,7 @@ tvu_main( fd_gossip_t *        gossip,
     }
 
     /* Read more packets */
-    int  gossip_rc = recvmmsg( gossip_fd, gossip_msgs, VLEN, MSG_DONTWAIT, NULL );
+    int gossip_rc = recvmmsg( gossip_fd, gossip_msgs, VLEN, MSG_DONTWAIT, NULL );
     if( gossip_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) goto repair_loop;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -536,7 +550,7 @@ tvu_main( fd_gossip_t *        gossip,
       fd_gossip_recv_packet( gossip, gossip_bufs[i], gossip_msgs[i].msg_len, &from );
     }
 
-repair_loop:
+  repair_loop:
     /* Loop repair */
     fd_repair_settime( repair, fd_log_wallclock() );
     fd_repair_continue( repair );
