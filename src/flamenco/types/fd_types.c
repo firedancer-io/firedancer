@@ -15260,16 +15260,16 @@ int fd_gossip_socket_addr_encode(fd_gossip_socket_addr_t const * self, fd_bincod
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_contact_info_decode(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_decode(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_contact_info_decode_preflight(ctx);
+  int err = fd_gossip_contact_info_v1_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_contact_info_new(self);
-  fd_gossip_contact_info_decode_unsafe(self, ctx);
+  fd_gossip_contact_info_v1_new(self);
+  fd_gossip_contact_info_v1_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_contact_info_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -15299,7 +15299,7 @@ int fd_gossip_contact_info_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_contact_info_decode_unsafe(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_contact_info_v1_decode_unsafe(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->id, ctx);
   fd_gossip_socket_addr_decode_unsafe(&self->gossip, ctx);
   fd_gossip_socket_addr_decode_unsafe(&self->tvu, ctx);
@@ -15314,8 +15314,8 @@ void fd_gossip_contact_info_decode_unsafe(fd_gossip_contact_info_t* self, fd_bin
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->shred_version, ctx);
 }
-void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_contact_info_t));
+void fd_gossip_contact_info_v1_new(fd_gossip_contact_info_v1_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_contact_info_v1_t));
   fd_pubkey_new(&self->id);
   fd_gossip_socket_addr_new(&self->gossip);
   fd_gossip_socket_addr_new(&self->tvu);
@@ -15328,7 +15328,7 @@ void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self) {
   fd_gossip_socket_addr_new(&self->rpc_pubsub);
   fd_gossip_socket_addr_new(&self->serve_repair);
 }
-void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_contact_info_v1_destroy(fd_gossip_contact_info_v1_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->id, ctx);
   fd_gossip_socket_addr_destroy(&self->gossip, ctx);
   fd_gossip_socket_addr_destroy(&self->tvu, ctx);
@@ -15342,11 +15342,11 @@ void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_d
   fd_gossip_socket_addr_destroy(&self->serve_repair, ctx);
 }
 
-ulong fd_gossip_contact_info_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_FOOTPRINT; }
-ulong fd_gossip_contact_info_align( void ){ return FD_GOSSIP_CONTACT_INFO_ALIGN; }
+ulong fd_gossip_contact_info_v1_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_V1_FOOTPRINT; }
+ulong fd_gossip_contact_info_v1_align( void ){ return FD_GOSSIP_CONTACT_INFO_V1_ALIGN; }
 
-void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info", level++);
+void fd_gossip_contact_info_v1_walk(void * w, fd_gossip_contact_info_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info_v1", level++);
   fd_pubkey_walk(w, &self->id, fun, "id", level);
   fd_gossip_socket_addr_walk(w, &self->gossip, fun, "gossip", level);
   fd_gossip_socket_addr_walk(w, &self->tvu, fun, "tvu", level);
@@ -15360,9 +15360,9 @@ void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self
   fd_gossip_socket_addr_walk(w, &self->serve_repair, fun, "serve_repair", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info_v1", level--);
 }
-ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self) {
+ulong fd_gossip_contact_info_v1_size(fd_gossip_contact_info_v1_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->id);
   size += fd_gossip_socket_addr_size(&self->gossip);
@@ -15380,7 +15380,7 @@ ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self) {
   return size;
 }
 
-int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_encode(fd_gossip_contact_info_v1_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16083,16 +16083,16 @@ int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincod
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_legacy_version_decode(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v1_decode(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_legacy_version_decode_preflight(ctx);
+  int err = fd_gossip_version_v1_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_legacy_version_new(self);
-  fd_gossip_legacy_version_decode_unsafe(self, ctx);
+  fd_gossip_version_v1_new(self);
+  fd_gossip_version_v1_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_legacy_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16115,7 +16115,7 @@ int fd_gossip_legacy_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_version_v1_decode_unsafe(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->from, ctx);
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->major, ctx);
@@ -16130,22 +16130,22 @@ void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd
     }
   }
 }
-void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_legacy_version_t));
+void fd_gossip_version_v1_new(fd_gossip_version_v1_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_v1_t));
   fd_pubkey_new(&self->from);
 }
-void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_version_v1_destroy(fd_gossip_version_v1_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
   if( self->has_commit ) {
     self->has_commit = 0;
   }
 }
 
-ulong fd_gossip_legacy_version_footprint( void ){ return FD_GOSSIP_LEGACY_VERSION_FOOTPRINT; }
-ulong fd_gossip_legacy_version_align( void ){ return FD_GOSSIP_LEGACY_VERSION_ALIGN; }
+ulong fd_gossip_version_v1_footprint( void ){ return FD_GOSSIP_VERSION_V1_FOOTPRINT; }
+ulong fd_gossip_version_v1_align( void ){ return FD_GOSSIP_VERSION_V1_ALIGN; }
 
-void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_legacy_version", level++);
+void fd_gossip_version_v1_walk(void * w, fd_gossip_version_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version_v1", level++);
   fd_pubkey_walk(w, &self->from, fun, "from", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
@@ -16156,9 +16156,9 @@ void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * 
   } else {
     fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_legacy_version", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version_v1", level--);
 }
-ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
+ulong fd_gossip_version_v1_size(fd_gossip_version_v1_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
   size += sizeof(ulong);
@@ -16172,7 +16172,7 @@ ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
   return size;
 }
 
-int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_version_v1_encode(fd_gossip_version_v1_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16193,16 +16193,16 @@ int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_version_decode(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v2_decode(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_version_decode_preflight(ctx);
+  int err = fd_gossip_version_v2_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_version_new(self);
-  fd_gossip_version_decode_unsafe(self, ctx);
+  fd_gossip_version_v2_new(self);
+  fd_gossip_version_v2_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16227,7 +16227,7 @@ int fd_gossip_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_version_v2_decode_unsafe(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->from, ctx);
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->major, ctx);
@@ -16243,22 +16243,22 @@ void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decod
   }
   fd_bincode_uint32_decode_unsafe(&self->feature_set, ctx);
 }
-void fd_gossip_version_new(fd_gossip_version_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_version_t));
+void fd_gossip_version_v2_new(fd_gossip_version_v2_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_v2_t));
   fd_pubkey_new(&self->from);
 }
-void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_version_v2_destroy(fd_gossip_version_v2_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
   if( self->has_commit ) {
     self->has_commit = 0;
   }
 }
 
-ulong fd_gossip_version_footprint( void ){ return FD_GOSSIP_VERSION_FOOTPRINT; }
-ulong fd_gossip_version_align( void ){ return FD_GOSSIP_VERSION_ALIGN; }
+ulong fd_gossip_version_v2_footprint( void ){ return FD_GOSSIP_VERSION_V2_FOOTPRINT; }
+ulong fd_gossip_version_v2_align( void ){ return FD_GOSSIP_VERSION_V2_ALIGN; }
 
-void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version", level++);
+void fd_gossip_version_v2_walk(void * w, fd_gossip_version_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version_v2", level++);
   fd_pubkey_walk(w, &self->from, fun, "from", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
@@ -16270,9 +16270,9 @@ void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types
     fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
   fun( w, &self->feature_set, "feature_set", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version_v2", level--);
 }
-ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
+ulong fd_gossip_version_v2_size(fd_gossip_version_v2_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
   size += sizeof(ulong);
@@ -16287,7 +16287,7 @@ ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
   return size;
 }
 
-int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_version_v2_encode(fd_gossip_version_v2_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16604,7 +16604,7 @@ int fd_gossip_incremental_snapshot_hashes_encode(fd_gossip_incremental_snapshot_
   return FD_BINCODE_SUCCESS;
 }
 
-FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
+FD_FN_PURE uchar fd_crds_data_is_contact_info_v1(fd_crds_data_t const * self) {
   return self->discriminant == 0;
 }
 FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self) {
@@ -16622,10 +16622,10 @@ FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self) {
 FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self) {
   return self->discriminant == 5;
 }
-FD_FN_PURE uchar fd_crds_data_is_legacy_version(fd_crds_data_t const * self) {
+FD_FN_PURE uchar fd_crds_data_is_version_v1(fd_crds_data_t const * self) {
   return self->discriminant == 6;
 }
-FD_FN_PURE uchar fd_crds_data_is_version(fd_crds_data_t const * self) {
+FD_FN_PURE uchar fd_crds_data_is_version_v2(fd_crds_data_t const * self) {
   return self->discriminant == 7;
 }
 FD_FN_PURE uchar fd_crds_data_is_node_instance(fd_crds_data_t const * self) {
@@ -16642,7 +16642,7 @@ int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_contact_info_decode_preflight(ctx);
+    err = fd_gossip_contact_info_v1_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -16672,12 +16672,12 @@ int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = fd_gossip_legacy_version_decode_preflight(ctx);
+    err = fd_gossip_version_v1_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    err = fd_gossip_version_decode_preflight(ctx);
+    err = fd_gossip_version_v2_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -16702,7 +16702,7 @@ int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx
 void fd_crds_data_inner_decode_unsafe(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_decode_unsafe(&self->contact_info, ctx);
+    fd_gossip_contact_info_v1_decode_unsafe(&self->contact_info_v1, ctx);
     break;
   }
   case 1: {
@@ -16726,11 +16726,11 @@ void fd_crds_data_inner_decode_unsafe(fd_crds_data_inner_t* self, uint discrimin
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_decode_unsafe(&self->legacy_version, ctx);
+    fd_gossip_version_v1_decode_unsafe(&self->version_v1, ctx);
     break;
   }
   case 7: {
-    fd_gossip_version_decode_unsafe(&self->version, ctx);
+    fd_gossip_version_v2_decode_unsafe(&self->version_v2, ctx);
     break;
   }
   case 8: {
@@ -16769,7 +16769,7 @@ void fd_crds_data_decode_unsafe(fd_crds_data_t* self, fd_bincode_decode_ctx_t * 
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_new(&self->contact_info);
+    fd_gossip_contact_info_v1_new(&self->contact_info_v1);
     break;
   }
   case 1: {
@@ -16793,11 +16793,11 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_new(&self->legacy_version);
+    fd_gossip_version_v1_new(&self->version_v1);
     break;
   }
   case 7: {
-    fd_gossip_version_new(&self->version);
+    fd_gossip_version_v2_new(&self->version_v2);
     break;
   }
   case 8: {
@@ -16826,7 +16826,7 @@ void fd_crds_data_new(fd_crds_data_t* self) {
 void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_destroy(&self->contact_info, ctx);
+    fd_gossip_contact_info_v1_destroy(&self->contact_info_v1, ctx);
     break;
   }
   case 1: {
@@ -16850,11 +16850,11 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_destroy(&self->legacy_version, ctx);
+    fd_gossip_version_v1_destroy(&self->version_v1, ctx);
     break;
   }
   case 7: {
-    fd_gossip_version_destroy(&self->version, ctx);
+    fd_gossip_version_v2_destroy(&self->version_v2, ctx);
     break;
   }
   case 8: {
@@ -16883,7 +16883,7 @@ void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
   switch (self->discriminant) {
   case 0: {
-    fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
+    fd_gossip_contact_info_v1_walk(w, &self->inner.contact_info_v1, fun, "contact_info_v1", level);
     break;
   }
   case 1: {
@@ -16907,11 +16907,11 @@ void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_walk(w, &self->inner.legacy_version, fun, "legacy_version", level);
+    fd_gossip_version_v1_walk(w, &self->inner.version_v1, fun, "version_v1", level);
     break;
   }
   case 7: {
-    fd_gossip_version_walk(w, &self->inner.version, fun, "version", level);
+    fd_gossip_version_v2_walk(w, &self->inner.version_v2, fun, "version_v2", level);
     break;
   }
   case 8: {
@@ -16934,7 +16934,7 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_gossip_contact_info_size(&self->inner.contact_info);
+    size += fd_gossip_contact_info_v1_size(&self->inner.contact_info_v1);
     break;
   }
   case 1: {
@@ -16958,11 +16958,11 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
     break;
   }
   case 6: {
-    size += fd_gossip_legacy_version_size(&self->inner.legacy_version);
+    size += fd_gossip_version_v1_size(&self->inner.version_v1);
     break;
   }
   case 7: {
-    size += fd_gossip_version_size(&self->inner.version);
+    size += fd_gossip_version_v2_size(&self->inner.version_v2);
     break;
   }
   case 8: {
@@ -16985,7 +16985,7 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_contact_info_encode(&self->contact_info, ctx);
+    err = fd_gossip_contact_info_v1_encode(&self->contact_info_v1, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -17015,12 +17015,12 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
     break;
   }
   case 6: {
-    err = fd_gossip_legacy_version_encode(&self->legacy_version, ctx);
+    err = fd_gossip_version_v1_encode(&self->version_v1, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 7: {
-    err = fd_gossip_version_encode(&self->version, ctx);
+    err = fd_gossip_version_v2_encode(&self->version_v2, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
