@@ -654,7 +654,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 32
+        max_concurrent_connections = 2048
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
