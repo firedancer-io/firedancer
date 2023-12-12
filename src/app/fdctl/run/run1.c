@@ -149,6 +149,9 @@ tile_main( void * _args ) {
   void * ctx = NULL;
   if( FD_LIKELY( config->mux_ctx ) ) ctx = config->mux_ctx( scratch_mem );
 
+  long lazy = 0L;
+  if( FD_UNLIKELY( config->lazy ) ) lazy = config->lazy( scratch_mem );
+
   fd_rng_t rng[1];
   fd_mux_tile( tile->cnc,
                config->mux_flags,
@@ -160,7 +163,7 @@ tile_main( void * _args ) {
                out_fseq,
                config->burst,
                0,
-               0,
+               lazy,
                fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
                fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
                ctx,
