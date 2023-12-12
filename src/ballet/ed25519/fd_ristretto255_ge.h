@@ -155,6 +155,7 @@ fd_ristretto255_map_to_curve_4( fd_ristretto255_point_t * ha_,
 #define fd_ristretto255_point_sub        fd_ed25519_point_sub
 #define fd_ristretto255_scalar_validate  fd_ed25519_scalar_validate
 #define fd_ristretto255_point_scalarmult fd_ed25519_point_scalarmult
+#define fd_ristretto255_multiscalar_mul  fd_ed25519_multiscalar_mul
 
 FD_PROTOTYPES_END
 

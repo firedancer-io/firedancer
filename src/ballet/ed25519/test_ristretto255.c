@@ -1,7 +1,9 @@
+#include <stdlib.h>
+
 #include "../fd_ballet.h"
+#include "../hex/fd_hex.h"
 #include "fd_ristretto255_ge.h"
 #include "fd_ristretto255_ge_private.h"
-#include "../hex/fd_hex.h"
 
 /* base_point_multiples was imported from
    draft-irtf-cfrg-ristretto255-decaf448-08 Appendix A.1 */
@@ -349,6 +351,196 @@ test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
   }
 }
 
+static void
+test_scalar_validate( FD_FN_UNUSED fd_rng_t * rng ) {
+  uchar _a[32]; uchar * a = _a;
+
+  // invalid
+
+  // curve25519 r reduces to 0, hence invalid
+  fd_hex_decode( a, "EDD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
+
+  fd_hex_decode( a, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 64 );
+  FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
+
+  // valid
+
+  fd_hex_decode( a, "0000000000000000000000000000000000000000000000000000000000000000", 64 );
+  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+
+  fd_hex_decode( a, "0100000000000000000000000000000000000000000000000000000000000000", 64 );
+  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+
+  // r-1
+  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+
+  /* Benchmarks */
+  ulong iter = 1000000UL;
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( a );
+      fd_ristretto255_scalar_validate( a );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_scalar_validate", iter, dt );
+  }
+}
+
+static void
+test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
+  fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
+  fd_ristretto255_point_t _h[1]; fd_ristretto255_point_t * h = _h;
+  uchar _a[32];                  uchar * a = _a;
+
+  /* Correctness */
+  fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
+  fd_ristretto255_point_decompress( f, base_point_multiples[1] );
+  fd_ristretto255_point_decompress( t, base_point_multiples[13] );
+  memset( a, 0, 32 );
+  a[0] = 13;
+  FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
+  FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  fd_ristretto255_point_decompress( t, base_point_multiples[0] );
+  fd_ristretto255_point_sub( t, t, f ); // -P
+  FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
+  FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+  /* Benchmarks */
+  ulong iter = 10000UL;
+
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( a ); FD_COMPILER_FORGET( h );
+      fd_ristretto255_point_scalarmult( h, a, f );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_ristretto255_point_scalarmult", iter, dt );
+  }
+}
+
+FD_FN_UNUSED static uchar *
+fd_rng_b256( fd_rng_t * rng,
+             uchar *    r ) {
+  ulong * u = (ulong *)r;
+  u[0] = fd_rng_ulong( rng ); u[1] = fd_rng_ulong( rng ); u[2] = fd_rng_ulong( rng ); u[3] = fd_rng_ulong( rng );
+  return r;
+}
+
+static void
+test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
+  fd_ristretto255_point_t _h[1];       fd_ristretto255_point_t * h = _h;
+
+  /* Correctness */
+#define MSM_N 6
+  {
+    fd_ristretto255_point_t _f[MSM_N]; fd_ristretto255_point_t * f = _f;
+    uchar _a[MSM_N][32];               uchar * a = (uchar *)_a;
+
+    for( ulong i=0; i<MSM_N/2; i++ ) {
+      /* 2P */
+      memset( _a[2*i], 0, 32 ); _a[2*i][0] = 2;
+      fd_ristretto255_point_decompress( &_f[2*i], base_point_multiples[1] );
+      /* -P */
+      fd_hex_decode( _a[2*i+1], "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+      fd_ristretto255_point_decompress( &_f[2*i+1], base_point_multiples[1] );
+    }
+    fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
+    fd_ristretto255_point_decompress( t, base_point_multiples[MSM_N/2] ); /* expected n/2 P */
+
+    FD_TEST( fd_ristretto255_multiscalar_mul( h, a, f, MSM_N )==h );
+    FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+  }
+
+  {
+    // https://github.com/solana-labs/solana/blob/v1.17.7/zk-token-sdk/src/curve25519/ristretto.rs#L346
+    uchar _scalar[ 32 ] = {
+      123, 108, 109, 66, 154, 185, 88, 122, 178, 43, 17, 154, 201, 223, 31, 238, 59, 215, 71,
+      154, 215, 143, 177, 158, 9, 136, 32, 223, 139, 13, 133, 5,
+    }; uchar * scalar = _scalar;
+
+    uchar _point[ 32 ] = {
+      158, 2, 130, 90, 148, 36, 172, 155, 86, 196, 74, 139, 30, 98, 44, 225, 155, 207, 135,
+      111, 238, 167, 235, 67, 234, 125, 0, 227, 146, 31, 24, 113,
+    }; uchar * point = _point;
+
+    fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
+    fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
+
+    FD_TEST( fd_ristretto255_point_decompress( f, point )==f );
+    FD_TEST( !!fd_ristretto255_scalar_validate( scalar ) );
+
+    FD_TEST( fd_ristretto255_multiscalar_mul( h, scalar, f, 1 )==h );
+    FD_TEST( fd_ristretto255_point_scalarmult( t, scalar, f )==t );
+    FD_TEST( fd_ristretto255_point_eq( h, t ) );
+
+    uchar _scalars[ 64 ] = {
+      8, 161, 219, 155, 192, 137, 153, 26, 27, 40, 30, 17, 124, 194, 26, 41, 32, 7, 161, 45,
+      212, 198, 212, 81, 133, 185, 164, 85, 95, 232, 106, 10,
+      135, 207, 106, 208, 107, 127, 46, 82, 66, 22, 136, 125, 105, 62, 69, 34, 213, 210, 17,
+      196, 120, 114, 238, 237, 149, 170, 5, 243, 54, 77, 172, 12,
+    }; uchar * scalars = _scalars;
+    uchar * scalar_a = _scalars;
+    uchar * scalar_b = _scalars + 32;
+
+    uchar _point_x[ 32 ] = {
+      130, 35, 97, 25, 18, 199, 33, 239, 85, 143, 119, 111, 49, 51, 224, 40, 167, 185, 240,
+      179, 25, 194, 213, 41, 14, 155, 104, 18, 181, 197, 15, 112,
+    }; uchar * point_x = _point_x;
+    uchar _point_y[ 32 ] = {
+      152, 156, 155, 197, 152, 232, 92, 206, 219, 159, 193, 134, 121, 128, 139, 36, 56, 191,
+      51, 143, 72, 204, 87, 76, 110, 124, 101, 96, 238, 158, 42, 108,
+    }; uchar * point_y = _point_y;
+
+    fd_ristretto255_point_t _x[2]; fd_ristretto255_point_t * x = _x;
+    FD_TEST( fd_ristretto255_point_decompress( &x[0], point_x )==&x[0] );
+    FD_TEST( fd_ristretto255_point_decompress( &x[1], point_y )==&x[1] );
+    FD_TEST( !!fd_ristretto255_scalar_validate( scalar_a ) );
+    FD_TEST( !!fd_ristretto255_scalar_validate( scalar_b ) );
+
+    FD_TEST( fd_ristretto255_multiscalar_mul( h, scalars, x, 2 )==h );
+    FD_TEST( fd_ristretto255_point_scalarmult( t, scalar_a, &x[0] )==t );
+    FD_TEST( fd_ristretto255_point_scalarmult( &x[1], scalar_b, &x[1] )==&x[1] );
+    FD_TEST( fd_ristretto255_point_add( t, t, &x[1] )==t );
+    FD_TEST( fd_ristretto255_point_eq( h, t ) );
+  }
+
+  /* Benchmarks */
+  ulong iter = 10000UL;
+
+  fd_ristretto255_point_t *   f = aligned_alloc( 64, 1000 * sizeof(fd_ristretto255_point_t) );
+  uchar _a[1000][32]; uchar * a = (uchar *)_a;
+
+  for( ulong i=0; i<1000; i++ )
+  {
+    /* scalars must be random to get meaningful bench */
+    fd_rng_b256(rng, _a[i]); _a[i][31] &= 0x01;
+    if (i < 15) { fd_ristretto255_point_decompress( &f[i], base_point_multiples[i % 15 + 1] ); }
+    else if (i % 15 == 0) { memcpy( &f[i], &f[0], sizeof(fd_ristretto255_point_t)*15 ); }
+  }
+
+  for( ulong sz=10; sz<=1000; sz*=10 )
+  {
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter/sz; rem; rem-- ) {
+      FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( a ); FD_COMPILER_FORGET( h );
+      fd_ristretto255_multiscalar_mul( h, a, f, sz );
+    }
+    dt = fd_log_wallclock() - dt;
+    char cstr[128];
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ristretto255_multiscalar_mul(%lu)", sz ), iter/sz, dt );
+  }
+
+  free(f);
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -362,7 +554,9 @@ main( int     argc,
   test_hash_to_curve    ( rng );
 
   test_point_add_sub    ( rng );
-  // test_point_scalarmult ( rng );
+  test_scalar_validate  ( rng );
+  test_point_scalarmult ( rng );
+  test_multiscalar_mul  ( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

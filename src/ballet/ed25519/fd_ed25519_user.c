@@ -1,8 +1,8 @@
 #include "fd_ed25519_private.h"
 
 uchar *
-fd_ed25519_sc_reduce( uchar *       out,
-                      uchar const * in ) {
+fd_ed25519_sc_reduce( uchar       out[ static 32 ],
+                      uchar const in [ static 64 ] ) {
 
   /* Load the 512 bits to reduce */
 
