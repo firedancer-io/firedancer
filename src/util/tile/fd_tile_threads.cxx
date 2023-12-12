@@ -53,18 +53,6 @@ fd_tile_private_cpu_config( fd_tile_private_cpu_config_t * save,
     save->prio = INT_MIN;
   }
 
-  struct rlimit rlim;
-  if( FD_UNLIKELY( -1==getrlimit(RLIMIT_NICE, &rlim) ) )
-    FD_LOG_WARNING(( "fd_tile: getrlimit failed (%i-%s).", errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( rlim.rlim_cur!=40) && FD_UNLIKELY( rlim.rlim_max==40 ) ) {
-    // setpriority will fail based on rlim_cur, but we may be able to raise
-    // it higher first.
-    rlim.rlim_cur = 40;
-    if( FD_UNLIKELY( -1==setrlimit(RLIMIT_NICE, &rlim) ) )
-      FD_LOG_WARNING(( "fd_tile: setrlimit failed (%i-%s).", errno, fd_io_strerror( errno ) ));
-  }
-
   if( FD_UNLIKELY( prio!=-19 ) && FD_UNLIKELY( setpriority( PRIO_PROCESS, (id_t)0, -19 ) ) ) {
     FD_LOG_WARNING(( "fd_tile: setpriority failed (%i-%s)\n\t"
                      "Unable to configure this tile for high scheduler priority.  Attempting\n\t"

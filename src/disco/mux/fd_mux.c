@@ -52,13 +52,14 @@ fd_mux_tile_in_update( fd_mux_tile_in_t * in,
   ulong seq = fd_seq_dec( in->seq, exposed_cnt );
   if( FD_LIKELY( fd_seq_gt( seq, fd_fseq_query( in_fseq ) ) ) ) fd_fseq_update( in_fseq, seq );
 
-  ulong * diag  = (ulong *)fd_fseq_app_laddr( in_fseq );
+  ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
+
   uint *  accum = in->accum;
   ulong a0 = (ulong)accum[0]; ulong a1 = (ulong)accum[1]; ulong a2 = (ulong)accum[2];
   ulong a3 = (ulong)accum[3]; ulong a4 = (ulong)accum[4]; ulong a5 = (ulong)accum[5];
   FD_COMPILER_MFENCE();
-  diag[0] += a0;              diag[1] += a1;              diag[2] += a2;
-  diag[3] += a3;              diag[4] += a4;              diag[5] += a5;
+  metrics[0] += a0;           metrics[1] += a1;           metrics[2] += a2;
+  metrics[3] += a3;           metrics[4] += a4;           metrics[5] += a5;
   FD_COMPILER_MFENCE();
   accum[0] = 0U;              accum[1] = 0U;              accum[2] = 0U;
   accum[3] = 0U;              accum[4] = 0U;              accum[5] = 0U;
@@ -109,6 +110,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
   /* out frag stream state */
   ulong   depth; /* ==fd_mcache_depth( mcache ), depth of the mcache / positive integer power of 2 */
+  ulong   _sync; /* local sync for mcache if mcache is NULL */
   ulong * sync;  /* ==fd_mcache_seq_laddr( mcache ), local addr where mux mcache sync info is published */
   ulong   seq;   /* next mux frag sequence number to publish */
 
@@ -204,12 +206,17 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     /* out frag stream init */
 
-    if( FD_UNLIKELY( !mcache ) ) { FD_LOG_WARNING(( "NULL mcache" )); return 1; }
+    if( FD_LIKELY( mcache ) ) {
+      depth = fd_mcache_depth    ( mcache );
+      sync  = fd_mcache_seq_laddr( mcache );
 
-    depth = fd_mcache_depth    ( mcache );
-    sync  = fd_mcache_seq_laddr( mcache );
-
-    seq = fd_mcache_seq_query( sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION */
+      seq = fd_mcache_seq_query( sync ); /* FIXME: ALLOW OPTION FOR MANUAL SPECIFICATION */
+    } else {
+      depth = 128UL;
+      _sync = 0UL;
+      sync  = &_sync;
+      seq = 0UL;
+    }
 
     /* out flow control init */
 
@@ -328,7 +335,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
       if( FD_UNLIKELY( !_out_fseq[ out_idx ] ) ) { FD_LOG_WARNING(( "NULL out_fseq[%lu]", out_idx )); return 1; }
       out_fseq[ out_idx ] = _out_fseq[ out_idx ];
-      out_slow[ out_idx ] = (ulong *)fd_fseq_app_laddr( _out_fseq[ out_idx ] ) + FD_FSEQ_DIAG_SLOW_CNT;
+      out_slow[ out_idx ] = fd_metrics_link_out( fd_metrics_base_tl, out_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF;
       out_seq [ out_idx ] = fd_fseq_query( out_fseq[ out_idx ] );
     }
 
@@ -353,19 +360,16 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     /* Initialize performance histograms. */
 
-    /* Max time of roughly 50 micros per histogram */
-    ulong max_ticks = (ulong)(50.0 * 1000.0 * fd_tempo_tick_per_ns( NULL ));
-
-    fd_histf_join( fd_histf_new( hist_housekeeping_ticks, 0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_backp_ticks,        0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_caught_up_ticks,    0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_ovrnp_ticks,        0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_ovrnr_ticks,        0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_filter1_ticks,      0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_filter2_ticks,      0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_filter2_frag_sz,    0U, FD_TPU_DCACHE_MTU ) );
-    fd_histf_join( fd_histf_new( hist_fin_ticks,          0U, max_ticks ) );
-    fd_histf_join( fd_histf_new( hist_fin_frag_sz,        0U, FD_TPU_DCACHE_MTU ) );
+    fd_histf_join( fd_histf_new( hist_housekeeping_ticks, FD_MHIST_SECONDS_MIN( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS),           FD_MHIST_SECONDS_MAX( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_backp_ticks,        FD_MHIST_SECONDS_MIN( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS),           FD_MHIST_SECONDS_MAX( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_caught_up_ticks,    FD_MHIST_SECONDS_MIN( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS),              FD_MHIST_SECONDS_MAX( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_ovrnp_ticks,        FD_MHIST_SECONDS_MIN( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS),        FD_MHIST_SECONDS_MAX( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_ovrnr_ticks,        FD_MHIST_SECONDS_MIN( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS),        FD_MHIST_SECONDS_MAX( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_filter1_ticks,      FD_MHIST_SECONDS_MIN( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS), FD_MHIST_SECONDS_MAX( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_filter2_ticks,      FD_MHIST_SECONDS_MIN( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS),  FD_MHIST_SECONDS_MAX( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_filter2_frag_sz,    FD_MHIST_MIN( STEM, FRAGMENT_FILTERED_SIZE_BYTES),                         FD_MHIST_MAX( STEM, FRAGMENT_FILTERED_SIZE_BYTES ) ) );
+    fd_histf_join( fd_histf_new( hist_fin_ticks,          FD_MHIST_SECONDS_MIN( STEM, LOOP_FINISH_DURATION_SECONDS),                 FD_MHIST_SECONDS_MAX( STEM, LOOP_FINISH_DURATION_SECONDS ) ) );
+    fd_histf_join( fd_histf_new( hist_fin_frag_sz,        FD_MHIST_MIN( STEM, FRAGMENT_HANDLED_SIZE_BYTES),                          FD_MHIST_MAX( STEM, FRAGMENT_HANDLED_SIZE_BYTES ) ) );
 
   } while(0);
 
@@ -426,18 +430,18 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( STEM, IN_BACKPRESSURE,                      metric_in_backp );
-        FD_MCNT_INC  ( STEM, BACKPRESSURE,                         metric_backp_cnt );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_HOUSEKEEPING,           hist_housekeeping_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_BACKPRESSURE,           hist_backp_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_CAUGHT_UP,              hist_caught_up_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_OVERRUN_POLLING,        hist_ovrnp_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_OVERRUN_READING,        hist_ovrnr_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_FILTER_BEFORE_FRAGMENT, hist_filter1_ticks );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_FILTER_AFTER_FRAGMENT,  hist_filter2_ticks );
-        FD_MHIST_COPY( STEM, FRAGMENT_SIZE_FILTERED,               hist_filter2_frag_sz );
-        FD_MHIST_COPY( STEM, LOOP_DURATION_FINISH,                 hist_fin_ticks );
-        FD_MHIST_COPY( STEM, FRAGMENT_SIZE_HANDLED,                hist_fin_frag_sz );
+        FD_MGAUGE_SET( STEM, IN_BACKPRESSURE,                              metric_in_backp );
+        FD_MCNT_INC  ( STEM, BACKPRESSURE_COUNT,                           metric_backp_cnt );
+        FD_MHIST_COPY( STEM, LOOP_HOUSEKEEPING_DURATION_SECONDS,           hist_housekeeping_ticks );
+        FD_MHIST_COPY( STEM, LOOP_BACKPRESSURE_DURATION_SECONDS,           hist_backp_ticks );
+        FD_MHIST_COPY( STEM, LOOP_CAUGHT_UP_DURATION_SECONDS,              hist_caught_up_ticks );
+        FD_MHIST_COPY( STEM, LOOP_OVERRUN_POLLING_DURATION_SECONDS,        hist_ovrnp_ticks );
+        FD_MHIST_COPY( STEM, LOOP_OVERRUN_READING_DURATION_SECONDS,        hist_ovrnr_ticks );
+        FD_MHIST_COPY( STEM, LOOP_FILTER_BEFORE_FRAGMENT_DURATION_SECONDS, hist_filter1_ticks );
+        FD_MHIST_COPY( STEM, LOOP_FILTER_AFTER_FRAGMENT_DURATION_SECONDS,  hist_filter2_ticks );
+        FD_MHIST_COPY( STEM, FRAGMENT_FILTERED_SIZE_BYTES,                 hist_filter2_frag_sz );
+        FD_MHIST_COPY( STEM, LOOP_FINISH_DURATION_SECONDS,                 hist_fin_ticks );
+        FD_MHIST_COPY( STEM, FRAGMENT_HANDLED_SIZE_BYTES,                  hist_fin_frag_sz );
         if( FD_LIKELY( callbacks->metrics_write ) ) callbacks->metrics_write( ctx );
         FD_COMPILER_MFENCE();
         metric_backp_cnt = 0UL;
@@ -465,7 +469,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
           /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_out!=ULONG_MAX ) ) {
             FD_COMPILER_MFENCE();
-            out_slow[ slowest_out ]++;
+            (*out_slow[ slowest_out ])++;
             FD_COMPILER_MFENCE();
           }
 
@@ -568,7 +572,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         hist = hist_ovrnp_ticks;
-        this_in->accum[ FD_FSEQ_DIAG_OVRNP_CNT ]++;
+        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
       }
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
@@ -615,7 +619,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-      this_in->accum[ FD_FSEQ_DIAG_OVRNR_CNT ]++;
+      this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++;
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
       fd_histf_sample( hist_ovrnr_ticks, (ulong)(next - now) );
@@ -623,11 +627,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
       continue;
     }
 
+    ulong out_sz = sz;
     if( FD_LIKELY( !filter ) ) {
       /* We have successfully loaded the metadata.  Decide whether it
           is interesting downstream and publish or filter accordingly. */
 
-      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, &sig, &chunk, &sz, &filter, &mux );
+      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, &sig, &chunk, &out_sz, &filter, &mux );
     }
 
     long next = fd_tickcount();
@@ -645,7 +650,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
       if( FD_UNLIKELY( !(flags & FD_MUX_FLAG_COPY) ) ) cr_filt += (ulong)(cr_avail<cr_max);
     } else if( FD_LIKELY( !(flags & FD_MUX_FLAG_MANUAL_PUBLISH ) ) ) {
       ulong tspub = (ulong)fd_frag_meta_ts_comp( next );
-      fd_mux_publish( &mux, sig, chunk, sz, ctl, tsorig, tspub );
+      fd_mux_publish( &mux, sig, chunk, out_sz, ctl, tsorig, tspub );
     }
 
     /* Windup for the next in poll and accumulate diagnostics */
@@ -654,14 +659,14 @@ fd_mux_tile( fd_cnc_t *              cnc,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-    ulong diag_idx = FD_FSEQ_DIAG_PUB_CNT + 2UL*(ulong)filter;
+    ulong diag_idx = FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF + 2UL*(ulong)filter;
     this_in->accum[ diag_idx     ]++;
     this_in->accum[ diag_idx+1UL ] += (uint)sz;
     
     fd_histf_t * hist_ticks = fd_ptr_if( filter, (fd_histf_t*)hist_filter2_ticks,   (fd_histf_t*)hist_fin_ticks );
     fd_histf_t * hist_sz    = fd_ptr_if( filter, (fd_histf_t*)hist_filter2_frag_sz, (fd_histf_t*)hist_fin_frag_sz );
     fd_histf_sample( hist_ticks, (ulong)(next - now) );
-    fd_histf_sample( hist_sz,    (ulong)sz );
+    fd_histf_sample( hist_sz,    sz );
     now = next;
   }
 

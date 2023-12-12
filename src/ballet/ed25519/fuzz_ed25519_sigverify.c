@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_ed25519.h"
 
 int
@@ -41,14 +43,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar sig[ 64 ];
   void * sig_result = fd_ed25519_sign( sig, test->msg, sz, pub, test->prv, sha );
   int cmp = memcmp( ( char * ) sig, ( char * ) sig_result, 64UL );
-  if( FD_UNLIKELY( cmp!=0 ) ) {
-    __builtin_trap();
-  }
+  assert( cmp == 0 );
 
   int verify_result = fd_ed25519_verify( test->msg, sz, sig, pub, sha );
-  if( verify_result != FD_ED25519_SUCCESS ) {
-    __builtin_trap();
-  }
+  assert( verify_result == FD_ED25519_SUCCESS );
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

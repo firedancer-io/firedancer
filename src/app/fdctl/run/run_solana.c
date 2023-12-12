@@ -55,6 +55,8 @@ solana_labs_main( void * args ) {
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
+  ADDU( "--experimental-poh-pinned-cpu-core", config->layout.poh_core );
+
   /* consensus */
   ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )

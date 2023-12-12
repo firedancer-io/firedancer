@@ -66,5 +66,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   free( rodata );
   free( fd_sbpf_syscalls_delete( syscalls ) );
   free( fd_sbpf_program_delete( prog ) );
+
   return 0;
 }

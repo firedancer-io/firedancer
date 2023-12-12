@@ -28,7 +28,9 @@
     FD_CHUNK_ALIGN,               (slot_cnt)*FD_TPU_REASM_MTU            ), /* chunks */ \
     FD_TPU_REASM_ALIGN )
 
-/* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes */
+/* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
+   persisted to logs.  Entries should not be renumbered and numeric
+   values should never be reused. */
 
 #define FD_TPU_REASM_SUCCESS   (0)
 #define FD_TPU_REASM_ERR_SZ    (1)  /* oversz msg */

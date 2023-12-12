@@ -2,10 +2,12 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_sha512.h"
 
 int
@@ -28,23 +30,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar hash2[ 48 ] __attribute__((aligned(64)));
 
   fd_sha384_t sha[1];
-  if( FD_UNLIKELY( fd_sha384_init( sha )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_sha384_append( sha, msg, size )!=sha ) ) {
-    __builtin_trap();
-  }
-  if( FD_UNLIKELY( fd_sha384_fini( sha, hash1 )!=hash1 ) ) {
-    __builtin_trap();
-  }
+  assert( fd_sha384_init( sha ) == sha );
+  assert( fd_sha384_append( sha, msg, size ) == sha );
+  assert( fd_sha384_fini( sha, hash1 ) == hash1 );
 
-  if( FD_UNLIKELY( fd_sha384_hash( data, size, hash2 )!=hash2 ) ) {
-    __builtin_trap();
-  }
+  assert( fd_sha384_hash( data, size, hash2 ) == hash2 );
 
-  if( FD_UNLIKELY( memcmp( hash1, hash2, 48UL ) ) ) {
-    __builtin_trap();
-  }
+  assert( !memcmp( hash1, hash2, 48UL ) );
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

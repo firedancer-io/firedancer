@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "../../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "../fd_quic_common.h"
 #include "../fd_quic_config.h"
 #include "fd_quic_transport_params.h"
@@ -22,5 +23,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
   fd_quic_transport_params_t out;
   fd_quic_decode_transport_params( &out, data, size );
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_base58.h"
 
 int
@@ -45,16 +46,21 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   do {
     uchar out[32];
-    if( fd_base58_decode_32( cstr, out ) )
+    if( fd_base58_decode_32( cstr, out ) ) {
+      FD_FUZZ_MUST_BE_COVERED;
       touch( out, sizeof(out) );
+    }
   } while(0);
 
   do {
     uchar out[64];
-    if( fd_base58_decode_64( cstr, out ) )
+    if( fd_base58_decode_64( cstr, out ) ) {
+      FD_FUZZ_MUST_BE_COVERED;
       touch( out, sizeof(out) );
+    }
   } while(0);
 
   free( cstr );
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
