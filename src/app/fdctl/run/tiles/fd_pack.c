@@ -480,6 +480,21 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* We want lazy (measured in ns) to be small enough that the producer
+     and the consumer never have to wait for credits.  For most tango
+     links, we use a default worst case speed coming from 100 Gbps
+     Ethernet.  That's not very suitable for microblocks that go from
+     pack to bank.  Instead we manually estimate the very aggressive
+     1000ns per microblock, and then reduce it further (in line with the
+     default lazy value computation) to ensure the random value chosen
+     based on this won't lead to credit return stalls. */
+  return 128L * 300L;
+}
+
+
 static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
@@ -512,6 +527,7 @@ fd_tile_config_t fd_tile_pack = {
   .mux_after_credit         = after_credit,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
