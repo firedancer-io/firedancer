@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 191
+#define FD_TYPE_NAME_COUNT 194
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_signature",
@@ -155,7 +155,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_prune_data",
  "fd_gossip_prune_sign_data",
  "fd_gossip_socket_addr",
- "fd_gossip_contact_info",
+ "fd_gossip_contact_info_v1",
  "fd_gossip_vote",
  "fd_gossip_lowest_slot",
  "fd_gossip_slot_hashes",
@@ -163,11 +163,14 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_gossip_flate2_slots",
  "fd_gossip_slots_enum",
  "fd_gossip_epoch_slots",
- "fd_gossip_legacy_version",
- "fd_gossip_version",
+ "fd_gossip_version_v1",
+ "fd_gossip_version_v2",
+ "fd_gossip_version_v3",
  "fd_gossip_node_instance",
  "fd_gossip_duplicate_shred",
  "fd_gossip_incremental_snapshot_hashes",
+ "fd_gossip_socket_entry",
+ "fd_gossip_contact_info_v2",
  "fd_crds_data",
  "fd_crds_bloom",
  "fd_crds_filter",

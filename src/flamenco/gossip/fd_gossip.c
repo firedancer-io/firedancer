@@ -221,7 +221,7 @@ struct fd_gossip {
     /* My gossip port address */
     fd_gossip_peer_addr_t my_addr;
     /* My official contact info in the gossip protocol */
-    fd_gossip_contact_info_t my_contact_info;
+    fd_gossip_contact_info_v1_t my_contact_info;
     /* Function used to deliver gossip messages to the application */
     fd_gossip_data_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
@@ -530,9 +530,9 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   fd_pubkey_t * pubkey;
   ulong * wallclock;
   switch (crd->data.discriminant) {
-  case fd_crds_data_enum_contact_info:
-    pubkey = &crd->data.inner.contact_info.id;
-    wallclock = &crd->data.inner.contact_info.wallclock;
+  case fd_crds_data_enum_contact_info_v1:
+    pubkey = &crd->data.inner.contact_info_v1.id;
+    wallclock = &crd->data.inner.contact_info_v1.wallclock;
     break;
   case fd_crds_data_enum_vote:
     pubkey = &crd->data.inner.vote.from;
@@ -554,13 +554,13 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     pubkey = &crd->data.inner.epoch_slots.from;
     wallclock = &crd->data.inner.epoch_slots.wallclock;
     break;
-  case fd_crds_data_enum_legacy_version:
-    pubkey = &crd->data.inner.legacy_version.from;
-    wallclock = &crd->data.inner.legacy_version.wallclock;
+  case fd_crds_data_enum_version_v1:
+    pubkey = &crd->data.inner.version_v1.from;
+    wallclock = &crd->data.inner.version_v1.wallclock;
     break;
-  case fd_crds_data_enum_version:
-    pubkey = &crd->data.inner.version.from;
-    wallclock = &crd->data.inner.version.wallclock;
+  case fd_crds_data_enum_version_v2:
+    pubkey = &crd->data.inner.version_v2.from;
+    wallclock = &crd->data.inner.version_v2.wallclock;
     break;
   case fd_crds_data_enum_node_instance:
     pubkey = &crd->data.inner.node_instance.from;
@@ -731,9 +731,9 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* The "value" in the request is always my own contact info */
   fd_crds_value_t * value = &req->value;
-  fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info);
-  fd_gossip_contact_info_t * ci = &value->data.inner.contact_info;
-  fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_t));
+  fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info_v1);
+  fd_gossip_contact_info_v1_t * ci = &value->data.inner.contact_info_v1;
+  fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_v1_t));
   fd_gossip_sign_crds_value(glob, value);
 
   for (uint i = 0; i < npackets; ++i) {
@@ -846,9 +846,9 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   /* Verify the signature */
   ulong wallclock;
   switch (crd->data.discriminant) {
-  case fd_crds_data_enum_contact_info:
-    pubkey = &crd->data.inner.contact_info.id;
-    wallclock = crd->data.inner.contact_info.wallclock;
+  case fd_crds_data_enum_contact_info_v1:
+    pubkey = &crd->data.inner.contact_info_v1.id;
+    wallclock = crd->data.inner.contact_info_v1.wallclock;
     break;
   case fd_crds_data_enum_vote:
     pubkey = &crd->data.inner.vote.from;
@@ -870,13 +870,13 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     pubkey = &crd->data.inner.epoch_slots.from;
     wallclock = crd->data.inner.epoch_slots.wallclock;
     break;
-  case fd_crds_data_enum_legacy_version:
-    pubkey = &crd->data.inner.legacy_version.from;
-    wallclock = crd->data.inner.legacy_version.wallclock;
+  case fd_crds_data_enum_version_v1:
+    pubkey = &crd->data.inner.version_v1.from;
+    wallclock = crd->data.inner.version_v1.wallclock;
     break;
-  case fd_crds_data_enum_version:
-    pubkey = &crd->data.inner.version.from;
-    wallclock = crd->data.inner.version.wallclock;
+  case fd_crds_data_enum_version_v2:
+    pubkey = &crd->data.inner.version_v2.from;
+    wallclock = crd->data.inner.version_v2.wallclock;
     break;
   case fd_crds_data_enum_node_instance:
     pubkey = &crd->data.inner.node_instance.from;
@@ -980,8 +980,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     fd_hash_copy(glob->need_push + i, &key);
   }
 
-  if (crd->data.discriminant == fd_crds_data_enum_contact_info) {
-    fd_gossip_contact_info_t * info = &crd->data.inner.contact_info;
+  if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
+    fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
     if (info->gossip.port != 0) {
       /* Remember the peer */
       fd_gossip_peer_addr_t pkey;
@@ -1618,7 +1618,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   }
 
   char tmp[100];
-  
+
   FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
   fd_gossip_recv(glob, from, &gmsg);
 

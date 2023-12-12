@@ -502,9 +502,11 @@ ulong fd_block_hash_queue_size(fd_block_hash_queue_t const * self) {
   if( NULL !=  self->last_hash ) {
     size += fd_hash_size( self->last_hash );
   }
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->ages_len; ++i)
-    size += fd_hash_hash_age_pair_size(self->ages + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->ages_len; ++i)
+      size += fd_hash_hash_age_pair_size(self->ages + i);
+  } while(0);
   size += sizeof(ulong);
   return size;
 }
@@ -720,9 +722,11 @@ void fd_hard_forks_walk(void * w, fd_hard_forks_t const * self, fd_types_walk_fn
 }
 ulong fd_hard_forks_size(fd_hard_forks_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->hard_forks_len; ++i)
-    size += fd_slot_pair_size(self->hard_forks + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->hard_forks_len; ++i)
+      size += fd_slot_pair_size(self->hard_forks + i);
+  } while(0);
   return size;
 }
 
@@ -1258,8 +1262,10 @@ void fd_solana_account_walk(void * w, fd_solana_account_t const * self, fd_types
 ulong fd_solana_account_size(fd_solana_account_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += self->data_len;
+  do {
+    size += sizeof(ulong);
+    size += self->data_len;
+  } while(0);
   size += fd_pubkey_size(&self->owner);
   size += sizeof(char);
   size += sizeof(ulong);
@@ -1967,9 +1973,11 @@ void fd_node_vote_accounts_walk(void * w, fd_node_vote_accounts_t const * self, 
 }
 ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->vote_accounts_len; ++i)
-    size += fd_pubkey_size(self->vote_accounts + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->vote_accounts_len; ++i)
+      size += fd_pubkey_size(self->vote_accounts + i);
+  } while(0);
   size += sizeof(ulong);
   return size;
 }
@@ -2203,12 +2211,16 @@ ulong fd_epoch_stakes_size(fd_epoch_stakes_t const * self) {
   ulong size = 0;
   size += fd_stakes_size(&self->stakes);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
-    size += fd_pubkey_node_vote_accounts_pair_size(self->node_id_to_vote_accounts + i);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
-    size += fd_pubkey_pubkey_pair_size(self->epoch_authorized_voters + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i)
+      size += fd_pubkey_node_vote_accounts_pair_size(self->node_id_to_vote_accounts + i);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i)
+      size += fd_pubkey_pubkey_pair_size(self->epoch_authorized_voters + i);
+  } while(0);
   return size;
 }
 
@@ -2465,15 +2477,21 @@ void fd_unused_accounts_walk(void * w, fd_unused_accounts_t const * self, fd_typ
 }
 ulong fd_unused_accounts_size(fd_unused_accounts_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->unused1_len; ++i)
-    size += fd_pubkey_size(self->unused1 + i);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->unused2_len; ++i)
-    size += fd_pubkey_size(self->unused2 + i);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->unused3_len; ++i)
-    size += fd_pubkey_u64_pair_size(self->unused3 + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->unused1_len; ++i)
+      size += fd_pubkey_size(self->unused1 + i);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->unused2_len; ++i)
+      size += fd_pubkey_size(self->unused2 + i);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->unused3_len; ++i)
+      size += fd_pubkey_u64_pair_size(self->unused3 + i);
+  } while(0);
   return size;
 }
 
@@ -2764,9 +2782,11 @@ void fd_deserializable_versioned_bank_walk(void * w, fd_deserializable_versioned
 ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t const * self) {
   ulong size = 0;
   size += fd_block_hash_queue_size(&self->blockhash_queue);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->ancestors_len; ++i)
-    size += fd_slot_pair_size(self->ancestors + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->ancestors_len; ++i)
+      size += fd_slot_pair_size(self->ancestors + i);
+  } while(0);
   size += fd_hash_size(&self->hash);
   size += fd_hash_size(&self->parent_hash);
   size += sizeof(ulong);
@@ -2798,9 +2818,11 @@ ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t c
   size += fd_inflation_size(&self->inflation);
   size += fd_stakes_size(&self->stakes);
   size += fd_unused_accounts_size(&self->unused_accounts);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->epoch_stakes_len; ++i)
-    size += fd_epoch_epoch_stakes_pair_size(self->epoch_stakes + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->epoch_stakes_len; ++i)
+      size += fd_epoch_epoch_stakes_pair_size(self->epoch_stakes + i);
+  } while(0);
   size += sizeof(char);
   return size;
 }
@@ -3705,15 +3727,21 @@ void fd_genesis_solana_walk(void * w, fd_genesis_solana_t const * self, fd_types
 ulong fd_genesis_solana_size(fd_genesis_solana_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->accounts_len; ++i)
-    size += fd_pubkey_account_pair_size(self->accounts + i);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
-    size += fd_string_pubkey_pair_size(self->native_instruction_processors + i);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->rewards_pools_len; ++i)
-    size += fd_pubkey_account_pair_size(self->rewards_pools + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->accounts_len; ++i)
+      size += fd_pubkey_account_pair_size(self->accounts + i);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->native_instruction_processors_len; ++i)
+      size += fd_string_pubkey_pair_size(self->native_instruction_processors + i);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->rewards_pools_len; ++i)
+      size += fd_pubkey_account_pair_size(self->rewards_pools + i);
+  } while(0);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_poh_config_size(&self->poh_config);
@@ -5701,10 +5729,12 @@ void fd_compact_vote_state_update_walk(void * w, fd_compact_vote_state_update_t 
 ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  ushort tmp = (ushort)self->lockouts_len;
-  size += fd_bincode_compact_u16_size(&tmp);
-  for (ulong i = 0; i < self->lockouts_len; ++i)
-    size += fd_lockout_offset_size(self->lockouts + i);
+  do {
+    ushort tmp = (ushort)self->lockouts_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    for (ulong i = 0; i < self->lockouts_len; ++i)
+      size += fd_lockout_offset_size(self->lockouts + i);
+  } while(0);
   size += fd_hash_size(&self->hash);
   size += sizeof(char);
   if( NULL !=  self->timestamp ) {
@@ -5852,8 +5882,10 @@ void fd_slot_history_inner_walk(void * w, fd_slot_history_inner_t const * self, 
 }
 ulong fd_slot_history_inner_size(fd_slot_history_inner_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += self->blocks_len * sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    size += self->blocks_len * sizeof(ulong);
+  } while(0);
   return size;
 }
 
@@ -6436,11 +6468,15 @@ ulong fd_slot_meta_size(fd_slot_meta_t const * self) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += self->next_slot_len * sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    size += self->next_slot_len * sizeof(ulong);
+  } while(0);
   size += sizeof(char);
-  size += sizeof(ulong);
-  size += self->entry_end_indexes_len * sizeof(uint);
+  do {
+    size += sizeof(ulong);
+    size += self->entry_end_indexes_len * sizeof(uint);
+  } while(0);
   return size;
 }
 
@@ -6893,10 +6929,12 @@ void fd_stake_config_walk(void * w, fd_stake_config_t const * self, fd_types_wal
 }
 ulong fd_stake_config_size(fd_stake_config_t const * self) {
   ulong size = 0;
-  ushort tmp = (ushort)self->config_keys_len;
-  size += fd_bincode_compact_u16_size(&tmp);
-  for (ulong i = 0; i < self->config_keys_len; ++i)
-    size += fd_config_keys_pair_size(self->config_keys + i);
+  do {
+    ushort tmp = (ushort)self->config_keys_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    for (ulong i = 0; i < self->config_keys_len; ++i)
+      size += fd_config_keys_pair_size(self->config_keys + i);
+  } while(0);
   size += sizeof(double);
   size += sizeof(char);
   return size;
@@ -12535,10 +12573,12 @@ void fd_config_keys_walk(void * w, fd_config_keys_t const * self, fd_types_walk_
 }
 ulong fd_config_keys_size(fd_config_keys_t const * self) {
   ulong size = 0;
-  ushort tmp = (ushort)self->keys_len;
-  size += fd_bincode_compact_u16_size(&tmp);
-  for (ulong i = 0; i < self->keys_len; ++i)
-    size += fd_config_keys_pair_size(self->keys + i);
+  do {
+    ushort tmp = (ushort)self->keys_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    for (ulong i = 0; i < self->keys_len; ++i)
+      size += fd_config_keys_pair_size(self->keys + i);
+  } while(0);
   return size;
 }
 
@@ -12608,8 +12648,10 @@ void fd_bpf_loader_program_instruction_write_walk(void * w, fd_bpf_loader_progra
 ulong fd_bpf_loader_program_instruction_write_size(fd_bpf_loader_program_instruction_write_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
-  size += sizeof(ulong);
-  size += self->bytes_len;
+  do {
+    size += sizeof(ulong);
+    size += self->bytes_len;
+  } while(0);
   return size;
 }
 
@@ -12806,8 +12848,10 @@ void fd_bpf_loader_v4_program_instruction_write_walk(void * w, fd_bpf_loader_v4_
 ulong fd_bpf_loader_v4_program_instruction_write_size(fd_bpf_loader_v4_program_instruction_write_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
-  size += sizeof(ulong);
-  size += self->bytes_len;
+  do {
+    size += sizeof(ulong);
+    size += self->bytes_len;
+  } while(0);
   return size;
 }
 
@@ -13059,8 +13103,10 @@ void fd_bpf_upgradeable_loader_program_instruction_write_walk(void * w, fd_bpf_u
 ulong fd_bpf_upgradeable_loader_program_instruction_write_size(fd_bpf_upgradeable_loader_program_instruction_write_t const * self) {
   ulong size = 0;
   size += sizeof(uint);
-  size += sizeof(ulong);
-  size += self->bytes_len;
+  do {
+    size += sizeof(ulong);
+    size += self->bytes_len;
+  } while(0);
   return size;
 }
 
@@ -14011,7 +14057,7 @@ int fd_lookup_table_meta_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
     }
   }
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_lookup_table_meta_decode_unsafe(fd_lookup_table_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -14309,8 +14355,10 @@ void fd_gossip_bitvec_u8_inner_walk(void * w, fd_gossip_bitvec_u8_inner_t const 
 }
 ulong fd_gossip_bitvec_u8_inner_size(fd_gossip_bitvec_u8_inner_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += self->vec_len;
+  do {
+    size += sizeof(ulong);
+    size += self->vec_len;
+  } while(0);
   return size;
 }
 
@@ -14464,8 +14512,10 @@ void fd_gossip_bitvec_u64_inner_walk(void * w, fd_gossip_bitvec_u64_inner_t cons
 }
 ulong fd_gossip_bitvec_u64_inner_size(fd_gossip_bitvec_u64_inner_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += self->vec_len * sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    size += self->vec_len * sizeof(ulong);
+  } while(0);
   return size;
 }
 
@@ -14859,9 +14909,11 @@ void fd_gossip_prune_data_walk(void * w, fd_gossip_prune_data_t const * self, fd
 ulong fd_gossip_prune_data_size(fd_gossip_prune_data_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->prunes_len; ++i)
-    size += fd_pubkey_size(self->prunes + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->prunes_len; ++i)
+      size += fd_pubkey_size(self->prunes + i);
+  } while(0);
   size += fd_signature_size(&self->signature);
   size += fd_pubkey_size(&self->destination);
   size += sizeof(ulong);
@@ -14966,9 +15018,11 @@ void fd_gossip_prune_sign_data_walk(void * w, fd_gossip_prune_sign_data_t const 
 ulong fd_gossip_prune_sign_data_size(fd_gossip_prune_sign_data_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->prunes_len; ++i)
-    size += fd_pubkey_size(self->prunes + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->prunes_len; ++i)
+      size += fd_pubkey_size(self->prunes + i);
+  } while(0);
   size += fd_pubkey_size(&self->destination);
   size += sizeof(ulong);
   return size;
@@ -15007,7 +15061,7 @@ int fd_gossip_socket_addr_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   err = fd_gossip_ip_addr_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_gossip_socket_addr_decode_unsafe(fd_gossip_socket_addr_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -15047,16 +15101,16 @@ int fd_gossip_socket_addr_encode(fd_gossip_socket_addr_t const * self, fd_bincod
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_contact_info_decode(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_decode(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_contact_info_decode_preflight(ctx);
+  int err = fd_gossip_contact_info_v1_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_contact_info_new(self);
-  fd_gossip_contact_info_decode_unsafe(self, ctx);
+  fd_gossip_contact_info_v1_new(self);
+  fd_gossip_contact_info_v1_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_contact_info_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -15083,10 +15137,10 @@ int fd_gossip_contact_info_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_contact_info_decode_unsafe(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_contact_info_v1_decode_unsafe(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->id, ctx);
   fd_gossip_socket_addr_decode_unsafe(&self->gossip, ctx);
   fd_gossip_socket_addr_decode_unsafe(&self->tvu, ctx);
@@ -15101,8 +15155,8 @@ void fd_gossip_contact_info_decode_unsafe(fd_gossip_contact_info_t* self, fd_bin
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->shred_version, ctx);
 }
-void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_contact_info_t));
+void fd_gossip_contact_info_v1_new(fd_gossip_contact_info_v1_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_contact_info_v1_t));
   fd_pubkey_new(&self->id);
   fd_gossip_socket_addr_new(&self->gossip);
   fd_gossip_socket_addr_new(&self->tvu);
@@ -15115,7 +15169,7 @@ void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self) {
   fd_gossip_socket_addr_new(&self->rpc_pubsub);
   fd_gossip_socket_addr_new(&self->serve_repair);
 }
-void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_contact_info_v1_destroy(fd_gossip_contact_info_v1_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->id, ctx);
   fd_gossip_socket_addr_destroy(&self->gossip, ctx);
   fd_gossip_socket_addr_destroy(&self->tvu, ctx);
@@ -15129,11 +15183,11 @@ void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_d
   fd_gossip_socket_addr_destroy(&self->serve_repair, ctx);
 }
 
-ulong fd_gossip_contact_info_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_FOOTPRINT; }
-ulong fd_gossip_contact_info_align( void ){ return FD_GOSSIP_CONTACT_INFO_ALIGN; }
+ulong fd_gossip_contact_info_v1_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_V1_FOOTPRINT; }
+ulong fd_gossip_contact_info_v1_align( void ){ return FD_GOSSIP_CONTACT_INFO_V1_ALIGN; }
 
-void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info", level++);
+void fd_gossip_contact_info_v1_walk(void * w, fd_gossip_contact_info_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info_v1", level++);
   fd_pubkey_walk(w, &self->id, fun, "id", level);
   fd_gossip_socket_addr_walk(w, &self->gossip, fun, "gossip", level);
   fd_gossip_socket_addr_walk(w, &self->tvu, fun, "tvu", level);
@@ -15147,9 +15201,9 @@ void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self
   fd_gossip_socket_addr_walk(w, &self->serve_repair, fun, "serve_repair", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info_v1", level--);
 }
-ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self) {
+ulong fd_gossip_contact_info_v1_size(fd_gossip_contact_info_v1_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->id);
   size += fd_gossip_socket_addr_size(&self->gossip);
@@ -15167,7 +15221,7 @@ ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self) {
   return size;
 }
 
-int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_contact_info_v1_encode(fd_gossip_contact_info_v1_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -15355,8 +15409,10 @@ ulong fd_gossip_lowest_slot_size(fd_gossip_lowest_slot_t const * self) {
   size += fd_pubkey_size(&self->from);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += self->slots_len * sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    size += self->slots_len * sizeof(ulong);
+  } while(0);
   size += sizeof(ulong);
   size += sizeof(ulong);
   return size;
@@ -15457,9 +15513,11 @@ void fd_gossip_slot_hashes_walk(void * w, fd_gossip_slot_hashes_t const * self, 
 ulong fd_gossip_slot_hashes_size(fd_gossip_slot_hashes_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->hashes_len; ++i)
-    size += fd_slot_hash_size(self->hashes + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      size += fd_slot_hash_size(self->hashes + i);
+  } while(0);
   size += sizeof(ulong);
   return size;
 }
@@ -15600,8 +15658,10 @@ ulong fd_gossip_flate2_slots_size(fd_gossip_flate2_slots_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += self->compressed_len;
+  do {
+    size += sizeof(ulong);
+    size += self->compressed_len;
+  } while(0);
   return size;
 }
 
@@ -15844,9 +15904,11 @@ ulong fd_gossip_epoch_slots_size(fd_gossip_epoch_slots_t const * self) {
   ulong size = 0;
   size += sizeof(char);
   size += fd_pubkey_size(&self->from);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->slots_len; ++i)
-    size += fd_gossip_slots_enum_size(self->slots + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->slots_len; ++i)
+      size += fd_gossip_slots_enum_size(self->slots + i);
+  } while(0);
   size += sizeof(ulong);
   return size;
 }
@@ -15870,27 +15932,27 @@ int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincod
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_legacy_version_decode(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v1_decode(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_legacy_version_decode_preflight(ctx);
+  int err = fd_gossip_version_v1_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_legacy_version_new(self);
-  fd_gossip_legacy_version_decode_unsafe(self, ctx);
+  fd_gossip_version_v1_new(self);
+  fd_gossip_version_v1_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_legacy_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
     err = fd_bincode_option_decode( &o, ctx );
@@ -15902,7 +15964,7 @@ int fd_gossip_legacy_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_version_v1_decode_unsafe(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->from, ctx);
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->major, ctx);
@@ -15917,22 +15979,22 @@ void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd
     }
   }
 }
-void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_legacy_version_t));
+void fd_gossip_version_v1_new(fd_gossip_version_v1_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_v1_t));
   fd_pubkey_new(&self->from);
 }
-void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_version_v1_destroy(fd_gossip_version_v1_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
   if( self->has_commit ) {
     self->has_commit = 0;
   }
 }
 
-ulong fd_gossip_legacy_version_footprint( void ){ return FD_GOSSIP_LEGACY_VERSION_FOOTPRINT; }
-ulong fd_gossip_legacy_version_align( void ){ return FD_GOSSIP_LEGACY_VERSION_ALIGN; }
+ulong fd_gossip_version_v1_footprint( void ){ return FD_GOSSIP_VERSION_V1_FOOTPRINT; }
+ulong fd_gossip_version_v1_align( void ){ return FD_GOSSIP_VERSION_V1_ALIGN; }
 
-void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_legacy_version", level++);
+void fd_gossip_version_v1_walk(void * w, fd_gossip_version_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version_v1", level++);
   fd_pubkey_walk(w, &self->from, fun, "from", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
@@ -15943,9 +16005,9 @@ void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * 
   } else {
     fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_legacy_version", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version_v1", level--);
 }
-ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
+ulong fd_gossip_version_v1_size(fd_gossip_version_v1_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
   size += sizeof(ulong);
@@ -15959,7 +16021,7 @@ ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self) {
   return size;
 }
 
-int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_version_v1_encode(fd_gossip_version_v1_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -15980,27 +16042,27 @@ int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_gossip_version_decode(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v2_decode(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
-  int err = fd_gossip_version_decode_preflight(ctx);
+  int err = fd_gossip_version_v2_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ctx->data = data;
-  fd_gossip_version_new(self);
-  fd_gossip_version_decode_unsafe(self, ctx);
+  fd_gossip_version_v2_new(self);
+  fd_gossip_version_v2_decode_unsafe(self, ctx);
   return FD_BINCODE_SUCCESS;
 }
-int fd_gossip_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+int fd_gossip_version_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
     err = fd_bincode_option_decode( &o, ctx );
@@ -16014,7 +16076,7 @@ int fd_gossip_version_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
-void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx) {
+void fd_gossip_version_v2_decode_unsafe(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->from, ctx);
   fd_bincode_uint64_decode_unsafe(&self->wallclock, ctx);
   fd_bincode_uint16_decode_unsafe(&self->major, ctx);
@@ -16030,22 +16092,22 @@ void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decod
   }
   fd_bincode_uint32_decode_unsafe(&self->feature_set, ctx);
 }
-void fd_gossip_version_new(fd_gossip_version_t* self) {
-  fd_memset(self, 0, sizeof(fd_gossip_version_t));
+void fd_gossip_version_v2_new(fd_gossip_version_v2_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_v2_t));
   fd_pubkey_new(&self->from);
 }
-void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx_t * ctx) {
+void fd_gossip_version_v2_destroy(fd_gossip_version_v2_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->from, ctx);
   if( self->has_commit ) {
     self->has_commit = 0;
   }
 }
 
-ulong fd_gossip_version_footprint( void ){ return FD_GOSSIP_VERSION_FOOTPRINT; }
-ulong fd_gossip_version_align( void ){ return FD_GOSSIP_VERSION_ALIGN; }
+ulong fd_gossip_version_v2_footprint( void ){ return FD_GOSSIP_VERSION_V2_FOOTPRINT; }
+ulong fd_gossip_version_v2_align( void ){ return FD_GOSSIP_VERSION_V2_ALIGN; }
 
-void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version", level++);
+void fd_gossip_version_v2_walk(void * w, fd_gossip_version_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version_v2", level++);
   fd_pubkey_walk(w, &self->from, fun, "from", level);
   fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
@@ -16057,9 +16119,9 @@ void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types
     fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT, "uint", level );
   }
   fun( w, &self->feature_set, "feature_set", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version", level--);
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version_v2", level--);
 }
-ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
+ulong fd_gossip_version_v2_size(fd_gossip_version_v2_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
   size += sizeof(ulong);
@@ -16074,7 +16136,7 @@ ulong fd_gossip_version_size(fd_gossip_version_t const * self) {
   return size;
 }
 
-int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode_ctx_t * ctx) {
+int fd_gossip_version_v2_encode(fd_gossip_version_v2_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -16093,6 +16155,86 @@ int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode
     if( FD_UNLIKELY( err ) ) return err;
   }
   err = fd_bincode_uint32_encode(&self->feature_set, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_version_v3_decode(fd_gossip_version_v3_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_gossip_version_v3_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_gossip_version_v3_new(self);
+  fd_gossip_version_v3_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_version_v3_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  do { ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); } while(0);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  do { ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); } while(0);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  do { ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); } while(0);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint32_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  do { ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); } while(0);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_version_v3_decode_unsafe(fd_gossip_version_v3_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_compact_u16_decode_unsafe(&self->major, ctx);
+  fd_bincode_compact_u16_decode_unsafe(&self->minor, ctx);
+  fd_bincode_compact_u16_decode_unsafe(&self->patch, ctx);
+  fd_bincode_uint32_decode_unsafe(&self->commit, ctx);
+  fd_bincode_uint32_decode_unsafe(&self->feature_set, ctx);
+  fd_bincode_compact_u16_decode_unsafe(&self->client, ctx);
+}
+void fd_gossip_version_v3_new(fd_gossip_version_v3_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_version_v3_t));
+}
+void fd_gossip_version_v3_destroy(fd_gossip_version_v3_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_gossip_version_v3_footprint( void ){ return FD_GOSSIP_VERSION_V3_FOOTPRINT; }
+ulong fd_gossip_version_v3_align( void ){ return FD_GOSSIP_VERSION_V3_ALIGN; }
+
+void fd_gossip_version_v3_walk(void * w, fd_gossip_version_v3_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_version_v3", level++);
+  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun( w, &self->commit, "commit", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun( w, &self->feature_set, "feature_set", FD_FLAMENCO_TYPE_UINT,    "uint",      level );
+  fun( w, &self->client, "client", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_version_v3", level--);
+}
+ulong fd_gossip_version_v3_size(fd_gossip_version_v3_t const * self) {
+  ulong size = 0;
+  size += fd_bincode_compact_u16_size(&self->major);
+  size += fd_bincode_compact_u16_size(&self->minor);
+  size += fd_bincode_compact_u16_size(&self->patch);
+  size += sizeof(uint);
+  size += sizeof(uint);
+  size += fd_bincode_compact_u16_size(&self->client);
+  return size;
+}
+
+int fd_gossip_version_v3_encode(fd_gossip_version_v3_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint16_encode(&self->major, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_encode(&self->commit, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint32_encode(&self->feature_set, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->client, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -16177,7 +16319,7 @@ int fd_gossip_duplicate_shred_decode(fd_gossip_duplicate_shred_t* self, fd_binco
 int fd_gossip_duplicate_shred_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_uint16_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
@@ -16255,8 +16397,10 @@ ulong fd_gossip_duplicate_shred_size(fd_gossip_duplicate_shred_t const * self) {
   size += sizeof(char);
   size += sizeof(char);
   size += sizeof(char);
-  size += sizeof(ulong);
-  size += self->chunk_len;
+  do {
+    size += sizeof(ulong);
+    size += self->chunk_len;
+  } while(0);
   return size;
 }
 
@@ -16365,9 +16509,11 @@ ulong fd_gossip_incremental_snapshot_hashes_size(fd_gossip_incremental_snapshot_
   ulong size = 0;
   size += fd_pubkey_size(&self->from);
   size += fd_slot_hash_size(&self->base_hash);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->hashes_len; ++i)
-    size += fd_slot_hash_size(self->hashes + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->hashes_len; ++i)
+      size += fd_slot_hash_size(self->hashes + i);
+  } while(0);
   size += sizeof(ulong);
   return size;
 }
@@ -16391,7 +16537,270 @@ int fd_gossip_incremental_snapshot_hashes_encode(fd_gossip_incremental_snapshot_
   return FD_BINCODE_SUCCESS;
 }
 
-FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self) {
+int fd_gossip_socket_entry_decode(fd_gossip_socket_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_gossip_socket_entry_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_gossip_socket_entry_new(self);
+  fd_gossip_socket_entry_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_socket_entry_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  do { ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); } while(0);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_socket_entry_decode_unsafe(fd_gossip_socket_entry_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_uint8_decode_unsafe(&self->key, ctx);
+  fd_bincode_uint8_decode_unsafe(&self->index, ctx);
+  fd_bincode_compact_u16_decode_unsafe(&self->offset, ctx);
+}
+void fd_gossip_socket_entry_new(fd_gossip_socket_entry_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_socket_entry_t));
+}
+void fd_gossip_socket_entry_destroy(fd_gossip_socket_entry_t* self, fd_bincode_destroy_ctx_t * ctx) {
+}
+
+ulong fd_gossip_socket_entry_footprint( void ){ return FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT; }
+ulong fd_gossip_socket_entry_align( void ){ return FD_GOSSIP_SOCKET_ENTRY_ALIGN; }
+
+void fd_gossip_socket_entry_walk(void * w, fd_gossip_socket_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_socket_entry", level++);
+  fun( w, &self->key, "key", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->index, "index", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->offset, "offset", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_socket_entry", level--);
+}
+ulong fd_gossip_socket_entry_size(fd_gossip_socket_entry_t const * self) {
+  ulong size = 0;
+  size += sizeof(char);
+  size += sizeof(char);
+  size += fd_bincode_compact_u16_size(&self->offset);
+  return size;
+}
+
+int fd_gossip_socket_entry_encode(fd_gossip_socket_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_bincode_uint8_encode(&self->key, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint8_encode(&self->index, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->offset, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+
+int fd_gossip_contact_info_v2_decode(fd_gossip_contact_info_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_gossip_contact_info_v2_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_gossip_contact_info_v2_new(self);
+  fd_gossip_contact_info_v2_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_gossip_contact_info_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_varint_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint16_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_gossip_version_v3_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  ushort addrs_len;
+  err = fd_bincode_compact_u16_decode(&addrs_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (addrs_len != 0) {
+    for( ulong i = 0; i < addrs_len; ++i) {
+      err = fd_gossip_ip_addr_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  ushort sockets_len;
+  err = fd_bincode_compact_u16_decode(&sockets_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (sockets_len != 0) {
+    for( ulong i = 0; i < sockets_len; ++i) {
+      err = fd_gossip_socket_entry_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  ushort extensions_len;
+  err = fd_bincode_compact_u16_decode(&extensions_len, ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (extensions_len != 0) {
+    for( ulong i = 0; i < extensions_len; ++i) {
+      err = fd_bincode_uint32_decode_preflight(ctx);
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_gossip_contact_info_v2_decode_unsafe(fd_gossip_contact_info_v2_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_pubkey_decode_unsafe(&self->from, ctx);
+  fd_bincode_varint_decode_unsafe(&self->wallclock, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->outset, ctx);
+  fd_bincode_uint16_decode_unsafe(&self->shred_version, ctx);
+  fd_gossip_version_v3_decode_unsafe(&self->version, ctx);
+  fd_bincode_compact_u16_decode_unsafe(&self->addrs_len, ctx);
+  if (self->addrs_len != 0) {
+    self->addrs = (fd_gossip_ip_addr_t *)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_IP_ADDR_ALIGN, FD_GOSSIP_IP_ADDR_FOOTPRINT*self->addrs_len);
+    for( ulong i = 0; i < self->addrs_len; ++i) {
+      fd_gossip_ip_addr_new(self->addrs + i);
+      fd_gossip_ip_addr_decode_unsafe(self->addrs + i, ctx);
+    }
+  } else
+    self->addrs = NULL;
+  fd_bincode_compact_u16_decode_unsafe(&self->sockets_len, ctx);
+  if (self->sockets_len != 0) {
+    self->sockets = (fd_gossip_socket_entry_t *)fd_valloc_malloc( ctx->valloc, FD_GOSSIP_SOCKET_ENTRY_ALIGN, FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT*self->sockets_len);
+    for( ulong i = 0; i < self->sockets_len; ++i) {
+      fd_gossip_socket_entry_new(self->sockets + i);
+      fd_gossip_socket_entry_decode_unsafe(self->sockets + i, ctx);
+    }
+  } else
+    self->sockets = NULL;
+  fd_bincode_compact_u16_decode_unsafe(&self->extensions_len, ctx);
+  if (self->extensions_len != 0) {
+    self->extensions = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(uint)*self->extensions_len );
+    for( ulong i = 0; i < self->extensions_len; ++i) {
+      fd_bincode_uint32_decode_unsafe(self->extensions + i, ctx);
+    }
+  } else
+    self->extensions = NULL;
+}
+void fd_gossip_contact_info_v2_new(fd_gossip_contact_info_v2_t* self) {
+  fd_memset(self, 0, sizeof(fd_gossip_contact_info_v2_t));
+  fd_pubkey_new(&self->from);
+  fd_gossip_version_v3_new(&self->version);
+}
+void fd_gossip_contact_info_v2_destroy(fd_gossip_contact_info_v2_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  fd_pubkey_destroy(&self->from, ctx);
+  fd_gossip_version_v3_destroy(&self->version, ctx);
+  if (NULL != self->addrs) {
+    for (ulong i = 0; i < self->addrs_len; ++i)
+      fd_gossip_ip_addr_destroy(self->addrs + i, ctx);
+    fd_valloc_free( ctx->valloc, self->addrs );
+    self->addrs = NULL;
+  }
+  if (NULL != self->sockets) {
+    for (ulong i = 0; i < self->sockets_len; ++i)
+      fd_gossip_socket_entry_destroy(self->sockets + i, ctx);
+    fd_valloc_free( ctx->valloc, self->sockets );
+    self->sockets = NULL;
+  }
+  if (NULL != self->extensions) {
+    fd_valloc_free( ctx->valloc, self->extensions );
+    self->extensions = NULL;
+  }
+}
+
+ulong fd_gossip_contact_info_v2_footprint( void ){ return FD_GOSSIP_CONTACT_INFO_V2_FOOTPRINT; }
+ulong fd_gossip_contact_info_v2_align( void ){ return FD_GOSSIP_CONTACT_INFO_V2_ALIGN; }
+
+void fd_gossip_contact_info_v2_walk(void * w, fd_gossip_contact_info_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_gossip_contact_info_v2", level++);
+  fd_pubkey_walk(w, &self->from, fun, "from", level);
+  fun( w, &self->wallclock, "wallclock", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->outset, "outset", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w, &self->shred_version, "shred_version", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );
+  fd_gossip_version_v3_walk(w, &self->version, fun, "version", level);
+  if (self->addrs_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "addrs", level++);
+    for (ulong i = 0; i < self->addrs_len; ++i)
+      fd_gossip_ip_addr_walk(w, self->addrs + i, fun, "gossip_ip_addr", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "addrs", level-- );
+  }
+  if (self->sockets_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "sockets", level++);
+    for (ulong i = 0; i < self->sockets_len; ++i)
+      fd_gossip_socket_entry_walk(w, self->sockets + i, fun, "gossip_socket_entry", level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "sockets", level-- );
+  }
+  if (self->extensions_len != 0) {
+    fun(w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "extensions", level++);
+    for (ulong i = 0; i < self->extensions_len; ++i)
+      fun( w, self->extensions + i, "extensions", FD_FLAMENCO_TYPE_UINT,    "uint",    level );
+    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "extensions", level-- );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_gossip_contact_info_v2", level--);
+}
+ulong fd_gossip_contact_info_v2_size(fd_gossip_contact_info_v2_t const * self) {
+  ulong size = 0;
+  size += fd_pubkey_size(&self->from);
+  size += fd_bincode_varint_size(self->wallclock);
+  size += sizeof(ulong);
+  size += sizeof(ushort);
+  size += fd_gossip_version_v3_size(&self->version);
+  do {
+    ushort tmp = (ushort)self->addrs_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    for (ulong i = 0; i < self->addrs_len; ++i)
+      size += fd_gossip_ip_addr_size(self->addrs + i);
+  } while(0);
+  do {
+    ushort tmp = (ushort)self->sockets_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    for (ulong i = 0; i < self->sockets_len; ++i)
+      size += fd_gossip_socket_entry_size(self->sockets + i);
+  } while(0);
+  do {
+    ushort tmp = (ushort)self->extensions_len;
+    size += fd_bincode_compact_u16_size(&tmp);
+    size += self->extensions_len * sizeof(uint);
+  } while(0);
+  return size;
+}
+
+int fd_gossip_contact_info_v2_encode(fd_gossip_contact_info_v2_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  err = fd_pubkey_encode(&self->from, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_varint_encode(self->wallclock, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->outset, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint16_encode(&self->shred_version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_gossip_version_v3_encode(&self->version, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_compact_u16_encode(&self->addrs_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->addrs_len != 0) {
+    for (ulong i = 0; i < self->addrs_len; ++i) {
+      err = fd_gossip_ip_addr_encode(self->addrs + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_bincode_compact_u16_encode(&self->sockets_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->sockets_len != 0) {
+    for (ulong i = 0; i < self->sockets_len; ++i) {
+      err = fd_gossip_socket_entry_encode(self->sockets + i, ctx);
+      if ( FD_UNLIKELY(err) ) return err;
+    }
+  }
+  err = fd_bincode_compact_u16_encode(&self->extensions_len, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  if (self->extensions_len != 0) {
+    for (ulong i = 0; i < self->extensions_len; ++i) {
+      err = fd_bincode_uint32_encode(self->extensions + i, ctx);
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
+FD_FN_PURE uchar fd_crds_data_is_contact_info_v1(fd_crds_data_t const * self) {
   return self->discriminant == 0;
 }
 FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self) {
@@ -16409,10 +16818,10 @@ FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self) {
 FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self) {
   return self->discriminant == 5;
 }
-FD_FN_PURE uchar fd_crds_data_is_legacy_version(fd_crds_data_t const * self) {
+FD_FN_PURE uchar fd_crds_data_is_version_v1(fd_crds_data_t const * self) {
   return self->discriminant == 6;
 }
-FD_FN_PURE uchar fd_crds_data_is_version(fd_crds_data_t const * self) {
+FD_FN_PURE uchar fd_crds_data_is_version_v2(fd_crds_data_t const * self) {
   return self->discriminant == 7;
 }
 FD_FN_PURE uchar fd_crds_data_is_node_instance(fd_crds_data_t const * self) {
@@ -16424,12 +16833,15 @@ FD_FN_PURE uchar fd_crds_data_is_duplicate_shred(fd_crds_data_t const * self) {
 FD_FN_PURE uchar fd_crds_data_is_incremental_snapshot_hashes(fd_crds_data_t const * self) {
   return self->discriminant == 10;
 }
+FD_FN_PURE uchar fd_crds_data_is_contact_info_v2(fd_crds_data_t const * self) {
+  return self->discriminant == 11;
+}
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant);
 int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_contact_info_decode_preflight(ctx);
+    err = fd_gossip_contact_info_v1_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -16459,12 +16871,12 @@ int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx
     return FD_BINCODE_SUCCESS;
   }
   case 6: {
-    err = fd_gossip_legacy_version_decode_preflight(ctx);
+    err = fd_gossip_version_v1_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
   case 7: {
-    err = fd_gossip_version_decode_preflight(ctx);
+    err = fd_gossip_version_v2_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
@@ -16483,13 +16895,18 @@ int fd_crds_data_inner_decode_preflight(uint discriminant, fd_bincode_decode_ctx
     if ( FD_UNLIKELY(err) ) return err;
     return FD_BINCODE_SUCCESS;
   }
+  case 11: {
+    err = fd_gossip_contact_info_v2_decode_preflight(ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
   default: return FD_BINCODE_ERR_ENCODING;
   }
 }
 void fd_crds_data_inner_decode_unsafe(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_decode_ctx_t * ctx) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_decode_unsafe(&self->contact_info, ctx);
+    fd_gossip_contact_info_v1_decode_unsafe(&self->contact_info_v1, ctx);
     break;
   }
   case 1: {
@@ -16513,11 +16930,11 @@ void fd_crds_data_inner_decode_unsafe(fd_crds_data_inner_t* self, uint discrimin
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_decode_unsafe(&self->legacy_version, ctx);
+    fd_gossip_version_v1_decode_unsafe(&self->version_v1, ctx);
     break;
   }
   case 7: {
-    fd_gossip_version_decode_unsafe(&self->version, ctx);
+    fd_gossip_version_v2_decode_unsafe(&self->version_v2, ctx);
     break;
   }
   case 8: {
@@ -16530,6 +16947,10 @@ void fd_crds_data_inner_decode_unsafe(fd_crds_data_inner_t* self, uint discrimin
   }
   case 10: {
     fd_gossip_incremental_snapshot_hashes_decode_unsafe(&self->incremental_snapshot_hashes, ctx);
+    break;
+  }
+  case 11: {
+    fd_gossip_contact_info_v2_decode_unsafe(&self->contact_info_v2, ctx);
     break;
   }
   }
@@ -16556,7 +16977,7 @@ void fd_crds_data_decode_unsafe(fd_crds_data_t* self, fd_bincode_decode_ctx_t * 
 void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_new(&self->contact_info);
+    fd_gossip_contact_info_v1_new(&self->contact_info_v1);
     break;
   }
   case 1: {
@@ -16580,11 +17001,11 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_new(&self->legacy_version);
+    fd_gossip_version_v1_new(&self->version_v1);
     break;
   }
   case 7: {
-    fd_gossip_version_new(&self->version);
+    fd_gossip_version_v2_new(&self->version_v2);
     break;
   }
   case 8: {
@@ -16597,6 +17018,10 @@ void fd_crds_data_inner_new(fd_crds_data_inner_t* self, uint discriminant) {
   }
   case 10: {
     fd_gossip_incremental_snapshot_hashes_new(&self->incremental_snapshot_hashes);
+    break;
+  }
+  case 11: {
+    fd_gossip_contact_info_v2_new(&self->contact_info_v2);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type"));
@@ -16613,7 +17038,7 @@ void fd_crds_data_new(fd_crds_data_t* self) {
 void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, fd_bincode_destroy_ctx_t * ctx) {
   switch (discriminant) {
   case 0: {
-    fd_gossip_contact_info_destroy(&self->contact_info, ctx);
+    fd_gossip_contact_info_v1_destroy(&self->contact_info_v1, ctx);
     break;
   }
   case 1: {
@@ -16637,11 +17062,11 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_destroy(&self->legacy_version, ctx);
+    fd_gossip_version_v1_destroy(&self->version_v1, ctx);
     break;
   }
   case 7: {
-    fd_gossip_version_destroy(&self->version, ctx);
+    fd_gossip_version_v2_destroy(&self->version_v2, ctx);
     break;
   }
   case 8: {
@@ -16654,6 +17079,10 @@ void fd_crds_data_inner_destroy(fd_crds_data_inner_t* self, uint discriminant, f
   }
   case 10: {
     fd_gossip_incremental_snapshot_hashes_destroy(&self->incremental_snapshot_hashes, ctx);
+    break;
+  }
+  case 11: {
+    fd_gossip_contact_info_v2_destroy(&self->contact_info_v2, ctx);
     break;
   }
   default: break; // FD_LOG_ERR(( "unhandled type" ));
@@ -16670,7 +17099,7 @@ void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_crds_data", level++);
   switch (self->discriminant) {
   case 0: {
-    fd_gossip_contact_info_walk(w, &self->inner.contact_info, fun, "contact_info", level);
+    fd_gossip_contact_info_v1_walk(w, &self->inner.contact_info_v1, fun, "contact_info_v1", level);
     break;
   }
   case 1: {
@@ -16694,11 +17123,11 @@ void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t
     break;
   }
   case 6: {
-    fd_gossip_legacy_version_walk(w, &self->inner.legacy_version, fun, "legacy_version", level);
+    fd_gossip_version_v1_walk(w, &self->inner.version_v1, fun, "version_v1", level);
     break;
   }
   case 7: {
-    fd_gossip_version_walk(w, &self->inner.version, fun, "version", level);
+    fd_gossip_version_v2_walk(w, &self->inner.version_v2, fun, "version_v2", level);
     break;
   }
   case 8: {
@@ -16713,6 +17142,10 @@ void fd_crds_data_walk(void * w, fd_crds_data_t const * self, fd_types_walk_fn_t
     fd_gossip_incremental_snapshot_hashes_walk(w, &self->inner.incremental_snapshot_hashes, fun, "incremental_snapshot_hashes", level);
     break;
   }
+  case 11: {
+    fd_gossip_contact_info_v2_walk(w, &self->inner.contact_info_v2, fun, "contact_info_v2", level);
+    break;
+  }
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_crds_data", level--);
 }
@@ -16721,7 +17154,7 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
   size += sizeof(uint);
   switch (self->discriminant) {
   case 0: {
-    size += fd_gossip_contact_info_size(&self->inner.contact_info);
+    size += fd_gossip_contact_info_v1_size(&self->inner.contact_info_v1);
     break;
   }
   case 1: {
@@ -16745,11 +17178,11 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
     break;
   }
   case 6: {
-    size += fd_gossip_legacy_version_size(&self->inner.legacy_version);
+    size += fd_gossip_version_v1_size(&self->inner.version_v1);
     break;
   }
   case 7: {
-    size += fd_gossip_version_size(&self->inner.version);
+    size += fd_gossip_version_v2_size(&self->inner.version_v2);
     break;
   }
   case 8: {
@@ -16764,6 +17197,10 @@ ulong fd_crds_data_size(fd_crds_data_t const * self) {
     size += fd_gossip_incremental_snapshot_hashes_size(&self->inner.incremental_snapshot_hashes);
     break;
   }
+  case 11: {
+    size += fd_gossip_contact_info_v2_size(&self->inner.contact_info_v2);
+    break;
+  }
   }
   return size;
 }
@@ -16772,7 +17209,7 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
   int err;
   switch (discriminant) {
   case 0: {
-    err = fd_gossip_contact_info_encode(&self->contact_info, ctx);
+    err = fd_gossip_contact_info_v1_encode(&self->contact_info_v1, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -16802,12 +17239,12 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
     break;
   }
   case 6: {
-    err = fd_gossip_legacy_version_encode(&self->legacy_version, ctx);
+    err = fd_gossip_version_v1_encode(&self->version_v1, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 7: {
-    err = fd_gossip_version_encode(&self->version, ctx);
+    err = fd_gossip_version_v2_encode(&self->version_v2, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -16823,6 +17260,11 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
   }
   case 10: {
     err = fd_gossip_incremental_snapshot_hashes_encode(&self->incremental_snapshot_hashes, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+    break;
+  }
+  case 11: {
+    err = fd_gossip_contact_info_v2_encode(&self->contact_info_v2, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -16903,8 +17345,10 @@ void fd_crds_bloom_walk(void * w, fd_crds_bloom_t const * self, fd_types_walk_fn
 }
 ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  size += self->keys_len * sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    size += self->keys_len * sizeof(ulong);
+  } while(0);
   size += fd_gossip_bitvec_u64_size(&self->bits);
   size += sizeof(ulong);
   return size;
@@ -17166,9 +17610,11 @@ void fd_gossip_pull_resp_walk(void * w, fd_gossip_pull_resp_t const * self, fd_t
 ulong fd_gossip_pull_resp_size(fd_gossip_pull_resp_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->crds_len; ++i)
-    size += fd_crds_value_size(self->crds + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->crds_len; ++i)
+      size += fd_crds_value_size(self->crds + i);
+  } while(0);
   return size;
 }
 
@@ -17254,9 +17700,11 @@ void fd_gossip_push_msg_walk(void * w, fd_gossip_push_msg_t const * self, fd_typ
 ulong fd_gossip_push_msg_size(fd_gossip_push_msg_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->crds_len; ++i)
-    size += fd_crds_value_size(self->crds + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->crds_len; ++i)
+      size += fd_crds_value_size(self->crds + i);
+  } while(0);
   return size;
 }
 
@@ -17723,9 +18171,11 @@ void fd_addrlut_extend_walk(void * w, fd_addrlut_extend_t const * self, fd_types
 }
 ulong fd_addrlut_extend_size(fd_addrlut_extend_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->new_addrs_len; ++i)
-    size += fd_pubkey_size(self->new_addrs + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->new_addrs_len; ++i)
+      size += fd_pubkey_size(self->new_addrs + i);
+  } while(0);
   return size;
 }
 
@@ -17986,9 +18436,11 @@ void fd_serializable_stake_rewards_walk(void * w, fd_serializable_stake_rewards_
 }
 ulong fd_serializable_stake_rewards_size(fd_serializable_stake_rewards_t const * self) {
   ulong size = 0;
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->body_len; ++i)
-    size += fd_stake_reward_size(self->body + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->body_len; ++i)
+      size += fd_stake_reward_size(self->body + i);
+  } while(0);
   return size;
 }
 
@@ -18070,9 +18522,11 @@ void fd_start_block_height_and_rewards_walk(void * w, fd_start_block_height_and_
 ulong fd_start_block_height_and_rewards_size(fd_start_block_height_and_rewards_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->stake_rewards_by_partition_len; ++i)
-    size += fd_serializable_stake_rewards_size(self->stake_rewards_by_partition + i);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->stake_rewards_by_partition_len; ++i)
+      size += fd_serializable_stake_rewards_size(self->stake_rewards_by_partition + i);
+  } while(0);
   return size;
 }
 
@@ -18358,11 +18812,15 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * s
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_bank_hash_info_size(&self->bank_hash_info);
-  size += sizeof(ulong);
-  size += self->historical_roots_len * sizeof(ulong);
-  size += sizeof(ulong);
-  for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
-    size += fd_slot_map_pair_size(self->historical_roots_with_hash + i);
+  do {
+    size += sizeof(ulong);
+    size += self->historical_roots_len * sizeof(ulong);
+  } while(0);
+  do {
+    size += sizeof(ulong);
+    for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i)
+      size += fd_slot_map_pair_size(self->historical_roots_with_hash + i);
+  } while(0);
   return size;
 }
 

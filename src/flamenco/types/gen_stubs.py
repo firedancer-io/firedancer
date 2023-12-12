@@ -103,6 +103,13 @@ class PrimitiveMember:
         print(f'{indent}  err = fd_bincode_bytes_decode_preflight( slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
+    def ushort_decode_preflight(n, varint):
+        if varint:
+            print(f'{indent}  do {{ ushort _tmp; err = fd_bincode_compact_u16_decode(&_tmp, ctx); }} while(0);', file=body),
+        else:
+            print(f'{indent}  err = fd_bincode_uint16_decode_preflight(ctx);', file=body),
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+
     def ulong_decode_preflight(n, varint):
         if varint:
             print(f'{indent}  err = fd_bincode_varint_decode_preflight(ctx);', file=body),
@@ -123,7 +130,7 @@ class PrimitiveMember:
         "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(32, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "uchar[128]" :lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(128, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_preflight(n, varint),
-        "ushort" :    lambda n, varint: print(f'{indent}  err = fd_bincode_uint16_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_preflight(n, varint),
     }
 
     def emitDecodePreflight(self):
@@ -136,6 +143,12 @@ class PrimitiveMember:
         print(f'{indent}  self->{n} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
         print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
         print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+
+    def ushort_decode_unsafe(n, varint):
+        if varint:
+            print(f'{indent}  fd_bincode_compact_u16_decode_unsafe(&self->{n}, ctx);', file=body),
+        else:
+            print(f'{indent}  fd_bincode_uint16_decode_unsafe(&self->{n}, ctx);', file=body),
 
     def ulong_decode_unsafe(n, varint):
         if varint:
@@ -156,7 +169,7 @@ class PrimitiveMember:
         "uchar[32]" : lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
         "uchar[128]" :lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
-        "ushort" :    lambda n, varint: print(f'{indent}  fd_bincode_uint16_decode_unsafe(&self->{n}, ctx);', file=body)
+        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_unsafe(n, varint),
     }
 
     def emitDecodeUnsafe(self):
@@ -168,6 +181,13 @@ class PrimitiveMember:
         print(f'{indent}  err = fd_bincode_uint64_encode(&slen, ctx);', file=body)
         print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
         print(f'{indent}  err = fd_bincode_bytes_encode((uchar *) self->{n}, slen, ctx);', file=body)
+        print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+    def ushort_encode(n, varint):
+        if varint:
+            print(f'{indent}  err = fd_bincode_compact_u16_encode(&self->{n}, ctx);', file=body),
+        else:
+            print(f'{indent}  err = fd_bincode_uint16_encode(&self->{n}, ctx);', file=body),
         print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
     def ulong_encode(n, varint):
@@ -210,7 +230,7 @@ class PrimitiveMember:
         "uchar[32]" : lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
         "uchar[128]" :lambda n, varint: print(f'{indent}  size += sizeof(char) * 128;', file=body),
         "ulong" :     lambda n, varint: print(f'{indent}  size += { ("fd_bincode_varint_size(self->" + n + ");") if varint else "sizeof(ulong);" }', file=body),
-        "ushort" :    lambda n, varint: print(f'{indent}  size += sizeof(ushort);', file=body)
+        "ushort" :    lambda n, varint: print(f'{indent}  size += { ("fd_bincode_compact_u16_size(&self->" + n + ");") if varint else "sizeof(ushort);" }', file=body),
     }
 
     def emitSize(self, inner):
@@ -398,18 +418,20 @@ class VectorMember:
         print('  }', file=body)
 
     def emitSize(self, inner):
+        print(f'  do {{', file=body)
         if self.compact:
-            print(f'  ushort tmp = (ushort)self->{self.name}_len;', file=body)
-            print(f'  size += fd_bincode_compact_u16_size(&tmp);', file=body)
+            print(f'    ushort tmp = (ushort)self->{self.name}_len;', file=body)
+            print(f'    size += fd_bincode_compact_u16_size(&tmp);', file=body)
         else:
-            print('  size += sizeof(ulong);', file=body)
+            print('    size += sizeof(ulong);', file=body)
         if self.element == "uchar":
-            print(f'  size += self->{self.name}_len;', file=body)
+            print(f'    size += self->{self.name}_len;', file=body)
         elif self.element in simpletypes:
-            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
+            print(f'    size += self->{self.name}_len * sizeof({self.element});', file=body)
         else:
-            print(f'  for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
-            print(f'    size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
+            print(f'    for (ulong i = 0; i < self->{self.name}_len; ++i)', file=body)
+            print(f'      size += {namespace}_{self.element}_size(self->{self.name} + i);', file=body)
+        print(f'  }} while(0);', file=body)
 
     emitWalkMap = {
         "double" :  lambda n: print(f'  fun( w, self->{n} + i, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),

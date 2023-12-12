@@ -148,22 +148,22 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       // fd_gossip_slots_t slots = epoch_slots->slots->inner.uncompressed;
       // fd_blockstore_upsert_root( blockstore, slots.first_slot + slots.num );
     }
-  } else if( data->discriminant == fd_crds_data_enum_contact_info ) {
+  } else if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
     if( FD_LIKELY( fd_repair_peer_query(
-            gossip_ctx->repair_peers, data->inner.contact_info.id, NULL ) ) ) {
+            gossip_ctx->repair_peers, data->inner.contact_info_v1.id, NULL ) ) ) {
       return;
     }
 
-    fd_gossip_set_shred_version( gossip_ctx->gossip, data->inner.contact_info.shred_version );
+    fd_gossip_set_shred_version( gossip_ctx->gossip, data->inner.contact_info_v1.shred_version );
     fd_repair_peer_addr_t repair_peer_addr = { 0 };
-    fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info.serve_repair );
+    fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info_v1.serve_repair );
     if( FD_UNLIKELY( fd_repair_add_active_peer(
-            gossip_ctx->repair, &repair_peer_addr, &data->inner.contact_info.id ) ) ) {
+            gossip_ctx->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
       FD_LOG_ERR( ( "error adding peer" ) );
     };
 
     fd_repair_peer_t * peer =
-        fd_repair_peer_insert( gossip_ctx->repair_peers, data->inner.contact_info.id );
+        fd_repair_peer_insert( gossip_ctx->repair_peers, data->inner.contact_info_v1.id );
     peer->first_slot = 0;
     peer->last_slot  = 0;
     has_peer         = 1;
