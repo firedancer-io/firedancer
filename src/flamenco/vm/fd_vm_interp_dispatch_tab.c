@@ -4,6 +4,8 @@
  * See `fd_vm_interp.c` for usage.
  */
 
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+
 #define BRANCH_PRE_CODE \
 { \
   long insns = pc-start_pc + 1; \
