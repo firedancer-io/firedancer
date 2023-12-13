@@ -118,8 +118,9 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
   if (!fd_instr_acc_is_writable_idx(ctx.instr, 0))
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
+  uchar me_idx = 0;
   fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t const * me = &txn_accs[instr_acc_idxs[0]];
+  fd_pubkey_t const * me = &txn_accs[instr_acc_idxs[me_idx]];
 
   if (0 != memcmp(&txn_accs[instr_acc_idxs[1]], fd_sysvar_recent_block_hashes_id.key, sizeof(fd_pubkey_t))) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -128,9 +129,9 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
   // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L66
 
 
-  FD_BORROWED_ACCOUNT_DECL(me_rec);
-  int err = fd_acc_mgr_view(ctx.acc_mgr, ctx.funk_txn, (fd_pubkey_t *) me, me_rec);
-   if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
+  fd_borrowed_account_t * me_rec = NULL;
+  int err = fd_instr_borrowed_account_view_idx( &ctx, me_idx, &me_rec );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_nonce_state_versions_t state;
@@ -139,11 +140,13 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
     .valloc  = ctx.valloc
   };
-  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) )
+  if ( fd_nonce_state_versions_decode( &state, &ctx2 ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
-  if (state.inner.current.discriminant != fd_nonce_state_enum_initialized)
+  if (state.inner.current.discriminant != fd_nonce_state_enum_initialized) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
 //                if !signers.contains(&data.authority) {
 //                    ic_msg!(
@@ -217,7 +220,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
   if (!fd_account_check_set_data_length(&ctx, me_rec->const_meta, me, sz, &err))
     return err;
 
-  err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, me, 1, sz, me_rec);
+  err = fd_instr_borrowed_account_modify_idx( &ctx, me_idx, sz, &me_rec );
   if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   if ( sz > me_rec->meta->dlen ) {
@@ -225,7 +228,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
   }
   fd_memcpy(me_rec->data, enc, sz);
 
-  return fd_acc_mgr_commit(ctx.acc_mgr, me_rec, ctx.slot_ctx);
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L366
@@ -315,19 +318,16 @@ int fd_withdraw_nonce_account(
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
   }
 
-  FD_TEST (requested_lamports <= from_rec->const_meta->info.lamports);
+  FD_TEST( requested_lamports <= from_rec->const_meta->info.lamports );
 
   // Ok, time to do some damage...
-  err = fd_instr_borrowed_account_modify(&ctx,  from,  0,  0UL, & from_rec);
-  err = fd_instr_borrowed_account_modify(&ctx,  to,  1,  0UL, & to_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, from, 0UL, &from_rec );
+  err = fd_instr_borrowed_account_modify( &ctx, to, 0UL, &to_rec );
 
   from_rec->meta->info.lamports -= requested_lamports;
   to_rec->meta->info.lamports = res;
 
-  err = fd_acc_mgr_commit(ctx.acc_mgr, from_rec, ctx.slot_ctx);
-  if (FD_EXECUTOR_INSTR_SUCCESS != err)
-    return err;
-  return fd_acc_mgr_commit(ctx.acc_mgr, to_rec, ctx.slot_ctx);
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 // https://github.com/firedancer-io/solana/blob/8fb537409eb901444e064f50ea8dd7dcafb12a00/runtime/src/system_instruction_processor.rs#L380
@@ -427,7 +427,7 @@ int fd_initialize_nonce_account(
     if (!fd_account_check_set_data_length(&ctx, me_rec->const_meta, me, sz, &err))
       return err;
 
-    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & me_rec );
+    err = fd_instr_borrowed_account_modify( &ctx, me, sz, &me_rec );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
       return err;
 
@@ -439,7 +439,7 @@ int fd_initialize_nonce_account(
       FD_LOG_ERR(("fd_nonce_state_versions_encode failed"));
 
     me_rec->meta->dlen = sz;
-    return fd_acc_mgr_commit(ctx.acc_mgr, me_rec, ctx.slot_ctx);
+    return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   case fd_nonce_state_enum_initialized: {
@@ -506,10 +506,10 @@ int fd_authorize_nonce_account(
     state.discriminant = fd_nonce_state_versions_enum_current;
     state.inner.current.inner.initialized.authority = *authorize_nonce_account;
 
-    ulong          sz = fd_nonce_state_versions_size(&state);
-    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & rec );
+    ulong sz = fd_nonce_state_versions_size(&state);
+    err = fd_instr_borrowed_account_modify( &ctx, me, sz, &rec );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_acc_mgr_modify failed: %d", err ));
+      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify failed: %d", err ));
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       break;
     }
@@ -605,9 +605,9 @@ int fd_upgrade_nonce_account(
     memcpy(&state.inner.current.inner.initialized.durable_nonce, &durable_nonce, sizeof(durable_nonce));
 
     ulong          sz = fd_nonce_state_versions_size(&state);
-    err = fd_instr_borrowed_account_modify(&ctx,  me,  1,  sz, & acc );
+    err = fd_instr_borrowed_account_modify( &ctx, me, sz, &acc );
     if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_acc_mgr_modify failed: %d", err ));
+      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify failed: %d", err ));
       ret = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       break;
     }

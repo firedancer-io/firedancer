@@ -28,6 +28,7 @@ struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
   ulong slots_per_epoch;
   ulong part_width;
   uchar skip_rent_rewrites;
+  uint is_locked;
 };
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
@@ -93,8 +94,9 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 
 static inline int
 FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
-  if (NULL == ptr)
+  if (NULL == ptr) {
     return 0;
+  }
 
   fd_account_meta_t const *m = (fd_account_meta_t const *) ptr;
 #pragma GCC diagnostic push
@@ -134,8 +136,9 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
-  account->const_meta = meta;
-  account->const_data = raw + meta->hlen;
+  account->orig_rec = account->const_rec;
+  account->orig_meta = account->const_meta = meta;
+  account->orig_data = account->const_data = raw + meta->hlen;
 
   if (ULONG_MAX == account->starting_dlen)
     account->starting_dlen = meta->dlen;
@@ -197,7 +200,7 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
                    fd_pubkey_t const *    pubkey,
                    int                    do_create,
                    ulong                  min_data_sz,
-                   fd_borrowed_account_t *account) {
+                   fd_borrowed_account_t * account) {
   int err = FD_ACC_MGR_SUCCESS;
 
   uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
@@ -212,15 +215,56 @@ fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
 
-  account->const_rec = account->rec;
-  account->const_meta = account->meta = meta;
-  account->const_data = account->data = raw + meta->hlen;
+  account->orig_rec = account->const_rec = account->rec;
+  account->orig_meta = account->const_meta = account->meta = meta;
+  account->orig_data = account->const_data = account->data = raw + meta->hlen;
 
   if (ULONG_MAX == account->starting_dlen)
     account->starting_dlen = meta->dlen;
 
   if (ULONG_MAX == account->starting_lamports)
     account->starting_lamports = meta->info.lamports;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+static inline int
+fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
+                 fd_funk_txn_t *         txn,
+                 fd_valloc_t             valloc,
+                 fd_borrowed_account_t * account ) {
+  int err = FD_ACC_MGR_SUCCESS;
+
+  if( account->meta == NULL ) {
+    // The meta is NULL so the account is not writable.
+    FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %32J", account->pubkey ));
+    return FD_ACC_MGR_SUCCESS;
+  }
+
+  if( account->orig_data == account->data ) {
+    // We never had to realloc/resize the account, so we have nothing to do.
+    return FD_ACC_MGR_SUCCESS;
+  }
+
+  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, account->pubkey, 0, account->meta->dlen, account->const_rec, &account->rec, &err );
+  if( FD_UNLIKELY( !raw ) ) {
+    return err;
+  }
+
+  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
+
+  fd_account_meta_t * meta = (fd_account_meta_t *)raw;
+
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+  }
+
+  fd_memcpy( raw, account->meta, sizeof(fd_account_meta_t)+account->const_meta->dlen );
+  fd_valloc_free( valloc, account->meta );
+
+  account->orig_rec = account->const_rec = account->rec;
+  account->orig_meta = account->const_meta = account->meta = meta;
+  account->orig_data = account->const_data = account->data = raw + meta->hlen;
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -244,6 +288,12 @@ int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
                        fd_exec_slot_ctx_t *  slot_ctx ) {
   return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
 }
+
+void
+fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
+
+void
+fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
 
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err );

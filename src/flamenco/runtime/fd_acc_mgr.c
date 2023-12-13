@@ -8,7 +8,6 @@
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
                 fd_funk_t * funk ) {
-
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -149,7 +148,10 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
     
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
-  FD_TEST( ret->magic == FD_ACCOUNT_META_MAGIC );
+  
+  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
+    FD_LOG_ERR(( "bad magic" ));
+  }
 
   return ret;
 }
@@ -199,4 +201,16 @@ fd_acc_mgr_strerror( int err ) {
   default:
     return "unknown";
   }
+}
+
+void
+fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr ) {
+  FD_TEST( !acc_mgr->is_locked );
+  acc_mgr->is_locked = 1;
+}
+
+void
+fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr ) {
+  FD_TEST( acc_mgr->is_locked );
+  acc_mgr->is_locked = 0;
 }

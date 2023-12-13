@@ -531,7 +531,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
 
     /* See if (dst_xid,key) already exists */
 
-    fd_funk_xid_key_pair_t dst_pair[1]; fd_funk_xid_key_pair_init( dst_pair, dst_xid, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
+    fd_funk_xid_key_pair_t dst_pair[1];
+    fd_funk_xid_key_pair_init( dst_pair, dst_xid, fd_funk_rec_key( &rec_map[ rec_idx ] ) );
+    
     fd_funk_rec_t * dst_rec = fd_funk_rec_map_query( rec_map, dst_pair, NULL );
 
     if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) ) { /* Erase a published key */
@@ -546,7 +548,9 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
            into the last published transaction and we didn't find a
            record there, we have a memory corruption problem. */
 
-        if( FD_UNLIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
+        if( FD_UNLIKELY( fd_funk_txn_idx_is_null( dst_txn_idx ) ) ) {
+          FD_LOG_CRIT(( "memory corruption detected (bad ancestor)" ));
+        }
 
         /* Otherwise, txn is an erase of this record from one of
            dst's ancestors.  So we move the erase from (src_xid,key) and
@@ -850,6 +854,48 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   return FD_FUNK_SUCCESS;
 }
+
+int
+fd_funk_txn_merge_all_children( fd_funk_t *     funk,
+                                fd_funk_txn_t * parent_txn,
+                                int             verbose ) {
+  if( FD_UNLIKELY( !funk ) ) {
+    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
+    return FD_FUNK_ERR_INVAL;
+  }
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
+
+  ulong txn_max = fd_funk_txn_map_key_max( map );
+
+  ulong parent_idx = (ulong)(parent_txn - map);
+
+  ASSERT_IN_PREP( parent_idx );
+
+  ulong child_head_idx = fd_funk_txn_idx( map[ parent_idx ].child_head_cidx );
+
+  ulong child_idx = child_head_idx;
+  while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) { /* opt for incr pub */
+    /* Merge records from child into parent */
+
+    fd_funk_txn_update( &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid,
+                        child_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        fd_funk_alloc( funk, wksp ), wksp );
+    
+    fd_funk_txn_t * txn = &map[ child_idx ];
+    fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
+    
+    child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+  }
+
+  parent_txn->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  parent_txn->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+
+  return FD_FUNK_SUCCESS;
+}
+
 
 int
 fd_funk_txn_merge_with_children( fd_funk_t *     funk,

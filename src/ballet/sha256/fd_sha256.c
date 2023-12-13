@@ -413,4 +413,57 @@ fd_sha256_hash( void const * _data,
   return _hash;
 }
 
+void *
+fd_sha256_hash_32( void const * _data,
+                   void *       _hash ) {
+  uchar const * data = (uchar const *)_data;
+
+  /* This is just the above streamlined to eliminate all the overheads
+     to support incremental hashing. */
+
+  uchar buf[ FD_SHA256_PRIVATE_BUF_MAX ] __attribute__((aligned(128)));
+  uint  state[8] __attribute__((aligned(32)));
+
+  state[0] = 0x6a09e667U;
+  state[1] = 0xbb67ae85U;
+  state[2] = 0x3c6ef372U;
+  state[3] = 0xa54ff53aU;
+  state[4] = 0x510e527fU;
+  state[5] = 0x9b05688cU;
+  state[6] = 0x1f83d9abU;
+  state[7] = 0x5be0cd19U;
+
+  ulong sz = 32;
+
+  ulong block_cnt = sz >> FD_SHA256_PRIVATE_LG_BUF_MAX;
+  if( FD_LIKELY( block_cnt ) ) fd_sha256_core( state, data, block_cnt );
+
+  ulong buf_used = sz & (FD_SHA256_PRIVATE_BUF_MAX-1UL);
+  if( FD_UNLIKELY( buf_used ) ) memcpy( buf, data + (block_cnt << FD_SHA256_PRIVATE_LG_BUF_MAX), buf_used );
+  buf[ buf_used ] = (uchar)0x80;
+  buf_used++;
+
+  if( FD_UNLIKELY( buf_used > (FD_SHA256_PRIVATE_BUF_MAX-8UL) ) ) {
+    memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-buf_used );
+    fd_sha256_core( state, buf, 1UL );
+    buf_used = 0UL;
+  }
+
+  ulong bit_cnt = sz << 3;
+  memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );
+  FD_STORE( ulong, buf+FD_SHA256_PRIVATE_BUF_MAX-8UL, fd_ulong_bswap( bit_cnt ) );
+  fd_sha256_core( state, buf, 1UL );
+
+  uint * hash = (uint *)_hash;
+  hash[0] = fd_uint_bswap( state[0] );
+  hash[1] = fd_uint_bswap( state[1] );
+  hash[2] = fd_uint_bswap( state[2] );
+  hash[3] = fd_uint_bswap( state[3] );
+  hash[4] = fd_uint_bswap( state[4] );
+  hash[5] = fd_uint_bswap( state[5] );
+  hash[6] = fd_uint_bswap( state[6] );
+  hash[7] = fd_uint_bswap( state[7] );
+  return _hash;
+}
+
 #undef fd_sha256_core

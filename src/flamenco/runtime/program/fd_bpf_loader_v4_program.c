@@ -305,13 +305,13 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
     if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx.instr, 2 ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     fd_borrowed_account_t * recipient = NULL;
-    err = fd_instr_borrowed_account_modify_idx( &ctx, 2, 1, 0UL, &recipient );
+    err = fd_instr_borrowed_account_modify_idx( &ctx, 2, 0UL, &recipient );
     if( FD_UNLIKELY( err ) ) {
       /* TODO Log: "Recipient is not writeable" */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     /* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/programs/loader-v4/src/lib.rs#L327-L329 */
-    err = fd_instr_borrowed_account_modify_idx( &ctx, 0, 0, 0UL, &program );
+    err = fd_instr_borrowed_account_modify_idx( &ctx, 0, 0UL, &program );
     if( FD_UNLIKELY( err ) ) {
       /* TODO what error code to return here? */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -332,7 +332,7 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
 
   /* Gather writable handle to program if not done yet */
   if( !program->rec ) {
-    err = fd_instr_borrowed_account_modify_idx( &ctx, 0, 0, raw_new_sz, &program );
+    err = fd_instr_borrowed_account_modify_idx( &ctx, 0, raw_new_sz, &program );
     if( FD_UNLIKELY( err ) ) {
       /* TODO what error code to return here? */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

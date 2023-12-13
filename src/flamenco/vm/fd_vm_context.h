@@ -218,7 +218,7 @@ struct fd_vm_exec_context {
   uchar         heap[FD_VM_MAX_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
 
   /* Runtime context */
-  fd_exec_instr_ctx_t instr_ctx;
+  fd_exec_instr_ctx_t * instr_ctx;
 
   /* Miscellaneous native state:
      Below contains state of syscall logic for the lifetime of the

@@ -349,8 +349,7 @@ int fd_executor_run_test(
       .compute_meter   = 200000,
     };
 
-    uint use_sysvar_instructions = 0;
-    fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, &raw_txn_b, &use_sysvar_instructions);
+    fd_executor_setup_accessed_accounts_for_txn( &txn_ctx );
     fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
 
     fd_instr_info_t instr;

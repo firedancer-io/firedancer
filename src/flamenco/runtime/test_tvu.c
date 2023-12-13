@@ -222,7 +222,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     // dcache?
     FD_TEST(
         // FIXME multi thread once it works
-        fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, block->data, block->sz, NULL, 1 ) ==
+        fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, block->data, block->sz, NULL, 1 ) ==
         FD_RUNTIME_EXECUTE_SUCCESS );
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",

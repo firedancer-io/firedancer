@@ -34,17 +34,23 @@ instructions_serialized_size( fd_instr_info_t const *  instrs,
 }
 
 int
-fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *  txn_ctx,
-                                          fd_instr_info_t const *  instrs,
-                                          ushort              instrs_cnt ) {
+fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *     txn_ctx,
+                                          fd_instr_info_t const * instrs,
+                                          ushort                  instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_modify(txn_ctx, &fd_sysvar_instructions_id, 1, serialized_sz, &rec);
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+  int err = fd_txn_borrowed_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
+  
+  fd_account_meta_t * meta = fd_valloc_malloc( txn_ctx->valloc, FD_ACCOUNT_META_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
+  void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
-  fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
+  rec->const_meta = rec->meta = meta;
+  rec->const_data = rec->data = data;
+
+  memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
   rec->meta->info.lamports = 0; // TODO: This cannot be right... well, it gets destroyed almost instantly...
   rec->meta->info.executable = 0;
   rec->meta->info.rent_epoch = 0;
@@ -101,34 +107,28 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *  txn_ctx,
   FD_STORE( ushort, serialized_instructions + offset, 0 );
   offset += sizeof(ushort);
 
-  FD_LOG_DEBUG(( "SYSVAR INSTR SERIALIZE %u", offset ));
-  FD_LOG_HEXDUMP_DEBUG(( "SYSVAR INSTR SERIALIZE dump", serialized_instructions, serialized_sz ));
-
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
 fd_sysvar_instructions_cleanup_account( fd_exec_txn_ctx_t *  txn_ctx ) {
-  fd_funk_rec_t * acc_data_rec = NULL;
-  int modify_err = FD_ACC_MGR_SUCCESS;
-
-  // This uses the raw interface since we are also willing to kill dead accounts here...
-  void * raw_acc_data = fd_acc_mgr_modify_raw( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, NULL, &acc_data_rec, &modify_err );
-  if( FD_UNLIKELY( NULL == raw_acc_data ) )
+  fd_borrowed_account_t * rec = NULL;
+  int err = fd_txn_borrowed_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
-  int res = fd_funk_rec_remove(txn_ctx->acc_mgr->funk, acc_data_rec, 1);
-  if( res != FD_FUNK_SUCCESS )
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  fd_valloc_free( txn_ctx->valloc, rec->meta );
+  rec->const_meta = rec->meta = NULL;
+  rec->const_data = rec->data = NULL;
 
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t *  txn_ctx,
-                                         ushort             current_instr_idx ) {
-  FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_modify(txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_sysvar_instructions_id, 0, 0, rec);
+                                                 ushort             current_instr_idx ) {
+  fd_borrowed_account_t * rec = NULL;
+  int err = fd_txn_borrowed_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

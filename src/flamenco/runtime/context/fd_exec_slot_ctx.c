@@ -18,8 +18,6 @@ fd_exec_slot_ctx_new( void * mem ) {
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
 
-  self->rng = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
-
   fd_slot_bank_new(&self->slot_bank);
 
   FD_COMPILER_MFENCE();

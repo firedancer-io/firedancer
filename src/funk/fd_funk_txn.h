@@ -437,6 +437,10 @@ int
 fd_funk_txn_merge( fd_funk_t *     funk,
                    fd_funk_txn_t * txn,
                    int             verbose );
+int
+fd_funk_txn_merge_all_children( fd_funk_t *     funk,
+                                fd_funk_txn_t * parent_txn,
+                                int             verbose );
 
 int
 fd_funk_txn_merge_with_children( fd_funk_t *     funk,

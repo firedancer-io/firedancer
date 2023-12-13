@@ -27,8 +27,8 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_exec_epoch_ctx_t const * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
 
-  fd_funk_txn_t        *funk_txn;
-  fd_acc_mgr_t         *acc_mgr;
+  fd_funk_txn_t *       funk_txn;
+  fd_acc_mgr_t *        acc_mgr;
   fd_valloc_t           valloc;
 
   ulong                 paid_fees;
@@ -49,6 +49,7 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   ulong                 executable_cnt;                  /* Number of BPF upgradeable loader accounts. */
   fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
+  uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
 };
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 #define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t) )
@@ -72,15 +73,24 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
 int
 fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
                                     uchar idx,
-                                    int do_create,
                                     ulong min_data_sz,
                                     fd_borrowed_account_t * * account );
 int
 fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_pubkey_t const * pubkey,
-                                int do_create,
                                 ulong min_data_sz,
                                 fd_borrowed_account_t * * account );
+
+void
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
+                       fd_txn_t const * txn_descriptor,
+                       fd_rawtxn_b_t const * txn_raw );
+void
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
+                                    fd_exec_txn_ctx_t * txn_ctx );
+
+void
+fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
 
 void *
 fd_exec_txn_ctx_new( void * mem );

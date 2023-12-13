@@ -179,7 +179,7 @@ bench_poh_sequential( void ) {
   dt = fd_log_wallclock() - dt;
 
   /* for real */
-  iter = 10000UL;
+  iter = 100000UL;
   dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) fd_poh_append( &poh, batch_sz );
   dt = fd_log_wallclock() - dt;

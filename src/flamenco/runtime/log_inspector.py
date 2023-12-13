@@ -43,14 +43,14 @@ def display_firedancer_accounts_delta_hash_extra(log_line):
 
 def display_solana_accounts_delta_hash_extra(log_line):
   # print(log_line)
-  # res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) include_slot: \((\w+)\)  lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) includedata: \(([0-9a-f]*)\)", log_line)[0]
-  res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) data: \(([0-9a-f]*)\)", log_line)[0]
+  res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) include_slot: \((\w+)\)  lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) includedata: \(([0-9a-f]*)\)", log_line)[0]
+  # res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) data: \(([0-9a-f]*)\)", log_line)[0]
   executable = "0"
   if res[4] == 1:
     executable = "1"
 
-  # res2 = [res[0], res[1], res[3], res[4], executable, res[6], res[7], hex_to_hexdump(res[9]), res[8]]
-  res2 = [res[0], res[1], res[2], res[3], executable, res[5], res[6], hex_to_hexdump(res[8]), res[7]]
+  res2 = [res[0], res[1], res[3], res[4], executable, res[6], res[7], hex_to_hexdump(res[9]), res[8]]
+  # res2 = [res[0], res[1], res[2], res[3], executable, res[5], res[6], hex_to_hexdump(res[8]), res[7]]
   return res2
 
 # print(str_list_to_hexdump('[1, 0, 0, 0, 6, 161, 236, 95, 109, 61, 176, 220, 100, 179, 152, 185, 127, 63, 240, 170, 166, 42, 118, 100, 242, 252, 76, 158, 148, 232, 138, 73, 102, 133, 73, 252, 234, 0, 182, 30, 163, 194, 135, 42, 246, 107, 91, 234, 12, 251, 211, 132, 101, 37, 231, 81, 74, 152, 183, 1, 206, 99, 188, 189, 73, 253, 58, 170, 7, 31, 0, 0, 0, 0, 0, 0, 0, 207, 28, 175, 10, 0, 0, 0, 0, 31, 0, 0, 0, 208, 28, 175, 10, 0, 0, 0, 0, 30, 0, 0, 0, 209, 28, 175, 10, 0, 0, 0, 0, 29, 0, 0, 0, 210, 28, 175, 10, 0, 0, 0, 0, 28, 0, 0, 0, 211, 28, 175, 10, 0, 0, 0, 0, 27, 0, 0, 0, 212, 28, 175, 10, 0, 0, 0, 0, 26, 0, 0, 0, 213, 28, 175, 10, 0]'))

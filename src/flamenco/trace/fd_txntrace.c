@@ -6,6 +6,7 @@
 #include "../runtime/fd_executor.h"
 #include "../nanopb/pb_encode.h"
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/context/fd_capture_ctx.h"
 
 #include <stdbool.h>
 
@@ -595,6 +596,10 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
   FD_TEST( epoch_ctx );
   slot_ctx->epoch_ctx = epoch_ctx;
 
+  fd_capture_ctx_t * capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new(
+      fd_scratch_alloc( FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT ) ) );
+  FD_TEST( capture_ctx );
+
   fd_acc_mgr_t _acc_mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk );
 
@@ -606,7 +611,7 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
     fd_txntrace_load_acct( slot_ctx, in->transaction.account_keys[i], &in->account[i] );
 
   /* Prevent recursion */
-  slot_ctx->trace_mode = 0;
+  capture_ctx->trace_mode = 0;
 
   /* Create and replay transaction */
 
@@ -614,7 +619,8 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
   fd_txn_o_t to = fd_txntrace_create( &in->transaction );
   if( FD_UNLIKELY( !to.txn ) )
     FD_LOG_ERR(( "fd_txntrace_create failed (out of scratch memory?)" ));
-  fd_execute_txn( slot_ctx, to.txn, &to.heap );
+  // FIXME: capture ctx should not be NULL
+  // fd_execute_txn( slot_ctx, NULL, to.txn, &to.heap );
   fd_scratch_pop();
 
   /* Export diff */

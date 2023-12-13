@@ -77,6 +77,7 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 /* IPv4 ***************************************************************/
 
 typedef uint fd_gossip_ip4_addr_t;
+typedef uint fd_gossip_ip4_addr_t;
 
 /* IPv6 ***************************************************************/
 

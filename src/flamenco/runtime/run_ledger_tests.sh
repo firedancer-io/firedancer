@@ -97,7 +97,7 @@ then
   exit $status
 fi
 
-rm $log
+# rm $log
 
 # Running this twice, but whatever
 "$OBJDIR"/unit-test/test_native_programs >& native.log

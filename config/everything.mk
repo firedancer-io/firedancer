@@ -295,7 +295,7 @@ $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
 	# Compiling C source $< to assembly $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -g -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 

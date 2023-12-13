@@ -80,7 +80,7 @@ process_close_proof_context( fd_exec_instr_ctx_t ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L125 */
   /* TODO dubious borrowing rules here ... */
-  rc = fd_instr_borrowed_account_modify( &ctx, dest_acc_addr, 0, 0, &dest_acc );
+  rc = fd_instr_borrowed_account_modify( &ctx, dest_acc_addr, 0, &dest_acc );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   dest_acc->meta->info.lamports += proof_ctx_acc->meta->info.lamports;

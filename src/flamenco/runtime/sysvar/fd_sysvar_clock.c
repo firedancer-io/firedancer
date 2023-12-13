@@ -144,7 +144,6 @@ void fd_calculate_stake_weighted_timestamp(
   treap_t * treap = treap_join( shtreap );
   ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
 
   fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
@@ -158,35 +157,64 @@ void fd_calculate_stake_weighted_timestamp(
     FD_BORROWED_ACCOUNT_DECL(acc);
     int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, acc);
     FD_TEST( err == 0 );
-    fd_bincode_decode_ctx_t decode = {
+    fd_bincode_decode_ctx_t decode_ctx = {
       .data    = acc->const_data,
       .dataend = acc->const_data + acc->const_meta->dlen,
-      /* TODO: Make this a instruction-scoped allocator */
-      .valloc  = slot_ctx->valloc,
+      .valloc  = fd_scratch_virtual(),
     };
-    fd_vote_state_versioned_t vote_state[1] = {0};
     ulong vote_timestamp = 0UL;
     ulong vote_slot = 0UL;
-    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
+
+    uint discriminant = 0;
+    err = fd_bincode_uint32_decode(&discriminant, &decode_ctx);
+    if ( FD_UNLIKELY(err) ) {
       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    switch (vote_state->discriminant) {
-      case fd_vote_state_versioned_enum_current:
-        vote_timestamp = vote_state->inner.current.last_timestamp.timestamp;
-        vote_slot = vote_state->inner.current.last_timestamp.slot;
+    }
+    void const * enum_inner_start = decode_ctx.data;
+    ulong last_timestamp_off = 0;
+    // if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state, &decode ) ) )
+    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    switch (discriminant) {
+      case fd_vote_state_versioned_enum_current: {
+        fd_vote_state_off_t off;
+        int err = fd_vote_state_decode_offsets( &off, &decode_ctx );
+        if( FD_UNLIKELY(err) ) {
+          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+        }
+        last_timestamp_off = off.last_timestamp_off;
         break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        vote_timestamp = vote_state->inner.v0_23_5.last_timestamp.timestamp;
-        vote_slot = vote_state->inner.v0_23_5.last_timestamp.slot;
+      }
+      case fd_vote_state_versioned_enum_v1_14_11: {
+        fd_vote_state_1_14_11_off_t off;
+        int err = fd_vote_state_1_14_11_decode_offsets( &off, &decode_ctx );
+        if( FD_UNLIKELY(err) ) {
+          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+        }
+        last_timestamp_off = off.last_timestamp_off;
         break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        vote_timestamp = vote_state->inner.v1_14_11.last_timestamp.timestamp;
-        vote_slot = vote_state->inner.v1_14_11.last_timestamp.slot;
+      }
+      case fd_vote_state_versioned_enum_v0_23_5: {
+         fd_vote_state_0_23_5_off_t off;
+        int err = fd_vote_state_0_23_5_decode_offsets( &off, &decode_ctx );
+        if( FD_UNLIKELY(err) ) {
+          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+        }
+        last_timestamp_off = off.last_timestamp_off;
         break;
+      }
       default:
         __builtin_unreachable();
     }
 
-    fd_vote_state_versioned_destroy( vote_state, &destroy);
+    fd_vote_block_timestamp_t last_timestamp;
+    decode_ctx.data = (uchar const *)enum_inner_start + last_timestamp_off;
+    err = fd_vote_block_timestamp_decode( &last_timestamp, &decode_ctx );
+    if( FD_UNLIKELY(err) ) {
+      FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    }
+
+    vote_timestamp = last_timestamp.timestamp;
+    vote_slot = last_timestamp.slot;
 
     ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
     if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {
@@ -227,25 +255,25 @@ void fd_calculate_stake_weighted_timestamp(
     }
   }
 
-  FD_LOG_WARNING(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
+  FD_LOG_DEBUG(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
   fd_sysvar_epoch_schedule_read( slot_ctx, &schedule );
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
-  FD_LOG_WARNING(("Epoch start slot %lu", epoch_start_slot));
+  FD_LOG_DEBUG(("Epoch start slot %lu", epoch_start_slot));
   ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(slot_ctx->slot_bank.slot, epoch_start_slot));
   ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
   ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
   ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
-  FD_LOG_WARNING(("poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow));
+  FD_LOG_DEBUG(("poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow));
   if (estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
   } else if (estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  FD_LOG_WARNING(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
   if (*result_timestamp < clock.unix_timestamp) {
     FD_LOG_DEBUG(( "updated timestamp to ancestor" ));

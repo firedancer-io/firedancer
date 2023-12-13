@@ -4,6 +4,7 @@
 #include "fd_banks_solana.h"
 #include "../../funk/fd_funk_txn.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "context/fd_capture_ctx.h"
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
@@ -19,7 +20,10 @@ FD_PROTOTYPES_BEGIN
 
 void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx );
 
-int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, ulong signature_cnt );
+int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, 
+                         fd_capture_ctx_t * capture_ctx,
+                         fd_hash_t * hash, 
+                         ulong signature_cnt );
 
 /* fd_hash_account_v0 is the legacy method to compute the account
    hash.  It includes the following content:
@@ -67,7 +71,8 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 
 /* Generate a complete accounts_hash of the entire account database. */
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash );
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
+                  fd_hash_t * accounts_hash );
 
 int
 fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx );

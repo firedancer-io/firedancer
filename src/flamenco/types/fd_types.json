@@ -10,12 +10,21 @@
     {
       "name": "hash",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256"
+      "walktype": "FD_FLAMENCO_TYPE_HASH256",
+      "size": "32"
+    },
+    {
+      "name": "pubkey",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_HASH256",
+      "size": "32",
+      "emitprotos": false
     },
     {
       "name": "signature",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_SIG512"
+      "walktype": "FD_FLAMENCO_TYPE_SIG512",
+      "size": "64"
     },
     {
       "name": "gossip_ip4_addr",
@@ -680,6 +689,7 @@
     {
       "name": "vote_state_versioned",
       "type": "enum",
+      "zerocopy": true,
       "variants": [
         { "name": "v0_23_5", "type": "vote_state_0_23_5" },
         { "name": "v1_14_11", "type": "vote_state_1_14_11" },
@@ -1595,6 +1605,7 @@
     {
       "name": "gossip_ip_addr",
       "type": "enum",
+      "zerocopy": false,
       "variants": [
         {
           "name": "ip4",
@@ -1708,6 +1719,7 @@
     {
       "name": "gossip_slots_enum",
       "type": "enum",
+      "zerocopy": false,
       "variants": [
         { "name": "flate2", "type": "gossip_flate2_slots" },
         { "name": "uncompressed", "type": "gossip_slots" }

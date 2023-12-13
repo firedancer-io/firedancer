@@ -473,7 +473,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   state->inner.lookup_table.meta.has_authority = 1;
   state->inner.lookup_table.meta.deactivation_slot = ULONG_MAX;
 
-  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, 0, sizeof(fd_address_lookup_table_state_t), &lut_acct );
+  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, sizeof(fd_address_lookup_table_state_t), &lut_acct );
   FD_TEST( lut_acct->meta );
 
   int state_err = fd_addrlut_serialize_meta( state, lut_acct->data, sizeof(fd_address_lookup_table_state_t) );
@@ -580,7 +580,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     }
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* do_create */ 0, /* min_data_sz */ 0UL, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
     if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
@@ -721,7 +721,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L308 */
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
-    int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, 0, new_table_data_sz, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
       FD_LOG_WARNING(( "fd_instr_borrowed_account_modify(%32J) failed (%d)", lut_acct->pubkey->key, modify_err ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
@@ -901,7 +901,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( clock_err ) ) return clock_err;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L384 */
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* do_create */ 0, /* min_data_sz */ 0UL, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
     if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
@@ -1072,7 +1072,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L459 */
-  int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_RECIPIENT, /* do_create */ 0, /* min_data_sz */ 0UL, &recipient_acct );
+  int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_RECIPIENT, /* min_data_sz */ 0UL, &recipient_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", recipient_acct->pubkey->key ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
@@ -1088,7 +1088,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write_is_safe( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;  /* Should be impossible */
   /* todo is_early_verification_of_account_modifications_enabled */
-  modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* do_create */ 0, /* min_data_sz */ 0UL, &lut_acct );
+  modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%32J) failed", lut_acct->pubkey->key ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;

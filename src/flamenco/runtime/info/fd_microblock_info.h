@@ -15,8 +15,8 @@ struct fd_microblock_info {
   fd_txn_t * * txn_ptrs;
   void * txn_buf;
 
-  void const *  raw_microblock;
-  ulong   raw_microblock_sz;
+  void const * raw_microblock;
+  ulong raw_microblock_sz;
 };
 typedef struct fd_microblock_info fd_microblock_info_t;
 

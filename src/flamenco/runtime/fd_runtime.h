@@ -72,12 +72,19 @@ fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
 
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_capture_ctx_t * capture_ctx,
                           fd_block_info_t const * block_info );
+
+int
+fd_runtime_microblock_verify( fd_microblock_info_t const * microblock_info,
+                              fd_hash_t const * in_poh_hash,
+                              fd_hash_t * out_poh_hash );
 
 int
 fd_runtime_block_verify( fd_block_info_t const * block_info,
                          fd_hash_t const * in_poh_hash,
                          fd_hash_t * out_poh_hash );
+
 int
 fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                fd_hash_t const * in_poh_hash,
@@ -94,6 +101,7 @@ fd_runtime_block_prepare( void const * buf,
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                             fd_capture_ctx_t * capture_ctx,
                              const void * block,
                              ulong blocklen,
                              fd_tpool_t * tpool,

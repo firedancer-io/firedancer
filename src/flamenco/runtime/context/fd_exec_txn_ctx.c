@@ -1,5 +1,7 @@
 #include "fd_exec_txn_ctx.h"
 
+#include "../program/fd_compute_budget_program.h"
+
 #include "../fd_acc_mgr.h"
 #include "../../vm/fd_vm_context.h"
 
@@ -59,19 +61,18 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
 
 int
 fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
-                                uchar idx,
-                                int do_create,
-                                ulong min_data_sz,
-                                fd_borrowed_account_t * *  account ) {
+                                    uchar idx,
+                                    ulong min_data_sz,
+                                    fd_borrowed_account_t * *  account ) {
   if( idx >= ctx->accounts_cnt ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
-  int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->accounts[idx], do_create, min_data_sz, txn_account );
-  if( err != FD_ACC_MGR_SUCCESS ) {
-    return err;
+  if( min_data_sz > txn_account->meta->dlen ) {
+    fd_borrowed_account_resize( txn_account, min_data_sz, ctx->valloc );
   }
+  
   // TODO: check if writable???
   *account = txn_account;
   return FD_ACC_MGR_SUCCESS;
@@ -80,16 +81,14 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
 int
 fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_pubkey_t const * pubkey,
-                                int do_create,
                                 ulong min_data_sz,
                                 fd_borrowed_account_t * * account ) {
   for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->accounts[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if writable???
       fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[i];
-      int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->accounts[i], do_create, min_data_sz, txn_account );
-      if( err != FD_ACC_MGR_SUCCESS ) {
-        return err;
+      if( min_data_sz > txn_account->const_meta->dlen ) {
+        fd_borrowed_account_resize( txn_account, min_data_sz, ctx->valloc );
       }
       *account = txn_account;
       return FD_ACC_MGR_SUCCESS;
@@ -97,6 +96,43 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
   }
 
   return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+void
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
+                       fd_txn_t const * txn_descriptor,
+                       fd_rawtxn_b_t const * txn_raw ) {
+  txn_ctx->compute_unit_limit = 200000;
+  txn_ctx->compute_unit_price = 0;
+  txn_ctx->compute_meter      = 200000;
+  txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
+  txn_ctx->custom_err         = UINT_MAX;
+
+  txn_ctx->instr_stack_sz     = 0;
+  txn_ctx->accounts_cnt       = 0;
+  txn_ctx->executable_cnt     = 0;
+
+  txn_ctx->txn_descriptor = txn_descriptor;
+  txn_ctx->_txn_raw = txn_raw;
+
+  fd_memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  txn_ctx->return_data.len = 0;
+  txn_ctx->return_data.data = (uchar*)fd_valloc_malloc( txn_ctx->valloc, 1, 1024 );
+}
+
+void
+fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx ) {
+  fd_valloc_free( txn_ctx->valloc, txn_ctx->return_data.data );
+}
+
+void
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
+                                    fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->slot_ctx = slot_ctx;
+  txn_ctx->epoch_ctx = slot_ctx->epoch_ctx;
+  txn_ctx->valloc = slot_ctx->valloc;
+  txn_ctx->funk_txn = NULL;
+  txn_ctx->acc_mgr = slot_ctx->acc_mgr;
 }
 
 void *

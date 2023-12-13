@@ -125,7 +125,6 @@ fd_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t *     self,
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L685-L690
   rc = fd_instr_borrowed_account_modify_idx( self,
                                              index_in_instruction,
-                                             1,
                                              0, // FIXME
                                              out );
 

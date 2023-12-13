@@ -144,6 +144,10 @@ fd_sha256_hash( void const * data,
                 ulong        sz,
                 void *       hash );
 
+void *
+fd_sha256_hash_32( void const * data,
+                   void *       hash );
+
 FD_PROTOTYPES_END
 
 #if 0 /* SHA256 batch API details */

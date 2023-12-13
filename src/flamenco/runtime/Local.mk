@@ -14,6 +14,7 @@ $(call add-hdrs, \
 	fd_system_ids.h \
 	fd_rawtxn.h \
 	fd_pubkey_utils.h \
+	fd_fork_mgr.h \
 	fd_blockstore.h \
 	fd_snapshot_loader.h \
 )
@@ -28,6 +29,8 @@ $(call add-objs, \
 	fd_runtime \
 	fd_system_ids \
 	fd_pubkey_utils \
+	fd_fork_mgr \
+	fd_borrowed_account \
 	fd_blockstore \
 	fd_snapshot_loader \
 	tests/fd_tests \

@@ -74,35 +74,45 @@ fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx,
   return -1;
 }
 
+/* Returns 1 if the sysvar instruction is used, 0 otherwise */
+uint
+fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx ) {
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    if( FD_UNLIKELY( memcmp( txn_ctx->accounts[i].key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
 // TODO: handle error codes
 void
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx, fd_rawtxn_b_t const * txn_raw, uint * use_sysvar_instructions ) {
-  fd_pubkey_t *tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
+  // Set up accounts in the transaction body
   for( ulong i = 0; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
     txn_ctx->accounts[i] = tx_accs[i];
-    if ( FD_UNLIKELY(
-        *use_sysvar_instructions
-        || memcmp(&txn_ctx->accounts[i], fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t))==0
-      ) ) {
-      *use_sysvar_instructions = 1;
-    }
   }
   txn_ctx->accounts_cnt += (uchar) txn_ctx->txn_descriptor->acct_addr_cnt;
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+    fd_pubkey_t readonly_lut_accs[128];
+    ulong readonly_lut_accs_cnt = 0;
+
+    // Set up accounts in the account look up tables.
     fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( txn_ctx->txn_descriptor );
-    for (ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++) {
+    for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
       fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
-      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
+      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
 
       FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      int err = fd_acc_mgr_view(txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        // TODO: return txn err code
-        FD_LOG_ERR(( "addr lut not found" ));
+        FD_LOG_ERR(( "addr lut not found" )); // TODO: return txn err code
       }
-      FD_LOG_WARNING(( "LUT ACC: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, addr_lut_rec->const_meta->dlen ));
+      FD_LOG_DEBUG(( "lut acc: idx: %lu, acc: %32J, meta.dlen; %lu", i, addr_lut_acc, addr_lut_rec->const_meta->dlen ));
 
       fd_address_lookup_table_state_t addr_lookup_table_state;
       fd_bincode_decode_ctx_t decode_ctx = {
@@ -110,64 +120,30 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx, fd_raw
         .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
         .valloc  = txn_ctx->valloc,
       };
-      if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
+      if( fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx ) ) {
         FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
       }
-      if (addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table) {
+      if( addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table ) {
         FD_LOG_ERR(("addr lut is uninit"));
       }
 
       fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
-      uchar * writable_lut_idxs = (uchar *)txn_raw->raw + addr_lut->writable_off;
-      for (ulong j = 0; j < addr_lut->writable_cnt; j++) {
-        FD_LOG_WARNING(( "LUT ACC WRITABLE: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
+
+      uchar * writable_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->writable_off;
+      for( ulong j = 0; j < addr_lut->writable_cnt; j++ ) {
+        FD_LOG_DEBUG(( "lut acc writable: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
         txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
-        if ( FD_UNLIKELY(
-            *use_sysvar_instructions
-            || memcmp( &lookup_addrs[writable_lut_idxs[j]], fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t))==0
-          ) ) {
-          *use_sysvar_instructions = 1;
-        }
+      }
+      
+      uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
+      for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
+        FD_LOG_DEBUG(( "lut acc readonly: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
+        readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
       }
     }
 
-    for (ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++) {
-      fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
-      fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_raw->raw + addr_lut->addr_off);
-
-      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
-      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        // TODO: return txn err code
-        FD_LOG_ERR(( "addr lut not found" ));
-      }
-
-      fd_address_lookup_table_state_t addr_lookup_table_state;
-      fd_bincode_decode_ctx_t decode_ctx = {
-        .data = addr_lut_rec->const_data,
-        .dataend = &addr_lut_rec->const_data[56], // TODO macro const.
-        .valloc  = txn_ctx->valloc,
-      };
-      if (fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx )) {
-        FD_LOG_ERR(("fd_address_lookup_table_state_decode failed"));
-      }
-      if (addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table) {
-        FD_LOG_ERR(("addr lut is uninit"));
-      }
-
-      fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&addr_lut_rec->const_data[56];
-      uchar * readonly_lut_idxs = (uchar *)txn_raw->raw + addr_lut->readonly_off;
-      for (ulong j = 0; j < addr_lut->readonly_cnt; j++) {
-        FD_LOG_WARNING(( "LUT ACC READONLY: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
-        txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
-        if ( FD_UNLIKELY(
-            *use_sysvar_instructions
-            || memcmp( &lookup_addrs[readonly_lut_idxs[j]], fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t))==0
-          ) ) {
-          *use_sysvar_instructions = 1;
-        }
-      }
-    }
+    fd_memcpy( &txn_ctx->accounts[txn_ctx->accounts_cnt], readonly_lut_accs, readonly_lut_accs_cnt * sizeof(fd_pubkey_t) );
+    txn_ctx->accounts_cnt += readonly_lut_accs_cnt;
   }
 }
 
@@ -201,11 +177,12 @@ fd_cap_transaction_accounts_data_size( fd_exec_txn_ctx_t * txn_ctx,
                                        fd_instr_info_t const *  instrs,
                                        ushort              instrs_cnt ) {
   ulong total_accounts_data_size = 0UL;
-  for (ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++) {
+  for( ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++ ) {
     fd_borrowed_account_t *b = &txn_ctx->borrowed_accounts[idx];
     ulong program_data_len = (NULL != b->meta) ? b->meta->dlen : (NULL != b->const_meta) ? b->const_meta->dlen : 0UL;
     total_accounts_data_size = fd_ulong_sat_add(total_accounts_data_size, program_data_len);
   }
+
   for( ushort i = 0; i < instrs_cnt; ++i ) {
     fd_instr_info_t const * instr = &instrs[i];
 
@@ -321,12 +298,12 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
 
     } else {
       if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        FD_LOG_NOTICE(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
+        FD_LOG_DEBUG(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
 
         exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
 
       } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        FD_LOG_NOTICE(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
+        FD_LOG_DEBUG(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
 
         exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
 
@@ -351,8 +328,9 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
 /* fd_executor_dump_txntrace creates a new file in the trace dir
    containing the given binary blob. */
 
-static void
+static void FD_FN_UNUSED
 fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
+                           fd_capture_ctx_t *           capture_ctx,
                            fd_ed25519_sig_t const *     sig,
                            fd_soltrace_TxnTrace const * trace ) {
 
@@ -380,10 +358,10 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
       slot_ctx->slot_bank.slot, sig );
 
     /* Create file */
-    int dump_fd = openat( slot_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
+    int dump_fd = openat( capture_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
     if( FD_UNLIKELY( dump_fd<0 ) ) {
       FD_LOG_WARNING(( "openat(%d, %s) failed (%d-%s)",
-          slot_ctx->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
+                      capture_ctx->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
       return;
     }
 
@@ -393,7 +371,7 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
       FD_LOG_WARNING(( "write to %s failed (%d-%s)",
           filename, errno, fd_io_strerror( errno ) ));
       close( dump_fd );
-      unlinkat( slot_ctx->trace_dirfd, filename, 0 );
+      unlinkat( capture_ctx->trace_dirfd, filename, 0 );
       return;
     }
     close( dump_fd );
@@ -445,7 +423,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->executable_cnt = j;
 }
 
-static void
+static void FD_FN_UNUSED
 fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
                      fd_soltrace_TxnInput const * trace_pre,
                      fd_soltrace_TxnDiff  const * trace_post0,
@@ -465,58 +443,22 @@ fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
   } FD_SCRATCH_SCOPE_END;
 }
 
-
+/* Stuff to be done before multithreading can begin */
 int
-fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
-                fd_txn_t const *      txn_descriptor,
-                fd_rawtxn_b_t const * txn_raw ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
+                        fd_exec_txn_ctx_t * txn_ctx, 
+                        fd_txn_t const * txn_descriptor,
+                        fd_rawtxn_b_t const * txn_raw ) {
+  fd_exec_txn_ctx_new( txn_ctx );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
-  fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
 
-  /* Trace transaction input */
-  fd_soltrace_TxnInput  _trace_pre[1];
-  fd_soltrace_TxnInput * trace_pre = NULL;
-  if( FD_UNLIKELY( slot_ctx->trace_mode ) ) {
-    trace_pre = fd_txntrace_capture_pre( _trace_pre, slot_ctx, txn_descriptor, txn_raw->raw );
-    if( FD_UNLIKELY( !trace_pre ) )
-      FD_LOG_WARNING(( "fd_txntrace_capture_pre failed (out of scratch memory?)" ));
-  }
-
-  fd_transaction_return_data_t return_data = {0};
-  return_data.data = (uchar*)fd_scratch_alloc(1, 1024);
-
-  fd_exec_txn_ctx_t txn_ctx = {
-    .epoch_ctx          = slot_ctx->epoch_ctx,
-    .slot_ctx           = slot_ctx,
-    .funk_txn           = slot_ctx->funk_txn,
-    .acc_mgr            = slot_ctx->acc_mgr,
-    .valloc             = slot_ctx->valloc,
-    .compute_unit_limit = 200000,
-    .compute_unit_price = 0,
-    .compute_meter      = 200000,
-    .prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED,
-    .txn_descriptor     = txn_descriptor,
-    ._txn_raw           = txn_raw,
-    .custom_err         = UINT_MAX,
-    .instr_stack_sz     = 0,
-    .accounts_cnt       = 0,
-    .executable_cnt     = 0,
-    .return_data        = return_data,
-    .loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES
-  };
-
-  uint use_sysvar_instructions = 0;
-  fd_executor_setup_accessed_accounts_for_txn( &txn_ctx, txn_raw, &use_sysvar_instructions );
-  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( &txn_ctx, txn_raw );
-  (void)compute_budget_status;
-
-  ulong fee = fd_runtime_calculate_fee( &txn_ctx, txn_descriptor, txn_raw );
-  if( fd_executor_collect_fee( slot_ctx, &tx_accs[0], fee ) ) {
+  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_raw );
+  if( compute_budget_status != 0 ) {
     return -1;
   }
-
-  // TODO: we are just assuming the fee payer is account 0... FIX this..
 
   /// Returns true if the account at the specified index is not invoked as a
   /// program or, if invoked, is passed to a program.
@@ -537,187 +479,208 @@ fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
 
   /* TODO: execute within a transaction context, which can be reverted */
 
-  fd_funk_txn_t* parent_txn = slot_ctx->funk_txn;
-  fd_funk_txn_xid_t xid;
-  xid.ul[0] = fd_rng_ulong( slot_ctx->rng );
-  xid.ul[1] = fd_rng_ulong( slot_ctx->rng );
-  xid.ul[2] = fd_rng_ulong( slot_ctx->rng );
-  xid.ul[3] = fd_rng_ulong( slot_ctx->rng );
-  fd_funk_txn_t * txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
-  // TODO: bad for multi-threading...
-  txn_ctx.funk_txn = txn;
+  fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
+  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_descriptor, txn_raw );
+  if( fd_executor_collect_fee( slot_ctx, &tx_accs[0], fee ) ) {
+    return -1;
+  }
 
-  fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
+  return 0;
+}
+
+int
+fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_txn_t const * txn_descriptor,
+                               fd_rawtxn_b_t const * txn_raw ) {
+  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_xid_t xid;
+  fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
+
+  fd_memcpy( xid.uc, sig0, sizeof( fd_funk_txn_xid_t ) );
+  fd_funk_txn_t * txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
+  
+  txn_ctx->funk_txn = txn;
+  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
   /* Update rent exempt on writable accounts if feature activated
     TODO this should probably not run on executable accounts
         Also iterate over LUT accounts */
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
+    fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_raw->raw + txn_descriptor->acct_addr_off);
     fd_txn_acct_iter_t ctrl;
-    for( ulong i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
-          i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
+    for( ulong i = fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
+          i < fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
       if( i==0 ) continue;
-      fd_set_exempt_rent_epoch_max( &txn_ctx, &tx_accs[i] );
+      fd_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
     }
   }
 
-  fd_instr_info_t instrs[txn_descriptor->instr_cnt];
-  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[i];
-    fd_convert_txn_instr_to_instr( txn_descriptor, txn_raw, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instrs[i] );
-  }
 
-  int ret = 0L;
-  if ( FD_FEATURE_ACTIVE( slot_ctx, cap_transaction_accounts_data_size ) ) {
-    int ret = fd_cap_transaction_accounts_data_size( &txn_ctx, instrs, txn_descriptor->instr_cnt );
-    if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
-      FD_LOG_WARNING(( "fd_cap_transaction_accounts_data_size failed" ));
-      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-      txn_ctx.funk_txn = parent_txn;
-      return -1;
-    }
-  }
-  if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-    fd_sysvar_instructions_serialize_account( &txn_ctx, instrs, txn_descriptor->instr_cnt );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO SERIALIZE!" ));
-      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-      txn_ctx.funk_txn = parent_txn;
-      return -1;
-    }
-  }
-  uint unknown_accounts[128];
-  for( ulong i = 0; i < txn_ctx.accounts_cnt; i++ ) {
-    unknown_accounts[i] = 0;
-    if (fd_txn_is_writable(txn_ctx.txn_descriptor, (int)i)) {
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    txn_ctx->unknown_accounts[i] = 0;
+    if (fd_txn_is_writable(txn_ctx->txn_descriptor, (int)i)) {
       FD_BORROWED_ACCOUNT_DECL(writable_new);
-      int err = fd_acc_mgr_view(txn_ctx.acc_mgr, txn_ctx.funk_txn, &txn_ctx.accounts[i], writable_new);
+      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], writable_new);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_DEBUG(("Unknown account %32J", txn_ctx.accounts[i].uc));
-        unknown_accounts[i] = 1;
+        FD_LOG_DEBUG(("Unknown account %32J", txn_ctx->accounts[i].uc));
+        txn_ctx->unknown_accounts[i] = 1;
       }
     }
   }
-  for ( ushort i = 0; i < txn_descriptor->instr_cnt; ++i ) {
-    if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-      ret = fd_sysvar_instructions_update_current_instr_idx( &txn_ctx, i );
-      if( ret != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO UPDATE CURRENT INSTR IDX!" ));
-        fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-        txn_ctx.funk_txn = parent_txn;
+
+  return 0;
+}
+
+/* Stuff to be done after multithreading ends */
+int
+fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int exec_txn_err ) {
+  fd_valloc_free(txn_ctx->valloc, txn_ctx->return_data.data);
+
+  if( exec_txn_err != 0 ) {
+    for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+      fd_borrowed_account_destroy( acc_rec, txn_ctx->valloc );
+    }
+
+    fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0 );
+    return 0;
+  }
+
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+      continue;
+    }
+
+    fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+    if( txn_ctx->unknown_accounts[i] ) {
+      memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
+    }
+
+    if( acc_rec->meta->info.lamports == 0 ) {
+      acc_rec->meta->dlen = 0;
+      memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
+    }
+
+    int ret = fd_acc_mgr_save( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->valloc, acc_rec );
+    if( ret != FD_ACC_MGR_SUCCESS ) {
+      FD_LOG_ERR(( "failed to save edits to accounts" ));
+      return -1;
+    }
+
+    fd_borrowed_account_destroy( acc_rec, txn_ctx->valloc );
+  }
+
+  return 0;
+}
+
+int
+fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+    uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
+
+    fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
+    for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+      fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
+      fd_convert_txn_instr_to_instr( txn_ctx->txn_descriptor, txn_ctx->_txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instrs[i] );
+    }
+
+    int ret = 0;
+    if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, cap_transaction_accounts_data_size ) ) {
+      int ret = fd_cap_transaction_accounts_data_size( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
+      if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
+        fd_funk_txn_cancel(txn_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0);
         return -1;
       }
     }
 
-    int exec_result = fd_execute_instr( &instrs[i], &txn_ctx );
+    if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
+      ret = fd_sysvar_instructions_serialize_account( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
+      if( ret != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_ERR(( "sysvar instrutions failed to serialize" ));
+        return -1;
+      }
+    }
 
-    if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
-      FD_LOG_WARNING(( "fd_execute_instr failed (%d)", exec_result ));
-      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-      txn_ctx.funk_txn = parent_txn;
+    for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+      if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
+        ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
+        if( ret != FD_ACC_MGR_SUCCESS ) {
+          FD_LOG_ERR(( "sysvar instructions failed to update instruction index" ));
+          return -1;
+        }
+      }
+
+      int exec_result = fd_execute_instr( &instrs[i], txn_ctx );
+
+      if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+        FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
+        if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
+          ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
+          if( ret != FD_ACC_MGR_SUCCESS ) {
+            FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
+            return -1;
+          }
+        }
+        return -1;
+      }
+    }
+    int err = fd_executor_txn_check( txn_ctx->slot_ctx, txn_ctx );
+    if ( err != FD_EXECUTOR_INSTR_SUCCESS) {
+      FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
+      if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
+        ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
+        if( ret != FD_ACC_MGR_SUCCESS ) {
+          FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
+          return -1;
+        }
+      }
       return -1;
     }
-  }
-  int err = fd_executor_txn_check( slot_ctx, &txn_ctx );
-  if ( err != FD_EXECUTOR_INSTR_SUCCESS) {
-    FD_LOG_WARNING(( "fd_executor_txn_check failed (%d)", err ));
-    fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-    txn_ctx.funk_txn = parent_txn;
-    return -1;
-  }
 
-  for( ulong i = 0; i < txn_ctx.accounts_cnt; i++ ) {
-    if (unknown_accounts[i]) {
-      FD_BORROWED_ACCOUNT_DECL(writable_new);
-      int err = fd_acc_mgr_modify(txn_ctx.acc_mgr, txn_ctx.funk_txn, &txn_ctx.accounts[i], 1, 0, writable_new);
-      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_ERR(( "account mgr modify failed for %32J", txn_ctx.accounts[i].uc ));
-      }
-      writable_new->meta->slot = txn_ctx.slot_ctx->slot_bank.slot;
-      memset(writable_new->meta->hash, 0xFF, sizeof(fd_hash_t));
-    }
-  }
-
-  // fd_valloc_free(txn_ctx.valloc, txn_ctx.return_data.data);
-
-  if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
-    ret = fd_sysvar_instructions_cleanup_account( &txn_ctx );
-    if( ret != FD_ACC_MGR_SUCCESS ) {
-      FD_LOG_WARNING(( "SYSVAR INSTRS FAILED TO CLEANUP!" ));
-      fd_funk_txn_cancel(txn_ctx.acc_mgr->funk, txn, 0);
-      txn_ctx.funk_txn = parent_txn;
-      return -1;
-    }
-  }
-
-  /* Export trace to Protobuf file */
-  if( FD_UNLIKELY( trace_pre ) ) {
-    fd_soltrace_TxnDiff  _trace_post[1];
-    fd_soltrace_TxnDiff * trace_post = fd_txntrace_capture_post( _trace_post, slot_ctx, trace_pre );
-    if( trace_post ) {
-      if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_SAVE ) {
-        fd_soltrace_TxnTrace trace = {
-          .input = trace_pre,
-          .diff  = trace_post
-        };
-        fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_descriptor, txn_raw->raw )[0];
-        fd_executor_dump_txntrace( slot_ctx, sig0, &trace );
-      }
-      if( slot_ctx->trace_mode & FD_RUNTIME_TRACE_REPLAY ) {
-        fd_executor_retrace( slot_ctx, trace_pre, trace_post, NULL /* FIXME: set this to a reasonable local_wksp */);
+    if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
+      ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
+      if( ret != FD_ACC_MGR_SUCCESS ) {
+        FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
+        return -1;
       }
     }
-  }
 
-  for ( ulong i = 0; i < txn_ctx.accounts_cnt; i++) {
-    fd_borrowed_account_t * acc = &txn_ctx.borrowed_accounts[i];
-    if ( fd_txn_account_is_writable_idx(txn_descriptor, txn_ctx.accounts, (int)i) && acc->meta->info.lamports == 0) {
-      acc->meta->dlen = 0;
-      fd_memset(acc->meta->info.owner, 0, sizeof(fd_pubkey_t));
-    }
-  }
-
-  err = fd_funk_txn_merge(slot_ctx->acc_mgr->funk, txn, 0);
-  if (err != FD_FUNK_SUCCESS) {
-    FD_LOG_ERR(("Merge failed in txn %s", strerror(err)));
-  }
-  slot_ctx->funk_txn = parent_txn;
-  return 0;
+    return 0;
   } FD_SCRATCH_SCOPE_END;
 }
 
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
-  // We really need to cache this...
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_sysvar_rent_read( slot_ctx, &rent );
+  fd_rent_t const * rent = slot_ctx->sysvar_cache.rent;
 
   ulong ending_lamports = 0;
   ulong ending_dlen = 0;
   ulong starting_lamports = 0;
   ulong starting_dlen = 0;
 
-  for (ulong idx = 0; idx < txn->accounts_cnt; idx++) {
-    fd_borrowed_account_t *b = &txn->borrowed_accounts[idx];
-    if (NULL != b->meta) {
-      FD_LOG_DEBUG(("Account %32J starting %lu ending %lu", b->pubkey->uc, b->starting_lamports, b->meta->info.lamports));
+  for( ulong idx = 0; idx < txn->accounts_cnt; idx++ ) {
+    fd_borrowed_account_t * b = &txn->borrowed_accounts[idx];
+    if( NULL != b->meta ) {
       ending_lamports += b->meta->info.lamports;
       ending_dlen += b->meta->dlen;
 
       // Lets prevent creating non-rent-exempt accounts...
-      uchar after_exempt = fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen) <= b->meta->info.lamports;
+      uchar after_exempt = fd_rent_exempt_minimum_balance2( rent, b->meta->dlen) <= b->meta->info.lamports;
 
       if (after_exempt || b->meta->info.lamports == 0) {
         // no-op
       } else {
         uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
-          (fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen) <= b->starting_lamports) : 1;
+          (fd_rent_exempt_minimum_balance2( rent, b->starting_dlen) <= b->starting_lamports) : 1;
         if (before_exempt || b->starting_lamports == 0) {
-          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
+          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
         } else if (!before_exempt && (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports) {
           // no-op
         } else {
-          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( &rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( &rent, b->starting_dlen)));
+          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
           return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
         }
       }

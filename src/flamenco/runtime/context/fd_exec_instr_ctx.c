@@ -1,5 +1,7 @@
 #include "fd_exec_instr_ctx.h"
 
+#include "fd_exec_txn_ctx.h"
+
 #include "../fd_acc_mgr.h"
 
 void *
@@ -119,10 +121,9 @@ fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
 
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
-                                uchar idx,
-                                int do_create,
-                                ulong min_data_sz,
-                                fd_borrowed_account_t * *  account ) {
+                                      uchar idx,
+                                      ulong min_data_sz,
+                                      fd_borrowed_account_t * *  account ) {
   if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) )
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, idx ) ) ) {
@@ -131,10 +132,10 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
   }
 
   fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->instr->acct_pubkeys[idx], do_create, min_data_sz, instr_account );
-  if( err != FD_ACC_MGR_SUCCESS ) {
-    return err;
+  if( min_data_sz > instr_account->const_meta->dlen ) {
+    fd_borrowed_account_resize( instr_account, min_data_sz, ctx->txn_ctx->valloc );
   }
+  
   // TODO: check if writable???
   *account = instr_account;
   return FD_ACC_MGR_SUCCESS;
@@ -143,16 +144,14 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t * ctx,
 int
 fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t * ctx,
                                   fd_pubkey_t const * pubkey,
-                                  int do_create,
                                   ulong min_data_sz,
                                   fd_borrowed_account_t * * account ) {
   for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if writable???
       fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
-      int err = fd_acc_mgr_modify( ctx->acc_mgr, ctx->funk_txn, &ctx->instr->acct_pubkeys[i], do_create, min_data_sz, instr_account );
-      if( err != FD_ACC_MGR_SUCCESS ) {
-        return err;
+      if( min_data_sz > instr_account->const_meta->dlen ) {
+        fd_borrowed_account_resize( instr_account, min_data_sz, ctx->txn_ctx->valloc );
       }
       *account = instr_account;
       return FD_ACC_MGR_SUCCESS;

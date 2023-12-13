@@ -27,6 +27,7 @@
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
@@ -446,21 +447,20 @@ main( int     argc,
     if( genesis ) {
 
       FILE *               capture_file = NULL;
-      fd_solcap_writer_t * capture      = NULL;
+      fd_capture_ctx_t *   capture_ctx  = NULL;
       if( capture_fpath ) {
         capture_file = fopen( capture_fpath, "w+" );
         if( FD_UNLIKELY( !capture_file ) )
           FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
 
-        void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
-        FD_TEST( capture_writer_mem );
-        capture = fd_solcap_writer_new( capture_writer_mem );
+        void * capture_ctx_mem = fd_alloc_malloc( alloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+        FD_TEST( capture_ctx_mem );
+        capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-        FD_TEST( fd_solcap_writer_init( capture, capture_file ) );
-        slot_ctx->capture = capture;
+        FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
       }
 
-      fd_solcap_writer_set_slot( capture, 0UL );
+      fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
 
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
@@ -531,7 +531,7 @@ main( int     argc,
       }
 
       /* sort and update bank hash */
-      int result = fd_update_hash_bank( slot_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
+      int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
       if (result != FD_EXECUTOR_INSTR_SUCCESS) {
         return result;
       }
@@ -545,8 +545,8 @@ main( int     argc,
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
 
-      if( capture )  {
-        fd_solcap_writer_fini( capture );
+      if( capture_ctx )  {
+        fd_solcap_writer_fini( capture_ctx->capture );
         fclose( capture_file );
       }
     }
@@ -626,7 +626,7 @@ main( int     argc,
       num_pairs++;
     }
     FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
-
+  
     fd_hash_t accounts_hash;
     fd_hash_account_deltas(pairs, num_pairs, &accounts_hash, slot_ctx);
 

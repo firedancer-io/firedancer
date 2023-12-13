@@ -47,6 +47,19 @@ for t,t2 in [("char","int8"),
              ("ulong","uint64")]:
     simpletypes[t] = t2
 
+# Map from type name to encoded size
+fixedsizetypes = dict()
+for t,t2 in [("char",1),
+             ("uchar",1),
+             ("double",8),
+             ("short",2),
+             ("ushort",2),
+             ("int",4),
+             ("uint",4),
+             ("long",8),
+             ("ulong",8),
+             ("pubkey",32)]:
+    fixedsizetypes[t] = t2
 class PrimitiveMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -94,7 +107,50 @@ class PrimitiveMember:
     }
 
     def emitMember(self):
-        PrimitiveMember.emitMemberMap[self.type](self.name);
+        PrimitiveMember.emitMemberMap[self.type](self.name)
+    
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitOffsetUnionMember(self):
+        print(f'{indent}  uint {self.name}_off;', file=header)
+    
+    isFixedSizeMap = {
+        "char" :       True,
+        "char*" :      False,
+        "char[32]" :   True,
+        "char[7]" :    True,
+        "double" :     True,
+        "long" :       True,
+        "uint" :       True,
+        "uint128" :    True,
+        "uchar" :      True,
+        "uchar[32]" :  True,
+        "uchar[128]" : True,
+        "ulong" :      True,
+        "ushort" :     True
+    }
+
+    def isFixedSize(self):
+        return PrimitiveMember.isFixedSizeMap[self.type]
+
+    fixedSizeMap = {
+        "char" :       1,
+        "char[32]" :   32,
+        "char[7]" :    7,
+        "double" :     8,
+        "long" :       8,
+        "uint" :       4,
+        "uint128" :    16,
+        "uchar" :      1,
+        "uchar[32]" :  32,
+        "uchar[128]" : 128,
+        "ulong" :      8,
+        "ushort" :     2
+    }
+
+    def fixedSize(self):
+        return PrimitiveMember.fixedSizeMap[self.type]
 
     def string_decode_preflight(n, varint):
         print(f'{indent}  ulong slen;', file=body)
@@ -271,6 +327,18 @@ class StructMember:
     def emitMember(self):
         print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
 
+    def isFixedSize(self):
+        return self.type in fixedsizetypes
+
+    def fixedSize(self):
+        return fixedsizetypes[self.type]
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+    
+    def emitOffsetUnionMember(self):
+        print(f'{indent}  {namespace}_{self.type}_off_t {self.name}_off;', file=header)
+
     def emitNew(self):
         print(f'{indent}  {namespace}_{self.type}_new(&self->{self.name});', file=body)
 
@@ -278,7 +346,11 @@ class StructMember:
         print(f'{indent}  {namespace}_{self.type}_destroy(&self->{self.name}, ctx);', file=body)
 
     def emitDecodePreflight(self):
-        print(f'{indent}  err = {namespace}_{self.type}_decode_preflight(ctx);', file=body)
+        if self.isFixedSize():
+            fixedsize = self.fixedSize()
+            print(f'{indent}  err = fd_bincode_bytes_decode_preflight({fixedsize}, ctx);', file=body)
+        else:
+            print(f'{indent}  err = {namespace}_{self.type}_decode_preflight(ctx);', file=body)
         print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
     def emitDecodeUnsafe(self):
@@ -300,6 +372,9 @@ class VectorMember:
         self.name = json["name"]
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
+    
+    def isFixedSize(self):
+        return False
 
     def emitPreamble(self):
         pass
@@ -316,6 +391,9 @@ class VectorMember:
             print(f'  {self.element}* {self.name};', file=header)
         else:
             print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+    
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -477,6 +555,9 @@ class DequeMember:
 
     def prefix(self):
         return f'deq_{self.elem_type()}'
+    
+    def isFixedSize(self):
+        return False
 
     def emitPreamble(self):
         dp = self.prefix()
@@ -519,6 +600,9 @@ class DequeMember:
     def emitMember(self):
         print(f'  {self.elem_type()} * {self.name};', file=header)
 
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
     def emitNew(self):
         pass
 
@@ -546,15 +630,21 @@ class DequeMember:
         if self.max is not None:
             print(f'  if ( {self.name}_len > {self.max} ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
 
-        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
+        elem_type = f"{namespace}_{self.element}"
+        if elem_type in fixedsizetypes:
+            fixedsize = fixedsizetypes[elem_type]
+            print(f'  err = fd_bincode_bytes_decode_preflight({self.name}_len * {fixedsize}, ctx);', file=body)
+            print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
+        else:    
+            print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
 
-        if self.element in simpletypes:
-            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
-        else:
-            print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
-        print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
+            if self.element in simpletypes:
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+            else:
+                print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
+            print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
 
-        print('  }', file=body)
+            print('  }', file=body)
 
     def emitDecodeUnsafe(self):
         if self.compact:
@@ -681,6 +771,9 @@ class MapMember:
             return self.element
         else:
             return f'{namespace}_{self.element}_t'
+    
+    def isFixedSize(self):
+        return False
 
     def emitPreamble(self):
         element_type = self.elem_type()
@@ -734,6 +827,9 @@ class MapMember:
         element_type = self.elem_type()
         print(f'  {element_type}_mapnode_t * {self.name}_pool;', file=header)
         print(f'  {element_type}_mapnode_t * {self.name}_root;', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -872,6 +968,9 @@ class TreapMember:
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
         self.rev = json.get("rev", False)
 
+    def isFixedSize(self):
+        return False
+
     def emitPreamble(self):
         name = self.name
         treap_name = name + '_treap'
@@ -920,6 +1019,9 @@ class TreapMember:
     def emitMember(self):
         print(f'  {self.treap_t} * pool;', file=header)
         print(f'  {self.name}_treap_t * treap;', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -978,7 +1080,7 @@ class TreapMember:
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
         print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
-        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
+        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -996,7 +1098,7 @@ class TreapMember:
         print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
 
         if self.rev:
-            print(f'    for ( {treap_name}_rev_iter_t iter = {treap_name}_rev_iter_init( self->treap, self->pool );', file=body);
+            print(f'    for ( {treap_name}_rev_iter_t iter = {treap_name}_rev_iter_init( self->treap, self->pool );', file=body)
             print(f'          !{treap_name}_rev_iter_done( iter );', file=body);
             print(f'          iter = {treap_name}_rev_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_rev_iter_ele( iter, self->pool );', file=body)
@@ -1005,7 +1107,7 @@ class TreapMember:
             print('    }', file=body)
             print('  } else {', file=body)
         else:
-            print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+            print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
             print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
             print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1034,7 +1136,7 @@ class TreapMember:
         else:
             print('  size += sizeof(ulong);', file=body)
         print(f'  if (self->treap) {{', file=body)
-        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
         print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
         print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1047,7 +1149,7 @@ class TreapMember:
         treap_t = self.treap_t
 
         print(f'  if (self->treap) {{', file=body)
-        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
         print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
         print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1077,6 +1179,9 @@ class OptionMember:
     def emitPostamble(self):
         pass
 
+    def isFixedSize(self):
+        return False
+
     def emitMember(self):
         if self.flat:
             if self.element in simpletypes:
@@ -1089,6 +1194,9 @@ class OptionMember:
                 print(f'  {self.element}* {self.name};', file=header)
             else:
                 print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -1237,6 +1345,12 @@ class ArrayMember:
         self.element = json["element"]
         self.length = int(json["length"])
 
+    def isFixedSize(self):
+        return self.element in fixedsizetypes
+    
+    def fixedSize(self):
+        return self.length * fixedsizetypes[self.element]
+
     def emitPreamble(self):
         pass
 
@@ -1248,6 +1362,9 @@ class ArrayMember:
             print(f'  {self.element} {self.name}[{self.length}];', file=header)
         else:
             print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         length = self.length
@@ -1365,11 +1482,21 @@ class OpaqueType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
         self.walktype = (json["walktype"] if "walktype" in json else None)
+        self.size = (int(json["size"]) if "size" in json else None)
+        self.emitprotos = (bool(json["emitprotos"]) if "emitprotos" in json else True)
 
     def emitHeader(self):
         pass
 
+    def isFixedSize(self):
+        return self.size is not None
+    
+    def fixedSize(self):
+        return self.size
+
     def emitPrototypes(self):
+        if not self.emitprotos:
+            return
         n = self.fullname
         print(f"void {n}_new({n}_t* self);", file=header)
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
@@ -1384,6 +1511,8 @@ class OpaqueType:
         print("", file=header)
 
     def emitImpls(self):
+        if not self.emitprotos:
+            return
         n = self.fullname
 
         print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
@@ -1432,7 +1561,7 @@ class StructType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
-        for f in entry["fields"]:
+        for f in json["fields"]:
             self.fields.append(parseMember(self.fullname, f))
         self.comment = (json["comment"] if "comment" in json else None)
         self.nomethods = ("attribute" in json)
@@ -1446,6 +1575,18 @@ class StructType:
             self.attribute = f'__attribute__((aligned(8UL))) '
             self.alignment = 8
 
+    def isFixedSize(self):
+        for f in self.fields:
+            if not f.isFixedSize():
+                return False
+        return True
+    
+    def fixedSize(self):
+        size = 0
+        for f in self.fields:
+            size += f.fixedSize()
+        return size
+
     def emitHeader(self):
         for f in self.fields:
             f.emitPreamble()
@@ -1453,7 +1594,13 @@ class StructType:
         if self.comment is not None:
             print(f'/* {self.comment} */', file=header)
 
+        if self.isFixedSize():
+            print(f'/* Encoded Size: Fixed ({self.fixedSize()} bytes) */', file=header)
+        else:
+            print(f'/* Encoded Size: Dynamic */', file=header)
+
         n = self.fullname
+        # Struct type
         print(f'struct {self.attribute}{n} {{', file=header)
         for f in self.fields:
             f.emitMember()
@@ -1464,6 +1611,17 @@ class StructType:
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
+        # Offset type
+        print(f'struct {self.attribute}{n}_off {{', file=header)
+        for f in self.fields:
+            f.emitOffsetMember()
+        print("};", file=header)
+        print(f'typedef struct {n}_off {n}_off_t;', file=header)
+
+        print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
+        print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
+        print("", file=header)
+
     def emitPrototypes(self):
         if self.nomethods:
             return
@@ -1472,6 +1630,7 @@ class StructType:
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
         print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
         print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
@@ -1509,6 +1668,17 @@ class StructType:
             if hasattr(f, "ignore_underflow") and f.ignore_underflow:
                 print('  if (ctx->data == ctx->dataend) return;', file=body)
             f.emitDecodeUnsafe()
+        print("}", file=body)
+
+        print(f'int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print('  uchar const * data = ctx->data;', file=body)
+        print('  int err;', file=body)
+        for f in self.fields:
+            print(f'  self->{f.name}_off = (uint)((ulong)ctx->data - (ulong)data);', file=body)
+            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                print('  if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;', file=body)
+            f.emitDecodePreflight()
+        print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
         print(f'void {n}_new({n}_t* self) {{', file=body)
@@ -1558,8 +1728,9 @@ class StructType:
 class EnumType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
+        self.zerocopy = (bool(json["zerocopy"]) if "zerocopy" in json else False)
         self.variants = []
-        for f in entry["variants"]:
+        for f in json["variants"]:
             if 'type' in f:
                 self.variants.append(parseMember(self.fullname, f))
             else:
@@ -1576,18 +1747,50 @@ class EnumType:
             self.alignment = 8
         self.compact = (json["compact"] if "compact" in json else False)
 
+    def isFixedSize(self):
+        all_simple = True
+        for v in self.variants:
+            if not isinstance(v, str):
+                all_simple = False
+                break
+        if all_simple:
+            return True
+
+        for v in self.variants:
+            if isinstance(v, str):
+                return False
+            if not v.isFixedSize():
+                return False
+
+        size = self.variants[0].fixedSize()
+        for v in self.variants:
+            if size != v.fixedSize():
+                return False
+        
+        return True
+        
+    def fixedSize(self):
+        all_simple = True
+        for v in self.variants:
+            if not isinstance(v, str):
+                all_simple = False
+        if all_simple:
+            return 4
+
     def emitHeader(self):
         for v in self.variants:
             if not isinstance(v, str):
                 v.emitPreamble()
 
         n = self.fullname
+
+        # Enum type
         print(f'union {self.attribute}{n}_inner {{', file=header)
         empty = True
         for v in self.variants:
             if not isinstance(v, str):
-              empty = False
-              v.emitMember()
+                empty = False
+                v.emitMember()
         if empty:
             print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
         print("};", file=header)
@@ -1606,6 +1809,32 @@ class EnumType:
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
+        if self.zerocopy:
+            # Offset type
+            print(f'union {self.attribute}{n}_off_inner {{', file=header)
+            empty = True
+            for v in self.variants:
+                if not isinstance(v, str):
+                    empty = False
+                    v.emitOffsetUnionMember()
+            if empty:
+                print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
+            print("};", file=header)
+            print(f"typedef union {n}_off_inner {n}_off_inner_t;\n", file=header)
+
+            if self.comment is not None:
+                print(f'/* {self.comment} */', file=header)
+
+            print(f"struct {self.attribute}{n}_off {{", file=header)
+            print('  uint discriminant;', file=header)
+            print(f'  {n}_off_inner_t inner;', file=header)
+            print("};", file=header)
+            print(f"typedef struct {n}_off {n}_off_t;", file=header)
+
+            print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
+            print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
+            print("", file=header)
+
     def emitPrototypes(self):
         n = self.fullname
         print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
@@ -1613,6 +1842,8 @@ class EnumType:
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        if self.zerocopy:
+            print(f"int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
         print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
         print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
@@ -1803,39 +2034,47 @@ class EnumType:
             if not isinstance(v, str):
                 v.emitPostamble()
 
-alltypes = []
-for entry in entries:
-    if entry['type'] == 'opaque':
-        alltypes.append(OpaqueType(entry))
-    if entry['type'] == 'struct':
-        alltypes.append(StructType(entry))
-    if entry['type'] == 'enum':
-        alltypes.append(EnumType(entry))
+def main():
+    alltypes = []
+    for entry in entries:
+        if entry['type'] == 'opaque':
+            alltypes.append(OpaqueType(entry))
+        if entry['type'] == 'struct':
+            alltypes.append(StructType(entry))
+        if entry['type'] == 'enum':
+            alltypes.append(EnumType(entry))
 
-for t in alltypes:
-    t.emitHeader()
+    for typeinfo in alltypes:
+        if typeinfo.isFixedSize():
+            name = typeinfo.fullname
+            fixedsizetypes[name] = typeinfo.fixedSize()
+    for t in alltypes:
+        t.emitHeader()
 
-print("", file=header)
-print("FD_PROTOTYPES_BEGIN", file=header)
-print("", file=header)
+    print("", file=header)
+    print("FD_PROTOTYPES_BEGIN", file=header)
+    print("", file=header)
 
-for t in alltypes:
-    t.emitPrototypes()
+    for t in alltypes:
+        t.emitPrototypes()
 
-print("FD_PROTOTYPES_END", file=header)
-print("", file=header)
-print("#endif // HEADER_" + json_object["name"].upper(), file=header)
+    print("FD_PROTOTYPES_END", file=header)
+    print("", file=header)
+    print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 
-for t in alltypes:
-    t.emitImpls()
+    for t in alltypes:
+        t.emitImpls()
 
-for t in alltypes:
-    t.emitPostamble()
+    for t in alltypes:
+        t.emitPostamble()
 
-nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
-type_name_count = len(nametypes)
-print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
-print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
-for t in nametypes:
-    print(f' \"{t.fullname}\",', file=names)
-print("};", file=names)
+    nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
+    type_name_count = len(nametypes)
+    print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
+    print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+    for t in nametypes:
+        print(f' \"{t.fullname}\",', file=names)
+    print("};", file=names)
+
+if __name__ == "__main__":
+    main()

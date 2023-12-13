@@ -72,7 +72,7 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     // from a 0 lamport account.
     if (requested_lamports == 0) {
       fd_borrowed_account_t * receiver_rec = NULL;
-      err = fd_instr_borrowed_account_modify(&ctx,  receiver,  1,  0UL, &receiver_rec);
+      err = fd_instr_borrowed_account_modify(&ctx,  receiver, 0UL, &receiver_rec);
       // No need to fail since it's a 0 lamport transfer
       if (FD_EXECUTOR_INSTR_SUCCESS != err)
         return FD_EXECUTOR_INSTR_SUCCESS;
@@ -93,8 +93,8 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
 
   // Case where sender and receiver are the same
   if ( FD_UNLIKELY( memcmp(sender->uc, receiver->uc, sizeof(fd_pubkey_t)) == 0 ) ) {
-    FD_BORROWED_ACCOUNT_DECL(receiver_rec);
-    err = fd_acc_mgr_modify(ctx.txn_ctx->acc_mgr, ctx.txn_ctx->funk_txn, receiver, 0, 0UL, receiver_rec);
+    fd_borrowed_account_t * receiver_rec;
+    err = fd_instr_borrowed_account_modify( &ctx, receiver, 0UL, &receiver_rec );
     // FIXME: is this the correct error to return here? 
     if (FD_EXECUTOR_INSTR_SUCCESS != err)
       return err;
@@ -112,11 +112,11 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   }
 
   // Ok, time to do some damage...
-  err = fd_instr_borrowed_account_modify(&ctx,  sender,  0,  0UL, & sender_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, sender, 0UL, &sender_rec );
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
 
-  err = fd_instr_borrowed_account_modify(&ctx,  receiver,  1,  0UL, & receiver_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, receiver, 0UL, &receiver_rec );
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
   FD_LOG_DEBUG(("Transferring %32J -> %32J: %lu", sender->uc, receiver->uc, requested_lamports));
@@ -182,7 +182,7 @@ static int fd_system_allocate(
   if (allocate > MAX_PERMITTED_DATA_LENGTH)
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  err = fd_instr_borrowed_account_modify(&ctx,  account,  1,  allocate, & account_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, account, allocate, &account_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
 
@@ -233,7 +233,7 @@ static int fd_system_assign_with_seed(
   if (!fd_instr_acc_is_signer(ctx.instr, &t->base))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  err = fd_instr_borrowed_account_modify(&ctx,  account,  1,  0UL, & account_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, account, 0UL, &account_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return err;
   FD_LOG_DEBUG(("Old owner %32J New owner %32J", account_rec->const_meta->info.owner, t->owner.uc));
@@ -329,7 +329,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) from,  0,  0UL, &from_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, (fd_pubkey_t *) from, 0UL, &from_rec );
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   from_rec->meta->info.lamports = sender_lamports - lamports;
 
@@ -338,7 +338,7 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  err = fd_instr_borrowed_account_modify(&ctx,  (fd_pubkey_t *) to,  1,  space, &to_rec);
+  err = fd_instr_borrowed_account_modify( &ctx, (fd_pubkey_t *) to, space, &to_rec );
   FD_TEST( err == FD_ACC_MGR_SUCCESS );
   /* Check that we are not exceeding the MAX_PERMITTED_DATA_LENGTH account size */
 
@@ -388,7 +388,7 @@ static int assign(
   if (!fd_instr_acc_is_signer(ctx.instr, keyed_account))
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
-  read_result = fd_instr_borrowed_account_modify(&ctx,  keyed_account,  /* do_create */ 0,  0UL, & rec);
+  read_result = fd_instr_borrowed_account_modify( &ctx, keyed_account, 0UL, &rec );
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 

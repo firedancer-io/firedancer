@@ -20,6 +20,10 @@ struct __attribute__((aligned(8UL))) fd_borrowed_account {
   uchar                     * data;
   fd_funk_rec_t             * rec;
 
+  fd_account_meta_t const   * orig_meta;
+  uchar             const   * orig_data;
+  fd_funk_rec_t     const   * orig_rec;
+
   ulong                       starting_dlen;
   ulong                       starting_lamports;
 
@@ -41,6 +45,18 @@ FD_PROTOTYPES_BEGIN
 
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr );
+
+void
+fd_borrowed_account_resize( fd_borrowed_account_t * borowed_account, 
+                            ulong dlen,
+                            fd_valloc_t valloc );
+void
+fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account, 
+                             fd_valloc_t valloc );
+
+void
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account, 
+                             fd_valloc_t valloc );
 
 /* fd_borrowed_account_acquire_{read,write}_is_safe returns 1 if
    fd_borrowed_account_acquire_{read,write} will be successful for the
@@ -99,4 +115,4 @@ fd_borrowed_account_release_read( fd_borrowed_account_t * rw ) {
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h */

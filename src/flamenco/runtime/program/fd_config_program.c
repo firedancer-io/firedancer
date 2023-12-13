@@ -170,7 +170,7 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
      (although this can obviously be optimised) */
 
   ulong new_data_size = fd_ulong_max( ctx.instr->data_sz, config_acc_rec->const_meta->dlen );
-  err = fd_instr_borrowed_account_modify_idx( &ctx, ACC_IDX_CONFIG, 1, new_data_size, &config_acc_rec );
+  err = fd_instr_borrowed_account_modify_idx( &ctx, ACC_IDX_CONFIG, new_data_size, &config_acc_rec );
   if( err != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_WARNING(( "failed to write account data" ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;

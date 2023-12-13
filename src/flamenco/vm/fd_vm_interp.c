@@ -12,7 +12,7 @@
 /* Helper function for reading a uchar from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
                           ulong                  vm_addr,
                           ulong *                val ) {
@@ -27,7 +27,7 @@ fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
 /* Helper function for reading a ushort from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_read_ushort( fd_vm_exec_context_t * ctx,
                            ulong                  vm_addr,
                            ulong *                val ) {
@@ -42,7 +42,7 @@ fd_vm_mem_map_read_ushort( fd_vm_exec_context_t * ctx,
 /* Helper function for reading a uint from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_read_uint( fd_vm_exec_context_t * ctx,
                          ulong                  vm_addr,
                          ulong *                val ) {
@@ -57,7 +57,7 @@ fd_vm_mem_map_read_uint( fd_vm_exec_context_t * ctx,
 /* Helper function for reading a ulong from VM memory. Returns success or a fault for the memory
  * access. Sets the value pointed to by `val` on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_read_ulong( fd_vm_exec_context_t * ctx,
                           ulong                  vm_addr,
                           ulong *                val ) {
@@ -72,7 +72,7 @@ fd_vm_mem_map_read_ulong( fd_vm_exec_context_t * ctx,
 /* Helper function for writing a uchar to VM memory. Returns success or a fault for the memory
  * access. The value `val` is written to vm_addr on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_write_uchar( fd_vm_exec_context_t *  ctx,
                            ulong                   vm_addr,
                            uchar                   val ) {
@@ -87,7 +87,7 @@ fd_vm_mem_map_write_uchar( fd_vm_exec_context_t *  ctx,
 /* Helper function for writing a ushort to VM memory. Returns success or a fault for the memory
  * access. The value `val` is written to vm_addr on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_write_ushort( fd_vm_exec_context_t * ctx,
                             ulong                  vm_addr,
                             ushort                 val ) {
@@ -102,7 +102,7 @@ fd_vm_mem_map_write_ushort( fd_vm_exec_context_t * ctx,
 /* Helper function for writing a uint to VM memory. Returns success or a fault for the memory
  * access. The value `val` is written to vm_addr on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_write_uint( fd_vm_exec_context_t * ctx,
                           ulong                  vm_addr,
                           uint                   val ) {
@@ -117,7 +117,7 @@ fd_vm_mem_map_write_uint( fd_vm_exec_context_t * ctx,
 /* Helper function for writing a ulong to VM memory. Returns success or a fault for the memory
  * access. The value `val` is written to vm_addr on success.
  */
-static ulong
+static inline ulong
 fd_vm_mem_map_write_ulong( fd_vm_exec_context_t *  ctx,
                           ulong                    vm_addr,
                           ulong                    val ) {
@@ -134,7 +134,7 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
   long pc = ctx->entrypoint;
   ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
-  fd_memset(register_file, 0, sizeof(register_file));
+  // memset(register_file, 0, sizeof(register_file));
 
     // let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
     // let _ = invoke_context.consume_checked(
@@ -146,24 +146,21 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
 
   ulong cond_fault = 0;
 
+  ulong compute_meter = ctx->compute_meter;
+  ulong due_insn_cnt = ctx->due_insn_cnt;
+  ulong previous_instruction_meter = ctx->previous_instruction_meter;
+  ulong skipped_insns = 0;
+
+  long start_pc = pc;
+
 #define JMP_TAB_ID interp
-#define JMP_TAB_PRE_CASE_CODE \
-ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1);
-#define JMP_TAB_POST_CASE_CODE \
-  ic++; \
-  instr = ctx->instrs[++pc]; \
-  if ( FD_UNLIKELY( ctx->due_insn_cnt >= ctx->previous_instruction_meter ) ) { \
-    ctx->compute_meter = 0; \
-    ctx->due_insn_cnt = 0; \
-    ctx->previous_instruction_meter = 0; \
-    cond_fault = 1; \
-    goto JT_RET_LOC; \
-  } \
-  goto *(locs[instr.opcode.raw]);
+#define JMP_TAB_PRE_CASE_CODE
+#define JMP_TAB_POST_CASE_CODE
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
   cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  compute_meter = ctx->compute_meter;
   if( cond_fault != 0 ) {
     goto JT_RET_LOC;
   }
@@ -178,10 +175,21 @@ ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1);
 
   goto *(locs[instr.opcode.raw]);
 
+interp_fault:
+    compute_meter = 0; \
+    due_insn_cnt = 0; \
+    previous_instruction_meter = 0; \
+    cond_fault = 1; \
+    goto JT_RET_LOC;
+
 JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
 JT_END;
 
+  ctx->compute_meter = compute_meter;
+  ctx->due_insn_cnt = due_insn_cnt;
+  ctx->previous_instruction_meter = previous_instruction_meter;
+  
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
   ctx->due_insn_cnt = 0;
   ctx->previous_instruction_meter = ctx->compute_meter;
@@ -203,30 +211,25 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t *       ctx ) {
   long pc = ctx->entrypoint;
   ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
-  fd_memset( register_file, 0, sizeof(register_file) );
+  // memset( register_file, 0, sizeof(register_file) );
 
   ulong cond_fault = 994;
+  ulong compute_meter = ctx->compute_meter;
+  ulong due_insn_cnt = ctx->due_insn_cnt;
+  ulong previous_instruction_meter = ctx->previous_instruction_meter;
+  ulong skipped_insns = 0;
+  long start_pc = pc;
 
 #define JMP_TAB_ID interp_trace
 #define JMP_TAB_PRE_CASE_CODE \
-  ctx->due_insn_cnt = fd_ulong_sat_add(ctx->due_insn_cnt, 1); \
-  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic, ctx->previous_instruction_meter - ctx->due_insn_cnt, register_file );
-#define JMP_TAB_POST_CASE_CODE \
-  ic++; \
   if( ic > ctx->trace_ctx->trace_entries_sz ) goto JT_RET_LOC; \
-  instr = ctx->instrs[++pc]; \
-  if ( FD_UNLIKELY( ctx->due_insn_cnt >= ctx->previous_instruction_meter ) ) { \
-    ctx->compute_meter = 0; \
-    ctx->due_insn_cnt = 0; \
-    ctx->previous_instruction_meter = 0; \
-    cond_fault = 1; \
-    goto JT_RET_LOC; \
-  } \
-  goto *(locs[instr.opcode.raw]);
+  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, register_file );
+#define JMP_TAB_POST_CASE_CODE
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
   cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  compute_meter = ctx->compute_meter;
   if( cond_fault != 0) {
     goto JT_RET_LOC;
   }
@@ -241,9 +244,20 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t *       ctx ) {
 
   goto *(locs[instr.opcode.raw]);
 
+interp_fault:
+    compute_meter = 0; \
+    due_insn_cnt = 0; \
+    previous_instruction_meter = 0; \
+    cond_fault = 1; \
+    goto JT_RET_LOC;
+
 JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
 JT_END;
+  ctx->compute_meter = compute_meter;
+  ctx->due_insn_cnt = due_insn_cnt;
+  ctx->previous_instruction_meter = previous_instruction_meter;
+
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
   ctx->due_insn_cnt = 0;
   ctx->previous_instruction_meter = ctx->compute_meter;

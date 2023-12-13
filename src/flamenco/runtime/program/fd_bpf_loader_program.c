@@ -45,14 +45,14 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t
 }
 
 static int
-setup_program(fd_exec_instr_ctx_t ctx, uchar * program_data, ulong program_data_len) {
+setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_data_len) {
   fd_sbpf_elf_info_t elf_info;
   if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_valloc_malloc( ctx.valloc, 1UL,  elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx->valloc, 1UL,  elf_info.rodata_footprint );
   if (!rodata) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -61,15 +61,15 @@ setup_program(fd_exec_instr_ctx_t ctx, uchar * program_data, ulong program_data_
 
   ulong  prog_align     = fd_sbpf_program_align();
   ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx.valloc, prog_align, prog_footprint ), &elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx->valloc, prog_align, prog_footprint ), &elf_info, rodata );
   FD_TEST( prog );
 
   /* Allocate syscalls */
 
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx->valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
-  fd_vm_syscall_register_ctx( syscalls, ctx.slot_ctx );
+  fd_vm_syscall_register_ctx( syscalls, ctx->slot_ctx );
   /* Load program */
 
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
@@ -99,24 +99,18 @@ setup_program(fd_exec_instr_ctx_t ctx, uchar * program_data, ulong program_data_
     FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
   }
 
-  fd_valloc_free( ctx.valloc,  fd_sbpf_program_delete( prog ) );
-  fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
-  fd_valloc_free( ctx.valloc, rodata);
+  fd_valloc_free( ctx->valloc,  fd_sbpf_program_delete( prog ) );
+  fd_valloc_free( ctx->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
+  fd_valloc_free( ctx->valloc, rodata);
   return 0;
 }
 
 
 int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx ) {
-  fd_pubkey_t * txn_accs = ctx.txn_ctx->accounts;
-  fd_pubkey_t * program_acc = &txn_accs[ctx.instr->program_id];
-
-  FD_LOG_NOTICE(("BPF V2 PROG INSTR RUN! - slot: %lu, addr: %32J", ctx.slot_ctx->slot_bank.slot, program_acc));
-
   // FIXME: the program account is not in the instruction accounts?
   fd_borrowed_account_t * program_acc_view = NULL;
   int read_result = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_acc_view );
   if (FD_UNLIKELY(read_result != FD_ACC_MGR_SUCCESS)) {
-    FD_LOG_WARNING(( "HELLO !!!! Err %d", read_result));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
@@ -152,7 +146,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
-  FD_LOG_WARNING(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
+  FD_LOG_DEBUG(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
 
   ulong input_sz = 0;
   ulong pre_lens[256];
@@ -186,13 +180,13 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
     .read_only_sz        = prog->rodata_sz,
     .heap_sz = FD_VM_DEFAULT_HEAP_SZ,
     /* TODO configure heap allocator */
-    .instr_ctx           = ctx,
+    .instr_ctx           = &ctx,
     .due_insn_cnt        = 0,
     .previous_instruction_meter = ctx.txn_ctx->compute_meter,
     .alloc               = {.offset = 0}
   };
 
-  ulong trace_sz = 1024 * 1024;
+  ulong trace_sz = 1 * 1024 * 1024;
   fd_vm_trace_entry_t * trace = NULL;
   fd_vm_trace_context_t trace_ctx;
   (void) trace_sz;
@@ -200,9 +194,11 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   (void) trace_ctx;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
-  
-  trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 1UL, trace_sz * sizeof(fd_vm_trace_entry_t));
+uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
+uchar sig[64];
+fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig);
+if (memcmp(signature, sig, 64) == 0) {  
+  trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
   trace_ctx.trace_entries_used = 0;
   trace_ctx.trace_entries_sz = trace_sz;
@@ -225,7 +221,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
 
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
+  if (memcmp(signature, sig, 64) == 0) {  
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -239,7 +235,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-  if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
+if (memcmp(signature, sig, 64) == 0) {  
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
@@ -312,10 +308,11 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
 
   // fclose(trace_fd);
   // free(trace);
+
+  }
   fd_vm_trace_context_destroy( &trace_ctx );
   fd_valloc_free( ctx.txn_ctx->valloc, trace);
-  }
-  }
+}
 #endif
   ctx.txn_ctx->compute_meter = vm_ctx.compute_meter;
 
@@ -323,7 +320,7 @@ if (vm_ctx.instr_ctx.slot_ctx->slot_bank.slot == 223343881) {
   fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
   fd_valloc_free( ctx.valloc, rodata);
 
-  FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
+  FD_LOG_DEBUG(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
   // FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
 
   if( vm_ctx.register_file[0]!=0 ) {
@@ -402,7 +399,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     }
 
     fd_borrowed_account_t * modify_acc = NULL;
-    int err = fd_instr_borrowed_account_modify( &ctx, program_acc, 0, 0, &modify_acc );
+    int err = fd_instr_borrowed_account_modify( &ctx, program_acc, 0, &modify_acc );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to get writable handle to program data" ));
       return err;
@@ -422,7 +419,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     fd_pubkey_t const * program_acc = &txn_accs[instr_acc_idxs[0]];
 
     fd_borrowed_account_t * modify_acc = NULL;
-    int err = fd_instr_borrowed_account_modify(&ctx, program_acc, 0, 0, &modify_acc);
+    int err = fd_instr_borrowed_account_modify(&ctx, program_acc, 0, &modify_acc);
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_WARNING(( "failed to get writable handle to program data" ));
       return err;
@@ -432,7 +429,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     uchar *             program_acc_data = modify_acc->data;
 
     // TODO: deploy program properly
-    err = setup_program(ctx, program_acc_data, metadata_mut->dlen);
+    err = setup_program(&ctx, program_acc_data, metadata_mut->dlen);
     if (err != FD_EXECUTOR_INSTR_SUCCESS) {
       return err;
     }

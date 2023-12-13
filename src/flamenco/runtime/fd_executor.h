@@ -5,6 +5,7 @@
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "context/fd_exec_instr_ctx.h"
+#include "context/fd_capture_ctx.h"
 #include "fd_rawtxn.h"
 
 FD_PROTOTYPES_BEGIN
@@ -95,19 +96,35 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) ;
 int
 fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx );
 
+int
+fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_txn_t const * txn_descriptor,
+                               fd_rawtxn_b_t const * txn_raw );
+
+int
+fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_txn_t const * txn_descriptor,
+                               fd_rawtxn_b_t const * txn_raw );
+
+int
+fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int exec_txn_err );
+
 /*
   Execute the given transaction.
 
   Makes changes to the Funk accounts DB. */
 int
-fd_execute_txn( fd_exec_slot_ctx_t *  slot_ctx,
-                fd_txn_t const *      txn_descriptor,
-                fd_rawtxn_b_t const * txn_raw );
+fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
+
+uint
+fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
 void
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
-                                             fd_rawtxn_b_t const * txn_raw,
-                                             uint * use_sysvar_instructions  );
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );

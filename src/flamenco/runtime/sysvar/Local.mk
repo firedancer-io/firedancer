@@ -10,6 +10,7 @@ $(call add-hdrs, \
 	fd_sysvar_stake_history.h \
 	fd_sysvar_last_restart_slot.h \
 	fd_sysvar_instructions.h \
+	fd_sysvar_cache.h \
 )
 
 $(call add-objs, \

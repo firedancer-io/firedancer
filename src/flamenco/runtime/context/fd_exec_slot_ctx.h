@@ -7,12 +7,12 @@
 #include "../../../util/valloc/fd_valloc.h"
 #include "../../../util/wksp/fd_wksp.h"
 
-#include "../../capture/fd_solcap_writer.h"
 #include "../../rewards/fd_rewards_types.h"
 #include "../../types/fd_types.h"
 
+#include "../sysvar/fd_sysvar_cache.h"
+
 #include "fd_exec_epoch_ctx.h"
-#include "fd_tower_ctx.h"
 
 struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
@@ -24,19 +24,9 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
 
   fd_exec_epoch_ctx_t *    epoch_ctx;
 
-  fd_tower_ctx_t           tower;
-
   fd_funk_txn_t *          funk_txn;
   fd_acc_mgr_t *           acc_mgr;
   fd_valloc_t              valloc;
-
-  // TODO: the following 3 items need to move
-  fd_solcap_writer_t *     capture;
-  int                      trace_dirfd;
-  int                      trace_mode;
-
-  fd_rng_t                 rnd_mem;
-  fd_rng_t *               rng;
 
   fd_epoch_reward_status_t epoch_reward_status;
   ulong                    signature_cnt;
@@ -45,6 +35,7 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
 
   fd_pubkey_t const *      leader; /* Current leader */
   fd_slot_bank_t           slot_bank;
+  fd_sysvar_cache_t        sysvar_cache; // TODO make const
 };
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 #define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )

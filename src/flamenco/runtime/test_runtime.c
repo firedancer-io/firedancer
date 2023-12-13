@@ -59,6 +59,8 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "program/fd_stake_program.h"
 #include "../stakes/fd_stakes.h"
+#include "context/fd_capture_ctx.h"
+#include "../../ballet/base64/fd_base64.h"
 
 #include <dirent.h>
 #include <signal.h>
@@ -79,6 +81,7 @@ typedef struct slot_capitalization slot_capitalization_t;
 struct global_state {
   fd_exec_slot_ctx_t *   slot_ctx;
   fd_exec_epoch_ctx_t *  epoch_ctx;
+  fd_capture_ctx_t *     capture_ctx;
 
   int                    argc;
   char       **          argv;
@@ -123,6 +126,40 @@ usage( char const * progname ) {
 }
 
 int
+dump_block( global_state_t * state ) {
+  fd_funk_rec_key_t key = fd_runtime_block_meta_key(state->end_slot);
+  fd_funk_rec_t const * rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
+  if( FD_UNLIKELY( !rec ) ) return -1;
+  void const * val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
+  fd_bincode_decode_ctx_t ctx3;
+  ctx3.data = val;
+  ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
+  ctx3.valloc  = state->slot_ctx->valloc;
+  
+  fd_slot_meta_t m;
+  if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
+    FD_LOG_ERR(("fd_slot_meta_decode failed"));
+
+  /* Read block */
+
+  key = fd_runtime_block_key( state->end_slot );
+  rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
+  if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
+  val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
+
+  ulong sz = fd_funk_val_sz(rec);
+  ulong enc_sz = FD_BASE64_ENC_SZ(sz);
+
+  char * enc_block = fd_valloc_malloc( state->slot_ctx->valloc, 1, enc_sz + 1);
+  memset(enc_block, 0, enc_sz);
+  fd_base64_encode( enc_block, val, sz );
+  FD_LOG_INFO(("sz: %lu", enc_sz));
+  write(1, enc_block, enc_sz);
+
+  return 0;
+}
+
+int
 replay( global_state_t * state,
         int              justverify,
         fd_tpool_t *     tpool,
@@ -135,7 +172,7 @@ replay( global_state_t * state,
   ulong  smax = 512 /*MiB*/ << 20;
   void * smem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-  ulong  scratch_depth = 4UL;
+  ulong  scratch_depth = 128UL;
   void * fmem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
   if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
 
@@ -213,7 +250,7 @@ replay( global_state_t * state,
       ret = fd_runtime_block_verify_tpool( &block_info, &poh_hash, &poh_hash, state->slot_ctx->valloc, tpool, max_workers );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
-      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, val, fd_funk_val_sz(rec), tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
+      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, fd_funk_val_sz(rec), tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
       if( known_bank_hash ) {
@@ -223,7 +260,7 @@ replay( global_state_t * state,
               known_bank_hash->hash,
               state->slot_ctx->slot_bank.banks_hash.hash ));
           if( state->abort_on_mismatch ) {
-            fd_solcap_writer_fini( state->slot_ctx->capture );
+            fd_solcap_writer_fini( state->capture_ctx->capture );
             kill(getpid(), SIGTRAP);
             return 1;
           }
@@ -410,11 +447,9 @@ main( int     argc,
     if( FD_UNLIKELY( !state.capture_file ) )
       FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, fd_io_strerror( errno ) ));
 
-    void * capture_writer_mem = fd_alloc_malloc( alloc, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
-    FD_TEST( capture_writer_mem );
-    state.slot_ctx->capture = fd_solcap_writer_new( capture_writer_mem );
 
-    FD_TEST( fd_solcap_writer_init( state.slot_ctx->capture, state.capture_file ) );
+
+    FD_TEST( fd_solcap_writer_init( state.capture_ctx->capture, state.capture_file ) );
   }
 
   if( trace_fpath ) {
@@ -427,14 +462,14 @@ main( int     argc,
     if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
 
-    state.slot_ctx->trace_mode |= FD_RUNTIME_TRACE_SAVE;
-    state.slot_ctx->trace_dirfd = fd;
+    state.capture_ctx->trace_mode |= FD_RUNTIME_TRACE_SAVE;
+    state.capture_ctx->trace_dirfd = fd;
   }
 
   if( retrace ) {
     FD_LOG_NOTICE(( "Retrace mode enabled" ));
 
-    state.slot_ctx->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
+    state.capture_ctx->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
   }
 
   {
@@ -487,11 +522,19 @@ main( int     argc,
     if ( tpool == NULL )
       FD_LOG_ERR(("failed to create thread pool"));
     for ( ulong i = 1; i < tcnt; ++i ) {
-      if ( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
+      ulong  smax = 512 /*MiB*/ << 20;
+      void * smem = fd_wksp_alloc_laddr( state.local_wksp, fd_scratch_smem_align(), smax, 1UL );
+      if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
+      if ( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )
         FD_LOG_ERR(("failed to launch worker"));
     }
   }
 
+  if (strcmp(state.cmd, "dump_block") == 0) {
+    int err = dump_block(&state);
+    if( err!=0 ) return err;
+  }
+  
   if (strcmp(state.cmd, "replay") == 0) {
     int err = replay(&state, 0, tpool, tcnt);
     if( err!=0 ) return err;
@@ -531,9 +574,9 @@ main( int     argc,
   if (strcmp(state.cmd, "hashonly") == 0)
     replay(&state, 2, tpool, tcnt);
 
-  fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.slot_ctx->capture ) ) );
+  // fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.capture_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );
-  if( state.slot_ctx->trace_dirfd>0 ) close( state.slot_ctx->trace_dirfd );
+  // if( state.capture_ctx->trace_dirfd>0 ) close( state.capture_ctx->trace_dirfd );
 
   fd_valloc_free(state.slot_ctx->valloc, state.epoch_ctx->leaders);
   fd_exec_slot_ctx_delete(fd_exec_slot_ctx_leave(state.slot_ctx));

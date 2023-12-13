@@ -26,7 +26,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
     uchar acc_idx = instr_acc_idxs[i];
 
     // fd_pubkey_t * acc = &txn_accs[acc_idx];
-    // FD_LOG_DEBUG(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
+    // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
 
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -68,15 +68,12 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
   serialized_size += sizeof(ulong)
       + ctx.instr->data_sz
       + sizeof(fd_pubkey_t);
-
-  uchar * serialized_params = fd_valloc_malloc( ctx.valloc, 1UL, serialized_size);
+  uchar * serialized_params = fd_valloc_malloc( ctx.valloc, 8UL, serialized_size );
   uchar * serialized_params_start = serialized_params;
 
   FD_STORE( ulong, serialized_params, ctx.instr->acct_cnt );
   serialized_params += sizeof(ulong);
-  for( ulong i = 0; i < ctx.txn_ctx->accounts_cnt; i++ ) {
-    FD_LOG_DEBUG(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
-  }
+
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     // FD_LOG_DEBUG(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
     uchar acc_idx = instr_acc_idxs[i];
@@ -267,7 +264,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         }
 
         fd_borrowed_account_t * modify_acc = NULL;
-        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, 0, acc_sz, &modify_acc);
+        int modify_err = fd_instr_borrowed_account_modify(&ctx, acc, acc_sz, &modify_acc);
         if ( modify_err != FD_ACC_MGR_SUCCESS ) {
           fd_valloc_free( ctx.valloc, input );
           return -1;
@@ -546,7 +543,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
 
       uchar * post_data = input_cursor;
       fd_borrowed_account_t * modify_acc = NULL;
-      int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, 0, 0, &modify_acc );
+      int modify_err = fd_instr_borrowed_account_modify( &ctx, acc, 0, &modify_acc );
       FD_TEST(modify_err == FD_ACC_MGR_SUCCESS);
       fd_account_meta_t * metadata = modify_acc->meta;
       uchar * acc_data             = modify_acc->data;
