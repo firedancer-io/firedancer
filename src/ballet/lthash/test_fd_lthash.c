@@ -167,7 +167,7 @@ main( int     argc,
     FD_LOG_ERR(( "FAIL lthash('world!')" ));
   }
   
-  FD_TEST( fd_lthash_add( value, value, tmp )==value );
+  FD_TEST( fd_lthash_add( value, tmp )==value );
   for ( ulong i=0; i<1024; i++ ) {
     compute_extected[i] = lthash_hello[i] + lthash_world[i];
   }
@@ -181,7 +181,7 @@ main( int     argc,
   FD_TEST( fd_lthash_append( hash, "hello", 5 )==hash );
   FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
 
-  FD_TEST( fd_lthash_sub( value, value, tmp )==value );
+  FD_TEST( fd_lthash_sub( value, tmp )==value );
   memcpy( expected, lthash_world, 2048 );
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash('world!') after sub" ));
@@ -192,7 +192,7 @@ main( int     argc,
   FD_TEST( fd_lthash_append( hash, "world!", 6 )==hash );
   FD_TEST( fd_lthash_fini( hash, tmp )==tmp );
 
-  FD_TEST( fd_lthash_sub( value, value, tmp )==value );
+  FD_TEST( fd_lthash_sub( value, tmp )==value );
   memset( expected, 0, 2048 );
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash() expected all 0" ));
