@@ -1,4 +1,5 @@
 #include "fd_zk_token_proof_program.h"
+#include "zk_token/fd_zktpp.h"
 #include "../fd_executor.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../fd_acc_mgr.h"
@@ -105,7 +106,7 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     /* TODO consume CU
        https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L155 */
     /* TODO Log "CloseContextState" */
-    return process_close_proof_context( ctx );
+    return fd_zktpp_process_close_proof_context( ctx );
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
@@ -120,8 +121,10 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   case FD_ZKTPP_INSTR_VERFIY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
   case FD_ZKTPP_INSTR_VERIFY_FEE_SIGMA:
-    FD_LOG_WARNING(( "Not implemented" ));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    /* TODO consume CU
+       https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L155 */
+    /* TODO Log ??? */
+    return fd_zktpp_process_verify_proof( ctx, instr_data[0] );
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
