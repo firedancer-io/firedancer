@@ -154,8 +154,8 @@ dump_block( global_state_t * state ) {
   memset(enc_block, 0, enc_sz);
   fd_base64_encode( enc_block, val, sz );
   FD_LOG_INFO(("sz: %lu", enc_sz));
-  write(1, enc_block, enc_sz);
-
+  long res = write(1, enc_block, enc_sz);
+  (void)res;
   return 0;
 }
 
