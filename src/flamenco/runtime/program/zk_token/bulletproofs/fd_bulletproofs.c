@@ -3,6 +3,6 @@
 
 void
 fd_bulletproofs_placeholder( FD_FN_UNUSED void * placeholder ) {
-  merlin_transcript_t transcript[1];
-  fd_merlin_transcript_init(transcript, "placeholder", 11);
+  fd_merlin_transcript_t transcript[1];
+  fd_merlin_transcript_init( transcript, "placeholder" );
 }

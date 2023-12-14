@@ -97,7 +97,7 @@ int
 fd_zktpp_process_verify_proof( FD_FN_UNUSED fd_exec_instr_ctx_t ctx,
                                FD_FN_UNUSED uchar               instr_id ) {
   int zkp_res = 0;
-  /* parse context and proof data 
+  /* parse context and proof data
      https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L40C29-L46 */
 
   // TODO
@@ -116,7 +116,7 @@ fd_zktpp_process_verify_proof( FD_FN_UNUSED fd_exec_instr_ctx_t ctx,
     zkp_res = fd_zktpp_verify_proof_ciphertext_ciphertext_equality( context, proof );
     break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER:
-    zkp_res = fd_zktpp_verify_proof_transfer( context, proof );
+    zkp_res = fd_zktpp_verify_proof_transfer_without_fee( context, proof );
     break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER_WITH_FEE:
     zkp_res = fd_zktpp_verify_proof_transfer_with_fee( context, proof );

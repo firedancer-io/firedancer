@@ -9,5 +9,6 @@ fd_zktpp_verify_proof_zero_balance( FD_FN_UNUSED void * context, FD_FN_UNUSED vo
   fd_bulletproofs_placeholder( context );
   fd_zktpp_encryption_placeholder( context );
   fd_twisted_elgamal_placeholder( context );
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  FD_LOG_WARNING(( "Not implemented" ));
+  return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 }

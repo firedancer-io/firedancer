@@ -6,5 +6,6 @@
 int
 fd_zktpp_verify_proof_batched_range_proof_u128( FD_FN_UNUSED void * context, FD_FN_UNUSED void * proof ) {
   //TODO
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  FD_LOG_WARNING(( "Not implemented" ));
+  return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 }

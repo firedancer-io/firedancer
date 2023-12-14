@@ -99,7 +99,7 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
   /* TODO pre-checks:
-     - check feature_set.is_active 
+     - check feature_set.is_active
      - check invoke context stack height
      https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L134-L154 */
 
