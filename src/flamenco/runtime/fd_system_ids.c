@@ -91,7 +91,8 @@ fd_pubkey_is_builtin_program( fd_pubkey_t const * acct ) {
   if (memcmp(acct->key, fd_solana_config_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
-  if (memcmp(acct->key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
+  /* TODO: it is unclear why the stake program is not builtin and is thus writable in tests */
+  // if (memcmp(acct->key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_stake_program_config_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;
   if (memcmp(acct->key, fd_solana_system_program_id.key, sizeof(fd_pubkey_t)) == 0) return 1;

@@ -9,8 +9,8 @@
 #include "../fd_rawtxn.h"
 
 
-#define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01)
-#define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02)
+#define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
+#define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
 struct fd_instr_info {
   uchar                 program_id;

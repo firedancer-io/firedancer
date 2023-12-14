@@ -256,8 +256,11 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->slot_bank.collected_fees += fee;
 
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-    if( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) )
-      rec->meta->info.rent_epoch = ULONG_MAX;
+    if( rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent,rec->const_meta->dlen ) ) {
+      if( !fd_pubkey_is_sysvar_id( account ) ) {
+        rec->meta->info.rent_epoch = ULONG_MAX;
+      }
+    }
   }
 
   return 0;
@@ -511,6 +514,7 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     for( ulong i = fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
           i < fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
       if( i==0 ) continue;
+      if( fd_pubkey_is_sysvar_id( &tx_accs[i] ) ) continue;
       fd_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
     }
   }
@@ -557,11 +561,6 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
 
     if( txn_ctx->unknown_accounts[i] ) {
       memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
-    }
-
-    if( acc_rec->meta->info.lamports == 0 ) {
-      acc_rec->meta->dlen = 0;
-      memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
     }
 
     int ret = fd_acc_mgr_save( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->valloc, acc_rec );
@@ -648,13 +647,26 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
+    for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+      if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+        continue;
+      }
+
+      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+      if( acc_rec->meta->info.lamports == 0 ) {
+        acc_rec->meta->dlen = 0;
+        memset( acc_rec->meta->info.owner, 0, sizeof(fd_pubkey_t) );
+      }
+    }
+
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }
 
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
   fd_rent_t const * rent = slot_ctx->sysvar_cache.rent;
-
+  
   ulong ending_lamports = 0;
   ulong ending_dlen = 0;
   ulong starting_lamports = 0;

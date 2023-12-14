@@ -53,8 +53,7 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   }
 
   for( ulong i = 0; i < pairs_len; ++i ) {
-    // if(0) {
-    if (slot_ctx->slot_bank.slot == 223341230) {
+    if (0) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
 
       /*
@@ -275,8 +274,8 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_t *          funk     = acc_mgr->funk;
   fd_funk_txn_t *      txn      = slot_ctx->funk_txn;
   // ulong                slot     = slot_ctx->slot_bank.slot;
-  fd_solcap_writer_t * capture  = capture_ctx->capture;
-  (void)capture;
+  // fd_solcap_writer_t * capture  = capture_ctx->capture;
+  (void)capture_ctx;
 
   /* Collect list of changed accounts to be added to bank hash */
 

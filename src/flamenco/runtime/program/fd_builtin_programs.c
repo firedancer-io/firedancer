@@ -29,7 +29,7 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_memcpy( rec->meta->info.owner, fd_solana_native_loader_id.key, 32 );
   memcpy( rec->data, data, sz );
 
-  err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
+  // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
 }
 
@@ -59,7 +59,6 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_memcpy( rec->meta->info.owner, fd_solana_spl_token_id.key, 32 );
   memcpy( rec->data, data, sizeof(data) );
 
-  err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
   FD_TEST( !err );
 }
 

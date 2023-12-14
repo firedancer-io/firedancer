@@ -256,7 +256,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
 
       if (FD_LIKELY(view_acc->const_meta != NULL)) {
-        fd_account_meta_t const * metadata_check = (fd_account_meta_t *)view_acc->const_meta;
+        fd_account_meta_t const * metadata_check = view_acc->const_meta;
         FD_LOG_DEBUG(("dlen %lu post data len %lu owner %32J for %32J", metadata_check->dlen, post_data_len, metadata_check->info.owner, acc->uc));
         if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
           fd_valloc_free( ctx.valloc, input ); // FIXME: need to return an invalid realloc error
@@ -405,7 +405,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
   serialized_params += sizeof(ulong);
 
   for( ulong i = 0; i < ctx.txn_ctx->accounts_cnt; i++ ) {
-    FD_LOG_DEBUG(( "TXN ACC: %3lu - %32J", i, &txn_accs[i] ));
+    FD_LOG_DEBUG(( "TXN ACC: %3lu - %32J %lu", i, &txn_accs[i], fd_account_is_writable_idx( ctx.txn_ctx->txn_descriptor,  ctx.txn_ctx->accounts, ctx.instr->program_id, (int)i ) ) );
   }
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     FD_LOG_DEBUG(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
@@ -531,7 +531,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
     input_cursor++;
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       // no-op
-    } else {
+    } else if ( fd_instr_acc_is_writable_idx(ctx.instr, (uchar)i) && !fd_pubkey_is_sysvar_id( acc ) ) {
       acc_idx_seen[acc_idx] = 1;
       input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(fd_pubkey_t);
 
@@ -564,6 +564,23 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
 
       metadata->slot = ctx.slot_ctx->slot_bank.slot;
       input_cursor += sizeof(ulong);
+    } else {
+        // Account is not writable
+        acc_idx_seen[acc_idx] = 1;
+        input_cursor += sizeof(uchar) + sizeof(uchar) + sizeof(fd_pubkey_t);
+        input_cursor += sizeof(ulong);
+
+        /* Consume data_len */
+        input_cursor += sizeof(ulong);
+
+        input_cursor += pre_lens[i];
+
+        input_cursor += sizeof(fd_pubkey_t);
+
+        /* Consume executable flag */
+        input_cursor += sizeof(uchar);
+
+        input_cursor += sizeof(ulong);
     }
   }
 

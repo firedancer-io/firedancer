@@ -4,7 +4,12 @@
  * See `fd_vm_interp.c` for usage.
  */
 
+#ifdef __GNUC__
+#ifndef __clang__
+#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+#endif
 
 #define BRANCH_PRE_CODE \
 { \
@@ -565,3 +570,8 @@ BRANCH_PRE_CODE
 BRANCH_POST_CODE
 JT_CASE_END
  
+#ifdef __GNUC__
+#ifndef __clang__
+#pragma GCC diagnostic pop
+#endif
+#endif

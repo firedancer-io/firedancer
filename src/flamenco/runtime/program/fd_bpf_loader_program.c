@@ -29,15 +29,20 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t
   FD_BORROWED_ACCOUNT_DECL(rec);
   int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
   if (read_result != FD_ACC_MGR_SUCCESS) {
+        FD_LOG_WARNING(("C"));
+
     return -1;
   }
 
   if( memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) &&
       memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) ) {
+        FD_LOG_WARNING(("B"));
+
     return -1;
   }
 
   if( rec->const_meta->info.executable != 1) {
+    FD_LOG_WARNING(("A"));
     return -1;
   }
 

@@ -156,8 +156,8 @@ fd_vm_prepare_instruction(
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
       FD_LOG_DEBUG(("Final instr account %lu %lu %lu %lu", i, instruction_accounts[i].is_signer, instruction_accounts[i].is_writable, duplicate_index));
-      callee_instr->acct_flags[i] |= instruction_accounts[i].is_signer ? FD_INSTR_ACCT_FLAGS_IS_SIGNER : 0;
-      callee_instr->acct_flags[i] |= instruction_accounts[i].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
+      callee_instr->acct_flags[i] |= instruction_accounts[i].is_signer ? (uchar)FD_INSTR_ACCT_FLAGS_IS_SIGNER : (uchar)0U;
+      callee_instr->acct_flags[i] |= instruction_accounts[i].is_writable ? (uchar)FD_INSTR_ACCT_FLAGS_IS_WRITABLE : (uchar)0U;
     } else {
       return 1;
     }

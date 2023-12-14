@@ -1782,7 +1782,7 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
   rc                                   = fd_instr_ctx_try_borrow_instruction_account(
       invoke_context, transaction_context, vote_account_index, &vote_account );
   if( FD_UNLIKELY(
-           0 != memcmp( &vote_account->meta->info.owner, fd_solana_vote_program_id.key, 32UL ) ) ) {
+           0 != memcmp( &vote_account->const_meta->info.owner, fd_solana_vote_program_id.key, 32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 
@@ -2023,7 +2023,7 @@ withdraw( fd_exec_instr_ctx_t *         invoke_context,
   rc = fd_borrowed_account_checked_sub_lamports( stake_account, lamports );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
   fd_borrowed_account_t * to = NULL;
-  rc                         = fd_instr_ctx_try_borrow_instruction_account(
+  rc = fd_instr_ctx_try_borrow_instruction_account(
       invoke_context, transaction_context, to_index, &to );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
   rc = fd_borrowed_account_checked_add_lamports( to, lamports );
@@ -2058,7 +2058,7 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
                                                     &delinquent_vote_account );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-  if( FD_UNLIKELY( 0 != memcmp( &delinquent_vote_account->meta->info.owner,
+  if( FD_UNLIKELY( 0 != memcmp( &delinquent_vote_account->const_meta->info.owner,
                                  fd_solana_vote_program_id.key,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -2078,7 +2078,7 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
                                                     &reference_vote_account );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-  if( FD_UNLIKELY( 0 != memcmp( &reference_vote_account->meta->info.owner,
+  if( FD_UNLIKELY( 0 != memcmp( &reference_vote_account->const_meta->info.owner,
                                  fd_solana_vote_program_id.key,
                                  32UL ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -2874,8 +2874,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
         }
         // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L442
         fd_bincode_decode_ctx_t decode_ctx;
-        decode_ctx.data    = config_account->data;
-        decode_ctx.dataend = config_account->data + config_account->meta->dlen;
+        decode_ctx.data    = config_account->const_data;
+        decode_ctx.dataend = config_account->const_data + config_account->const_meta->dlen;
         decode_ctx.valloc  = decode_ctx.valloc;
 
         fd_stake_config_t stake_config;

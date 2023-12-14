@@ -267,7 +267,6 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       rec = fd_funk_val_truncate( rec, sz, (fd_alloc_t *)slot_ctx->valloc.self, funk_wksp, &ret );
       if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_val_truncate failed with code %d", ret ));
       memcpy( fd_funk_val( rec, funk_wksp ), hash.hash, sizeof(fd_hash_t) );
-      FD_LOG_NOTICE(( "slot=%lu bank_hash=%32J", slot, hash.hash ));
     }
 
     if ( strcmp(txnstatus, "true") == 0 )
@@ -457,10 +456,10 @@ main( int     argc,
         FD_TEST( capture_ctx_mem );
         capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-        FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
+        // FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
       }
 
-      fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
+      // fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
 
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )
@@ -493,7 +492,7 @@ main( int     argc,
 
       fd_runtime_init_program( slot_ctx );
 
-      FD_LOG_DEBUG(( "start genesis accounts"));
+      FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
 
       for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
         fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
@@ -524,6 +523,8 @@ main( int     argc,
       }
 
       FD_LOG_DEBUG(( "end genesis accounts"));
+
+      FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len));
 
       for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
         fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];

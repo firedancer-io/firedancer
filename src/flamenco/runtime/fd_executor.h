@@ -136,7 +136,20 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 int
 fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
-
+int
+fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
+                        fd_exec_txn_ctx_t * txn_ctx, 
+                        fd_txn_t const * txn_descriptor,
+                        fd_rawtxn_b_t const * txn_raw );
+int
+fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_txn_t const * txn_descriptor,
+                               fd_rawtxn_b_t const * txn_raw );
+int
+fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int exec_txn_err );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */

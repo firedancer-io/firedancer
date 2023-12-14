@@ -260,7 +260,7 @@ replay( global_state_t * state,
               known_bank_hash->hash,
               state->slot_ctx->slot_bank.banks_hash.hash ));
           if( state->abort_on_mismatch ) {
-            fd_solcap_writer_fini( state->capture_ctx->capture );
+            // fd_solcap_writer_fini( state->capture_ctx->capture );
             kill(getpid(), SIGTRAP);
             return 1;
           }
@@ -448,8 +448,7 @@ main( int     argc,
       FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, fd_io_strerror( errno ) ));
 
 
-
-    FD_TEST( fd_solcap_writer_init( state.capture_ctx->capture, state.capture_file ) );
+    // FD_TEST( fd_solcap_writer_init( state.capture_ctx->capture, state.capture_file ) );
   }
 
   if( trace_fpath ) {
@@ -462,8 +461,8 @@ main( int     argc,
     if( FD_UNLIKELY( fd<=0 ) )  /* technically 0 is valid, but it serves as a sentinel here */
       FD_LOG_ERR(( "open(%s) failed (%d-%s)", trace_fpath, errno, fd_io_strerror( errno ) ));
 
-    state.capture_ctx->trace_mode |= FD_RUNTIME_TRACE_SAVE;
-    state.capture_ctx->trace_dirfd = fd;
+    // state.capture_ctx->trace_mode |= FD_RUNTIME_TRACE_SAVE;
+    // state.capture_ctx->trace_dirfd = fd;
   }
 
   if( retrace ) {
