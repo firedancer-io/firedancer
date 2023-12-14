@@ -4043,13 +4043,19 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
       /* are we at application level of encryption? */
       if( enc_level == fd_quic_enc_level_appdata_id ) {
-        if( conn->handshake_done_send /* && !conn->handshake_done_ackd TODO */ ) {
-          /* send handshake done frame */
-          frame_sz = 1;
-          pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
-          pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
-          *(payload_ptr++) = 0x1eu;
-          tot_frame_sz++;
+        if( conn->handshake_done_send ) {
+          if( FD_UNLIKELY( conn->handshake_done_ackd ) ) {
+            /* already acked? then ignore it
+             * just clear the send flag */
+            conn->handshake_done_send = 0;
+          } else {
+            /* send handshake done frame */
+            frame_sz = 1;
+            pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_HS_DONE;
+            pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, now + 3u * conn->rtt );
+            *(payload_ptr++) = 0x1eu;
+            tot_frame_sz++;
+          }
         }
 
         if( conn->upd_pkt_number >= pkt_number ) {
@@ -4710,6 +4716,18 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
 
             /* user callback */
             fd_quic_cb_conn_new( quic, conn );
+
+            /* clear out hs_data here, as we don't need it anymore */
+            fd_quic_tls_hs_data_t * hs_data = NULL;
+
+            int enc_level = (int)fd_quic_enc_level_appdata_id;
+            hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
+            while( hs_data ) {
+              fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
+              hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
+            }
+
+            /* TODO we should be able to free the TLS object now */
           }
         }
 
@@ -5157,6 +5175,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tx_max_datagram_sz  = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
   conn->handshake_complete  = 0;
   conn->handshake_done_send = 0;
+  conn->handshake_done_ackd = 0;
   conn->tls_hs              = NULL; /* created later */
 
   /* initial max_streams */
@@ -5526,9 +5545,12 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_HS_DONE            ) {
-      /* do we need to resend the handshake done flag? */
-      conn->handshake_done_send = 1;
-      conn->upd_pkt_number      = FD_QUIC_PKT_NUM_PENDING;
+      /* do we need to resend the handshake done flag?
+         only send if it hasn't already been acked */
+      if( FD_LIKELY( !conn->handshake_done_ackd ) ) {
+        conn->handshake_done_send = 1;
+        conn->upd_pkt_number      = FD_QUIC_PKT_NUM_PENDING;
+      }
     }
     if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA           ) {
       /* set max_data to be sent only if unacked */
@@ -5711,6 +5733,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
       hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, (int)enc_level );
     }
+
+    /* TODO we should be able to free the TLS object now */
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_DATA ) {
