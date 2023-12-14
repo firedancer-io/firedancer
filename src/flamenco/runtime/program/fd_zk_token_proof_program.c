@@ -98,14 +98,17 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   if( FD_UNLIKELY( instr_data_sz<1UL ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-  /* TODO check invoke context stack height
-     https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L144 */
+  /* TODO pre-checks:
+     - check feature_set.is_active 
+     - check invoke context stack height
+     https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L134-L154 */
 
   switch( instr_data[0] ) {
   case FD_ZKTPP_INSTR_CLOSE_CONTEXT_STATE:
-    /* TODO consume CU
-       https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L155 */
-    /* TODO Log "CloseContextState" */
+    /* TODO:
+       - consume CU
+       - Log "CloseContextState"
+       https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L158-L163 */
     return fd_zktpp_process_close_proof_context( ctx );
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
@@ -121,9 +124,7 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   case FD_ZKTPP_INSTR_VERFIY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
   case FD_ZKTPP_INSTR_VERIFY_FEE_SIGMA:
-    /* TODO consume CU
-       https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L155 */
-    /* TODO Log ??? */
+    // TODO: consume CU + Log
     return fd_zktpp_process_verify_proof( ctx, instr_data[0] );
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

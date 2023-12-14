@@ -89,38 +89,77 @@ fd_zktpp_process_close_proof_context( fd_exec_instr_ctx_t ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* fd_zktpp_process_verify_proof is equivalent to process_verify_proof
+   and calls specific functions inside instructions/ to verify each
+   individual ZKP.
+   https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L35 */
 int
 fd_zktpp_process_verify_proof( FD_FN_UNUSED fd_exec_instr_ctx_t ctx,
                                FD_FN_UNUSED uchar               instr_id ) {
-  // common stuff
+  int zkp_res = 0;
+  /* parse context and proof data 
+     https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L40C29-L46 */
 
+  // TODO
+  void * context = ctx.instr->data + 1;
+  void * proof = ctx.instr->data + 1;
+
+  /* verify individual ZKP */
   switch( instr_id ) {
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
-    //TODO maybe not return
-    return fd_zktpp_verify_proof_zero_balance( (void *)&ctx );
+    zkp_res = fd_zktpp_verify_proof_zero_balance( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
+    zkp_res = fd_zktpp_verify_proof_withdraw( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
+    zkp_res = fd_zktpp_verify_proof_ciphertext_ciphertext_equality( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER:
+    zkp_res = fd_zktpp_verify_proof_transfer( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER_WITH_FEE:
+    zkp_res = fd_zktpp_verify_proof_transfer_with_fee( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_PUBKEY_VALIDITY:
+    zkp_res = fd_zktpp_verify_proof_pubkey_validity( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_RANGE_PROOF_U64:
+    zkp_res = fd_zktpp_verify_proof_range_proof_u64( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U64:
+    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u64( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128:
+    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u128( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256:
+    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u256( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY:
+    zkp_res = fd_zktpp_verify_proof_ciphertext_commitment_equality( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERFIY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
+    zkp_res = fd_zktpp_verify_proof_grouped_ciphertext_validity( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
+    zkp_res = fd_zktpp_verify_proof_batched_grouped_ciphertext_validity( context, proof );
+    break;
   case FD_ZKTPP_INSTR_VERIFY_FEE_SIGMA:
-    FD_LOG_WARNING(( "Not implemented" ));
+    zkp_res = fd_zktpp_verify_proof_fee_sigma( context, proof );
+    break;
+  default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  // prob common stuff
+  if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
-  return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-}
+  /* create context state if accounts are provided with the instruction
+     https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L54-L84 */
 
-void
-fd_zktpp_private_placeholder(FD_FN_UNUSED void * placeholder) {
   //TODO
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }

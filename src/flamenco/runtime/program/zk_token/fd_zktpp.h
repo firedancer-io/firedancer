@@ -6,12 +6,14 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_zktpp_process_close_proof_context
+   executes the logic to close a context account. */
 int
 fd_zktpp_process_close_proof_context( fd_exec_instr_ctx_t ctx );
 
-/* process_verify_proof
+/* fd_zktpp_process_verify_proof
    executes the common logic among all the zktpp instructions:
-   parse data (context + proof), verify proof, store context. */
+   parse data (context + proof), verify proof, create context account. */
 int
 fd_zktpp_process_verify_proof( fd_exec_instr_ctx_t ctx,
                                uchar               instr_id );
