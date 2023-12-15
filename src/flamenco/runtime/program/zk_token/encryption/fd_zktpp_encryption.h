@@ -6,7 +6,7 @@
 FD_PROTOTYPES_BEGIN
 
 void
-fd_zktpp_encryption_placeholder( void * placeholder );
+fd_zktpp_encryption_placeholder( void const * placeholder );
 
 FD_PROTOTYPES_END
 #endif /* HEADER_fd_src_flamenco_runtime_program_zk_token_fd_zktpp_encryption_h */

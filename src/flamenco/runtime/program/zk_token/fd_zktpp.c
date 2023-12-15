@@ -1,7 +1,5 @@
 #include <string.h>
-
 #include "fd_zktpp_private.h"
-#include "../fd_zk_token_proof_program.h"
 #include "../../context/fd_exec_txn_ctx.h"
 #include "../../fd_acc_mgr.h"
 
@@ -81,7 +79,7 @@ fd_zktpp_process_close_proof_context( fd_exec_instr_ctx_t ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/zk-token-proof/src/lib.rs#L125 */
   /* TODO dubious borrowing rules here ... */
-  rc = fd_instr_borrowed_account_modify( &ctx, dest_acc_addr, 0, 0, &dest_acc );
+  rc = fd_instr_borrowed_account_modify( &ctx, dest_acc_addr, 0, &dest_acc );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   dest_acc->meta->info.lamports += proof_ctx_acc->meta->info.lamports;
@@ -94,63 +92,72 @@ fd_zktpp_process_close_proof_context( fd_exec_instr_ctx_t ctx ) {
    individual ZKP.
    https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L35 */
 int
-fd_zktpp_process_verify_proof( FD_FN_UNUSED fd_exec_instr_ctx_t ctx,
-                               FD_FN_UNUSED uchar               instr_id ) {
-  int zkp_res = 0;
-  /* parse context and proof data
-     https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L40C29-L46 */
+fd_zktpp_process_verify_proof( fd_exec_instr_ctx_t ctx ) {
+  uchar const * instr_data = ctx.instr->data;
+  uchar instr_id = instr_data[0];
+  int (*fd_zktpp_instr_verify_proof)( void const *, void const * ) = NULL;
 
-  // TODO
-  void * context = ctx.instr->data + 1;
-  void * proof = ctx.instr->data + 1;
-
-  /* verify individual ZKP */
+  /* specific instruction function.
+     important: this switch/case also asserts that the instr_id is one of the
+     valid verify_proof instructions */
   switch( instr_id ) {
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
-    zkp_res = fd_zktpp_verify_proof_zero_balance( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_zero_balance;
     break;
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
-    zkp_res = fd_zktpp_verify_proof_withdraw( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_withdraw;
     break;
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
-    zkp_res = fd_zktpp_verify_proof_ciphertext_ciphertext_equality( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_ciphertext_ciphertext_equality;
     break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER:
-    zkp_res = fd_zktpp_verify_proof_transfer_without_fee( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_transfer_without_fee;
     break;
   case FD_ZKTPP_INSTR_VERIFY_TRANSFER_WITH_FEE:
-    zkp_res = fd_zktpp_verify_proof_transfer_with_fee( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_transfer_with_fee;
     break;
   case FD_ZKTPP_INSTR_VERIFY_PUBKEY_VALIDITY:
-    zkp_res = fd_zktpp_verify_proof_pubkey_validity( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_pubkey_validity;
     break;
   case FD_ZKTPP_INSTR_VERIFY_RANGE_PROOF_U64:
-    zkp_res = fd_zktpp_verify_proof_range_proof_u64( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_range_proof_u64;
     break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U64:
-    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u64( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_batched_range_proof_u64;
     break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U128:
-    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u128( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_batched_range_proof_u128;
     break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_RANGE_PROOF_U256:
-    zkp_res = fd_zktpp_verify_proof_batched_range_proof_u256( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_batched_range_proof_u256;
     break;
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_COMMITMENT_EQUALITY:
-    zkp_res = fd_zktpp_verify_proof_ciphertext_commitment_equality( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_ciphertext_commitment_equality;
     break;
   case FD_ZKTPP_INSTR_VERFIY_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
-    zkp_res = fd_zktpp_verify_proof_grouped_ciphertext_validity( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_grouped_ciphertext_validity;
     break;
   case FD_ZKTPP_INSTR_VERIFY_BATCHED_GROUPED_CIPHERTEXT_2_HANDLES_VALIDITY:
-    zkp_res = fd_zktpp_verify_proof_batched_grouped_ciphertext_validity( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_batched_grouped_ciphertext_validity;
     break;
   case FD_ZKTPP_INSTR_VERIFY_FEE_SIGMA:
-    zkp_res = fd_zktpp_verify_proof_fee_sigma( context, proof );
+    fd_zktpp_instr_verify_proof = &fd_zktpp_instr_verify_proof_fee_sigma;
     break;
   default:
+    /* important */
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
+
+  /* parse context and proof data
+     important: instr_id is guaranteed to be valid, to access values in the arrays */
+  if (ctx.instr->data_sz != 1 + fd_zktpp_context_sz[instr_id] + fd_zktpp_proof_sz[instr_id]) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+  void const * context = instr_data + 1;
+  void const * proof   = instr_data + 1 + fd_zktpp_context_sz[instr_id];
+
+  /* verify individual ZKP */
+  int zkp_res = (*fd_zktpp_instr_verify_proof)( context, proof );
 
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

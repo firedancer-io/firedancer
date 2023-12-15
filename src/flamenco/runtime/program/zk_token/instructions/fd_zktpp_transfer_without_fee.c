@@ -18,20 +18,20 @@ typedef struct fd_zktpp_transfer_context {
 } fd_zktpp_transfer_context_t;
 
 typedef struct fd_zktpp_transfer_proof {
-  uchar                new_source_commitment[ 32 ]; // point
-  fd_zktpp_cce_proof_t equality_proof;              // ciphertext_commitment_equality == 192 bytes
-  uchar                validity_proof[ 32 ];        // TODO
-  uchar                range_proof[ 32 ];           // TODO
+  uchar                         new_source_commitment[ 32 ]; // point
+  fd_zktpp_ciph_comm_eq_proof_t equality_proof;              // ciphertext_commitment_equality == 192 bytes
+  uchar                         validity_proof[ 32 ];        // TODO
+  uchar                         range_proof[ 32 ];           // TODO
 } fd_zktpp_transfer_proof_t;
 
 int
-fd_zktpp_verify_proof_transfer_without_fee( void * _context, void *_proof ) {
+fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void const *_proof ) {
   fd_zktpp_transcript_t         transcript[1];
-  fd_zktpp_transfer_context_t * context = _context;
-  fd_zktpp_transfer_proof_t *   proof = _proof;
+  fd_zktpp_transfer_context_t const * context = _context;
+  fd_zktpp_transfer_proof_t const *   proof = _proof;
   int zkp_res = 0;
 
-  zkp_res = fd_zktpp_ciphertext_commitment_equality_zkp_verify(
+  zkp_res = fd_zktpp_verify_proof_ciphertext_commitment_equality(
     &proof->equality_proof,
     context->transfer_pubkeys.source,
     context->new_source_ciphertext,
