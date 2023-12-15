@@ -7,6 +7,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "fd_borrowed_account.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */
@@ -167,12 +168,18 @@ fd_acc_exists( fd_account_meta_t const * m ) {
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_acc_mgr_modify_raw to acquire a mutable handle. */
 
-void const *
+fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
                      fd_funk_rec_t const ** opt_out_rec,
                      int *                  opt_err );
+
+int
+fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
+                 fd_funk_txn_t const *   txn,
+                 fd_pubkey_t const *     pubkey,
+                 fd_borrowed_account_t * account );
 
 /* fd_acc_mgr_modify_raw requests a writable handle to an account.
    Follows interface of fd_acc_mgr_modify_raw with the following
@@ -207,7 +214,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
    Caller must eventually commit funk record.  During replay, this is
    done automatically by slot freeze. */
 
-void *
+fd_account_meta_t *
 fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_txn_t *       txn,
                        fd_pubkey_t const *   pubkey,
@@ -216,6 +223,14 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_rec_t const * opt_con_rec,
                        fd_funk_rec_t **      opt_out_rec,
                        int *                 opt_err );
+
+int
+fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
+                   fd_funk_txn_t *         txn,
+                   fd_pubkey_t const *     pubkey,
+                   int                     do_create,
+                   ulong                   min_data_sz,
+                   fd_borrowed_account_t * account );
 
 /* fd_acc_mgr_commit_raw finalizes a writable transaction.
    Re-calcluates the account hash.  If the hash changed, persists the
@@ -229,6 +244,13 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        fd_pubkey_t const * pubkey,
                        void *              raw,
                        fd_exec_slot_ctx_t * slot_ctx );
+
+static inline int
+fd_acc_mgr_commit( fd_acc_mgr_t *          acc_mgr,
+                   fd_borrowed_account_t * account,
+                   fd_exec_slot_ctx_t *    slot_ctx ) {
+  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
+}
 
 /* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
    and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'
