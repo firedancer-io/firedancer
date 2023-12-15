@@ -26,12 +26,6 @@ jobs:
         with:
           command: make -j -Otarget fuzz-test
 
-      - uses: firedancer-io/fuzzbot-builder@main
-        name: Build rust fuzz tests
-        with:
-          command: ./.github/workflows/scripts/build_rust_fuzz_highend.sh
-        if: ${{ matrix.feature_set == 'highend' }}
-
       - name: List Artifacts
         run: |
           ls build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
