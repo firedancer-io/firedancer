@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_funk_fd_funk_part_h
 #define HEADER_fd_src_funk_fd_funk_part_h
 
+#include "fd_funk_rec.h"
+
 /* This provides APIs for managing funk record partitions. */
 
 struct fd_funk_parthead {
