@@ -6,6 +6,7 @@
 #include "../../../ballet/base58/fd_base58.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <strings.h>
 #include <sys/socket.h>
