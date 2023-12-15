@@ -3,7 +3,6 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_rent_lists.h"
 #include "sysvar/fd_sysvar_rent.h"
-#include <stdio.h>
 
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
@@ -82,7 +81,7 @@ fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_repartition( acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, slot_ctx );
 }
 
-void const *
+fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
@@ -100,17 +99,52 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   }
   if (NULL != orec)
     *orec = rec;
-  void const * data = fd_funk_val( rec, fd_funk_wksp(funk) );
+
+  void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes
 
-  fd_account_meta_t const * metadata = fd_type_pun_const( data );
+  fd_account_meta_t const * metadata = fd_type_pun_const( raw );
   if( metadata->magic != FD_ACCOUNT_META_MAGIC )
     return NULL;
 
-  return data;
+  return metadata;
 }
 
-void *
+int
+fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
+                 fd_funk_txn_t const *   txn,
+                 fd_pubkey_t const *     pubkey,
+                 fd_borrowed_account_t * account) {
+
+  int err = FD_ACC_MGR_SUCCESS;
+  fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
+  if (FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
+    if (err != FD_ACC_MGR_SUCCESS)
+      return err;
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
+
+  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
+
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+
+  account->orig_rec = account->const_rec;
+  account->orig_meta = account->const_meta = meta;
+  account->orig_data = account->const_data = (uchar const *)meta + meta->hlen;
+
+  if (ULONG_MAX == account->starting_dlen)
+    account->starting_dlen = meta->dlen;
+
+  if (ULONG_MAX == account->starting_lamports)
+    account->starting_lamports = meta->info.lamports;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+fd_account_meta_t *
 fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_txn_t *       txn,
                        fd_pubkey_t const *   pubkey,
@@ -132,7 +166,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
       return NULL;
     }
     /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%32J) failed (%i-%s)", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
+    FD_LOG_ERR(( "fd_funk_rec_write_prepare failed (%i-%s)", funk_err, fd_funk_strerror( funk_err ) ));
   }
 
   if (NULL != opt_out_rec)
@@ -148,9 +182,8 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
 
-  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
+  if( ret->magic != FD_ACCOUNT_META_MAGIC )
     FD_LOG_ERR(( "bad magic" ));
-  }
 
   return ret;
 }
