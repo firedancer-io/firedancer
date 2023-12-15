@@ -11,7 +11,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
                fd_pubkey_t const * pubkey,
                uchar *             data,
                ulong               sz,
-               ulong               slot FD_PARAM_UNUSED,
+               ulong               slot,
                fd_acc_lamports_t const * lamports ) {
 
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
@@ -39,6 +39,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
 
   rec->meta->dlen = sz;
   fd_memcpy(rec->meta->info.owner, owner, 32);
+  rec->meta->slot = slot;
   return 0; 
   //fd_acc_mgr_commit( slot_ctx->acc_mgr, rec, slot_ctx );
 }

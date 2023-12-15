@@ -661,8 +661,8 @@ int fd_runtime_microblock_batch_execute_tpool(fd_exec_slot_ctx_t *slot_ctx,
 // What slots exactly do cache'd account_updates go into?  how are
 // they hashed (which slot?)?
 
-int fd_runtime_block_sysvar_update_pre_execute(fd_exec_slot_ctx_t *slot_ctx)
-{
+int
+fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
@@ -685,23 +685,23 @@ int fd_runtime_block_sysvar_update_pre_execute(fd_exec_slot_ctx_t *slot_ctx)
   return 0;
 }
 
-int fd_runtime_block_update_current_leader(fd_exec_slot_ctx_t *slot_ctx)
-{
+int
+fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong slot_rel;
   fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_rel);
   slot_ctx->leader = fd_epoch_leaders_get(slot_ctx->epoch_ctx->leaders, slot_ctx->slot_bank.slot);
-  if (slot_ctx->leader == NULL)
-  {
+  if( slot_ctx->leader == NULL ) {
     return -1;
   }
 
   return 0;
 }
 
-int fd_runtime_block_execute_prepare(fd_exec_slot_ctx_t *slot_ctx) {
+int
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx ) {
   // TODO: this is not part of block execution, move it.
   if (slot_ctx->slot_bank.slot != 0) {
-    ulong slot_idx;
+    ulong slot_idx = 0;
     ulong new_epoch = fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx);
     if (slot_idx == 1UL && new_epoch == 0UL) {
       /* the block after genesis has a height of 1*/
@@ -713,40 +713,40 @@ int fd_runtime_block_execute_prepare(fd_exec_slot_ctx_t *slot_ctx) {
     }
   }
 
-  if (slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE(slot_ctx, enable_partitioned_epoch_reward)) {
+  if( slot_ctx->slot_bank.slot != 0 && FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
     distribute_partitioned_epoch_rewards(slot_ctx);
   }
 
-  int result = fd_runtime_block_update_current_leader(slot_ctx);
+  int result = fd_runtime_block_update_current_leader( slot_ctx );
   if (result != 0) {
     FD_LOG_WARNING(("updating current leader"));
     return result;
   }
 
-  result = fd_runtime_block_sysvar_update_pre_execute(slot_ctx);
+  result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx );
   if (result != 0) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
   }
 
   /* Load sysvars into cache */
-  fd_slot_hashes_new(slot_ctx->sysvar_cache.slot_hashes);
-  result = fd_sysvar_slot_hashes_read(slot_ctx, slot_ctx->sysvar_cache.slot_hashes);
-  if (result != 0) {
+  fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );
+  result = fd_sysvar_slot_hashes_read( slot_ctx, slot_ctx->sysvar_cache.slot_hashes );
+  if( result != 0 ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
 
   fd_rent_new( slot_ctx->sysvar_cache.rent );
   result = fd_sysvar_rent_read( slot_ctx, slot_ctx->sysvar_cache.rent );
-  if (result != 0) {
+  if( result != 0 ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
 
   fd_sol_sysvar_clock_new( slot_ctx->sysvar_cache.clock );
   result = fd_sysvar_clock_read( slot_ctx, slot_ctx->sysvar_cache.clock );
-  if (result != 0) {
+  if( result != 0 ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
@@ -763,8 +763,7 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   fd_runtime_freeze(slot_ctx);
 
   int result = fd_update_hash_bank(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt);
-  if (result != FD_EXECUTOR_INSTR_SUCCESS)
-  {
+  if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
     return result;
   }
@@ -776,7 +775,7 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   // }
 
   result = fd_runtime_save_slot_bank(slot_ctx);
-  if (result != FD_RUNTIME_EXECUTE_SUCCESS) {
+  if( result != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_WARNING(("failed to save slot bank"));
     return result;
   }
@@ -1548,8 +1547,7 @@ fd_runtime_collect_rent_account(fd_exec_slot_ctx_t *slot_ctx,
 
   // RentCollector::calculate_rent_result (cont)
 
-  if (due == 0L)
-  {
+  if (due == 0L) {
     return 0;
   }
 
@@ -1559,8 +1557,7 @@ fd_runtime_collect_rent_account(fd_exec_slot_ctx_t *slot_ctx,
   // RentCollector::collect_from_existing_account (cont)
 
   ulong due_ = (ulong)due;
-  if (FD_UNLIKELY(due_ >= info->lamports))
-  {
+  if (FD_UNLIKELY(due_ >= info->lamports)) {
     slot_ctx->slot_bank.collected_rent += info->lamports;
     acc->info.lamports = 0UL;
     fd_memset(acc->info.owner, 0, sizeof(acc->info.owner));
@@ -1761,19 +1758,15 @@ void fd_runtime_distribute_rent_to_validators(fd_exec_slot_ctx_t *slot_ctx, ulon
       validator_stakes[i].stake = rent_share;
       rent_distributed_in_initial_round += rent_share;
     }
-  }
-  else
-  {
+  } else {
     // TODO: implement old functionality!
     FD_LOG_ERR(("unimplemented feature"));
   }
 
   ulong leftover_lamports = rent_to_be_distributed - rent_distributed_in_initial_round;
 
-  for (i = 0; i < num_validator_stakes; i++)
-  {
-    if (leftover_lamports == 0)
-    {
+  for (i = 0; i < num_validator_stakes; i++) {
+    if (leftover_lamports == 0) {
       break;
     }
 
@@ -1809,7 +1802,7 @@ void fd_runtime_distribute_rent_to_validators(fd_exec_slot_ctx_t *slot_ctx, ulon
         }
       }
 
-      int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec);
+      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
       if (FD_UNLIKELY(err))
       {
         FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
@@ -1824,12 +1817,9 @@ void fd_runtime_distribute_rent_to_validators(fd_exec_slot_ctx_t *slot_ctx, ulon
       }
     }
   } // end of iteration over validator_stakes
-  if (enforce_fix && !prevent_rent_fix)
-  {
+  if( enforce_fix && !prevent_rent_fix ) {
     FD_TEST(leftover_lamports == 0);
-  }
-  else
-  {
+  } else {
     ulong old = slot_ctx->slot_bank.capitalization;
     slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, leftover_lamports);
     FD_LOG_WARNING(("fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, slot_ctx->slot_bank.capitalization));
@@ -1837,46 +1827,43 @@ void fd_runtime_distribute_rent_to_validators(fd_exec_slot_ctx_t *slot_ctx, ulon
   fd_valloc_free(slot_ctx->valloc, validator_stakes);
 }
 
-void fd_runtime_distribute_rent(fd_exec_slot_ctx_t *slot_ctx)
-{
+void
+fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong total_rent_collected = slot_ctx->slot_bank.collected_rent;
-  ulong burned_portion = fd_runtime_calculate_rent_burn(total_rent_collected, &slot_ctx->epoch_ctx->epoch_bank.rent);
+  ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &slot_ctx->epoch_ctx->epoch_bank.rent );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
 
-  FD_LOG_DEBUG(("rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected));
-  if (rent_to_be_distributed == 0)
-  {
+  FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", 
+      slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
+  if( rent_to_be_distributed == 0 ) {
     return;
   }
 
   fd_runtime_distribute_rent_to_validators(slot_ctx, rent_to_be_distributed);
 }
 
-void fd_runtime_freeze(fd_exec_slot_ctx_t *slot_ctx)
-{
+void
+fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   // solana/runtime/src/bank.rs::freeze(....)
   fd_runtime_collect_rent(slot_ctx);
   // self.collect_fees();
 
   fd_sysvar_recent_hashes_update(slot_ctx);
 
-  if (!FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar))
+  if( !FD_FEATURE_ACTIVE(slot_ctx, disable_fees_sysvar) )
     fd_sysvar_fees_update(slot_ctx);
 
-  if (slot_ctx->slot_bank.collected_fees > 0)
-  {
+  if( slot_ctx->slot_bank.collected_fees > 0 ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
     FD_BORROWED_ACCOUNT_DECL(rec);
 
-    int err = fd_acc_mgr_modify(slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 0, 0UL, rec);
-    if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
-    {
+    int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->leader, 0, 0UL, rec );
+    if( FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS) ) {
       FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify_raw for leader (%32J) failed (%d)", slot_ctx->leader, err));
       return;
     }
 
     ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2));
-    ;
 
     rec->meta->info.lamports += fees;
     FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
@@ -1897,8 +1884,8 @@ void fd_runtime_freeze(fd_exec_slot_ctx_t *slot_ctx)
   slot_ctx->slot_bank.collected_rent = 0;
 }
 
-fd_funk_rec_key_t fd_runtime_block_key(ulong slot)
-{
+fd_funk_rec_key_t 
+fd_runtime_block_key( ulong slot ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 0, sizeof(id));
   id.ul[0] = slot;
@@ -1907,8 +1894,8 @@ fd_funk_rec_key_t fd_runtime_block_key(ulong slot)
   return id;
 }
 
-fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot)
-{
+fd_funk_rec_key_t
+fd_runtime_block_meta_key( ulong slot ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 0, sizeof(id));
   id.ul[0] = slot;
@@ -1917,8 +1904,8 @@ fd_funk_rec_key_t fd_runtime_block_meta_key(ulong slot)
   return id;
 }
 
-fd_funk_rec_key_t fd_runtime_firedancer_bank_key(void)
-{
+fd_funk_rec_key_t
+fd_runtime_firedancer_bank_key( void ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
   id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_BANKS_TYPE;
@@ -1926,8 +1913,8 @@ fd_funk_rec_key_t fd_runtime_firedancer_bank_key(void)
   return id;
 }
 
-fd_funk_rec_key_t fd_runtime_epoch_bank_key(void)
-{
+fd_funk_rec_key_t
+fd_runtime_epoch_bank_key( void ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
   id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_EPOCH_BANK_TYPE;
@@ -1935,8 +1922,8 @@ fd_funk_rec_key_t fd_runtime_epoch_bank_key(void)
   return id;
 }
 
-fd_funk_rec_key_t fd_runtime_slot_bank_key(void)
-{
+fd_funk_rec_key_t
+fd_runtime_slot_bank_key( void ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
   id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_SLOT_BANK_TYPE;
@@ -1944,8 +1931,8 @@ fd_funk_rec_key_t fd_runtime_slot_bank_key(void)
   return id;
 }
 
-int fd_runtime_save_epoch_bank(fd_exec_slot_ctx_t *slot_ctx)
-{
+int
+fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = fd_epoch_bank_size(&slot_ctx->epoch_ctx->epoch_bank);
 
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();

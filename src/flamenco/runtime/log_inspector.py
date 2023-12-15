@@ -43,13 +43,14 @@ def display_firedancer_accounts_delta_hash_extra(log_line):
 
 def display_solana_accounts_delta_hash_extra(log_line):
   # print(log_line)
-  res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) include_slot: \((\w+)\)  lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) includedata: \(([0-9a-f]*)\)", log_line)[0]
+  res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) data: \(([0-9a-f]*)\)", log_line)[0]
+  # res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) include_slot: \((\w+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) includedata: \(([0-9a-f]*)\)", log_line)[0]
   # res = re.findall(r"pubkey: \((\w+)\) slot: \((\d+)\) lamports: \((\d+)\) owner: \((\w+)\) executable: \((\d+)\) rent_epoch: \((\d+)\) data_len: \((\d+)\) hash: \((\w+)\) data: \(([0-9a-f]*)\)", log_line)[0]
   executable = "0"
   if res[4] == 1:
     executable = "1"
 
-  res2 = [res[0], res[1], res[3], res[4], executable, res[6], res[7], hex_to_hexdump(res[9]), res[8]]
+  res2 = [res[0], res[1], res[2], res[3], executable, res[5], res[6], hex_to_hexdump(res[8]), res[7]]
   # res2 = [res[0], res[1], res[2], res[3], executable, res[5], res[6], hex_to_hexdump(res[8]), res[7]]
   return res2
 
