@@ -7,6 +7,7 @@ if [[ -d ffi/rust/firedancer-diff/fuzz ]]; then
     TARGET_DIR=./build/linux/clang/combi/highend/fuzz-test
     RUST_FUZZ_OUT_DIR=./ffi/rust/firedancer-diff/fuzz/target/release
     pushd ffi/rust/firedancer-diff/fuzz
+    RUSTFLAGS=-Zsanitizer=address cargo build -Zbuild-std --target x86_64-unknown-linux-gnu --release
     cargo build --release
     popd
 
