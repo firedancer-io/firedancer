@@ -99,7 +99,8 @@ fd_quic_tls_footprint( ulong handshake_cnt ) {
 }
 
 static void
-fd_quic_tls_init( fd_tls_t * tls );
+fd_quic_tls_init( fd_tls_t *  tls,
+                  uchar const cert_private_key[ static 32 ] );
 
 fd_quic_tls_t *
 fd_quic_tls_new( void *              mem,
@@ -148,7 +149,7 @@ fd_quic_tls_new( void *              mem,
   fd_memset( used_handshakes, 0, (ulong)self->max_concur_handshakes );
 
   /* Initialize fd_tls */
-  fd_quic_tls_init( &self->tls );
+  fd_quic_tls_init( &self->tls, cfg->cert_private_key );
 
   return self;
 }
@@ -157,7 +158,8 @@ fd_quic_tls_new( void *              mem,
    the embedded fd_tls instance. */
 
 static void
-fd_quic_tls_init( fd_tls_t * tls ) {
+fd_quic_tls_init( fd_tls_t *  tls,
+                  uchar const cert_private_key[ static 32 ] ) {
   tls = fd_tls_new( tls );
 
   *tls = (fd_tls_t) {
@@ -178,9 +180,9 @@ fd_quic_tls_init( fd_tls_t * tls ) {
     FD_LOG_ERR(( "getrandom failed: %s", fd_io_strerror( errno ) ));
   fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
 
-  /* Set Ed25519 key */
-  fd_sha512_t sha[1];  /* does this need a join? */
-  fd_memcpy( tls->cert_private_key, tls->kex_private_key, 32UL );
+  /* Set up Ed25519 key */
+  fd_sha512_t sha[1];
+  fd_memcpy( tls->cert_private_key, cert_private_key, 32UL );
   fd_ed25519_public_from_private( tls->cert_public_key, tls->cert_private_key, sha );
 
   /* Generate X.509 cert */
