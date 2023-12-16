@@ -100,6 +100,7 @@ FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
 
   fd_account_meta_t const *m = (fd_account_meta_t const *) ptr;
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
   ulong *ul = (ulong *) &m->info.owner[0];
 #pragma GCC diagnostic pop
