@@ -1,6 +1,5 @@
 #include "fd_blake3.h"
 #include "blake3_impl.h"
-#include "blake3_portable.c"
 #include "blake3_dispatch.c"
 #include "blake3.c"
 
@@ -105,10 +104,10 @@ fd_blake3_delete( void * shsha ) {
 
    https://github.com/BLAKE3-team/BLAKE3/tree/master/c
 
-   We bring in the portable implementation of BLAKE3 and the AVX2 
+   We bring in the portable implementation of BLAKE3 and the AVX2
    implementation.  There is room for improvement in these implementations In
    particular:
-    
+
     - Using fd_memset, fd_memcpy where reference implementation uses memset, memcpy
     - Reduction in the number of memset(s) and memcpy(s)
     - Better AVX2 routines
@@ -147,7 +146,7 @@ fd_blake3_fini_512( fd_blake3_t * sha,
 
 void *
 fd_blake3_fini_varlen( fd_blake3_t * sha,
-                       void *        hash, 
+                       void *        hash,
                        ulong         hash_len ) {
   blake3_hasher_finalize( &sha->hasher, (uchar *) hash, hash_len );
   return hash;
