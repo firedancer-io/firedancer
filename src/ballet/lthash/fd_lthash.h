@@ -40,7 +40,7 @@ static inline fd_lthash_value_t *
 fd_lthash_add( fd_lthash_value_t * restrict       r,
                fd_lthash_value_t const * restrict a ) {
   for ( ulong i=0; i<FD_LTHASH_LEN_ELEMS; i++ ) {
-    r->words[i] += a->words[i];
+    r->words[i] = (ushort)( r->words[i] + a->words[i] );
   }
   return r;
 }
@@ -49,7 +49,7 @@ static inline fd_lthash_value_t *
 fd_lthash_sub( fd_lthash_value_t * restrict       r,
                fd_lthash_value_t const * restrict a ) {
   for ( ulong i=0; i<FD_LTHASH_LEN_ELEMS; i++ ) {
-    r->words[i] -= a->words[i];
+    r->words[i] = (ushort)( r->words[i] - a->words[i] );
   }
   return r;
 }

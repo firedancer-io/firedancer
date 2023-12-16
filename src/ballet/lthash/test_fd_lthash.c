@@ -166,10 +166,10 @@ main( int     argc,
   if( FD_UNLIKELY( memcmp( tmp, expected, 2048 ) ) ) {
     FD_LOG_ERR(( "FAIL lthash('world!')" ));
   }
-  
+
   FD_TEST( fd_lthash_add( value, tmp )==value );
   for ( ulong i=0; i<1024; i++ ) {
-    compute_extected[i] = lthash_hello[i] + lthash_world[i];
+    compute_extected[i] = (ushort)( lthash_hello[i] + lthash_world[i] );
   }
   memcpy( expected, compute_extected, 2048 );
   if( FD_UNLIKELY( memcmp( value, expected, 2048 ) ) ) {
