@@ -156,8 +156,10 @@ fd_vm_prepare_instruction(
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
       FD_LOG_DEBUG(("Final instr account %lu %lu %lu %lu", i, instruction_accounts[i].is_signer, instruction_accounts[i].is_writable, duplicate_index));
-      callee_instr->acct_flags[i] |= instruction_accounts[i].is_signer ? (uchar)FD_INSTR_ACCT_FLAGS_IS_SIGNER : (uchar)0U;
-      callee_instr->acct_flags[i] |= instruction_accounts[i].is_writable ? (uchar)FD_INSTR_ACCT_FLAGS_IS_WRITABLE : (uchar)0U;
+      int flags = callee_instr->acct_flags[i];
+      flags |= instruction_accounts[i].is_signer ? (uchar)FD_INSTR_ACCT_FLAGS_IS_SIGNER : (uchar)0U;
+      flags |= instruction_accounts[i].is_writable ? (uchar)FD_INSTR_ACCT_FLAGS_IS_WRITABLE : (uchar)0U;
+      callee_instr->acct_flags[i] = (uchar)flags;
     } else {
       return 1;
     }
@@ -378,7 +380,7 @@ fd_vm_syscall_sol_keccak256(
   if ( FD_UNLIKELY( err ) ) {
     return err;
   }
-  
+
   void * hash =
       fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
 
@@ -394,7 +396,7 @@ fd_vm_syscall_sol_keccak256(
 
     fd_vm_vec_t const * slices =
         fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
-    
+
     if( FD_UNLIKELY( (!slices) ) ) {
       return FD_VM_MEM_MAP_ERR_ACC_VIO;
     }
@@ -701,7 +703,7 @@ fd_vm_syscall_sol_memcpy(
     *pr0 = 0;
     return FD_VM_SYSCALL_SUCCESS;
   }
-  
+
   void *       dst_host_addr =
       fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
   if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -869,8 +871,8 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
   if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
-    if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {      
-      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));      
+    if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
+      FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
       return FD_VM_SYSCALL_ERR_INVAL;
     }
   } else {
@@ -950,7 +952,7 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
 
   instr->data_sz = (ushort)cpi_instr->data_len;
   instr->data = (uchar *)cpi_instr_data;
-  instr->acct_cnt = (ushort)cpi_instr->accounts_len;  
+  instr->acct_cnt = (ushort)cpi_instr->accounts_len;
 }
 
 static void
@@ -1022,7 +1024,7 @@ static ulong
 fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
                                      ulong                        acct_cnt,
                                      ulong                        data_sz ) {
-  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */                                
+  /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L958-L959 */
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
@@ -2377,7 +2379,7 @@ fd_vm_syscall_sol_try_find_program_address(
     fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
     uchar suffix[1] = {(uchar)(255UL - i)};
 
-    if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) ) { 
+    if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) ) {
       return FD_VM_MEM_MAP_ERR_ACC_VIO;
     }
 
