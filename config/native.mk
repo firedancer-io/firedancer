@@ -44,6 +44,7 @@ CPPFLAGS+=-march=native -mtune=native
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-debug.mk
+include config/with-security.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
