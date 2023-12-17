@@ -224,8 +224,8 @@ INLINE void load_counters(uint64_t counter, bool increment_counter,
   const __m256i add0 = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
   const __m256i add1 = _mm256_and_si256(mask, add0);
   __m256i l = _mm256_add_epi32(_mm256_set1_epi32((int32_t)counter), add1);
-  __m256i carry = _mm256_cmpgt_epi32(_mm256_xor_si256(add1, _mm256_set1_epi32(0x80000000)), 
-                                     _mm256_xor_si256(   l, _mm256_set1_epi32(0x80000000)));
+  __m256i carry = _mm256_cmpgt_epi32(_mm256_xor_si256(add1, _mm256_set1_epi32((int)0x80000000)),
+                                     _mm256_xor_si256(   l, _mm256_set1_epi32((int)0x80000000)));
   __m256i h = _mm256_sub_epi32(_mm256_set1_epi32((int32_t)(counter >> 32)), carry);
   *out_lo = l;
   *out_hi = h;
@@ -290,7 +290,7 @@ void blake3_hash8_avx2(const uint8_t *const *inputs, size_t blocks,
   storeu(h_vecs[7], &out[7 * sizeof(__m256i)]);
 }
 
-#if !defined(BLAKE3_NO_SSE41)
+#if FD_HAS_AVX
 void blake3_hash_many_sse41(const uint8_t *const *inputs, size_t num_inputs,
                             size_t blocks, const uint32_t key[8],
                             uint64_t counter, bool increment_counter,
@@ -302,7 +302,7 @@ void blake3_hash_many_portable(const uint8_t *const *inputs, size_t num_inputs,
                                uint64_t counter, bool increment_counter,
                                uint8_t flags, uint8_t flags_start,
                                uint8_t flags_end, uint8_t *out);
-#endif
+#endif /* FD_HAS_AVX */
 
 void blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
                            size_t blocks, const uint32_t key[8],
@@ -319,7 +319,7 @@ void blake3_hash_many_avx2(const uint8_t *const *inputs, size_t num_inputs,
     num_inputs -= DEGREE;
     out = &out[DEGREE * BLAKE3_OUT_LEN];
   }
-#if !defined(BLAKE3_NO_SSE41)
+#if FD_HAS_AVX
   blake3_hash_many_sse41(inputs, num_inputs, blocks, key, counter,
                          increment_counter, flags, flags_start, flags_end, out);
 #else
