@@ -14,7 +14,6 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  FD_LOG_WARNING(("%lu\n", sizeof(fd_blake3_t))); 
   FD_TEST( fd_blake3_align    ()==FD_BLAKE3_ALIGN     );
   FD_TEST( fd_blake3_footprint()==FD_BLAKE3_FOOTPRINT );
 
@@ -78,27 +77,30 @@ main( int     argc,
                    FD_LOG_HEX16_FMT_ARGS( expected    ), FD_LOG_HEX16_FMT_ARGS( expected+16 ) ));
   }
 
-  /* do a quick benchmark of BLAKE3 to UDP payloads of MTU Ethernet
-     packets on UDP/IP4/VLAN/Ethernet */
+  static uchar buf[ 1<<24 ] __attribute__((aligned(32)));
+  for( ulong b=0UL; b<sizeof(buf); b++ ) buf[b] = fd_rng_uchar( rng );
 
-# define SZ (1472UL)
-  uchar buf[ SZ ] __attribute__((aligned(32)));
-  for( ulong b=0UL; b<SZ; b++ ) buf[b] = fd_rng_uchar( rng );
+  for( ulong shift=6; shift<24UL; shift++ ) {
+    ulong sz          = 1UL<<shift;
+    ulong iter_target = (1UL<<28)>>shift;
 
-  /* warmup */
-  ulong iter = 10000UL;
-  long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), buf, SZ ), hash );
-  dt = fd_log_wallclock() - dt;
+    /* warmup */
+    ulong iter = iter_target / 100;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), buf, sz ), hash );
+    dt = fd_log_wallclock() - dt;
 
-  /* for real */
-  iter = 1000000UL;
-  dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), buf, SZ ), hash );
-  dt = fd_log_wallclock() - dt;
+    /* for real */
+    iter = iter_target;
+    dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) fd_blake3_fini( fd_blake3_append( fd_blake3_init( sha ), buf, sz ), hash );
+    dt = fd_log_wallclock() - dt;
 
-  FD_LOG_NOTICE(( "~%.3f Gbps Ethernet equiv throughput per core", (double)(((float)(8UL*(70UL+SZ)*iter))/((float)dt)) ));
-# undef SZ
+    FD_LOG_NOTICE(( "~%02.3f Gbps per core; %f ns per byte (sz %lu)",
+                    (double)(((float)(8UL*sz*iter))/((float)dt)),
+                    (double)dt/((double)sz*(double)iter),
+                    sz ));
+  }
 
   /* clean up */
 
