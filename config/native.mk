@@ -25,13 +25,13 @@ ifeq ($(FD_IS_GNU),1)
 endif
 
 ifeq ($(FD_USING_GCC),1)
-include config/base.mk
+include config/linux_x86_64_base.mk
 	CC:=gcc
 	CXX:=g++
 	LD:=g++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
 else ifeq ($(FD_USING_CLANG),1)
-include config/base.mk
+include config/linux_x86_64_base.mk
 	CC=clang
 	CXX=clang++
 	LD=clang++
@@ -44,7 +44,6 @@ CPPFLAGS+=-march=native -mtune=native
 include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-debug.mk
-include config/with-security.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)

@@ -1,3 +1,7 @@
+ifndef MAY_INCLUDE_BASE
+$(error cannot include "base.mk" directly)
+endif
+
 BASEDIR?=build
 
 SHELL:=bash
