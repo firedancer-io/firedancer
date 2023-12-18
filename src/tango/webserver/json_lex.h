@@ -29,6 +29,8 @@ struct json_lex_state {
 
     // Current position in text
     ulong pos;
+    // Last token parsed
+    long last_tok;
 
     // Value of last boolean
     int last_bool;

@@ -260,7 +260,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( id->uc, NULL, keystr );
-  FD_LOG_NOTICE(("adding active peer address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), addr), keystr));
+  FD_LOG_DEBUG(("adding active peer address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), addr), keystr));
 
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {

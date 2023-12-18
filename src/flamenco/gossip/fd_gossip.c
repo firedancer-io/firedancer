@@ -677,7 +677,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       npackets = 1U<<nmaskbits;
     } while (1);
   }
-  FD_LOG_NOTICE(("making bloom filter for %lu items with %lu packets and %lu keys %g error", nitems, npackets, nkeys, e));
+  FD_LOG_DEBUG(("making bloom filter for %lu items with %lu packets and %lu keys %g error", nitems, npackets, nkeys, e));
 
   /* Generate random keys */
   ulong keys[FD_BLOOM_MAX_KEYS];
@@ -750,7 +750,7 @@ void
 fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_ping_t const * pong ) {
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
   if (val == NULL) {
-    FD_LOG_NOTICE(("received pong too late"));
+    FD_LOG_DEBUG(("received pong too late"));
     return;
   }
 
@@ -911,7 +911,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
                          /* sig */ crd->signature.uc,
                          /* public_key */ pubkey->uc,
                          sha )) {
-    FD_LOG_WARNING(("received crds_value with invalid signature"));
+    FD_LOG_DEBUG(("received crds_value with invalid signature"));
     return;
   }
 
@@ -1540,7 +1540,7 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     char buf[100];
     char keystr[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( ele->id.uc, NULL, keystr );
-    FD_LOG_NOTICE(("peer at %s id %s age %.3f %s",
+    FD_LOG_DEBUG(("peer at %s id %s age %.3f %s",
                    fd_gossip_addr_str(buf, sizeof(buf), &ele->key),
                    keystr,
                    ((double)(wc - ele->wallclock))*0.001,

@@ -88,6 +88,7 @@ struct fd_blockstore_micro {
 typedef struct fd_blockstore_micro fd_blockstore_micro_t;
 
 struct fd_blockstore_block {
+  long ts;                         /* timestamp in nanosecs */
   fd_blockstore_shred_t * shreds;  /* each shred in the block region */
   ulong shreds_cnt;
   fd_blockstore_micro_t * micros;  /* each microblock in the block region */
@@ -121,6 +122,7 @@ struct fd_blockstore_txn_map {
   uint hash;
   ulong slot;
   ulong offset;
+  ulong sz;
 };
 typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 
@@ -151,6 +153,7 @@ struct fd_blockstore {
   ulong                           root;          /* the current root slot */
   ulong                           consumed;      /* the highest contiguous shred-complete slot */
   ulong                           received;      /* the highest received shred-complete slot */
+  ulong                           first_block;   /* earliest finished block */
 };
 typedef struct fd_blockstore fd_blockstore_t;
 
@@ -191,6 +194,10 @@ int
 fd_blockstore_missing_shreds_query( fd_blockstore_t *               blockstore,
                                     ulong                           slot,
                                     fd_blockstore_shred_idx_set_t * missing_shreds );
+
+/* Returns the transaction data for the given signature */
+fd_blockstore_txn_map_t *
+fd_blockstore_txn_query ( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] );
 
 FD_PROTOTYPES_END
 

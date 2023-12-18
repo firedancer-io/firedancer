@@ -8,6 +8,7 @@ void json_lex_state_new(struct json_lex_state* state,
   state->json = json;
   state->json_sz = json_sz;
   state->pos = 0;
+  state->last_tok = JSON_TOKEN_ERROR;
   state->last_bool = 0;
   fd_quickstring_new(&state->last_str);
 }
@@ -272,60 +273,60 @@ long json_lex_next_token(struct json_lex_state* state) {
       // Single character cases
     case '[':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_LBRACKET;
+      return state->last_tok = JSON_TOKEN_LBRACKET;
     case ']':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_RBRACKET;
+      return state->last_tok = JSON_TOKEN_RBRACKET;
     case '{':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_LBRACE;
+      return state->last_tok = JSON_TOKEN_LBRACE;
     case '}':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_RBRACE;
+      return state->last_tok = JSON_TOKEN_RBRACE;
     case ',':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_COMMA;
+      return state->last_tok = JSON_TOKEN_COMMA;
     case ':':
       state->pos = (ulong)(pos + 1 - state->json);
-      return JSON_TOKEN_COLON;
+      return state->last_tok = JSON_TOKEN_COLON;
 
     case 'n': // null
       if (pos + 4 <= end_pos && pos[1] == 'u' && pos[2] == 'l' && pos[3] == 'l') {
         state->pos = (ulong)(pos + 4 - state->json);
-        return JSON_TOKEN_NULL;
+        return state->last_tok = JSON_TOKEN_NULL;
       }
-      return json_lex_error(state, pos);
+      return state->last_tok = json_lex_error(state, pos);
       
     case 't': // true
       if (pos + 4 <= end_pos && pos[1] == 'r' && pos[2] == 'u' && pos[3] == 'e') {
         state->pos = (ulong)(pos + 4 - state->json);
         state->last_bool = 1;
-        return JSON_TOKEN_BOOL;
+        return state->last_tok = JSON_TOKEN_BOOL;
       }
-      return json_lex_error(state, pos);
+      return state->last_tok = json_lex_error(state, pos);
       
     case 'f': // false
       if (pos + 5 <= end_pos && pos[1] == 'a' && pos[2] == 'l' && pos[3] == 's' && pos[4] == 'e') {
         state->pos = (ulong)(pos + 5 - state->json);
         state->last_bool = 0;
-        return JSON_TOKEN_BOOL;
+        return state->last_tok = JSON_TOKEN_BOOL;
       }
-      return json_lex_error(state, pos);
+      return state->last_tok = json_lex_error(state, pos);
 
       // number
     case '-': case '0': case '1': case '2': case '3': case '4': case '5':
     case '6': case '7': case '8': case '9':
-      return json_lex_parse_number(state, pos);
+      return state->last_tok = json_lex_parse_number(state, pos);
 
     case '"': // string
-      return json_lex_parse_string(state, pos);
+      return state->last_tok = json_lex_parse_string(state, pos);
       
     default: // Any other character
-      return json_lex_error(state, pos);
+      return state->last_tok = json_lex_error(state, pos);
     }
   }
   state->pos = (ulong)(pos - state->json);
-  return JSON_TOKEN_END;
+  return state->last_tok = JSON_TOKEN_END;
 }
 
 const char* json_lex_get_text(json_lex_state_t* state, ulong* sz) {

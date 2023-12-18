@@ -139,7 +139,7 @@ repair_missing_shreds( fd_repair_t *      repair,
     fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
     for( ulong shred_idx = slot_meta->consumed; shred_idx <= slot_meta->last_index; shred_idx++ ) {
       if( requested_idxs[shred_idx] ) continue;
-      if( fd_blockstore_shred_query( blockstore, slot, (uint)shred_idx == FD_BLOCKSTORE_OK ) )
+      if( fd_blockstore_shred_query( blockstore, slot, (uint)shred_idx ) )
         continue;
       FD_LOG_DEBUG( ( "requesting shred - slot: %lu, idx: %u", slot, shred_idx ) );
       if( FD_UNLIKELY( fd_repair_need_window_index( repair, peer, slot, (uint)shred_idx ) ) ) {
@@ -195,6 +195,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED ulong                         shred_sz,
                     FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
                     void *                                        arg ) {
+  FD_LOG_DEBUG( ( "received shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
   int                   rc;
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
   fd_blockstore_t *     blockstore = repair_ctx->blockstore;
@@ -215,15 +216,14 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     if( FD_UNLIKELY( !block ) ) FD_LOG_ERR( ( "block is missing after receiving all shreds" ) );
 
 #ifdef FD_HAS_LIBMICROHTTP
-    fd_rpc_set_slot(rpc_ctx, slot_meta->slot);
+    fd_rpc_set_slot( rpc_ctx, slot_meta->slot );
 #endif
 
-  // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
+    // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
     // dcache?
-    FD_TEST(
-        // FIXME multi thread once it works
-        fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, block->data, block->sz, NULL, 1 ) ==
-        FD_RUNTIME_EXECUTE_SUCCESS );
+    // FD_TEST(
+    // FIXME multi thread once it works
+    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, block->data, block->sz, NULL, 1 ) == FD_RUNTIME_EXECUTE_SUCCESS);
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
                      slot_meta->slot,
@@ -275,6 +275,10 @@ repair_deliver_fail_fun( fd_pubkey_t const * id,
                     slot,
                     shred_index,
                     reason ) );
+  requested_highest = false;
+  for( uint i = 0; i < FD_SHRED_MAX_PER_SLOT; i++ ) {
+    requested_idxs[i] = false;
+  }
 }
 
 // SIGINT signal handler
@@ -622,7 +626,7 @@ main( int argc, char ** argv ) {
   /* Scratch                                                            */
   /**********************************************************************/
 
-  ulong  smax   = 1 << 25UL; /* 32 MiB scratch memory */
+  ulong  smax   = 1 << 26UL; /* 64 MiB scratch memory */
   ulong  sdepth = 128;       /* 128 scratch frames */
   void * smem   = fd_wksp_alloc_laddr(
       wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ), 421UL );
@@ -739,19 +743,23 @@ main( int argc, char ** argv ) {
     fd_snapshot_load( snapshotfiles, slot_ctx );
   }
 
-  slot_ctx->slot_bank.slot           = startslot + 1;
+  startslot = slot_ctx->slot_bank.slot;
   slot_ctx->slot_bank.prev_slot      = startslot;
+  slot_ctx->slot_bank.slot++;
+
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
   fd_features_restore( slot_ctx );
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
+  fd_calculate_epoch_accounts_hash_values ( slot_ctx );
 
   /**********************************************************************/
   /* Blockstore                                                         */
   /**********************************************************************/
 
   fd_blockstore_t blockstore = { 0 };
+  blockstore.first_block = ULONG_MAX;
 
   void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
   fd_alloc_t * alloc     = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 0UL );
@@ -774,48 +782,40 @@ main( int argc, char ** argv ) {
 
   int lg_slot_cnt = 10; // 1024 slots of history
 
-  uchar * blockstore_slot_meta_mem =
+  uchar * blockstore_slot_meta_map_mem =
       (uchar *)fd_wksp_alloc_laddr( wksp,
                                     fd_blockstore_slot_meta_map_align(),
                                     fd_blockstore_slot_meta_map_footprint( lg_slot_cnt ),
                                     1UL );
+  fd_memset(
+      blockstore_slot_meta_map_mem, 0, fd_blockstore_slot_meta_map_footprint( lg_slot_cnt ) );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_blockstore_slot_meta_map_join(
-      fd_blockstore_slot_meta_map_new( blockstore_slot_meta_mem, lg_slot_cnt ) );
+      fd_blockstore_slot_meta_map_new( blockstore_slot_meta_map_mem, lg_slot_cnt ) );
   FD_TEST( slot_meta_map );
   blockstore.slot_meta_map = slot_meta_map;
 
-  uchar * blockstore_block_mem =
+  uchar * blockstore_block_map_mem =
       (uchar *)fd_wksp_alloc_laddr( wksp,
                                     fd_blockstore_block_map_align(),
                                     fd_blockstore_block_map_footprint( lg_slot_cnt ),
                                     1UL );
+  fd_memset( blockstore_block_map_mem, 0, fd_blockstore_block_map_footprint( lg_slot_cnt ) );
   fd_blockstore_block_map_t * block_map = fd_blockstore_block_map_join(
-      fd_blockstore_block_map_new( blockstore_block_mem, lg_slot_cnt ) );
+      fd_blockstore_block_map_new( blockstore_block_map_mem, lg_slot_cnt ) );
   FD_TEST( block_map );
   blockstore.block_map = block_map;
 
   int lg_txn_cnt = 20; // 1M transactions
 
-  uchar * blockstore_txn_mem =
-      (uchar *)fd_wksp_alloc_laddr( wksp,
-                                    fd_blockstore_txn_map_align(),
-                                    fd_blockstore_txn_map_footprint( lg_txn_cnt ),
-                                    1UL );
-  fd_blockstore_txn_map_t * txn_map = fd_blockstore_txn_map_join(
-      fd_blockstore_txn_map_new( blockstore_txn_mem, lg_txn_cnt ) );
+  uchar * blockstore_txn_map_mem = (uchar *)fd_wksp_alloc_laddr(
+      wksp, fd_blockstore_txn_map_align(), fd_blockstore_txn_map_footprint( lg_txn_cnt ), 1UL );
+  fd_memset( blockstore_txn_map_mem, 0, fd_blockstore_txn_map_footprint( lg_txn_cnt ) );
+  fd_blockstore_txn_map_t * txn_map =
+      fd_blockstore_txn_map_join( fd_blockstore_txn_map_new( blockstore_txn_map_mem, lg_txn_cnt ) );
   FD_TEST( txn_map );
   blockstore.txn_map = txn_map;
 
   if( FD_UNLIKELY( startslot != 0 ) ) blockstore.consumed = startslot;
-
-#ifdef FD_HAS_LIBMICROHTTP
-  /**********************************************************************/
-  /* rpc service                                                        */
-  /**********************************************************************/
-  rpc_ctx = fd_rpc_alloc_ctx(funk, &blockstore, valloc);
-  ushort rpc_port = fd_env_strip_cmdline_ushort(&argc, &argv, "--rpc-port", NULL, 8899U);
-  fd_rpc_start_service(rpc_port, rpc_ctx);
-#endif
 
   /**********************************************************************/
   /* Identity                                                           */
@@ -826,6 +826,15 @@ main( int argc, char ** argv ) {
   fd_sha512_t sha[1];
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
+
+#ifdef FD_HAS_LIBMICROHTTP
+  /**********************************************************************/
+  /* rpc service                                                        */
+  /**********************************************************************/
+  rpc_ctx         = fd_rpc_alloc_ctx( funk, &blockstore, &public_key, valloc );
+  ushort rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
+  fd_rpc_start_service( rpc_port, rpc_ctx );
+#endif
 
   /**********************************************************************/
   /* Peers                                                           */
@@ -926,15 +935,16 @@ main( int argc, char ** argv ) {
                 &blockstore,
                 &stopflag,
                 argc,
-                argv ) )
+                argv ) ) {
     return 1;
+  }
 
   /***********************************************************************/
   /* Cleanup                                                             */
   /***********************************************************************/
 
 #ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_stop_service(rpc_ctx);
+  fd_rpc_stop_service( rpc_ctx );
   fd_valloc_free( valloc, rpc_ctx );
 #endif
   fd_valloc_free( valloc, fd_gossip_delete( fd_gossip_leave( gossip ), valloc ) );

@@ -254,6 +254,7 @@ int main(int argc, char **argv) {
   FD_TEST( resolve_hostport(my_addr, &config.my_addr) );
 
   config.deliver_fun = recv_shred;
+  config.deliver_fail_fun = deliver_fail_fun;
   config.send_fun = send_packet;
   config.deliver_fail_fun = deliver_fail_fun;
 

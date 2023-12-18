@@ -56,6 +56,9 @@ void json_add_value(struct json_values* values, struct json_path* path, const vo
 // isn't found
 const void* json_get_value(struct json_values* values, const uint* path, uint path_sz, ulong* data_sz);
 
+// Version that allows iterative retrieval. *pos should be initialized to zero.
+const void* json_get_value_multi(struct json_values* values, const uint* path, uint path_sz, ulong* data_sz, uint * pos);
+
 // Dump the values and paths to stdout
 void json_values_printout(struct json_values* values);
 

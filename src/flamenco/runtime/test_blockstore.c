@@ -1,7 +1,7 @@
 #include "fd_blockstore.h"
 
 int
-test_query_missing_shreds( fd_blockstore_t * blockstore ) {
+test_missing_shreds_query( fd_blockstore_t * blockstore ) {
   fd_blockstore_shred_idx_set_t missing_shreds = { 0 };
 
   fd_slot_meta_t slot_meta = {

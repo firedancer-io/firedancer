@@ -135,7 +135,7 @@ dump_block( global_state_t * state ) {
   ctx3.data = val;
   ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
   ctx3.valloc  = state->slot_ctx->valloc;
-  
+
   fd_slot_meta_t m;
   if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_slot_meta_decode failed"));
@@ -169,7 +169,7 @@ replay( global_state_t * state,
   state->tpool = tpool;
   state->max_workers = max_workers;
 
-  ulong  smax = 512 /*MiB*/ << 20;
+  ulong  smax = 256 /*MiB*/ << 20;
   void * smem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_smem_align(), smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
   ulong  scratch_depth = 128UL;
@@ -533,7 +533,7 @@ main( int     argc,
     int err = dump_block(&state);
     if( err!=0 ) return err;
   }
-  
+
   if (strcmp(state.cmd, "replay") == 0) {
     int err = replay(&state, 0, tpool, tcnt);
     if( err!=0 ) return err;

@@ -546,7 +546,7 @@ fd_runtime_execute_txn_task(void *tpool,
   fd_execute_txn_task_info_t *task_info = (fd_execute_txn_task_info_t *)tpool + m0;
 
   fd_txn_t const *txn = task_info->txn_ctx.txn_descriptor;
-  fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx._txn_raw;  
+  fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx._txn_raw;
   FD_LOG_DEBUG(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx.slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
 
   task_info->exec_res = fd_execute_txn(&task_info->txn_ctx);
@@ -1119,7 +1119,7 @@ int fd_runtime_microblock_batch_verify(fd_microblock_batch_info_t const *microbl
 // TODO: add back in the total_hashes == bank.hashes_per_slot
 // TODO: add solana txn verify to this as well since, again, it can be
 // done in parallel...
-int 
+int
 fd_runtime_block_verify(fd_block_info_t const *block_info,
                             fd_hash_t const *in_poh_hash,
                             fd_hash_t *out_poh_hash) {
@@ -1143,7 +1143,7 @@ fd_runtime_block_verify(fd_block_info_t const *block_info,
 //   child_slot_ctx->slot_bank.max_tick_height = (slot + 1) * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
 // }
 
-int 
+int
 fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 fd_capture_ctx_t *capture_ctx,
                                 void const *block,
@@ -1227,13 +1227,13 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   return 0;
 }
 
-ulong 
+ulong
 fd_runtime_lamports_per_signature( fd_slot_bank_t const *slot_bank ) {
   // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
   return slot_bank->fee_rate_governor.target_lamports_per_signature / 2;
 }
 
-ulong 
+ulong
 fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
                                                  fd_hash_t const * blockhash ) {
 
@@ -1247,8 +1247,8 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot
   }
 
   fd_block_block_hash_entry_t *hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
-  for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init(hashes); 
-       !deq_fd_block_block_hash_entry_t_iter_done(hashes, iter); 
+  for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init(hashes);
+       !deq_fd_block_block_hash_entry_t_iter_done(hashes, iter);
        iter = deq_fd_block_block_hash_entry_t_iter_next(hashes, iter) ) {
     fd_block_block_hash_entry_t *curr_elem = deq_fd_block_block_hash_entry_t_iter_ele(hashes, iter);
     if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
@@ -1833,7 +1833,7 @@ fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &slot_ctx->epoch_ctx->epoch_bank.rent );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
 
-  FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", 
+  FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu",
       slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
   if( rent_to_be_distributed == 0 ) {
     return;
@@ -1884,7 +1884,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.collected_rent = 0;
 }
 
-fd_funk_rec_key_t 
+fd_funk_rec_key_t
 fd_runtime_block_key( ulong slot ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 0, sizeof(id));
