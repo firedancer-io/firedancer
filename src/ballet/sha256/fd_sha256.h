@@ -254,7 +254,7 @@ fd_sha256_batch_abort( fd_sha256_batch_t * batch );
 #ifndef FD_SHA256_BATCH_IMPL
 #if FD_HAS_AVX512
 #define FD_SHA256_BATCH_IMPL 2
-#elif FD_HAS_AVX
+#elif FD_HAS_AVX && !defined(__tune_znver1__) && !defined(__tune_znver2__) && !defined(__tune_znver3__)
 #define FD_SHA256_BATCH_IMPL 1
 #else
 #define FD_SHA256_BATCH_IMPL 0
