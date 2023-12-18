@@ -18,19 +18,24 @@
 #define NEXT_TOKEN                                                      \
   do {                                                                  \
     prevpos = lex->pos;                                                 \
+    prevtoken = lex->last_tok;                                          \
     token = json_lex_next_token(lex);                                   \
     if (token == JSON_TOKEN_ERROR) {                                    \
-      fd_web_replier_error(replier, json_lex_get_text(lex, NULL));        \
+      fd_web_replier_error(replier, json_lex_get_text(lex, NULL));      \
       CLEANUP                                                           \
       return 0;                                                         \
     }                                                                   \
   } while (0)
 
+#define UNNEXT_TOKEN                                                    \
+  lex->pos = prevpos;                                                   \
+  lex->last_tok = prevtoken;
+
 // Report a json parsing syntax error
 #define SYNTAX_ERROR(format, ...)                                       \
   do {                                                                  \
     snprintf(message, sizeof(message), format, __VA_ARGS__);            \
-    fd_web_replier_error(replier, message);                               \
+    fd_web_replier_error(replier, message);                             \
     CLEANUP                                                             \
     return 0;                                                           \
   } while (0)
@@ -40,9 +45,11 @@
 // Parse a generic json value. The values argument is used for storing
 // leaf values for later access. path describes the path through the
 // json syntax tree to this value.
-int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* lex, struct json_values* values, struct json_path* path) {
+int
+json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* lex, struct json_values* values, struct json_path* path) {
   ulong prevpos;
   long token;
+  long prevtoken;
   char message[128];
 
   // Prepare to update the path to include a new element
@@ -147,8 +154,26 @@ int json_parse_params_value(struct fd_web_replier* replier, json_lex_state_t* le
     json_add_value(values, path, NULL, 0);
     break;
 
+  case JSON_TOKEN_RBRACKET:
+    if (prevtoken == JSON_TOKEN_LBRACKET) {      
+      /* Empty array */
+      UNNEXT_TOKEN;
+      break;
+    }
+    SYNTAX_ERROR("unexpected ']' at position %lu", prevpos);
+    break;
+    
+  case JSON_TOKEN_RBRACE:
+    if (prevtoken == JSON_TOKEN_LBRACE) {
+      /* Empty object */
+      UNNEXT_TOKEN;
+      break;
+    }
+    SYNTAX_ERROR("unexpected '}' at position %lu", prevpos);
+    break;
+    
   default:
-    SYNTAX_ERROR("expected parameter value at position %lu", prevpos);
+    SYNTAX_ERROR("expected json value at position %lu", prevpos);
   }
 
   path->len --;

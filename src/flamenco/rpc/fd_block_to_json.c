@@ -270,6 +270,8 @@ int fd_block_to_json( fd_textstream_t * ts,
                       long maxvers,
                       enum fd_block_detail detail,
                       int rewards ) {
+  FD_LOG_DEBUG(("converting ptr 0x%lx, sz %lu", block, block_sz));
+  
   (void)stat_block;
   (void)stat_block_sz;
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
@@ -296,9 +298,11 @@ int fd_block_to_json( fd_textstream_t * ts,
         uchar txn_out[FD_TXN_MAX_SZ];
         ulong pay_sz = 0;
         const uchar* raw = (const uchar *)block + blockoff;
-        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(block_sz - blockoff, USHORT_MAX), txn_out, NULL, &pay_sz, 0);
+        ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(block_sz - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz, 0);
         if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
-          FD_LOG_ERR(("failed to parse transaction"));
+          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu",
+                        txn_idx,
+                        mblk ) );
 
         if (first_txn) {
           first_txn = 0;

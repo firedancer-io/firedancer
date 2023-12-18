@@ -43,7 +43,6 @@ $(call make-unit-test,test_sysvar_epoch_schedule,sysvar/test_sysvar_epoch_schedu
 $(call make-unit-test,test_sysvar_rent,sysvar/test_sysvar_rent,fd_flamenco fd_funk fd_ballet fd_util)  # This should not depend on funk!
 $(call make-unit-test,test_bpf_loader_v4_program,program/test_bpf_loader_v4_program,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_blockstore,test_blockstore,fd_flamenco fd_funk fd_ballet fd_util)
-$(call make-unit-test,test_tvu_blockstore,test_tvu_blockstore,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_tvu,test_tvu,fd_flamenco fd_funk fd_ballet fd_util fd_tango)
 
 $(call run-unit-test,test_sysvar_rent)

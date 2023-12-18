@@ -171,7 +171,7 @@ int fd_textstream_encode_base58( fd_textstream_t * strm,
                                  const void *      data,
                                  ulong             data_sz ) {
   /* Prevent explosive growth in computation */
-  if (data_sz > (1U<<16))
+  if (data_sz > 129U)
     return -1;
 
   const uchar* bin = (const uchar*)data;

@@ -8,7 +8,7 @@
 
 typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 
-fd_rpc_ctx_t * fd_rpc_alloc_ctx(fd_funk_t * funk, fd_blockstore_t * blks, fd_valloc_t valloc);
+fd_rpc_ctx_t * fd_rpc_alloc_ctx(fd_funk_t * funk, fd_blockstore_t * blks, fd_pubkey_t * identity, fd_valloc_t valloc);
 
 void fd_rpc_set_slot(fd_rpc_ctx_t * ctx, ulong slot);
 

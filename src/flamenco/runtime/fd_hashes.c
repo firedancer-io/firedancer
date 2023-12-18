@@ -289,7 +289,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     rec_cnt++;
   }
-  
+
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 
@@ -297,7 +297,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   fd_ristretto255_point_t rhash;
   fd_ristretto255_extended_frombytes( &rhash, slot_ctx->slot_bank.rhash );
 #endif
- 
+
   fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, rec_cnt * FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT );
   fd_funk_rec_t const * * erase_recs = fd_valloc_malloc( slot_ctx->valloc, 8UL, rec_cnt * sizeof(fd_funk_rec_t *) );
 

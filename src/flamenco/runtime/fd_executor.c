@@ -134,7 +134,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         FD_LOG_DEBUG(( "lut acc writable: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, writable_lut_idxs[j], &lookup_addrs[writable_lut_idxs[j]] ));
         txn_ctx->accounts[txn_ctx->accounts_cnt++] = lookup_addrs[writable_lut_idxs[j]];
       }
-      
+
       uchar * readonly_lut_idxs = (uchar *)txn_ctx->_txn_raw->raw + addr_lut->readonly_off;
       for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
         FD_LOG_DEBUG(( "lut acc readonly: idx: %3lu, acc: %32J, lut_idx: %3lu, acct_idx: %3lu, %32J", i, addr_lut_acc, j, readonly_lut_idxs[j], &lookup_addrs[readonly_lut_idxs[j]] ));
@@ -449,7 +449,7 @@ fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
 /* Stuff to be done before multithreading can begin */
 int
 fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                        fd_exec_txn_ctx_t * txn_ctx, 
+                        fd_exec_txn_ctx_t * txn_ctx,
                         fd_txn_t const * txn_descriptor,
                         fd_rawtxn_b_t const * txn_raw ) {
   fd_exec_txn_ctx_new( txn_ctx );
@@ -493,7 +493,7 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
 
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_exec_txn_ctx_t * txn_ctx,
                                fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw ) {
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
@@ -502,7 +502,7 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_memcpy( xid.uc, sig0, sizeof( fd_funk_txn_xid_t ) );
   fd_funk_txn_t * txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
-  
+
   txn_ctx->funk_txn = txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
   /* Update rent exempt on writable accounts if feature activated
@@ -615,7 +615,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       int exec_result = fd_execute_instr( &instrs[i], txn_ctx );
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
-        FD_LOG_DEBUG(( "fd_execute_instr failed (%d)", exec_result ));
+        if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR)
+          FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d)", exec_result, txn_ctx->custom_err ));
+        else
+          FD_LOG_WARNING(( "fd_execute_instr failed (%d)", exec_result ));
         if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
           if( ret != FD_ACC_MGR_SUCCESS ) {
@@ -666,7 +669,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
   fd_rent_t const * rent = slot_ctx->sysvar_cache.rent;
-  
+
   ulong ending_lamports = 0;
   ulong ending_dlen = 0;
   ulong starting_lamports = 0;

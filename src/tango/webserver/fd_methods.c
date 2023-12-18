@@ -79,6 +79,29 @@ const void* json_get_value(struct json_values* values, const uint* path_elems, u
   return NULL;
 }
 
+const void* json_get_value_multi(struct json_values* values, const uint* path_elems, uint path_sz, ulong* data_sz, uint * pos) {
+  // Loop through the values
+  for (uint i = *pos; i < values->num_values; ++i) {
+    // Compare paths
+    struct json_path* path = &values->values[i].path;
+    if (path->len == path_sz) {
+      for (uint j = 0; ; ++j) {
+        if (j == path_sz) {
+          *data_sz = values->values[i].data_sz;
+          *pos = j+1;
+          return values->buf + values->values[i].data_offset;
+        }
+        if (path->elems[j] != path_elems[j])
+          break;
+      }
+    }
+  }
+  // Not found
+  *data_sz = 0;
+  *pos = values->num_values;
+  return NULL;
+}
+
 // Dump the values and paths to stdout
 void json_values_printout(struct json_values* values) {
   for (uint i = 0; i < values->num_values; ++i) {
