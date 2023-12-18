@@ -40,7 +40,7 @@ struct fd_quic_stream {
 
   fd_quic_buffer_t tx_buf;     /* transmit buffer */
   uchar *          tx_ack;     /* ack - 1 bit per byte of tx_buf */
-  ulong            tx_sent;    /* first unsent byte of tx_buf */
+  ulong            tx_sent;    /* stream offset of first unsent byte of tx_buf */
 
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
@@ -85,6 +85,8 @@ struct fd_quic_stream {
 
   ulong  rx_max_stream_data; /* the limit on the number of bytes we allow the peer to
                                   send to us */
+  ulong  rx_max_stream_data_ackd;
+                             /* the largest acked value of rx_max_stream_data */
   ulong  rx_tot_data;        /* the total number of bytes received on this stream */
 
   /* last tx packet num with max_stream_data frame referring to this stream

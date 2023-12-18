@@ -30,21 +30,29 @@ struct fd_quic_range {
  */
 union fd_quic_pkt_meta_key {
   union {
-    ulong stream_id:62;
+    ulong stream_id;
     struct {
       ulong flags:62;
       ulong type:2;
-#define FD_QUIC_PKT_META_TYPE_OTHER           0
-#define FD_QUIC_PKT_META_TYPE_STREAM_DATA     1
-#define FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA 2
+#define FD_QUIC_PKT_META_TYPE_OTHER           0UL
+#define FD_QUIC_PKT_META_TYPE_STREAM_DATA     1UL
+#define FD_QUIC_PKT_META_TYPE_MAX_STREAM_DATA 2UL
     };
+#define FD_QUIC_PKT_META_KEY( TYPE, FLAGS, STREAM_ID ) \
+    ((fd_quic_pkt_meta_key_t)                          \
+     { .stream_id = ( ( (ulong)(STREAM_ID) )    |      \
+                      ( (ulong)(TYPE) << 62UL ) |      \
+                      ( (ulong)(FLAGS) ) ) } )
   };
 };
 typedef union fd_quic_pkt_meta_key fd_quic_pkt_meta_key_t;
 
 struct fd_quic_pkt_meta_var {
   fd_quic_pkt_meta_key_t key;
-  ulong                  value;
+  union {
+    ulong                value;
+    fd_quic_range_t      range;
+  };
 };
 typedef struct fd_quic_pkt_meta_var fd_quic_pkt_meta_var_t;
 
@@ -123,7 +131,6 @@ struct fd_quic_pkt_meta_pool {
 
   /* one of each of these for each enc_level */
   fd_quic_pkt_meta_list_t sent[4]; /* sent pkt_meta */
-  fd_quic_pkt_meta_list_t pend[4]; /* pending pkt_meta */
 };
 
 
