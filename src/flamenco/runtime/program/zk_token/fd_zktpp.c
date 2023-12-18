@@ -10,7 +10,7 @@ struct __attribute__((packed)) fd_zktpp_proof_ctx_state_meta {
 typedef struct fd_zktpp_proof_ctx_state_meta fd_zktpp_proof_ctx_state_meta_t;
 
 int
-fd_zktpp_process_close_proof_context( fd_exec_instr_ctx_t ctx ) {
+fd_zktpp_process_close_context_state( fd_exec_instr_ctx_t ctx ) {
   fd_pubkey_t const * txn_accs       = ctx.txn_ctx->accounts;
   uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
   ulong               instr_acc_cnt  = ctx.instr->acct_cnt;

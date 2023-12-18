@@ -1,32 +1,9 @@
 #include "../fd_zktpp_private.h"
-#include "../transcript/fd_zktpp_transcript.h"
-// #include "../bulletproofs/fd_bulletproofs.h"
-// #include "../encryption/fd_zktpp_encryption.h"
-// #include "../twisted_elgamal/fd_twisted_elgamal.h"
-
-typedef struct fd_zktpp_transfer_pubkeys {
-  uchar source[ 32 ];      // point
-  uchar destination[ 32 ]; // point
-  uchar auditor[ 32 ];     // point
-} fd_zktpp_transfer_pubkeys_t;
-
-typedef struct fd_zktpp_transfer_context {
-  uchar                       ciphertext_lo[ 128 ];        // 4x points
-  uchar                       ciphertext_hi[ 128 ];        // 4x points
-  fd_zktpp_transfer_pubkeys_t transfer_pubkeys;            // 3x points: source, destination, auditor
-  uchar                       new_source_ciphertext[ 64 ]; // 2x points
-} fd_zktpp_transfer_context_t;
-
-typedef struct fd_zktpp_transfer_proof {
-  uchar                         new_source_commitment[ 32 ]; // point
-  fd_zktpp_ciph_comm_eq_proof_t equality_proof;              // ciphertext_commitment_equality == 192 bytes
-  uchar                         validity_proof[ 32 ];        // TODO
-  uchar                         range_proof[ 32 ];           // TODO
-} fd_zktpp_transfer_proof_t;
+#include "fd_zktpp_ciphertext_commitment_equality.h"
 
 int
 fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void const *_proof ) {
-  fd_zktpp_transcript_t         transcript[1];
+  fd_zktpp_transcript_t               transcript[1];
   fd_zktpp_transfer_context_t const * context = _context;
   fd_zktpp_transfer_proof_t const *   proof = _proof;
   int zkp_res = 0;

@@ -22,7 +22,7 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
        - consume CU
        - Log "CloseContextState"
        https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/src/lib.rs#L158-L163 */
-    return fd_zktpp_process_close_proof_context( ctx );
+    return fd_zktpp_process_close_context_state( ctx );
   case FD_ZKTPP_INSTR_VERIFY_ZERO_BALANCE:
   case FD_ZKTPP_INSTR_VERIFY_WITHDRAW:
   case FD_ZKTPP_INSTR_VERIFY_CIPHERTEXT_CIPHERTEXT_EQUALITY:
