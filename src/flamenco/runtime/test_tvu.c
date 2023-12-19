@@ -215,10 +215,6 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     fd_blockstore_block_t * block = fd_blockstore_block_query( blockstore, slot_meta->slot );
     if( FD_UNLIKELY( !block ) ) FD_LOG_ERR( ( "block is missing after receiving all shreds" ) );
 
-#ifdef FD_HAS_LIBMICROHTTP
-    fd_rpc_set_slot( rpc_ctx, slot_meta->slot );
-#endif
-
     // TODO move this somewhere more reasonable... separate replay tile that reads off mcache /
     // dcache?
     // FD_TEST(
@@ -831,7 +827,7 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* rpc service                                                        */
   /**********************************************************************/
-  rpc_ctx         = fd_rpc_alloc_ctx( funk, &blockstore, &public_key, valloc );
+  rpc_ctx         = fd_rpc_alloc_ctx( funk, &blockstore, &public_key, slot_ctx, valloc );
   ushort rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
   fd_rpc_start_service( rpc_port, rpc_ctx );
 #endif

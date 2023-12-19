@@ -36,8 +36,8 @@ struct fd_rpc_ctx {
   fd_funk_t * funk;
   fd_blockstore_t * blks;
   fd_pubkey_t * identity;
+  fd_exec_slot_ctx_t * slot_ctx;
   long call_id;
-  ulong slot;
 };
 
 // Implementation of the "getAccountInfo" method
@@ -63,7 +63,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
-                          ctx->slot, ctx->call_id);
+                          ctx->slot_ctx->slot_bank.slot, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
   }
@@ -141,7 +141,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   }
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":[\"",
-                        ctx->slot);
+                        ctx->slot_ctx->slot_bank.slot);
 
   if (val_sz) {
     switch (enc) {
@@ -205,7 +205,7 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
-                        ctx->slot, metadata->info.lamports, ctx->call_id);
+                        ctx->slot_ctx->slot_bank.slot, metadata->info.lamports, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
@@ -307,6 +307,36 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   return 0;
 }
 
+// Implementation of the "getBlockCommitment" methods
+static int
+method_getBlockCommitment(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getBlockCommitment is not implemented");
+  return 0;
+}
+
+// Implementation of the "getBlockHeight" method
+static int
+method_getBlockHeight(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                        ctx->slot_ctx->slot_bank.block_height,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
+  return 0;
+}
+
+// Implementation of the "getBlockProduction" methods
+static int
+method_getBlockProduction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getBlockProduction is not implemented");
+  return 0;
+}
+
 // Implementation of the "getBlocks" method
 static int
 method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -329,12 +359,12 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   };
   ulong endslot_sz = 0;
   const void* endslot = json_get_value(values, PATH_ENDSLOT, 3, &endslot_sz);
-  ulong endslotn = (endslot == NULL ? ctx->slot : (ulong)(*(long*)endslot));
+  ulong endslotn = (endslot == NULL ? ctx->slot_ctx->slot_bank.slot : (ulong)(*(long*)endslot));
 
   if (startslotn < ctx->blks->first_block)
     startslotn = ctx->blks->first_block;
-  if (endslotn > ctx->slot)
-    endslotn = ctx->slot;
+  if (endslotn > ctx->slot_ctx->slot_bank.slot)
+    endslotn = ctx->slot_ctx->slot_bank.slot;
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
@@ -388,7 +418,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-  for ( ulong i = startslotn; i <= ctx->slot && cnt < limitn; ++i ) {
+  for ( ulong i = startslotn; i <= ctx->slot_ctx->slot_bank.slot && cnt < limitn; ++i ) {
     fd_blockstore_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -401,6 +431,163 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   return 0;
 }
 
+// Implementation of the "getBlockTime" methods
+static int
+method_getBlockTime(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getBlockTime is not implemented");
+  return 0;
+}
+
+// Implementation of the "getClusterNodes" methods
+static int
+method_getClusterNodes(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getClusterNodes is not implemented");
+  return 0;
+}
+
+// Implementation of the "getConfirmedBlock" methods
+static int
+method_getConfirmedBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getConfirmedBlock is not implemented");
+  return 0;
+}
+
+// Implementation of the "getConfirmedBlocks" methods
+static int
+method_getConfirmedBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getConfirmedBlocks is not implemented");
+  return 0;
+}
+
+// Implementation of the "getConfirmedBlocksWithLimit" methods
+static int
+method_getConfirmedBlocksWithLimit(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getConfirmedBlocksWithLimit is not implemented");
+  return 0;
+}
+
+// Implementation of the "getConfirmedSignaturesForAddress2" methods
+static int
+method_getConfirmedSignaturesForAddress2(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getConfirmedSignaturesForAddress2 is not implemented");
+  return 0;
+}
+
+// Implementation of the "getConfirmedTransaction" methods
+static int
+method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getConfirmedTransaction is not implemented");
+  return 0;
+}
+
+// Implementation of the "getEpochInfo" methods
+// TODO
+static int
+method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getEpochInfo is not implemented");
+  return 0;
+}
+
+// Implementation of the "getEpochSchedule" methods
+// TODO
+static int
+method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getEpochSchedule is not implemented");
+  return 0;
+}
+
+// Implementation of the "getFeeCalculatorForBlockhash" methods
+static int
+method_getFeeCalculatorForBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getFeeCalculatorForBlockhash is not implemented");
+  return 0;
+}
+
+// Implementation of the "getFeeForMessage" methods
+static int
+method_getFeeForMessage(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getFeeForMessage is not implemented");
+  return 0;
+}
+
+// Implementation of the "getFeeRateGovernor" methods
+static int
+method_getFeeRateGovernor(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getFeeRateGovernor is not implemented");
+  return 0;
+}
+
+// Implementation of the "getFees" methods
+static int
+method_getFees(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getFees is not implemented");
+  return 0;
+}
+
+// Implementation of the "getFirstAvailableBlock" methods
+static int
+method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getFirstAvailableBlock is not implemented");
+  return 0;
+}
+
+// Implementation of the "getGenesisHash" methods
+// TODO
+static int
+method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getGenesisHash is not implemented");
+  return 0;
+}
+
+// Implementation of the "getHealth" methods
+// TODO
+static int
+method_getHealth(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getHealth is not implemented");
+  return 0;
+}
+
+// Implementation of the "getHighestSnapshotSlot" methods
+static int
+method_getHighestSnapshotSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getHighestSnapshotSlot is not implemented");
+  return 0;
+}
+
 // Implementation of the "getIdentity" method
 static int
 method_getIdentity(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -410,6 +597,90 @@ method_getIdentity(struct fd_web_replier* replier, struct json_values* values, f
   fd_textstream_encode_base58(ts, ctx->identity->uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\"},\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
+  return 0;
+}
+// Implementation of the "getInflationGovernor" methods
+static int
+method_getInflationGovernor(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getInflationGovernor is not implemented");
+  return 0;
+}
+
+// Implementation of the "getInflationRate" methods
+// TODO
+static int
+method_getInflationRate(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getInflationRate is not implemented");
+  return 0;
+}
+
+// Implementation of the "getInflationReward" methods
+static int
+method_getInflationReward(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getInflationReward is not implemented");
+  return 0;
+}
+
+// Implementation of the "getLargestAccounts" methods
+static int
+method_getLargestAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getLargestAccounts is not implemented");
+  return 0;
+}
+
+// Implementation of the "getLatestBlockhash" methods
+// TODO
+static int
+method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getLatestBlockhash is not implemented");
+  return 0;
+}
+
+// Implementation of the "getLeaderSchedule" methods
+// TODO
+static int
+method_getLeaderSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getLeaderSchedule is not implemented");
+  return 0;
+}
+
+// Implementation of the "getMaxRetransmitSlot" methods
+static int
+method_getMaxRetransmitSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getMaxRetransmitSlot is not implemented");
+  return 0;
+}
+
+// Implementation of the "getMaxShredInsertSlot" methods
+static int
+method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getMaxShredInsertSlot is not implemented");
+  return 0;
+}
+
+// Implementation of the "getMinimumBalanceForRentExemption" methods
+// TODO
+static int
+method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getMinimumBalanceForRentExemption is not implemented");
   return 0;
 }
 
@@ -440,7 +711,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        ctx->slot);
+                        ctx->slot_ctx->slot_bank.slot);
 
   // Iterate through account ids
   for ( ulong i = 0; ; ++i ) {
@@ -520,6 +791,174 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
   return 0;
 }
 
+// Implementation of the "getProgramAccounts" methods
+static int
+method_getProgramAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getProgramAccounts is not implemented");
+  return 0;
+}
+
+// Implementation of the "getRecentBlockhash" methods
+static int
+method_getRecentBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getRecentBlockhash is not implemented");
+  return 0;
+}
+
+// Implementation of the "getRecentPerformanceSamples" methods
+static int
+method_getRecentPerformanceSamples(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getRecentPerformanceSamples is not implemented");
+  return 0;
+}
+
+// Implementation of the "getRecentPrioritizationFees" methods
+static int
+method_getRecentPrioritizationFees(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getRecentPrioritizationFees is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSignaturesForAddress" methods
+static int
+method_getSignaturesForAddress(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSignaturesForAddress is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSignatureStatuses" methods
+// TODO
+static int
+method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSignatureStatuses is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSlot" method
+static int
+method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                        ctx->slot_ctx->slot_bank.slot,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
+  return 0;
+}
+
+// Implementation of the "getSlotLeader" methods
+// TODO
+static int
+method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSlotLeader is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSlotLeaders" methods
+static int
+method_getSlotLeaders(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSlotLeaders is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSnapshotSlot" methods
+static int
+method_getSnapshotSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSnapshotSlot is not implemented");
+  return 0;
+}
+
+// Implementation of the "getStakeActivation" methods
+static int
+method_getStakeActivation(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getStakeActivation is not implemented");
+  return 0;
+}
+
+// Implementation of the "getStakeMinimumDelegation" methods
+static int
+method_getStakeMinimumDelegation(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getStakeMinimumDelegation is not implemented");
+  return 0;
+}
+
+// Implementation of the "getSupply" methods
+// TODO
+static int
+method_getSupply(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getSupply is not implemented");
+  return 0;
+}
+
+// Implementation of the "getTokenAccountBalance" methods
+static int
+method_getTokenAccountBalance(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTokenAccountBalance is not implemented");
+  return 0;
+}
+
+// Implementation of the "getTokenAccountsByDelegate" methods
+static int
+method_getTokenAccountsByDelegate(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTokenAccountsByDelegate is not implemented");
+  return 0;
+}
+
+// Implementation of the "getTokenAccountsByOwner" methods
+static int
+method_getTokenAccountsByOwner(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTokenAccountsByOwner is not implemented");
+  return 0;
+}
+
+// Implementation of the "getTokenLargestAccounts" methods
+static int
+method_getTokenLargestAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTokenLargestAccounts is not implemented");
+  return 0;
+}
+
+// Implementation of the "getTokenSupply" methods
+static int
+method_getTokenSupply(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTokenSupply is not implemented");
+  return 0;
+}
+
 // Implementation of the "getTransaction" method
 static int
 method_getTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
@@ -586,11 +1025,86 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     FD_LOG_ERR(("failed to parse transaction"));
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                        ctx->slot, blk->ts/(long)1e9, elem->slot);
+                        ctx->slot_ctx->slot_bank.slot, blk->ts/(long)1e9, elem->slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, NULL, 0, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);
+  return 0;
+}
+
+// Implementation of the "getTransactionCount" methods
+static int
+method_getTransactionCount(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getTransactionCount is not implemented");
+  return 0;
+}
+
+// Implementation of the "getVersion" method
+static int
+method_getVersion(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  /* TODO Where does feature-set come from? */
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"feature-set\":666,\"solana-core\":\"" API_VERSION "\"},\"id\":%lu}" CRLF,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
+  return 0;
+}
+
+// Implementation of the "getVoteAccounts" methods
+static int
+method_getVoteAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "getVoteAccounts is not implemented");
+  return 0;
+}
+
+// Implementation of the "isBlockhashValid" methods
+static int
+method_isBlockhashValid(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "isBlockhashValid is not implemented");
+  return 0;
+}
+
+// Implementation of the "minimumLedgerSlot" methods
+static int
+method_minimumLedgerSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "minimumLedgerSlot is not implemented");
+  return 0;
+}
+
+// Implementation of the "requestAirdrop" methods
+static int
+method_requestAirdrop(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "requestAirdrop is not implemented");
+  return 0;
+}
+
+// Implementation of the "sendTransaction" methods
+static int
+method_sendTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "sendTransaction is not implemented");
+  return 0;
+}
+
+// Implementation of the "simulateTransaction" methods
+static int
+method_simulateTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
+  (void)values;
+  (void)ctx;
+  fd_web_replier_error(replier, "simulateTransaction is not implemented");
   return 0;
 }
 
@@ -651,6 +1165,18 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getBlock(replier, values, &ctx))
       return;
     break;
+  case KEYW_RPCMETHOD_GETBLOCKCOMMITMENT:
+    if (!method_getBlockCommitment(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETBLOCKHEIGHT:
+    if (!method_getBlockHeight(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETBLOCKPRODUCTION:
+    if (!method_getBlockProduction(replier, values, &ctx))
+      return;
+    break;
   case KEYW_RPCMETHOD_GETBLOCKS:
     if (!method_getBlocks(replier, values, &ctx))
       return;
@@ -659,16 +1185,224 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
     if (!method_getBlocksWithLimit(replier, values, &ctx))
       return;
     break;
+  case KEYW_RPCMETHOD_GETBLOCKTIME:
+    if (!method_getBlockTime(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCLUSTERNODES:
+    if (!method_getClusterNodes(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCK:
+    if (!method_getConfirmedBlock(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKS:
+    if (!method_getConfirmedBlocks(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCONFIRMEDBLOCKSWITHLIMIT:
+    if (!method_getConfirmedBlocksWithLimit(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCONFIRMEDSIGNATURESFORADDRESS2:
+    if (!method_getConfirmedSignaturesForAddress2(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETCONFIRMEDTRANSACTION:
+    if (!method_getConfirmedTransaction(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETEPOCHINFO:
+    if (!method_getEpochInfo(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETEPOCHSCHEDULE:
+    if (!method_getEpochSchedule(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETFEECALCULATORFORBLOCKHASH:
+    if (!method_getFeeCalculatorForBlockhash(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETFEEFORMESSAGE:
+    if (!method_getFeeForMessage(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETFEERATEGOVERNOR:
+    if (!method_getFeeRateGovernor(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETFEES:
+    if (!method_getFees(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETFIRSTAVAILABLEBLOCK:
+    if (!method_getFirstAvailableBlock(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETGENESISHASH:
+    if (!method_getGenesisHash(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETHEALTH:
+    if (!method_getHealth(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETHIGHESTSNAPSHOTSLOT:
+    if (!method_getHighestSnapshotSlot(replier, values, &ctx))
+      return;
+    break;
   case KEYW_RPCMETHOD_GETIDENTITY:
     if (!method_getIdentity(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETINFLATIONGOVERNOR:
+    if (!method_getInflationGovernor(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETINFLATIONRATE:
+    if (!method_getInflationRate(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETINFLATIONREWARD:
+    if (!method_getInflationReward(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETLARGESTACCOUNTS:
+    if (!method_getLargestAccounts(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETLATESTBLOCKHASH:
+    if (!method_getLatestBlockhash(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETLEADERSCHEDULE:
+    if (!method_getLeaderSchedule(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETMAXRETRANSMITSLOT:
+    if (!method_getMaxRetransmitSlot(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETMAXSHREDINSERTSLOT:
+    if (!method_getMaxShredInsertSlot(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETMINIMUMBALANCEFORRENTEXEMPTION:
+    if (!method_getMinimumBalanceForRentExemption(replier, values, &ctx))
       return;
     break;
   case KEYW_RPCMETHOD_GETMULTIPLEACCOUNTS:
     if (!method_getMultipleAccounts(replier, values, &ctx))
       return;
     break;
+  case KEYW_RPCMETHOD_GETPROGRAMACCOUNTS:
+    if (!method_getProgramAccounts(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETRECENTBLOCKHASH:
+    if (!method_getRecentBlockhash(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETRECENTPERFORMANCESAMPLES:
+    if (!method_getRecentPerformanceSamples(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETRECENTPRIORITIZATIONFEES:
+    if (!method_getRecentPrioritizationFees(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSIGNATURESFORADDRESS:
+    if (!method_getSignaturesForAddress(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSIGNATURESTATUSES:
+    if (!method_getSignatureStatuses(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSLOT:
+    if (!method_getSlot(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSLOTLEADER:
+    if (!method_getSlotLeader(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSLOTLEADERS:
+    if (!method_getSlotLeaders(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSNAPSHOTSLOT:
+    if (!method_getSnapshotSlot(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSTAKEACTIVATION:
+    if (!method_getStakeActivation(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSTAKEMINIMUMDELEGATION:
+    if (!method_getStakeMinimumDelegation(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETSUPPLY:
+    if (!method_getSupply(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTOKENACCOUNTBALANCE:
+    if (!method_getTokenAccountBalance(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTOKENACCOUNTSBYDELEGATE:
+    if (!method_getTokenAccountsByDelegate(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTOKENACCOUNTSBYOWNER:
+    if (!method_getTokenAccountsByOwner(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTOKENLARGESTACCOUNTS:
+    if (!method_getTokenLargestAccounts(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTOKENSUPPLY:
+    if (!method_getTokenSupply(replier, values, &ctx))
+      return;
+    break;
   case KEYW_RPCMETHOD_GETTRANSACTION:
     if (!method_getTransaction(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETTRANSACTIONCOUNT:
+    if (!method_getTransactionCount(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETVERSION:
+    if (!method_getVersion(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_GETVOTEACCOUNTS:
+    if (!method_getVoteAccounts(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_ISBLOCKHASHVALID:
+    if (!method_isBlockhashValid(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_MINIMUMLEDGERSLOT:
+    if (!method_minimumLedgerSlot(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_REQUESTAIRDROP:
+    if (!method_requestAirdrop(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_SENDTRANSACTION:
+    if (!method_sendTransaction(replier, values, &ctx))
+      return;
+    break;
+  case KEYW_RPCMETHOD_SIMULATETRANSACTION:
+    if (!method_simulateTransaction(replier, values, &ctx))
       return;
     break;
   default:
@@ -691,18 +1425,14 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
 }
 
 fd_rpc_ctx_t *
-fd_rpc_alloc_ctx(fd_funk_t * funk, fd_blockstore_t * blks, fd_pubkey_t * identity, fd_valloc_t valloc) {
+fd_rpc_alloc_ctx(fd_funk_t * funk, fd_blockstore_t * blks, fd_pubkey_t * identity, fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc) {
   fd_rpc_ctx_t * ctx = (fd_rpc_ctx_t *)fd_valloc_malloc( valloc, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t));
   fd_memset(ctx, 0, sizeof(fd_rpc_ctx_t));
   ctx->funk = funk;
   ctx->blks = blks;
   ctx->identity = identity;
+  ctx->slot_ctx = slot_ctx;
   return ctx;
-}
-
-void
-fd_rpc_set_slot(fd_rpc_ctx_t * ctx, ulong slot) {
-  ctx->slot = slot;
 }
 
 void
