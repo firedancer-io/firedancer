@@ -29,6 +29,11 @@ enum blake3_flags {
 
 #if FD_HAS_X86
 #define MAX_SIMD_DEGREE 16
+#elif BLAKE3_USE_NEON == 1
+#define MAX_SIMD_DEGREE 4
+#else
+#define MAX_SIMD_DEGREE 1
+#endif
 
 // There are some places where we want a static size that's equal to the
 // MAX_SIMD_DEGREE, but also at least 2.
@@ -239,5 +244,6 @@ void blake3_hash_many_neon(const uint8_t *const *inputs, size_t num_inputs,
                            uint8_t flags, uint8_t flags_start,
                            uint8_t flags_end, uint8_t *out);
 #endif
+
 
 #endif /* BLAKE3_IMPL_H */
