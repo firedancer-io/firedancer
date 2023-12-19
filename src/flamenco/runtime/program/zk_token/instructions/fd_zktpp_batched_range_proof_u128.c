@@ -25,5 +25,7 @@ fd_zktpp_instr_verify_proof_batched_range_proof_u128( void const * _context, voi
   fd_zktpp_batched_range_proof_context_t const * context = _context;
   fd_zktpp_range_proof_u128_proof_t const *      proof   = _proof;
 
-  return fd_zktpp_verify_proof_range_u128( proof, context->commitments, context->bit_lengths, 8, transcript );
+  //TODO transcript
+  uchar len = FD_ZKTPP_MAX_COMMITMENTS;
+  return fd_zktpp_verify_proof_range_u128( proof, context->commitments, context->bit_lengths, len, transcript );
 }

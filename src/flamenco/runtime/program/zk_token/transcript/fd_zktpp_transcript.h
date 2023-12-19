@@ -9,6 +9,7 @@
 FD_PROTOTYPES_BEGIN
 
 #define fd_zktpp_transcript_init fd_merlin_transcript_init
+#define fd_zktpp_transcript_append_bytes fd_merlin_transcript_commit_bytes
 
 inline void
 fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,

@@ -25,6 +25,8 @@ fd_zktpp_instr_verify_proof_range_proof_u64( void const * _context, void const *
   fd_zktpp_single_range_proof_context_t const * context = _context;
   fd_zktpp_range_proof_u64_proof_t const *      proof   = _proof;
 
-  uchar bit_lengths = 64;
-  return fd_zktpp_verify_proof_range_u64( proof, context->commitment, &bit_lengths, 1, transcript );
+  //TODO transcript
+
+  const uchar bit_lengths[1] = { 64 };
+  return fd_zktpp_verify_proof_range_u64( proof, context->commitment, bit_lengths, 1, transcript );
 }
