@@ -5,8 +5,7 @@
 /* Vector ulong API ***************************************************/
 
 /* A vv_t is a vector where each adjacent pair of 32-bit wide lanes
-   (e.g. 0-1 / 2-3) holds an unsigned 64-bit twos-complement integer (a
-   "ulong").
+   (e.g. 0-1 / 2-3) holds an unsigned 64-bit integer (a "ulong").
 
    These mirror the other APIs as much as possible.  Macros are
    preferred over static inlines when it is possible to do it robustly
