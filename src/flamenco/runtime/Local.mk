@@ -9,7 +9,6 @@ $(call add-hdrs, \
 	fd_acc_mgr.h \
 	fd_hashes.h \
 	fd_runtime.h \
-	fd_rent_lists.h \
 	fd_borrowed_account.h \
 	fd_system_ids.h \
 	fd_rawtxn.h \
@@ -51,4 +50,6 @@ else
 
 $(warning runtime disabled due to lack of rocksdb)
 
+ifdef FD_HAS_INT128
+$(call add-hdrs,fd_rent_lists.h)
 endif

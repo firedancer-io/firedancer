@@ -137,7 +137,8 @@ after_frag( void *             _ctx,
      quick dedup of ha traffic. */
 
   int ha_dup;
-  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
+  ulong tcache_map_idx = 0; /* ignored */
+  FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
   if( FD_UNLIKELY( ha_dup ) ) {
     *opt_filter = 1;
     return;
@@ -147,11 +148,21 @@ after_frag( void *             _ctx,
 
   int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, local_sig, public_key, ctx->sha );
   *opt_filter = verify_failed;
-  if( FD_LIKELY( !*opt_filter ) ) {
-    *opt_chunk = ctx->out_chunk;
-    *opt_sig = *(ulong *)local_sig;
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+  if( FD_UNLIKELY( verify_failed ) ) {
+    return;
   }
+
+  /* Insert into the tcache to dedup ha traffic.
+     The dedup check is repeated to guard against duped txs verifying signatures at the same time */
+  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
+  if( FD_UNLIKELY( ha_dup ) ) {
+    *opt_filter = 1;
+    return;
+  }
+
+  *opt_chunk = ctx->out_chunk;
+  *opt_sig = *(ulong *)local_sig;
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
 static void

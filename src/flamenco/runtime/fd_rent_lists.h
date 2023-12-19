@@ -1,6 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_rent_lists_h
 #define HEADER_fd_src_flamenco_runtime_fd_rent_lists_h
 
+/* fd_rent_lists.h provides APIs for managing rent partitions.  Rent
+   partitions are sorted buckets containing the addresses of rent
+   paying accounts.  Due to be removed when rent collection is
+   disabled on Solana mainnet. */
+
 #include "../fd_flamenco_base.h"
 
 static inline ulong
