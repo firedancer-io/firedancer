@@ -46,10 +46,10 @@ $(call make-unit-test,test_tvu,test_tvu,fd_flamenco fd_funk fd_ballet fd_util fd
 
 $(call run-unit-test,test_sysvar_rent)
 
-else
-
-$(warning runtime disabled due to lack of rocksdb)
-
 ifdef FD_HAS_INT128
 $(call add-hdrs,fd_rent_lists.h)
+endif
+
+else
+$(warning runtime disabled due to lack of rocksdb)
 endif
