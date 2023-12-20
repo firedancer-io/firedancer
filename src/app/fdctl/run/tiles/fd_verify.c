@@ -137,7 +137,7 @@ after_frag( void *             _ctx,
      quick dedup of ha traffic. */
 
   int ha_dup;
-  ulong tcache_map_idx = 0; /* ignored */
+  FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
   FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
   if( FD_UNLIKELY( ha_dup ) ) {
     *opt_filter = 1;

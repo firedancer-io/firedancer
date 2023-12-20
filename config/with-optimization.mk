@@ -3,3 +3,4 @@ CPPFLAGS+=-O3 -ffast-math -fno-associative-math -fno-reciprocal-math -fomit-fram
 CPPFLAGS+=-DFD_HAS_OPTIMIZATION=1 #-DFD_DEBUG_SBPF_TRACES
 FD_HAS_OPTIMIZATION:=1
 endif
+RUST_PROFILE:=release

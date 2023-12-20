@@ -194,6 +194,22 @@ $(4): $(OBJDIR)/$(4)/$(1)
 
 endef
 
+# TODO: LML revisit this to figure out a better way of keeping component 1 build rules in sync with component 2
+define _make-exe-rust
+
+DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
+
+$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
+	#######################################################################
+	# Creating $(5) $$@ from $$^
+	#######################################################################
+	$(MKDIR) $$(dir $$@) && \
+$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(filter-out -lrocksdb -lz,$(LDFLAGS)) -Wl,--end-group -o $$@
+
+$(4): $(OBJDIR)/$(5)/$(1)
+
+endef
+
 # Generate list of automatic unit tests from $(call run-unit-test,...)
 unit-test: $(OBJDIR)/unit-test/automatic.txt
 define _run-unit-test
@@ -224,6 +240,7 @@ endef
 ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),bin))
 make-unit-test = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),unit-test))
+make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin))
 fuzz-test =
 run-unit-test = $(eval $(call _run-unit-test,$(strip $(1))))
 run-fuzz-test:
