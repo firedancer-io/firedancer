@@ -7,8 +7,15 @@
      2. put them in the Blockstore
      3. validate and execute them
 
-   ./build/native/gcc/unit-test/test_tvu --snapshotfile <PATH_TO_SNAPSHOT_FILE>
-   [--repair-peer-identity <SOLANA_TEST_VALIDATOR_IDENTITY>]
+   ./build/native/gcc/unit-test/test_tvu \
+      --rpc-port 8124 \
+      --gossip-peer-addr 86.109.3.165:8000 \
+      --repair-peer-addr 86.109.3.165:8008 \
+      --repair-peer-id F7SW17yGN7UUPQ519nxaDt26UMtvwJPSFVu9kBMBQpW \
+      --snapshot snapshot-24* \
+      --incremental-snapshot incremental-snapshot-24* \
+      --log-level-logfile 0 \
+      --log-level-stderr 0
 */
 
 #define _GNU_SOURCE /* See feature_test_macros(7) */
@@ -24,10 +31,10 @@
 #include "../fd_flamenco.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
+#include "../rpc/fd_rpc_service.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #ifdef FD_HAS_LIBMICROHTTP
-#include "../rpc/fd_rpc_service.h"
 #endif
 #include <arpa/inet.h>
 #include <errno.h>
@@ -47,7 +54,7 @@ static fd_rpc_ctx_t * rpc_ctx = NULL;
 static int gossip_sockfd = -1;
 
 struct fd_repair_peer {
-  fd_pubkey_t identity;
+  fd_pubkey_t id;
   uint        hash;
   ulong       first_slot;
   ulong       last_slot;
@@ -59,7 +66,7 @@ static fd_pubkey_t pubkey_null = { 0 };
 #define MAP_NAME                fd_repair_peer
 #define MAP_T                   fd_repair_peer_t
 #define MAP_LG_SLOT_CNT         10 /* 1kb peers */
-#define MAP_KEY                 identity
+#define MAP_KEY                 id
 #define MAP_KEY_T               fd_pubkey_t
 #define MAP_KEY_NULL            pubkey_null
 #define MAP_KEY_INVAL( k )      !( memcmp( &k, &pubkey_null, sizeof( fd_pubkey_t ) ) )
@@ -92,14 +99,14 @@ static void
 repair_missing_shreds( fd_repair_t *      repair,
                        fd_blockstore_t *  blockstore,
                        fd_repair_peer_t * repair_peers ) {
-  ulong slot = blockstore->consumed + 1;
+  ulong slot = blockstore->root + 1;
 
   fd_pubkey_t * peer  = NULL;
   bool          found = 0;
   for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
-    if( FD_UNLIKELY( memcmp( &repair_peers[i].identity, &pubkey_null, sizeof( fd_pubkey_t ) ) ) ) {
+    if( FD_UNLIKELY( memcmp( &repair_peers[i].id, &pubkey_null, sizeof( fd_pubkey_t ) ) ) ) {
       if( FD_UNLIKELY( slot >= repair_peers[i].first_slot && slot <= repair_peers[i].last_slot ) ) {
-        peer  = &repair_peers[i].identity;
+        peer  = &repair_peers[i].id;
         found = 1;
         break;
       }
@@ -134,13 +141,14 @@ repair_missing_shreds( fd_repair_t *      repair,
     //   shred.data.flags = 0;
     //   fd_repair_need_window_index( repair, epoch_slots );
     // }
+    fd_blockstore_slot_meta_map_t * slot_meta_map =
+        fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
     fd_blockstore_slot_meta_map_t * slot_meta_entry =
-        fd_blockstore_slot_meta_map_query( blockstore->slot_meta_map, slot, NULL );
+        fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
     fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
     for( ulong shred_idx = slot_meta->consumed; shred_idx <= slot_meta->last_index; shred_idx++ ) {
       if( requested_idxs[shred_idx] ) continue;
-      if( fd_blockstore_shred_query( blockstore, slot, (uint)shred_idx ) )
-        continue;
+      if( fd_blockstore_shred_query( blockstore, slot, (uint)shred_idx ) ) continue;
       FD_LOG_DEBUG( ( "requesting shred - slot: %lu, idx: %u", slot, shred_idx ) );
       if( FD_UNLIKELY( fd_repair_need_window_index( repair, peer, slot, (uint)shred_idx ) ) ) {
         FD_LOG_ERR( ( "error requesting shreds" ) );
@@ -202,9 +210,11 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( blockstore, shred ) != FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", rc ) );
   };
+  fd_blockstore_slot_meta_map_t * slot_meta_map =
+      fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry;
   if( FD_UNLIKELY( !( slot_meta_entry = fd_blockstore_slot_meta_map_query(
-                          blockstore->slot_meta_map, shred->slot, NULL ) ) ) ) {
+                          slot_meta_map, shred->slot, NULL ) ) ) ) {
     FD_LOG_ERR( ( "no slot meta despite just inserting a shred for that slot" ) );
   }
   fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
@@ -219,7 +229,12 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     // dcache?
     // FD_TEST(
     // FIXME multi thread once it works
-    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, block->data, block->sz, NULL, 1 ) == FD_RUNTIME_EXECUTE_SUCCESS);
+    FD_TEST( fd_runtime_block_eval_tpool( repair_ctx->slot_ctx,
+                                          NULL,
+                                          fd_blockstore_block_data_laddr( blockstore, block ),
+                                          block->sz,
+                                          NULL,
+                                          1 ) == FD_RUNTIME_EXECUTE_SUCCESS );
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
                      slot_meta->slot,
@@ -228,7 +243,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     /* progress to next slot */
     requested_highest = 0;
     memset( requested_idxs, 0, sizeof( requested_idxs ) );
-    blockstore->consumed++;
+    blockstore->root++;
     repair_ctx->slot_ctx->slot_bank.prev_slot = repair_ctx->slot_ctx->slot_bank.slot;
     repair_ctx->slot_ctx->slot_bank.slot++;
 
@@ -494,23 +509,23 @@ tvu_main( fd_gossip_t *        gossip,
   fd_repair_start( repair );
 
   /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
-  char const * repair_peer_identity_ =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-identity", NULL, NULL );
+  char const * repair_peer_id_ =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
   char const * repair_peer_addr_ =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
-  if( repair_peer_identity_ ) {
-    fd_pubkey_t repair_peer_identity;
-    fd_base58_decode_32( repair_peer_identity_, repair_peer_identity.uc );
+  if( repair_peer_id_ ) {
+    fd_pubkey_t repair_peer_id;
+    fd_base58_decode_32( repair_peer_id_, repair_peer_id.uc );
     fd_repair_peer_addr_t repair_peer_addr = { 0 };
     if( FD_UNLIKELY(
             fd_repair_add_active_peer( repair,
                                        resolve_hostport( repair_peer_addr_, &repair_peer_addr ),
-                                       &repair_peer_identity ) ) ) {
+                                       &repair_peer_id ) ) ) {
       FD_LOG_ERR( ( "error adding repair active peer" ) );
     }
-    fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_identity );
+    fd_repair_peer_t * peer = fd_repair_peer_insert( repair_peers, repair_peer_id );
     // FIXME hack to be able to immediately send a msg for the CLI-specified peer
-    peer->first_slot = blockstore->consumed + 1;
+    peer->first_slot = blockstore->root + 1;
     peer->last_slot  = ULONG_MAX;
     has_peer         = 1;
   }
@@ -607,7 +622,7 @@ main( int argc, char ** argv ) {
   /* Wksp                                                               */
   /**********************************************************************/
 
-  ulong  page_cnt = 64;
+  ulong  page_cnt = 128;
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
@@ -639,37 +654,43 @@ main( int argc, char ** argv ) {
   gethostname( hostname, sizeof( hostname ) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
-  char const * peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--peer_addr", NULL, ":1024" );
+  char const * peer_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
 
-  char const * snapshotfile =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshotfile", NULL, NULL );
-  FD_TEST( snapshotfile );
-  char const * incremental = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental", NULL, NULL );
-
-  fd_wksp_t *  funkwksp;
-  ulong        def_index_max;
-  char const * wkspname = fd_env_strip_cmdline_cstr( &argc, &argv, "--wksp", NULL, NULL );
-  if( wkspname == NULL ) {
-    funkwksp      = wksp;
-    def_index_max = 100000000;
-  } else {
-    funkwksp = fd_wksp_attach( wkspname );
-    if( funkwksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", wkspname ) );
-    def_index_max = 350000000;
-    if( snapshotfile != NULL ) /* Start from scratch */
-      fd_wksp_reset( funkwksp, (uint)hashseed );
+  char const * snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+  FD_TEST( snapshot );
+  char const * incremental =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+  if (!incremental ) {
+    FD_LOG_WARNING(("Running without incremental snapshot. This only makes sense if you're using a local validator."));
   }
 
-  fd_funk_t *              funk;
-  fd_wksp_tag_query_info_t info;
-  ulong                    tag = FD_FUNK_MAGIC;
-  if( fd_wksp_tag_query( funkwksp, &tag, 1, &info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( funkwksp, info.gaddr_lo );
+  fd_wksp_t *  funk_wksp = NULL;
+  ulong        def_index_max;
+  char const * funk_wksp_name =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
+  if( funk_wksp_name == NULL ) {
+    funk_wksp     = wksp;
+    def_index_max = 100000000;
+  } else {
+    funk_wksp = fd_wksp_attach( funk_wksp_name );
+    if( funk_wksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
+    def_index_max = 350000000;
+    if( snapshot != NULL ) /* Start from scratch */
+      fd_wksp_reset( funk_wksp, (uint)hashseed );
+  }
+  FD_TEST( funk_wksp );
+
+  fd_funk_t *              funk = NULL;
+  fd_wksp_tag_query_info_t funk_info;
+  ulong                    funk_tag = FD_FUNK_MAGIC;
+  if( fd_wksp_tag_query( funk_wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( funk_wksp, funk_info.gaddr_lo );
     funk         = fd_funk_join( shmem );
     if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
   } else {
     void * shmem =
-        fd_wksp_alloc_laddr( funkwksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+        fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
     ulong index_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, def_index_max );
     ulong xactions_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
@@ -704,17 +725,17 @@ main( int argc, char ** argv ) {
   /* snapshots                                                          */
   /**********************************************************************/
 
-  ulong startslot = 0;
-  if( snapshotfile ) {
-    const char * p = strstr( snapshotfile, "snapshot-" );
-    if( p == NULL ) FD_LOG_ERR( ( "--snapshotfile value is badly formatted" ) );
+  ulong snapshot_slot = 0;
+  if( snapshot ) {
+    const char * p = strstr( snapshot, "snapshot-" );
+    if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
     do {
       const char * p2 = strstr( p + 1, "snapshot-" );
       if( p2 == NULL ) break;
       p = p2;
     } while( 1 );
-    if( sscanf( p, "snapshot-%lu", &startslot ) < 1 )
-      FD_LOG_ERR( ( "--snapshotfile value is badly formatted" ) );
+    if( sscanf( p, "snapshot-%lu", &snapshot_slot ) < 1 )
+      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
 
     if( incremental ) {
       p = strstr( incremental, "snapshot-" );
@@ -727,20 +748,20 @@ main( int argc, char ** argv ) {
       ulong i, j;
       if( sscanf( p, "snapshot-%lu-%lu", &i, &j ) < 2 )
         FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-      if( i != startslot )
-        FD_LOG_ERR( ( "--snapshotfile slot number does not match --incremental" ) );
-      startslot = j;
+      if( i != snapshot_slot )
+        FD_LOG_ERR( ( "--snapshot-file slot number does not match --incremental" ) );
+      snapshot_slot = j;
     }
 
     const char * snapshotfiles[3];
-    snapshotfiles[0] = snapshotfile;
+    snapshotfiles[0] = snapshot;
     snapshotfiles[1] = incremental;
     snapshotfiles[2] = NULL;
     fd_snapshot_load( snapshotfiles, slot_ctx );
   }
 
-  startslot = slot_ctx->slot_bank.slot;
-  slot_ctx->slot_bank.prev_slot      = startslot;
+  snapshot_slot                 = slot_ctx->slot_bank.slot;
+  slot_ctx->slot_bank.prev_slot = snapshot_slot;
   slot_ctx->slot_bank.slot++;
 
   slot_ctx->slot_bank.collected_fees = 0;
@@ -748,70 +769,54 @@ main( int argc, char ** argv ) {
 
   fd_features_restore( slot_ctx );
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
-  fd_calculate_epoch_accounts_hash_values ( slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   /**********************************************************************/
   /* Blockstore                                                         */
   /**********************************************************************/
 
-  fd_blockstore_t blockstore = { 0 };
-  blockstore.first_block = ULONG_MAX;
+  char const * blockstore_wksp_name =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
 
-  void *       alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
-  fd_alloc_t * alloc     = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 0UL );
-  blockstore.alloc       = alloc;
+  fd_wksp_t * blockstore_wksp = NULL;
+  if( blockstore_wksp == NULL ) {
+    blockstore_wksp = wksp;
+  } else {
+    blockstore_wksp = fd_wksp_attach( blockstore_wksp_name );
+  }
+  FD_TEST( blockstore_wksp );
 
-  // TODO use fd_alloc
-  blockstore.valloc = valloc;
+  fd_blockstore_t *        blockstore = NULL;
+  fd_wksp_tag_query_info_t blockstore_info;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( blockstore_wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( blockstore_wksp, blockstore_info.gaddr_lo );
+    blockstore   = fd_blockstore_join( shmem );
+    if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstorey" ) );
+  } else {
+    void * shmem = fd_wksp_alloc_laddr(
+        blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
 
-  ulong   blockstore_shred_max = 1 << 16; // 64kb
-  uchar * blockstore_shred_mem =
-      (uchar *)fd_wksp_alloc_laddr( wksp,
-                                    fd_blockstore_shred_map_align(),
-                                    fd_blockstore_shred_map_footprint( blockstore_shred_max ),
-                                    1UL );
-  FD_TEST( blockstore_shred_mem );
-  fd_blockstore_shred_map_t * shred_map = fd_blockstore_shred_map_join(
-      fd_blockstore_shred_map_new( blockstore_shred_mem, blockstore_shred_max, 42UL ) );
-  FD_TEST( shred_map );
-  blockstore.shred_map = shred_map;
+    // Sensible defaults for an anon blockstore:
+    // - 1mb of shreds
+    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
+    // - 1mb of txns
+    ulong tmp_shred_max = 1UL << 20;
+    int   lg_slot_max   = 6;
+    int   lg_txn_max    = 20;
+    blockstore          = fd_blockstore_join(
+        fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_slot_max, lg_txn_max ) );
+    if( blockstore == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
+    }
+  }
 
-  int lg_slot_cnt = 10; // 1024 slots of history
-
-  uchar * blockstore_slot_meta_map_mem =
-      (uchar *)fd_wksp_alloc_laddr( wksp,
-                                    fd_blockstore_slot_meta_map_align(),
-                                    fd_blockstore_slot_meta_map_footprint( lg_slot_cnt ),
-                                    1UL );
-  fd_memset(
-      blockstore_slot_meta_map_mem, 0, fd_blockstore_slot_meta_map_footprint( lg_slot_cnt ) );
-  fd_blockstore_slot_meta_map_t * slot_meta_map = fd_blockstore_slot_meta_map_join(
-      fd_blockstore_slot_meta_map_new( blockstore_slot_meta_map_mem, lg_slot_cnt ) );
-  FD_TEST( slot_meta_map );
-  blockstore.slot_meta_map = slot_meta_map;
-
-  uchar * blockstore_block_map_mem =
-      (uchar *)fd_wksp_alloc_laddr( wksp,
-                                    fd_blockstore_block_map_align(),
-                                    fd_blockstore_block_map_footprint( lg_slot_cnt ),
-                                    1UL );
-  fd_memset( blockstore_block_map_mem, 0, fd_blockstore_block_map_footprint( lg_slot_cnt ) );
-  fd_blockstore_block_map_t * block_map = fd_blockstore_block_map_join(
-      fd_blockstore_block_map_new( blockstore_block_map_mem, lg_slot_cnt ) );
-  FD_TEST( block_map );
-  blockstore.block_map = block_map;
-
-  int lg_txn_cnt = 20; // 1M transactions
-
-  uchar * blockstore_txn_map_mem = (uchar *)fd_wksp_alloc_laddr(
-      wksp, fd_blockstore_txn_map_align(), fd_blockstore_txn_map_footprint( lg_txn_cnt ), 1UL );
-  fd_memset( blockstore_txn_map_mem, 0, fd_blockstore_txn_map_footprint( lg_txn_cnt ) );
-  fd_blockstore_txn_map_t * txn_map =
-      fd_blockstore_txn_map_join( fd_blockstore_txn_map_new( blockstore_txn_map_mem, lg_txn_cnt ) );
-  FD_TEST( txn_map );
-  blockstore.txn_map = txn_map;
-
-  if( FD_UNLIKELY( startslot != 0 ) ) blockstore.consumed = startslot;
+  if( FD_UNLIKELY( snapshot_slot != 0 ) ) {
+    blockstore->root = snapshot_slot;
+    blockstore->min  = snapshot_slot;
+  }
 
   /**********************************************************************/
   /* Identity                                                           */
@@ -827,7 +832,7 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* rpc service                                                        */
   /**********************************************************************/
-  rpc_ctx         = fd_rpc_alloc_ctx( funk, &blockstore, &public_key, slot_ctx, valloc );
+  rpc_ctx         = fd_rpc_alloc_ctx( funk, blockstore, &public_key, slot_ctx, valloc );
   ushort rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
   fd_rpc_start_service( rpc_port, rpc_ctx );
 #endif
@@ -874,7 +879,7 @@ main( int argc, char ** argv ) {
 
   fd_tvu_repair_ctx_t repair_ctx = { .repair            = repair,
                                      .repair_peers      = repair_peers,
-                                     .blockstore        = &blockstore,
+                                     .blockstore        = blockstore,
                                      .slot_ctx          = slot_ctx,
                                      .requested_highest = 0,
                                      .requested_idxs    = { 0 } };
@@ -928,7 +933,7 @@ main( int argc, char ** argv ) {
                 repair,
                 &repair_config,
                 repair_peers,
-                &blockstore,
+                blockstore,
                 &stopflag,
                 argc,
                 argv ) ) {

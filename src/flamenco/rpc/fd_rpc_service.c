@@ -296,7 +296,7 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   }
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (fd_block_to_json(ts, ctx->call_id, blk->data, blk->sz, NULL, 0, enc,
+  if (fd_block_to_json(ts, ctx->call_id, fd_blockstore_block_data_laddr(ctx->blks, blk), blk->sz, NULL, 0, enc,
                        (maxvers == NULL ? 0 : *(const long*)maxvers),
                        det,
                        (rewards == NULL ? 1 : *(const int*)rewards))) {
@@ -361,8 +361,8 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   const void* endslot = json_get_value(values, PATH_ENDSLOT, 3, &endslot_sz);
   ulong endslotn = (endslot == NULL ? ctx->slot_ctx->slot_bank.slot : (ulong)(*(long*)endslot));
 
-  if (startslotn < ctx->blks->first_block)
-    startslotn = ctx->blks->first_block;
+  if (startslotn < ctx->blks->min)
+    startslotn = ctx->blks->min;
   if (endslotn > ctx->slot_ctx->slot_bank.slot)
     endslotn = ctx->slot_ctx->slot_bank.slot;
 
@@ -410,8 +410,8 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   }
   ulong limitn = (ulong)(*(long*)limit);
 
-  if (startslotn < ctx->blks->first_block)
-    startslotn = ctx->blks->first_block;
+  if (startslotn < ctx->blks->min)
+    startslotn = ctx->blks->min;
   if (limitn > 500000)
     limitn = 500000;
 
@@ -1019,7 +1019,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
 
   uchar txn_out[FD_TXN_MAX_SZ];
   ulong pay_sz = 0;
-  const uchar* raw = (const uchar *)blk->data + elem->offset;
+  const uchar* raw = (const uchar *)fd_blockstore_block_data_laddr(ctx->blks, blk) + elem->offset;
   ulong txn_sz = fd_txn_parse_core(raw, elem->sz, txn_out, NULL, &pay_sz, 0);
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));

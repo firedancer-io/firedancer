@@ -232,7 +232,25 @@
    only and/or implementations if doing a library with multiple
    compilation units.  Further, options exist to use index compression,
    different hashing functions, comparison functions, etc as detailed
-   below. */
+   below.
+   
+   If MAP_MULTI is defined to be 1, the map will support multiple
+   entries for the same key. In this case, the existing API works as
+   is, but new methods are provided:
+   
+     ulong                                           // Index of found element on success, sentinel on failure
+     mymap_idx_next_const( ulong           prev,     // Previous result of mymap_idx_query_const
+                           ulong           sentinel, // Value to return on failure
+                           myele_t const * pool );   // Current local join to element storage
+
+     myele_t const *                                 // Found element on success (will be from pool), sentinel on failure
+     mymap_ele_next_const( myele_t const * prev,     // Previous result of mymap_ele_query_const
+                           myele_t const * sentinel, // Value to return if key not in map
+                           myele_t const * pool );   // Current local join to element storage
+
+   These take a previous result from query_const (or next_const) and
+   return the next element with the same key in the chain.
+*/
 
 /* MAP_NAME gives the API prefix to use for map */
 
@@ -299,6 +317,13 @@
 
 #ifndef MAP_IMPL_STYLE
 #define MAP_IMPL_STYLE 0
+#endif
+
+/* 0 - do NOT support multiple values with the same key
+   1 - support multiple values with the same key */
+
+#ifndef MAP_MULTI
+#define MAP_MULTI 0
 #endif
 
 /* Implementation *****************************************************/
@@ -561,6 +586,15 @@ MAP_(idx_query_const)( MAP_(t) const *   join,
                        ulong             sentinel,
                        MAP_ELE_T const * pool );
 
+#if MAP_MULTI!=0
+
+FD_FN_PURE ulong
+MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_idx_query_const
+                      ulong             sentinel, // Value to return on failure
+                      MAP_ELE_T const * pool );   // Current local join to element storage
+
+#endif /* MAP_MULTI!=0 */
+
 FD_FN_PURE int
 MAP_(verify)( MAP_(t) const *   join,
               ulong             ele_cnt,
@@ -777,6 +811,30 @@ MAP_(idx_query_const)( MAP_(t) const *   join,
   return sentinel;
 }
 
+#if MAP_MULTI!=0
+
+FD_FN_PURE MAP_IMPL_STATIC ulong
+MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_idx_query_const
+                      ulong             sentinel, // Value to return on failure
+                      MAP_ELE_T const * pool ) {  // Current local join to element storage
+  /* Go to next element in chain */
+  
+  MAP_ELE_T const * prev_ele = &pool[ prev ];
+  MAP_IDX_T const * cur = &prev_ele->MAP_NEXT;
+  for(;;) {
+    ulong ele_idx = MAP_(private_unbox)( *cur );
+    if( FD_UNLIKELY( MAP_(private_idx_is_null)( ele_idx ) ) ) break; /* optimize for found */
+    if( FD_LIKELY( MAP_(key_eq)( &prev_ele->MAP_KEY, &pool[ ele_idx ].MAP_KEY ) ) ) return ele_idx; /* optimize for found */
+    cur = &pool[ ele_idx ].MAP_NEXT;
+  }
+
+  /* Not found */
+
+  return sentinel;
+}
+
+#endif /* MAP_MULTI!=0 */
+
 FD_FN_PURE MAP_IMPL_STATIC int
 MAP_(verify)( MAP_(t) const *   join,
               ulong             ele_cnt,
@@ -831,9 +889,18 @@ MAP_(verify)( MAP_(t) const *   join,
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ )
     for( ulong ele_idx = MAP_(private_unbox)( chain[ chain_idx ] );
          !MAP_(private_idx_is_null)( ele_idx );
-         ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT ) )
+         ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT ) ) {
+#if MAP_MULTI==0
       MAP_TEST( MAP_(idx_query_const)( join, &pool[ ele_idx ].MAP_KEY, ULONG_MAX, pool )==ele_idx );
-
+#else
+      ulong idx2;
+      for (idx2 = MAP_(idx_query_const)( join, &pool[ ele_idx ].MAP_KEY, ULONG_MAX, pool );
+           idx2 != ULONG_MAX && idx2 != ele_idx;
+           idx2 = MAP_(idx_next_const)( idx2, ULONG_MAX, pool )) ;
+      MAP_TEST( idx2 == ele_idx );
+#endif
+    }
+  
 # undef MAP_TEST
 
   return 0;
@@ -881,6 +948,18 @@ MAP_(ele_query_const)( MAP_(t) const *   join,
   return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), pool + ele_idx, sentinel );
 }
 
+#if MAP_MULTI!=0
+
+FD_FN_PURE static inline MAP_ELE_T const *        // Found element on success (will be from pool), sentinel on failure
+MAP_(ele_next_const)( MAP_ELE_T const * prev,     // Previous result of mymap_ele_query_const
+                      MAP_ELE_T const * sentinel, // Value to return if key not in map
+                      MAP_ELE_T const * pool ) {  // Current local join to element storage
+         ulong ele_idx = MAP_(idx_next_const)( (ulong)(prev-pool), MAP_(private_idx_null)(), pool );
+  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), pool + ele_idx, sentinel );
+}
+
+#endif /* MAP_MULTI!=0 */
+
 FD_PROTOTYPES_END
 
 #endif
@@ -897,3 +976,4 @@ FD_PROTOTYPES_END
 #undef MAP_KEY_T
 #undef MAP_ELE_T
 #undef MAP_NAME
+#undef MAP_MULTI
