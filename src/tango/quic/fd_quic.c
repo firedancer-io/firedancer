@@ -6533,7 +6533,7 @@ fd_quic_frame_handle_stream_frame(
       fd_quic_stream_retry( conn->quic, conn, stream_id );
     } else if( offset == exp_offset && data->length == 0 && data->fin_opt ) {
       /* fin stream in zero-length packet */
-      if( ~( stream->state & FD_QUIC_STREAM_STATE_RX_FIN ) ) {
+      if( !( stream->state & FD_QUIC_STREAM_STATE_RX_FIN ) ) {
         stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
         if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
             stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
