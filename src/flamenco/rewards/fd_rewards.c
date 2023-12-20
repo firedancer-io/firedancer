@@ -905,3 +905,15 @@ distribute_partitioned_epoch_rewards(
 
     slot_ctx->slot_bank.capitalization = fd_ulong_sat_add(slot_ctx->slot_bank.capitalization, validator_rewards_paid);
 }
+
+void
+calculate_inflation_rates( fd_exec_slot_ctx_t * slot_ctx, fd_inflation_rates_t * rates ) {
+  fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
+  ulong slot_idx = 0;
+  rates->epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+  ulong num_slots = get_inflation_num_slots( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
+  double slot_in_year = (double)num_slots / epoch_bank->slots_per_year;
+  rates->validator = validator( &epoch_bank->inflation, slot_in_year );
+  rates->foundation = foundation(&epoch_bank->inflation, slot_in_year);
+  rates->total = total(&epoch_bank->inflation, slot_in_year);
+}

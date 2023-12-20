@@ -25,6 +25,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
+#include "../rewards/fd_rewards.h"
 
 #define API_VERSION "1.17.6"
 
@@ -495,22 +496,39 @@ method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_value
 }
 
 // Implementation of the "getEpochInfo" methods
-// TODO
 static int
 method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getEpochInfo is not implemented");
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
+  ulong slot_idx = 0;
+  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
+  // TODO transactionCount
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":0},\"id\":%lu}" CRLF,
+                        ctx->slot_ctx->slot_bank.slot,
+                        ctx->slot_ctx->slot_bank.block_height,
+                        epoch,
+                        slot_idx,
+                        slots_per_epoch,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getEpochSchedule" methods
-// TODO
 static int
 method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getEpochSchedule is not implemented");
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
+                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.first_normal_epoch,
+                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.first_normal_slot,
+                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.leader_schedule_slot_offset,
+                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch,
+                        (ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.warmup ? "true" : "false"),
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -609,12 +627,19 @@ method_getInflationGovernor(struct fd_web_replier* replier, struct json_values* 
 }
 
 // Implementation of the "getInflationRate" methods
-// TODO
 static int
 method_getInflationRate(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getInflationRate is not implemented");
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_inflation_rates_t rates;
+  calculate_inflation_rates( ctx->slot_ctx, &rates );
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%lu}" CRLF,
+                        rates.epoch,
+                        rates.foundation,
+                        rates.total,
+                        rates.validator,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -637,12 +662,17 @@ method_getLargestAccounts(struct fd_web_replier* replier, struct json_values* va
 }
 
 // Implementation of the "getLatestBlockhash" methods
-// TODO
 static int
 method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getLatestBlockhash is not implemented");
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
+                        ctx->slot_ctx->slot_bank.slot);
+  fd_textstream_encode_base58(ts, ctx->slot_ctx->slot_bank.poh.uc, sizeof(fd_pubkey_t));
+  fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
+                        ctx->slot_ctx->slot_bank.block_height,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -840,9 +870,44 @@ method_getSignaturesForAddress(struct fd_web_replier* replier, struct json_value
 // TODO
 static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getSignatureStatuses is not implemented");
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
+                        ctx->slot_ctx->slot_bank.slot);
+
+  // Iterate through account ids
+  for ( ulong i = 0; ; ++i ) {
+    // Path to argument
+    uint path[4];
+    path[0] = (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS;
+    path[1] = (JSON_TOKEN_LBRACKET<<16) | 0;
+    path[2] = (uint) ((JSON_TOKEN_LBRACKET<<16) | i);
+    path[3] = (JSON_TOKEN_STRING<<16);
+    ulong sig_sz = 0;
+    const void* sig = json_get_value(values, path, 4, &sig_sz);
+    if (sig == NULL)
+      // End of list
+      break;
+
+    if (i > 0)
+      fd_textstream_append(ts, ",", 1);
+
+    uchar key[FD_ED25519_SIG_SZ];
+    if ( fd_base58_decode_64( sig, key) == NULL ) {
+      fd_textstream_sprintf(ts, "null");
+      continue;
+    }
+    fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->blks, key );
+    if ( FD_UNLIKELY( NULL == elem ) ) {
+      fd_textstream_sprintf(ts, "null");
+      continue;
+    }
+
+    fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
+                         elem->slot);
+  }
+
+  fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 

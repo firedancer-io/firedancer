@@ -24,6 +24,17 @@ begin_partitioned_rewards( fd_exec_slot_ctx_t *    slot_ctx,
 void
 distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
 
+struct fd_inflation_rates {
+    ulong epoch;
+    double foundation;
+    double total;
+    double validator;
+};
+typedef struct fd_inflation_rates fd_inflation_rates_t;
+
+void
+calculate_inflation_rates( fd_exec_slot_ctx_t * slot_ctx, fd_inflation_rates_t * rates );
+
 FD_PROTOTYPES_END
 
 #endif
