@@ -33,7 +33,7 @@
 /* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust
    shims, so if the value changes, this acts as a reminder to change it
    in the Rust code. */
-FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
+FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2086UL, tpu_dcache_mtu_check );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
