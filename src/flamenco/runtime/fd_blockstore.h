@@ -90,6 +90,8 @@ typedef struct fd_blockstore_slot_meta_map fd_blockstore_slot_meta_map_t;
 #define MAP_NAME fd_blockstore_slot_meta_map
 #define MAP_T    fd_blockstore_slot_meta_map_t
 #define MAP_KEY  slot
+#define MAP_KEY_NULL ULONG_MAX
+#define MAP_KEY_INVAL(k) (!(k ^ ULONG_MAX))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* A shred that has been deshredded and is part of a block */
@@ -177,6 +179,7 @@ struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
 
   ulong root; /* the current root slot */
   ulong min;  /* the min slot still in the blockstore */
+  ulong max;  /* the max slot in the blockstore */
 
   /* Internal data structures */
 

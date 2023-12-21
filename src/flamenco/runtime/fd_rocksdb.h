@@ -166,6 +166,15 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
                                void const *   sig,
                                ulong *        psz );
 
+typedef struct fd_blockstore fd_blockstore_t;
+
+/* Import from rocksdb into blockstore */
+
+int
+fd_rocksdb_import_block( fd_rocksdb_t *    db,
+                         fd_slot_meta_t *  m,
+                         fd_blockstore_t * blockstore );
+
 FD_PROTOTYPES_END
 
 #endif

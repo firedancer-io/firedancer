@@ -7865,69 +7865,6 @@ int fd_slot_meta_encode(fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * c
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
-  void const * data = ctx->data;
-  int err = fd_slot_meta_meta_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  fd_slot_meta_meta_new(self);
-  fd_slot_meta_meta_decode_unsafe(self, ctx);
-  return FD_BINCODE_SUCCESS;
-}
-int fd_slot_meta_meta_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_slot_meta_meta_decode_unsafe(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx) {
-  fd_bincode_uint64_decode_unsafe(&self->start_slot, ctx);
-  fd_bincode_uint64_decode_unsafe(&self->end_slot, ctx);
-}
-int fd_slot_meta_meta_decode_offsets(fd_slot_meta_meta_off_t* self, fd_bincode_decode_ctx_t * ctx) {
-  uchar const * data = ctx->data;
-  int err;
-  self->start_slot_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->end_slot_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-void fd_slot_meta_meta_new(fd_slot_meta_meta_t* self) {
-  fd_memset(self, 0, sizeof(fd_slot_meta_meta_t));
-}
-void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_bincode_destroy_ctx_t * ctx) {
-}
-
-ulong fd_slot_meta_meta_footprint( void ){ return FD_SLOT_META_META_FOOTPRINT; }
-ulong fd_slot_meta_meta_align( void ){ return FD_SLOT_META_META_ALIGN; }
-
-void fd_slot_meta_meta_walk(void * w, fd_slot_meta_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_slot_meta_meta", level++);
-  fun( w, &self->start_slot, "start_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w, &self->end_slot, "end_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_meta_meta", level--);
-}
-ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t const * self) {
-  ulong size = 0;
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  return size;
-}
-
-int fd_slot_meta_meta_encode(fd_slot_meta_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
-  int err;
-  err = fd_bincode_uint64_encode(&self->start_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->end_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-
 int fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_clock_timestamp_vote_decode_preflight(ctx);

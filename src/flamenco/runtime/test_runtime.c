@@ -61,6 +61,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include "../stakes/fd_stakes.h"
 #include "context/fd_capture_ctx.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "fd_blockstore.h"
 
 #include <dirent.h>
 #include <signal.h>
@@ -82,6 +83,7 @@ struct global_state {
   fd_exec_slot_ctx_t *   slot_ctx;
   fd_exec_epoch_ctx_t *  epoch_ctx;
   fd_capture_ctx_t *     capture_ctx;
+  fd_blockstore_t *      blockstore;
 
   int                    argc;
   char       **          argv;
@@ -126,40 +128,6 @@ usage( char const * progname ) {
 }
 
 int
-dump_block( global_state_t * state ) {
-  fd_funk_rec_key_t key = fd_runtime_block_meta_key(state->end_slot);
-  fd_funk_rec_t const * rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
-  if( FD_UNLIKELY( !rec ) ) return -1;
-  void const * val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
-  fd_bincode_decode_ctx_t ctx3;
-  ctx3.data = val;
-  ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
-  ctx3.valloc  = state->slot_ctx->valloc;
-
-  fd_slot_meta_t m;
-  if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_slot_meta_decode failed"));
-
-  /* Read block */
-
-  key = fd_runtime_block_key( state->end_slot );
-  rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
-  if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
-  val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
-
-  ulong sz = fd_funk_val_sz(rec);
-  ulong enc_sz = FD_BASE64_ENC_SZ(sz);
-
-  char * enc_block = fd_valloc_malloc( state->slot_ctx->valloc, 1, enc_sz + 1);
-  memset(enc_block, 0, enc_sz);
-  fd_base64_encode( enc_block, val, sz );
-  FD_LOG_INFO(("sz: %lu", enc_sz));
-  long res = write(1, enc_block, enc_sz);
-  (void)res;
-  return 0;
-}
-
-int
 replay( global_state_t * state,
         int              justverify,
         fd_tpool_t *     tpool,
@@ -190,21 +158,8 @@ replay( global_state_t * state,
     return 0;
   }
 
-  fd_funk_rec_key_t key = fd_runtime_block_meta_key(ULONG_MAX);
-  fd_funk_rec_t const * rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
-  if (rec == NULL)
-    FD_LOG_ERR(("missing meta record"));
-  fd_slot_meta_meta_t mm;
-  const void * val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
-  fd_bincode_decode_ctx_t ctx2;
-  ctx2.data    = val;
-  ctx2.dataend = (uchar*)val + fd_funk_val_sz(rec);
-  ctx2.valloc  = state->slot_ctx->valloc;
-  if ( fd_slot_meta_meta_decode( &mm, &ctx2 ) )
-    FD_LOG_ERR(("fd_slot_meta_meta_decode failed"));
-
-  if (mm.end_slot < state->end_slot)
-    state->end_slot = mm.end_slot;
+  if (state->blockstore->max < state->end_slot)
+    state->end_slot = state->blockstore->max;
 
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
@@ -217,32 +172,17 @@ replay( global_state_t * state,
 
     FD_LOG_DEBUG(("reading slot %ld", slot));
 
-    fd_slot_meta_t m;
-
-    /* Read block meta */
-
-    key = fd_runtime_block_meta_key(slot);
-    rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
-    if( FD_UNLIKELY( !rec ) ) continue;
-    val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
-    fd_bincode_decode_ctx_t ctx3;
-    ctx3.data = val;
-    ctx3.dataend = (uchar*)val + fd_funk_val_sz(rec);
-    ctx3.valloc  = state->slot_ctx->valloc;
-    if( FD_UNLIKELY( fd_slot_meta_decode( &m, &ctx3 )!=FD_BINCODE_SUCCESS ) )
-      FD_LOG_ERR(("fd_slot_meta_decode failed"));
-
-    /* Read block */
-
-    key = fd_runtime_block_key( slot );
-    rec = fd_funk_rec_query( state->slot_ctx->acc_mgr->funk, NULL, &key );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(("missing block record"));
-    val = fd_funk_val( rec, fd_funk_wksp(state->slot_ctx->acc_mgr->funk) );
-
+    fd_blockstore_block_t * blk = fd_blockstore_block_query(state->blockstore, slot);
+    if (blk == NULL) {
+      FD_LOG_WARNING(("failed to read slot %ld", slot));
+      continue;
+    }
+    uchar * val = fd_blockstore_block_data_laddr(state->blockstore, blk);
+    ulong sz = blk->sz;
 
     if ( justverify ) {
       fd_block_info_t block_info;
-      int ret = fd_runtime_block_prepare( val, fd_funk_val_sz(rec), state->slot_ctx->valloc, &block_info );
+      int ret = fd_runtime_block_prepare( val, sz, state->slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_hash_t poh_hash;
@@ -250,7 +190,7 @@ replay( global_state_t * state,
       ret = fd_runtime_block_verify_tpool( &block_info, &poh_hash, &poh_hash, state->slot_ctx->valloc, tpool, max_workers );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
     } else {
-      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, fd_funk_val_sz(rec), tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
+      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
       if( known_bank_hash ) {
@@ -277,9 +217,6 @@ replay( global_state_t * state,
     }
 
     prev_slot = slot;
-
-    fd_bincode_destroy_ctx_t ctx = { .valloc = state->slot_ctx->valloc };
-    fd_slot_meta_destroy(&m, &ctx);
   }
 
   // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
@@ -410,6 +347,26 @@ main( int     argc,
     }
   }
 
+  tag = FD_BLOCKSTORE_MAGIC;
+  if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
+    shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
+    state.blockstore = fd_blockstore_join(shmem);
+    if (state.blockstore == NULL)
+      FD_LOG_ERR(( "failed to join a blockstore" ));
+  } else {
+    shmem = fd_wksp_alloc_laddr( funk_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+    if (shmem == NULL)
+      FD_LOG_ERR(( "failed to allocate a blockstore" ));
+    ulong tmp_shred_max = 1UL << 18;
+    int   lg_slot_max   = 6;
+    int   lg_txn_max    = 18;
+    state.blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_slot_max, lg_txn_max));
+    if (state.blockstore == NULL) {
+      fd_wksp_free_laddr(shmem);
+      FD_LOG_ERR(( "failed to allocate a blockstore" ));
+    }
+  }
+
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_WARNING(("starting validate"));
     if ( fd_funk_verify(state.slot_ctx->acc_mgr->funk) != FD_FUNK_SUCCESS )
@@ -527,11 +484,6 @@ main( int     argc,
       if ( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )
         FD_LOG_ERR(("failed to launch worker"));
     }
-  }
-
-  if (strcmp(state.cmd, "dump_block") == 0) {
-    int err = dump_block(&state);
-    if( err!=0 ) return err;
   }
 
   if (strcmp(state.cmd, "replay") == 0) {

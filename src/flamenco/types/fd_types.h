@@ -1794,23 +1794,6 @@ typedef struct fd_slot_meta_off fd_slot_meta_off_t;
 #define FD_SLOT_META_OFF_FOOTPRINT sizeof(fd_slot_meta_off_t)
 #define FD_SLOT_META_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (16 bytes) */
-struct __attribute__((aligned(8UL))) fd_slot_meta_meta {
-  ulong start_slot;
-  ulong end_slot;
-};
-typedef struct fd_slot_meta_meta fd_slot_meta_meta_t;
-#define FD_SLOT_META_META_FOOTPRINT sizeof(fd_slot_meta_meta_t)
-#define FD_SLOT_META_META_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_slot_meta_meta_off {
-  uint start_slot_off;
-  uint end_slot_off;
-};
-typedef struct fd_slot_meta_meta_off fd_slot_meta_meta_off_t;
-#define FD_SLOT_META_META_OFF_FOOTPRINT sizeof(fd_slot_meta_meta_off_t)
-#define FD_SLOT_META_META_OFF_ALIGN (8UL)
-
 /* A validator timestamp oracle vote received from a voting node */
 /* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((aligned(8UL))) fd_clock_timestamp_vote {
@@ -5128,18 +5111,6 @@ void fd_slot_meta_walk(void * w, fd_slot_meta_t const * self, fd_types_walk_fn_t
 ulong fd_slot_meta_size(fd_slot_meta_t const * self);
 ulong fd_slot_meta_footprint( void );
 ulong fd_slot_meta_align( void );
-
-void fd_slot_meta_meta_new(fd_slot_meta_meta_t* self);
-int fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_meta_meta_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_slot_meta_meta_decode_unsafe(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_meta_meta_decode_offsets(fd_slot_meta_meta_off_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_meta_meta_encode(fd_slot_meta_meta_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_slot_meta_meta_walk(void * w, fd_slot_meta_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t const * self);
-ulong fd_slot_meta_meta_footprint( void );
-ulong fd_slot_meta_meta_align( void );
 
 void fd_clock_timestamp_vote_new(fd_clock_timestamp_vote_t* self);
 int fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, fd_bincode_decode_ctx_t * ctx);

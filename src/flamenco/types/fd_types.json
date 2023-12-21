@@ -799,14 +799,6 @@
       ]
     },
     {
-      "name": "slot_meta_meta",
-      "type": "struct",
-      "fields": [
-          { "name": "start_slot", "type": "ulong" },
-          { "name": "end_slot", "type": "ulong" }
-      ]
-    },
-    {
       "name": "clock_timestamp_vote",
       "type": "struct",
       "fields": [

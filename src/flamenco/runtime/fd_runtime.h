@@ -34,17 +34,12 @@
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
 #define FD_ACC_MGR_KEY_TYPE ((uchar)0)
-#define FD_BLOCK_KEY_TYPE ((uchar)1)
-#define FD_BLOCK_META_KEY_TYPE ((uchar)2)
 
 /* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
 #define FD_BLOCK_BANKS_TYPE ((uchar)3)
 
 /* FD_BANK_HASH_TYPE stores the bank hash of each slot */
 #define FD_BANK_HASH_TYPE ((uchar)4)
-
-/* FD_BLOCK_TXNSTATUS_TYPE stores the transaction metadata for a block */
-#define FD_BLOCK_TXNSTATUS_TYPE ((uchar)5)
 
 /* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
 #define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
@@ -119,12 +114,6 @@ fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot
                                                  fd_hash_t const * blockhash );
 
 fd_funk_rec_key_t
-fd_runtime_block_key( ulong slot );
-
-fd_funk_rec_key_t
-fd_runtime_block_meta_key( ulong slot );
-
-fd_funk_rec_key_t
 fd_runtime_firedancer_bank_key( void );
 
 fd_funk_rec_key_t
@@ -135,14 +124,6 @@ fd_runtime_slot_bank_key( void );
 
 fd_funk_rec_key_t
 fd_runtime_bank_hash_key( ulong slot );
-
-static inline fd_funk_rec_key_t
-fd_runtime_block_txnstatus_key( ulong slot ) {
-  fd_funk_rec_key_t id = {0};
-  id.ul[ 0 ] = slot;
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_BLOCK_TXNSTATUS_TYPE;
-  return id;
-}
 
 int
 fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );

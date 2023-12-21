@@ -1885,26 +1885,6 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_funk_rec_key_t
-fd_runtime_block_key( ulong slot ) {
-  fd_funk_rec_key_t id;
-  fd_memset(&id, 0, sizeof(id));
-  id.ul[0] = slot;
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_KEY_TYPE;
-
-  return id;
-}
-
-fd_funk_rec_key_t
-fd_runtime_block_meta_key( ulong slot ) {
-  fd_funk_rec_key_t id;
-  fd_memset(&id, 0, sizeof(id));
-  id.ul[0] = slot;
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_META_KEY_TYPE;
-
-  return id;
-}
-
-fd_funk_rec_key_t
 fd_runtime_firedancer_bank_key( void ) {
   fd_funk_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));

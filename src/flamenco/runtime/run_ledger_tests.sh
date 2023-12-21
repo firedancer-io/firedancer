@@ -55,7 +55,7 @@ set -x
   --indexmax 100000 \
   --txnmax 100 \
   --backup test_ledger_backup \
-  --pages 1
+  --pages 5
 
 status=$?
 
@@ -71,7 +71,7 @@ log=/tmp/ledger_log$$
 
 ARGS=" --load test_ledger_backup \
   --cmd replay \
-  --pages 1 \
+  --pages 5 \
   --validate true \
   --abort-on-mismatch 1 \
   --capture test.solcap \

@@ -1,4 +1,5 @@
 #include "fd_rocksdb.h"
+#include "fd_blockstore.h"
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -387,4 +388,88 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
     return NULL;
   }
   return res;
+}
+
+int
+fd_rocksdb_import_block( fd_rocksdb_t *    db,
+                         fd_slot_meta_t *  m,
+                         fd_blockstore_t * blockstore ) {
+  ulong slot = m->slot;
+  ulong start_idx = 0;
+  ulong end_idx = m->received;
+
+  fd_blockstore_slot_meta_map_t * slot_meta_map =
+    fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
+  fd_blockstore_slot_meta_map_t * slot_meta_entry =
+    fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
+  if( FD_UNLIKELY( !slot_meta_entry ) ) {
+    slot_meta_entry = fd_blockstore_slot_meta_map_insert( slot_meta_map, slot );
+    if( FD_UNLIKELY( !slot_meta_entry ) ) {
+      FD_LOG_ERR(("slot_meta is too small"));
+    }
+  }
+  slot_meta_entry->slot_meta = *m;
+
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[3]);
+
+  char k[16];
+  *((ulong *) &k[0]) = fd_ulong_bswap(slot);
+  *((ulong *) &k[8]) = fd_ulong_bswap(start_idx);
+
+  rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
+
+  for (ulong i = start_idx; i < end_idx; i++) {
+    ulong cur_slot, index;
+    uchar valid = rocksdb_iter_valid(iter);
+
+    if (valid) {
+      size_t klen = 0;
+      const char* key = rocksdb_iter_key(iter, &klen); // There is no need to free key
+      if (klen != 16)  // invalid key
+        continue;
+      cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
+      index = fd_ulong_bswap(*((ulong *) &key[8]));
+    }
+
+    if (!valid || cur_slot != slot) {
+      FD_LOG_WARNING(("missing shreds for slot %ld", slot));
+      rocksdb_iter_destroy(iter);
+      return -1;
+    }
+
+    if (index != i) {
+      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
+      rocksdb_iter_destroy(iter);
+      return -1;
+    }
+
+    size_t dlen = 0;
+    // Data was first copied from disk into memory to make it available to this API
+    const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
+    if (data == NULL) {
+      FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
+      rocksdb_iter_destroy(iter);
+      return -1;
+    }
+
+    // This just correctly selects from inside the data pointer to the
+    // actual data without a memory copy
+    fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
+    if (shred == NULL) {
+      FD_LOG_WARNING(("failed to parse shred %ld/%ld", slot, i));
+      rocksdb_iter_destroy(iter);
+      return -1;
+    }
+    if (fd_blockstore_shred_insert( blockstore, shred ) != FD_BLOCKSTORE_OK) {
+      FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
+      rocksdb_iter_destroy(iter);
+      return -1;
+    }
+
+    rocksdb_iter_next(iter);
+  }
+
+  rocksdb_iter_destroy(iter);
+
+  return 0;
 }

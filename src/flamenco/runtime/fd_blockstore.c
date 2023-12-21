@@ -202,7 +202,8 @@ fd_blockstore_new( void * shmem,
   blockstore->seed             = seed;
 
   blockstore->root = 0;
-  blockstore->min  = 0;
+  blockstore->min  = ULONG_MAX;
+  blockstore->max  = 0;
 
   blockstore->tmp_shred_max        = tmp_shred_max;
   blockstore->tmp_shred_pool_gaddr = fd_wksp_gaddr_fast( wksp, tmp_shred_pool );
@@ -426,6 +427,7 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
                           ulong                       slot,
                           fd_blockstore_block_map_t * blk ) {
   if( blockstore->min > slot ) blockstore->min = slot;
+  if( blockstore->max < slot ) blockstore->max = slot;
 
 #define MAX_MICROS ( 16 << 10 )
   fd_blockstore_micro_t micros[MAX_MICROS];
