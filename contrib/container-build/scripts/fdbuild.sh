@@ -8,13 +8,18 @@ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git $
 cd "$GITDIR"
 
 # Allow for a tag, release, or branch
-[ -n "$1" ] && git checkout "$1"
+[ -n "$2" ] && git checkout "$2"
 
 # Currently needed to build and install openssl build libs that support QUIC
 ./deps.sh install
 
 # Do the thing
-MACHINE=linux_gcc_x86_64 make -j fdctl solana
+MACHINE=$1 make -j fdctl solana
 
-cp -v build/linux/gcc/x86_64/bin/* /build/out
-echo "You can find build output in $HOME/build/out"
+cd build
+for dir in $(find . -name bin -type d)
+  do mkdir -p /build/out/$dir
+    cp $dir/* /build/out/$dir/
+done
+
+echo "You can find build output in ~/build"
