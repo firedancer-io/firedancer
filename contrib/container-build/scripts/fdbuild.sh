@@ -7,6 +7,9 @@ source "$HOME/.cargo/env"
 git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git $GITDIR
 cd "$GITDIR"
 
+# Allow for a tag, release, or branch
+[ -n "$1" ] && git checkout "$1"
+
 # Currently needed to build and install openssl build libs that support QUIC
 ./deps.sh install
 
