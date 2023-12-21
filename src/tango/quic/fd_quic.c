@@ -3066,10 +3066,12 @@ fd_quic_frame_handle_crypto_frame( void *                   vp_context,
   if( !conn->tls_hs ) {
     /* Handshake already completed. Ignore frame */
     /* TODO consider aborting conn if too many unsoliticted crypto frames arrive */
-  } else if( FD_UNLIKELY( rcv_offset > exp_offset && rcv_offset + rcv_sz <= exp_offset ) ) {
+  } else if( FD_UNLIKELY( rcv_offset > exp_offset ) ) {
     /* if data arrived early, we could buffer, but for now we simply won't ack */
     /* TODO buffer handshake data */
-    if( rcv_offset > exp_offset ) return FD_QUIC_PARSE_FAIL;
+    return FD_QUIC_PARSE_FAIL;
+  } else if( FD_UNLIKELY( rcv_offset + rcv_sz <= exp_offset ) ) {
+    /* the full range of bytes has already been consumed, so just fall thru */
   } else {
     /* We have bytes that we can use */
     ulong skip = 0;
