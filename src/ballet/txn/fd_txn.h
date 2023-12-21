@@ -90,8 +90,9 @@
    take up, including the instruction array and any address tables.  The
    worst-case transaction is a V0 transaction with only two account
    addresses (a program and a fee payer), and tons of empty instructions (no
-   accounts, no data) and as many address table lookups as possible. */
-#define FD_TXN_MAX_SZ                (860UL)
+   accounts, no data) and as many address table lookups loading a single
+   account as possible. */
+#define FD_TXN_MAX_SZ                (852UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
