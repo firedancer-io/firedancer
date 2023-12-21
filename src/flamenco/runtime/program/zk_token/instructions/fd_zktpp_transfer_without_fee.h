@@ -1,6 +1,11 @@
 #ifndef HEADER_fd_zktpp_transfer_without_fee_h
 #define HEADER_fd_zktpp_transfer_without_fee_h
 
+#include "../../../../fd_flamenco_base.h"
+#include "fd_zktpp_ciphertext_commitment_equality.h"
+#include "fd_zktpp_batched_grouped_ciphertext_validity.h"
+#include "fd_zktpp_range_proofs.h"
+
 typedef struct fd_zktpp_transfer_pubkeys {
   uchar source[ 32 ];      // point
   uchar destination[ 32 ]; // point
@@ -11,7 +16,7 @@ typedef struct fd_zktpp_grouped_ciphertext_src_dst_aud {
   uchar commitment         [ 32 ]; // point
   uchar source_handle      [ 32 ]; // point
   uchar destination_handle [ 32 ]; // point
-  uchar auditor_handle     [ 32 ]; // points
+  uchar auditor_handle     [ 32 ]; // point
 } fd_zktpp_grouped_ciphertext_src_dst_aud_t;
 
 typedef struct fd_zktpp_transfer_context {

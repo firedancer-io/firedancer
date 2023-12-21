@@ -53,6 +53,26 @@ struct fd_ed25519_ge_p3_private {
 
 typedef struct fd_ed25519_ge_p3_private fd_ed25519_ge_p3_t;
 
+static const uchar fd_ed25519_scalar_zero[ 32 ] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+static const uchar fd_ed25519_scalar_one[ 32 ] = {
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
+/* l   = 2^252 + 27742317777372353535851937790883648493
+       = 0x1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed
+   l-1 = 0x10...ec */
+static const uchar fd_ed25519_scalar_minus_one[ 32 ] = {
+  0xec, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+  0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+};
+
 FD_PROTOTYPES_BEGIN
 
 /* FIXME: DOCUMENT THESE */
@@ -127,7 +147,7 @@ fd_ed25519_ge_double_scalarmult_vartime( fd_ed25519_ge_p2_t *       r,
 
    The result can be represented as a 256-bit value and stored in a
    32-byte little endian form.  out points to where to store the result.
-   
+
    Does no input argument checking.  The caller takes a write interest
    in out and a read interest in in for the duration of the call.
    Returns out and, on return, out will be populated with the 256-bit
@@ -140,7 +160,7 @@ fd_ed25519_sc_reduce( uchar       out[ static 32 ],
 /* fd_ed25519_sc_muladd computes s = (a*b+c) mod l where a, b and c
    are 256-bit values.  a is stored in 32-byte little endian form and a
    points to the first byte of a.  Similarly for b and c.  l is:
-   
+
      2^252 + 27742317777372353535851937790883648493.
 
    The result can be represented as a 256-bit value and stored in a
@@ -156,6 +176,35 @@ fd_ed25519_sc_muladd( uchar *       s,
                       uchar const * a,
                       uchar const * b,
                       uchar const * c );
+
+static inline uchar *
+fd_ed25519_sc_mul   ( uchar *       s,
+                      uchar const * a,
+                      uchar const * b ) {
+  return fd_ed25519_sc_muladd( s, a, b, fd_ed25519_scalar_zero );
+}
+
+static inline uchar *
+fd_ed25519_sc_add   ( uchar *       s,
+                      uchar const * a,
+                      uchar const * b ) {
+  return fd_ed25519_sc_muladd( s, a, fd_ed25519_scalar_one, b );
+}
+
+static inline uchar *
+fd_ed25519_sc_sub   ( uchar *       s,
+                      uchar const * a,
+                      uchar const * b ) {
+  //TODO implement dedicated neg/sub
+  return fd_ed25519_sc_muladd( s, fd_ed25519_scalar_minus_one, b, a );
+}
+
+static inline uchar *
+fd_ed25519_sc_neg   ( uchar *       s,
+                      uchar const * a ) {
+  //TODO implement dedicated neg/sub
+  return fd_ed25519_sc_muladd( s, fd_ed25519_scalar_minus_one, a, fd_ed25519_scalar_zero );
+}
 
 FD_PROTOTYPES_END
 

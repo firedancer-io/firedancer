@@ -4,5 +4,5 @@
 void
 fd_bulletproofs_placeholder( FD_FN_UNUSED void const * placeholder ) {
   fd_merlin_transcript_t transcript[1];
-  fd_merlin_transcript_init( transcript, "placeholder" );
+  fd_merlin_transcript_init( transcript, FD_MERLIN_LITERAL("placeholder") );
 }

@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_zktpp_ciphertext_commitment_equality_h
 #define HEADER_fd_zktpp_ciphertext_commitment_equality_h
 
+#include "../../../../fd_flamenco_base.h"
+
 typedef struct fd_zktpp_ciph_comm_eq_proof {
   uchar y0[ 32 ]; // point
   uchar y1[ 32 ]; // point

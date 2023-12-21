@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_zktpp_range_proofs_h
 #define HEADER_fd_zktpp_range_proofs_h
 
+#include "../../../../fd_flamenco_base.h"
+
 typedef struct fd_zktpp_range_proof_u64_proof {
   uchar a           [ 32 ]; // point
   uchar s           [ 32 ]; // point

@@ -3,38 +3,61 @@
 
 #include "../../../../fd_flamenco_base.h"
 #include "../merlin/fd_merlin.h"
+#include "../../../../../ballet/ed25519/fd_ed25519_private.h"
 
 #define fd_zktpp_transcript_t fd_merlin_transcript_t
+#define FD_TRANSCRIPT_LITERAL FD_MERLIN_LITERAL
 
 FD_PROTOTYPES_BEGIN
 
 #define fd_zktpp_transcript_init fd_merlin_transcript_init
-#define fd_zktpp_transcript_append_bytes fd_merlin_transcript_commit_bytes
+#define fd_zktpp_transcript_append_message fd_merlin_transcript_append_message
+
+inline uchar *
+fd_zktpp_transcript_challenge_scalar( uchar                   scalar[ static 32 ],
+                                      fd_zktpp_transcript_t * transcript,
+                                      char const * const      label,
+                                      ulong                   label_len ) {
+  uchar unreduced[ 64 ];
+  fd_merlin_transcript_challenge_bytes( transcript, label, label_len, unreduced, 64 );
+  return fd_ed25519_sc_reduce(scalar, unreduced);
+}
+
+inline void
+fd_zktpp_transcript_append_point( fd_zktpp_transcript_t * transcript,
+                                  char const * const     label,
+                                  ulong                   label_len,
+                                  uchar const            point[ static 32 ] ) {
+  fd_merlin_transcript_append_message( transcript, label, label_len, point, 32 );
+}
 
 inline void
 fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,
                                    char const * const      label,
+                                   ulong                   label_len,
                                    uchar const             pubkey[ static 32 ] ) {
-  fd_merlin_transcript_commit_bytes( transcript, label, pubkey, 32 );
+  fd_merlin_transcript_append_message( transcript, label, label_len, pubkey, 32 );
 }
 
 inline void
 fd_zktpp_transcript_append_ciphertext( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
+                                       ulong                   label_len,
                                        uchar const             ciphertext[ static 64 ] ) {
-  fd_merlin_transcript_commit_bytes( transcript, label, ciphertext, 64 );
+  fd_merlin_transcript_append_message( transcript, label, label_len, ciphertext, 64 );
 }
 
 inline void
 fd_zktpp_transcript_append_commitment( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
+                                       ulong                   label_len,
                                        uchar const             commitment[ static 32 ] ) {
-  fd_merlin_transcript_commit_bytes( transcript, label, commitment, 32 );
+  fd_merlin_transcript_append_message( transcript, label, label_len, commitment, 32 );
 }
 
 inline void
 fd_zktpp_transcript_domsep_equality_proof( fd_zktpp_transcript_t * transcript ) {
-  fd_merlin_transcript_commit_bytes( transcript, "dom-sep", (uchar *)"equality-proof", fd_litlen("equality-proof") );
+  fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("equality-proof") );
 }
 
 FD_PROTOTYPES_END

@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_zktpp_batched_grouped_ciphertext_validity_h
 #define HEADER_fd_zktpp_batched_grouped_ciphertext_validity_h
 
+#include "../../../../fd_flamenco_base.h"
+
 typedef struct fd_zktpp_batched_grp_ciph_val_proof {
   uchar y0[ 32 ]; // point
   uchar y1[ 32 ]; // point

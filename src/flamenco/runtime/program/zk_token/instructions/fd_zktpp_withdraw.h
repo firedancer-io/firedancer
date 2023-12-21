@@ -1,6 +1,10 @@
 #ifndef HEADER_fd_zktpp_withdraw_h
 #define HEADER_fd_zktpp_withdraw_h
 
+#include "../../../../fd_flamenco_base.h"
+#include "fd_zktpp_ciphertext_commitment_equality.h"
+#include "fd_zktpp_range_proofs.h"
+
 typedef struct fd_zktpp_withdraw_proof {
   uchar commitment[ 32 ]; // point
   fd_zktpp_ciph_comm_eq_proof_t equality_proof;

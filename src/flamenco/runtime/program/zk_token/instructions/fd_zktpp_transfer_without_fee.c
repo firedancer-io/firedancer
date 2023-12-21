@@ -1,5 +1,4 @@
 #include "../fd_zktpp_private.h"
-#include "fd_zktpp_ciphertext_commitment_equality.h"
 
 #define FD_ZKTPP_TRANSFER_SOURCE_AMOUNT_BITS     64
 #define FD_ZKTPP_TRANSFER_AMOUNT_LO_BITS         16
@@ -9,11 +8,11 @@
 static void
 transfer_transcript_init( fd_zktpp_transcript_t *             transcript,
                           fd_zktpp_transfer_context_t const * context ) {
-  fd_zktpp_transcript_init( transcript, "transfer-proof" );
-  fd_zktpp_transcript_append_bytes( transcript, "ciphertext-lo", (const uchar *)&context->ciphertext_lo, 128 );
-  fd_zktpp_transcript_append_bytes( transcript, "ciphertext-hi", (const uchar *)&context->ciphertext_hi, 128 );
-  fd_zktpp_transcript_append_bytes( transcript, "transfer-pubkeys", (const uchar *)&context->transfer_pubkeys, 96 );
-  fd_zktpp_transcript_append_bytes( transcript, "new-source-ciphertext", context->new_source_ciphertext, 64 );
+  fd_zktpp_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("transfer-proof") );
+  fd_zktpp_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("ciphertext-lo"), (const uchar *)&context->ciphertext_lo, 128 );
+  fd_zktpp_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("ciphertext-hi"), (const uchar *)&context->ciphertext_hi, 128 );
+  fd_zktpp_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("transfer-pubkeys"), (const uchar *)&context->transfer_pubkeys, 96 );
+  fd_zktpp_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("new-source-ciphertext"), context->new_source_ciphertext, 64 );
 }
 
 int
@@ -24,7 +23,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
   int zkp_res = 0;
 
   transfer_transcript_init( transcript, context );
-  fd_zktpp_transcript_append_commitment( transcript, "commitment-new-source", proof->new_source_commitment );
+  fd_zktpp_transcript_append_commitment( transcript, FD_TRANSCRIPT_LITERAL("commitment-new-source"), proof->new_source_commitment );
 
   zkp_res = fd_zktpp_verify_proof_ciphertext_commitment_equality(
     &proof->equality_proof,

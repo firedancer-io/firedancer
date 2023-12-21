@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_zktpp_pubkey_validity_h
 #define HEADER_fd_zktpp_pubkey_validity_h
 
+#include "../../../../fd_flamenco_base.h"
+
 typedef struct fd_zktpp_pubkey_validity_proof {
   uchar y[ 32 ]; // point
   uchar z[ 32 ]; // scalar
