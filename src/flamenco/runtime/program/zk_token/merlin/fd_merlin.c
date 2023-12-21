@@ -222,9 +222,7 @@ fd_merlin_transcript_init( fd_merlin_transcript_t * mctx,
                            char const * const       label,
                            ulong                    label_len ) {
   strobe128_init(&mctx->sctx, (uchar *)FD_MERLIN_LITERAL("Merlin v1.0"));
-  // strobe128_dbg(&mctx->sctx);
   fd_merlin_transcript_append_message(mctx, FD_MERLIN_LITERAL("dom-sep"), (uchar *)label, label_len);
-  // strobe128_dbg(&mctx->sctx);
 }
 
 void

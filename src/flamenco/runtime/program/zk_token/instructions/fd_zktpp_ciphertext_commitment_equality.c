@@ -38,8 +38,8 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
     3   C_src   -c w
     4   D_src   z_s w
     5   C_dst   -c
-    6   G       z_x (1 + w)
-    7   H       z_r - c
+    6   G       z_x w + z_x
+    7   H       z_r - c w^2
     ----------------------- MSM
         Y_2
   */
@@ -51,6 +51,7 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[0], proof->y0 )==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
+  //TODO check that neither y0, y1, y2 is identity
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], proof->y1 )==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
@@ -92,17 +93,19 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   uchar c[ 32 ];
   uchar w[ 32 ];
   fd_zktpp_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
+  // printf("c = "); for (ulong i=0; i<32; i++) { printf("%02x ", c[i]); } printf("\n");
   fd_zktpp_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
+  // printf("w = "); for (ulong i=0; i<32; i++) { printf("%02x ", w[i]); } printf("\n");
 
   /* Compute scalars */
-  fd_ed25519_sc_sub(    &scalars[7], proof->zr, c );            // z_r - c
-  fd_ed25519_sc_muladd( &scalars[6], proof->zx, w, proof->zx ); // z_x w + z_x
-  fd_ed25519_sc_neg(    &scalars[5], c );                       // -c
-  fd_ed25519_sc_mul(    &scalars[4], proof->zs, w );            // z_s w
-  fd_ed25519_sc_mul(    &scalars[3], &scalars[5], w );          // -c w
-  fd_ed25519_sc_mul(    &scalars[2], &scalars[4], w );          // z_s w^2
-  fd_ed25519_sc_neg(    &scalars[1], w );                       // -w
-  fd_ed25519_sc_mul(    &scalars[0], &scalars[1], w );          // -w^2
+  fd_ed25519_sc_muladd( &scalars[ 6*32 ], proof->zx, w, proof->zx );   // z_x w + z_x
+  fd_ed25519_sc_neg(    &scalars[ 5*32 ], c );                         // -c
+  fd_ed25519_sc_mul(    &scalars[ 4*32 ], proof->zs, w );              // z_s w
+  fd_ed25519_sc_mul(    &scalars[ 3*32 ], &scalars[ 5*32 ], w );            // -c w
+  fd_ed25519_sc_mul(    &scalars[ 2*32 ], &scalars[ 4*32 ], w );            // z_s w^2
+  fd_ed25519_sc_neg(    &scalars[ 1*32 ], w );                         // -w
+  fd_ed25519_sc_mul(    &scalars[ 0*32 ], &scalars[ 1*32 ], w );            // -w^2
+  fd_ed25519_sc_muladd( &scalars[ 7*32 ], &scalars[ 3*32 ], w, proof->zr ); // z_r - c w^2
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 8 );

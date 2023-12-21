@@ -24,7 +24,7 @@
 // #include "instructions/test_fd_zktpp_zero_balance.h"
 
 // turn on/off benches
-#define BENCH 1
+#define BENCH 0
 
 uchar *
 load_test_tx(char * hex[], ulong hex_sz, ulong * tx_len) {
@@ -54,7 +54,7 @@ create_test_ctx(fd_exec_instr_ctx_t * ctx, fd_instr_info_t * instr, uchar * tx, 
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one
 }
 
-static void
+void
 log_bench( char const * descr,
            ulong        iter,
            long         dt ) {
@@ -101,8 +101,8 @@ test_withdraw( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar * tx = load_test_tx(hex, hex_sz, &tx_len);
   create_test_ctx(ctx, instr, tx, tx_len, offset);
 
-  void const * context = tx + offset + 1;
-  void const * proof = tx + proof_offset;
+  FD_FN_UNUSED void const * context = tx + offset + 1;
+  FD_FN_UNUSED void const * proof = tx + proof_offset;
 
   //TODO
 
