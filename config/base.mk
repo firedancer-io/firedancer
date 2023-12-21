@@ -27,6 +27,9 @@ NANOPB:=nanopb_generator.py
 LLVM_COV?=llvm-cov
 LLVM_PROFDATA?=llvm-profdata
 
+# Rust
+RUST_PROFILE=debug
+
 # lcov
 GENHTML=genhtml
 # newer versions of genhtml will require '-ignore-errors unmapped'
