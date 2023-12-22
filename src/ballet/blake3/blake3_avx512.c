@@ -482,7 +482,7 @@ INLINE void transpose_msg_vecs4(const uint8_t *const *inputs,
 
 INLINE void load_counters4(uint64_t counter, bool increment_counter,
                            __m128i *out_lo, __m128i *out_hi) {
-  uint64_t mask = (increment_counter ? ~0 : 0);
+  int64_t mask = (increment_counter ? ~0 : 0);
   __m256i mask_vec = _mm256_set1_epi64x(mask);
   __m256i deltas = _mm256_setr_epi64x(0, 1, 2, 3);
   deltas = _mm256_and_si256(mask_vec, deltas);
@@ -737,7 +737,7 @@ INLINE void transpose_msg_vecs8(const uint8_t *const *inputs,
 
 INLINE void load_counters8(uint64_t counter, bool increment_counter,
                            __m256i *out_lo, __m256i *out_hi) {
-  uint64_t mask = (increment_counter ? ~0 : 0);
+  int64_t mask = (increment_counter ? ~0 : 0);
   __m512i mask_vec = _mm512_set1_epi64(mask);
   __m512i deltas = _mm512_setr_epi64(0, 1, 2, 3, 4, 5, 6, 7);
   deltas = _mm512_and_si512(mask_vec, deltas);
