@@ -1,0 +1,40 @@
+name: Industry
+on:
+  workflow_call:
+  workflow_dispatch:
+jobs:
+  publish:
+    name: Publish Industry Targets
+    runs-on:
+      group: github-v1
+    steps:
+      - name: Get Unix Timestamp
+        id: get_timestamp
+        run: echo "::set-output name=timestamp::$(date +%s)"
+
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/hugepages
+      - uses: ./.github/actions/deps
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - uses: firedancer-io/fuzzbot-builder@main
+        name: Build Industry Targets
+        with:
+          command: MACHINE=linux_clang_icelake EXTRAS='fuzz shared' make -j -Otarget shared
+
+      - uses: firedancer-io/clusterfuzz-action@main
+        name: Upload fuzz targets to ClusterFuzz
+        with:
+          bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
+          artifact-dir: build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
+          object-prefix: main/libfuzzer/${{ matrix.feature_set }}/firedancer
+          project-id: isol-clusterfuzz
+          qualifier: ${{ matrix.feature_set }}
+          service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - run: gcloud storage cp build/linux/clang/icelake/industry-bundle.zip gs://firedancer-builds.isol-clusterfuzz.appspot.com/industry-fd/industry-fd.${{ steps.get_timestamp.outputs.timestamp }}.${{ github.sha }}.zip

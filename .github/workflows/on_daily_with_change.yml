@@ -26,3 +26,7 @@ jobs:
     if: needs.check-date.outputs.should_run == 'true'
     uses: ./.github/workflows/codeql.yml
     secrets: inherit
+
+  publish-industry:
+    name: Publish to Industry
+    uses: ./.github/workflows/_publish_to_industry.yml

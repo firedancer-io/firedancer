@@ -1,7 +1,7 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test run-script-test help clean distclean asm ppp show-deps seccomp-policies
+.PHONY: all info bin shared rust include lib unit-test fuzz-test run-unit-test run-script-test help clean distclean asm ppp show-deps seccomp-policies
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -43,10 +43,11 @@ help:
 	# SCRUB           = $(SCRUB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
+	# Explicit goals are: all bin shared include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
+	# "make shared" makes all shared objects for the current platform. Requires EXTRAS=shared
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
@@ -64,6 +65,7 @@ help:
 	#   "make run-fuzz-test" re-runs all fuzz tests over existing corpora
 	#   "make fuzz_TARGET_unit" re-runs a specific fuzz-test over the existing corpus
 	#   "make fuzz_TARGET_run" runs a specific fuzz-test in explore mode for 600 seconds
+	#   "make industry-bundle" makes an industry bundle. Requires EXTRAS="fuzz shared"
 
 info: $(OBJDIR)/info
 
@@ -220,20 +222,27 @@ run-fuzz-test: $(1)_unit
 
 endef
 
+define _make-shared
+$(eval $(call _make-exe,$(1).so,$(2),$(3),shared,lib))
+endef
+
 ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
 make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
-fuzz-test =
+fuzz-test:
+	$(error Cannot build fuzz tests on this config. Ensure `fuzz` is part of EXTRAS)
 run-unit-test = $(eval $(call _run-unit-test,$(1)))
 run-fuzz-test:
 	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
 	@exit 1
+make-shared = $(eval $(call _make-shared,$(1),$(2),$(3)))
 else
 make-bin =
 make-unit-test =
 fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 run-unit-test =
+make-shared = $(eval $(call _make-shared,$(1),$(2),$(3)))
 endif
 
 ##############################
@@ -385,3 +394,8 @@ run-script-test:
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/generate_filters.py {} \;
+
+industry-bundle: $(OBJDIR)/industry-bundle.zip
+
+$(OBJDIR)/industry-bundle.zip: shared
+	$(SHELL) contrib/package_industry_bundle.sh $(OBJDIR)
