@@ -132,6 +132,10 @@ typedef struct {
   ulong       out_wmark;
   ulong       out_chunk;
 
+  ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
+  fd_histf_t schedule_duration[ 1 ];
+  fd_histf_t insert_duration  [ 1 ];
+
   fd_stake_ci_t stake_ci[ 1 ];
 } fd_pack_ctx_t;
 
@@ -168,6 +172,15 @@ during_housekeeping( void * _ctx ) {
     ctx->poh_reset_slot    = new_reset_slot;
     ctx->poh_slots_updated = 1; /* Handle all the state transitions in before_credit below */
   }
+}
+
+static inline void
+metrics_write( void * _ctx ) {
+  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+
+  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,  ctx->insert_result );
+  FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
+  FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
 }
 
 static inline int
@@ -262,7 +275,7 @@ before_credit( void * _ctx,
     }
   }
 
-  if( FD_UNLIKELY( ctx->packing_for != initial_packing_for ) ) fd_pack_end_block( ctx->pack );
+  if( FD_UNLIKELY( (ctx->packing_for!=initial_packing_for) & (initial_packing_for!=ULONG_MAX) ) ) fd_pack_end_block( ctx->pack );
 }
 
 static inline void
@@ -281,7 +294,11 @@ after_credit( void *             _ctx,
       fd_pack_microblock_complete( ctx->pack, i );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+      long schedule_duration = -fd_tickcount();
       ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, i, microblock_dst );
+      schedule_duration      += fd_tickcount();
+      fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
+
       if( FD_LIKELY( schedule_cnt ) ) {
         ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
         ulong chunk  = ctx->out_chunk;
@@ -296,8 +313,10 @@ after_credit( void *             _ctx,
         fd_mux_publish( mux, sig, chunk, msg_sz, 0, 0UL, tspub );
 
         ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz, ctx->out_chunk0, ctx->out_wmark );
-        ctx->out_ready_at[i] = now + MICROBLOCK_DURATION_NS;
       }
+      /* TODO: Do we want to reset the timer even if we don't get any
+         transactions? */
+      ctx->out_ready_at[i] = now + MICROBLOCK_DURATION_NS;
     }
   }
 }
@@ -335,6 +354,7 @@ during_frag( void * _ctx,
      1 so they can be distinguished. */
 
   if( FD_LIKELY( !sig ) ) {
+    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
     /* Assume that the dcache entry is:
           Payload ....... (payload_sz bytes)
           0 or 1 byte of padding (since alignof(fd_txn) is 2)
@@ -350,6 +370,7 @@ during_frag( void * _ctx,
   } else {
     /* Here there is just a transaction payload, so it needs to be
        parsed.  We can parse right out into the pack structure. */
+    FD_MCNT_INC( PACK, GOSSIPED_VOTES_RECEIVED, 1UL );
     payload_sz = sz;
     fd_memcpy( ctx->cur_spot->payload, dcache_entry, sz );
     ulong txn_t_sz = fd_txn_parse( ctx->cur_spot->payload, sz, TXN(ctx->cur_spot), NULL );
@@ -392,7 +413,12 @@ after_frag( void *             _ctx,
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
   } else {
     /* Normal transaction case */
-    fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot );
+    long insert_duration = -fd_tickcount();
+    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot );
+    insert_duration      += fd_tickcount();
+    ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+    fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+
     ctx->cur_spot = NULL;
   }
 }
@@ -455,6 +481,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->out_busy[ i ] = tile->extra[ i ];
     if( FD_UNLIKELY( !ctx->out_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
     ctx->out_ready_at[ i ] = 0L;
+    FD_TEST( 0UL==fd_fseq_query( ctx->out_busy[ i ] ) );
   }
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
@@ -472,6 +499,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
 
   fd_stake_ci_join( fd_stake_ci_new( ctx->stake_ci, &(ctx->identity_pubkey) ) );
+
+  /* Initialize metrics storage */
+  memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
+  fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
 
   FD_LOG_INFO(( "packing blocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, out_cnt ));
 
@@ -527,6 +561,7 @@ fd_tile_config_t fd_tile_pack = {
   .mux_after_credit         = after_credit,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_metrics_write        = metrics_write,
   .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
