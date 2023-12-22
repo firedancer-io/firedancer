@@ -36,6 +36,12 @@ fd_merlin_transcript_append_message( fd_merlin_transcript_t * mctx,
                                      uint const               message_len );
 
 void
+fd_merlin_transcript_append_u64( fd_merlin_transcript_t * mctx,
+                                 char const * const       label,
+                                 uint const               label_len,
+                                 ulong const              message_u64 );
+
+void
 fd_merlin_transcript_challenge_bytes( fd_merlin_transcript_t * mctx,
                                       char const * const       label,
                                       uint const               label_len,

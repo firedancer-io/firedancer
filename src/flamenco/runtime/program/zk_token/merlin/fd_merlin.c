@@ -156,6 +156,14 @@ fd_merlin_transcript_append_message( fd_merlin_transcript_t * mctx,
   strobe128_ad(&mctx->sctx, message, message_len, 0);
 }
 
+inline void
+fd_merlin_transcript_append_u64( fd_merlin_transcript_t * mctx,
+                                 char const * const       label,
+                                 uint const               label_len,
+                                 ulong const              message_u64 ) {
+  fd_merlin_transcript_append_message( mctx, label, label_len, (uchar *)&message_u64, 8 );
+}
+
 void
 fd_merlin_transcript_challenge_bytes( fd_merlin_transcript_t * mctx,
                                       char const * const       label,
