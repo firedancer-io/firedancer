@@ -1,6 +1,5 @@
 #include "../fd_zktpp_private.h"
 #include "../encryption/fd_zktpp_encryption.h"
-#include "../../../../../ballet/ed25519/fd_ristretto255_ge.h"
 
 static void
 ciph_comm_eq_transcript_init( fd_zktpp_transcript_t *        transcript,
