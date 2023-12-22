@@ -1,5 +1,5 @@
 [workspace]
-members = ["firedancer-sys", "firedancer-diff"]
+members = ["firedancer-sys", "firedancer-diff", "diff-sbpf_loader"]
 resolver = "2"
 
 [profile.dev]

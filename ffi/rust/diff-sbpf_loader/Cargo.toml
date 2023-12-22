@@ -1,0 +1,16 @@
+[package]
+name = "diff-sbpf_loader"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type=["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+solana-bpf-loader-program = { git = "https://github.com/solana-labs/solana", rev = "ded307adb328a34a56a66b5a04eb662fd590484a", version = "1.17.0" }
+solana-logger = { git = "https://github.com/solana-labs/solana", rev = "ded307adb328a34a56a66b5a04eb662fd590484a", version = "1.17.0" }
+solana-metrics = { git = "https://github.com/solana-labs/solana", rev = "ded307adb328a34a56a66b5a04eb662fd590484a", version = "1.17.0" }
+solana-program-runtime = { git = "https://github.com/solana-labs/solana", rev = "ded307adb328a34a56a66b5a04eb662fd590484a", version = "1.17.0" }
+solana-sdk = { git = "https://github.com/solana-labs/solana", rev = "ded307adb328a34a56a66b5a04eb662fd590484a", version = "1.17.0" }
