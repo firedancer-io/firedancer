@@ -20,6 +20,10 @@
 #include "instructions/fd_zktpp_withdraw.h"
 // #include "instructions/fd_zktpp_zero_balance.h"
 
+/* Internal error for ZKP verify_proof instructions, to distinguish
+   from the external error which is FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA. */
+#define FD_ZKTPP_VERIFY_PROOF_ERROR FD_EXECUTOR_INSTR_ERR_GENERIC_ERR
+
 /* Size of the context struct for each verify_proof instruction. */
 static const ulong fd_zktpp_context_sz[] = {
   0, // FD_ZKTPP_INSTR_CLOSE_CONTEXT_STATE

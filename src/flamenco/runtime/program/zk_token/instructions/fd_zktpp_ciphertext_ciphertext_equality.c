@@ -7,5 +7,5 @@ int
 fd_zktpp_instr_verify_proof_ciphertext_ciphertext_equality( FD_FN_UNUSED void const * context, FD_FN_UNUSED void const * proof ) {
   //TODO
   FD_LOG_WARNING(( "Not implemented" ));
-  return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }

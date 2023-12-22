@@ -110,10 +110,10 @@ test_withdraw( FD_FN_UNUSED fd_rng_t * rng ) {
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
 
   // invalid proof
-  // tx[1 + proof_offset] ^= 0xff;
-  // FD_TEST( fd_zktpp_instr_verify_proof_withdraw( context, proof )==FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
-  // FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
-  // tx[1 + proof_offset] ^= 0xff;
+  tx[1 + proof_offset] ^= 0xff;
+  FD_TEST( fd_zktpp_instr_verify_proof_withdraw( context, proof )==FD_ZKTPP_VERIFY_PROOF_ERROR );
+  FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
+  tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
   instr->data_sz -= 10;
@@ -159,7 +159,7 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // invalid proof
   tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zktpp_instr_verify_proof_pubkey_validity( context, proof )==FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
+  FD_TEST( fd_zktpp_instr_verify_proof_pubkey_validity( context, proof )==FD_ZKTPP_VERIFY_PROOF_ERROR );
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   tx[1 + proof_offset] ^= 0xff;
 
@@ -207,7 +207,7 @@ test_batched_range_proof_u128( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // invalid proof
   tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zktpp_instr_verify_proof_batched_range_proof_u128( context, proof )==FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
+  FD_TEST( fd_zktpp_instr_verify_proof_batched_range_proof_u128( context, proof )==FD_ZKTPP_VERIFY_PROOF_ERROR );
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   tx[1 + proof_offset] ^= 0xff;
 
@@ -255,7 +255,7 @@ test_ciphertext_commitment_equality( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // invalid proof
   tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zktpp_instr_verify_proof_ciphertext_commitment_equality( context, proof )==FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
+  FD_TEST( fd_zktpp_instr_verify_proof_ciphertext_commitment_equality( context, proof )==FD_ZKTPP_VERIFY_PROOF_ERROR );
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   tx[1 + proof_offset] ^= 0xff;
 
@@ -303,7 +303,7 @@ test_batched_grouped_ciphertext_validity( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // invalid proof
   tx[1 + proof_offset] ^= 0xff;
-  FD_TEST( fd_zktpp_instr_verify_proof_batched_grouped_ciphertext_validity( context, proof )==FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
+  FD_TEST( fd_zktpp_instr_verify_proof_batched_grouped_ciphertext_validity( context, proof )==FD_ZKTPP_VERIFY_PROOF_ERROR );
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   tx[1 + proof_offset] ^= 0xff;
 

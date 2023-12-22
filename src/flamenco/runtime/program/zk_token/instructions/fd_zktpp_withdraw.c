@@ -26,7 +26,7 @@ fd_zktpp_instr_verify_proof_withdraw( void const * _context, void const * _proof
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   uchar bit_lengths[1] = { 64 };
@@ -38,7 +38,7 @@ fd_zktpp_instr_verify_proof_withdraw( void const * _context, void const * _proof
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

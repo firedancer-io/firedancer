@@ -21,7 +21,7 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   }
 
   FD_LOG_WARNING(( "Not implemented" ));
-  return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }
 
 int

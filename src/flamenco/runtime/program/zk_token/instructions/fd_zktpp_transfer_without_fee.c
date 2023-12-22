@@ -33,7 +33,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   zkp_res = fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
@@ -49,7 +49,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   //TODO: case TRANSFER_AMOUNT_LO_BITS == 32
@@ -77,7 +77,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

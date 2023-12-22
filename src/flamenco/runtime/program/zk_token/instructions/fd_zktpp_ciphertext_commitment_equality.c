@@ -47,38 +47,38 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   fd_ristretto255_point_t y2[1];
   fd_ristretto255_point_t res[1];
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[0], proof->y0 )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], proof->y1 )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y2, proof->y2 )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], source_pubkey )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[3], source_ciphertext )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], &source_ciphertext[32] )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[5], destination_commitment )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   fd_memcpy( &points[6], fd_zktpp_basepoint_G, sizeof(fd_ristretto255_point_t) );
   fd_memcpy( &points[7], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
 
   uchar scalars[ 8 * 32 ];
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->zs )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->zx )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->zr )==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   /* Finalize transcript and extract challenges */
@@ -88,7 +88,7 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   val |= fd_zktpp_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_1"), proof->y1);
   val |= fd_zktpp_transcript_validate_and_append_point( transcript, FD_TRANSCRIPT_LITERAL("Y_2"), proof->y2);
   if( FD_UNLIKELY( val != FD_TRANSCRIPT_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   uchar c[ 32 ];
@@ -109,7 +109,7 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 8 );
   if( FD_UNLIKELY( fd_ristretto255_point_eq( res, y2 )==0 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

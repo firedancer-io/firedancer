@@ -16,7 +16,7 @@ fd_zktpp_verify_proof_range_u128(
   }
 
   FD_LOG_WARNING(( "Not implemented" ));
-  return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }
 
 int
