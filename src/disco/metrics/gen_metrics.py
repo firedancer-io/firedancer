@@ -135,7 +135,7 @@ if __name__ == '__main__':
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
     max_offset = 0
-    for tile in ['all', 'quic']:
+    for tile in ['all', 'quic', 'pack']:
         tile_metrics = [x for x in metrics if x.tile == tile]
         max_offset = max(max_offset, sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' or x.tile == tile]))
 

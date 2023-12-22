@@ -4,7 +4,7 @@
 #include "fd_compute_budget_program.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
-
+#include "../../disco/metrics/fd_metrics.h"
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
@@ -232,25 +232,22 @@ struct fd_pack_private {
   fd_pack_ord_txn_t * pool;
 
   /* Transactions in the pool can be in one of various trees.  The
-     default situation is that the transaction is in pending
+     default situation is that the transaction is in pending or
      pending_votes, depending on whether it is a vote or not.
 
      If this were the only storage for transactions though, in the case
      that there are a lot of transactions that conflict, we'd end up
      going through transactions a bunch of times.  To optimize that,
      when we know that we won't be able to consider a transaction until
-     at least the kth microblock in the future, we stick it in a "data
-     structure" like a bucket queue based on when it will become
-     available.
+     at least a certain microblock finishes, we stick it in a "data
+     structure" like a bucket queue based on which currently scheduled
+     microblocks it conflicts with.
 
      This is just a performance optimization and done on a best effort
-     basis; a transaction coming out of delayed might still not be
-     available because of new conflicts.  Transactions in pending might
-     have conflicts we just haven't discovered yet.  The authoritative
-     source for conflicts is acct_uses_{read,write}.
-
-     Unlike typical bucket queues, the buckets here form a ring, and
-     each element of the ring is a tree. */
+     basis; a transaction coming out of conflicting_with might still not
+     be available because of new conflicts.  Transactions in pending
+     might have conflicts we just haven't discovered yet.  The
+     authoritative source for conflicts is acct_uses_{read,write}. */
 
   treap_t pending[1];
   treap_t pending_votes[1];
@@ -272,6 +269,9 @@ struct fd_pack_private {
      microblock finishes. */
   fd_pack_addr_use_t * use_by_bank    [ FD_PACK_MAX_BANK_TILES ];
   ulong                use_by_bank_cnt[ FD_PACK_MAX_BANK_TILES ];
+
+  fd_histf_t txn_per_microblock [ 1 ];
+  fd_histf_t vote_per_microblock[ 1 ];
 };
 
 typedef struct fd_pack_private fd_pack_t;
@@ -292,12 +292,12 @@ fd_pack_footprint( ulong pack_depth,
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
 
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                      );
-  l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL )  ); /* pool          */
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  ); /* acct_in_use   */
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     )  ); /* writer_costs  */
-  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth       )  ); /* signature_map */
-  l = FD_LAYOUT_APPEND( l, 32UL,               max_acct_in_flight                     ); /* use_by_bank   */
+  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                               );
+  l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL           ) ); /* pool           */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn               ) ); /* writer_costs   */
+  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth                 ) ); /* signature_map  */
+  l = FD_LAYOUT_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
   return FD_LAYOUT_FINI( l, FD_PACK_ALIGN );
 }
 
@@ -361,6 +361,10 @@ fd_pack_new( void *     mem,
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank[i]=use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*max_txn_per_microblock+1UL);
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i]=0UL;
 
+  fd_histf_join( fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ),
+                                                          FD_MHIST_MAX( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ) ) );
+  fd_histf_join( fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTES_PER_MICROBLOCK_COUNT ),
+                                                          FD_MHIST_MAX( PACK, VOTES_PER_MICROBLOCK_COUNT ) ) );
 
   return mem;
 }
@@ -386,6 +390,7 @@ fd_pack_join( void * mem ) {
   pack->writer_costs  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_max_txn     ) ) );
   pack->signature_map = sig2txn_join(   FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),   sig2txn_footprint  ( lg_depth       ) ) );
 
+  FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack_depth );
   return pack;
 }
 
@@ -453,7 +458,12 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn; }
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
-void
+#define REJECT( reason ) do {                                       \
+                           trp_pool_ele_release( pack->pool, ord ); \
+                           return FD_PACK_INSERT_REJECT_ ## reason; \
+                         } while( 0 )
+
+int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_p_t * txnp ) {
 
@@ -464,10 +474,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
 
-  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) {
-    trp_pool_ele_release( pack->pool, ord );
-    return;
-  }
+  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) REJECT( ESTIMATION_FAIL );
 
   fd_txn_acct_iter_t ctrl[1];
   int writes_to_sysvar = 0;
@@ -480,37 +487,36 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE  );
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) REJECT( TOO_LARGE     );
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR );
   /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) REJECT( DUPLICATE     );
 
   /* TODO: Add recent blockhash based expiry here */
 
+  int replaces = 0;
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     /* If the tree is full, we'll double check to make sure this is
        better than the worst element in the tree before inserting.  If
        the new transaction is better than that one, we'll delete it and
        insert the new transaction. Otherwise, we'll throw away this
        transaction. */
-    /* TODO: Increment a counter to mark this is happening */
     fd_pack_ord_txn_t * worst = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending, pack->pool ), pack->pool );
     if( FD_UNLIKELY( !worst ) ) {
       /* We have nothing to sacrifice because they're all in other
          trees. */
-      trp_pool_ele_release( pack->pool, ord );
-      return;
+      REJECT( FULL );
     }
     else if( !COMPARE_WORSE( worst, ord ) ) {
       /* What we have in the tree is better than this transaction, so just
          pretend this transaction never happened */
-      trp_pool_ele_release( pack->pool, ord );
-      return;
+      REJECT( PRIORITY );
     } else {
       /* Remove the worst from the tree */
+      replaces = 1;
       fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
       sig2txn_remove( pack->signature_map, sig2txn_query( pack->signature_map, worst_sig, NULL ) );
 
@@ -524,11 +530,15 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
 
-  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) )
+  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
-  else
+    return replaces ? FD_PACK_INSERT_ACCEPT_VOTE_REPLACE : FD_PACK_INSERT_ACCEPT_VOTE_ADD;
+  } else {
     treap_ele_insert( pack->pending,       ord, pack->pool );
+    return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
+  }
 }
+#undef REJECT
 
 typedef struct {
   ulong cus_scheduled;
@@ -551,8 +561,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
   fd_pack_addr_use_t * use_by_bank     = pack->use_by_bank    [bank_tile];
   ulong                use_by_bank_cnt = pack->use_by_bank_cnt[bank_tile];
 
-  ulong txns_scheduled = 0UL;
-  ulong cus_scheduled  = 0UL;
+  ulong txns_considered = 0UL;
+  ulong txns_scheduled  = 0UL;
+  ulong cus_scheduled   = 0UL;
 
   ulong bank_tile_mask = 1UL << bank_tile;
 
@@ -560,6 +571,8 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool );
       (cu_limit>=FD_PACK_MIN_TXN_COST) & (txn_limit>0) & !treap_rev_iter_done( _cur ); _cur=prev ) {
     prev = treap_rev_iter_next( _cur, pool );
+
+    txns_considered++;
 
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
 
@@ -657,6 +670,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       treap_ele_insert( move_to,    cur, pool );
     }
   }
+  FD_MCNT_INC( PACK, TRANSACTION_SKIPPED, txns_considered-txns_scheduled );
 
   pack->use_by_bank_cnt[bank_tile] = use_by_bank_cnt;
 
@@ -706,13 +720,16 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
                                            (ulong)((float)pack->max_txn_per_microblock * vote_fraction) );
 
-  if( FD_UNLIKELY( pack->microblock_cnt >= pack->max_microblocks_per_block ) ) return 0UL;
+  if( FD_UNLIKELY( pack->microblock_cnt >= pack->max_microblocks_per_block ) ) {
+    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+    return 0UL;
+  }
 
   ulong cu_limit  = total_cus - vote_cus;
   ulong txn_limit = pack->max_txn_per_microblock - vote_reserved_txns;
   ulong scheduled = 0UL;
 
-  sched_return_t status;
+  sched_return_t status, status1;
 
   /* Try to schedule non-vote transactions */
   status = fd_pack_schedule_microblock_impl( pack, pack->pending,       1, cu_limit, txn_limit,          bank_tile, out+scheduled );
@@ -724,14 +741,14 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Schedule vote transactions */
-  status = fd_pack_schedule_microblock_impl( pack, pack->pending_votes, 0, vote_cus, vote_reserved_txns, bank_tile, out+scheduled );
+  status1= fd_pack_schedule_microblock_impl( pack, pack->pending_votes, 0, vote_cus, vote_reserved_txns, bank_tile, out+scheduled );
 
-  scheduled                   += status.txns_scheduled;
-  pack->cumulative_vote_cost  += status.cus_scheduled;
-  pack->cumulative_block_cost += status.cus_scheduled;
+  scheduled                   += status1.txns_scheduled;
+  pack->cumulative_vote_cost  += status1.cus_scheduled;
+  pack->cumulative_block_cost += status1.cus_scheduled;
   /* Add any remaining CUs/txns to the non-vote limits */
-  txn_limit += vote_reserved_txns - status.txns_scheduled;
-  cu_limit  += vote_cus - status.cus_scheduled;
+  txn_limit += vote_reserved_txns - status1.txns_scheduled;
+  cu_limit  += vote_cus - status1.cus_scheduled;
 
 
   /* Fill any remaining space with non-vote transactions */
@@ -742,6 +759,13 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   pack->microblock_cnt += (ulong)(scheduled>0UL);
   pack->outstanding_microblock_mask |= 1UL << bank_tile;
+
+  /* Update metrics counters */
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
+  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+
+  fd_histf_sample( pack->txn_per_microblock,  scheduled              );
+  fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
   return scheduled;
 }
@@ -763,6 +787,14 @@ fd_pack_end_block( fd_pack_t * pack ) {
   acct_uses_clear( pack->writer_costs );
 
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
+
+  /* If our stake is low and we don't become leader often, end_block
+     might get called on the order of O(1/hr), which feels too
+     infrequent to do anything related to metrics.  However, we only
+     update the histograms when we are leader, so this is actually a
+     good place to copy them. */
+  FD_MHIST_COPY( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT, pack->txn_per_microblock  );
+  FD_MHIST_COPY( PACK, VOTES_PER_MICROBLOCK_COUNT,              pack->vote_per_microblock );
 }
 
 static void

@@ -3,6 +3,7 @@
 #include "fd_compute_budget_program.h"
 #include "../txn/fd_txn.h"
 #include "../base58/fd_base58.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include <math.h>
 
 FD_IMPORT_BINARY( sample_vote, "src/ballet/pack/sample_vote.bin" );
@@ -17,6 +18,7 @@ ulong payload_sz[ MAX_TEST_TXNS ];
 #define PACK_SCRATCH_SZ (128UL*1024UL*1024UL)
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
+uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
 const char SIGNATURE_SUFFIX[ FD_TXN_SIGNATURE_SZ - sizeof(ulong) - sizeof(uint) ] = ": this is the fake signature of transaction number ";
 const char WORK_PROGRAM_ID[ FD_TXN_ACCT_ADDR_SZ ] = "Work Program Id Consumes 1<<j CU";
@@ -636,6 +638,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
   test0();
   test1();

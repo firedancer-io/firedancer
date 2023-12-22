@@ -25,6 +25,20 @@ metric introduced.
     <int value="3" name="UniServer" label="Unidirectional server" />
 </enum>
 
+<enum name="PackTxnInsertReturn">
+  <int value="-7" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
+  <int value="-6" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+  <int value="-5" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-4" name="TooLarge" label="Transaction requests too many CUs" />
+  <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
+  <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
+  <int value="-1" name="Priority" label="Transaction's fee was too low given it's compute unit requirement and other competing transactions" />
+  <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
+  <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
+  <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
+  <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
+</enum>
+
 <group name="Link" link="all" linkside="out">
     <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
 </group>
@@ -133,4 +147,33 @@ metric introduced.
     <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
 </group>
 
+<group name="Pack" tile="pack">
+  <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+    <summary>Duration of scheduling one microblock</summary>
+  </histogram>
+  <histogram name="InsertTransactionDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
+    <summary>Duration of inserting one transaction into the pool of available transactions</summary>
+  </histogram>
+  <histogram name="TotalTransactionsPerMicroblockCount" min="0" max="64">
+    <summary>Count of transactions in a scheduled microblock, including both votes and non-votes</summary>
+  </histogram>
+  <histogram name="VotesPerMicroblockCount" min="0" max="64">
+    <summary>Count of simple vote transactions in a scheduled microblock</summary>
+  </histogram>
+  <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
+  <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
+  <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
+
+  <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
+  <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
+  <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
+
+  <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
+  <counter name="TransactionSkipped" summary="The number of times pack considered a transaction but skipped it due to account conflicts" />
+  <!-- TODO: Add more reasons after performance improvement PR -->
+
+  <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
+  <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
+
+</group>
 </metrics>
