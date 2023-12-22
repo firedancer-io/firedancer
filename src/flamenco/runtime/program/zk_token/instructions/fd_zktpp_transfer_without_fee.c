@@ -41,11 +41,12 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     context->transfer_pubkeys.destination,
     context->transfer_pubkeys.auditor,
     context->ciphertext_lo.commitment,
-    context->ciphertext_hi.commitment,
     context->ciphertext_lo.destination_handle,
-    context->ciphertext_hi.destination_handle,
     context->ciphertext_lo.auditor_handle,
+    context->ciphertext_hi.commitment,
+    context->ciphertext_hi.destination_handle,
     context->ciphertext_hi.auditor_handle,
+    true,
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {

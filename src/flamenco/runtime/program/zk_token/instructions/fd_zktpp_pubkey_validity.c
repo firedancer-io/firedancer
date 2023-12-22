@@ -25,13 +25,13 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_ristretto255_point_t points[2];
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
+  fd_memcpy( &points[0], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], pubkey )==NULL ) ) {
+    return FD_ZKTPP_VERIFY_PROOF_ERROR;
+  }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y, proof->y )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[0], pubkey )==NULL ) ) {
-    return FD_ZKTPP_VERIFY_PROOF_ERROR;
-  }
-  fd_memcpy( &points[1], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
 
   uchar scalars[ 2 * 32 ];
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->z )==NULL ) ) {
@@ -50,8 +50,8 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_zktpp_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Compute scalars */
-  fd_ed25519_sc_neg( &scalars[ 0*32 ], c );    // -c
-  fd_memcpy( &scalars[ 1*32 ], proof->z, 32 ); // z
+  fd_memcpy( &scalars[ 0*32 ], proof->z, 32 ); // z
+  fd_ed25519_sc_neg( &scalars[ 1*32 ], c );    // -c
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 2 );

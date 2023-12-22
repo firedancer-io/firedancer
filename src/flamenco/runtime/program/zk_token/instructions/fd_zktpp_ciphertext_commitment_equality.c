@@ -30,14 +30,14 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
     We store points and scalars in the following arrays:
 
         points  scalars
-    0   Y_0     -w^2
-    1   Y_1     -w
-    2   P_src   z_s w^2
-    3   C_src   -c w
-    4   D_src   z_s w
-    5   C_dst   -c
-    6   G       z_x w + z_x
-    7   H       z_r - c w^2
+    0   G       z_x w + z_x
+    1   H       z_r - c w^2
+    2   Y_0     -w^2
+    3   Y_1     -w
+    4   P_src   z_s w^2
+    5   C_src   -c w
+    6   D_src   z_s w
+    7   C_dst   -c
     ----------------------- MSM
         Y_2
   */
@@ -46,29 +46,29 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   fd_ristretto255_point_t points[8];
   fd_ristretto255_point_t y2[1];
   fd_ristretto255_point_t res[1];
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[0], proof->y0 )==NULL ) ) {
+  fd_memcpy( &points[0], fd_zktpp_basepoint_G, sizeof(fd_ristretto255_point_t) );
+  fd_memcpy( &points[1], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], proof->y0 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], proof->y1 )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[3], proof->y1 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y2, proof->y2 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], source_pubkey )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], source_pubkey )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[3], source_ciphertext )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[5], source_ciphertext )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[4], &source_ciphertext[32] )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[6], &source_ciphertext[32] )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[5], destination_commitment )==NULL ) ) {
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[7], destination_commitment )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
-  fd_memcpy( &points[6], fd_zktpp_basepoint_G, sizeof(fd_ristretto255_point_t) );
-  fd_memcpy( &points[7], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
 
   uchar scalars[ 8 * 32 ];
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->zs )==NULL ) ) {
@@ -97,14 +97,14 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   fd_zktpp_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
   /* Compute scalars */
-  fd_ed25519_sc_muladd( &scalars[ 6*32 ], proof->zx, w, proof->zx );        // z_x w + z_x
-  fd_ed25519_sc_neg(    &scalars[ 5*32 ], c );                              // -c
-  fd_ed25519_sc_mul(    &scalars[ 4*32 ], proof->zs, w );                   // z_s w
-  fd_ed25519_sc_mul(    &scalars[ 3*32 ], &scalars[ 5*32 ], w );            // -c w
-  fd_ed25519_sc_mul(    &scalars[ 2*32 ], &scalars[ 4*32 ], w );            // z_s w^2
-  fd_ed25519_sc_neg(    &scalars[ 1*32 ], w );                              // -w
-  fd_ed25519_sc_mul(    &scalars[ 0*32 ], &scalars[ 1*32 ], w );            // -w^2
-  fd_ed25519_sc_muladd( &scalars[ 7*32 ], &scalars[ 3*32 ], w, proof->zr ); // z_r - c w^2
+  fd_ed25519_sc_neg(    &scalars[ 7*32 ], c );                              // -c
+  fd_ed25519_sc_mul(    &scalars[ 6*32 ], proof->zs, w );                   // z_s w
+  fd_ed25519_sc_mul(    &scalars[ 5*32 ], &scalars[ 7*32 ], w );            // -c w
+  fd_ed25519_sc_mul(    &scalars[ 4*32 ], &scalars[ 6*32 ], w );            // z_s w^2
+  fd_ed25519_sc_neg(    &scalars[ 3*32 ], w );                              // -w
+  fd_ed25519_sc_mul(    &scalars[ 2*32 ], &scalars[ 3*32 ], w );            // -w^2
+  fd_ed25519_sc_muladd( &scalars[ 1*32 ], &scalars[ 5*32 ], w, proof->zr ); // z_r - c w^2
+  fd_ed25519_sc_muladd( &scalars[ 0*32 ], proof->zx, w, proof->zx );        // z_x w + z_x
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 8 );
