@@ -398,18 +398,6 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
   ulong start_idx = 0;
   ulong end_idx = m->received;
 
-  fd_blockstore_slot_meta_map_t * slot_meta_map =
-    fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
-  fd_blockstore_slot_meta_map_t * slot_meta_entry =
-    fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
-  if( FD_UNLIKELY( !slot_meta_entry ) ) {
-    slot_meta_entry = fd_blockstore_slot_meta_map_insert( slot_meta_map, slot );
-    if( FD_UNLIKELY( !slot_meta_entry ) ) {
-      FD_LOG_ERR(("slot_meta is too small"));
-    }
-  }
-  slot_meta_entry->slot_meta = *m;
-
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[3]);
 
   char k[16];
@@ -460,7 +448,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
       rocksdb_iter_destroy(iter);
       return -1;
     }
-    if (fd_blockstore_shred_insert( blockstore, shred ) != FD_BLOCKSTORE_OK) {
+    if (fd_blockstore_shred_insert( blockstore, m, shred ) != FD_BLOCKSTORE_OK) {
       FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);
       return -1;

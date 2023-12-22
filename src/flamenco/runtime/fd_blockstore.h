@@ -23,6 +23,7 @@
 #define FD_BLOCKSTORE_DUP_SHREDS_MAX      ( 32UL ) /* TODO think more about this */
 #define FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX ( 10UL )
 #define FD_BLOCKSTORE_SLOT_HISTORY_MAX    ( 1UL << FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX )
+#define FD_BLOCKSTORE_SLOT_HISTORY_MAX_WITH_SLOP    ( FD_BLOCKSTORE_SLOT_HISTORY_MAX + ( FD_BLOCKSTORE_SLOT_HISTORY_MAX >> 4UL ) )
 #define FD_BLOCKSTORE_BLOCK_SZ_MAX        ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 // TODO centralize these
@@ -109,12 +110,21 @@ struct fd_blockstore_micro {
 };
 typedef struct fd_blockstore_micro fd_blockstore_micro_t;
 
-// TODO ptrs need to support global addresses
+/* A reference to a transaction in a block */
+struct fd_blockstore_txn_ref {
+  ulong txn_off; /* offset into block data of transaction */
+  ulong id_off;  /* offset into block data of transaction identifiers */
+  ulong sz;
+};
+typedef struct fd_blockstore_txn_ref fd_blockstore_txn_ref_t;
+
 struct fd_blockstore_block {
-  ulong shreds_gaddr; /* ptr to the first shred in the block's data region */
+  ulong shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
   ulong shreds_cnt;
-  ulong micros_gaddr; /* ptr to the first microblock in the block's data region */
+  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
   ulong micros_cnt;
+  ulong txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
+  ulong txns_cnt;
   long  ts;         /* timestamp in nanosecs */
   ulong data_gaddr; /* ptr to the beginning of the block's allocated data region */
   ulong sz;         /* block size */
@@ -145,6 +155,8 @@ struct fd_blockstore_txn_map {
   ulong                   slot;
   ulong                   offset;
   ulong                   sz;
+  ulong                   meta_gaddr; /* ptr to the transaction metadata */
+  ulong                   meta_sz;    /* metadata size */
 };
 typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 
@@ -267,12 +279,13 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_blockstore_bloc
 /* Operations */
 
 /* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
- * the blockstore is full. Returns an error code indicating success or failure.
+ * the blockstore is full. Returns an error code indicating success or
+ * failure. slot_meta_opt can be NULL if not known.
  *
  * TODO eventually this will need to support "upsert" duplicate shred handling
  */
 int
-fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
+fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_meta_opt, fd_shred_t const * shred );
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
  * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
@@ -305,6 +318,12 @@ fd_blockstore_missing_shreds_query( fd_blockstore_t *               blockstore,
 /* Returns the transaction data for the given signature */
 fd_blockstore_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] );
+
+/* Remove the all slots less than min_slots from blockstore by
+   removing them from all relevant internal structures. Used to maintain
+   invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
+int
+fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot );
 
 FD_PROTOTYPES_END
 

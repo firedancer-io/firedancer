@@ -207,7 +207,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   int                   rc;
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
   fd_blockstore_t *     blockstore = repair_ctx->blockstore;
-  if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( blockstore, shred ) != FD_BLOCKSTORE_OK ) ) {
+  if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( blockstore, NULL, shred ) != FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", rc ) );
   };
   fd_blockstore_slot_meta_map_t * slot_meta_map =
