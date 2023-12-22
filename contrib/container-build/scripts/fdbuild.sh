@@ -1,5 +1,5 @@
 #!/bin/bash
-set -xeo pipefail
+set -eo pipefail
 
 GITDIR=/build/src
 source "$HOME/.cargo/env"
