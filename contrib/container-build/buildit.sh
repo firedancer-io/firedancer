@@ -4,6 +4,9 @@ OUTDIR=~/build
 SCRIPTDIR=${PWD}/scripts
 MACHINE=linux_gcc_x86_64
 
+#Bump this any time there's a change to the Dockerfile
+IMAGETAG=0.5
+
 GETOPT=$(getopt -o :t:m:h -l tag:,machine:,help -n $0 -- "$@")
 eval set -- "$GETOPT"
 
@@ -46,7 +49,7 @@ fi
 
 
 
-$DOCKER image exists fdbuilder:latest || $DOCKER build -t fdbuilder:latest .
+$DOCKER image exists fdbuilder:$IMAGETAG || $DOCKER build -t fdbuilder:$IMAGETAG -t fdbuilder:latest .
 
 $DOCKER run --rm \
         --volume "$OUTDIR:/build/out:Z" \
