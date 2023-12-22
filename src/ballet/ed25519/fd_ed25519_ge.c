@@ -56,6 +56,8 @@ fd_ed25519_multiscalar_mul( fd_ed25519_point_t *     h,
                             uchar const              a[ /* n * 32 */ ],
                             fd_ed25519_point_t const A[ /* n */ ],
                             ulong const              n ) {
+  //TODO: change iface such that points are affine
+
   /* naive */
   fd_ed25519_point_0( h );
   for ( ulong i=0; i<n; i++ ) {

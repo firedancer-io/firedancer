@@ -17,6 +17,11 @@
 
 /* fd_ristretto255 provides APIs for the ristretto255 prime order group */
 
+static const uchar fd_ristretto255_compressed_zero[ 32 ] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 /* fd_ristretto255_point_t is a opaque handle to a ristretto255 group
    element.  Although it is the same type as an Ed25519 group element,
    it is unsafe to mix Ed25519 point and ristretto point APIs, with the

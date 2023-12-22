@@ -1,11 +1,11 @@
 #include "fd_merlin.h"
 #include "../../../../fd_flamenco.h"
 #include "../../../../../ballet/hex/fd_hex.h"
-#include <stdio.h>
 
 // https://github.com/zkcrypto/merlin/blob/3.0.0/src/strobe.rs
 // https://github.com/zkcrypto/merlin/blob/3.0.0/src/transcript.rs
 
+/*
 void
 test_strobe128_dbg(fd_merlin_strobe128_t* ctx) {
   printf("state: ");
@@ -14,6 +14,7 @@ test_strobe128_dbg(fd_merlin_strobe128_t* ctx) {
   printf("pos_begin: %d\n", ctx->pos_begin);
   printf("cur_flags: %d\n", ctx->cur_flags);
 }
+*/
 
 static void
 test_equivalence_simple( FD_FN_UNUSED fd_rng_t * rng ) {

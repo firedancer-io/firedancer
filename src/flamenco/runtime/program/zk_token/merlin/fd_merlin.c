@@ -4,18 +4,8 @@
 #include <string.h>
 
 #include <assert.h>
-#include <stdio.h>
 
 /******** The Keccak-f[1600] permutation ********/
-
-// void
-// strobe128_dbg(fd_merlin_strobe128_t* ctx) {
-//   printf("state: ");
-//   for (ulong i=0; i<200; i++) { printf("%02x ", ctx->state_bytes[i]); }
-//   printf("\npos: %d\n", ctx->pos);
-//   printf("pos_begin: %d\n", ctx->pos_begin);
-//   printf("cur_flags: %d\n", ctx->cur_flags);
-// }
 
 /*** Constants. ***/
 static const uint8_t rho[24] = {1,  3,  6,  10, 15, 21, 28, 36, 45, 55, 2,  14,

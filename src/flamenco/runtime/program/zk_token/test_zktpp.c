@@ -2,7 +2,6 @@
 // https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof-tests/tests/process_transaction.rs
 // benches
 // https://github.com/solana-labs/solana/blob/v1.17.10/programs/zk-token-proof/benches/verify_proofs.rs
-#include <stdio.h>
 #include "fd_zktpp_private.h"
 #include "../../../fd_flamenco.h"
 #include "../../../../ballet/hex/fd_hex.h"
@@ -107,8 +106,8 @@ test_withdraw( FD_FN_UNUSED fd_rng_t * rng ) {
   //TODO
 
   // valid
-  // FD_TEST( fd_zktpp_instr_verify_proof_withdraw( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
-  // FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_zktpp_instr_verify_proof_withdraw( context, proof )==FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_SUCCESS );
 
   // invalid proof
   // tx[1 + proof_offset] ^= 0xff;
