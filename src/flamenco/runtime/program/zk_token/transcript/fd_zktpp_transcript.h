@@ -20,7 +20,7 @@ inline uchar *
 fd_zktpp_transcript_challenge_scalar( uchar                   scalar[ static 32 ],
                                       fd_zktpp_transcript_t * transcript,
                                       char const * const      label,
-                                      ulong                   label_len ) {
+                                      uint const              label_len ) {
   uchar unreduced[ 64 ];
   fd_merlin_transcript_challenge_bytes( transcript, label, label_len, unreduced, 64 );
   return fd_ed25519_sc_reduce(scalar, unreduced);
@@ -29,7 +29,7 @@ fd_zktpp_transcript_challenge_scalar( uchar                   scalar[ static 32 
 inline void
 fd_zktpp_transcript_append_point( fd_zktpp_transcript_t * transcript,
                                   char const * const      label,
-                                  ulong                   label_len,
+                                  uint const              label_len,
                                   uchar const             point[ static 32 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, point, 32 );
 }
@@ -37,7 +37,7 @@ fd_zktpp_transcript_append_point( fd_zktpp_transcript_t * transcript,
 inline static int
 fd_zktpp_transcript_validate_and_append_point( fd_zktpp_transcript_t * transcript,
                                                char const * const      label,
-                                               ulong                   label_len,
+                                               uint const              label_len,
                                                uchar const             point[ static 32 ] ) {
   if ( FD_UNLIKELY( fd_memeq( point, fd_ristretto255_compressed_zero, 32 ) ) ) {
     return FD_TRANSCRIPT_ERROR;
@@ -49,7 +49,7 @@ fd_zktpp_transcript_validate_and_append_point( fd_zktpp_transcript_t * transcrip
 inline void
 fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,
                                    char const * const      label,
-                                   ulong                   label_len,
+                                   uint const              label_len,
                                    uchar const             pubkey[ static 32 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, pubkey, 32 );
 }
@@ -57,7 +57,7 @@ fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,
 inline void
 fd_zktpp_transcript_append_ciphertext( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
-                                       ulong                   label_len,
+                                       uint const              label_len,
                                        uchar const             ciphertext[ static 64 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, ciphertext, 64 );
 }
@@ -65,7 +65,7 @@ fd_zktpp_transcript_append_ciphertext( fd_zktpp_transcript_t * transcript,
 inline void
 fd_zktpp_transcript_append_commitment( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
-                                       ulong                   label_len,
+                                       uint const              label_len,
                                        uchar const             commitment[ static 32 ] ) {
   fd_merlin_transcript_append_message( transcript, label, label_len, commitment, 32 );
 }
