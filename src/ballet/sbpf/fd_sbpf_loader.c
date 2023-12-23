@@ -4,6 +4,7 @@
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
+#include <assert.h>
 #include <stdio.h>
 
 #include "fd_sbpf_maps.c"
@@ -78,21 +79,6 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 #define FD_SBPF_MM_PROGRAM_ADDR (0x100000000UL) /* readonly program data */
 #define FD_SBPF_MM_STACK_ADDR   (0x200000000UL) /* stack (with gaps) */
 
-/* FD_SBPF_RODATA_GUARD is the size of the guard area after the rodata
-   segment.  This is required because relocations can be partially
-   out-of-bounds. The largest relocation type is 12 bytes of read/write,
-   so there should be 12 minus 1 bytes of guard area past the end.
-   Guard area at the beginning is not required, as the rodata segment
-   always starts at file offset zero.
-
-   Example:
-
-     00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14
-     [ RODATA segment ....... ] [ Guard area .................... ]
-                    [ Relocation .................... ] */
-
-#define FD_SBPF_RODATA_GUARD (11UL)
-
 /* _fd_int_store_if_negative stores x to *p if *p is negative (branchless) */
 
 static inline int
@@ -108,35 +94,38 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
                     ulong                 elf_sz ) {
 
   /* Validate ELF magic */
-  REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU             )
+  REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
   /* Validate file type/target identification */
-         & ( ehdr->e_ident[ FD_ELF_EI_CLASS      ]==FD_ELF_CLASS_64   )
-         & ( ehdr->e_ident[ FD_ELF_EI_DATA       ]==FD_ELF_DATA_LE    )
-         & ( ehdr->e_ident[ FD_ELF_EI_VERSION    ]==1                 )
-         & ( ehdr->e_ident[ FD_ELF_EI_OSABI      ]==FD_ELF_OSABI_NONE )
-         & ( ehdr->e_type                         ==FD_ELF_ET_DYN     )
-         & ( ehdr->e_machine                      ==FD_ELF_EM_BPF     )
-         & ( ehdr->e_version                      ==1                 )
+         & ( ehdr->e_ident[ FD_ELF_EI_CLASS   ]==FD_ELF_CLASS_64   )
+         & ( ehdr->e_ident[ FD_ELF_EI_DATA    ]==FD_ELF_DATA_LE    )
+         & ( ehdr->e_ident[ FD_ELF_EI_VERSION ]==1                 )
+         & ( ehdr->e_ident[ FD_ELF_EI_OSABI   ]==FD_ELF_OSABI_NONE )
+         & ( ehdr->e_type                      ==FD_ELF_ET_DYN     )
+         & ( ( ehdr->e_machine                 ==FD_ELF_EM_BPF   )
+           | ( ehdr->e_machine                 ==FD_ELF_EM_SBPF  ) )
+         & ( ehdr->e_version                   ==1                 )
   /* Coherence checks */
-         & ( ehdr->e_ehsize   ==sizeof(fd_elf64_ehdr)                 )
-         & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)                 )
-         & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)                 )
-         & ( ehdr->e_shstrndx < ehdr->e_shnum                         ) );
+         & ( ehdr->e_ehsize   ==sizeof(fd_elf64_ehdr)              )
+         & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
+         & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
+         & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
+         & ( ehdr->e_flags    !=FD_ELF_EF_SBPF_V2                  ) );
 
   /* Bounds check program header table */
 
   ulong const phoff = ehdr->e_phoff;
   ulong const phnum = ehdr->e_phnum;
   REQUIRE( ( fd_ulong_is_aligned( phoff, 8UL ) )
-         & ( phoff>=sizeof(fd_elf64_ehdr)      )    /* overlaps file header */
-         & ( phoff< elf_sz                     ) ); /* out of bounds */
+         & ( phoff<=elf_sz ) ); /* out of bounds */
 
   REQUIRE( phnum<=(ULONG_MAX/sizeof(fd_elf64_phdr)) ); /* overflow */
   ulong const phsz = phnum*sizeof(fd_elf64_phdr);
 
   ulong const phoff_end = phoff+phsz;
   REQUIRE( ( phoff_end>=phoff  )    /* overflow */
-         & ( phoff_end<=elf_sz ) ); /* out of bounds */
+         & ( phoff_end<=elf_sz )    /* out of bounds */
+         & ( (phoff_end==0UL)       /* overlaps file header */
+           | (phoff>=sizeof(fd_elf64_ehdr)) ) );
 
   /* Bounds check section header table */
 
@@ -159,6 +148,36 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
   REQUIRE( (phoff>=shoff_end) | (shoff>=phoff_end) ); /* overlap shdrs<>phdrs */
 
   return 0;
+}
+
+/* shdr_get_loaded_size returns the loaded size of a section, i.e. the
+   number of bytes loaded into the rodata segment.  sBPF ELFs grossly
+   misuse the sh_size parameter.  When SHT_NOBITS is set, the actual
+   section size is zero, and the section size is ignored. */
+
+static ulong
+shdr_get_loaded_size( fd_elf64_shdr const * shdr ) {
+  return fd_ulong_if( shdr->sh_type==FD_ELF_SHT_NOBITS, 0UL, shdr->sh_size );
+}
+
+/* check_cstr verifies a string in a string table.  Returns non-NULL if
+   the string is null terminated and contains at most max non-NULL
+   characters.  Returns NULL if the off is out of bounds, or if the max
+   or EOF are reached before the null terminator. */
+
+static char const *
+check_cstr( uchar const * bin,
+            ulong         bin_sz,
+            ulong         off,
+            ulong         max,
+            ulong *       opt_sz ) {
+  if( FD_UNLIKELY( off>=bin_sz ) ) return NULL;
+  max += 1UL;                              /* include NULL terminator */
+  max  = fd_ulong_min( max, bin_sz-off );  /* truncate to available size */
+  char const * cstr = (char const *)( bin+off );
+  ulong len = strnlen( cstr, max );
+  if( opt_sz ) *opt_sz = len;
+  return len<max ? cstr : NULL;
 }
 
 /* fd_sbpf_load_shdrs walks the program header table.  Remembers info
@@ -245,10 +264,11 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   ulong shstr_off = shdr[ elf->ehdr.e_shstrndx ].sh_offset;
   ulong shstr_sz  = shdr[ elf->ehdr.e_shstrndx ].sh_size;
   REQUIRE( shstr_off<elf_sz );
+  shstr_sz = fd_ulong_min( shstr_sz, elf_sz-shstr_off );
 
   /* Clear the "loaded sections" bitmap */
 
-  fd_memset( info->loaded_sections, 0, ((ulong)(elf->ehdr.e_shnum) + 63UL) / 64UL );
+  fd_memset( info->loaded_sections, 0, sizeof(info->loaded_sections) );
 
   /* Validate section header table.
      Check that all sections are in bounds, ordered, and don't overlap. */
@@ -269,6 +289,9 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     ulong sh_offset = shdr[ i ].sh_offset;
     ulong sh_size   = shdr[ i ].sh_size;
     ulong sh_offend = sh_offset + sh_size;
+
+    /* First section must be SHT_NULL */
+    REQUIRE( i>0UL || sh_type==FD_ELF_SHT_NULL );
 
     /* check that physical range has no overflow and is within bounds */
     REQUIRE( sh_offend >= sh_offset );
@@ -295,12 +318,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char __attribute__((aligned(8UL))) name[ 16UL ]={0};
-    fd_memcpy( name, elf->bin + name_off, fd_ulong_min( fd_ulong_min( shstr_sz-sh_name, elf_sz-name_off ), 16UL ) );
-
-    /* Length check */
-
-    REQUIRE( fd_cstr_nlen( name, 16UL )<16UL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 15UL, NULL );
+    REQUIRE( name_ptr );
+    char __attribute__((aligned(16UL))) name[ 16UL ] = {0};
+    strncpy( name, name_ptr, 15UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -335,7 +356,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     }
     else if( 0==memcmp( name, ".data.rel", 9UL  /* has prefix */ ) ) {} /* ignore */
     else if( (0==memcmp( name, ".data",    5UL  /* has prefix */ ) )
-           & (shdr[ i ].sh_flags & FD_ELF_SHF_WRITE) ) FAIL();
+           & ( ( shdr[ i ].sh_flags & (FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE) )
+                                    ==(FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE)   ) ) {
+      FAIL();
+    }
     else                                            {} /* ignore */
     /* else ignore */
 
@@ -346,7 +370,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
       /* Check that virtual address range is in MM_PROGRAM bounds */
 
-      ulong sh_actual_size = fd_ulong_if( sh_type!=FD_ELF_SHT_NOBITS, sh_size, 0UL );
+      ulong sh_actual_size = shdr_get_loaded_size( &shdr[ i ] );
       ulong sh_virtual_end = sh_addr + sh_actual_size;
       REQUIRE( sh_addr        == sh_offset               );
       REQUIRE( sh_addr        <  FD_SBPF_MM_PROGRAM_ADDR ); /* overflow check */
@@ -363,30 +387,28 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       segment_end = fd_ulong_max( segment_end, sh_virtual_end );
 
       /* Coherence check sum of section sizes (used to detect overlap) */
-      REQUIRE( tot_section_sz + sh_size >= tot_section_sz ); /* overflow check */
-      tot_section_sz += sh_size;
+      REQUIRE( tot_section_sz + sh_actual_size >= tot_section_sz ); /* overflow check */
+      tot_section_sz += sh_actual_size;
     }
   }
 
   /* More coherence checks ... these should never fail */
-  REQUIRE( tot_section_sz> 0UL    );
   REQUIRE( segment_end   <=elf_sz );
-  /* More overlap checks */
-  REQUIRE( tot_section_sz <= segment_end ); /* overlap check */
+  REQUIRE( tot_section_sz <= segment_end );
 
   /* Require .text section */
 
-  /* FIXME SHT_NULL implies zero size in the Rust ELF loader, which seems to be permitted for .text */
   REQUIRE( (info->shndx_text)>=0 );
   fd_elf64_shdr const * shdr_text = &shdr[ info->shndx_text ];
-  REQUIRE( (shdr_text->sh_type != FD_ELF_SHT_NULL)
-           /* check for missing text section */
-         & (shdr_text->sh_addr <= elf->ehdr.e_entry)
+  REQUIRE( (shdr_text->sh_addr <= elf->ehdr.e_entry)
            /* check that entrypoint is in text VM range */
          & (elf->ehdr.e_entry  <  fd_ulong_sat_add( shdr_text->sh_addr, shdr_text->sh_size ) ) );
+  /* NOTE: Does NOT check that the entrypoint is in text section file
+           range (which may be 0 sz if SHT_NOBITS).  This check is
+           separately done in the sBPF verifier. */
 
   info->text_off = (uint)shdr_text->sh_offset;
-  info->text_cnt = (uint)(shdr_text->sh_size / 8UL);
+  info->text_cnt = (uint)shdr_get_loaded_size( shdr_text ) / 8U;
 
   /* Convert entrypoint offset to program counter */
 
@@ -405,8 +427,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   }
 
   info->rodata_sz        = (uint)segment_end;
-  info->rodata_footprint =
-      (uint)fd_ulong_min( segment_end+FD_SBPF_RODATA_GUARD, elf_sz );
+  info->rodata_footprint = (uint)elf_sz;
 
   return 0;
 }
@@ -537,10 +558,6 @@ fd_sbpf_program_new( void *                     prog_mem,
   /* fd_sbpf_calldests_align() < alignof( fd_sbpf_program_t ) */
   prog->calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( (void *)laddr ) );
 
-  /* TODO remove "entrypoint" from function registry */
-  /* FIXME check error */
-  fd_sbpf_calldests_upsert( prog->calldests, 0x71e3cf81, prog->entry_pc );
-
   return prog;
 }
 
@@ -595,7 +612,7 @@ fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
 
   /* Try first PT_DYNAMIC in program header table */
 
-  if( (info->phndx_dyn)>0 ) {
+  if( (info->phndx_dyn)>=0 ) {
     ulong dyn_off = phdrs[ info->phndx_dyn ].p_offset;
     ulong dyn_sz  = phdrs[ info->phndx_dyn ].p_filesz;
     ulong dyn_end = dyn_off+dyn_sz;
@@ -605,7 +622,7 @@ fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
     if( FD_LIKELY(   ( dyn_end>=dyn_off )                /* overflow      */
                    & ( dyn_end<=elf_sz  )                /* out of bounds */
                    & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
-                   & fd_ulong_is_aligned( dyn_sz,  8UL ) /* misaligned sz */ ) ) {
+                   & fd_ulong_is_aligned( dyn_sz, sizeof(fd_elf64_dyn) ) /* misaligned sz */ ) ) {
       loader->dyn_off = (uint)dyn_off;
       loader->dyn_cnt = (uint)(dyn_sz / sizeof(fd_elf64_dyn));
       return 0;
@@ -624,7 +641,7 @@ fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
     REQUIRE( ( dyn_end>=dyn_off )                /* overflow      */
            & ( dyn_end<=elf_sz  )                /* out of bounds */
            & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
-           & fd_ulong_is_aligned( dyn_sz,  8UL ) /* misaligned sz */ );
+           & fd_ulong_is_aligned( dyn_sz, sizeof(fd_elf64_dyn) ) /* misaligned sz */ );
 
     loader->dyn_off = (uint)dyn_off;
     loader->dyn_cnt = (uint)(dyn_sz / sizeof(fd_elf64_dyn));
@@ -692,9 +709,10 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
     ulong sh_offset = shdr_dynsym->sh_offset;
     ulong sh_size   = shdr_dynsym->sh_size;
 
-    REQUIRE( ( sh_offset+sh_size>=sh_offset )
-           & ( sh_offset+sh_size<=elf_sz    )
-           & fd_ulong_is_aligned( sh_offset, alignof(fd_elf64_sym) ) );
+    REQUIRE( ( sh_offset+sh_size>=sh_offset           )
+           & ( sh_offset+sh_size<=elf_sz              )
+           & ( fd_ulong_is_aligned( sh_offset, 8UL )  )
+           & ( sh_size % sizeof (fd_elf64_sym) == 0UL ) );
 
     loader->dynsym_off = (uint)sh_offset;
     loader->dynsym_cnt = (uint)(sh_size/sizeof(fd_elf64_sym));
@@ -769,12 +787,14 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_loader_t   const * loader,
                      fd_sbpf_elf_info_t const * info,
                      fd_elf64_rel       const * rel ) {
 
+  (void)info;
+
   uint  r_sym    = FD_ELF64_R_SYM( rel->r_info );
   ulong r_offset = rel->r_offset;
 
   /* Bounds check */
-  REQUIRE( r_offset+16UL>r_offset );
-  REQUIRE( r_offset+16UL<elf_sz   );
+  REQUIRE( ( r_offset+16UL> r_offset )
+         & ( r_offset+16UL<=elf_sz   ) );
 
   /* Offsets of implicit addend (immediate fields) */
   ulong A_off_lo = r_offset+ 4UL;
@@ -790,13 +810,10 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_loader_t   const * loader,
   fd_elf64_sym const * sym     = &dynsyms[ r_sym ];
   ulong S = sym->st_value;
 
-  /* Skip if side effects not visible in VM */
-  if( FD_UNLIKELY( A_off_lo > info->rodata_sz ) ) return 0;
-
   /* Relocate */
   ulong A = FD_LOAD( uint, &rodata[ A_off_lo ] );
-  if( S<FD_SBPF_MM_PROGRAM_ADDR ) S+=FD_SBPF_MM_PROGRAM_ADDR;
-  ulong V = S+A;
+  ulong V = fd_ulong_sat_add( S, A );
+  if( V<FD_SBPF_MM_PROGRAM_ADDR ) V+=FD_SBPF_MM_PROGRAM_ADDR;
 
   /* Write back */
   FD_STORE( uint, &rodata[ A_off_lo ], (uint)(V      ) );
@@ -821,7 +838,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
   fd_elf64_shdr const * shdr_text = &shdrs[ info->shndx_text ];
   int is_text = ( ( r_offset >= shdr_text->sh_offset ) &
                   ( r_offset <  shdr_text->sh_offset +
-                                shdr_text->sh_size   ) );
+                                shdr_get_loaded_size( shdr_text ) ) );
 
   if( is_text ) {
     /* If reloc target is in .text, behave like R_BPF_64_64, except:
@@ -832,7 +849,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
        This relocation type seems to make little sense but is required
        for most programs. */
 
-    REQUIRE( r_offset+16UL<=elf_sz );
+    REQUIRE( (r_offset+16UL>r_offset) & (r_offset+16UL<=elf_sz) );
     ulong imm_lo_off = r_offset+ 4UL;
     ulong imm_hi_off = r_offset+12UL;
 
@@ -844,9 +861,6 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
     REQUIRE( va!=0UL );
     va = va<FD_SBPF_MM_PROGRAM_ADDR ? va+FD_SBPF_MM_PROGRAM_ADDR : va;
 
-    /* Skip if side effects not visible in VM */
-    if( FD_UNLIKELY( imm_lo_off > info->rodata_sz ) ) return 0;
-
     /* Write back
        Skip bounds check as .text is guaranteed to be writable */
     FD_STORE( uint, rodata+imm_lo_off, (uint)( va       ) );
@@ -855,10 +869,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t      const * elf,
     /* Outside .text do a 64-bit write */
 
     /* Bounds checks */
-    REQUIRE( (r_offset+12UL>r_offset) & (r_offset+12UL<=elf_sz) );
-
-    /* Skip if side effects not visible in VM */
-    if( FD_UNLIKELY( r_offset > info->rodata_sz ) ) return 0;
+    REQUIRE( (r_offset+8UL>r_offset) & (r_offset+8UL<=elf_sz) );
 
     /* Read implicit addend */
     ulong va = FD_LOAD( uint, rodata+r_offset+4UL );
@@ -886,19 +897,19 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
 
   /* Lookup symbol */
   REQUIRE( r_sym < loader->dynsym_cnt );
-  fd_elf64_sym const * dynsyms = (fd_elf64_sym const *)( elf->bin + loader->dynsym_off );
-  fd_elf64_sym const * sym     = &dynsyms[ r_sym ];
+  fd_elf64_shdr const * shdrs   = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_sym  const * dynsyms = (fd_elf64_sym const *)( elf->bin + loader->dynsym_off );
+  fd_elf64_sym  const * sym     = &dynsyms[ r_sym ];
   ulong S = sym->st_value;
 
-  /* Lookup symbol name */
-  REQUIRE( sym->st_name < info->dynstr_sz );
-  char const * dynstr = (char const *)( elf->bin + info->dynstr_off );
-  char const * name   = &dynstr[ sym->st_name ];
+  /* Verify .dynstr (TODO can we lift this out of the reloc handler?) */
+  REQUIRE( info->shndx_dynstr > 0 );
+  REQUIRE( shdrs[ info->shndx_dynstr ].sh_type == FD_ELF_SHT_STRTAB );
 
   /* Verify symbol name */
-  ulong max_len  = fd_ulong_min( info->dynstr_sz - sym->st_name, FD_SBPF_SYM_NAME_SZ_MAX );
-  ulong name_len = fd_cstr_nlen( name, max_len );
-  REQUIRE( name_len<max_len );
+  ulong name_len;
+  char const * name = check_cstr( elf->bin + info->dynstr_off, info->dynstr_sz, sym->st_name, FD_SBPF_SYM_NAME_SZ_MAX-1UL, &name_len );
+  REQUIRE( name );
 
   /* Value to write into relocated field */
   uint V;
@@ -906,13 +917,15 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
   int is_func_call = ( FD_ELF64_ST_TYPE( sym->st_info ) == FD_ELF_STT_FUNC )
                    & ( S!=0UL );
   if( is_func_call ) {
-    /* Check whether function call is in
-       virtual memory range of text section */
-    fd_elf64_shdr const * shdrs     = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+    /* Check whether function call is in virtual memory range of text section. */
     fd_elf64_shdr const * shdr_text = &shdrs[ info->shndx_text ];
     ulong sh_addr = shdr_text->sh_addr;
     ulong sh_size = shdr_text->sh_size;
     REQUIRE( (S>=sh_addr) & (S<sh_addr+sh_size) );
+
+    /* Note: The above check is broken, as sh_size is interpreted as 0
+       for SHT_NOBITS section. Yet, this is the "correct" loading
+       behavior according to protocol rules. */
 
     /* Register function call */
     ulong target_pc = (S-sh_addr) / 8UL;
@@ -921,7 +934,12 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (uint)target_pc, NULL ) );
 
     /* Register new entry */
-    uint hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+    uint hash;
+    if( name_len >= 10UL && 0==strncmp( name, "entrypoint", name_len ) ) {
+      hash = 0x71e3cf81;
+    } else {
+      hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+    }
     REQUIRE( fd_sbpf_calldests_upsert( loader->calldests, hash, target_pc ) );
 
     V = (uint)hash;
@@ -940,9 +958,6 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
   /* Bounds checks */
   REQUIRE( (r_offset+8UL>r_offset) & (r_offset+8UL<=elf_sz) );
   ulong A_off = r_offset+4UL;
-
-  /* Skip if side effects not visible in VM */
-  if( FD_UNLIKELY( A_off > info->rodata_sz ) ) return 0;
 
   /* Apply relocation */
   FD_STORE( uint, rodata+A_off, V );
@@ -991,7 +1006,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
   fd_sbpf_calldests_t * calldests = loader->calldests;
 
   uchar * ptr      = rodata + shtext->sh_offset;
-  ulong   insn_cnt = shtext->sh_type!=FD_ELF_SHT_NULL ? shtext->sh_size / 8UL : 0UL;
+  ulong   insn_cnt = shdr_get_loaded_size( shtext ) / 8UL;
 
   for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
     ulong insn = FD_LOAD( ulong, ptr );
@@ -1079,7 +1094,7 @@ fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
     rel_off = shdrs[ rel_shnum ].sh_offset;
   }
 
-  REQUIRE( fd_ulong_is_aligned( rel_off, alignof(fd_elf64_rel) ) );
+  REQUIRE( fd_ulong_is_aligned( rel_off, 8UL ) );
   REQUIRE( (rel_off            <  elf_sz)
          & (dt_relsz           <= elf_sz)
          & ((rel_off+dt_relsz) <= elf_sz) );
@@ -1112,16 +1127,31 @@ fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
       Assume section virtual address ranges equal physical address ranges.
       Assume ranges are not overflowing. */
   /* FIXME match Solana more closely here */
-  /* FIXME could be faster to walk bitmap instead */
 
   ulong cursor = 0UL;
   for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
+    if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
+
     fd_elf64_shdr const * shdr = &shdrs[ i ];
-    if( (info->loaded_sections[ i>>6UL ]) & (1UL<<(i&63UL)) ) {
-      fd_memset( rodata+cursor, 0, shdr->sh_addr - cursor );
-      cursor = shdr->sh_addr + fd_ulong_if( shdr->sh_type != FD_ELF_SHT_NOBITS, shdr->sh_size, 0UL );
-    }
+
+    /* NOBITS sections are included in rodata, but may have invalid
+       offsets, thus we can't trust the shdr->sh_offset field. */
+    if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
+
+    ulong off = shdr->sh_offset;
+    ulong sz  = shdr->sh_size;
+    assert( cursor<=off             );  /* Invariant: Monotonically increasing offsets */
+    assert( off+sz>=off             );  /* Invariant: No integer overflow */
+    assert( off+sz<=info->rodata_sz );  /* Invariant: No buffer overflow */
+
+    /* Fill gap with zeros */
+    ulong gap = off - cursor;
+    fd_memset( rodata+cursor, 0, gap );
+
+    cursor = off+sz;
   }
+
+  fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
 
   return 0;
 }
@@ -1169,8 +1199,16 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
     return err;
 
-  /* Create read-only segment
-     This mangles the ELF file */
+  /* Override entrypoint */
+  do {
+    fd_sbpf_calldests_t * entry = fd_sbpf_calldests_query( prog->calldests, 0x71e3cf81, NULL );
+    if( !entry )
+      entry = fd_sbpf_calldests_insert( prog->calldests, 0x71e3cf81 );
+    REQUIRE( entry );
+    entry->pc = prog->entry_pc;
+  } while(0);
+
+  /* Create read-only segment */
   if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
     return err;
 

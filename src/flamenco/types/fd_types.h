@@ -1571,6 +1571,7 @@ typedef struct fd_stake_meta fd_stake_meta_t;
 #define FD_STAKE_META_FOOTPRINT sizeof(fd_stake_meta_t)
 #define FD_STAKE_META_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539 */
 struct __attribute__((aligned(8UL))) fd_stake {
   fd_delegation_t delegation;
   ulong credits_observed;
@@ -1975,7 +1976,7 @@ typedef struct fd_gossip_socket_addr fd_gossip_socket_addr_t;
 #define FD_GOSSIP_SOCKET_ADDR_FOOTPRINT sizeof(fd_gossip_socket_addr_t)
 #define FD_GOSSIP_SOCKET_ADDR_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_gossip_contact_info {
+struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v1 {
   fd_pubkey_t id;
   fd_gossip_socket_addr_t gossip;
   fd_gossip_socket_addr_t tvu;
@@ -1990,9 +1991,9 @@ struct __attribute__((aligned(8UL))) fd_gossip_contact_info {
   ulong wallclock;
   ushort shred_version;
 };
-typedef struct fd_gossip_contact_info fd_gossip_contact_info_t;
-#define FD_GOSSIP_CONTACT_INFO_FOOTPRINT sizeof(fd_gossip_contact_info_t)
-#define FD_GOSSIP_CONTACT_INFO_ALIGN (8UL)
+typedef struct fd_gossip_contact_info_v1 fd_gossip_contact_info_v1_t;
+#define FD_GOSSIP_CONTACT_INFO_V1_FOOTPRINT sizeof(fd_gossip_contact_info_v1_t)
+#define FD_GOSSIP_CONTACT_INFO_V1_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_vote {
   uchar index;
@@ -2072,7 +2073,7 @@ typedef struct fd_gossip_epoch_slots fd_gossip_epoch_slots_t;
 #define FD_GOSSIP_EPOCH_SLOTS_FOOTPRINT sizeof(fd_gossip_epoch_slots_t)
 #define FD_GOSSIP_EPOCH_SLOTS_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_gossip_legacy_version {
+struct __attribute__((aligned(8UL))) fd_gossip_version_v1 {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -2081,11 +2082,11 @@ struct __attribute__((aligned(8UL))) fd_gossip_legacy_version {
   uint commit;
   uchar has_commit;
 };
-typedef struct fd_gossip_legacy_version fd_gossip_legacy_version_t;
-#define FD_GOSSIP_LEGACY_VERSION_FOOTPRINT sizeof(fd_gossip_legacy_version_t)
-#define FD_GOSSIP_LEGACY_VERSION_ALIGN (8UL)
+typedef struct fd_gossip_version_v1 fd_gossip_version_v1_t;
+#define FD_GOSSIP_VERSION_V1_FOOTPRINT sizeof(fd_gossip_version_v1_t)
+#define FD_GOSSIP_VERSION_V1_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_gossip_version {
+struct __attribute__((aligned(8UL))) fd_gossip_version_v2 {
   fd_pubkey_t from;
   ulong wallclock;
   ushort major;
@@ -2095,9 +2096,21 @@ struct __attribute__((aligned(8UL))) fd_gossip_version {
   uchar has_commit;
   uint feature_set;
 };
-typedef struct fd_gossip_version fd_gossip_version_t;
-#define FD_GOSSIP_VERSION_FOOTPRINT sizeof(fd_gossip_version_t)
-#define FD_GOSSIP_VERSION_ALIGN (8UL)
+typedef struct fd_gossip_version_v2 fd_gossip_version_v2_t;
+#define FD_GOSSIP_VERSION_V2_FOOTPRINT sizeof(fd_gossip_version_v2_t)
+#define FD_GOSSIP_VERSION_V2_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_version_v3 {
+  ushort major;
+  ushort minor;
+  ushort patch;
+  uint commit;
+  uint feature_set;
+  ushort client;
+};
+typedef struct fd_gossip_version_v3 fd_gossip_version_v3_t;
+#define FD_GOSSIP_VERSION_V3_FOOTPRINT sizeof(fd_gossip_version_v3_t)
+#define FD_GOSSIP_VERSION_V3_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_gossip_node_instance {
   fd_pubkey_t from;
@@ -2136,18 +2149,45 @@ typedef struct fd_gossip_incremental_snapshot_hashes fd_gossip_incremental_snaps
 #define FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_FOOTPRINT sizeof(fd_gossip_incremental_snapshot_hashes_t)
 #define FD_GOSSIP_INCREMENTAL_SNAPSHOT_HASHES_ALIGN (8UL)
 
+struct __attribute__((aligned(8UL))) fd_gossip_socket_entry {
+  uchar key;
+  uchar index;
+  ushort offset;
+};
+typedef struct fd_gossip_socket_entry fd_gossip_socket_entry_t;
+#define FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT sizeof(fd_gossip_socket_entry_t)
+#define FD_GOSSIP_SOCKET_ENTRY_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_gossip_contact_info_v2 {
+  fd_pubkey_t from;
+  ulong wallclock;
+  ulong outset;
+  ushort shred_version;
+  fd_gossip_version_v3_t version;
+  ushort addrs_len;
+  fd_gossip_ip_addr_t* addrs;
+  ushort sockets_len;
+  fd_gossip_socket_entry_t* sockets;
+  ushort extensions_len;
+  uint* extensions;
+};
+typedef struct fd_gossip_contact_info_v2 fd_gossip_contact_info_v2_t;
+#define FD_GOSSIP_CONTACT_INFO_V2_FOOTPRINT sizeof(fd_gossip_contact_info_v2_t)
+#define FD_GOSSIP_CONTACT_INFO_V2_ALIGN (8UL)
+
 union fd_crds_data_inner {
-  fd_gossip_contact_info_t contact_info;
+  fd_gossip_contact_info_v1_t contact_info_v1;
   fd_gossip_vote_t vote;
   fd_gossip_lowest_slot_t lowest_slot;
   fd_gossip_slot_hashes_t snapshot_hashes;
   fd_gossip_slot_hashes_t accounts_hashes;
   fd_gossip_epoch_slots_t epoch_slots;
-  fd_gossip_legacy_version_t legacy_version;
-  fd_gossip_version_t version;
+  fd_gossip_version_v1_t version_v1;
+  fd_gossip_version_v2_t version_v2;
   fd_gossip_node_instance_t node_instance;
   fd_gossip_duplicate_shred_t duplicate_shred;
   fd_gossip_incremental_snapshot_hashes_t incremental_snapshot_hashes;
+  fd_gossip_contact_info_v2_t contact_info_v2;
 };
 typedef union fd_crds_data_inner fd_crds_data_inner_t;
 
@@ -4246,16 +4286,16 @@ ulong fd_gossip_socket_addr_size(fd_gossip_socket_addr_t const * self);
 ulong fd_gossip_socket_addr_footprint( void );
 ulong fd_gossip_socket_addr_align( void );
 
-void fd_gossip_contact_info_new(fd_gossip_contact_info_t* self);
-int fd_gossip_contact_info_decode(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_contact_info_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_gossip_contact_info_decode_unsafe(fd_gossip_contact_info_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_contact_info_encode(fd_gossip_contact_info_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_gossip_contact_info_destroy(fd_gossip_contact_info_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_gossip_contact_info_walk(void * w, fd_gossip_contact_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_gossip_contact_info_size(fd_gossip_contact_info_t const * self);
-ulong fd_gossip_contact_info_footprint( void );
-ulong fd_gossip_contact_info_align( void );
+void fd_gossip_contact_info_v1_new(fd_gossip_contact_info_v1_t* self);
+int fd_gossip_contact_info_v1_decode(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_contact_info_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_contact_info_v1_decode_unsafe(fd_gossip_contact_info_v1_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_contact_info_v1_encode(fd_gossip_contact_info_v1_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_contact_info_v1_destroy(fd_gossip_contact_info_v1_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_contact_info_v1_walk(void * w, fd_gossip_contact_info_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_contact_info_v1_size(fd_gossip_contact_info_v1_t const * self);
+ulong fd_gossip_contact_info_v1_footprint( void );
+ulong fd_gossip_contact_info_v1_align( void );
 
 void fd_gossip_vote_new(fd_gossip_vote_t* self);
 int fd_gossip_vote_decode(fd_gossip_vote_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -4341,27 +4381,38 @@ ulong fd_gossip_epoch_slots_size(fd_gossip_epoch_slots_t const * self);
 ulong fd_gossip_epoch_slots_footprint( void );
 ulong fd_gossip_epoch_slots_align( void );
 
-void fd_gossip_legacy_version_new(fd_gossip_legacy_version_t* self);
-int fd_gossip_legacy_version_decode(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_legacy_version_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_gossip_legacy_version_decode_unsafe(fd_gossip_legacy_version_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_legacy_version_encode(fd_gossip_legacy_version_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_gossip_legacy_version_destroy(fd_gossip_legacy_version_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_gossip_legacy_version_walk(void * w, fd_gossip_legacy_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_gossip_legacy_version_size(fd_gossip_legacy_version_t const * self);
-ulong fd_gossip_legacy_version_footprint( void );
-ulong fd_gossip_legacy_version_align( void );
+void fd_gossip_version_v1_new(fd_gossip_version_v1_t* self);
+int fd_gossip_version_v1_decode(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_version_v1_decode_unsafe(fd_gossip_version_v1_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v1_encode(fd_gossip_version_v1_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_version_v1_destroy(fd_gossip_version_v1_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_version_v1_walk(void * w, fd_gossip_version_v1_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_version_v1_size(fd_gossip_version_v1_t const * self);
+ulong fd_gossip_version_v1_footprint( void );
+ulong fd_gossip_version_v1_align( void );
 
-void fd_gossip_version_new(fd_gossip_version_t* self);
-int fd_gossip_version_decode(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_version_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_gossip_version_decode_unsafe(fd_gossip_version_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_gossip_version_encode(fd_gossip_version_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_gossip_version_destroy(fd_gossip_version_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_gossip_version_walk(void * w, fd_gossip_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_gossip_version_size(fd_gossip_version_t const * self);
-ulong fd_gossip_version_footprint( void );
-ulong fd_gossip_version_align( void );
+void fd_gossip_version_v2_new(fd_gossip_version_v2_t* self);
+int fd_gossip_version_v2_decode(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_version_v2_decode_unsafe(fd_gossip_version_v2_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v2_encode(fd_gossip_version_v2_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_version_v2_destroy(fd_gossip_version_v2_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_version_v2_walk(void * w, fd_gossip_version_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_version_v2_size(fd_gossip_version_v2_t const * self);
+ulong fd_gossip_version_v2_footprint( void );
+ulong fd_gossip_version_v2_align( void );
+
+void fd_gossip_version_v3_new(fd_gossip_version_v3_t* self);
+int fd_gossip_version_v3_decode(fd_gossip_version_v3_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v3_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_version_v3_decode_unsafe(fd_gossip_version_v3_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_version_v3_encode(fd_gossip_version_v3_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_version_v3_destroy(fd_gossip_version_v3_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_version_v3_walk(void * w, fd_gossip_version_v3_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_version_v3_size(fd_gossip_version_v3_t const * self);
+ulong fd_gossip_version_v3_footprint( void );
+ulong fd_gossip_version_v3_align( void );
 
 void fd_gossip_node_instance_new(fd_gossip_node_instance_t* self);
 int fd_gossip_node_instance_decode(fd_gossip_node_instance_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -4396,6 +4447,28 @@ ulong fd_gossip_incremental_snapshot_hashes_size(fd_gossip_incremental_snapshot_
 ulong fd_gossip_incremental_snapshot_hashes_footprint( void );
 ulong fd_gossip_incremental_snapshot_hashes_align( void );
 
+void fd_gossip_socket_entry_new(fd_gossip_socket_entry_t* self);
+int fd_gossip_socket_entry_decode(fd_gossip_socket_entry_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_socket_entry_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_socket_entry_decode_unsafe(fd_gossip_socket_entry_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_socket_entry_encode(fd_gossip_socket_entry_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_socket_entry_destroy(fd_gossip_socket_entry_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_socket_entry_walk(void * w, fd_gossip_socket_entry_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_socket_entry_size(fd_gossip_socket_entry_t const * self);
+ulong fd_gossip_socket_entry_footprint( void );
+ulong fd_gossip_socket_entry_align( void );
+
+void fd_gossip_contact_info_v2_new(fd_gossip_contact_info_v2_t* self);
+int fd_gossip_contact_info_v2_decode(fd_gossip_contact_info_v2_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_contact_info_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_gossip_contact_info_v2_decode_unsafe(fd_gossip_contact_info_v2_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_gossip_contact_info_v2_encode(fd_gossip_contact_info_v2_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_gossip_contact_info_v2_destroy(fd_gossip_contact_info_v2_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_gossip_contact_info_v2_walk(void * w, fd_gossip_contact_info_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_gossip_contact_info_v2_size(fd_gossip_contact_info_v2_t const * self);
+ulong fd_gossip_contact_info_v2_footprint( void );
+ulong fd_gossip_contact_info_v2_align( void );
+
 void fd_crds_data_new_disc(fd_crds_data_t* self, uint discriminant);
 void fd_crds_data_new(fd_crds_data_t* self);
 int fd_crds_data_decode(fd_crds_data_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -4408,29 +4481,31 @@ ulong fd_crds_data_size(fd_crds_data_t const * self);
 ulong fd_crds_data_footprint( void );
 ulong fd_crds_data_align( void );
 
-FD_FN_PURE uchar fd_crds_data_is_contact_info(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_contact_info_v1(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_vote(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_lowest_slot(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_snapshot_hashes(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_accounts_hashes(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_epoch_slots(fd_crds_data_t const * self);
-FD_FN_PURE uchar fd_crds_data_is_legacy_version(fd_crds_data_t const * self);
-FD_FN_PURE uchar fd_crds_data_is_version(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_version_v1(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_version_v2(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_node_instance(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_duplicate_shred(fd_crds_data_t const * self);
 FD_FN_PURE uchar fd_crds_data_is_incremental_snapshot_hashes(fd_crds_data_t const * self);
+FD_FN_PURE uchar fd_crds_data_is_contact_info_v2(fd_crds_data_t const * self);
 enum {
-fd_crds_data_enum_contact_info = 0,
+fd_crds_data_enum_contact_info_v1 = 0,
 fd_crds_data_enum_vote = 1,
 fd_crds_data_enum_lowest_slot = 2,
 fd_crds_data_enum_snapshot_hashes = 3,
 fd_crds_data_enum_accounts_hashes = 4,
 fd_crds_data_enum_epoch_slots = 5,
-fd_crds_data_enum_legacy_version = 6,
-fd_crds_data_enum_version = 7,
+fd_crds_data_enum_version_v1 = 6,
+fd_crds_data_enum_version_v2 = 7,
 fd_crds_data_enum_node_instance = 8,
 fd_crds_data_enum_duplicate_shred = 9,
 fd_crds_data_enum_incremental_snapshot_hashes = 10,
+fd_crds_data_enum_contact_info_v2 = 11,
 }; 
 void fd_crds_bloom_new(fd_crds_bloom_t* self);
 int fd_crds_bloom_decode(fd_crds_bloom_t* self, fd_bincode_decode_ctx_t * ctx);

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_tar.h"
 
 int
@@ -75,6 +76,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Read byte by byte */
   int err2 = 0;
   for( ulong i=0UL; i<size; i++ ) {
+    FD_FUZZ_MUST_BE_COVERED;
     err2 = fd_tar_read( reader, data+i, 1UL );
     if( err2!=0 ) break;
   }
@@ -85,5 +87,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( FD_UNLIKELY( err1!=err2 ) )
     FD_LOG_ERR(( "err1=%d err2=%d", err1, err2 ));
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

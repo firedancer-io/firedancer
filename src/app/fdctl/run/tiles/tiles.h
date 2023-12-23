@@ -10,6 +10,7 @@
 typedef struct {
   ulong                         mux_flags;
   ulong                         burst;
+  ulong                         rlimit_file_cnt;
   void * (*mux_ctx           )( void * scratch );
 
   fd_mux_during_housekeeping_fn * mux_during_housekeeping;
@@ -20,6 +21,7 @@ typedef struct {
   fd_mux_after_frag_fn          * mux_after_frag;
   fd_mux_metrics_write_fn       * mux_metrics_write;
 
+  long  (*lazy                    )( fd_topo_tile_t * tile );
   ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
   ulong (*loose_footprint         )( fd_topo_tile_t * tile );
@@ -41,6 +43,7 @@ extern fd_tile_config_t fd_tile_pack;
 extern fd_tile_config_t fd_tile_bank;
 extern fd_tile_config_t fd_tile_shred;
 extern fd_tile_config_t fd_tile_store;
+extern fd_tile_config_t fd_tile_metric;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,

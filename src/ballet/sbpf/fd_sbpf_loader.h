@@ -52,7 +52,7 @@ struct fd_sbpf_elf_info {
   uint dynstr_sz;   /* Dynstr char count */
 
   uint rodata_sz;         /* size of rodata segment */
-  uint rodata_footprint;  /* rodata_sz + FD_SBPF_RODATA_GUARD */
+  uint rodata_footprint;  /* size of ELF binary */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
@@ -65,7 +65,8 @@ struct fd_sbpf_elf_info {
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
-  uint entry_pc;  /* Program counter of entry point */
+  uint entry_pc;  /* Program counter of entry point
+                     NOTE: MIGHT BE OUT OF BOUNDS! */
 
   /* Bitmap of sections to be loaded (LSB => MSB) */
   ulong loaded_sections[ 1024UL ];
@@ -76,8 +77,8 @@ typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
    [rodata,rodata+rodata_sz) is an externally allocated buffer holding
    the read-only segment to be loaded into the VM.  WARNING: The rodata
-   area required doing load (rodata_footprint) is slightly larger than
-   the area mapped into the VM (rodata_sz).  See FD_SBPF_RODATA_GUARD.
+   area required doing load (rodata_footprint) is larger than the area
+   mapped into the VM (rodata_sz).
 
    [text,text+8*text_cnt) is a sub-region of the read-only segment
    containing executable code. */

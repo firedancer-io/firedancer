@@ -1,0 +1,32 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# socket_fd: The metric tile servers a prometheus string HTTP endpoint,
+#            which is over TCP and does not use our XDP program.  It
+#            uses regular kernel sockets, so this is the socket file
+#            descriptor.
+unsigned int logfile_fd, unsigned int socket_fd
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# server: serving metric values over HTTP requires accepting connections
+#
+# arg 0 is the listen socket file descriptor to accept connections on
+accept: (and (eq (arg 0) socket_fd)
+             (eq (arg 1) 0)
+             (eq (arg 2) 0))
+
+# server: serving metric values over HTTP requires reading from conns
+read
+
+# server: serving metric values over HTTP requires writing to conns
+write
+
+# server: serving metric values over HTTP requires closing conns
+close
+
+# server: serving metric values over HTTP requires polling conns
+poll

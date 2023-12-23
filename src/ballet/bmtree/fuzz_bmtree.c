@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_bmtree.h"
 
 #define MAX_LEAF_CNT (256UL)
@@ -107,6 +108,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
 
     int res = fd_bmtree_get_proof( tree, inc_proof, i );
     if ( res == -1 ) {
+      FD_FUZZ_MUST_BE_COVERED;
       return 0;
     }
  
@@ -119,6 +121,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
     assert( fd_memeq( root_1, proof_root_2, hash_sz ) );
 
     if( FD_LIKELY( leaf_cnt>1UL ) ) {
+      FD_FUZZ_MUST_BE_COVERED;
       inc_proof[ 1 ]++; /* Corrupt the proof */
       assert( proof_root_1 == fd_bmtree_from_proof( leaf, i, proof_root_1, inc_proof, depth-1UL, hash_sz, prefix_sz ) );
 
@@ -174,5 +177,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     return result;
   }
 
-  return fuzz_bmtree( leafs, leaf_cnt, 20UL, FD_BMTREE_LONG_PREFIX_SZ );
+  result = fuzz_bmtree( leafs, leaf_cnt, 20UL, FD_BMTREE_LONG_PREFIX_SZ );
+
+  FD_FUZZ_MUST_BE_COVERED;
+  return result;
 }

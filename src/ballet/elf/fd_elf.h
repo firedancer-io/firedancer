@@ -47,6 +47,11 @@
 
 #define FD_ELF_EM_NONE   0
 #define FD_ELF_EM_BPF  247
+#define FD_ELF_EM_SBPF 263
+
+/* FD_ELF_EF: ELF flags */
+
+#define FD_ELF_EF_SBPF_V2 32
 
 /* FD_ELF_PT: Program header type */
 

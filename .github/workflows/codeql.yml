@@ -1,31 +1,14 @@
 # Kick off a daily battery of extended tests.
 # Only runs if latest commit was made within today.
 
-name: Make Daily
+name: CodeQL
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_call:
   workflow_dispatch:
 
 jobs:
-  # Ensures that cron job is skipped if no commit was made on that day.
-  check-date:
-    runs-on: ubuntu-latest
-    name: Check date of last commit
-    steps:
-      - uses: actions/checkout@v4
-      - id: should_run
-        continue-on-error: true
-        name: check latest commit is less than a day
-        if: ${{ github.event_name == 'schedule' }}
-        run: test -z $(git rev-list --after="24 hours" ${{ github.sha }}) && (echo "::set-output name=should_run::false" >> $GITHUB_OUTPUT)
-    outputs:
-      should_run: ${{ github.event_name != 'schedule' || steps.should_run.outputs.should_run }}
-
   # Build and analyze with CodeQL
   codeql:
-    needs: check-date
-    if: needs.check-date.outputs.should_run == 'true'
     name: Analyze
     runs-on:
       group: github-v1
@@ -50,7 +33,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
 
@@ -58,7 +41,7 @@ jobs:
       run: make -j -Otarget all rust
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v3
       with:
         category: "/language:${{matrix.language}}"
         threads: 0

@@ -5,6 +5,7 @@
 #include "../../../../tango/quic/fd_quic.h"
 #include "../../../../tango/xdp/fd_xdp.h"
 #include "../../../../tango/xdp/fd_xsk_private.h"
+#include "../../../../util/net/fd_ip4.h"
 
 #include <linux/unistd.h>
 
@@ -18,11 +19,13 @@ typedef struct {
   ulong round_robin_id;
 
   const fd_aio_t * tx;
+  const fd_aio_t * lo_tx;
 
   uchar frame[ FD_NET_MTU ];
 
   fd_mux_context_t * mux;
 
+  uint   src_ip_addr;
   ushort allow_ports[ FD_NET_PORT_ALLOW_CNT ];
 
   fd_wksp_t * in_mem;
@@ -157,6 +160,13 @@ before_credit( void * _ctx,
   }
 }
 
+FD_FN_PURE static int
+route_loopback( uint  tile_ip_addr,
+                ulong sig ) {
+  return fd_disco_netmux_sig_ip_addr( sig )==FD_IP4_ADDR(127,0,0,1) ||
+    fd_disco_netmux_sig_ip_addr( sig )==tile_ip_addr;
+}
+
 static void
 before_frag( void * _ctx,
              ulong  in_idx,
@@ -169,10 +179,19 @@ before_frag( void * _ctx,
 
   ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
 
-  /* round robin by sequence number for now, quic should be modified to
-     echo the net tile index back so we can transmit on the same queue */
-  int handled_packet = (seq % ctx->round_robin_cnt) == ctx->round_robin_id;
-  if( FD_UNLIKELY( src_tile == SRC_TILE_NET || !handled_packet ) ) {
+  /* Round robin by sequence number for now, QUIC should be modified to
+     echo the net tile index back so we can transmit on the same queue.
+
+     127.0.0.1 packets for localhost must go out on net tile 0 which
+     owns the loopback interface XSK, which only has 1 queue. */
+  int handled_packet = 0;
+  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
+    handled_packet = ctx->round_robin_id == 0;
+  } else {
+    handled_packet = (seq % ctx->round_robin_cnt) == ctx->round_robin_id;
+  }
+
+  if( FD_UNLIKELY( src_tile==SRC_TILE_NET || !handled_packet ) ) {
     *opt_filter = 1;
   }
 }
@@ -214,7 +233,11 @@ after_frag( void *             _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
-  ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
+    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
+  } else {
+    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+  }
 
   *opt_filter = 1;
 }
@@ -286,13 +309,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->xsk_aio[ 0 ] = fd_xsk_aio_join( init_ctx->xsk_aio, init_ctx->xsk );
   if( FD_UNLIKELY( !ctx->xsk_aio[ 0 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
   fd_xsk_aio_set_rx( ctx->xsk_aio[ 0 ], net_rx_aio );
+  ctx->tx = fd_xsk_aio_get_tx( init_ctx->xsk_aio );
   if( FD_UNLIKELY( init_ctx->lo_xsk ) ) {
     ctx->xsk_aio[ 1 ] = fd_xsk_aio_join( init_ctx->lo_xsk_aio, init_ctx->lo_xsk );
     if( FD_UNLIKELY( !ctx->xsk_aio[ 1 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_join failed" ));
     fd_xsk_aio_set_rx( ctx->xsk_aio[ 1 ], net_rx_aio );
+    ctx->lo_tx = fd_xsk_aio_get_tx( init_ctx->lo_xsk_aio );
     ctx->xsk_aio_cnt = 2;
   }
-  ctx->tx = fd_xsk_aio_get_tx( init_ctx->xsk_aio );
+
+  ctx->src_ip_addr = tile->net.src_ip_addr;
 
   for( ulong i=0UL; i<FD_NET_PORT_ALLOW_CNT; i++ ) {
     if( FD_UNLIKELY( !tile->net.allow_ports[ i ] ) ) FD_LOG_ERR(( "net tile listen port %lu was 0", i ));

@@ -3,10 +3,10 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_X86
 ifdef FD_HAS_DOUBLE
 
-.PHONY: fdctl cargo
+.PHONY: fdctl cargo rust solana
 
-$(call add-objs,main1 config caps utility topology keygen ready mem spy help run/run run/tiles/tiles run/run1 run/run_solana run/tiles/tiles run/tiles/fd_net run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_store monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_ip fd_reedsol fd_ballet fd_tango fd_util fd_quic solana_validator)
+$(call add-objs,main1 config caps utility topology keys ready mem spy help run/run run/tiles/tiles run/run1 run/run_solana run/tiles/tiles run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_store monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
+$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_ip fd_reedsol fd_ballet fd_tango fd_util fd_tls fd_quic solana_validator)
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/tango/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
@@ -18,6 +18,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_pack.o: src/app/fdctl/run/tiles/generated/p
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_quic.o: src/app/fdctl/run/tiles/generated/quic_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_shred.o: src/app/fdctl/run/tiles/generated/shred_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_verify.o: src/app/fdctl/run/tiles/generated/verify_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated/metric_seccomp.h
 
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.
@@ -52,9 +53,11 @@ $(OBJDIR)/lib/libsolana_validator.a: solana/target/$(RUST_PROFILE)/libsolana_val
 fdctl: $(OBJDIR)/bin/fdctl
 
 $(OBJDIR)/bin/solana: solana/target/$(RUST_PROFILE)/solana
-	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/solana $@
+	$(MKDIR) -p $(dir $@) && cp solana/target/$(RUST_PROFILE)/solana $@
 
 rust: $(OBJDIR)/bin/solana
+
+solana: $(OBJDIR)/bin/solana
 
 endif
 endif

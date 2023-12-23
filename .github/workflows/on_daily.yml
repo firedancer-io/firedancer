@@ -1,0 +1,55 @@
+# This workflow runs every day regardless of new commits
+
+name: On Daily
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+    branches:
+        - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  all-coverage:
+    name: All Coverage
+    runs-on:
+      group: rhel85-icelake
+    env:
+      CC: clang
+      EXTRAS: llvm-cov
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Generate all coverage
+        run: ./.github/workflows/scripts/cov_all.sh
+
+      - name: Upload artifact
+        run: gcloud storage cp -r ./build/pages/* ${{ vars.COVERAGE_BUCKET }}${{ github.sha }}/
+
+      - name: Refresh top index
+        run: |
+          echo '<html><head>
+          <meta http-equiv="refresh" content="3; url=${{ github.sha }}/index.html"/>
+          <meta http-equiv="pragma" content="no-cache" />
+          <meta http-equiv="cache-control" content="no-cache" /></head>
+          <body>Redirecting to latest coverage... (${{ github.sha }})</body></html>' > ./build/index.html
+          gcloud storage cp -r ./build/index.html ${{ vars.COVERAGE_BUCKET }}/
+
+      - name: Check fuzz canaries
+        run: ./contrib/find_uncovered_fuzz_canaries.py $(find ./build/ -name 'fuzz_*\.lcov' -type f)

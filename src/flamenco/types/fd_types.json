@@ -1653,7 +1653,7 @@
       ]
     },
     {
-      "name": "gossip_contact_info",
+      "name": "gossip_contact_info_v1",
       "type": "struct",
       "fields": [
         { "name": "id", "type": "pubkey" },
@@ -1740,7 +1740,7 @@
       ]
     },
     {
-      "name": "gossip_legacy_version",
+      "name": "gossip_version_v1",
       "type": "struct",
       "fields": [
         { "name": "from", "type": "pubkey" },
@@ -1752,7 +1752,7 @@
       ]
     },
     {
-      "name": "gossip_version",
+      "name": "gossip_version_v2",
       "type": "struct",
       "fields": [
         { "name": "from", "type": "pubkey" },
@@ -1762,6 +1762,18 @@
         { "name": "patch", "type": "ushort" },
         { "name": "commit", "type": "option", "element": "uint", "flat": true },
         { "name": "feature_set", "type": "uint" }
+      ]
+    },
+    {
+      "name": "gossip_version_v3",
+      "type": "struct",
+      "fields": [
+        { "name": "major", "type": "ushort", "modifier": "varint" },
+        { "name": "minor", "type": "ushort", "modifier": "varint" },
+        { "name": "patch", "type": "ushort", "modifier": "varint" },
+        { "name": "commit", "type": "uint" },
+        { "name": "feature_set", "type": "uint" },
+        { "name": "client", "type": "ushort", "modifier": "varint" }
       ]
     },
     {
@@ -1800,20 +1812,44 @@
       ]
     },
     {
+      "name": "gossip_socket_entry",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "uchar" },
+        { "name": "index", "type": "uchar" },
+        { "name": "offset", "type": "ushort", "modifier": "varint" }
+      ]
+    },
+    {
+      "name": "gossip_contact_info_v2",
+      "type": "struct",
+      "fields": [
+        { "name": "from", "type": "pubkey" },
+        { "name": "wallclock", "type": "ulong", "modifier": "varint" },
+        { "name": "outset", "type": "ulong" },
+        { "name": "shred_version", "type": "ushort" },
+        { "name": "version", "type": "gossip_version_v3" },
+        { "name": "addrs", "type": "vector", "modifier": "compact", "element": "gossip_ip_addr" },
+        { "name": "sockets", "type": "vector", "modifier": "compact", "element": "gossip_socket_entry" },
+        { "name": "extensions", "type": "vector", "modifier": "compact", "element": "uint" }
+      ]
+    },
+    {
       "name": "crds_data",
       "type": "enum",
       "variants": [
-        { "name": "contact_info", "type": "gossip_contact_info" },
+        { "name": "contact_info_v1", "type": "gossip_contact_info_v1" },
         { "name": "vote", "type": "gossip_vote" },
         { "name": "lowest_slot", "type": "gossip_lowest_slot" },
         { "name": "snapshot_hashes", "type": "gossip_slot_hashes" },
         { "name": "accounts_hashes", "type": "gossip_slot_hashes" },
         { "name": "epoch_slots", "type": "gossip_epoch_slots" },
-        { "name": "legacy_version", "type": "gossip_legacy_version" },
-        { "name": "version", "type": "gossip_version" },
+        { "name": "version_v1", "type": "gossip_version_v1" },
+        { "name": "version_v2", "type": "gossip_version_v2" },
         { "name": "node_instance", "type": "gossip_node_instance" },
         { "name": "duplicate_shred", "type": "gossip_duplicate_shred" },
-        { "name": "incremental_snapshot_hashes", "type": "gossip_incremental_snapshot_hashes" }
+        { "name": "incremental_snapshot_hashes", "type": "gossip_incremental_snapshot_hashes" },
+        { "name": "contact_info_v2", "type": "gossip_contact_info_v2" }
       ]
     },
     {

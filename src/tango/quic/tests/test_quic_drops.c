@@ -8,7 +8,7 @@
 #include <stdlib.h>
 
 /* number of streams to send/receive */
-#define NUM_STREAMS 100
+#define NUM_STREAMS 1000
 
 /* done flags */
 
@@ -43,48 +43,9 @@ struct net_fibre_args {
   fd_fibre_pipe_t * input;
   fd_fibre_pipe_t * release;
   float             thresh;
+  int               dir; /* 0=client->server  1=server->client */
 };
 typedef struct net_fibre_args net_fibre_args_t;
-
-void
-net_fibre_main( void * vp_args ) {
-  /* get args */
-  net_fibre_args_t * args = (net_fibre_args_t*)vp_args;
-
-  /* input pipe, and destination aios */
-  fd_fibre_pipe_t * input   = args->input;
-  fd_fibre_pipe_t * release = args->release;
-
-  float thresh = args->thresh;
-
-  int rtn = 0;
-  ulong idx = 0;
-
-  while( !(client_done && server_done) ) {
-    /* wait for data on pipe */
-    rtn = fd_fibre_pipe_read( input, &idx, (long)60e9 );
-    if( !rtn ) {
-      printf( "net_fibre_main: no data in 60s\n" );
-      exit(1);
-    }
-
-    /* we have a message */
-
-    /* drop? */
-    if( rnd() < thresh ) {
-      /* free slot */
-      rtn = fd_fibre_pipe_write( release, idx, (long)1e6 );
-      if( rtn ) {
-        printf( "net_fibre_main: timeout trying to return idx\n" );
-        exit(1);
-      }
-
-      continue;
-    }
-
-    /* could insert into a reorder buffer here */
-  }
-}
 
 
 /* man-in-the-middle for testing drops */
@@ -93,8 +54,12 @@ struct mitm_ctx {
   fd_aio_t         local;
   fd_aio_t const * dst;
   fd_aio_t const * pcap;
-  rng_t            thresh;
+  rng_t            thresh_drop;
+  rng_t            thresh_reorder;
   int              server;
+
+  ulong reorder_sz;
+  uchar reorder_buf[2048];
 };
 typedef struct mitm_ctx mitm_ctx_t;
 
@@ -104,6 +69,9 @@ mitm_tx( void *                    ctx,
          ulong                     batch_cnt,
          ulong *                   opt_batch_idx,
          int                       flush ) {
+  (void)flush;
+  (void)opt_batch_idx;
+
   mitm_ctx_t * mitm_ctx = (mitm_ctx_t*)ctx;
 
   /* each time data transfers, the schedule might change
@@ -111,19 +79,60 @@ mitm_tx( void *                    ctx,
   if( client_fibre &&  mitm_ctx->server ) fd_fibre_wake( client_fibre );
   if( server_fibre && !mitm_ctx->server ) fd_fibre_wake( server_fibre );
 
-  /* write to pcap even if dropping */
-  if( mitm_ctx->pcap ) {
-    fd_aio_send( mitm_ctx->pcap, batch, batch_cnt, opt_batch_idx, 1 );
+  /* write to pcap */
+#define PCAP( batch, batch_cnt ) \
+  if( mitm_ctx->pcap ) { \
+    fd_aio_send( mitm_ctx->pcap, (batch), (batch_cnt), NULL, 1 ); \
   }
 
-  /* generate a random number and compare with threshold, and either pass thru or drop */
+  /* go packet by packet */
+  for( ulong j = 0UL; j < batch_cnt; ++j ) {
+    /* generate a random number and compare with threshold, and either pass thru or drop */
 
-  if( rnd() < mitm_ctx->thresh ) {
-    /* dropping behaves as-if the send was successful */
-    return FD_AIO_SUCCESS;
-  } else {
-    return fd_aio_send( mitm_ctx->dst, batch, batch_cnt, opt_batch_idx, flush );
+    rng_t rnd_num = rnd();
+
+    if( rnd_num < mitm_ctx->thresh_drop ) {
+      /* dropping behaves as-if the send was successful */
+      continue;
+    }
+
+    if( rnd_num < mitm_ctx->thresh_reorder ) {
+      /* reorder */
+
+      /* logic:
+           if we already have a reordered buffer, delay it another packet
+           else store the current packet into the reorder buffer */
+      if( mitm_ctx->reorder_sz > 0UL ) {
+        fd_aio_pkt_info_t lcl_batch[1] = { batch[j] };
+        fd_aio_send( mitm_ctx->dst, lcl_batch, 1UL, NULL, 1 );
+        PCAP(lcl_batch,1UL);
+
+        /* clear buffer */
+        mitm_ctx->reorder_sz = 0UL;
+      } else {
+        fd_memcpy( mitm_ctx->reorder_buf, batch[j].buf, batch[j].buf_sz );
+        mitm_ctx->reorder_sz = batch[j].buf_sz;
+      }
+      continue;
+    }
+    
+    /* send new packet */
+    fd_aio_pkt_info_t batch_0[1] = { batch[j] };
+    fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
+    PCAP(batch_0,1UL);
+      
+    /* we aren't dropping or reordering, but we might have a prior reorder */
+    if( mitm_ctx->reorder_sz > 0UL ) {
+      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
+      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, 1 );
+      PCAP(batch_1,1UL);
+
+      /* clear the sent buffer */
+      mitm_ctx->reorder_sz = 0UL;
+    }
   }
+
+  return FD_AIO_SUCCESS;
 }
 
 static void
@@ -141,8 +150,9 @@ mitm_link( fd_quic_t * quic_a, fd_quic_t * quic_b, mitm_ctx_t * mitm, fd_aio_t c
 }
 
 static void
-mitm_set_thresh( mitm_ctx_t * mitm_ctx, rng_t thresh ) {
-  mitm_ctx->thresh = thresh;
+mitm_set_thresh( mitm_ctx_t * mitm_ctx, rng_t thresh_drop, rng_t thresh_reorder ) {
+  mitm_ctx->thresh_drop    = thresh_drop;
+  mitm_ctx->thresh_reorder = thresh_reorder;
 }
 
 static void
@@ -158,6 +168,7 @@ static void
 my_tls_keylog( void *       quic_ctx,
                char const * line ) {
   (void)quic_ctx;
+  FD_LOG_WARNING(( "SECRET: %s", line ));
   fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pcap_server_to_client.pcapng );
 }
 
@@ -327,6 +338,25 @@ client_fibre_fn( void * vp_arg ) {
       if( !stream ) {
         if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
           FD_LOG_WARNING(( "Client unable to obtain a stream. now: %lu", (ulong)now ));
+          ulong live = next_wakeup + (ulong)1e9;
+          do {
+            next_wakeup = fd_quic_get_next_wakeup( quic );
+
+            if( next_wakeup > live ) {
+              live = next_wakeup + (ulong)next_wakeup;
+              FD_LOG_WARNING(( "Client waiting for a stream time: %lu", (ulong)now ));
+            }
+
+            /* wake up at either next service or next send, whichever is sooner */
+            fd_fibre_wait_until( (long)next_wakeup );
+
+            fd_quic_service( quic );
+
+            if( !conn ) break;
+
+            stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+          } while( !stream );
+          FD_LOG_WARNING(( "Client obtained a stream" ));
         }
         next_send = now + period_ns; /* ensure we make progress */
         continue;
@@ -343,6 +373,16 @@ client_fibre_fn( void * vp_arg ) {
       /* successful - stream will begin closing */
 
       if( ++sent % 15 == 0 ) {
+        /* wait for last sends to complete */
+        /* TODO add callback for this */
+        ulong timeout = now + (ulong)3e6;
+        while( now < timeout ) {
+          fd_quic_service( quic );
+
+          /* allow server to process */
+          fd_fibre_wait_until( (long)fd_quic_get_next_wakeup( quic ) );
+        }
+
         fd_quic_conn_close( conn, 0 );
         sent = 0;
 
@@ -499,8 +539,8 @@ main( int argc, char ** argv ) {
   mitm_link( client_quic, server_quic, &mitm_client_to_server, fd_aio_pcapng_get_aio( &pcap_client_to_server ) );
   mitm_link( server_quic, client_quic, &mitm_server_to_client, fd_aio_pcapng_get_aio( &pcap_server_to_client ) );
 
-  mitm_set_thresh( &mitm_client_to_server, 0.30f );
-  mitm_set_thresh( &mitm_server_to_client, 0.30f );
+  mitm_set_thresh( &mitm_client_to_server, 0.00f, 0.40f );
+  mitm_set_thresh( &mitm_server_to_client, 0.00f, 0.40f );
 
   mitm_set_server( &mitm_client_to_server, 0 );
   mitm_set_server( &mitm_server_to_client, 1 );

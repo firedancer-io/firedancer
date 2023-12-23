@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "../../../util/sanitize/fd_fuzz.h"
+
 #include "../fd_quic.h"
 #include "../fd_quic_private.h"
 #include "../fd_quic_proto.h"
@@ -122,11 +124,6 @@ void init_quic(void) {
   fd_quic_init( server_quic );
 }
 
-void
-destroy_quic( void ) {
-  fd_quic_fini( server_quic );
-}
-
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
   /* Set up shell without signal handlers */
   putenv("FD_LOG_BACKTRACE=0");
@@ -143,7 +140,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   char const *_page_sz =
       fd_env_strip_cmdline_cstr(argc, argv, "--page-sz", NULL, "normal");
   ulong page_cnt =
-      fd_env_strip_cmdline_ulong(argc, argv, "--page-cnt", NULL, 1024UL);
+      fd_env_strip_cmdline_ulong(argc, argv, "--page-cnt", NULL, 1500UL);
   ulong numa_idx = fd_env_strip_cmdline_ulong(argc, argv, "--numa-idx", NULL,
                                               fd_shmem_numa_idx(cpu_idx));
 
@@ -198,18 +195,24 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   init_quic();
 
   while (s > 2) {
+    FD_FUZZ_MUST_BE_COVERED;
     ushort payload_sz = (ushort)( ptr[0] + ( ptr[1] << 8u ) );
     ptr += 2;
     s -= 2;
     if (payload_sz <= s) {
       send_packet(ptr, payload_sz);
+      FD_FUZZ_MUST_BE_COVERED;
       ptr += payload_sz;
       s -= payload_sz;
     } else {
-      break;
+      FD_FUZZ_MUST_BE_COVERED;
+      fd_quic_fini(server_quic);
+      return 0;
     }
   }
 
-  destroy_quic();
+  fd_quic_fini(server_quic);
+
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

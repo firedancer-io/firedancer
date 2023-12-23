@@ -187,6 +187,7 @@ typedef struct {
     ulong  xdp_rx_queue_size;
     ulong  xdp_tx_queue_size;
     ulong  xdp_aio_depth;
+    uint   src_ip_addr;
     ushort allow_ports[ 3 ];
   } net;
 
@@ -224,6 +225,10 @@ typedef struct {
     ushort shred_listen_port;
     ulong  expected_shred_version;
   } shred;
+
+  struct {
+    ushort prometheus_listen_port;
+  } metric;
 } fd_topo_tile_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -368,6 +373,12 @@ fd_topo_link_kind_str( ulong kind ) {
   }
 }
 
+FD_FN_CONST static inline int
+fd_topo_tile_kind_is_labs( ulong kind ) {
+  return kind==FD_TOPO_TILE_KIND_BANK ||
+    kind==FD_TOPO_TILE_KIND_STORE;
+}
+
 /* Given a tile kind, one of FD_TOPO_TILE_KIND_*, produce a human
    readable string describing it.  This string does not uniquely
    identify a tile, since there can be multiple of each tile kind
@@ -418,6 +429,22 @@ fd_topo_link_consumer_cnt( fd_topo_t *      topo,
   return cnt;
 }
 
+/* Given a link, count the number of reliable consumers of that link
+   among all the tiles in the topology. */
+FD_FN_PURE static inline ulong
+fd_topo_link_reliable_consumer_cnt( fd_topo_t *      topo,
+                                    fd_topo_link_t * link ) {
+  ulong cnt = 0;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    for( ulong j=0; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id && tile->in_link_reliable[ j ] ) ) cnt++;
+    }
+  }
+
+  return cnt;
+}
+
 /* Join (map into the process) all shared memory (huge/gigantic pages)
    needed by the tile, in the given topology.  All memory associated
    with the tile (aka. used by links that the tile either produces to or
@@ -430,6 +457,16 @@ void
 fd_topo_join_tile_workspaces( char * const     app_name,
                               fd_topo_t *      topo,
                               fd_topo_tile_t * tile );
+
+/* Join (map into the process) the shared memory (huge/gigantic pages)
+   for the given workspace.  Mode is one of
+   FD_SHMEM_JOIN_MODE_READ_WRITE or FD_SHMEM_JOIN_MODE_READ_ONLY and
+   determines the prot argument that will be passed to mmap when mapping
+   the pages in (PROT_WRITE or PROT_READ respectively). */
+void
+fd_topo_join_workspace( char * const     app_name,
+                        fd_topo_wksp_t * wksp,
+                        int              mode );
 
 /* Join (map into the process) all shared memory (huge/gigantic pages)
    needed by all tiles in the topology.  Mode is one of
@@ -484,6 +521,13 @@ void
 fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    ulong            mode );
+
+/* Same as fd_topo_fill_tile but fills in all the objects for a
+   particular workspace with the given mode. */
+void
+fd_topo_workspace_fill( fd_topo_t *      topo,
+                        fd_topo_wksp_t * wksp,
+                        ulong            mode );
 
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology with
    the given mode. */

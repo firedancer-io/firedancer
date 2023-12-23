@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#define CONFIGURE_STAGE_COUNT 12
+#define CONFIGURE_STAGE_COUNT 13
 struct configure_stage;
 
 typedef union {
@@ -45,8 +45,9 @@ typedef union {
   } dev1;
 
   struct {
-    ulong key_type;
-  } keygen;
+    ulong cmd;
+    char  file_path[ 256 ];
+  } keys;
 
   struct {
     const char * payload_base64;
@@ -129,13 +130,13 @@ monitor_cmd_fn( args_t *         args,
                 config_t * const config );
 
 void
-keygen_cmd_args( int *    pargc,
-                 char *** pargv,
-                 args_t * args );
+keys_cmd_args( int *    pargc,
+               char *** pargv,
+               args_t * args );
 
 void
-keygen_cmd_fn( args_t *         args,
-               config_t * const config );
+keys_cmd_fn( args_t *         args,
+             config_t * const config );
 
 void
 ready_cmd_fn( args_t *         args,

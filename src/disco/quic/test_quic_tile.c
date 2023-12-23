@@ -8,9 +8,6 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../ballet/base58/fd_base58.h"
 
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT==6UL, uint_test );
-FD_STATIC_ASSERT( FD_QUIC_CNC_DIAG_TPU_CONN_SEQ     ==7UL, unit_test );
-
 FD_STATIC_ASSERT( FD_QUIC_TILE_SCRATCH_ALIGN==128UL, unit_test );
 
 struct test_cfg {

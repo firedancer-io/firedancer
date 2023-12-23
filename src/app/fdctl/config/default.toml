@@ -227,7 +227,9 @@ dynamic_port_range = "8900-9000"
     # none is provided, the default is to ask the first entrypoint which
     # replies to the port check described above what our IP address is.
     # If no entrypoints are specified, then this will be defaulted to
-    # 127.0.0.1.
+    # 127.0.0.1.  If connecting to a public cluster like mainnet or
+    # testnet, this IP must be externally resolvable and should not be
+    # on a local subnet.
     #
     # This option is passed to the Solana Labs client with the
     # `--gossip-host` argument.
@@ -471,11 +473,35 @@ dynamic_port_range = "8900-9000"
     # Logical CPU cores to run Firedancer tiles on.  Can be specified as
     # a single core like "0", a range like "0-10", or a range with
     # stride like "0-10/2".  Stride is useful when CPU cores should be
-    # skipped due to hyperthreading.
+    # skipped due to hyperthreading.  You can also have a number
+    # preceded by a 'f' like 'f5' which means the next five tiles are
+    # not pinned and will float on the original core set that Firedancer
+    # was started with.
+    #
+    # For example, if Firedancer has six tiles numbered 0..5, and the
+    # affinity is specified as
+    #
+    #  f1,0-1,2-4/2,f1
+    #
+    # Then the tile to core mapping looks like,
+    #
+    # tile | core
+    # -----+-----
+    #    0 | floating
+    #    1 | 0
+    #    2 | 1
+    #    3 | 2
+    #    4 | 4
+    #    5 | floating
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-15"
+    affinity = "0-16"
+
+    # Which CPU core to use for the POH service.  This is a special core
+    # because it's the only one pinned by the Solana Labs.  This should
+    # not overlap with the affinity specified above.
+    poh_core = 17
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -603,7 +629,7 @@ dynamic_port_range = "8900-9000"
         # downstream consumers, after which additional packets begin to
         # replace older ones, which will be dropped.  TODO: ... Should
         # this really be configurable?
-        send_buffer_size = 8192
+        send_buffer_size = 16384
 
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
@@ -628,7 +654,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 32
+        max_concurrent_connections = 2048
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -694,6 +720,7 @@ dynamic_port_range = "8900-9000"
         # the client nor the server has sent any packet to the other for
         # a period of time.  Once this timeout is reached the connection
         # will be terminated.
+        #
         # An idle connection will be terminated if it remains idle longer than
         # some threshold. "idle_timeout_millis" represents this threshold in
         # milliseconds
@@ -782,6 +809,15 @@ dynamic_port_range = "8900-9000"
         # this one.
         shred_listen_port = 8003
 
+    # The metric tile receives metrics updates published from the rest
+    # of the tiles and serves them via. a Prometheus compatible HTTP
+    # endpoint.
+    [tiles.metric]
+        # The port to listen on for HTTP request for Prometheus metrics.
+        # Firedancer serves metrics at a URI like
+        # 127.0.0.1:7999/metrics
+        prometheus_listen_port = 7999
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program
@@ -806,6 +842,21 @@ dynamic_port_range = "8900-9000"
     # In development, you can disable solana for testing and debugging with
     # the `--no-solana-labs` argument to `fddev`.
     no_solana_labs = false
+
+    # Sometimes, it may be useful to run a bootstrap firedancer validator,
+    # either for development or for testing purposes.  The `fddev` tool is
+    # provided for this purpose, which creates the bootstrap keys and does
+    # the cluster genesis using some parameters that are typically useful
+    # for development.
+    #
+    # Enabling this allows de-coupling the genesis and key creation from
+    # the validator startup.  The bootstrap validator can then be started
+    # up with `fdctl`.  It will expect the genesis to already exist at
+    # [ledger.path].  The keys used during genesis should be the same as
+    # the ones supplied in the [consensus.identity_path] and
+    # [consensus.vote_account_path].  This option will not be effective if
+    # [gossip.entrypoints] is non-empty.
+    bootstrap = false
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local

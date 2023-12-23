@@ -31,24 +31,7 @@
    packets being received by net tiles and forwarded on via. a mux
    (multiplexer).  An arbitrary number of QUIC tiles can be run, and
    these will round-robin packets from the networking queues based on
-   the source IP address.
-
-   An fd_quic_tile will use the cnc application region to accumulate the
-   following tile specific counters:
-
-     TPU_CONN_LIVE_CNT  is the number of currently open QUIC conns
-
-     TPU_CONN_SEQ       is the sequence number of the last QUIC conn
-                        opened
-
-   As such, the cnc app region must be at least 64B in size.
-
-   Except for IN_BACKP, none of the diagnostics are cleared at tile
-   startup (as such that they can be accumulated over multiple runs).
-   Clearing is up to monitoring scripts. */
-
-#define FD_QUIC_CNC_DIAG_TPU_CONN_LIVE_CNT (6UL)
-#define FD_QUIC_CNC_DIAG_TPU_CONN_SEQ      (7UL)
+   the source IP address. */
 
 typedef struct {
   fd_tpu_reasm_t * reasm;
@@ -63,8 +46,7 @@ typedef struct {
 
   uchar buffer[ FD_NET_MTU ];
 
-  ulong conn_cnt; /* count of live connections, put into the cnc for diagnostics */
-  ulong conn_seq; /* current quic connection sequence number, put into cnc for diagnostics */
+  ulong conn_seq; /* current quic connection sequence number */
 
   ulong round_robin_cnt;
   ulong round_robin_id;
@@ -84,6 +66,14 @@ typedef struct {
   ulong       net_out_chunk;
 
   fd_wksp_t * verify_out_mem;
+
+  struct {
+    ulong legacy_reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_APPEND_CNT ];
+    ulong legacy_reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_PUBLISH_CNT ];
+
+    ulong reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_APPEND_CNT ];
+    ulong reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_PUBLISH_CNT ];
+  } metrics;
 } fd_quic_ctx_t;
 
 FD_FN_CONST static inline fd_quic_limits_t
@@ -161,20 +151,16 @@ legacy_stream_notify( fd_quic_ctx_t * ctx,
   fd_tpu_reasm_slot_t * slot   = fd_tpu_reasm_prepare( ctx->reasm, tsorig );
 
   int add_err = fd_tpu_reasm_append( ctx->reasm, slot, packet, packet_sz, 0UL );
-  if( FD_UNLIKELY( add_err!=FD_TPU_REASM_SUCCESS ) ) {
-    /* TODO log metric */
-    return;
-  }
+  ctx->metrics.legacy_reasm_append[ add_err ]++;
+  if( FD_UNLIKELY( add_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   void * base  = ctx->verify_out_mem;
   ulong  seq   = *mux->seq;
 
   int pub_err = fd_tpu_reasm_publish( ctx->reasm, slot, mux->mcache, base, seq, tspub );
-  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) {
-    /* TODO log metric */
-    return;
-  }
+  ctx->metrics.legacy_reasm_publish[ pub_err ]++;
+  if( FD_UNLIKELY( pub_err!=FD_TPU_REASM_SUCCESS ) ) return;
 
   fd_mux_advance( mux );
 }
@@ -210,8 +196,35 @@ static inline void
 metrics_write( void * _ctx ) {
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  FD_MGAUGE_SET( QUIC, ACTIVE_CONNECTIONS, ctx->conn_cnt );
-  FD_MGAUGE_SET( QUIC, TOTAL_CONNECTIONS,  ctx->conn_seq );
+  FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_APPEND,  ctx->metrics.legacy_reasm_append );
+  FD_MCNT_ENUM_COPY( QUIC_TILE, NON_QUIC_REASSEMBLY_PUBLISH, ctx->metrics.legacy_reasm_publish );
+  FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_APPEND,           ctx->metrics.reasm_append );
+  FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_PUBLISH,          ctx->metrics.reasm_publish );
+
+  FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
+  FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
+  FD_MCNT_SET(   QUIC, SENT_PACKETS,     ctx->quic->metrics.net_tx_pkt_cnt );
+  FD_MCNT_SET(   QUIC, SENT_BYTES,       ctx->quic->metrics.net_tx_byte_cnt );
+
+  FD_MGAUGE_SET( QUIC, CONNECTIONS_ACTIVE,  ctx->quic->metrics.conn_active_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
+
+  FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTION_ERROR_TLS_FAIL,   ctx->quic->metrics.conn_err_tls_fail_cnt );
+  FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
+
+  FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
+  FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
+
+  FD_MCNT_ENUM_COPY(   QUIC, STREAM_OPENED, ctx->quic->metrics.stream_opened_cnt );
+  FD_MCNT_ENUM_COPY(   QUIC, STREAM_CLOSED, ctx->quic->metrics.stream_closed_cnt );
+  FD_MGAUGE_ENUM_COPY( QUIC, STREAM_ACTIVE, ctx->quic->metrics.stream_active_cnt );
+
+  FD_MCNT_SET(  QUIC, STREAM_RECEIVED_EVENTS, ctx->quic->metrics.stream_rx_event_cnt );
+  FD_MCNT_SET(  QUIC, STREAM_RECEIVED_BYTES,  ctx->quic->metrics.stream_rx_byte_cnt );
 }
 
 static void
@@ -229,7 +242,7 @@ before_frag( void * _ctx,
   ulong  src_ip_addr = fd_disco_netmux_sig_ip_addr( sig );
   ushort src_tile    = fd_disco_netmux_sig_src_tile( sig );
 
-  if( FD_UNLIKELY( src_tile != SRC_TILE_NET ) ) {
+  if( FD_UNLIKELY( src_tile!=SRC_TILE_NET ) ) {
     *opt_filter = 1;
     return;
   }
@@ -285,23 +298,25 @@ after_frag( void *             _ctx,
 
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  ushort dst_port    = fd_disco_netmux_sig_port( *opt_sig );
+  ushort dst_port = fd_disco_netmux_sig_port( *opt_sig );
 
-  if( FD_LIKELY( dst_port == ctx->quic->config.net.listen_udp_port ) ) {
+  if( FD_LIKELY( dst_port==ctx->quic->config.net.listen_udp_port ) ) {
     fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
-  } else if( FD_LIKELY( dst_port == ctx->legacy_transaction_port ) ) {
+  } else if( FD_LIKELY( dst_port==ctx->legacy_transaction_port ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    if( FD_UNLIKELY( *opt_sz < network_hdr_sz ) ) {
+    if( FD_UNLIKELY( *opt_sz<network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
          headers. */
+      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_SMALL, 1UL );
       return;
     }
 
-    if( FD_UNLIKELY( *opt_sz > FD_TPU_MTU ) ) {
+    if( FD_UNLIKELY( *opt_sz>FD_TPU_MTU ) ) {
       /* Transaction couldn't possibly be valid if it's longer than transaction
          MTU so drop it. This is not required, as the txn will fail to parse,
          but it's a nice short circuit. */
+      FD_MCNT_INC( QUIC_TILE, NON_QUIC_PACKET_TOO_LARGE, 1UL );
       return;
     }
 
@@ -318,32 +333,14 @@ quic_now( void * ctx ) {
   return (ulong)fd_log_wallclock();
 }
 
-/* Tile-local sequence number for conns */
-static FD_TL ulong conn_seq = 0UL;
-
 /* quic_conn_new is invoked by the QUIC engine whenever a new connection
    is being established. */
 static void
 quic_conn_new( fd_quic_conn_t * conn,
                void *           _ctx ) {
-
-  conn->local_conn_id = ++conn_seq;
-
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-  ctx->conn_seq = conn_seq;
-  ctx->conn_cnt++;
-}
 
-/* quic_conn_final is called back by the QUIC engine whenever a
-   connection is closed.  This could be because it ended gracefully, or
-   was terminated, or any other reason. */
-static void
-quic_conn_final( fd_quic_conn_t * conn,
-                 void *           _ctx ) {
-  (void)conn;
-
-  fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
-  ctx->conn_cnt--;
+  conn->local_conn_id = ++ctx->conn_seq;
 }
 
 /* quic_stream_new is called back by the QUIC engine whenever an open
@@ -357,7 +354,6 @@ static void
 quic_stream_new( fd_quic_stream_t * stream,
                  void *             _ctx,
                  int                type ) {
-
   (void)type; /* TODO reject bidi streams? */
 
   /* Load QUIC state */
@@ -404,6 +400,7 @@ quic_stream_receive( fd_quic_stream_t * stream,
   fd_quic_ctx_t *       quic_ctx = quic->cb.quic_ctx;
   fd_tpu_reasm_t *      reasm    = quic_ctx->reasm;
   fd_tpu_reasm_slot_t * slot     = stream_ctx;
+  fd_quic_ctx_t *       ctx    = quic->cb.quic_ctx;
 
   /* Check if reassembly slot is still valid */
 
@@ -418,7 +415,7 @@ quic_stream_receive( fd_quic_stream_t * stream,
   /* Append data into chunk, we know this is valid */
 
   int add_err = fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
-  (void)add_err;  /* TODO metrics */
+  ctx->metrics.reasm_append[ add_err ]++;
 }
 
 /* quic_stream_notify is called back by the QUIC implementation when a
@@ -457,6 +454,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
 
   if( FD_UNLIKELY( ( slot->conn_id   != conn_id   ) |
                    ( slot->stream_id != stream_id ) ) ) {
+    FD_MCNT_INC( QUIC_TILE, REASSEMBLY_NOTIFY_CLOBBERED, 1UL );
     return;  /* clobbered */
   }
 
@@ -465,7 +463,7 @@ quic_stream_notify( fd_quic_stream_t * stream,
   ulong  seq   = *mux->seq;
   uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
-  (void)pub_err;  /* TODO metric */
+  ctx->metrics.reasm_publish[ pub_err ]++;
 
   fd_mux_advance( mux );
 }
@@ -484,9 +482,32 @@ quic_tx_aio_send( void *                    _ctx,
     void * dst = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
     fd_memcpy( dst, batch[ i ].buf, batch[ i ].buf_sz );
 
+    uchar const * packet = dst;
+    uchar const * packet_end = packet + batch[i].buf_sz;
+    uchar const * iphdr = packet + 14U;
+
+    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+    uint   ip_dstaddr  = 0;
+    ushort udp_dstport = 0;
+    if( FD_LIKELY( test_ethip==0x080011 ) ) {
+      /* IPv4 is variable-length, so lookup IHL to find start of UDP */
+      uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+      uchar const * udp = iphdr + iplen;
+
+      /* Ignore if UDP header is too short */
+      if( FD_UNLIKELY( udp+8U>packet_end ) ) {
+        FD_MCNT_INC( QUIC_TILE, QUIC_PACKET_TOO_SMALL, 1UL );
+        continue;
+      }
+
+      /* Extract IP dest addr and UDP dest port */
+      ip_dstaddr  =                  *(uint   *)( iphdr+16UL );
+      udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
+    }
+
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( 0, 0, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
+    ulong sig = fd_disco_netmux_sig( ip_dstaddr, udp_dstport, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mcache_publish( ctx->net_out_mcache,
@@ -569,7 +590,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;
-  quic->cb.conn_final       = quic_conn_final;
+  quic->cb.conn_final       = NULL;
   quic->cb.stream_new       = quic_stream_new;
   quic->cb.stream_receive   = quic_stream_receive;
   quic->cb.stream_notify    = quic_stream_notify;
@@ -621,8 +642,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 
-  ctx->conn_cnt         = 0UL;
-  ctx->conn_seq         = 0UL;
+  ctx->conn_seq    = 0UL;
 
   ctx->quic        = quic;
   ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );

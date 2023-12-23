@@ -13,6 +13,7 @@ ARFLAGS:=rv
 RANLIB:=ranlib
 CP:=cp -pv
 RM:=rm -fv
+PATCH:=patch
 MKDIR:=mkdir -pv
 RMDIR:=rm -rfv
 SED:=sed
@@ -30,6 +31,7 @@ RUST_PROFILE=debug
 
 # lcov
 GENHTML=genhtml
+# newer versions of genhtml will require '-ignore-errors unmapped'
 
 # FD_HAS_MAIN: Target supports linking objects with main function.
 # If set to 0, programs and unit tests will not be built. This is

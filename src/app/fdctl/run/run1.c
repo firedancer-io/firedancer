@@ -56,11 +56,6 @@ tile_main( void * _args ) {
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_log_group_id() ));
 
-  /* calling fd_tempo_tick_per_ns requires nanosleep, it is cached with
-     a FD_ONCE.  We do this for all tiles before sandboxing so that we
-     don't need to allow the nanosleep syscall. */
-  fd_tempo_tick_per_ns( NULL );
-
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( args->config->name,
                                 &args->config->topo,
@@ -96,7 +91,7 @@ tile_main( void * _args ) {
   fd_sandbox( args->config->development.sandbox,
               args->config->uid,
               args->config->gid,
-              0UL,
+              config->rlimit_file_cnt,
               allow_fds_cnt+allow_fds_offset,
               allow_fds,
               seccomp_filter_cnt,
@@ -127,10 +122,10 @@ tile_main( void * _args ) {
   ulong out_cnt_reliable = 0;
   ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &args->config->topo.tiles[ i ];
-    for( ulong j=0; j<tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( tile->in_link_id[ j ] == tile->out_link_id_primary && tile->in_link_reliable[ j ] ) ) {
-        out_fseq[ out_cnt_reliable ] = tile->in_link_fseq[ j ];
+    fd_topo_tile_t * consumer_tile = &args->config->topo.tiles[ i ];
+    for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+        out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
         FD_TEST( out_fseq[ out_cnt_reliable ] );
         out_cnt_reliable++;
         /* Need to test this, since each link may connect to many outs,
@@ -154,6 +149,9 @@ tile_main( void * _args ) {
   void * ctx = NULL;
   if( FD_LIKELY( config->mux_ctx ) ) ctx = config->mux_ctx( scratch_mem );
 
+  long lazy = 0L;
+  if( FD_UNLIKELY( config->lazy ) ) lazy = config->lazy( scratch_mem );
+
   fd_rng_t rng[1];
   fd_mux_tile( tile->cnc,
                config->mux_flags,
@@ -165,12 +163,12 @@ tile_main( void * _args ) {
                out_fseq,
                config->burst,
                0,
-               0,
+               lazy,
                fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
                fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
                ctx,
                &callbacks );
-
+  FD_LOG_ERR(( "tile run loop returned" ));
   return 0;
 }
 

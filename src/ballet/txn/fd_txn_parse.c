@@ -202,8 +202,9 @@ fd_txn_parse_core( uchar const             * payload,
       READ_CHECKED_COMPACT_U16( bytes_consumed,            readonly_cnt,             i );     i+=bytes_consumed;
       CHECK_LEFT( readonly_cnt                  );   ulong readonly_off   =          i  ;     i+=readonly_cnt;
 
-      CHECK( writable_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt ); /* implies <256 */
+      CHECK( writable_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt ); /* implies <256 ... */
       CHECK( readonly_cnt<=FD_TXN_ACCT_ADDR_MAX-acct_addr_cnt );
+      CHECK( (ushort)1   <=writable_cnt+readonly_cnt          ); /* ... so the sum can't overflow */
       if( address_tables ) {
         address_tables[ j ].addr_off      = (ushort)addr_off;
         address_tables[ j ].writable_cnt  = (uchar )writable_cnt;

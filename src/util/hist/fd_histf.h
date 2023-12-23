@@ -92,6 +92,7 @@ fd_histf_new( void * mem,
               ulong  max_value ) {
   if( FD_UNLIKELY( max_value<=min_value ) ) return NULL;
 
+  min_value = fd_ulong_max( min_value, 1UL );
   max_value = fd_ulong_max( max_value, min_value + FD_HISTF_BUCKET_CNT - 2UL );
 
   fd_histf_t * hist = (fd_histf_t*)mem;
@@ -151,7 +152,7 @@ fd_histf_sample( fd_histf_t * hist,
   wv_st( hist->counts+ 8UL,  wv_sub( wv_ld( hist->counts+ 8UL ), wc_to_wv_raw( select2 ) ) );
   wv_st( hist->counts+12UL,  wv_sub( wv_ld( hist->counts+12UL ), wc_to_wv_raw( select3 ) ) );
 #else
-  for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]);
+  for( ulong i=0UL; i<16UL; i++ ) hist->counts[ i ] += (ulong)( (hist->left_edge[ i ] <= shifted_v) & (shifted_v < hist->left_edge[ i+1UL ]) );
 #endif
 }
 

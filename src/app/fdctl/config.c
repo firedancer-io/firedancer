@@ -200,6 +200,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., snapshots,           path                                                      );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
+  ENTRY_UINT  ( ., layout,              poh_core                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
@@ -234,8 +235,11 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
 
+  ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
+  ENTRY_BOOL  ( ., development,         bootstrap                                                 );
 
   ENTRY_BOOL  ( ., development.netns,   enabled                                                   );
   ENTRY_STR   ( ., development.netns,   interface0                                                );
@@ -554,6 +558,7 @@ topo_initialize( config_t * config ) {
   TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
 
   topo->tile_cnt = tile_cnt;
 
@@ -796,11 +801,27 @@ config_parse( int *      pargc,
     if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
     uint iface_ip = listen_address( config->tiles.net.interface );
-    if ( FD_UNLIKELY( !fd_ip4_addr_is_public ( iface_ip ) && config->is_live_cluster ) )
+    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
+      uint gossip_ip_addr = iface_ip;
+      int  has_gossip_ip4 = 0;
+      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
+        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+      }
+      if ( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                     "transactions, but it is part of a private network and will not be routable "
+                     "for other Solana network nodes.",
+                     FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    } else if ( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
       FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                   "but it has IPv4 address " FD_IP4_ADDR_FMT " "
-                   "which is part of a private network and will not be routable for other Solana network nodes.",
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                   "and will not be routable for other Solana network nodes. If you are running "
+                   "behind a NAT and this interface is publicly reachable, you can continue by "
+                   "manually specifying the IP address to advertise in your configuration under "
+                   "[gossip.host].",
                    config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    }
 
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
@@ -922,6 +943,7 @@ config_parse( int *      pargc,
         tile->net.xdp_aio_depth = config->tiles.net.xdp_aio_depth;
         tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
         tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
+        tile->net.src_ip_addr      = config->tiles.net.ip_addr;
         tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
         tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
         tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
@@ -964,6 +986,9 @@ config_parse( int *      pargc,
         tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        break;
+      case FD_TOPO_TILE_KIND_METRIC:
+        tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

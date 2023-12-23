@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/sanitize/fd_fuzz.h"
 #include "fd_sha512.h"
 
 #define BATCH_CNT 32UL /* must be at least 1UL */
@@ -69,11 +70,13 @@ LLVMFuzzerTestOneInput( uchar const * fuzz_data,
 
   // batch hashing
   if( fuzz_sz>=BATCH_CNT ) {
+    FD_FUZZ_MUST_BE_COVERED;
 
     assert( fd_sha512_batch_init( batch_sha ) == batch_sha );
 
     ulong entry_sz = fuzz_sz/BATCH_CNT;
     for( ulong batch_idx=0UL; batch_idx<BATCH_CNT; batch_idx++ ) {
+      FD_FUZZ_MUST_BE_COVERED;
       hashes   [ batch_idx ] = hash_mem + FD_SHA512_HASH_SZ*batch_idx;
       messages [ batch_idx ] = (char const *) fuzz_data + entry_sz*batch_idx;
       msg_sizes[ batch_idx ] = batch_idx<BATCH_CNT-1UL ? entry_sz : entry_sz+fuzz_sz%BATCH_CNT;
@@ -83,9 +86,11 @@ LLVMFuzzerTestOneInput( uchar const * fuzz_data,
     assert( fd_sha512_batch_fini( batch_sha ) == batch_sha );
 
     for( ulong batch_idx=0UL; batch_idx<BATCH_CNT; batch_idx++ ) {
+      FD_FUZZ_MUST_BE_COVERED;
       assert( !memcmp( fd_sha512_hash( messages[ batch_idx ], msg_sizes[ batch_idx ], ref_hash ), hashes[ batch_idx ], FD_SHA512_HASH_SZ ) );
     }
   }
 
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
