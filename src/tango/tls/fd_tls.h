@@ -112,11 +112,11 @@ typedef ulong __attribute__((warn_unused_result))
                               ulong   quic_tp_bufsz );
 
 /* fd_tls_quic_tp_peer_fn_t is called by fd_tls to inform the user of
-   the peer's QUIC transport params RFC.  quic_tp points to the
-   serialized QUIC transport parameters (RFC 9000 Section 18).
-   quic_tp_sz is the serialized size.  Lifetime of quic_tp buffer ends
-   at return. fd_tls does not do any validation on the peer's QUIC TP --
-   Please ensure your deserializer is robust given arbitrary data. */
+   the peer's QUIC transport params.  quic_tp points to the serialized
+   QUIC transport parameters (RFC 9000 Section 18). quic_tp_sz is the
+   serialized size.  Lifetime of quic_tp buffer ends at return. fd_tls
+   does not do any validation on the peer's QUIC TP -- Please ensure
+   your deserializer is robust given arbitrary data. */
 
 typedef void
 (* fd_tls_quic_tp_peer_fn_t)( void  *       handshake,
