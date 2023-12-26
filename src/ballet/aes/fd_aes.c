@@ -5,6 +5,8 @@
 #include "fd_aes_gcm_private.h"
 #include "fd_aes_private.h"
 
+#include <assert.h>
+
 /* TODO: Do we need to support ivlen other than 12? */
 
 static void
@@ -263,14 +265,14 @@ fd_aes_gcm_aead_encrypt( fd_aes_gcm_t * aes_gcm,
 # if FD_HAS_AESNI
   if( sz>=32UL ) {
     ulong res = (16UL - aes_gcm->mres ) % 16UL;
-    FD_TEST( 0==fd_gcm128_encrypt( aes_gcm, p, c, res ) );
+    assert( 0==fd_gcm128_encrypt( aes_gcm, p, c, res ) );
     bulk = fd_aesni_gcm_encrypt_private( p+res, c+res, sz-res, &aes_gcm->key, aes_gcm->Yi.c, aes_gcm->Xi.u );
     aes_gcm->len.u[1] += bulk;
     bulk += res;
   }
 # endif
 
-  FD_TEST( 0==fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk ) );
+  assert( 0==fd_gcm128_encrypt( aes_gcm, p+bulk, c+bulk, sz-bulk ) );
 
   /* CRYPTO_gcm128_tag */
   fd_gcm128_finish( aes_gcm );
@@ -299,7 +301,7 @@ fd_aes_gcm_aead_decrypt( fd_aes_gcm_t * aes_gcm,
   }
 # endif
 
-  FD_TEST( 0==fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk ) );
+  assert( 0==fd_gcm128_decrypt( aes_gcm, c+bulk, p+bulk, sz-bulk ) );
 
   /* CRYPTO_gcm128_finish */
   fd_gcm128_finish( aes_gcm );
