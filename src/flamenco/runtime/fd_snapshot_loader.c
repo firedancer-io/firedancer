@@ -120,7 +120,8 @@ SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const *
 
       /* Skip if we previously inserted a newer version */
       if( read_result == FD_ACC_MGR_SUCCESS ) {
-        if( acc_meta->slot > slot ) break;
+        if( acc_meta->slot > slot )
+          break;
       } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
         FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
       }

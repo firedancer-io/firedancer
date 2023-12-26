@@ -513,12 +513,11 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
     fd_txn_acct_iter_t ctrl;
     for( ulong i = fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE, &ctrl );
           i < fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
-      if( i==0 ) continue;
-      if( fd_pubkey_is_sysvar_id( &tx_accs[i] ) ) continue;
+      if( (i == 0) || fd_pubkey_is_sysvar_id( &tx_accs[i] ) )
+        continue;
       fd_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
     }
   }
-
 
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     txn_ctx->unknown_accounts[i] = 0;
@@ -561,6 +560,16 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
 
     if( txn_ctx->unknown_accounts[i] ) {
       memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );
+
+      // This CANNOT be right...
+      if( acc_rec->meta->info.rent_epoch != ULONG_MAX ) {
+        if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
+          if( !fd_pubkey_is_sysvar_id( acc_rec->pubkey ) ) {
+            if( acc_rec->const_meta->info.lamports >= fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent,acc_rec->const_meta->dlen ) )
+              acc_rec->meta->info.rent_epoch = ULONG_MAX;
+          }
+        }
+      }
     }
 
     int ret = fd_acc_mgr_save( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->valloc, acc_rec );
@@ -677,6 +686,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
   for( ulong idx = 0; idx < txn->accounts_cnt; idx++ ) {
     fd_borrowed_account_t * b = &txn->borrowed_accounts[idx];
+
+    // Was this account written to?
     if( NULL != b->meta ) {
       ending_lamports += b->meta->info.lamports;
       ending_dlen += b->meta->dlen;
@@ -705,18 +716,21 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       if (b->starting_dlen != ULONG_MAX)
         starting_dlen += b->starting_dlen;
     } else if (NULL != b->const_meta) {
-      FD_LOG_DEBUG(("Const rec mismatch %32J starting %lu %lu ending %lu %lu", b->pubkey->uc, b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
       // Should these just kill the client?  They are impossible...
-      if (b->starting_lamports != b->const_meta->info.lamports)
+      if (b->starting_lamports != b->const_meta->info.lamports) {
+        FD_LOG_DEBUG(("Const rec mismatch %32J starting %lu %lu ending %lu %lu", b->pubkey->uc, b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
         return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
-      if (b->starting_dlen != b->const_meta->dlen)
+      }
+      if (b->starting_dlen != b->const_meta->dlen) {
+        FD_LOG_DEBUG(("Const rec mismatch %32J starting %lu %lu ending %lu %lu", b->pubkey->uc, b->starting_dlen, b->starting_lamports, b->const_meta->dlen, b->const_meta->info.lamports));
         return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+      }
     }
   }
 
   // Should these just kill the client?  They are impossible yet solana just throws an error
   if (ending_lamports != starting_lamports) {
-    FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
+    FD_LOG_WARNING(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
     return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
 

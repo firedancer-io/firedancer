@@ -12,8 +12,11 @@ $(call make-unit-test,test_rent_lists,test_rent_lists,fd_flamenco fd_funk fd_bal
 $(call make-unit-test,test_hashes,test_hashes,fd_ballet fd_funk fd_util fd_flamenco)
 
 run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/run_ledger_tests.sh
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/run_old_ledger.sh
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l empty-ledger
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v11712-test-ledger
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v17-multi -s snapshot-800-3vyLp4DbPnomGAqcxZcBfm58bbZh25EGrkTvF9PvoVc2.tar.zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
 #	src/flamenco/runtime/run_bpf_tests.sh
 
 endif

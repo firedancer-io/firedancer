@@ -388,20 +388,21 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
     // /* Logging ... */
-    // FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
-    //                "slot: %ld "
-    //                "lamports: %ld  "
-    //                "owner: %32J  "
-    //                "executable: %s,  "
-    //                "rent_epoch: %ld, "
-    //                "data_len: %ld",
-    //                acc_key,
-    //                slot,
-    //                acc_rec->meta->info.lamports,
-    //                acc_rec->meta->info.owner,
-    //                acc_rec->meta->info.executable ? "true" : "false",
-    //                acc_rec->meta->info.rent_epoch,
-    //                acc_rec->meta->dlen ));
+    if (0)
+    FD_LOG_DEBUG(( "fd_acc_mgr_update_hash: %32J "
+        "slot: %ld "
+        "lamports: %ld  "
+        "owner: %32J  "
+        "executable: %s,  "
+        "rent_epoch: %ld, "
+        "data_len: %ld",
+        acc_key,
+        slot_ctx->slot_bank.slot,
+        acc_rec->meta->info.lamports,
+        acc_rec->meta->info.owner,
+        acc_rec->meta->info.executable ? "true" : "false",
+        acc_rec->meta->info.rent_epoch,
+        acc_rec->meta->dlen ));
 
     /* Add account to "dirty keys" list, which will be added to the
        bank hash. */

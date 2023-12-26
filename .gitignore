@@ -46,3 +46,7 @@ deps-bundle.tar.zst
 
 # clangd
 .cache
+
+dump
+test.solcap
+test_ledger_backup

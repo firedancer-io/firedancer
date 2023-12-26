@@ -201,7 +201,7 @@ replay( global_state_t * state,
               state->slot_ctx->slot_bank.banks_hash.hash ));
           if( state->abort_on_mismatch ) {
             // fd_solcap_writer_fini( state->capture_ctx->capture );
-            kill(getpid(), SIGTRAP);
+            __asm__( "int $3" );
             return 1;
           }
         }
