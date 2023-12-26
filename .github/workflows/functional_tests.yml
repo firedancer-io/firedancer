@@ -2,6 +2,7 @@ name: Functional Tests
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
 jobs:
   functional-tests:
     runs-on:
@@ -46,5 +47,4 @@ jobs:
         run: make -j -Otarget
 
       - name: Run functional tests
-        run: make -j -Otarget run-script-test 
-
+        run: make -j -Otarget run-script-test
