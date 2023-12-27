@@ -22,9 +22,9 @@ LEDGER="v1176-big"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
-PAGES="--pages=5"
+PAGES="--pages 5"
 IMAX="--indexmax 100000"
-START="--start=241819853"
+START="--start 241819853"
 END=""
 
 POSITION_ARGS=()
