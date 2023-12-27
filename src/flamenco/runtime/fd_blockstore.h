@@ -21,9 +21,7 @@
 #define FD_DEFAULT_SLOTS_PER_EPOCH        ( 432000UL )
 #define FD_DEFAULT_SHREDS_PER_EPOCH       ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
 #define FD_BLOCKSTORE_DUP_SHREDS_MAX      ( 32UL ) /* TODO think more about this */
-#define FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX ( 10UL )
-#define FD_BLOCKSTORE_SLOT_HISTORY_MAX    ( 1UL << FD_BLOCKSTORE_LG_SLOT_HISTORY_MAX )
-#define FD_BLOCKSTORE_SLOT_HISTORY_MAX_WITH_SLOP    ( FD_BLOCKSTORE_SLOT_HISTORY_MAX + ( FD_BLOCKSTORE_SLOT_HISTORY_MAX >> 4UL ) )
+#define FD_DEFAULT_SLOT_HISTORY_MAX       ( 1024UL )
 #define FD_BLOCKSTORE_BLOCK_SZ_MAX        ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 // TODO centralize these
@@ -157,6 +155,7 @@ struct fd_blockstore_txn_map {
   ulong                   sz;
   ulong                   meta_gaddr; /* ptr to the transaction metadata */
   ulong                   meta_sz;    /* metadata size */
+  int                     meta_owned; /* does this entry "own" the metadata */
 };
 typedef struct fd_blockstore_txn_map fd_blockstore_txn_map_t;
 
@@ -202,6 +201,8 @@ struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
   int   lg_slot_max;
   ulong slot_meta_map_gaddr; /* map of slot->slot_meta */
   ulong block_map_gaddr;
+  ulong slot_history_max;    /* maximum block history */
+  ulong slot_history_max_with_slop; /* maximum block history with some padding */
 
   int   lg_txn_max;
   ulong txn_map_gaddr;
@@ -229,8 +230,8 @@ fd_blockstore_new( void * shmem,
                    ulong  wksp_tag,
                    ulong  seed,
                    ulong  tmp_shred_max,
-                   int    lg_slot_max,
-                   int    lg_txn_max );
+                   int    lg_txn_max,
+                   ulong  slot_history_max );
 
 fd_blockstore_t *
 fd_blockstore_join( void * shblockstore );

@@ -173,7 +173,8 @@ typedef struct fd_blockstore fd_blockstore_t;
 int
 fd_rocksdb_import_block( fd_rocksdb_t *    db,
                          fd_slot_meta_t *  m,
-                         fd_blockstore_t * blockstore );
+                         fd_blockstore_t * blockstore,
+                         int txnstatus );
 
 FD_PROTOTYPES_END
 

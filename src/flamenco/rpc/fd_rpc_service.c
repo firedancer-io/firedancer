@@ -705,12 +705,23 @@ method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values*
 }
 
 // Implementation of the "getMinimumBalanceForRentExemption" methods
-// TODO
 static int
 method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getMinimumBalanceForRentExemption is not implemented");
+  static const uint PATH_SIZE[3] = {
+    (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
+    (JSON_TOKEN_LBRACKET<<16) | 0,
+    (JSON_TOKEN_INTEGER<<16)
+  };
+  ulong size_sz = 0;
+  const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
+  ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
+  ulong min_balance = fd_rent_exempt_minimum_balance2(&ctx->slot_ctx->epoch_ctx->epoch_bank.rent, sizen);
+
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
+                        min_balance,
+                        ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -867,7 +878,6 @@ method_getSignaturesForAddress(struct fd_web_replier* replier, struct json_value
 }
 
 // Implementation of the "getSignatureStatuses" methods
-// TODO
 static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
@@ -902,6 +912,7 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
       continue;
     }
 
+    // TODO other fields
     fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
                          elem->slot);
   }
@@ -924,12 +935,15 @@ method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rp
 }
 
 // Implementation of the "getSlotLeader" methods
-// TODO
 static int
 method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getSlotLeader is not implemented");
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
+  fd_pubkey_t const * leader = fd_epoch_leaders_get(ctx->slot_ctx->epoch_ctx->leaders, ctx->slot_ctx->slot_bank.slot);
+  fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
+  fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
@@ -1089,9 +1103,13 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
+  ulong meta_gaddr = elem->meta_gaddr;
+  ulong meta_sz = elem->meta_sz;
+  void * meta = (meta_gaddr ? fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blks ), meta_gaddr ) : NULL);
+
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
                         ctx->slot_ctx->slot_bank.slot, blk->ts/(long)1e9, elem->slot);
-  fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, NULL, 0, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
+  fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, meta, meta_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);

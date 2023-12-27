@@ -41,10 +41,13 @@ static void usage(char const * progname) {
   fprintf(stderr, "                --txnstatus true                    also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
+  fprintf(stderr, " --pages <count>                                  number of gigantic pages in anonymous workspace\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
   fprintf(stderr, " --backup <file>                                  make a funky backup file\n");
   fprintf(stderr, " --indexmax <count>                               size of funky account map\n");
   fprintf(stderr, " --txnmax <count>                                 size of funky transaction map\n");
+  fprintf(stderr, " --slothistory <count>                            maximum slot history in blockstore\n");
+  fprintf(stderr, " --endslot <slot>                                 last slot to recover\n");
   fprintf(stderr, " --verifyhash <base58hash>                        verify that the accounts hash matches the given one\n");
   fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
   fprintf(stderr, " --verifypoh true                                 verify proof-of-history while importing blocks\n");
@@ -56,7 +59,8 @@ void
 ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
                 char const *      file,
                 ulong             end_slot,
-                fd_blockstore_t * blockstore ) {
+                fd_blockstore_t * blockstore,
+                int txnstatus ) {
   fd_rocksdb_t rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -96,7 +100,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Read and deshred block from RocksDB */
 
-    int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore);
+    int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore, txnstatus);
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
 
     ++blk_cnt;
@@ -138,6 +142,8 @@ main( int     argc,
   char const * incremental  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",  NULL, NULL      );
   char const * genesis      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",      NULL, NULL      );
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
+  char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
+  ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_DEFAULT_SLOT_HISTORY_MAX );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
@@ -216,9 +222,8 @@ main( int     argc,
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     ulong tmp_shred_max = 1UL << 20;
-    int   lg_slot_max   = 14;
     int   lg_txn_max    = 20;
-    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_slot_max, lg_txn_max));
+    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
     if (blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -386,7 +391,7 @@ main( int     argc,
     }
 
     if( rocksdb_dir ) {
-      ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore );
+      ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0) );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->slot_bank.slot );
 

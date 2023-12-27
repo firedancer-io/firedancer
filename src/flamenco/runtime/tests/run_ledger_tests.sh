@@ -25,6 +25,7 @@ END_SLOT="--end-slot 1010"
 PAGES="--pages 5"
 IMAX="--indexmax 100000"
 START="--start 241819853"
+HISTORY="--slothistory 3000"
 END=""
 
 POSITION_ARGS=()
@@ -68,6 +69,11 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    -h|--slothistory)
+       HISTORY="--slothistory $2"
+       shift
+       shift
+       ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -100,7 +106,8 @@ set -x
   --backup test_ledger_backup \
   $PAGES \
   $SNAPSHOT \
-  $INC_SNAPSHOT
+  $INC_SNAPSHOT \
+  $HISTORY
 
 status=$?
 

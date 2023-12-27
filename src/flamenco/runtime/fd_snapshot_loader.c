@@ -17,6 +17,7 @@
 #include "../../util/archive/fd_tar.h"
 #endif /* OLD_TAR */
 #include "../../util/compress/fd_compress.h"
+#include "fd_snapshot_loader.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
                                             uchar const          pubkey[ static 32 ],
@@ -222,6 +223,11 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
     SnapshotParser_destroy(&parser);
   }
 
+  fd_hashes_load(slot_ctx);
+}
+
+void
+fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   FD_BORROWED_ACCOUNT_DECL(block_hashes_rec);
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec);
 

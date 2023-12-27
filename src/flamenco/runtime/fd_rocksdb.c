@@ -393,7 +393,8 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
 int
 fd_rocksdb_import_block( fd_rocksdb_t *    db,
                          fd_slot_meta_t *  m,
-                         fd_blockstore_t * blockstore ) {
+                         fd_blockstore_t * blockstore,
+                         int txnstatus ) {
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -458,6 +459,54 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
   }
 
   rocksdb_iter_destroy(iter);
+
+  if( txnstatus ) {
+    fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+    fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
+    fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
+    fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
+    fd_blockstore_block_map_t * block_entry = fd_blockstore_block_map_query( block_map, slot, NULL );
+    if( FD_LIKELY( block_entry ) ) {
+      uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
+      fd_blockstore_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
+      ulong meta_gaddr = 0;
+      ulong meta_sz = 0;
+      int meta_owned = 0;
+      ulong last_txn_off = ULONG_MAX;
+      for ( ulong j = 0; j < block_entry->block.txns_cnt; ++j ) {
+        fd_blockstore_txn_key_t sig;
+        fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
+        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, sig, NULL );
+        if( FD_UNLIKELY( !txn_map_entry ) ) {
+          FD_LOG_WARNING(("missing transaction %64J", &sig));
+          continue;
+        }
+
+        if( txns[j].txn_off != last_txn_off ) {
+          last_txn_off = txns[j].txn_off;
+          ulong sz;
+          void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+          if( raw == NULL ) {
+            meta_gaddr = 0;
+            meta_sz = 0;
+            meta_owned = 0;
+          } else {
+            void * laddr = fd_alloc_malloc( alloc, 1, sz );
+            fd_memcpy(laddr, raw, sz);
+            free(raw);
+            meta_gaddr = fd_wksp_gaddr_fast( wksp, laddr );
+            meta_sz = sz;
+            meta_owned = 1;
+          }
+        }
+          
+        txn_map_entry->meta_gaddr = meta_gaddr;
+        txn_map_entry->meta_sz = meta_sz;
+        txn_map_entry->meta_owned = meta_owned;
+        meta_owned = 0;
+      }
+    }
+  }
 
   return 0;
 }

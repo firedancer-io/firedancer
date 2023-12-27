@@ -15,15 +15,10 @@ fd_blockstore_new( void * shmem,
                    ulong  wksp_tag,
                    ulong  seed,
                    ulong  tmp_shred_max,
-                   int    lg_slot_max,
-                   int    lg_txn_max ) {
+                   int    lg_txn_max,
+                   ulong  slot_history_max ) {
   fd_blockstore_t * blockstore = (fd_blockstore_t *)shmem;
 
-  if ((1UL<<lg_slot_max) < FD_BLOCKSTORE_SLOT_HISTORY_MAX_WITH_SLOP) {
-    FD_LOG_WARNING( ( "lg_slot_max is too small" ) );
-    return NULL;
-  }
-  
   if( FD_UNLIKELY( !blockstore ) ) {
     FD_LOG_WARNING( ( "NULL blockstore" ) );
     return NULL;
@@ -98,6 +93,9 @@ fd_blockstore_new( void * shmem,
     return NULL;
   }
 
+  ulong slot_history_max_with_slop = slot_history_max + (slot_history_max>>4U);
+  int lg_slot_max = 1U;
+  while ( (1U<<lg_slot_max) < slot_history_max_with_slop ) lg_slot_max++;
   void * slot_meta_shmem =
       fd_wksp_alloc_laddr( wksp,
                            fd_blockstore_slot_meta_map_align(),
@@ -217,6 +215,8 @@ fd_blockstore_new( void * shmem,
   blockstore->lg_slot_max         = lg_slot_max;
   blockstore->slot_meta_map_gaddr = fd_wksp_gaddr_fast( wksp, slot_meta_map );
   blockstore->block_map_gaddr     = fd_wksp_gaddr_fast( wksp, block_map );
+  blockstore->slot_history_max    = slot_history_max;
+  blockstore->slot_history_max_with_slop = slot_history_max_with_slop;
 
   blockstore->lg_txn_max    = lg_txn_max;
   blockstore->txn_map_gaddr = fd_wksp_gaddr_fast( wksp, txn_map );
@@ -498,6 +498,7 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
           elem->sz         = pay_sz;
           elem->meta_gaddr = 0;
           elem->meta_sz    = 0;
+          elem->meta_owned = 0;
 
           if( txns_cnt < MAX_TXNS ) {
             fd_blockstore_txn_ref_t * ref = &txns[txns_cnt++];
@@ -537,7 +538,7 @@ fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
   fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
   if( FD_LIKELY( slot_meta_entry ) )
     fd_blockstore_slot_meta_map_remove( slot_meta_map, slot_meta_entry );
-    
+
   fd_alloc_t *                alloc     = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
   fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
   fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
@@ -550,7 +551,7 @@ fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
       fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
       fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, sig, NULL );
       if( FD_LIKELY( txn_map_entry ) ) {
-        if ( txn_map_entry->meta_gaddr )
+        if ( txn_map_entry->meta_gaddr && txn_map_entry->meta_owned )
           fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, txn_map_entry->meta_gaddr ) );
         fd_blockstore_txn_map_remove( txn_map, txn_map_entry );
       }
@@ -701,16 +702,18 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
 }
 
 int
-  fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_meta_opt, fd_shred_t const * shred ) {
+fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_meta_opt, fd_shred_t const * shred ) {
   fd_blockstore_slot_meta_map_t * slot_meta_map =
       fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry =
       fd_blockstore_slot_meta_map_query( slot_meta_map, shred->slot, NULL );
   if( FD_UNLIKELY( !slot_meta_entry ) ) {
     slot_meta_entry      = fd_blockstore_slot_meta_map_insert( slot_meta_map, shred->slot );
-    if (slot_meta_opt)
+    if (slot_meta_opt) {
       slot_meta_entry->slot_meta = *slot_meta_opt;
-    else {
+      slot_meta_entry->slot_meta.consumed = 0;
+      slot_meta_entry->slot_meta.received = 0;
+    } else {
       fd_memset(&slot_meta_entry->slot_meta, 0, sizeof(slot_meta_entry->slot_meta));
       ulong reference_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
       ulong ms             = reference_tick * FD_MS_PER_TICK;
@@ -750,12 +753,12 @@ int
     FD_LOG_DEBUG( ( "received all shreds for slot %lu - now building a block", slot_meta->slot ) );
     if( FD_UNLIKELY( !insert ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
 
-    if( FD_UNLIKELY( blockstore->root - blockstore->min >= FD_BLOCKSTORE_SLOT_HISTORY_MAX_WITH_SLOP ) ) {
-      FD_LOG_WARNING( ( "evicting oldest slot: %lu root: %lu - exceeds slot history max %lu",
+    if( FD_UNLIKELY( blockstore->max - blockstore->min >= blockstore->slot_history_max_with_slop ) ) {
+      FD_LOG_WARNING( ( "evicting oldest slot: %lu max: %lu - exceeds slot history max %lu",
                         blockstore->min,
-                        blockstore->root,
-                        FD_BLOCKSTORE_SLOT_HISTORY_MAX ) );
-      if( FD_UNLIKELY( fd_blockstore_remove_before( blockstore, blockstore->root - FD_BLOCKSTORE_SLOT_HISTORY_MAX ) != FD_BLOCKSTORE_OK ) ) {
+                        blockstore->max,
+                        blockstore->slot_history_max ) );
+      if( FD_UNLIKELY( fd_blockstore_remove_before( blockstore, blockstore->max - blockstore->slot_history_max ) != FD_BLOCKSTORE_OK ) ) {
         FD_LOG_WARNING( ( "failed to find and remove min slot. likely programming error." ) );
       }
     }

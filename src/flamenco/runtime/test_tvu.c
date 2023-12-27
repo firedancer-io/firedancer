@@ -650,20 +650,15 @@ main( int argc, char ** argv ) {
   /* funk */
   /**********************************************************************/
 
+  char const * snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+  char const * load = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
+
   char hostname[64];
   gethostname( hostname, sizeof( hostname ) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
   char const * peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
-
-  char const * snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
-  FD_TEST( snapshot );
-  char const * incremental =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
-  if (!incremental ) {
-    FD_LOG_WARNING(("Running without incremental snapshot. This only makes sense if you're using a local validator."));
-  }
 
   fd_wksp_t *  funk_wksp = NULL;
   ulong        def_index_max;
@@ -676,10 +671,20 @@ main( int argc, char ** argv ) {
     funk_wksp = fd_wksp_attach( funk_wksp_name );
     if( funk_wksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
     def_index_max = 350000000;
-    if( snapshot != NULL ) /* Start from scratch */
-      fd_wksp_reset( funk_wksp, (uint)hashseed );
   }
   FD_TEST( funk_wksp );
+
+  if( snapshot ) { /* Start from scratch */
+    fd_wksp_reset( funk_wksp, (uint)hashseed );
+  } else if( load ) {
+    FD_LOG_NOTICE(("loading %s", load));
+    int err = fd_wksp_restore(funk_wksp, load, (uint)hashseed);
+    if (err)
+      FD_LOG_ERR(("load failed: error %d", err));
+
+  } else {
+    FD_LOG_WARNING(("using --snapshot or --load is recommended"));
+  }
 
   fd_funk_t *              funk = NULL;
   fd_wksp_tag_query_info_t funk_info;
@@ -725,8 +730,12 @@ main( int argc, char ** argv ) {
   /* snapshots                                                          */
   /**********************************************************************/
 
+  char const * incremental = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+
   ulong snapshot_slot = 0;
   if( snapshot ) {
+    if (!incremental )
+      FD_LOG_WARNING(("Running without incremental snapshot. This only makes sense if you're using a local validator."));
     const char * p = strstr( snapshot, "snapshot-" );
     if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
     do {
@@ -758,8 +767,47 @@ main( int argc, char ** argv ) {
     snapshotfiles[1] = incremental;
     snapshotfiles[2] = NULL;
     fd_snapshot_load( snapshotfiles, slot_ctx );
-  }
 
+  } else {
+    {
+      FD_LOG_NOTICE(("reading epoch bank record"));
+      fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
+      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
+      if ( rec == NULL )
+        FD_LOG_ERR(("failed to read banks record"));
+      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+      fd_bincode_decode_ctx_t ctx2;
+      ctx2.data = val;
+      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+      ctx2.valloc  = slot_ctx->valloc;
+      FD_TEST( fd_epoch_bank_decode(&epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
+
+      FD_LOG_NOTICE(( "decoded epoch" ));
+    }
+
+    {
+      FD_LOG_NOTICE(("reading slot bank record"));
+      fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
+      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
+      if ( rec == NULL )
+        FD_LOG_ERR(("failed to read banks record"));
+      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+      fd_bincode_decode_ctx_t ctx2;
+      ctx2.data = val;
+      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
+      ctx2.valloc  = slot_ctx->valloc;
+      FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
+
+      FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
+                      (long)slot_ctx->slot_bank.slot,
+                      slot_ctx->slot_bank.banks_hash.hash,
+                      slot_ctx->slot_bank.poh.hash ));
+
+      slot_ctx->slot_bank.collected_fees = 0;
+      slot_ctx->slot_bank.collected_rent = 0;
+    }
+  }
+  
   snapshot_slot                 = slot_ctx->slot_bank.slot;
   slot_ctx->slot_bank.prev_slot = snapshot_slot;
   slot_ctx->slot_bank.slot++;
@@ -803,10 +851,9 @@ main( int argc, char ** argv ) {
     // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
     // - 1mb of txns
     ulong tmp_shred_max = 1UL << 20;
-    int   lg_slot_max   = 6;
     int   lg_txn_max    = 20;
-    blockstore          = fd_blockstore_join(
-        fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_slot_max, lg_txn_max ) );
+    ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
+    blockstore          = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
     if( blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );

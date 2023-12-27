@@ -358,9 +358,9 @@ main( int     argc,
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     ulong tmp_shred_max = 1UL << 18;
-    int   lg_slot_max   = 6;
     int   lg_txn_max    = 18;
-    state.blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_slot_max, lg_txn_max));
+    ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
+    state.blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
     if (state.blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -464,10 +464,6 @@ main( int     argc,
 
     state.slot_ctx->slot_bank.collected_fees = 0;
     state.slot_ctx->slot_bank.collected_rent = 0;
-
-    FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
-                    (long)state.slot_ctx->slot_bank.slot,
-                    state.slot_ctx->slot_bank.capitalization));
   }
 
   ulong tcnt = fd_tile_cnt();
