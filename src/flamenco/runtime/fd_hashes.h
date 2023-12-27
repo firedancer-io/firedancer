@@ -20,9 +20,9 @@ FD_PROTOTYPES_BEGIN
 
 void fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_t * hash, fd_exec_slot_ctx_t * slot_ctx );
 
-int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx, 
+int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t * capture_ctx,
-                         fd_hash_t * hash, 
+                         fd_hash_t * hash,
                          ulong signature_cnt );
 
 /* fd_hash_account_v0 is the legacy method to compute the account
@@ -72,6 +72,11 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
+                  fd_hash_t * accounts_hash );
+
+/* Generate a non-incremental hash of the entire account database. */
+int
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_hash_t * accounts_hash );
 
 int

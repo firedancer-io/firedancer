@@ -226,6 +226,17 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   return slot_ctx->slot_bank.prev_slot < calculation_stop && (slot_ctx->slot_bank.slot >= calculation_stop);
 }
 
+static int
+fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx, epoch_accounts_hash ) )
+    return 0;
+
+  // We need to find the correct logic
+  if (slot_ctx->epoch_ctx->epoch_bank.eah_start_slot != ULONG_MAX)
+    return 0;
+  return !fd_should_include_epoch_accounts_hash( slot_ctx );
+}
+
 // slot_ctx should be const.
 static void
 fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_pair_t * dirty_keys, ulong dirty_key_cnt ) {
@@ -656,6 +667,27 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 
   return 0;
 }
+
+int
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
+  if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
+    if (fd_should_snapshot_include_epoch_accounts_hash (slot_ctx)) {
+      fd_sha256_t h;
+      fd_hash_t hash;
+      fd_accounts_hash(slot_ctx, &hash);
+
+      fd_sha256_init( &h );
+      fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
+      fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+      fd_sha256_fini( &h, accounts_hash );
+
+      return 0;
+    } else
+      return fd_accounts_hash(slot_ctx, accounts_hash);
+  } else
+    return fd_accounts_hash(slot_ctx, accounts_hash);
+}
+
 
 #ifdef _ENABLE_RHASH
 // This is bad.. everything I am doing here is a violation of data

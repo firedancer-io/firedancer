@@ -238,7 +238,11 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
 
   fd_runtime_save_slot_bank( slot_ctx );
 
+  // In order to calculate the snapshot hash, we need to know what features are active...
+  fd_features_restore( slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
+
   fd_hash_t accounts_hash;
-  fd_accounts_hash(slot_ctx, &accounts_hash);
+  fd_snapshot_hash(slot_ctx, &accounts_hash);
   FD_LOG_WARNING(("snapshot accounts_hash %32J", accounts_hash.hash));
 }
