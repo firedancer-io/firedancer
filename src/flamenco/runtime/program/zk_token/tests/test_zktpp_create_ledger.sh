@@ -11,7 +11,7 @@
 
 SOLANA=solana
 TOKEN=spl-token
-TOKEN=../solana-program-library/target/release/spl-token
+#TOKEN=../solana-program-library/target/release/spl-token
 
 CONF=~/.config/solana/cli/config.yml
 ALICE_CONF=~/.config/solana/cli/alice.yml
