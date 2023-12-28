@@ -25,7 +25,7 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   uchar const                                   aud_handle_hi [ static 32 ],
   bool const                                    batched,
   fd_zktpp_transcript_t *                       transcript ) {
-
+  FD_LOG_DEBUG(( "fd_zktpp_verify_proof_batched_grouped_ciphertext_validity" ));
   /*
     We need to verify the 3 following equivalences.
     Instead of verifying them one by one, it's more efficient to pack

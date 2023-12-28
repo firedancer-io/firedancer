@@ -3,7 +3,7 @@
 
 #include "../../../../fd_flamenco_base.h"
 
-typedef struct fd_zktpp_range_proof_u64_proof {
+struct __attribute__((packed)) fd_zktpp_range_proof_u64_proof {
   uchar a           [ 32 ]; // point
   uchar s           [ 32 ]; // point
   uchar t1          [ 32 ]; // point
@@ -12,9 +12,10 @@ typedef struct fd_zktpp_range_proof_u64_proof {
   uchar t_x_blinding[ 32 ]; // scalar
   uchar e_blinding  [ 32 ]; // scalar
   uchar ipp_proof  [ 448 ];
-} fd_zktpp_range_proof_u64_proof_t;
+};
+typedef struct fd_zktpp_range_proof_u64_proof fd_zktpp_range_proof_u64_proof_t;
 
-typedef struct fd_zktpp_range_proof_u128_proof {
+struct __attribute__((packed)) fd_zktpp_range_proof_u128_proof {
   uchar a           [ 32 ]; // point
   uchar s           [ 32 ]; // point
   uchar t1          [ 32 ]; // point
@@ -23,9 +24,10 @@ typedef struct fd_zktpp_range_proof_u128_proof {
   uchar t_x_blinding[ 32 ]; // scalar
   uchar e_blinding  [ 32 ]; // scalar
   uchar ipp_proof  [ 512 ];
-} fd_zktpp_range_proof_u128_proof_t;
+};
+typedef struct fd_zktpp_range_proof_u128_proof fd_zktpp_range_proof_u128_proof_t;
 
-typedef struct fd_zktpp_range_proof_u256_proof {
+struct __attribute__((packed)) fd_zktpp_range_proof_u256_proof {
   uchar a           [ 32 ]; // point
   uchar s           [ 32 ]; // point
   uchar t1          [ 32 ]; // point
@@ -34,17 +36,20 @@ typedef struct fd_zktpp_range_proof_u256_proof {
   uchar t_x_blinding[ 32 ]; // scalar
   uchar e_blinding  [ 32 ]; // scalar
   uchar ipp_proof  [ 576 ];
-} fd_zktpp_range_proof_u256_proof_t;
+};
+typedef struct fd_zktpp_range_proof_u256_proof fd_zktpp_range_proof_u256_proof_t;
 
 #define FD_ZKTPP_MAX_COMMITMENTS 8
-typedef struct fd_zktpp_batched_range_proof_context {
+struct __attribute__((packed)) fd_zktpp_batched_range_proof_context {
   uchar commitments[ FD_ZKTPP_MAX_COMMITMENTS * 32 ]; // points
   uchar bit_lengths[ FD_ZKTPP_MAX_COMMITMENTS ];
-} fd_zktpp_batched_range_proof_context_t;
+};
+typedef struct fd_zktpp_batched_range_proof_context fd_zktpp_batched_range_proof_context_t;
 
-typedef struct fd_zktpp_single_range_proof_context {
+struct __attribute__((packed)) fd_zktpp_single_range_proof_context {
   uchar commitment[ 32 ]; // point
-} fd_zktpp_single_range_proof_context_t;
+};
+typedef struct fd_zktpp_single_range_proof_context fd_zktpp_single_range_proof_context_t;
 
 int
 fd_zktpp_verify_proof_range_u64(

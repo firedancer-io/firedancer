@@ -13,7 +13,7 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_zktpp_pubkey_validity_proof_t const * proof,
   uchar const                              pubkey         [ static 32 ],
   fd_zktpp_transcript_t *                  transcript ) {
-
+  FD_LOG_DEBUG(( "fd_zktpp_verify_proof_pubkey_validity" ));
   /*
     We need to verify the following equivalence:
         z H =?= c P + Y

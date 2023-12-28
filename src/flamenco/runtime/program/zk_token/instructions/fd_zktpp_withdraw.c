@@ -18,6 +18,8 @@ fd_zktpp_instr_verify_proof_withdraw( void const * _context, void const * _proof
   withdraw_transcript_init( transcript, context );
   fd_zktpp_transcript_append_commitment( transcript, FD_TRANSCRIPT_LITERAL("commitment"), proof->commitment );
 
+  FD_LOG_DEBUG(( "fd_zktpp_instr_verify_proof_withdraw" ));
+
   zkp_res = fd_zktpp_verify_proof_ciphertext_commitment_equality(
     &proof->equality_proof,
     context->pubkey,

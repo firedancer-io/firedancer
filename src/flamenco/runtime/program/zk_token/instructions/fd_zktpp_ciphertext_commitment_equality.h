@@ -3,20 +3,22 @@
 
 #include "../../../../fd_flamenco_base.h"
 
-typedef struct fd_zktpp_ciph_comm_eq_proof {
+struct __attribute__((packed)) fd_zktpp_ciph_comm_eq_proof {
   uchar y0[ 32 ]; // point
   uchar y1[ 32 ]; // point
   uchar y2[ 32 ]; // point
   uchar zs[ 32 ]; // scalar
   uchar zx[ 32 ]; // scalar
   uchar zr[ 32 ]; // scalar
-} fd_zktpp_ciph_comm_eq_proof_t;
+};
+typedef struct fd_zktpp_ciph_comm_eq_proof fd_zktpp_ciph_comm_eq_proof_t;
 
-typedef struct fd_zktpp_ciph_comm_eq_context {
+struct __attribute__((packed)) fd_zktpp_ciph_comm_eq_context {
   uchar pubkey[ 32 ];     // point
   uchar ciphertext[ 64 ]; // 2x points
   uchar commitment[ 32 ]; // point
-} fd_zktpp_ciph_comm_eq_context_t;
+};
+typedef struct fd_zktpp_ciph_comm_eq_context fd_zktpp_ciph_comm_eq_context_t;
 
 int
 fd_zktpp_verify_proof_ciphertext_commitment_equality(

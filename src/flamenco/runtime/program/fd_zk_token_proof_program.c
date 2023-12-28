@@ -8,6 +8,8 @@ fd_executor_zk_token_proof_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   uchar const * instr_data    = ctx.instr->data;
   ulong         instr_data_sz = ctx.instr->data_sz;
 
+  FD_LOG_DEBUG(( "fd_executor_zk_token_proof_program_execute_instruction" ));
+
   if( FD_UNLIKELY( instr_data_sz<1UL ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 

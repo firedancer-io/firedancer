@@ -17,7 +17,7 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   uchar const                           source_ciphertext     [ static 64 ],
   uchar const                           destination_commitment[ static 32 ],
   fd_zktpp_transcript_t *               transcript ) {
-
+  FD_LOG_DEBUG(( "fd_zktpp_verify_proof_ciphertext_commitment_equality" ));
   /*
     We need to verify the 3 following equivalences.
     Instead of verifying them one by one, it's more efficient to pack
