@@ -126,13 +126,14 @@ struct fd_blockstore_block {
   long  ts;         /* timestamp in nanosecs */
   ulong data_gaddr; /* ptr to the beginning of the block's allocated data region */
   ulong sz;         /* block size */
+  ulong time;       /* UNIX timestamp of block */
+  ulong height;     /* block height */
 };
 typedef struct fd_blockstore_block fd_blockstore_block_t;
 
 struct fd_blockstore_block_map {
   ulong                 slot;
   uint                  hash; /* internal hash used by `fd_map.c`, _not_ the blockhash */
-  ulong                 next; /* internal next pointer used by `fd_map_chain.c` */
   fd_blockstore_block_t block;
 };
 typedef struct fd_blockstore_block_map fd_blockstore_block_map_t;
@@ -302,6 +303,10 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
  * error info. */
 fd_blockstore_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
+
+/* Get the blockhash for a given slot */
+uchar const *
+fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot );
 
 /* Query blockstore for slot_meta at slot. Returns a pointer to the slot_meta or NULL if not in
  * blockstore. The returned pointer lifetime is until the slot meta is removed. Check return value

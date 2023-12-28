@@ -16,6 +16,15 @@
       --incremental-snapshot incremental-snapshot-24* \
       --log-level-logfile 0 \
       --log-level-stderr 0
+
+      More sample commands:
+
+      rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
+
+      build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental incremental-snapshot-24* --rocksdb /data/testnet/ledger/rocksdb --txnstatus true --pages 100 --backup /data/asiegel/test_backup --slothistory 100
+
+      build/native/gcc/unit-test/test_tvu --peer_addr :8000 --repair-peer-identity F7SW17yGN7UUPQ519nxaDt26UMtvwJPSFVu9kBMBQpW --load /data/asiegel/test_backup --repair-peer-addr :8008 --rpc-port 8123
+
 */
 
 #define _GNU_SOURCE /* See feature_test_macros(7) */
@@ -622,7 +631,7 @@ main( int argc, char ** argv ) {
   /* Wksp                                                               */
   /**********************************************************************/
 
-  ulong  page_cnt = 128;
+  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",

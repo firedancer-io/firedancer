@@ -391,6 +391,8 @@ main( int     argc,
     }
 
     if( rocksdb_dir ) {
+      if ( end_slot >= slot_ctx->slot_bank.slot + slot_history_max )
+        end_slot = slot_ctx->slot_bank.slot + slot_history_max - 1;
       ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0) );
 
       fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->slot_bank.slot );

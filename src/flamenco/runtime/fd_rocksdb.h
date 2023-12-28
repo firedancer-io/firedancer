@@ -8,7 +8,7 @@
 #include "../../ballet/block/fd_microblock.h"
 #include <rocksdb/c.h>
 
-#define FD_ROCKSDB_CF_CNT (6UL)
+#define FD_ROCKSDB_CF_CNT (8UL)
 
 #define FD_ROCKSDB_CFIDX_DEFAULT     (0UL)
 #define FD_ROCKSDB_CFIDX_META        (1UL)
@@ -16,6 +16,8 @@
 #define FD_ROCKSDB_CFIDX_DATA_SHRED  (3UL)
 #define FD_ROCKSDB_CFIDX_BANK_HASHES (4UL)
 #define FD_ROCKSDB_CFIDX_TXN_STATUS  (5UL)
+#define FD_ROCKSDB_CFIDX_BLOCK_TIME  (6UL)
+#define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT (7UL)
 
 /* Solana rocksdb client */
 struct fd_rocksdb {
@@ -132,22 +134,6 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
                      ulong            slot,
                      fd_slot_meta_t * m,
                      fd_valloc_t      valloc );
-
-void *
-fd_rocksdb_get_block( fd_rocksdb_t *   db,
-                      fd_slot_meta_t * m,
-                      fd_valloc_t      valloc,
-                      ulong *          result_sz );
-
-/* fd_rocksdb_get_bank_hash looks up the bank hash for the given slot.
-   Writes the hash to out on success and returns out.  On failure, the
-   content of out is undefined and NULL is returned.  Reasons for
-   failure are written to log. */
-
-void *
-fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
-                          ulong          slot,
-                          void *         out );
 
 /* fd_rocksdb_get_txn_status_raw queries transaction status metadata.
    slot is the slot number of the block that contains the txn.  sig

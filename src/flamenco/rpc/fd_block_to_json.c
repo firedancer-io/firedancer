@@ -8,6 +8,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../types/fd_types.h"
 #include "../types/fd_solana_block.pb.h"
+#include "../runtime/fd_blockstore.h"
 #include "fd_block_to_json.h"
 
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
@@ -153,7 +154,10 @@ int fd_txn_to_json( fd_textstream_t * ts,
       FD_LOG_ERR(( "failed to decode txn status: %s", PB_GET_ERROR( &stream ) ));
     }
 
-    EMIT_SIMPLE("\"meta\":{\"err\":");
+    EMIT_SIMPLE("\"meta\":{");
+    if (txn_status.has_compute_units_consumed)
+      fd_textstream_sprintf(ts, "\"computeUnitsConsumed\":%lu,", txn_status.compute_units_consumed);
+    EMIT_SIMPLE("\"err\":");
     if (txn_status.has_err)
       fd_error_to_json(ts, txn_status.err.err->bytes, txn_status.err.err->size);
     else
@@ -235,7 +239,7 @@ int fd_txn_to_json( fd_textstream_t * ts,
     EMIT_SIMPLE("],\"data\":\"");
     fd_textstream_encode_base58(ts, raw + instr->data_off, instr->data_sz);
 
-    fd_textstream_sprintf(ts, "\",\"programIdIndex\": %u}", (uint)instr->program_id);
+    fd_textstream_sprintf(ts, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
   }
 
   const fd_hash_t * recent = (const fd_hash_t *)(raw + txn->recent_blockhash_off);
@@ -262,20 +266,40 @@ int fd_txn_to_json( fd_textstream_t * ts,
 
 int fd_block_to_json( fd_textstream_t * ts,
                       long call_id,
-                      const void* block,
-                      ulong block_sz,
-                      const void* stat_block,
-                      ulong stat_block_sz,
+                      fd_blockstore_t * blks,
+                      ulong slot,
                       enum fd_block_encoding encoding,
                       long maxvers,
                       enum fd_block_detail detail,
-                      int rewards ) {
+                      int rewards) {
+  fd_blockstore_block_t * blk = fd_blockstore_block_query(blks, slot);
+  if (blk == NULL) {
+    return -1;
+  }
+
+  fd_slot_meta_t * meta = fd_blockstore_slot_meta_query(blks, slot);
+
+  uchar const * block = fd_blockstore_block_data_laddr(blks, blk);
+  ulong block_sz = blk->sz;
+  
   FD_LOG_DEBUG(("converting ptr 0x%lx, sz %lu", block, block_sz));
   
-  (void)stat_block;
-  (void)stat_block_sz;
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
+  if ( meta ) {
+    fd_textstream_sprintf(ts, "\"blockHeight\":%lu,\"blockTime\":%lu,\"blockhash\":\"",
+                          blk->height, blk->time);
+    uchar const * hash = fd_blockstore_block_query_hash( blks, slot );
+    if (hash)
+      fd_textstream_encode_base58(ts, hash, FD_SHA256_HASH_SZ);
+    fd_textstream_sprintf(ts, "\",\"parentSlot\":%lu,\"previousBlockhash\":\"",
+                          meta->parent_slot);
+    hash = fd_blockstore_block_query_hash( blks, meta->parent_slot );
+    if (hash)
+      fd_textstream_encode_base58(ts, hash, FD_SHA256_HASH_SZ);
+    fd_textstream_sprintf(ts, "\",");
+  }
+    
   EMIT_SIMPLE("\"transactions\":[");
 
   int first_txn = 1;

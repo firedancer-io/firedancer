@@ -18,6 +18,8 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_DATA_SHRED  ] = "data_shred";
   db->cfgs[ FD_ROCKSDB_CFIDX_BANK_HASHES ] = "bank_hashes";
   db->cfgs[ FD_ROCKSDB_CFIDX_TXN_STATUS  ] = "transaction_status";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_TIME  ] = "blocktime";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT ] = "block_height";
 
   rocksdb_options_t const * cf_options[ FD_ROCKSDB_CF_CNT ];
   for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ )
@@ -136,92 +138,6 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
 }
 
 void *
-fd_rocksdb_get_block( fd_rocksdb_t *   db,
-                      fd_slot_meta_t * m,
-                      fd_valloc_t      valloc,
-                      ulong *          result_sz ) { FD_LOG_DEBUG(("getting block"));
-  ulong slot = m->slot;
-  ulong start_idx = 0;
-  ulong end_idx = m->received;
-
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[3]);
-
-  char k[16];
-  *((ulong *) &k[0]) = fd_ulong_bswap(slot);
-  *((ulong *) &k[8]) = fd_ulong_bswap(start_idx);
-
-  rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
-
-  ulong bufsize = m->consumed * 1500;
-  void* buf = fd_valloc_malloc( valloc, 1UL, bufsize );
-  FD_LOG_DEBUG(("sz %lu", m->consumed));
-  FD_LOG_DEBUG(("sz %lu", m->consumed * 1500));
-  FD_LOG_DEBUG(("sz %lu", bufsize));
-  FD_LOG_DEBUG(("buf %p", buf));
-
-  fd_deshredder_t deshred = { 0 };
-  fd_deshredder_init(&deshred, buf, bufsize, NULL, 0);
-
-  for (ulong i = start_idx; i < end_idx; i++) {
-    ulong cur_slot, index;
-    uchar valid = rocksdb_iter_valid(iter);
-
-    if (valid) {
-      size_t klen = 0;
-      const char* key = rocksdb_iter_key(iter, &klen); // There is no need to free key
-      if (klen != 16)  // invalid key
-        continue;
-      cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
-      index = fd_ulong_bswap(*((ulong *) &key[8]));
-    }
-
-    if (!valid || cur_slot != slot) {
-      FD_LOG_WARNING(("missing shreds for slot %ld", slot));
-      rocksdb_iter_destroy(iter);
-      return NULL;
-    }
-
-    if (index != i) {
-      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
-      rocksdb_iter_destroy(iter);
-      return NULL;
-    }
-
-    size_t dlen = 0;
-    // Data was first copied from disk into memory to make it available to this API
-    const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
-    if (data == NULL) {
-      FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
-      rocksdb_iter_destroy(iter);
-      return NULL;
-    }
-
-    // This just correctly selects from inside the data pointer to the
-    // actual data without a memory copy
-    fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
-
-    fd_shred_t const * shred_list[1] = { shred };
-    deshred.shreds    = shred_list;
-    deshred.shred_cnt = 1U;
-
-    /* Copy o the buffer */
-    long written = fd_deshredder_next( &deshred );
-
-    if ( FD_UNLIKELY ( (written < 0) & (written != -FD_SHRED_EPIPE ) )  ) {
-      FD_LOG_ERR(("fd_deshredder_next returned %ld", written));
-    }
-
-    rocksdb_iter_next(iter);
-  }
-
-  rocksdb_iter_destroy(iter);
-
-  *result_sz = (ulong)((uchar*)deshred.buf - (uchar*)buf);
-  FD_LOG_DEBUG(("%p", buf));
-  return buf;
-}
-
-void *
 fd_rocksdb_root_iter_new     ( void * ptr ) {
   fd_memset(ptr, 0, sizeof(fd_rocksdb_root_iter_t));
   return ptr;
@@ -312,55 +228,6 @@ fd_rocksdb_root_iter_destroy ( fd_rocksdb_root_iter_t * self ) {
 }
 
 void *
-fd_rocksdb_get_bank_hash( fd_rocksdb_t * self,
-                          ulong          slot,
-                          void *         out ) {
-
-  ulong slot_be = fd_ulong_bswap( slot );
-
-  ulong  vallen;
-  char * err = NULL;
-  char * res = rocksdb_get_cf(
-      self->db,
-      self->ro,
-      self->cf_handles[ 4 ],
-      (char const *)&slot_be, sizeof(ulong),
-      &vallen,
-      &err );
-
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "rocksdb: %s", err ));
-    free( err );
-    return NULL;
-  }
-
-  fd_scratch_push();
-
-  void * retval = NULL;
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = res,
-    .dataend = res + vallen,
-    .valloc  = fd_scratch_virtual(),
-  };
-  fd_frozen_hash_versioned_t versioned;
-  int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
-  if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) goto cleanup;
-  if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
-  if( FD_UNLIKELY( versioned.discriminant
-      !=fd_frozen_hash_versioned_enum_current     ) ) goto cleanup;
-
-  /* Success */
-  memcpy( out, versioned.inner.current.frozen_hash.hash, 32UL );
-  retval = out;
-
-cleanup:
-  free( res );
-  fd_scratch_pop();
-  return retval;
-}
-
-void *
 fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
                                ulong          slot,
                                void const *   sig,
@@ -402,7 +269,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
   rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[3]);
 
   char k[16];
-  *((ulong *) &k[0]) = fd_ulong_bswap(slot);
+  ulong slot_be = *((ulong *) &k[0]) = fd_ulong_bswap(slot);
   *((ulong *) &k[8]) = fd_ulong_bswap(start_idx);
 
   rocksdb_iter_seek(iter, (const char *) k, sizeof(k));
@@ -460,12 +327,49 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
 
   rocksdb_iter_destroy(iter);
 
+  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
+  fd_blockstore_block_map_t * block_entry = fd_blockstore_block_map_query( block_map, slot, NULL );
+  if( FD_LIKELY( block_entry ) ) {
+    size_t vallen = 0;
+    char * err = NULL;
+    char * res = rocksdb_get_cf(
+      db->db,
+      db->ro,
+      db->cf_handles[ FD_ROCKSDB_CFIDX_BLOCK_TIME ],
+      (char const *)&slot_be, sizeof(ulong),
+      &vallen,
+      &err );
+    block_entry->block.time = 0;
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "rocksdb: %s", err ));
+      free( err );
+    } else if(vallen == sizeof(ulong)) {
+      block_entry->block.time = *(ulong*)res;
+      free(res);
+    }
+    vallen = 0;
+    err = NULL;
+    res = rocksdb_get_cf(
+      db->db,
+      db->ro,
+      db->cf_handles[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT ],
+      (char const *)&slot_be, sizeof(ulong),
+      &vallen,
+      &err );
+    block_entry->block.height = 0;
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "rocksdb: %s", err ));
+      free( err );
+    } else if(vallen == sizeof(ulong)) {
+      block_entry->block.height = *(ulong*)res;
+      free(res);
+    }
+  }
+    
   if( txnstatus ) {
-    fd_wksp_t * wksp = fd_wksp_containing( blockstore );
     fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
-    fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
     fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
-    fd_blockstore_block_map_t * block_entry = fd_blockstore_block_map_query( block_map, slot, NULL );
     if( FD_LIKELY( block_entry ) ) {
       uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
       fd_blockstore_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );

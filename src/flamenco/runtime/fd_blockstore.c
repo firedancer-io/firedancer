@@ -797,6 +797,19 @@ fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
   return &query->block;
 }
 
+/* Get the blockhash for a given slot */
+uchar const *
+fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
+  fd_blockstore_block_map_t * map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
+  fd_blockstore_block_map_t * query = fd_blockstore_block_map_query( map, slot, NULL );
+  if( FD_UNLIKELY( !query ) ) return NULL;
+  fd_blockstore_micro_t * micros = fd_wksp_laddr_fast( wksp, query->block.micros_gaddr );
+  uchar * data = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
+  fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[query->block.micros_cnt - 1].off );
+  return last_micro->hash;
+}
+
 fd_slot_meta_t *
 fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot ) {
   fd_blockstore_slot_meta_map_t * query = fd_blockstore_slot_meta_map_query(

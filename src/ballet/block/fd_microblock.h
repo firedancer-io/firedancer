@@ -8,14 +8,10 @@ struct __attribute__((packed)) fd_microblock_hdr {
   /* Number of PoH hashes between this and last microblock */
   /* 0x00 */ ulong hash_cnt;
 
-  /* PoH state after evaluating parent microblock (including previous
-     appends and mixin).
-
-     For the first microblock within the slot, this is equal to the
-     parent block hash, i.e. the PoH state after evaluating the last
-     microblock or the parent block.  Otherwise, this is the PoH state
-     after evaluating the immediate predecessor microblock within the
-     same slot. */
+  /* PoH state after evaluating this microblock (including all
+     appends and mixin). The input to the poh calculation of the first
+     microblock is the last hash of the parent block, otherwise it is the
+     hash of the previous microblock. */
   /* 0x08 */ uchar hash[ FD_SHA256_HASH_SZ ];
 
   /* Number of transactions in this microblock */

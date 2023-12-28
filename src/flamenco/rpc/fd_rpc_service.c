@@ -22,6 +22,7 @@
 #include "../types/fd_solana_block.pb.h"
 #include "../runtime/fd_runtime.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../runtime/fd_blockstore.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
@@ -290,14 +291,12 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   ulong rewards_sz = 0;
   const void* rewards = json_get_value(values, PATH_REWARDS, 4, &rewards_sz);
 
-  fd_blockstore_block_t * blk = fd_blockstore_block_query(ctx->blks, slotn);
-  if (blk == NULL) {
-    fd_web_replier_error(replier, "failed to load block for slot %lu", slotn);
-    return 0;
-  }
-
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  if (fd_block_to_json(ts, ctx->call_id, fd_blockstore_block_data_laddr(ctx->blks, blk), blk->sz, NULL, 0, enc,
+  if (fd_block_to_json(ts,
+                       ctx->call_id,
+                       ctx->blks,
+                       slotn,
+                       enc,
                        (maxvers == NULL ? 0 : *(const long*)maxvers),
                        det,
                        (rewards == NULL ? 1 : *(const int*)rewards))) {
