@@ -234,7 +234,9 @@ fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   // We need to find the correct logic
   if (slot_ctx->epoch_ctx->epoch_bank.eah_start_slot != ULONG_MAX)
     return 0;
-  return !fd_should_include_epoch_accounts_hash( slot_ctx );
+  if (slot_ctx->epoch_ctx->epoch_bank.eah_stop_slot == ULONG_MAX)
+    return 0;
+  return 1;
 }
 
 // slot_ctx should be const.
