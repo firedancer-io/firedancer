@@ -148,16 +148,6 @@ replay( global_state_t * state,
 
   fd_features_restore( state->slot_ctx );
 
-  if ( justverify == 2) {
-    fd_hash_t accounts_hash;
-    fd_accounts_hash(state->slot_ctx, &accounts_hash);
-    FD_LOG_WARNING(("accounts_hash %32J", accounts_hash.hash));
-
-    fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
-    fd_wksp_free_laddr( fmem                      );
-    return 0;
-  }
-
   if (state->blockstore->max < state->end_slot)
     state->end_slot = state->blockstore->max;
 

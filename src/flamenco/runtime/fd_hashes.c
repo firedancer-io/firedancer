@@ -454,7 +454,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
-      fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash);
+      fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL);
       slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
     }
   }
@@ -577,7 +577,7 @@ typedef struct accounts_hash accounts_hash_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn  ) {
   FD_LOG_DEBUG(("accounts_hash start"));
 
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
@@ -587,25 +587,32 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 
   // How many txns are we dealing with?
   ulong txn_cnt = 1;
-  fd_funk_txn_t * txn = slot_ctx->funk_txn;
-  while (NULL != txn) {
-    txn_cnt++;
-    txn = fd_funk_txn_parent( txn, txn_map );
-  }
+  fd_funk_txn_t ** txns = NULL;
 
-  fd_funk_txn_t ** txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
-  if ( FD_UNLIKELY(NULL == txns))
-    FD_LOG_ERR(("Out of scratch space?"));
+  if (NULL == child_txn) {
+    fd_funk_txn_t * txn = slot_ctx->funk_txn;
+    while (NULL != txn) {
+      txn_cnt++;
+      txn = fd_funk_txn_parent( txn, txn_map );
+    }
 
-  // Lay it flat to make it easier to walk backwards up the chain from
-  // the root
-  txn = slot_ctx->funk_txn;
-  ulong txn_idx = txn_cnt;
-  while (1) {
-    txns[--txn_idx] = txn;
-    if (NULL == txn)
-      break;
-    txn = fd_funk_txn_parent( txn, txn_map );
+    txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
+    if ( FD_UNLIKELY(NULL == txns))
+      FD_LOG_ERR(("Out of scratch space?"));
+
+    // Lay it flat to make it easier to walk backwards up the chain from
+    // the root
+    txn = slot_ctx->funk_txn;
+    ulong txn_idx = txn_cnt;
+    while (1) {
+      txns[--txn_idx] = txn;
+      if (NULL == txn)
+        break;
+      txn = fd_funk_txn_parent( txn, txn_map );
+    }
+  } else {
+    txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
+    txns[0] = child_txn;
   }
 
   // How many total records are we dealing with?
@@ -671,12 +678,12 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 }
 
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn ) {
   if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
     if (fd_should_snapshot_include_epoch_accounts_hash (slot_ctx)) {
       fd_sha256_t h;
       fd_hash_t hash;
-      fd_accounts_hash(slot_ctx, &hash);
+      fd_accounts_hash(slot_ctx, &hash, child_txn);
 
       fd_sha256_init( &h );
       fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -685,9 +692,9 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash ) {
 
       return 0;
     } else
-      return fd_accounts_hash(slot_ctx, accounts_hash);
+      return fd_accounts_hash(slot_ctx, accounts_hash, child_txn);
   } else
-    return fd_accounts_hash(slot_ctx, accounts_hash);
+    return fd_accounts_hash(slot_ctx, accounts_hash, child_txn);
 }
 
 

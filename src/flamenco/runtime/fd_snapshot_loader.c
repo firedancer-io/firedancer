@@ -196,7 +196,29 @@ SnapshotParser_moreData( void *        arg,
 void
 fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
   for (uint i = 0; snapshotfiles[i] != NULL; ++i) {
+    fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+    fd_funk_txn_xid_t xid;
+
     const char * snapshotfile = snapshotfiles[i];
+
+    size_t slen = strlen(snapshotfile);
+    const char *hptr = &snapshotfile[slen - 1];
+    while ((hptr >= snapshotfile) && (*hptr != '-'))
+      hptr--;
+    hptr++;
+    char hash[100];
+    size_t hlen = (size_t) ((&snapshotfile[slen - 1] - hptr) - 7);
+    memcpy(hash, hptr, hlen);
+    hash[hlen] = '\0';
+
+    fd_hash_t fhash;
+    fd_base58_decode_32( hash, fhash.uc);
+
+    FD_TEST(sizeof(xid) == sizeof(fhash));
+    memcpy(&xid, &fhash.ul[0], sizeof(xid));
+
+    fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
+    slot_ctx->funk_txn = child_txn;
 
     struct SnapshotParser parser;
     SnapshotParser_init(&parser, slot_ctx);
@@ -221,6 +243,37 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
       FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
 
     SnapshotParser_destroy(&parser);
+
+    // In order to calculate the snapshot hash, we need to know what features are active...
+    fd_features_restore( slot_ctx );
+    fd_calculate_epoch_accounts_hash_values( slot_ctx );
+
+    if (0 == i) {
+      fd_hash_t accounts_hash;
+      fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
+
+      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+        FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+      else
+        FD_LOG_WARNING(("snapshot accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+    } else if (1 == i) {
+      fd_hash_t accounts_hash;
+
+      if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation))
+        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
+      else
+        fd_snapshot_hash(slot_ctx, &accounts_hash, NULL);
+
+      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+        FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+      else
+        FD_LOG_WARNING(("incremental accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+    }
+
+    FD_LOG_WARNING(("txn_publish_start"));
+    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+    FD_LOG_WARNING(("txn_publish_stop"));
+    slot_ctx->funk_txn = parent_txn;
   }
 
   fd_hashes_load(slot_ctx);
@@ -243,12 +296,5 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
 
   fd_runtime_save_slot_bank( slot_ctx );
-
-  // In order to calculate the snapshot hash, we need to know what features are active...
-  fd_features_restore( slot_ctx );
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
-
-  fd_hash_t accounts_hash;
-  fd_snapshot_hash(slot_ctx, &accounts_hash);
-  FD_LOG_WARNING(("snapshot accounts_hash %32J", accounts_hash.hash));
+  fd_runtime_save_epoch_bank( slot_ctx );
 }

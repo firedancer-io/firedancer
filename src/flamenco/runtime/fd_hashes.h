@@ -72,12 +72,14 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_hash_t * accounts_hash );
+                  fd_hash_t * accounts_hash,
+                  fd_funk_txn_t * child_txn);
 
 /* Generate a non-incremental hash of the entire account database. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_hash_t * accounts_hash );
+                  fd_hash_t * accounts_hash,
+                  fd_funk_txn_t * child_txn );
 
 int
 fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx );
