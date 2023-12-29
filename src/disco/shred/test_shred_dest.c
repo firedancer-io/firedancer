@@ -4,12 +4,14 @@ FD_IMPORT_BINARY( t1_pubkey,           "src/disco/shred/fixtures/cluster_info_pu
 FD_IMPORT_BINARY( t1_dest_info,        "src/disco/shred/fixtures/cluster_info.bin"        );
 FD_IMPORT_BINARY( t1_broadcast_peers,  "src/disco/shred/fixtures/broadcast_peers.bin"     );
 FD_IMPORT_BINARY( t1_retransmit_peers, "src/disco/shred/fixtures/retransmit_peers.bin"    );
+FD_IMPORT_BINARY( testnet_dest_info,   "src/disco/shred/fixtures/testnet.bin"             );
 
-#define TEST_MAX_FOOTPRINT (1024UL*1024UL)
+#define TEST_MAX_FOOTPRINT (4UL*1024UL*1024UL)
 uchar _sd_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_SHRED_DEST_ALIGN)));
 uchar _l_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
-fd_stake_weight_t stakes[2048];
+#define TEST_MAX_VALIDATORS 10240
+fd_stake_weight_t stakes[ TEST_MAX_VALIDATORS ];
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_align );
 
 FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==56UL, dest_info_construction );
@@ -323,6 +325,62 @@ test_errors( void ) {
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( lsched ) );
 }
 
+static void
+test_performance( void ) {
+  ulong cnt = testnet_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
+  fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)testnet_dest_info;
+
+  fd_pubkey_t const * src_key = (fd_pubkey_t const *)(&info[18].pubkey);
+  FD_TEST( cnt                                        <= TEST_MAX_VALIDATORS );
+  FD_TEST( fd_shred_dest_footprint   ( cnt          ) <= TEST_MAX_FOOTPRINT  );
+  FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL ) <= TEST_MAX_FOOTPRINT  );
+
+  ulong staked = 0UL;
+  ulong total_stake = 0UL;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    stakes[i].key = info[i].pubkey;
+    stakes[i].stake = info[i].stake_lamports;
+    total_stake += info[i].stake_lamports;
+    staked += (info[i].stake_lamports>0UL);
+  }
+
+  long dt = -fd_log_wallclock();
+  fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );
+  fd_shred_dest_t    * sdest  = fd_shred_dest_join   ( fd_shred_dest_new   ( _sd_footprint, info, cnt, lsched, src_key ) );
+  dt += fd_log_wallclock();
+
+  ulong max_dest_cnt[ 16 ] = { 0UL };
+  fd_shred_t shred[ 16 ];
+  fd_shred_t const * shred_ptr[ 16 ];
+  fd_shred_dest_idx_t result[ 16*200 ];
+  for( ulong j=0UL; j<16UL; j++ ) {
+    shred_ptr[j] = shred+j;
+
+    shred[j].slot = 1UL;
+    shred[j].variant = j<8UL ? FD_SHRED_TYPE_MERKLE_DATA : FD_SHRED_TYPE_MERKLE_CODE;
+  }
+
+  dt = -fd_log_wallclock();
+#define TEST_CNT 1000000
+  for( ulong j=0UL; j<TEST_CNT; j++ ) {
+    shred[0].idx = (uint)j;
+    FD_TEST( fd_shred_dest_compute_children( sdest, shred_ptr, 1UL, result, 1UL, 200UL, 200UL, max_dest_cnt ) );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "Compute children (1 shred/batch): %.2f ns/shred", (double)dt / (double)TEST_CNT ));
+
+  dt = -fd_log_wallclock();
+#undef TEST_CNT
+#define TEST_CNT 10000
+  for( ulong j=0UL; j<TEST_CNT; j++ ) {
+    for( ulong k=0UL; k<16UL; k++ ) shred[k].idx = (uint)(j*16UL+k);
+    FD_TEST( fd_shred_dest_compute_children( sdest, shred_ptr, 16UL, result, 16UL, 200UL, 200UL, max_dest_cnt ) );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "Compute children (16 shred/batch): %.2f ns/shred", (double)dt / (double)(16UL*TEST_CNT) ));
+#undef TEST_CNT
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -340,7 +398,10 @@ main( int     argc,
   test_t1_vary_radix();
   FD_LOG_NOTICE(( "Testing batching" ));
   test_batching();
+  FD_LOG_NOTICE(( "Testing contact change" ));
   test_change_contact();
+  FD_LOG_NOTICE(( "Testing performance" ));
+  test_performance();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
