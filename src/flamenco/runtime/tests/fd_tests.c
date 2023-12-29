@@ -108,6 +108,19 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     FD_LOG_ERR(( "failed to allocate a funky" ));
   }
 
+  shmem = fd_wksp_alloc_laddr(
+    suite->wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+  if( shmem == NULL )
+    FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+  ulong tmp_shred_max = 1UL << 15;
+  int   lg_txn_max    = 10;
+  ulong slot_history_max = 10;
+  suite->blockstore      = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
+  if( suite->blockstore == NULL ) {
+    fd_wksp_free_laddr( shmem );
+    FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+  }
+  
   /* Create scratch allocator */
 
   ulong  smax = scratch_mb << 20;
@@ -229,7 +242,7 @@ int fd_executor_run_test(
   }
 
   fd_acc_mgr_t _acc_mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, suite->funk );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, suite->funk, suite->blockstore );
 
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;

@@ -716,6 +716,47 @@ main( int argc, char ** argv ) {
   }
 
   /**********************************************************************/
+  /* Blockstore                                                         */
+  /**********************************************************************/
+
+  char const * blockstore_wksp_name =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
+
+  fd_wksp_t * blockstore_wksp = NULL;
+  if( blockstore_wksp == NULL ) {
+    blockstore_wksp = wksp;
+  } else {
+    blockstore_wksp = fd_wksp_attach( blockstore_wksp_name );
+  }
+  FD_TEST( blockstore_wksp );
+
+  fd_blockstore_t *        blockstore = NULL;
+  fd_wksp_tag_query_info_t blockstore_info;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( blockstore_wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( blockstore_wksp, blockstore_info.gaddr_lo );
+    blockstore   = fd_blockstore_join( shmem );
+    if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstorey" ) );
+  } else {
+    void * shmem = fd_wksp_alloc_laddr(
+        blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
+
+    // Sensible defaults for an anon blockstore:
+    // - 1mb of shreds
+    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
+    // - 1mb of txns
+    ulong tmp_shred_max = 1UL << 20;
+    int   lg_txn_max    = 20;
+    ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
+    blockstore          = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
+    if( blockstore == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
+    }
+  }
+
+  /**********************************************************************/
   /* slot_ctx                                                           */
   /**********************************************************************/
 
@@ -733,7 +774,7 @@ main( int argc, char ** argv ) {
   slot_ctx->valloc  = valloc;
 
   fd_acc_mgr_t _acc_mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk, blockstore );
 
   /**********************************************************************/
   /* snapshots                                                          */
@@ -827,47 +868,6 @@ main( int argc, char ** argv ) {
   fd_features_restore( slot_ctx );
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
-
-  /**********************************************************************/
-  /* Blockstore                                                         */
-  /**********************************************************************/
-
-  char const * blockstore_wksp_name =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
-
-  fd_wksp_t * blockstore_wksp = NULL;
-  if( blockstore_wksp == NULL ) {
-    blockstore_wksp = wksp;
-  } else {
-    blockstore_wksp = fd_wksp_attach( blockstore_wksp_name );
-  }
-  FD_TEST( blockstore_wksp );
-
-  fd_blockstore_t *        blockstore = NULL;
-  fd_wksp_tag_query_info_t blockstore_info;
-  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  if( fd_wksp_tag_query( blockstore_wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( blockstore_wksp, blockstore_info.gaddr_lo );
-    blockstore   = fd_blockstore_join( shmem );
-    if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstorey" ) );
-  } else {
-    void * shmem = fd_wksp_alloc_laddr(
-        blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
-    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
-
-    // Sensible defaults for an anon blockstore:
-    // - 1mb of shreds
-    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
-    // - 1mb of txns
-    ulong tmp_shred_max = 1UL << 20;
-    int   lg_txn_max    = 20;
-    ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
-    blockstore          = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
-    if( blockstore == NULL ) {
-      fd_wksp_free_laddr( shmem );
-      FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
-    }
-  }
 
   if( FD_UNLIKELY( snapshot_slot != 0 ) ) {
     blockstore->root = snapshot_slot;

@@ -6,8 +6,9 @@
 #include <stdio.h>
 
 fd_acc_mgr_t *
-fd_acc_mgr_new( void *      mem,
-                fd_funk_t * funk ) {
+fd_acc_mgr_new( void *            mem,
+                fd_funk_t *       funk,
+                fd_blockstore_t * blockstore ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -17,6 +18,7 @@ fd_acc_mgr_new( void *      mem,
 
   fd_acc_mgr_t * acc_mgr = (fd_acc_mgr_t*)mem;
   acc_mgr->funk = funk;
+  acc_mgr->blockstore = blockstore;
   return (fd_acc_mgr_t *)mem;
 }
 

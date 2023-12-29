@@ -601,7 +601,7 @@ fd_txntrace_replay( fd_soltrace_TxnDiff *        out,
   FD_TEST( capture_ctx );
 
   fd_acc_mgr_t _acc_mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk, NULL );
 
   slot_ctx->valloc   = fd_scratch_virtual();
   slot_ctx->funk_txn = funk_txn;

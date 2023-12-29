@@ -83,7 +83,6 @@ struct global_state {
   fd_exec_slot_ctx_t *   slot_ctx;
   fd_exec_epoch_ctx_t *  epoch_ctx;
   fd_capture_ctx_t *     capture_ctx;
-  fd_blockstore_t *      blockstore;
 
   int                    argc;
   char       **          argv;
@@ -148,12 +147,14 @@ replay( global_state_t * state,
 
   fd_features_restore( state->slot_ctx );
 
-  if (state->blockstore->max < state->end_slot)
-    state->end_slot = state->blockstore->max;
+  if (state->slot_ctx->acc_mgr->blockstore->max < state->end_slot)
+    state->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
 
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
   fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
+
+  fd_blockstore_t * blockstore = state->slot_ctx->acc_mgr->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
   for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
@@ -162,12 +163,12 @@ replay( global_state_t * state,
 
     FD_LOG_DEBUG(("reading slot %ld", slot));
 
-    fd_blockstore_block_t * blk = fd_blockstore_block_query(state->blockstore, slot);
+    fd_blockstore_block_t * blk = fd_blockstore_block_query(blockstore, slot);
     if (blk == NULL) {
       FD_LOG_WARNING(("failed to read slot %ld", slot));
       continue;
     }
-    uchar * val = fd_blockstore_block_data_laddr(state->blockstore, blk);
+    uchar * val = fd_blockstore_block_data_laddr(blockstore, blk);
     ulong sz = blk->sz;
 
     if ( justverify ) {
@@ -225,16 +226,6 @@ main( int     argc,
 
   global_state_t state;
   fd_memset(&state, 0, sizeof(state));
-
-  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
-  state.epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-
-  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  state.slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
-  state.slot_ctx->epoch_ctx = state.epoch_ctx;
-
-  fd_acc_mgr_t _acc_mgr[1];
-  state.slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, NULL );
 
   state.argc = argc;
   state.argv = argv;
@@ -315,11 +306,12 @@ main( int     argc,
 
   void* shmem;
   fd_wksp_tag_query_info_t info;
+  fd_funk_t * funk;
   ulong tag = FD_FUNK_MAGIC;
   if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
     shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
-    state.slot_ctx->acc_mgr->funk = fd_funk_join(shmem);
-    if (state.slot_ctx->acc_mgr->funk == NULL)
+    funk = fd_funk_join(shmem);
+    if (funk == NULL)
       FD_LOG_ERR(( "failed to join a funky" ));
   } else {
     shmem = fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
@@ -330,18 +322,19 @@ main( int     argc,
       index_max = (ulong) atoi((char *) index_max_opt);
     ulong xactions_max = 100;     // Maximum size (count) of transaction index
     FD_LOG_NOTICE(("creating new funk db, index_max=%lu xactions_max=%lu", index_max, xactions_max));
-    state.slot_ctx->acc_mgr->funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
-    if (state.slot_ctx->acc_mgr->funk == NULL) {
+    funk = fd_funk_join(fd_funk_new(shmem, 1, hashseed, xactions_max, index_max));
+    if (funk == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a funky" ));
     }
   }
 
+  fd_blockstore_t * blockstore;
   tag = FD_BLOCKSTORE_MAGIC;
   if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
     shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
-    state.blockstore = fd_blockstore_join(shmem);
-    if (state.blockstore == NULL)
+    blockstore = fd_blockstore_join(shmem);
+    if (blockstore == NULL)
       FD_LOG_ERR(( "failed to join a blockstore" ));
   } else {
     shmem = fd_wksp_alloc_laddr( funk_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
@@ -350,20 +343,30 @@ main( int     argc,
     ulong tmp_shred_max = 1UL << 18;
     int   lg_txn_max    = 18;
     ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
-    state.blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
-    if (state.blockstore == NULL) {
+    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
+    if (blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
   }
 
+  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN)));
+  state.epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+
+  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
+  state.slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  state.slot_ctx->epoch_ctx = state.epoch_ctx;
+
+  fd_acc_mgr_t _acc_mgr[1];
+  state.slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk, blockstore );
+
   if ((validate_db != NULL) && (strcmp(validate_db, "true") == 0)) {
     FD_LOG_WARNING(("starting validate"));
-    if ( fd_funk_verify(state.slot_ctx->acc_mgr->funk) != FD_FUNK_SUCCESS )
+    if ( fd_funk_verify(funk) != FD_FUNK_SUCCESS )
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_INFO(("finishing validate"));
   }
-  ulong r = fd_funk_txn_cancel_all(state.slot_ctx->acc_mgr->funk, 1);
+  ulong r = fd_funk_txn_cancel_all(funk, 1);
   FD_LOG_WARNING(("Cancelled old transactions %lu", r));
   void * alloc_shmem = fd_wksp_alloc_laddr( local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) {

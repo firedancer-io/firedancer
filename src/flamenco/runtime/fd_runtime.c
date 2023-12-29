@@ -1967,6 +1967,11 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   FD_LOG_DEBUG(("slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.banks_hash.hash, slot_ctx->slot_bank.poh.hash));
   slot_ctx->slot_bank.block_height += 1UL;
 
+  // Update blockstore
+  fd_blockstore_set_height( slot_ctx->acc_mgr->blockstore,
+                            slot_ctx->slot_bank.slot,
+                            slot_ctx->slot_bank.block_height );
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 

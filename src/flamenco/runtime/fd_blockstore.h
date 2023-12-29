@@ -126,7 +126,6 @@ struct fd_blockstore_block {
   long  ts;         /* timestamp in nanosecs */
   ulong data_gaddr; /* ptr to the beginning of the block's allocated data region */
   ulong sz;         /* block size */
-  ulong time;       /* UNIX timestamp of block */
   ulong height;     /* block height */
 };
 typedef struct fd_blockstore_block fd_blockstore_block_t;
@@ -330,6 +329,12 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
 int
 fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot );
+
+/* Set the height for a block */
+void
+fd_blockstore_set_height( fd_blockstore_t * blockstore,
+                          ulong slot,
+                          ulong block_height );
 
 FD_PROTOTYPES_END
 

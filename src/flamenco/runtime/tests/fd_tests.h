@@ -65,6 +65,7 @@ typedef struct fd_executor_test fd_executor_test_t;
 struct fd_executor_test_suite {
   fd_wksp_t *    wksp;
   fd_funk_t *    funk;
+  fd_blockstore_t * blockstore;
   fd_valloc_t    valloc;
   regex_t        filter_ex;
   const char *   filter;

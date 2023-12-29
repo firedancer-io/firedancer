@@ -8,6 +8,7 @@
 #include "fd_hashes.h"
 #include "fd_borrowed_account.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "fd_blockstore.h"
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
@@ -25,6 +26,7 @@
 
 struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
   fd_funk_t * funk;
+  fd_blockstore_t * blockstore;
   ulong slots_per_epoch;
   ulong part_width;
   uchar skip_rent_rewrites;
@@ -39,8 +41,9 @@ FD_PROTOTYPES_BEGIN
    cast. */
 
 fd_acc_mgr_t *
-fd_acc_mgr_new( void *      mem,
-                fd_funk_t * funk );
+fd_acc_mgr_new( void *            mem,
+                fd_funk_t *       funk,
+                fd_blockstore_t * blockstore );
 
 /* fd_acc_mgr_key returns a fd_funk database key given a pubkey. */
 

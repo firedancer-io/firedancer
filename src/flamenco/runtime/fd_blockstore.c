@@ -641,6 +641,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   insert->block.micros_cnt   = 0;
   insert->block.txns_gaddr   = 0;
   insert->block.txns_cnt     = 0;
+  insert->block.height       = 0;
 
   // deshred the shreds into the block mem
   fd_deshredder_t    deshredder = { 0 };
@@ -861,4 +862,14 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
       fd_wksp_laddr_fast( fd_wksp_containing( blockstore ), blockstore->txn_map_gaddr ),
       key,
       NULL );
+}
+
+/* Set the height for a block */
+void
+fd_blockstore_set_height( fd_blockstore_t * blockstore,
+                          ulong slot,
+                          ulong block_height ) {
+  fd_blockstore_block_t * query = fd_blockstore_block_query( blockstore, slot );
+  if( query )
+    query->height = block_height;
 }

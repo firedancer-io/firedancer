@@ -247,7 +247,7 @@ main( int     argc,
   slot_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk, blockstore );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));

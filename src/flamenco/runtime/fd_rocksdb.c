@@ -340,12 +340,11 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
       (char const *)&slot_be, sizeof(ulong),
       &vallen,
       &err );
-    block_entry->block.time = 0;
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      block_entry->block.time = *(ulong*)res;
+      block_entry->block.ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
       free(res);
     }
     vallen = 0;
