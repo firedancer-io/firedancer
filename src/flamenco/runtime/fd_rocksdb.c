@@ -347,6 +347,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
       block_entry->block.ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
       free(res);
     }
+
     vallen = 0;
     err = NULL;
     res = rocksdb_get_cf(
@@ -363,6 +364,37 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     } else if(vallen == sizeof(ulong)) {
       block_entry->block.height = *(ulong*)res;
       free(res);
+    }
+
+    vallen = 0;
+    err = NULL;
+    res = rocksdb_get_cf(
+      db->db,
+      db->ro,
+      db->cf_handles[ FD_ROCKSDB_CFIDX_BANK_HASHES ],
+      (char const *)&slot_be, sizeof(ulong),
+      &vallen,
+      &err );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "rocksdb: %s", err ));
+      free( err );
+    } else {
+      fd_scratch_push();
+      fd_bincode_decode_ctx_t decode = {
+        .data    = res,
+        .dataend = res + vallen,
+        .valloc  = fd_scratch_virtual(),
+      };
+      fd_frozen_hash_versioned_t versioned;
+      int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
+      if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) goto cleanup;
+      if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
+      if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
+      /* Success */
+      fd_memcpy( block_entry->block.bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
+    cleanup:
+      free( res );
+      fd_scratch_pop();
     }
   }
     

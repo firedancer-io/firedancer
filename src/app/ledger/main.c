@@ -394,17 +394,6 @@ main( int     argc,
       if ( end_slot >= slot_ctx->slot_bank.slot + slot_history_max )
         end_slot = slot_ctx->slot_bank.slot + slot_history_max - 1;
       ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0) );
-
-      fd_hash_t const * known_bank_hash = fd_get_bank_hash( slot_ctx->acc_mgr->funk, slot_ctx->slot_bank.slot );
-
-      if( known_bank_hash ) {
-        if( FD_UNLIKELY( 0!=memcmp( slot_ctx->slot_bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
-          FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-              slot_ctx->slot_bank.slot,
-              known_bank_hash->hash,
-              slot_ctx->slot_bank.banks_hash.hash ));
-        }
-      }
     }
 
     /* Dump feature activation state */

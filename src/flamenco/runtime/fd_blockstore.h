@@ -127,6 +127,7 @@ struct fd_blockstore_block {
   ulong data_gaddr; /* ptr to the beginning of the block's allocated data region */
   ulong sz;         /* block size */
   ulong height;     /* block height */
+  fd_hash_t bank_hash;
 };
 typedef struct fd_blockstore_block fd_blockstore_block_t;
 
@@ -140,6 +141,8 @@ typedef struct fd_blockstore_block_map fd_blockstore_block_map_t;
 #define MAP_NAME fd_blockstore_block_map
 #define MAP_T    fd_blockstore_block_map_t
 #define MAP_KEY  slot
+#define MAP_KEY_NULL ULONG_MAX
+#define MAP_KEY_INVAL(k) (!(k ^ ULONG_MAX))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_blockstore_txn_key {
@@ -303,9 +306,13 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
 fd_blockstore_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Get the blockhash for a given slot */
+/* Get the final poh hash for a given slot */
 uchar const *
 fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot );
+
+/* Get the bank hash for a given slot */
+uchar const *
+fd_blockstore_block_query_bank_hash( fd_blockstore_t * blockstore, ulong slot );
 
 /* Query blockstore for slot_meta at slot. Returns a pointer to the slot_meta or NULL if not in
  * blockstore. The returned pointer lifetime is until the slot meta is removed. Check return value

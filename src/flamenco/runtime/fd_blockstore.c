@@ -642,6 +642,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   insert->block.txns_gaddr   = 0;
   insert->block.txns_cnt     = 0;
   insert->block.height       = 0;
+  fd_memset(insert->block.bank_hash.hash, 0, 32U);
 
   // deshred the shreds into the block mem
   fd_deshredder_t    deshredder = { 0 };
@@ -798,7 +799,7 @@ fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
   return &query->block;
 }
 
-/* Get the blockhash for a given slot */
+/* Get the final poh hash for a given slot */
 uchar const *
 fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
@@ -809,6 +810,16 @@ fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
   uchar * data = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
   fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[query->block.micros_cnt - 1].off );
   return last_micro->hash;
+}
+
+/* Get the bank hash for a given slot */
+uchar const *
+fd_blockstore_block_query_bank_hash( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
+  fd_blockstore_block_map_t * map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
+  fd_blockstore_block_map_t * query = fd_blockstore_block_map_query( map, slot, NULL );
+  if( FD_UNLIKELY( !query ) ) return NULL;
+  return query->block.bank_hash.hash;
 }
 
 fd_slot_meta_t *

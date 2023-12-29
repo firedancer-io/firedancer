@@ -467,22 +467,6 @@ int fd_account_is_signer_( fd_exec_instr_ctx_t const * ctx,
 //
 
 static inline
-fd_hash_t const *
-fd_get_bank_hash( fd_funk_t * funk,
-                  ulong       slot ) {
-  fd_funk_rec_key_t key = fd_runtime_bank_hash_key( slot );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, NULL, &key );
-  if( !rec ) {
-    FD_LOG_DEBUG(( "No known bank hash for slot %lu", slot ));
-    return NULL;
-  }
-
-  void const * val = fd_funk_val_const( rec, fd_funk_wksp( funk ));
-  FD_TEST( fd_funk_val_sz( rec ) == sizeof(fd_hash_t) );
-  return (fd_hash_t const *)val;
-}
-
-static inline
 int fd_account_set_executable( fd_exec_instr_ctx_t * ctx, 
                                fd_pubkey_t const * program_acc, fd_account_meta_t * metadata, char is_executable) {
   fd_rent_t rent;

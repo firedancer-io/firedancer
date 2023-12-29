@@ -183,18 +183,31 @@ replay( global_state_t * state,
     } else {
       FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
 
-      fd_hash_t const * known_bank_hash = fd_get_bank_hash( state->slot_ctx->acc_mgr->funk, slot );
-      if( known_bank_hash ) {
-        if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, known_bank_hash->hash, 32UL ) ) ) {
-          FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-              slot,
-              known_bank_hash->hash,
-              state->slot_ctx->slot_bank.banks_hash.hash ));
-          if( state->abort_on_mismatch ) {
-            // fd_solcap_writer_fini( state->capture_ctx->capture );
-            __asm__( "int $3" );
-            return 1;
-          }
+      uchar const * expected = fd_blockstore_block_query_hash( state->slot_ctx->acc_mgr->blockstore, slot );
+      if ( FD_UNLIKELY( !expected ) )
+        FD_LOG_ERR(("slot %lu is missing its hash", slot));
+      else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.poh.hash, expected, 32UL ) ) ) {
+        FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%32J, got=%32J",
+                         slot,
+                         expected,
+                         state->slot_ctx->slot_bank.poh.hash ));
+        if( state->abort_on_mismatch ) {
+          __asm__( "int $3" );
+          return 1;
+        }
+      }
+
+      expected = fd_blockstore_block_query_bank_hash( state->slot_ctx->acc_mgr->blockstore, slot );
+      if ( FD_UNLIKELY( !expected ) )
+        FD_LOG_ERR(("slot %lu is missing its bank hash", slot));
+      else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
+        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
+                         slot,
+                         expected,
+                         state->slot_ctx->slot_bank.banks_hash.hash ));
+        if( state->abort_on_mismatch ) {
+          __asm__( "int $3" );
+          return 1;
         }
       }
 
