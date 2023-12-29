@@ -2399,11 +2399,11 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   case fd_vote_instruction_enum_compact_update_vote_state_switch: {
     fd_compact_vote_state_update_t * vote_state_update = NULL;
     if( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::CompactUpdateVoteState instruction" ) );
+      FD_LOG_DEBUG( ( "executing VoteInstruction::CompactUpdateVoteState instruction" ) );
       vote_state_update = &instruction.inner.compact_update_vote_state;
     } else if( instruction.discriminant ==
                fd_vote_instruction_enum_compact_update_vote_state_switch ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::CompactUpdateVoteStateSwitch instruction" ) );
+      FD_LOG_DEBUG( ( "executing VoteInstruction::CompactUpdateVoteStateSwitch instruction" ) );
       vote_state_update =
           &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
     }

@@ -119,7 +119,8 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   err = fd_instr_borrowed_account_modify( &ctx, receiver, 0UL, &receiver_rec );
   if (FD_EXECUTOR_INSTR_SUCCESS != err)
     return err;
-  FD_LOG_DEBUG(("Transferring %32J -> %32J: %lu", sender->uc, receiver->uc, requested_lamports));
+  // FD_LOG_DEBUG(("Transferring %32J -> %32J: %lu", sender->uc, receiver->uc, requested_lamports));
+
   sender_rec->meta->info.lamports = sender_rec->meta->info.lamports - requested_lamports;
   receiver_rec->meta->info.lamports = res;
   sender_rec->meta->slot = ctx.slot_ctx->slot_bank.slot;
@@ -273,7 +274,6 @@ static int create_account(
   fd_pubkey_t*      owner = NULL;
   char*             seed = NULL;
 
-
   if (instruction->discriminant == fd_system_program_instruction_enum_create_account) {
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277
     fd_system_program_instruction_create_account_t* params = &instruction->inner.create_account;
@@ -345,7 +345,6 @@ static int create_account(
   to_rec->meta->info.lamports = lamports;
   to_rec->meta->dlen = space;
   to_rec->meta->info.executable = 0;
-  to_rec->meta->info.rent_epoch = 0;
   /* Initialize the account with all zeroed data and the correct owner */
   fd_memcpy( to_rec->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   memset( to_rec->data, 0, space );
@@ -392,7 +391,9 @@ static int assign(
   if( FD_UNLIKELY( read_result!=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
 
-  memcpy( rec->meta->info.owner, owner.key, sizeof(fd_pubkey_t) );
+  err = fd_account_set_owner( &ctx, rec->meta, keyed_account, &owner);
+  if (FD_ACC_MGR_SUCCESS != err)
+    return err;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

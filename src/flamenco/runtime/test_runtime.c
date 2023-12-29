@@ -154,6 +154,9 @@ replay( global_state_t * state,
 
   fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
 
+  long replay_time = -fd_log_wallclock();
+  ulong txn_cnt = 0;
+  ulong slot_cnt = 0;
   fd_blockstore_t * blockstore = state->slot_ctx->acc_mgr->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
@@ -175,13 +178,18 @@ replay( global_state_t * state,
       fd_block_info_t block_info;
       int ret = fd_runtime_block_prepare( val, sz, state->slot_ctx->valloc, &block_info );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
+      txn_cnt += block_info.txn_cnt;
 
       fd_hash_t poh_hash;
       fd_memcpy( poh_hash.hash, state->slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
       ret = fd_runtime_block_verify_tpool( &block_info, &poh_hash, &poh_hash, state->slot_ctx->valloc, tpool, max_workers );
       FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
+      slot_cnt++;
     } else {
-      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, tpool, max_workers ) == FD_RUNTIME_EXECUTE_SUCCESS );
+      ulong blk_txn_cnt = 0;
+      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, tpool, max_workers, &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+      txn_cnt += blk_txn_cnt;
+      slot_cnt++;
 
       uchar const * expected = fd_blockstore_block_query_hash( state->slot_ctx->acc_mgr->blockstore, slot );
       if ( FD_UNLIKELY( !expected ) )
@@ -222,6 +230,12 @@ replay( global_state_t * state,
 
     prev_slot = slot;
   }
+
+  replay_time += fd_log_wallclock();
+  double replay_time_s = (double)replay_time * 1e-9;
+  double tps = (double)txn_cnt / replay_time_s;
+  double sec_per_slot = replay_time_s/(double)slot_cnt;
+  FD_LOG_NOTICE(( "replay completed - slots: %lu, elapsed: %6.6f s, txns: %lu, tps: %6.6f, sec/slot: %6.6f", slot_cnt, replay_time_s, txn_cnt, tps, sec_per_slot ));
 
   // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
 
@@ -379,8 +393,8 @@ main( int     argc,
       FD_LOG_ERR(("valdation failed"));
     FD_LOG_INFO(("finishing validate"));
   }
-  ulong r = fd_funk_txn_cancel_all(funk, 1);
-  FD_LOG_WARNING(("Cancelled old transactions %lu", r));
+  ulong r = fd_funk_txn_cancel_all(state.slot_ctx->acc_mgr->funk, 1);
+  FD_LOG_INFO(( "Cancelled old transactions %lu", r ));
   void * alloc_shmem = fd_wksp_alloc_laddr( local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) {
     FD_LOG_ERR(( "fd_alloc too large for workspace" ));
@@ -437,9 +451,9 @@ main( int     argc,
   {
     FD_LOG_NOTICE(("reading epoch bank record"));
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global_const(state.slot_ctx->acc_mgr->funk, NULL, &id);
     if ( rec == NULL )
-      FD_LOG_ERR(("failed to read banks record"));
+      FD_LOG_ERR(("failed to read epoch banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
     fd_bincode_decode_ctx_t ctx2;
     ctx2.data = val;
@@ -453,7 +467,7 @@ main( int     argc,
   {
     FD_LOG_NOTICE(("reading slot bank record"));
     fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(state.slot_ctx->acc_mgr->funk, NULL, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global_const(state.slot_ctx->acc_mgr->funk, NULL, &id);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
@@ -481,6 +495,7 @@ main( int     argc,
       FD_LOG_ERR(("failed to create thread pool"));
     for ( ulong i = 1; i < tcnt; ++i ) {
       ulong  smax = 512 /*MiB*/ << 20;
+      // ulong  smax = 2048UL /*GiB*/ << 20UL;
       void * smem = fd_wksp_alloc_laddr( state.local_wksp, fd_scratch_smem_align(), smax, 1UL );
       if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
       if ( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )

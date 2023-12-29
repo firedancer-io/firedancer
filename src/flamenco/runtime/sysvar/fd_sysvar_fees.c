@@ -55,6 +55,7 @@ fd_sysvar_fees_new_derived(
     .min_lamports_per_signature = base_fee_rate_governor.min_lamports_per_signature,
     .burn_percent = base_fee_rate_governor.burn_percent
   };
+
   ulong lamports_per_signature = 0;
   if ( me.target_signatures_per_slot > 0 ) {
     me.min_lamports_per_signature = fd_ulong_max( 1UL, (ulong)(me.target_lamports_per_signature / 2) );
@@ -68,7 +69,7 @@ fd_sysvar_fees_new_derived(
         / me.target_signatures_per_slot
       )
     );
-    long gap = (long)desired_lamports_per_signature - (long)slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature;
+    long gap = (long)desired_lamports_per_signature - (long)slot_ctx->slot_bank.lamports_per_signature;
     if ( gap == 0 ) {
       lamports_per_signature = desired_lamports_per_signature;
     } else {
@@ -76,10 +77,10 @@ fd_sysvar_fees_new_derived(
         * (gap != 0)
         * (gap > 0 ? 1 : -1);
       lamports_per_signature = fd_ulong_min(
-        me.min_lamports_per_signature,
+        me.max_lamports_per_signature,
         fd_ulong_max(
           me.min_lamports_per_signature,
-          (ulong)((long) slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature + gap_adjust)
+          (ulong)((long) slot_ctx->slot_bank.lamports_per_signature + gap_adjust)
         )
       );
     }
@@ -89,9 +90,8 @@ fd_sysvar_fees_new_derived(
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
 
-  slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature = lamports_per_signature;
+  slot_ctx->slot_bank.lamports_per_signature = lamports_per_signature;
   fd_memcpy(&slot_ctx->slot_bank.fee_rate_governor, &me, sizeof(fd_fee_rate_governor_t));
-
 }
 
 void
@@ -101,7 +101,7 @@ fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sysvar_fees_t fees;
   fd_sysvar_fees_read( slot_ctx, &fees );
   /* todo: I need to the lamports_per_signature field */
-  fees.fee_calculator.lamports_per_signature = slot_ctx->epoch_ctx->epoch_bank.lamports_per_signature;
+  fees.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
   write_fees( slot_ctx, &fees );
 }
 

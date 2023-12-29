@@ -238,12 +238,9 @@ repair_deliver_fun( fd_shred_t const *                            shred,
     // dcache?
     // FD_TEST(
     // FIXME multi thread once it works
-    FD_TEST( fd_runtime_block_eval_tpool( repair_ctx->slot_ctx,
-                                          NULL,
-                                          fd_blockstore_block_data_laddr( blockstore, block ),
-                                          block->sz,
-                                          NULL,
-                                          1 ) == FD_RUNTIME_EXECUTE_SUCCESS );
+    ulong txn_cnt = 0;
+    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, fd_blockstore_block_data_laddr( blockstore, block ), block->sz, NULL, 1, &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS);
+    (void)txn_cnt;
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
                      slot_meta->slot,
@@ -816,7 +813,7 @@ main( int argc, char ** argv ) {
     snapshotfiles[0] = snapshot;
     snapshotfiles[1] = incremental;
     snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx );
+    fd_snapshot_load( snapshotfiles, slot_ctx, 1 );
 
   } else {
     {

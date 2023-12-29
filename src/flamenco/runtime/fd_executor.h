@@ -104,9 +104,14 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
 
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx, 
-                               fd_txn_t const * txn_descriptor,
-                               fd_rawtxn_b_t const * txn_raw );
+                               fd_exec_txn_ctx_t * txn_ctx );
+int
+fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx );
+
+int
+fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
@@ -143,13 +148,22 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
                         fd_rawtxn_b_t const * txn_raw );
 int
 fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx, 
-                               fd_txn_t const * txn_descriptor,
-                               fd_rawtxn_b_t const * txn_raw );
+                               fd_exec_txn_ctx_t * txn_ctx );
+
 int
 fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
                          fd_exec_txn_ctx_t * txn_ctx,
                          int exec_txn_err );
+
+void
+fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
+                              void const *        addr );
+
+int
+fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_borrowed_account_t const * rec,
+                         ulong                fee );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */

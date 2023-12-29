@@ -1,5 +1,7 @@
 #include "fd_borrowed_account.h"
 
+#include "fd_banks_solana.h"
+
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr ) {
   if( FD_UNLIKELY( !ptr ) ) {
@@ -25,47 +27,78 @@ fd_borrowed_account_init( void * ptr ) {
   return ret;
 }
 
-void
+void *
 fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account, 
-                            ulong dlen,
-                            fd_valloc_t valloc ) {
+                            void * buf,
+                            ulong dlen ) {
   // TODO: Check for max accounts size?
-  uchar * new_raw_data = fd_valloc_malloc( valloc, 8, sizeof(fd_account_meta_t)+dlen );
+  uchar * new_raw_data = (uchar *)buf;
 
   ulong old_sz = sizeof(fd_account_meta_t)+borrowed_account->meta->dlen;
   ulong new_sz = sizeof(fd_account_meta_t)+dlen;
-
-  fd_memcpy( new_raw_data, (uchar *)borrowed_account->meta,  sizeof(fd_account_meta_t)+borrowed_account->meta->dlen );
+  fd_memcpy( new_raw_data, borrowed_account->const_meta, old_sz );
   fd_memset( new_raw_data+old_sz, 0, new_sz-old_sz );
 
-  uint is_changed = borrowed_account->data != borrowed_account->orig_data;
+  fd_account_meta_t * meta = borrowed_account->meta; 
+  uint is_changed = borrowed_account->meta != borrowed_account->orig_meta;
+
+  borrowed_account->const_meta = borrowed_account->meta = (fd_account_meta_t *)new_raw_data;
+  borrowed_account->const_data = borrowed_account->data = new_raw_data + sizeof(fd_account_meta_t);
+  borrowed_account->meta->dlen = dlen;
+  
   if( is_changed ) {
-    fd_valloc_free( valloc, borrowed_account->meta );
+    return meta;
+  }
+
+  return NULL;
+}
+
+fd_borrowed_account_t *
+fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account, 
+                                     void * buf ) {
+  uchar * new_raw_data = (uchar *)buf;
+  if( borrowed_account->data != NULL ) {
+    FD_LOG_ERR(( "borrowed account is already modifiable" ));
+  }
+
+  ulong dlen = ( borrowed_account->const_meta != NULL ) ? borrowed_account->const_meta->dlen : 0; 
+  
+  if( borrowed_account->const_meta != NULL ) {
+    fd_memcpy( new_raw_data, (uchar *)borrowed_account->const_meta,  sizeof(fd_account_meta_t)+dlen );
+  } else {
+    /* Account did not exist, set up metadata */
+    fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
   }
 
   borrowed_account->const_meta = borrowed_account->meta = (fd_account_meta_t *)new_raw_data;
   borrowed_account->const_data = borrowed_account->data = new_raw_data + sizeof(fd_account_meta_t);
   borrowed_account->meta->dlen = dlen;
+
+  return borrowed_account;
 }
 
-void
-fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account, 
-                             fd_valloc_t valloc ) {
-  uint is_changed = borrowed_account->data != borrowed_account->orig_data;
-  if( is_changed ) {
-    fd_valloc_free( valloc, borrowed_account->meta );
-  }
+void *
+fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account ) {
+  fd_account_meta_t * meta = borrowed_account->meta; 
+  uint is_changed = meta != borrowed_account->orig_meta;
 
   borrowed_account->const_meta = borrowed_account->orig_meta;
   borrowed_account->const_data = borrowed_account->orig_data;
   borrowed_account->const_rec = borrowed_account->orig_rec;
+
+  if( is_changed ) {
+    return meta;
+  }
+
+  return NULL;
 }
 
-void
-fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account, 
-                             fd_valloc_t valloc ) {
+void *
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account ) {
   uint is_changed = borrowed_account->data != borrowed_account->orig_data;
   if( is_changed ) {
-    fd_valloc_free( valloc, borrowed_account->meta );
+    return borrowed_account->meta;
   }
+
+  return NULL;
 }

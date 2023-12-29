@@ -10,6 +10,7 @@
 struct fd_microblock_info {
   fd_microblock_hdr_t microblock_hdr;
   ulong signature_cnt;
+  ulong account_cnt;
 
   fd_rawtxn_b_t * raw_txns;
   fd_txn_t * * txn_ptrs;

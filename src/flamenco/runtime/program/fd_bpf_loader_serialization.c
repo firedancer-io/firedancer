@@ -250,7 +250,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
       uchar * post_data = input_cursor;
 
-      ulong acc_sz = sizeof(fd_account_meta_t) + post_data_len;
+      ulong acc_sz = post_data_len;
 
       fd_borrowed_account_t * view_acc = NULL;
       int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);

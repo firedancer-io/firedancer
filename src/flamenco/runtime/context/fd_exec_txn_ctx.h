@@ -14,8 +14,8 @@
 /* Return data for syscalls */
 struct transaction_return_data {
   fd_pubkey_t program_id;
-  uchar * data;
   ulong len;
+  uchar data[1024];
 };
 typedef struct transaction_return_data fd_transaction_return_data_t;
 
@@ -35,7 +35,6 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   ulong                 compute_unit_limit;              /* Compute unit limit for this transaction. */
   ulong                 compute_unit_price;              /* Compute unit price for this transaction. */
   ulong                 compute_meter;                   /* Remaining compute units */
-  fd_transaction_return_data_t return_data;              /* Data returned from `return_data` syscalls */
   ulong                 heap_size;                       /* Heap size for VMs for this transaction. */
   ulong                 loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
   uint                  prioritization_fee_type;         /* The type of prioritization fee to use. */
@@ -50,6 +49,7 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
   uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
+  fd_transaction_return_data_t return_data;              /* Data returned from `return_data` syscalls */
 };
 typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
 #define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t) )

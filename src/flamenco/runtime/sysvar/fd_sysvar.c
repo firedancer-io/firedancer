@@ -34,7 +34,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
         slot_ctx->slot_bank.capitalization,
         rec->meta->info.lamports),
       lamports_before);
-  FD_LOG_DEBUG(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", slot_ctx->slot_bank.capitalization, (rec->meta->info.lamports - lamports_before), pubkey));
+  // FD_LOG_DEBUG(("fd_sysvar_set: capitalization={%lu} increased by lamports: %lu for pubkey %32J", slot_ctx->slot_bank.capitalization, (rec->meta->info.lamports - lamports_before), pubkey));
 
 
   rec->meta->dlen = sz;

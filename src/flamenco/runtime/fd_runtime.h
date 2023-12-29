@@ -97,7 +97,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              const void * block,
                              ulong blocklen,
                              fd_tpool_t * tpool,
-                             ulong max_workers );
+                             ulong max_workers,
+                             ulong * txn_cnt );
 
 ulong
 fd_runtime_calculate_fee ( fd_exec_txn_ctx_t * txn_ctx,

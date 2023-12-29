@@ -146,6 +146,7 @@ main( int     argc,
   ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_DEFAULT_SLOT_HISTORY_MAX );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
+  char const * verifyacchash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
   char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
 #ifdef _ENABLE_RHASH
@@ -278,7 +279,7 @@ main( int     argc,
       snapshotfiles[0] = snapshotfile;
       snapshotfiles[1] = incremental;
       snapshotfiles[2] = NULL;
-      fd_snapshot_load(snapshotfiles, slot_ctx);
+      fd_snapshot_load(snapshotfiles, slot_ctx, (verifyacchash != NULL));
     }
 
     if( genesis ) {

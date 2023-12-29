@@ -897,7 +897,6 @@
       "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
-        { "name": "lamports_per_signature","type": "ulong" },
         { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },
         { "name": "ns_per_slot",           "type": "uint128" },
@@ -932,7 +931,8 @@
         { "name": "collected_fees",        "type": "ulong" },
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
-        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
+        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" },
+        { "name": "lamports_per_signature","type": "ulong" }
       ]
     },
     {

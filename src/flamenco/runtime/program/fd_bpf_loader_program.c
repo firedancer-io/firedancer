@@ -29,20 +29,15 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t
   FD_BORROWED_ACCOUNT_DECL(rec);
   int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
   if (read_result != FD_ACC_MGR_SUCCESS) {
-        FD_LOG_WARNING(("C"));
-
     return -1;
   }
 
   if( memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) &&
       memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) ) {
-        FD_LOG_WARNING(("B"));
-
     return -1;
   }
 
-  if( rec->const_meta->info.executable != 1) {
-    FD_LOG_WARNING(("A"));
+  if( rec->const_meta->info.executable != 1 ) {
     return -1;
   }
 
@@ -123,6 +118,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   uchar const * program_data               = program_acc_view->const_data;
   ulong program_data_len = metadata->dlen;
 
+  long dt = -fd_log_wallclock();
   fd_sbpf_elf_info_t elf_info;
   if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -151,7 +147,9 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
-  FD_LOG_DEBUG(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
+  dt += fd_log_wallclock();
+  (void)dt;
+  // FD_LOG_WARNING(( "sbpf load: %32J - time: %6.6f ms", ctx.instr->program_id_pubkey.key, (double)dt*1e-6 ));
 
   ulong input_sz = 0;
   ulong pre_lens[256];

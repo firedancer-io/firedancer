@@ -205,6 +205,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
 
   fd_bpf_upgradeable_loader_state_destroy( &program_loader_state, &txn_ctx_d );
 
+  long dt = -fd_log_wallclock();
   fd_sbpf_elf_info_t elf_info;
   if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -233,7 +234,9 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
   if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
   }
-  FD_LOG_DEBUG(( "fd_sbpf_program_load() success: %s", fd_sbpf_strerror() ));
+  dt += fd_log_wallclock();
+  (void)dt;
+  // FD_LOG_WARNING(( "sbpf load: %32J - time: %6.6f ms", ctx.instr->program_id_pubkey.key, (double)dt*1e-6 ));
 
   ulong input_sz = 0;
   ulong pre_lens[256];
@@ -488,7 +491,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
 
   fd_valloc_free( ctx->valloc,  fd_sbpf_program_delete( prog ) );
   fd_valloc_free( ctx->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
-  fd_valloc_free( ctx->valloc, rodata);
+  fd_valloc_free( ctx->valloc, rodata );
   return 0;
 }
 

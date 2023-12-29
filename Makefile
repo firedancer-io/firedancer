@@ -54,7 +54,11 @@ $(info Using EXTRAS=$(EXTRAS))
 # Default target
 all:
 
+define _include-extra
+include $(addprefix config/with-,$(addsuffix .mk,$(1)))
+endef
+
 include config/$(MACHINE).mk
-include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
+$(foreach extra,$(EXTRAS),$(eval $(call _include-extra,$(extra))))
 include config/everything.mk
 include config/coverage.mk

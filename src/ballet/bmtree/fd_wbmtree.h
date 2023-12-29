@@ -22,11 +22,11 @@ struct fd_wbmtree32_node {
 };
 typedef struct fd_wbmtree32_node fd_wbmtree32_node_t;
 
-#define FD_WBMTREE32_ALIGN FD_SHA256_BATCH_ALIGN
+#define FD_WBMTREE32_ALIGN (128UL)
 
 /* the alignment of fd_wbmtree32 needs to match the alignment of the
    fd_sha256_batch object */
-struct __attribute__((aligned(FD_SHA256_BATCH_ALIGN))) fd_wbmtree32 {
+struct __attribute__((aligned(FD_WBMTREE32_ALIGN))) fd_wbmtree32 {
   fd_sha256_batch_t   sha256_batch;
   ulong               leaf_cnt_max;
   ulong               leaf_cnt;

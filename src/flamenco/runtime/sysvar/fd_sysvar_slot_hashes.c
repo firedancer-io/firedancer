@@ -65,7 +65,7 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
         .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
         .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
       };
-      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
+      // FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
 
       if (deq_fd_slot_hash_t_full( hashes ) )

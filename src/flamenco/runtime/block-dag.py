@@ -2,7 +2,7 @@
 
 # without podman
 #   sudo dnf install -y python38-devel
-#   /bin/python3.8 -m pip install solana solders base58 --user
+#   /bin/python3.8 -m pip install solana solders base58 tqdm graphviz --user
 #   python3.8 gen_c_tests.py -j system_program_tests.json
 
 # with podman
@@ -227,7 +227,7 @@ def main(args):
     deps, has_dep_set = get_txn_deps(txn_nodes)
         
     print("Analysis done")
-    dot = Digraph("X", engine='dot')
+    dot = Digraph("Y", engine='dot')
     dot.attr(rankdir="LR", compound="true", ranksep="2.0", splines="true")
     dot.attr(fontname="Courier New", labeljust="l")
     

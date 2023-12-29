@@ -52,10 +52,7 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   // bank.poh is updated in fd_runtime_block_verify
   fd_memcpy(elem->blockhash.hash, &slot_ctx->slot_bank.poh, sizeof(slot_ctx->slot_bank.poh)); 
 
-  fd_exec_txn_ctx_t tmp_txn_ctx = {
-    .slot_ctx = slot_ctx
-  };
-  elem->fee_calculator.lamports_per_signature = fd_runtime_txn_lamports_per_signature(&tmp_txn_ctx, NULL, NULL);
+  elem->fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
 
   ulong sz = fd_recent_block_hashes_size(&slot_ctx->slot_bank.recent_block_hashes);
   if (sz < 6008)

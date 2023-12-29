@@ -27,6 +27,7 @@ struct __attribute__((aligned(8UL))) fd_borrowed_account {
   ulong                       starting_dlen;
   ulong                       starting_lamports;
 
+  ulong starting_owner_dlen;
   /* Provide read/write mutual exclusion semantics.
      Used for single-threaded logic only, thus not comparable to a
      data synchronization lock. */
@@ -46,17 +47,26 @@ FD_PROTOTYPES_BEGIN
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr );
 
-void
-fd_borrowed_account_resize( fd_borrowed_account_t * borowed_account, 
-                            ulong dlen,
-                            fd_valloc_t valloc );
-void
-fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account, 
-                             fd_valloc_t valloc );
+void *
+fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account, 
+                            void * buf,
+                            ulong dlen );
 
-void
-fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account, 
-                             fd_valloc_t valloc );
+FD_FN_PURE static inline ulong
+fd_borrowed_account_raw_size( fd_borrowed_account_t const * borrowed_account ) {
+  ulong dlen = ( borrowed_account->const_meta != NULL ) ? borrowed_account->const_meta->dlen : 0; 
+  return sizeof(fd_account_meta_t) + dlen;
+}
+
+fd_borrowed_account_t *
+fd_borrowed_account_make_modifiable( fd_borrowed_account_t * borrowed_account, 
+                                     void * buf );
+
+void *
+fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account );
+
+void *
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account );
 
 /* fd_borrowed_account_acquire_{read,write}_is_safe returns 1 if
    fd_borrowed_account_acquire_{read,write} will be successful for the

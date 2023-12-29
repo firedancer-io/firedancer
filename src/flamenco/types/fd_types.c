@@ -8746,8 +8746,6 @@ int fd_epoch_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint128_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
@@ -8772,7 +8770,6 @@ int fd_epoch_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 }
 void fd_epoch_bank_decode_unsafe(fd_epoch_bank_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_stakes_decode_unsafe(&self->stakes, ctx);
-  fd_bincode_uint64_decode_unsafe(&self->lamports_per_signature, ctx);
   fd_bincode_uint64_decode_unsafe(&self->hashes_per_tick, ctx);
   fd_bincode_uint64_decode_unsafe(&self->ticks_per_slot, ctx);
   fd_bincode_uint128_decode_unsafe(&self->ns_per_slot, ctx);
@@ -8792,9 +8789,6 @@ int fd_epoch_bank_decode_offsets(fd_epoch_bank_off_t* self, fd_bincode_decode_ct
   self->stakes_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_stakes_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  self->lamports_per_signature_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint64_decode_preflight(ctx);
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->hashes_per_tick_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -8853,7 +8847,6 @@ ulong fd_epoch_bank_align( void ){ return FD_EPOCH_BANK_ALIGN; }
 void fd_epoch_bank_walk(void * w, fd_epoch_bank_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_epoch_bank", level++);
   fd_stakes_walk(w, &self->stakes, fun, "stakes", level);
-  fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->ticks_per_slot, "ticks_per_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->ns_per_slot, "ns_per_slot", FD_FLAMENCO_TYPE_UINT128, "uint128",   level );
@@ -8873,7 +8866,6 @@ ulong fd_epoch_bank_size(fd_epoch_bank_t const * self) {
   size += fd_stakes_size(&self->stakes);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
   size += sizeof(uint128);
   size += sizeof(ulong);
   size += sizeof(double);
@@ -8890,8 +8882,6 @@ ulong fd_epoch_bank_size(fd_epoch_bank_t const * self) {
 int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_stakes_encode(&self->stakes, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->hashes_per_tick, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -8963,6 +8953,8 @@ int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_sol_sysvar_last_restart_slot_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -8982,6 +8974,7 @@ void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * 
   fd_bincode_uint64_decode_unsafe(&self->collected_rent, ctx);
   fd_vote_accounts_decode_unsafe(&self->epoch_stakes, ctx);
   fd_sol_sysvar_last_restart_slot_decode_unsafe(&self->last_restart_slot, ctx);
+  fd_bincode_uint64_decode_unsafe(&self->lamports_per_signature, ctx);
 }
 int fd_slot_bank_decode_offsets(fd_slot_bank_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -9034,6 +9027,9 @@ int fd_slot_bank_decode_offsets(fd_slot_bank_off_t* self, fd_bincode_decode_ctx_
   self->last_restart_slot_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_sol_sysvar_last_restart_slot_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
+  self->lamports_per_signature_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_new(fd_slot_bank_t* self) {
@@ -9079,6 +9075,7 @@ void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t
   fun( w, &self->collected_rent, "collected_rent", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_vote_accounts_walk(w, &self->epoch_stakes, fun, "epoch_stakes", level);
   fd_sol_sysvar_last_restart_slot_walk(w, &self->last_restart_slot, fun, "last_restart_slot", level);
+  fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level--);
 }
 ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
@@ -9099,6 +9096,7 @@ ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
   size += sizeof(ulong);
   size += fd_vote_accounts_size(&self->epoch_stakes);
   size += fd_sol_sysvar_last_restart_slot_size(&self->last_restart_slot);
+  size += sizeof(ulong);
   return size;
 }
 
@@ -9135,6 +9133,8 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   err = fd_vote_accounts_encode(&self->epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_sol_sysvar_last_restart_slot_encode(&self->last_restart_slot, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

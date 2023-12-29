@@ -13,6 +13,9 @@ struct fd_block_info {
   ulong microblock_batch_cnt;
   ulong microblock_cnt;
   ulong signature_cnt;
+  ulong txn_cnt;
+  ulong account_cnt;
+
   fd_microblock_batch_info_t * microblock_batch_infos;
 
   void const *  raw_block;

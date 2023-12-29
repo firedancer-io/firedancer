@@ -120,7 +120,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
   }
-  
+
   /* Create scratch allocator */
 
   ulong  smax = scratch_mb << 20;
@@ -373,6 +373,7 @@ int fd_executor_run_test(
       .txn_sz = (ushort)test->raw_tx_len,
     };
     fd_exec_txn_ctx_t txn_ctx;
+    memset(&txn_ctx, 0, sizeof(txn_ctx));
 
     fd_exec_txn_ctx_new( &txn_ctx );
 

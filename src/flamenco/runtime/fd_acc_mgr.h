@@ -125,15 +125,16 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_borrowed_account_t * account) {
   int err = FD_ACC_MGR_SUCCESS;
   uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
+
+  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
+
+  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
+
   if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
     if (err != FD_ACC_MGR_SUCCESS)
       return err;
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
   fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
 
@@ -250,7 +251,7 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_SUCCESS;
   }
 
-  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, account->pubkey, 0, account->meta->dlen, account->const_rec, &account->rec, &err );
+  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, account->pubkey, 1, account->meta->dlen, account->const_rec, &account->rec, &err );
   if( FD_UNLIKELY( !raw ) ) {
     return err;
   }
@@ -273,6 +274,14 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
   return FD_ACC_MGR_SUCCESS;
 }
 
+int
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
+                            fd_funk_txn_t *         txn,
+                            fd_valloc_t             valloc,
+                            fd_borrowed_account_t * * accounts,
+                            ulong accounts_cnt,
+                            fd_tpool_t * tpool,
+                            ulong max_workers );
 /* fd_acc_mgr_commit_raw finalizes a writable transaction.
    Re-calcluates the account hash.  If the hash changed, persists the
    record to the database.  If uncache is 1, calls fd_funk_val_uncache.

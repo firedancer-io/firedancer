@@ -2003,7 +2003,6 @@ typedef struct fd_firedancer_bank_off fd_firedancer_bank_off_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_stakes_t stakes;
-  ulong lamports_per_signature;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
@@ -2023,7 +2022,6 @@ typedef struct fd_epoch_bank fd_epoch_bank_t;
 
 struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint stakes_off;
-  uint lamports_per_signature_off;
   uint hashes_per_tick_off;
   uint ticks_per_slot_off;
   uint ns_per_slot_off;
@@ -2059,6 +2057,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+  ulong lamports_per_signature;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2081,6 +2080,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint collected_rent_off;
   uint epoch_stakes_off;
   uint last_restart_slot_off;
+  uint lamports_per_signature_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)

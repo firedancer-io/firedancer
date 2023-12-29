@@ -41,8 +41,8 @@ fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
 
 int
 fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
-                              fd_pubkey_t const *      pubkey,
-                              fd_borrowed_account_t * * account ) {
+                                         fd_pubkey_t const *      pubkey,
+                                         fd_borrowed_account_t * * account ) {
   for( ulong i = 0; i < ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if readable???
@@ -70,7 +70,11 @@ fd_txn_borrowed_account_modify_idx( fd_exec_txn_ctx_t * ctx,
 
   fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
   if( min_data_sz > txn_account->meta->dlen ) {
-    fd_borrowed_account_resize( txn_account, min_data_sz, ctx->valloc );
+    void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, min_data_sz );
+    void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
+    if( old_txn_account_data != NULL ) {
+      fd_valloc_free( ctx->valloc, old_txn_account_data );
+    }
   }
   
   // TODO: check if writable???
@@ -88,7 +92,11 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
       // TODO: check if writable???
       fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[i];
       if( min_data_sz > txn_account->const_meta->dlen ) {
-        fd_borrowed_account_resize( txn_account, min_data_sz, ctx->valloc );
+        void * new_txn_account_data = fd_valloc_malloc( ctx->valloc, 8UL, sizeof(fd_account_meta_t) + min_data_sz );
+        void * old_txn_account_data = fd_borrowed_account_resize( txn_account, new_txn_account_data, min_data_sz );
+        if( old_txn_account_data != NULL ) {
+          fd_valloc_free( ctx->valloc, old_txn_account_data );
+        }
       }
       *account = txn_account;
       return FD_ACC_MGR_SUCCESS;
@@ -111,18 +119,20 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->instr_stack_sz     = 0;
   txn_ctx->accounts_cnt       = 0;
   txn_ctx->executable_cnt     = 0;
+  txn_ctx->paid_fees          = 0;
+  txn_ctx->heap_size          = FD_VM_DEFAULT_HEAP_SZ;
+  txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   txn_ctx->txn_descriptor = txn_descriptor;
   txn_ctx->_txn_raw = txn_raw;
 
-  fd_memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len = 0;
-  txn_ctx->return_data.data = (uchar*)fd_valloc_malloc( txn_ctx->valloc, 1, 1024 );
 }
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_valloc_free( txn_ctx->valloc, txn_ctx->return_data.data );
+  (void)txn_ctx;
 }
 
 void
@@ -147,11 +157,9 @@ fd_exec_txn_ctx_new( void * mem ) {
     return NULL;
   }
 
-  fd_memset(mem, 0, FD_EXEC_TXN_CTX_FOOTPRINT);
+  // fd_memset(mem, 0, FD_EXEC_TXN_CTX_FOOTPRINT);
 
   fd_exec_txn_ctx_t * self = (fd_exec_txn_ctx_t *) mem;
-
-  self->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_TXN_CTX_MAGIC;

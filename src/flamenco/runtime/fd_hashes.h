@@ -8,7 +8,7 @@
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
-#define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
+#define FD_PUBKEY_HASH_PAIR_ALIGN (8UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
   fd_pubkey_t const * pubkey;
   fd_hash_t   const * hash;
@@ -24,6 +24,12 @@ int fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t * capture_ctx,
                          fd_hash_t * hash,
                          ulong signature_cnt );
+int
+fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                           fd_hash_t *          hash,
+                           ulong                signature_cnt,
+                           fd_tpool_t *         tpool,
+                           ulong                max_workers );
 
 /* fd_hash_account_v0 is the legacy method to compute the account
    hash.  It includes the following content:

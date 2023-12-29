@@ -194,7 +194,7 @@ SnapshotParser_moreData( void *        arg,
 }
 
 void
-fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
+fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx, uint verify_hash) {
   for (uint i = 0; snapshotfiles[i] != NULL; ++i) {
     fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
     fd_funk_txn_xid_t xid;
@@ -231,8 +231,10 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
     int err = 0;
     if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
       err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
+#if FD_HAS_BZ2
     else if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".bz2" ) )
       err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
+#endif
     else
       FD_LOG_ERR(( "unknown snapshot compression suffix" ));
 
@@ -248,26 +250,28 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx) {
     fd_features_restore( slot_ctx );
     fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
-    if (0 == i) {
-      fd_hash_t accounts_hash;
-      fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
-
-      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
-        FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
-      else
-        FD_LOG_WARNING(("snapshot accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
-    } else if (1 == i) {
-      fd_hash_t accounts_hash;
-
-      if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation))
+    if( verify_hash ) {
+      if (0 == i) {
+        fd_hash_t accounts_hash;
         fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
-      else
-        fd_snapshot_hash(slot_ctx, &accounts_hash, NULL);
 
-      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
-        FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
-      else
-        FD_LOG_WARNING(("incremental accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+        if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+          FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+        else
+          FD_LOG_WARNING(("snapshot accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+      } else if (1 == i) {
+        fd_hash_t accounts_hash;
+
+        if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation))
+          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
+        else
+          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL);
+
+        if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+          FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+        else
+          FD_LOG_WARNING(("incremental accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+      }
     }
 
     FD_LOG_WARNING(("txn_publish_start"));

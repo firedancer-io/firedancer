@@ -110,7 +110,7 @@ main( int     argc,
   }
 
   long timer = -fd_log_wallclock();
-  fd_tpool_exec_all_taskq( tpool, 0, tcnt, fd_keygen_task, task_args, NULL, NULL, 1, 0, tcnt );
+  fd_tpool_exec_all_rrobin( tpool, 0, tcnt, fd_keygen_task, task_args, NULL, NULL, 1, 0, tcnt );
   timer += fd_log_wallclock();
 
   double secs_elapsed = ((double)timer) / 1000000000.0;
