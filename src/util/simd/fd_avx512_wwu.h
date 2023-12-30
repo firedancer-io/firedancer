@@ -132,9 +132,15 @@ static inline wwu_t wwu_ror_vector( wwu_t a, wwu_t b ) {
 /* Conditional operations */
 /* cn means bit n of c */
 
-#define wwu_if(c,x,y)       _mm512_mask_blend_epi32( (__mmask16)(c), (y), (x) )    /* wwu( c0? x0    :y0, ... ) */
-#define wwu_add_if(c,x,y,z) _mm512_mask_add_epi32( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0+y0):z0, ... ) */
-#define wwu_sub_if(c,x,y,z) _mm512_mask_sub_epi32( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0-y0):z0, ... ) */
+#define wwu_if(c,x,y)          _mm512_mask_blend_epi32 ( (__mmask16)(c), (y), (x) )    /* wwu( c0? x0    :y0, ... ) */
+
+#define wwu_add_if(c,x,y,z)    _mm512_mask_add_epi32   ( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0+y0):z0, ... ) */
+#define wwu_sub_if(c,x,y,z)    _mm512_mask_sub_epi32   ( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0-y0):z0, ... ) */
+
+#define wwu_and_if(c,x,y,z)    _mm512_mask_and_epi32   ( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0&y0):z0, ... ) */
+#define wwu_andnot_if(c,x,y,z) _mm512_mask_andnot_epi32( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(~x0&y0):z0, ... ) */
+#define wwu_or_if(c,x,y,z)     _mm512_mask_or_epi32    ( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0|y0):z0, ... ) */
+#define wwu_xor_if(c,x,y,z)    _mm512_mask_xor_epi32   ( (z), (__mmask16)(c), (x), (y) ) /* wwu( c0?(x0^y0):z0, ... ) */
 
 /* Conversions */
 

@@ -123,9 +123,15 @@ static inline wwl_t wwl_ror_vector( wwl_t a, wwl_t b ) {
 /* Conditional operations */
 /* cn means bit n of c */
 
-#define wwl_if(c,x,y)       _mm512_mask_blend_epi64( (__mmask8)(c), (y), (x) )    /* wwl( c0? x0    :y0, ... ) */
-#define wwl_add_if(c,x,y,z) _mm512_mask_add_epi64( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0+y0):z0, ... ) */
-#define wwl_sub_if(c,x,y,z) _mm512_mask_sub_epi64( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0-y0):z0, ... ) */
+#define wwl_if(c,x,y)          _mm512_mask_blend_epi64 ( (__mmask8)(c), (y), (x) )    /* wwl( c0? x0    :y0, ... ) */
+
+#define wwl_add_if(c,x,y,z)    _mm512_mask_add_epi64   ( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0+y0):z0, ... ) */
+#define wwl_sub_if(c,x,y,z)    _mm512_mask_sub_epi64   ( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0-y0):z0, ... ) */
+
+#define wwl_and_if(c,x,y,z)    _mm512_mask_and_epi64   ( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0&y0):z0, ... ) */
+#define wwl_andnot_if(c,x,y,z) _mm512_mask_andnot_epi64( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(~x0&y0):z0, ... ) */
+#define wwl_or_if(c,x,y,z)     _mm512_mask_or_epi64    ( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0|y0):z0, ... ) */
+#define wwl_xor_if(c,x,y,z)    _mm512_mask_xor_epi64   ( (z), (__mmask8)(c), (x), (y) ) /* wwl( c0?(x0^y0):z0, ... ) */
 
 /* Conversions */
 
