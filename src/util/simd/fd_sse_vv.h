@@ -131,8 +131,16 @@ vv_insert_variable( vv_t a, int n, ulong v ) {
 #define vv_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ] */
 #define vv_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ] */
 
+/* vv_rol(x,n) returns vv( rotate_left (x0,n), rotate_left (x1,n), ... )
+   vv_ror(x,n) returns vv( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+#if FD_HAS_AVX512
+#define vv_rol(a,imm)  _mm_rol_epi64( (a), (imm) )
+#define vv_ror(a,imm)  _mm_ror_epi64( (a), (imm) )
+#else
 static inline vv_t vv_rol( vv_t a, int imm ) { return vv_or( vv_shl( a, imm & 63 ), vv_shr( a, (-imm) & 63 ) ); }
 static inline vv_t vv_ror( vv_t a, int imm ) { return vv_or( vv_shr( a, imm & 63 ), vv_shl( a, (-imm) & 63 ) ); }
+#endif
 
 static inline vv_t vv_rol_variable( vv_t a, int n ) { return vv_or( vv_shl_variable( a, n&63 ), vv_shr_variable( a, (-n)&63 ) ); }
 static inline vv_t vv_ror_variable( vv_t a, int n ) { return vv_or( vv_shr_variable( a, n&63 ), vv_shl_variable( a, (-n)&63 ) ); }
