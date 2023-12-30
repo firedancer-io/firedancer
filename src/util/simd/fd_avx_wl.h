@@ -162,8 +162,16 @@ wl_insert_variable( wl_t a, int n, long v ) {
 #define wl_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define wl_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+/* wl_rol(x,n) returns wl( rotate_left (x0,n), rotate_left (x1,n), ... )
+   wl_ror(x,n) returns wl( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+#if FD_HAS_AVX512
+#define wl_rol(a,imm)  _mm256_rol_epi64( (a), (imm) )
+#define wl_ror(a,imm)  _mm256_ror_epi64( (a), (imm) )
+#else
 static inline wl_t wl_rol( wl_t a, int imm ) { return wl_or( wl_shl(  a, imm & 63 ), wl_shru( a, (-imm) & 63 ) ); }
 static inline wl_t wl_ror( wl_t a, int imm ) { return wl_or( wl_shru( a, imm & 63 ), wl_shl(  a, (-imm) & 63 ) ); }
+#endif
 
 static inline wl_t wl_rol_variable( wl_t a, int n ) { return wl_or( wl_shl_variable(  a, n&63 ), wl_shru_variable( a, (-n)&63 ) ); }
 static inline wl_t wl_ror_variable( wl_t a, int n ) { return wl_or( wl_shru_variable( a, n&63 ), wl_shl_variable(  a, (-n)&63 ) ); }

@@ -88,8 +88,17 @@ static inline void  wwu_stu( void * m, wwu_t x ) { _mm512_storeu_epi32( m, x ); 
    wwu_rol_vector(x,y) returns wwu( rotate_left (x0,y0), rotate_left (x1,y1), ... )
    wwu_ror_vector(x,y) returns wwu( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
 
-static inline wwu_t wwu_rol( wwu_t a, uint n ) { return wwu_or( wwu_shl( a, n & 31U ), wwu_shr( a, (-n) & 31U ) ); }
-static inline wwu_t wwu_ror( wwu_t a, uint n ) { return wwu_or( wwu_shr( a, n & 31U ), wwu_shl( a, (-n) & 31U ) ); }
+static inline wwu_t wwu_rol( wwu_t a, uint n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_rol_epi32( (a), (n)&31U ) :
+         wwu_or( wwu_shl( a, n & 31U ), wwu_shr( a, (-n) & 31U ) );
+}
+
+static inline wwu_t wwu_ror( wwu_t a, uint n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_ror_epi32( (a), (n)&31U ) :
+         wwu_or( wwu_shr( a, n & 31U ), wwu_shl( a, (-n) & 31U ) );
+}
 
 static inline wwu_t wwu_rol_vector( wwu_t a, wwu_t b ) {
   wwu_t m = wwu_bcast( 31U );

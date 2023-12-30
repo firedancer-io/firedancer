@@ -40,13 +40,8 @@ fd_chacha20_block( void *       _block,
      so this makes a difference. */
 #define ROTATE_LEFT_16( x ) _mm_shuffle_epi8( (x), vb( 2,3,0,1, 6,7,4,5, 10,11,8,9,  14,15,12,13 ) )
 #define ROTATE_LEFT_08( x ) _mm_shuffle_epi8( (x), vb( 3,0,1,2, 7,4,5,6, 11,8,9,10,  15,12,13,14 ) )
-#if FD_HAS_AVX512
-# define ROTATE_LEFT_12( x ) _mm_rol_epi32( (x), 12 )
-# define ROTATE_LEFT_07( x ) _mm_rol_epi32( (x),  7 )
-#else
-# define ROTATE_LEFT_12( x ) vu_rol( (x), 12 )
-# define ROTATE_LEFT_07( x ) vu_rol( (x),  7 )
-#endif
+#define ROTATE_LEFT_12( x ) vu_rol( (x), 12 )
+#define ROTATE_LEFT_07( x ) vu_rol( (x),  7 )
 
   /* Run the ChaCha round function 20 times.
      (Each iteration does a column round and a diagonal round.) */
