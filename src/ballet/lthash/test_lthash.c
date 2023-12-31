@@ -148,13 +148,13 @@ bench_lthash( void ) {
   ulong iter_target = 1<<21UL;
   ulong iter = iter_target>>7;
   long dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_varlen( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out, sizeof(out) );
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out );
   dt = fd_log_wallclock() - dt;
 
   /* for real */
   iter = iter_target;
   dt = fd_log_wallclock();
-  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_varlen( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out, sizeof(out) );
+  for( ulong rem=iter; rem; rem-- ) fd_blake3_fini_2048( fd_blake3_append( fd_blake3_init( sha ), lthash_hello, 32UL ), out );
   dt = fd_log_wallclock() - dt;
 
   FD_LOG_NOTICE(( "~%.2e hash/s; %f ns per hash",
