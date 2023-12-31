@@ -231,8 +231,17 @@ From https://cr.yp.to/chacha.html and https://datatracker.ietf.org/doc/html/rfc7
 
 =======================================================================
 
-The BLAKE3 implementation in src/ballet/blake3 is currently a modified
-implementation of the BLAKE3 project implementation circa 2023-May.
+The implementation of the BLAKE3 compression function in
+src/ballet/blake3 was derived from the BLAKE3 project
+circa 2023-May.  This includes the following files:
+- src/ballet/blake3/fd_blake3/fd_blake3_ref.c
+- src/ballet/blake3/fd_blake3/fd_blake3_sse41.c
+- src/ballet/blake3/fd_blake3/fd_blake3_avx2.c
+- src/ballet/blake3/fd_blake3/fd_blake3_avx512.c
+
+The code was adapted to fit the Firedancer code style
+and has undergone various performance improvements.
+
 From
 https://github.com/BLAKE3-team/BLAKE3/tree/master/c
 
