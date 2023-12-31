@@ -28,7 +28,7 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
   fd_blake3_append( b3, &executable, sizeof( uchar ) );
   fd_blake3_append( b3, account->info.owner, FD_PUBKEY_FOOTPRINT );
   fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
-  fd_blake3_fini_varlen( b3, lthash_out->bytes, FD_LTHASH_LEN_BYTES );
+  fd_blake3_fini_2048( b3, lthash_out->bytes );
 }
 
 void
