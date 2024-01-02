@@ -5,8 +5,11 @@
 void *
 fd_chacha20_block( void *       _block,
                    void const * _key,
-                   uint         idx,
-                   void const * _nonce ) {
+                   void const * _idx_nonce ) {
+
+  uint *       block     = __builtin_assume_aligned( _block,     64UL );
+  uint const * key       = __builtin_assume_aligned( _key,       32UL );
+  uint const * idx_nonce = __builtin_assume_aligned( _idx_nonce, 16UL );
 
   /* Construct the input ChaCha20 block state as the following
      matrix of little endian uint entries:
@@ -24,9 +27,9 @@ fd_chacha20_block( void *       _block,
 
   /* Remember the input state for later use */
   vu_t row0_init = vu( 0x61707865U, 0x3320646eU, 0x79622d32U, 0x6b206574U );
-  vu_t row1_init = vu_ldu( (uint const *)_key       );
-  vu_t row2_init = vu_ldu( (uint const *)_key + 4UL );
-  vu_t row3_init = vu_insert( vu_ldu( (uint const *)_nonce - 1UL ), 0, idx );
+  vu_t row1_init = vu_ld( key       );
+  vu_t row2_init = vu_ld( key+4     );
+  vu_t row3_init = vu_ld( idx_nonce );
 
   vu_t row0 = row0_init;
   vu_t row1 = row1_init;
@@ -80,10 +83,10 @@ fd_chacha20_block( void *       _block,
   row2 = vu_add( row2, row2_init );
   row3 = vu_add( row3, row3_init );
 
-  vu_stu( (uint *)_block     , row0 );
-  vu_stu( (uint *)_block+ 4UL, row1 );
-  vu_stu( (uint *)_block+ 8UL, row2 );
-  vu_stu( (uint *)_block+12UL, row3 );
+  vu_st( block,    row0 );
+  vu_st( block+ 4, row1 );
+  vu_st( block+ 8, row2 );
+  vu_st( block+12, row3 );
 
   return _block;
 }
