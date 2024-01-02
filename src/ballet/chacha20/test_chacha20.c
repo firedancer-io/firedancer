@@ -13,10 +13,10 @@ test_chacha20_block( void ) {
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
   };
-  uchar const nonce[ 24UL ] __attribute__((aligned(4))) = {
+  uchar const idx_nonce[ 16UL ] __attribute__((aligned(16))) = {
+    0x01, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00
   };
-  uint const block_idx = 1U;
 
   /* Output */
 
@@ -32,7 +32,7 @@ test_chacha20_block( void ) {
     0xcb, 0xd0, 0x83, 0xe8,  0xa2, 0x50, 0x3c, 0x4e,
   };
 
-  fd_chacha20_block( &block, &key, block_idx, &nonce );
+  fd_chacha20_block( block, &key, idx_nonce );
 
   if( FD_UNLIKELY( 0!=memcmp( block, expected, 64UL ) ) )
     FD_LOG_ERR(( "FAIL"
@@ -55,10 +55,9 @@ bench_chacha20_block( void ) {
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
   };
-  uchar const nonce[ 24UL ] __attribute__((aligned(4))) = {
-    0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x00
+  uint idx_nonce[ 4UL ] __attribute__((aligned(4))) = {
+    0x01, 0x09, 0x00, 0x00,
   };
-  uint block_idx = 1U;
   uchar block[ 64UL ] __attribute__((aligned(32)));
 
   for( ulong idx=0U; idx<2UL; idx++ ) {
@@ -66,12 +65,18 @@ bench_chacha20_block( void ) {
     key[ 0 ]++;
 
     /* warmup */
-    for( ulong rem=100000UL; rem; rem-- ) fd_chacha20_block( &block, &key, block_idx++, &nonce );
+    for( ulong rem=100000UL; rem; rem-- ) {
+      idx_nonce[0]++;
+      fd_chacha20_block( block, key, idx_nonce );
+    }
 
     /* for real */
     ulong iter = 1000000UL;
     long  dt   = -fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) fd_chacha20_block( &block, &key, block_idx++, &nonce );
+    for( ulong rem=iter; rem; rem-- ) {
+      idx_nonce[0]++;
+      fd_chacha20_block( block, key, idx_nonce );
+    }
     dt += fd_log_wallclock();
     double gbps    = ((double)(8UL*FD_CHACHA20_BLOCK_SZ*iter)) / ((double)dt);
     double ns      = (double)dt / ((double)iter * (double)FD_CHACHA20_BLOCK_SZ);

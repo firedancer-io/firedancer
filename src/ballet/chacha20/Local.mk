@@ -1,6 +1,6 @@
 $(call add-hdrs,fd_chacha20.h fd_chacha20rng.h)
-ifdef FD_HAS_AVX
-$(call add-objs,fd_chacha20_avx fd_chacha20rng,fd_ballet)
+ifdef FD_HAS_SSE
+$(call add-objs,fd_chacha20_sse fd_chacha20rng,fd_ballet)
 else
 $(call add-objs,fd_chacha20 fd_chacha20rng,fd_ballet)
 endif

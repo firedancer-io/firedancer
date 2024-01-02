@@ -41,7 +41,7 @@ struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
   int mode;
 
   /* ChaCha20 block index */
-  uint idx;
+  uint idx_nonce[ 4UL ] __attribute__((aligned(16UL)));
 };
 typedef struct fd_chacha20rng_private fd_chacha20rng_t;
 
@@ -178,7 +178,7 @@ fd_chacha20rng_ulong_roll( fd_chacha20rng_t * rng,
                      = 2^64-1 - (2^64-n)%n, since n<2^64
                      = 2^64-1 - ((2^64-1)-n+1)%n
      Which is back to having a mod... But at least if n is a
-     compile-time constant than the whole zone computation becomes a
+     compile-time constant then the whole zone computation becomes a
      compile-time constant.
 
      When MODE_SHIFT is set, we use uses almost the largest possible
