@@ -17,6 +17,7 @@ $(call add-hdrs, \
 	fd_fork_mgr.h \
 	fd_blockstore.h \
 	fd_snapshot_loader.h \
+	fd_tvu.h \
 )
 
 $(call add-hdrs,tests/fd_tests.h)
@@ -34,6 +35,7 @@ $(call add-objs, \
 	fd_borrowed_account \
 	fd_blockstore \
 	fd_snapshot_loader \
+	fd_tvu \
 	tests/fd_tests \
 	, \
 	fd_flamenco \

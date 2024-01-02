@@ -44,10 +44,28 @@ extern fd_tile_config_t fd_tile_bank;
 extern fd_tile_config_t fd_tile_shred;
 extern fd_tile_config_t fd_tile_store;
 extern fd_tile_config_t fd_tile_metric;
+extern fd_tile_config_t fd_tile_tvu;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,
                   char const *  format,
                   ... );
+
+int
+fd_tvu_tile( fd_cnc_t *              cnc,
+             ulong                   flags,
+             ulong                   in_cnt,
+             fd_frag_meta_t const ** in_mcache,
+             ulong **                in_fseq,
+             fd_frag_meta_t *        mcache,
+             ulong                   out_cnt,
+             ulong **                _out_fseq,
+             ulong                   burst,
+             ulong                   cr_max,
+             long                    lazy,
+             fd_rng_t *              rng,
+             void *                  scratch,
+             void *                  ctx,
+             fd_mux_callbacks_t *    callbacks );
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */

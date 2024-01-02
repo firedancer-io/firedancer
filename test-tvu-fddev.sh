@@ -3,12 +3,13 @@ set -euxo pipefail
 IFS=$'\n\t'
 
 # create temporary files in the user's home directory because it's likely to be on a large disk
-TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu.XXXXXX)
+TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
 cd $TMPDIR
 
 cleanup() {
   sudo killall solana-validator || true
-  sudo killall test_tvu || true
+  sudo killall fddev || true
+  fddev configure fini all >/dev/null 2>&1 
   rm -rf "$TMPDIR"
 }
 
@@ -17,7 +18,7 @@ trap cleanup EXIT SIGINT SIGTERM
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR="$HOME/code/firedancer-private"
 
-sudo killall solana-validator || true
+sudo killall fddev || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -25,14 +26,11 @@ if ! command -v solana > /dev/null; then
 fi
 
 # if fd_frank_ledger is not on path then use the one in the home directory
-if ! command -v fd_frank_ledger > /dev/null; then
+if ! command -v fddev > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/bin":$PATH
 fi
-# if test_tvu is not on path then use the one in the home directory
-if ! command -v test_tvu > /dev/null; then
-  PATH="$FD_DIR/build/native/gcc/unit-test":$PATH
-fi
 
+fddev configure fini all >/dev/null 2>&1
 
 echo "Creating mint and stake authority keys..."
 solana-keygen new --no-bip39-passphrase -o faucet.json > /dev/null
@@ -91,18 +89,15 @@ done
 
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
-sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
+echo "[tiles.tvu]
+  repair_peer_id = \"$(solana-keygen pubkey id.json)\"
+  repair_peer_addr = \"$PRIMARY_IP:8008\"
+  gossip_peer_addr = \"$PRIMARY_IP:8001\"
+  snapshot = \"$(echo snapshot*)\"
+  page_cnt = 60
+" > fddev.toml
 
-timeout 30 test_tvu \
-    --rpc-port 9999 \
-    --gossip-peer-addr $PRIMARY_IP:8001 \
-    --repair-peer-addr $PRIMARY_IP:8008 \
-    --repair-peer-id $(solana-keygen pubkey id.json) \
-    --snapshot snapshot* \
-    --page-cnt 50 \
-    --indexmax 100000000 \
-    --log-level-logfile 0 \
-    --log-level-stderr 0 >test_tvu.log 2>&1 || true
+timeout 120 fddev --no-sandbox --log-path fddev.log --config fddev.toml >/dev/null 2>&1 || true
     
-grep -q "verified block successfully" test_tvu.log
+grep -q "verified block successfully" fddev.log
 

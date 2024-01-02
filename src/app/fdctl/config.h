@@ -193,6 +193,14 @@ typedef struct {
     struct {
       ushort prometheus_listen_port;
     } metric;
+
+    struct {
+      char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
+      char repair_peer_addr[ 22 ];
+      char gossip_peer_addr[ 22 ];
+      char snapshot[ PATH_MAX ];
+      uint page_cnt;
+    } tvu;
   } tiles;
 } config_t;
 

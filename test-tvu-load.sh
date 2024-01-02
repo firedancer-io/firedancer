@@ -12,7 +12,7 @@ cleanup() {
   rm -rf "$TMPDIR"
 }
 
-trap cleanup EXIT SIGINT SIGTERM
+#trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR="$HOME/code/firedancer-private"
@@ -93,12 +93,18 @@ wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
 sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
 
-timeout 30 test_tvu \
+fd_frank_ledger --cmd ingest \
+                --snapshotfile snapshot* \
+                --pages 50 \
+                --indexmax 100000000 \
+                --backup backup
+
+timeout 60 test_tvu \
     --rpc-port 9999 \
     --gossip-peer-addr $PRIMARY_IP:8001 \
     --repair-peer-addr $PRIMARY_IP:8008 \
     --repair-peer-id $(solana-keygen pubkey id.json) \
-    --snapshot snapshot* \
+    --load backup \
     --page-cnt 50 \
     --indexmax 100000000 \
     --log-level-logfile 0 \

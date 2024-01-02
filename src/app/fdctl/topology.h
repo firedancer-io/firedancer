@@ -3,6 +3,7 @@
 #define HEADER_fd_src_app_fdctl_topology_h
 
 #include "../../tango/fd_tango.h"
+#include "../../ballet/base58/fd_base58.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -44,7 +45,8 @@
 #define FD_TOPO_WKSP_KIND_SHRED        (16UL)
 #define FD_TOPO_WKSP_KIND_STORE        (17UL)
 #define FD_TOPO_WKSP_KIND_METRIC       (18UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_TVU          (19UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_TVU+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -75,17 +77,18 @@
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
    kind in the application. */
-#define FD_TOPO_TILE_KIND_NET    ( 0UL)
-#define FD_TOPO_TILE_KIND_NETMUX ( 1UL)
-#define FD_TOPO_TILE_KIND_QUIC   ( 2UL)
-#define FD_TOPO_TILE_KIND_VERIFY ( 3UL)
-#define FD_TOPO_TILE_KIND_DEDUP  ( 4UL)
-#define FD_TOPO_TILE_KIND_PACK   ( 5UL)
-#define FD_TOPO_TILE_KIND_BANK   ( 6UL)
-#define FD_TOPO_TILE_KIND_SHRED  ( 7UL)
-#define FD_TOPO_TILE_KIND_STORE  ( 8UL)
-#define FD_TOPO_TILE_KIND_METRIC ( 9UL)
-#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_NET    (  0UL )
+#define FD_TOPO_TILE_KIND_NETMUX (  1UL )
+#define FD_TOPO_TILE_KIND_QUIC   (  2UL )
+#define FD_TOPO_TILE_KIND_VERIFY (  3UL )
+#define FD_TOPO_TILE_KIND_DEDUP  (  4UL )
+#define FD_TOPO_TILE_KIND_PACK   (  5UL )
+#define FD_TOPO_TILE_KIND_BANK   (  6UL )
+#define FD_TOPO_TILE_KIND_SHRED  (  7UL )
+#define FD_TOPO_TILE_KIND_STORE  (  8UL )
+#define FD_TOPO_TILE_KIND_METRIC (  9UL )
+#define FD_TOPO_TILE_KIND_TVU    ( 10UL )
+#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_TVU+1 ) /* Keep updated with maximum tile IDX */
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -229,6 +232,14 @@ typedef struct {
   struct {
     ushort prometheus_listen_port;
   } metric;
+
+  struct {
+    char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
+    char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+    char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+    char snapshot[ PATH_MAX ];
+    uint page_cnt;
+  } tvu;
 } fd_topo_tile_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -345,6 +356,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
     case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
+    case FD_TOPO_WKSP_KIND_TVU:          return "tvu";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -399,6 +411,7 @@ fd_topo_tile_kind_str( ulong kind ) {
      case FD_TOPO_TILE_KIND_SHRED:  return "shred";
      case FD_TOPO_TILE_KIND_STORE:  return "store";
      case FD_TOPO_TILE_KIND_METRIC: return "metric";
+     case FD_TOPO_TILE_KIND_TVU:    return "tvu";
      default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

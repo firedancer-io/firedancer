@@ -237,6 +237,12 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
+  ENTRY_STR   ( ., tiles.tvu,           repair_peer_id                                            );
+  ENTRY_STR   ( ., tiles.tvu,           repair_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.tvu,           gossip_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.tvu,           snapshot                                                  );
+  ENTRY_UINT  ( ., tiles.tvu,           page_cnt                                                  );
+
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
   ENTRY_BOOL  ( ., development,         bootstrap                                                 );
@@ -497,6 +503,7 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_TVU    }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -559,6 +566,7 @@ topo_initialize( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_TVU,    FD_TOPO_WKSP_KIND_TVU,    ULONG_MAX                                                       );
 
   topo->tile_cnt = tile_cnt;
 
@@ -989,6 +997,13 @@ config_parse( int *      pargc,
         break;
       case FD_TOPO_TILE_KIND_METRIC:
         tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_TVU:
+        strncpy( tile->tvu.repair_peer_id, config->tiles.tvu.repair_peer_id, sizeof(tile->tvu.repair_peer_id) );
+        strncpy( tile->tvu.repair_peer_addr, config->tiles.tvu.repair_peer_addr, sizeof(tile->tvu.repair_peer_addr) );
+        strncpy( tile->tvu.gossip_peer_addr, config->tiles.tvu.gossip_peer_addr, sizeof(tile->tvu.gossip_peer_addr) );
+        strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
+        tile->tvu.page_cnt = config->tiles.tvu.page_cnt;
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

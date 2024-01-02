@@ -89,17 +89,22 @@ install_parent_signals( void ) {
 static int
 execve_solana_labs( int config_memfd,
                     int pipefd ) {
+  (void)config_memfd;
+  (void)pipefd;
   if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   pid_t child = fork();
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
-    char _current_executable_path[ PATH_MAX ];
-    current_executable_path( _current_executable_path );
+    while( 1 ) {
+      fd_log_sleep( 60e9 );
+    }
+    // char _current_executable_path[ PATH_MAX ];
+    // current_executable_path( _current_executable_path );
     
-    char config_fd[ 32 ];
-    snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
-    char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
-    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    // char config_fd[ 32 ];
+    // snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
+    // char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
+    // if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;

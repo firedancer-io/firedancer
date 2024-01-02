@@ -52,7 +52,7 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # this to determine port locations for services not yet rewritten as
 # part of Firedancer, including gossip and RPC.  This port range should
 # NOT overlap with any of the static ports used by Firedancer below.
-dynamic_port_range = "8900-9000"
+dynamic_port_range = "18900-19000"
 
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
@@ -221,7 +221,7 @@ dynamic_port_range = "8900-9000"
     # the `--gossip-port` argument.  This argument is required.  Solana
     # Labs treats this as an optional argument, but the code that tries
     # to find a default will always fail.
-    port = 8001
+    port = 18001
 
     # DNS name or IP address to advertise to the network in gossip.  If
     # none is provided, the default is to ask the first entrypoint which
@@ -239,7 +239,7 @@ dynamic_port_range = "8900-9000"
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
     # passed to the Solana Labs client with the `--rpc-port` argument.
-    port = 8899
+    port = 18899
 
     # If true, all RPC operations are enabled on this validator,
     # including non-default RPC methods for querying chain state and
@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-16"
+    affinity = "0-17"
 
     # Which CPU core to use for the POH service.  This is a special core
     # because it's the only one pinned by the Solana Labs.  This should
@@ -642,12 +642,12 @@ dynamic_port_range = "8900-9000"
         # that are not over QUIC.  These could be votes, user
         # transactions, or transactions forwarded from another
         # validator.
-        regular_transaction_listen_port = 9001
+        regular_transaction_listen_port = 19001
 
         # Which port to listen on for incoming QUIC transactions.
         # Currently this must be exactly 6 more than the
         # transaction_listen_port.
-        quic_transaction_listen_port = 9007
+        quic_transaction_listen_port = 19007
 
         # Maximum number of simultaneous QUIC connections which can be
         # open.  New connections which would exceed this limit will not
@@ -753,6 +753,13 @@ dynamic_port_range = "8900-9000"
         # transaction spam.
         signature_cache_size = 4194302
 
+    [tiles.tvu]
+        repair_peer_id = "6twW6ey7kZmPT8YE7gchcRYPDYESB3baCDT6t92jdF9b"
+        repair_peer_addr = "147.75.199.41:8008"
+        gossip_peer_addr = "147.75.199.41:8001"
+        snapshot = "/data/llamb/tmp-test-tvu.1LqXfl/snapshot-200-HkXT5YYU2aKPu6pUz2uHpJeHapjVfDkM4B5uPaaSEU17.tar.zst"
+        page_cnt = 60
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
@@ -807,7 +814,7 @@ dynamic_port_range = "8900-9000"
         # forward.  This argument controls which port that is.  The port
         # is broadcast over gossip so other validators know how to reach
         # this one.
-        shred_listen_port = 8003
+        shred_listen_port = 18003
 
     # The metric tile receives metrics updates published from the rest
     # of the tiles and serves them via. a Prometheus compatible HTTP
@@ -816,7 +823,7 @@ dynamic_port_range = "8900-9000"
         # The port to listen on for HTTP request for Prometheus metrics.
         # Firedancer serves metrics at a URI like
         # 127.0.0.1:7999/metrics
-        prometheus_listen_port = 7999
+        prometheus_listen_port = 17999
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to

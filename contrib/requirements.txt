@@ -1,0 +1,4 @@
+edn-format==0.7.5
+ply==3.11
+pyRFC3339==1.1
+pytz==2023.3.post1

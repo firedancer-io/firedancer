@@ -153,21 +153,40 @@ tile_main( void * _args ) {
   if( FD_UNLIKELY( config->lazy ) ) lazy = config->lazy( scratch_mem );
 
   fd_rng_t rng[1];
-  fd_mux_tile( tile->cnc,
-               config->mux_flags,
-               tile->in_cnt,
-               in_mcache,
-               in_fseq,
-               tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,
-               out_cnt_reliable,
-               out_fseq,
-               config->burst,
-               0,
-               lazy,
-               fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-               fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
-               ctx,
-               &callbacks );
+  // if the tile is tvu then run tvu_main
+  if( FD_LIKELY( tile->kind != FD_TOPO_TILE_KIND_TVU ) ) {
+    fd_mux_tile( tile->cnc,
+                 config->mux_flags,
+                 tile->in_cnt,
+                 in_mcache,
+                 in_fseq,
+                 tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,
+                 out_cnt_reliable,
+                 out_fseq,
+                 config->burst,
+                 0,
+                 lazy,
+                 fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+                 fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
+                 ctx,
+                 &callbacks );
+  } else {
+    fd_tvu_tile( tile->cnc,
+                 config->mux_flags,
+                 tile->in_cnt,
+                 in_mcache,
+                 in_fseq,
+                 tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,
+                 out_cnt_reliable,
+                 out_fseq,
+                 config->burst,
+                 0,
+                 lazy,
+                 fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
+                 fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( tile->in_cnt, out_cnt_reliable ) ),
+                 ctx,
+                 &callbacks );
+  }
   FD_LOG_ERR(( "tile run loop returned" ));
   return 0;
 }
