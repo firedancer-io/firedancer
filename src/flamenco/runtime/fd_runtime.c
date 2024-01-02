@@ -28,7 +28,7 @@
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
 
-void 
+void
 fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
                                    fd_genesis_solana_t * genesis_block,
                                    fd_hash_t const * genesis_hash ) {
@@ -754,7 +754,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
       fd_collect_fee_task_info_t * collect_fee_task_info = &collect_fee_task_infos[txn_idx];
-      if( FD_UNLIKELY( collect_fee_task_info->result ) ) { 
+      if( FD_UNLIKELY( collect_fee_task_info->result ) ) {
         FD_LOG_WARNING(( "failed to collect fees" ));
         return -1;
       }
@@ -977,7 +977,7 @@ fd_runtime_finalize_txns( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 /* Make sure there are no dependent txns! */
-int 
+int
 fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                fd_txn_t * * txn_ptrs,
                                fd_rawtxn_b_t * raw_txns,
@@ -1075,7 +1075,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
           }
         }
       }
-    
+
       if( !is_executable_now ) {
         incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = txn_idx;
       } else {
@@ -1134,7 +1134,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     double cum_wave_time_ms = 0.0;
     while( incomplete_txn_idxs_cnt > 0 ) {
       long wave_time = -fd_log_wallclock();
-      fd_runtime_generate_wave( task_infos, incomplete_txn_idxs, incomplete_txn_idxs_cnt, 
+      fd_runtime_generate_wave( task_infos, incomplete_txn_idxs, incomplete_txn_idxs_cnt,
                                 next_incomplete_txn_idxs, &next_incomplete_txn_idxs_cnt,
                                 wave_task_infos, &wave_task_infos_cnt );
       ulong * temp_incomplete_txn_idxs = incomplete_txn_idxs;
@@ -1146,7 +1146,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       if( res != 0 ) {
         return res;
       }
-      
+
       res = fd_runtime_prepare_txns_phase3( slot_ctx, wave_task_infos, wave_task_infos_cnt );
       if( res != 0 ) {
         return res;
@@ -1471,12 +1471,12 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
   fd_rawtxn_b_t * raw_txns = fd_valloc_malloc(slot_ctx->valloc, alignof(fd_rawtxn_b_t), txn_cnt * sizeof(fd_rawtxn_b_t));
 
   fd_runtime_block_collect_txns( block_info, raw_txns, txn_ptrs );
-  
+
   res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, txn_ptrs, raw_txns, txn_cnt, tpool, max_workers );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
-  
+
   long block_finalize_time = -fd_log_wallclock();
   res = fd_runtime_block_execute_finalize_tpool( slot_ctx, block_info, tpool, max_workers );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -1608,7 +1608,7 @@ fd_runtime_poh_verify_wide_task( void *tpool,
     if( hash_cnt > 0 ) {
       fd_poh_append(&out_poh_hash, hash_cnt - 1);
     }
-    
+
     ulong leaf_cnt = microblock_info->signature_cnt;
     unsigned char * commit = fd_alloca_check( FD_WBMTREE32_ALIGN, fd_wbmtree32_footprint(leaf_cnt));
     fd_wbmtree32_leaf_t * leafs = fd_alloca_check(alignof(fd_wbmtree32_leaf_t), sizeof(fd_wbmtree32_leaf_t) * leaf_cnt);
@@ -1841,7 +1841,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 void const *block,
                                 ulong blocklen,
                                 fd_tpool_t *tpool,
-                                ulong max_workers, 
+                                ulong max_workers,
                                 ulong * txn_cnt ) {
   // TODO: FIX!
   //   slot_ctx->tower.funk_txn_index = (slot_ctx->tower.funk_txn_index + 1) & 0x1F;
@@ -2356,7 +2356,7 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   // FD_LOG_DEBUG(("rent collected - lamports: %lu", slot_ctx->slot_bank.collected_rent));
 }
 
-ulong fd_runtime_calculate_rent_burn( ulong rent_collected, 
+ulong fd_runtime_calculate_rent_burn( ulong rent_collected,
                                       fd_rent_t const * rent ) {
   return ( rent_collected * rent->burn_percent ) / 100;
 }
@@ -2475,6 +2475,12 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
         FD_BORROWED_ACCOUNT_DECL(rec);
 
+        int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
+        if (FD_UNLIKELY(err))
+        {
+          FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
+        }
+
         if (prevent_rent_fix)
         {
           // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
@@ -2486,12 +2492,6 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
             leftover_lamports += rent_to_be_paid;
             continue;
           }
-        }
-
-        int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
-        if (FD_UNLIKELY(err))
-        {
-          FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
         }
 
         rec->meta->info.lamports += rent_to_be_paid;
