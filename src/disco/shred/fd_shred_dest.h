@@ -72,16 +72,23 @@ struct __attribute__((aligned(FD_SHRED_DEST_ALIGN))) fd_shred_dest_private {
   pubkey_to_idx_t * pubkey_to_idx_map; /* maps pubkey -> [0, staked_cnt+unstaked_cnt) */
 
   ulong source_validator_orig_idx; /* in [0, staked_cnt+unstaked_cnt) */
+  /* Struct followed by:
+     * pubkey_to_idx map
+     * all_destinations
+     * staked
+     * unstaked
+   */
 };
 typedef struct fd_shred_dest_private fd_shred_dest_t;
 
 
 /* fd_shred_dest_{align, footprint} return the alignment and footprint
    (respectively) required of a region of memory to format it as an
-   fd_shred_dest_t object.  cnt is the number of destinations, both
-   staked and unstaked, that this object can store. */
+   fd_shred_dest_t object.  staked_cnt is the number of destinations
+   with positive stake while unstaked_cnt is the number of destinations
+   with zero stake that this object can store. */
 static inline ulong fd_shred_dest_align    ( void      ) { return FD_SHRED_DEST_ALIGN; }
-/*         */ ulong fd_shred_dest_footprint( ulong cnt );
+/*         */ ulong fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt );
 
 /* fd_shred_dest_new formats a region of memory for use as an
    fd_shred_dest_t object. mem points to the first byte of a region of

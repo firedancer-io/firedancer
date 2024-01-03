@@ -29,20 +29,25 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
+#include "../../ballet/wsample/fd_wsample.h"
 
-/* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are const-friendly versions of the
-   fd_epoch_leaders_{align,footprint} functions. */
+#define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \
+                                                      ((ulong )(a))>=((ulong )(b)) ? ((ulong )(a)) : ((ulong )(b)), \
+                                                      fd_ulong_max( (a), (b) ) ))
+
+/* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are compile-time-friendly versions
+   of the fd_epoch_leaders_{align,footprint} functions. */
 
 #define FD_EPOCH_LEADERS_ALIGN (64UL)
-#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                        \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                        \
-  FD_LAYOUT_INIT,                                                                              \
-    alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),      \
-    32UL,                        (pub_cnt  )*32UL                                      ),      \
-    alignof(ulong),              (                                                             \
-      (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)      \
-      )                                                                                ),      \
-    FD_EPOCH_LEADERS_ALIGN                                                             )
+#define FD_EPOCH_LEADERS_FOOTPRINT( pub_cnt, slot_cnt )                                              \
+  ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(                                              \
+    FD_LAYOUT_INIT,                                                                                  \
+      alignof(fd_epoch_leaders_t), sizeof(fd_epoch_leaders_t)                            ),          \
+      alignof(uint),               (                                                                 \
+        (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*sizeof(uint)          \
+        )                                                                                ),          \
+      FD_EPOCH_LEADERS_ALIGN                                                             )  +        \
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*pub_cnt, FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
 
