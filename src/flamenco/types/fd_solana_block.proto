@@ -50,6 +50,7 @@ package solana.storage.ConfirmedBlock;
 
 import "nanopb.proto";
 option (nanopb_fileopt).package = "fd_solblock";
+option (nanopb_fileopt).include = "../nanopb/pb_firedancer.h";
 
 // Transaction related
 
