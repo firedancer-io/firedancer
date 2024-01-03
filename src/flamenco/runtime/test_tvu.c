@@ -17,13 +17,13 @@
       --log-level-logfile 0 \
       --log-level-stderr 0
 
-      More sample commands:
+    More sample commands:
 
-      rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
+    rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
 
-      build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental incremental-snapshot-24* --rocksdb /data/testnet/ledger/rocksdb --txnstatus true --pages 100 --backup /data/asiegel/test_backup --slothistory 100
+    build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental incremental-snapshot-24* --rocksdb /data/testnet/ledger/rocksdb --genesis /data/testnet/ledger/genesis.bin --txnstatus true --pages 100 --backup /data/asiegel/test_backup --slothistory 100
 
-      build/native/gcc/unit-test/test_tvu --peer_addr :8000 --repair-peer-identity F7SW17yGN7UUPQ519nxaDt26UMtvwJPSFVu9kBMBQpW --load /data/asiegel/test_backup --repair-peer-addr :8008 --rpc-port 8123
+    build/native/gcc/unit-test/test_tvu --peer_addr :8000 --repair-peer-identity F7SW17yGN7UUPQ519nxaDt26UMtvwJPSFVu9kBMBQpW --load /data/asiegel/test_backup --repair-peer-addr :8008 --rpc-port 8123 --page-cnt 100
 
 */
 
@@ -625,7 +625,7 @@ main( int argc, char ** argv ) {
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
   /**********************************************************************/
-  /* Wksp                                                               */
+  /* Anonymous wksp                                                     */
   /**********************************************************************/
 
   ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
@@ -640,19 +640,6 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   /**********************************************************************/
-  /* Scratch                                                            */
-  /**********************************************************************/
-
-  ulong  smax   = 1 << 26UL; /* 64 MiB scratch memory */
-  ulong  sdepth = 128;       /* 128 scratch frames */
-  void * smem   = fd_wksp_alloc_laddr(
-      wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ), 421UL );
-  void * fmem = fd_wksp_alloc_laddr(
-      wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
-  FD_TEST( ( !!smem ) & ( !!fmem ) );
-  fd_scratch_attach( smem, fmem, smax, sdepth );
-
-  /**********************************************************************/
   /* funk */
   /**********************************************************************/
 
@@ -662,9 +649,6 @@ main( int argc, char ** argv ) {
   char hostname[64];
   gethostname( hostname, sizeof( hostname ) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
-
-  char const * peer_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
 
   fd_wksp_t *  funk_wksp = NULL;
   ulong        def_index_max;
@@ -680,8 +664,10 @@ main( int argc, char ** argv ) {
   }
   FD_TEST( funk_wksp );
 
-  if( snapshot ) { /* Start from scratch */
-    fd_wksp_reset( funk_wksp, (uint)hashseed );
+  if( snapshot ) {
+    if( wksp != funk_wksp )
+      /* Start from scratch */
+      fd_wksp_reset( funk_wksp, (uint)hashseed );
   } else if( load ) {
     FD_LOG_NOTICE(("loading %s", load));
     int err = fd_wksp_restore(funk_wksp, load, (uint)hashseed);
@@ -752,6 +738,19 @@ main( int argc, char ** argv ) {
       FD_LOG_ERR( ( "failed to allocate a blockstorey" ) );
     }
   }
+
+  /**********************************************************************/
+  /* Scratch                                                            */
+  /**********************************************************************/
+
+  ulong  smax   = 1 << 26UL; /* 64 MiB scratch memory */
+  ulong  sdepth = 128;       /* 128 scratch frames */
+  void * smem   = fd_wksp_alloc_laddr(
+      wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ), 421UL );
+  void * fmem = fd_wksp_alloc_laddr(
+      wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, smax, sdepth );
 
   /**********************************************************************/
   /* slot_ctx                                                           */
@@ -970,6 +969,8 @@ main( int argc, char ** argv ) {
   if( fd_gossip_set_config( gossip, &gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
+  char const * peer_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
   fd_gossip_peer_addr_t gossip_peer_addr;
   if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );

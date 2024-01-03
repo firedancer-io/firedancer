@@ -503,13 +503,13 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
   ulong slot_idx = 0;
   ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
   ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
-  // TODO transactionCount
-  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":0},\"id\":%lu}" CRLF,
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
                         ctx->slot_ctx->slot_bank.slot,
                         ctx->slot_ctx->slot_bank.block_height,
                         epoch,
                         slot_idx,
                         slots_per_epoch,
+                        ctx->slot_ctx->slot_bank.transaction_count,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -577,22 +577,24 @@ method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values
 }
 
 // Implementation of the "getGenesisHash" methods
-// TODO
 static int
 method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getGenesisHash is not implemented");
+  (void) values;
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
+  fd_textstream_encode_base58(ts, ctx->slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_pubkey_t));
+  fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getHealth" methods
-// TODO
 static int
 method_getHealth(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  (void)ctx;
-  fd_web_replier_error(replier, "getHealth is not implemented");
+  fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"ok\",\"id\":%lu}" CRLF, ctx->call_id);
+  fd_web_replier_done(replier);
   return 0;
 }
 

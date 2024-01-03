@@ -2015,6 +2015,8 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   ulong eah_start_slot;
   ulong eah_stop_slot;
   ulong eah_interval;
+  fd_hash_t genesis_hash;
+  uint cluster_type;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -2034,6 +2036,8 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint eah_start_slot_off;
   uint eah_stop_slot_off;
   uint eah_interval_off;
+  uint genesis_hash_off;
+  uint cluster_type_off;
 };
 typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 #define FD_EPOCH_BANK_OFF_FOOTPRINT sizeof(fd_epoch_bank_off_t)
@@ -2058,6 +2062,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
   ulong lamports_per_signature;
+  ulong transaction_count;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2081,6 +2086,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint epoch_stakes_off;
   uint last_restart_slot_off;
   uint lamports_per_signature_off;
+  uint transaction_count_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)

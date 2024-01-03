@@ -586,6 +586,8 @@ fd_runtime_microblock_execute( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
+  slot_ctx->slot_bank.transaction_count += hdr->txn_cnt;
+
   return 0;
 }
 
@@ -1163,6 +1165,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       cum_wave_time_ms += wave_time_ms;
       FD_LOG_INFO(( "wave executed - sz: %lu, elapsed: %6.6f ms, cum: %6.6f ms", wave_task_infos_cnt, wave_time_ms, cum_wave_time_ms ));
     }
+    slot_ctx->slot_bank.transaction_count += txn_cnt;
 
     return 0;
   } FD_SCRATCH_SCOPE_END;
@@ -1482,6 +1485,9 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
+
+  slot_ctx->slot_bank.transaction_count += txn_cnt;
+  
   block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
   FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, block_finalize_time_ms ));
@@ -1917,6 +1923,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
   double tps = (double) block_info.txn_cnt / ((double)block_eval_time * 1e-9);
   FD_LOG_INFO(("evaluated block successfully - slot: %lu, elapsed: %6.6f ms, signatures: %lu, txns: %lu, tps: %6.6f", slot_ctx->slot_bank.slot, block_eval_time_ms, block_info.signature_cnt, block_info.txn_cnt, tps ));
+
+  slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
   slot_ctx->funk_txn = parent_txn;
   return 0;
@@ -2789,6 +2797,7 @@ int fd_global_import_solana_manifest(fd_exec_slot_ctx_t *slot_ctx,
   slot_bank->collected_fees = oldbank->collector_fees;
   slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
+  slot_bank->transaction_count = oldbank->transaction_count;
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152

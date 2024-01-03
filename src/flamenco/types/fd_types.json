@@ -908,7 +908,9 @@
         { "name": "rent",                  "type": "rent" },
         { "name": "eah_start_slot",        "type": "ulong" },
         { "name": "eah_stop_slot",         "type": "ulong" },
-        { "name": "eah_interval",          "type": "ulong" }
+        { "name": "eah_interval",          "type": "ulong" },
+        { "name": "genesis_hash",          "type": "hash" },
+        { "name": "cluster_type",          "type": "uint" }
       ]
     },
     {
@@ -932,7 +934,8 @@
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
         { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" },
-        { "name": "lamports_per_signature","type": "ulong" }
+        { "name": "lamports_per_signature","type": "ulong" },
+        { "name": "transaction_count",     "type": "ulong" }
       ]
     },
     {

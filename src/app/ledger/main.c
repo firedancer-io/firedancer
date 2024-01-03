@@ -325,58 +325,64 @@ main( int     argc,
       fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
       FD_LOG_NOTICE(( "Genesis Hash: %32J", &genesis_hash ));
 
+      fd_memcpy( slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, genesis_hash.uc, 32U );
+      slot_ctx->epoch_ctx->epoch_bank.cluster_type = genesis_block.cluster_type;
+      
       free(buf);
 
-      fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
+      /* If we are loading from a snapshot, do not overwrite from genesis */
+      if ( !snapshotfile ) {
+        fd_runtime_init_bank_from_genesis( slot_ctx, &genesis_block, &genesis_hash );
 
-      fd_runtime_init_program( slot_ctx );
+        fd_runtime_init_program( slot_ctx );
 
-      FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
+        FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block.accounts_len));
 
-      for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
-        fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
+        for( ulong i=0; i < genesis_block.accounts_len; i++ ) {
+          fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
 
-        FD_BORROWED_ACCOUNT_DECL(rec);
+          FD_BORROWED_ACCOUNT_DECL(rec);
 
-        int err = fd_acc_mgr_modify(
+          int err = fd_acc_mgr_modify(
             slot_ctx->acc_mgr,
             slot_ctx->funk_txn,
             &a->key,
             /* do_create */ 1,
             a->account.data_len,
             rec);
-        if( FD_UNLIKELY( err ) )
-          FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+          if( FD_UNLIKELY( err ) )
+            FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
 
-        rec->meta->dlen            = a->account.data_len;
-        rec->meta->info.lamports   = a->account.lamports;
-        rec->meta->info.rent_epoch = a->account.rent_epoch;
-        rec->meta->info.executable = (char)a->account.executable;
-        memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
-        if( a->account.data_len )
-          memcpy( rec->data, a->account.data, a->account.data_len );
+          rec->meta->dlen            = a->account.data_len;
+          rec->meta->info.lamports   = a->account.lamports;
+          rec->meta->info.rent_epoch = a->account.rent_epoch;
+          rec->meta->info.executable = (char)a->account.executable;
+          memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
+          if( a->account.data_len )
+            memcpy( rec->data, a->account.data, a->account.data_len );
 
-        err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &a->key, rec->meta, slot_ctx );
-        if( FD_UNLIKELY( err ) )
-          FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
+          err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &a->key, rec->meta, slot_ctx );
+          if( FD_UNLIKELY( err ) )
+            FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
+        }
+
+        FD_LOG_DEBUG(( "end genesis accounts"));
+
+        FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len));
+
+        for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
+          fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
+          fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, a->string, strlen(a->string) );
+        }
+
+        /* sort and update bank hash */
+        int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
+        if (result != FD_EXECUTOR_INSTR_SUCCESS) {
+          return result;
+        }
+
+        slot_ctx->slot_bank.slot = 0UL;
       }
-
-      FD_LOG_DEBUG(( "end genesis accounts"));
-
-      FD_LOG_DEBUG(( "native instruction processors - count: %lu", genesis_block.native_instruction_processors_len));
-
-      for( ulong i=0; i < genesis_block.native_instruction_processors_len; i++ ) {
-        fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
-        fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, a->string, strlen(a->string) );
-      }
-
-      /* sort and update bank hash */
-      int result = fd_update_hash_bank( slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, slot_ctx->signature_cnt );
-      if (result != FD_EXECUTOR_INSTR_SUCCESS) {
-        return result;
-      }
-
-      slot_ctx->slot_bank.slot = 0UL;
 
       FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
 
