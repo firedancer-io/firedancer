@@ -3,6 +3,16 @@
 
 #include "fd_wksp.h"
 
+/* If FD_WKSP_LOCK_RECLAIM==0, do not try to recover the lock from
+   dead processes.  This is useful, for example, if we know that the
+   lock will not get acquired by another process, or that if another
+   acquiring process dies that all potential users will get exited.  It
+   prevents a syscall on various common workspace paths (eg, alloc). */
+
+#ifndef FD_WKSP_LOCK_RECLAIM
+#define FD_WKSP_LOCK_RECLAIM 0
+#endif
+
 /* FD_WKSP_PRIVATE_PINFO_IDX_NULL is the pinfo index value used to
    indicate NULL */
 
