@@ -90,6 +90,8 @@ ifeq ($(FD_HAS_OPENSSL),1)
 include config/with-openssl.mk
 endif
 
+include config/with-zstd.mk
+
 ifeq ($(FD_IS_X86_64),1)
 include config/x86-64-flags.mk
 	ifeq ($(FD_USING_GCC),1)

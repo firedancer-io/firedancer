@@ -8,6 +8,7 @@ include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
 include config/with-openssl.mk
+include config/with-zstd.mk
 
 include config/x86-64-flags.mk
 include config/x86-64-gcc-flags.mk
