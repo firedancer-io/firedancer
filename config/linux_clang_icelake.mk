@@ -7,6 +7,7 @@ include config/with-brutality.mk
 include config/with-optimization.mk
 include config/with-threads.mk
 include config/with-openssl.mk
+include config/with-zstd.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
 # limits clang usage to code hygiene usage for the time being.  Here,
