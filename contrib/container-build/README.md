@@ -8,5 +8,5 @@ Creates a build container with all build dependencies that will be used for subs
 
 Just run `./buildit.sh` to build with default options
 
-Supports options for choosing a tag|release|branch and machine type. See `./buildit.sh --help` for usage.
+Supports options for choosing a tag|release|branch, platform, and machine type. See `./buildit.sh --help` for usage.
 
