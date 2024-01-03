@@ -359,8 +359,8 @@ fd_feature_id_t const ids[] = {
               /* 28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9 */ },
 
   { .index  = offsetof(fd_features_t, enable_partitioned_epoch_reward)>>3,
-    .id     = {"\xf0\xbf\x84\x0c\x29\xba\x5b\x53\xaa\x06\xc7\x09\x13\x5d\x6b\x7b\x0a\x5b\x43\x3d\xc1\x70\x93\x1e\xf7\x25\x55\xfe\xd3\xdb\xd4\x65"}
-              /* HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8 */ },
+    .id     = {"\x2c\xcd\x49\xd1\x01\x45\x2d\x2e\x60\xc4\x6e\x4a\xe2\xe3\x4b\x6d\x5f\x33\xdc\x75\x97\x0d\x05\x15\x83\xa4\x96\xa7\x3a\x54\x06\x16"}
+              /* 41tVp5qR1XwWRt5WifvtSQyuxtqQWJgEK8w91AtBqSwP */ },
 
   { .index  = offsetof(fd_features_t, spl_token_v3_4_0)>>3,
     .id     = {"\xdd\x49\x17\x14\x26\x0f\xf1\xe8\xa1\x87\xe0\x3b\x4b\x80\x5d\xde\xd4\x52\xd3\x90\x4e\x14\x4c\xa2\xc5\x99\x39\x3f\x15\xf2\x37\x85"}
@@ -387,8 +387,8 @@ fd_feature_id_t const ids[] = {
               /* 9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i */ },
 
   { .index  = offsetof(fd_features_t, stake_minimum_delegation_for_rewards)>>3,
-    .id     = {"\xc6\x36\x89\x28\x10\xbb\x1b\x44\xb0\x3d\x91\xd6\xc1\x60\x79\xd3\x82\xa0\xa6\xa6\x88\x53\x4c\x6c\xe0\x95\xc2\xfa\xcc\xfb\xf3\x80"}
-              /* ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH */ },
+    .id     = {"\xe0\x31\xcd\xc7\x1c\xf7\x58\x54\x9d\x9f\x58\x3b\xa5\xe4\x94\xf7\xc8\x74\xb1\xab\xcf\xed\xe9\x3b\x3b\xce\x1c\xc0\xeb\x2d\xda\xe1"}
+              /* G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ */ },
 
   { .index  = offsetof(fd_features_t, add_set_compute_unit_price_ix)>>3,
     .id     = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"}
@@ -722,6 +722,26 @@ fd_feature_id_t const ids[] = {
     .id     = {"\xd4\xda\xe2\x6a\x8f\xf0\x49\x6c\x64\x64\x3e\x27\x5c\xc8\xc0\x94\x75\x19\xed\x99\xc6\x64\xe7\x3f\x62\xcc\x5c\xd4\x7b\xbc\x67\xe1"}
               /* FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv */ },
 
+  { .index  = offsetof(fd_features_t, validate_fee_collector_account)>>3,
+    .id     = {"\x0c\x42\x9f\xae\x63\x29\x2c\x8c\xaa\x94\x19\xe1\xf6\xb4\xd9\x16\x5e\x43\xb4\xc7\xb1\x1f\xe0\x9d\x01\xd9\x0a\xc5\x1c\x70\x7f\x14"}
+              /* prpFrMtgNmzaNzkPJg9o753fVvbHKqNrNTm76foJ2wm */ },
+
+  { .index  = offsetof(fd_features_t, enable_zk_transfer_with_fee)>>3,
+    .id     = {"\x0e\xcb\x24\x6c\x6b\x32\x42\xcd\x46\xc6\x8d\x16\xca\xd0\x06\xed\x41\x5e\x9f\xc4\x36\x71\x70\xdc\xf6\x59\x14\x25\x3e\x4c\xaa\x12"}
+              /* zkNLP7EQALfC1TYeB3biDU7akDckj8iPkvh9y2Mt2K3 */ },
+
+  { .index  = offsetof(fd_features_t, drop_legacy_shreds)>>3,
+    .id     = {"\xe6\x0f\x1e\xeb\x2f\x39\x7b\xd1\x39\xaa\x31\xee\x23\x84\x80\x69\x51\x99\x93\x80\xc2\x55\x53\xef\xeb\xa2\xe0\x16\x79\xa0\x01\x7c"}
+              /* GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy */ },
+
+  { .index  = offsetof(fd_features_t, consume_blockstore_duplicate_proofs)>>3,
+    .id     = {"\x52\x74\x2c\x7b\x6b\x86\x07\x02\x0c\x27\x5c\x4c\xf2\x6e\xf1\xe3\xcd\x47\xeb\xf2\x78\xe2\x9d\x0b\xfb\x96\xfb\x13\xad\x6f\x8a\xb0"}
+              /* 6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ */ },
+
+  { .index  = offsetof(fd_features_t, index_erasure_conflict_duplicate_proofs)>>3,
+    .id     = {"\x09\x74\xa1\x2b\x1c\x70\x2e\x59\xf6\x09\xfb\x6d\xaa\x47\x17\x37\xf4\xa5\xc2\xfb\x0b\xd9\x6b\x33\xcb\x93\xc4\x0c\xdd\x46\x4f\x23"}
+              /* dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa */ },
+
   { .index = ULONG_MAX }
 };
 
@@ -902,5 +922,10 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, update_hashes_per_tick3              
 FD_STATIC_ASSERT( offsetof( fd_features_t, update_hashes_per_tick4                                 )>>3==172UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, update_hashes_per_tick5                                 )>>3==173UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, update_hashes_per_tick6                                 )>>3==174UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validate_fee_collector_account                          )>>3==175UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_zk_transfer_with_fee                             )>>3==176UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, drop_legacy_shreds                                      )>>3==177UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, consume_blockstore_duplicate_proofs                     )>>3==178UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, index_erasure_conflict_duplicate_proofs                 )>>3==179UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

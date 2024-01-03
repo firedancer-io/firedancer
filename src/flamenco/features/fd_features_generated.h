@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (175UL)
+#define FD_FEATURE_ID_CNT (180UL)
 
 union fd_features {
 
@@ -188,6 +188,11 @@ union fd_features {
     ulong update_hashes_per_tick4;
     ulong update_hashes_per_tick5;
     ulong update_hashes_per_tick6;
+    ulong validate_fee_collector_account;
+    ulong enable_zk_transfer_with_fee;
+    ulong drop_legacy_shreds;
+    ulong consume_blockstore_duplicate_proofs;
+    ulong index_erasure_conflict_duplicate_proofs;
   };
 
 };
