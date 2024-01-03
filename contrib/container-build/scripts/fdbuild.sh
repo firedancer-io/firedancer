@@ -14,7 +14,7 @@ cd "$GITDIR"
 ./deps.sh install
 
 # Do the thing
-MACHINE=$1 make -j fdctl solana
+MACHINE=$1 make -j fdctl solana fddev
 
 cd build
 for dir in $(find . -name bin -type d)
