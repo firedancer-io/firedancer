@@ -20,15 +20,28 @@
 struct fd_wsample_private;
 typedef struct fd_wsample_private fd_wsample_t;
 
-#define FD_WSAMPLE_ALIGN (32UL)
-#define FD_WSAMPLE_FOOTPRINT( ele_cnt, restore_enabled ) (((ele_cnt)<UINT_MAX) ? \
-                                                                  ( 64UL + ((restore_enabled)?64UL:32UL)*(ele_cnt) ) : 0UL)
+#define FD_WSAMPLE_ALIGN (64UL)
+/* fd_leaders really wants a compile time-compatible footprint... The
+   internal count is 1/8 * (9^ceil(log_9(ele_cnt)) - 1) */
+#define FD_WSAMPLE_FOOTPRINT( ele_cnt, restore_enabled )                   \
+   (192UL + 64UL*((restore_enabled)?2UL:1UL)*(                             \
+                 ((ele_cnt)<=         1UL)?        0UL :                   \
+                 ((ele_cnt)<=         9UL)?        1UL :                   \
+                 ((ele_cnt)<=        81UL)?       10UL :                   \
+                 ((ele_cnt)<=       729UL)?       91UL :                   \
+                 ((ele_cnt)<=      6561UL)?      820UL :                   \
+                 ((ele_cnt)<=     59049UL)?     7381UL :                   \
+                 ((ele_cnt)<=    531441UL)?    66430UL :                   \
+                 ((ele_cnt)<=   4782969UL)?   597871UL :                   \
+                 ((ele_cnt)<=  43046721UL)?  5380840UL :                   \
+                 ((ele_cnt)<= 387420489UL)? 48427561UL :                   \
+                 ((ele_cnt)<=3486784401UL)?435848050UL : 3922632451UL ))   \
+
 /* fd_wsample_{align, footprint} give the alignment and footprint
    respectively required to create a weighted sampler with at most
    ele_cnt stake weights.  If restore_enabled is zero, calls to
    wsample_restore_all will be no-ops, but the footprint required will
-   be smaller.
-
+   be smaller. ele_cnt in [0, UINT_MAX-1) (note, not ULONG MAX).
 
    fd_wsample_{join,leave} join and leave a memory region formatted as a
    weighted sampler, respectively.  They both are simple casts.
@@ -88,7 +101,7 @@ void *            fd_wsample_delete   ( void * shmem  );
 
    fd_wsample_new_add adds a weight to a partially formatted memory
    region.  shmem must be a partially constructed region of memory, as
-   returned by fd_wsample_new_init or fd_wsample_new_add_weight weight
+   returned by fd_wsample_new_init or fd_wsample_new_add_weight, weight
    must be strictly positive, and the cumulative sum of this weight and
    all other weights must be less than ULONG_MAX.
 

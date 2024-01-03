@@ -32,15 +32,16 @@ struct __attribute__((packed)) shred_dest_input {
 typedef struct shred_dest_input shred_dest_input_t;
 
 ulong
-fd_shred_dest_footprint( ulong cnt ) {
+fd_shred_dest_footprint( ulong staked_cnt, ulong unstaked_cnt ) {
+  ulong cnt = staked_cnt+unstaked_cnt;
   int lg_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*fd_ulong_max( cnt, 1UL ) ) );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(
                 FD_LAYOUT_INIT,
                 fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              ),
-                fd_wsample_align(),                fd_wsample_footprint( cnt, 1 )       ),
-                fd_wsample_align(),                fd_wsample_footprint( 0UL, 1 )       ),
                 pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    ),
                 alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt ),
+                fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 )),
+                alignof(ulong),                    sizeof(ulong)*unstaked_cnt           ),
       FD_SHRED_DEST_ALIGN );
 }
 
@@ -66,8 +67,6 @@ fd_shred_dest_new( void                           * mem,
   FD_SCRATCH_ALLOC_INIT( footprint, mem );
   fd_shred_dest_t * sdest;
   /* */  sdest     = FD_SCRATCH_ALLOC_APPEND( footprint, fd_shred_dest_align(),             sizeof(fd_shred_dest_t)              );
-  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( cnt, 1 )       );
-  /*            */   FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( 0UL, 1 )       );
   void * _map      = FD_SCRATCH_ALLOC_APPEND( footprint, pubkey_to_idx_align(),             pubkey_to_idx_footprint( lg_cnt )    );
   void * _info     = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(fd_shred_dest_weighted_t), sizeof(fd_shred_dest_weighted_t)*cnt );
 
@@ -89,13 +88,13 @@ fd_shred_dest_new( void                           * mem,
   ulong staked_cnt   = cnts[0];
   ulong unstaked_cnt = cnts[1];
 
+  void * _wsample  = FD_SCRATCH_ALLOC_APPEND( footprint, fd_wsample_align(),                fd_wsample_footprint( staked_cnt, 1 ));
+  void * _unstaked = FD_SCRATCH_ALLOC_APPEND( footprint, alignof(ulong),                    sizeof(ulong)*unstaked_cnt           );
+
 
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( sdest->rng, FD_CHACHA20RNG_MODE_SHIFT ) );
 
-  /* We reserved enough space in _wsample for both the staked and
-     unstaked info */
   void  *  _staked   = fd_wsample_new_init( _wsample,  rng, staked_cnt,   1, FD_WSAMPLE_HINT_POWERLAW_REMOVE );
-  ulong * unstaked = (ulong *)fd_ulong_align_up( ((ulong)_wsample + fd_wsample_footprint( staked_cnt, 1 )), alignof(ulong) );
 
   for( ulong i=0UL; i<staked_cnt;   i++ ) _staked   = fd_wsample_new_add( _staked,   info[i].stake_lamports );
   _staked   = fd_wsample_new_fini( _staked   );
@@ -115,7 +114,7 @@ fd_shred_dest_new( void                           * mem,
   sdest->cnt                        = cnt;
   sdest->all_destinations           = copy;
   sdest->staked                     = fd_wsample_join( _staked );
-  sdest->unstaked                   = unstaked;
+  sdest->unstaked                   = _unstaked;
   sdest->unstaked_unremoved_cnt     = 0UL; /* unstaked doesn't get initialized until it's needed */
   sdest->staked_cnt                 = staked_cnt;
   sdest->unstaked_cnt               = unstaked_cnt;
@@ -335,6 +334,9 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
   ulong max_dest_cnt = 0UL;
 
+  ulong staked_shuffle[ sdest->staked_cnt+1UL ];
+  ulong staked_shuffle_populated_cnt = 0UL;
+
   for( ulong i=0UL; i<shred_cnt; i++ ) {
     /* Remove the leader. */
     if( FD_LIKELY( query && leader_is_staked ) ) fd_wsample_remove_idx( sdest->staked, leader_idx );
@@ -344,10 +346,14 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
 
     if( FD_UNLIKELY( !i_am_staked ) ) {
       /* Quickly burn through all the staked nodes since I'll be in the
-         unstaked portion.  There can't be too many of them since
-         otherwise we would have taken the quick exit at the start of
-         the function. */
-      while( fd_wsample_sample_and_remove( sdest->staked ) != FD_WSAMPLE_EMPTY ) my_idx++;
+         unstaked portion.  We don't care about the values, but we need
+         to advance the RNG the right number of times, and sadly there's
+         no other way to do it than this. There can't be too many of
+         them since otherwise we would have taken the quick exit at the
+         start of the function. */
+      staked_shuffle_populated_cnt = sdest->staked_cnt + 1UL;
+      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
+      my_idx += sdest->staked_cnt - (ulong)(query && leader_is_staked);
 
       prepare_unstaked_sampling( sdest, leader_idx );
       while( my_idx <= fanout ) {
@@ -357,8 +363,14 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
         my_idx++;
       }
     } else {
+      staked_shuffle_populated_cnt = fd_ulong_min( fanout+1UL, sdest->staked_cnt+1UL );
+      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle, staked_shuffle_populated_cnt );
       while( my_idx <= fanout ) {
-        ulong sample = fd_wsample_sample_and_remove( sdest->staked );
+        /* my_idx < fanout+1UL because of the while loop condition.
+           my_idx < staked_cnt+1UL because my_idx==staked_cnt will
+           trigger sample==FD_WSAMPLE_EMPTY below.  Thus, this access is
+           safe. */
+        ulong sample = staked_shuffle[ my_idx ];
         if( FD_UNLIKELY( sample==my_orig_idx      ) ) break; /* Found me! */
         if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) return NULL; /* I couldn't find myself.  This should be impossible. */
         my_idx++;
@@ -389,8 +401,15 @@ fd_shred_dest_compute_children( fd_shred_dest_t          * sdest,
     ulong cursor     = my_idx+1UL;
     ulong stored_cnt = 0UL;
 
-    while( cursor<=last_dest_idx ) {
-      ulong sample = fd_wsample_sample_and_remove( sdest->staked );
+    if( FD_LIKELY( (last_dest_idx>=staked_shuffle_populated_cnt) & (staked_shuffle_populated_cnt<sdest->staked_cnt+1UL ) ) ) {
+      ulong adtl = fd_ulong_min( last_dest_idx+1UL, sdest->staked_cnt+1UL ) - staked_shuffle_populated_cnt;
+
+      fd_wsample_sample_and_remove_many( sdest->staked, staked_shuffle+staked_shuffle_populated_cnt, adtl );
+      staked_shuffle_populated_cnt += adtl;
+    }
+
+    while( cursor<=fd_ulong_min( last_dest_idx, sdest->staked_cnt ) ) {
+      ulong sample = staked_shuffle[ cursor ];
       if( FD_UNLIKELY( sample==FD_WSAMPLE_EMPTY ) ) break;
 
       if( FD_UNLIKELY( cursor == my_idx + stride*(stored_cnt+1UL) ) ) {

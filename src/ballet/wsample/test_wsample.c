@@ -3,9 +3,10 @@
 #include <math.h>
 
 #define MAX 1024UL
-#define MAX_FOOTPRINT (1024UL + 64UL*MAX)
+#define MAX_FOOTPRINT (128UL + 128UL*(MAX*9UL+7UL)/8UL)
 
-uchar _shmem[MAX_FOOTPRINT] __attribute__((aligned(128)));
+uchar _shmem [MAX_FOOTPRINT] __attribute__((aligned(128)));
+uchar _shmem2[MAX_FOOTPRINT] __attribute__((aligned(128)));
 ulong weights[MAX];
 ulong counts[MAX];
 
@@ -220,6 +221,7 @@ test_matches_solana( void ) {
   tree = fd_wsample_join( fd_wsample_new_fini( partial ) );
   fd_wsample_seed_rng( fd_wsample_get_rng( tree ), zero_seed );
 
+
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  9UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) ==  3UL );
   FD_TEST( fd_wsample_sample_and_remove( tree ) == 12UL );
@@ -252,8 +254,8 @@ test_sharing( void ) {
     fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
     fd_chacha20rng_init( rng, zero_seed );
 
-    void * pl1 = fd_wsample_new_init( _shmem,                   rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
-    void * pl2 = fd_wsample_new_init( _shmem+MAX_FOOTPRINT/2UL, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+    void * pl1 = fd_wsample_new_init( _shmem , rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+    void * pl2 = fd_wsample_new_init( _shmem2, rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
     fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl1, 2UL ), 1UL ) ) );
     fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( pl2, 2UL ), 1UL ) ) );
 
@@ -283,8 +285,8 @@ test_restore_disabled( void ) {
   fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( _rng, FD_CHACHA20RNG_MODE_SHIFT ) );
   fd_chacha20rng_init( rng, zero_seed );
 
-  void * partial1 = fd_wsample_new_init( _shmem,                   rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
-  void * partial2 = fd_wsample_new_init( _shmem+MAX_FOOTPRINT/2UL, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
+  void * partial1 = fd_wsample_new_init( _shmem,  rng, 2UL, 0, FD_WSAMPLE_HINT_FLAT );
+  void * partial2 = fd_wsample_new_init( _shmem2, rng, 2UL, 1, FD_WSAMPLE_HINT_FLAT );
   fd_wsample_t * sample1 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial1, 2UL ), 1UL ) ) );
   fd_wsample_t * sample2 = fd_wsample_join( fd_wsample_new_fini( fd_wsample_new_add( fd_wsample_new_add( partial2, 2UL ), 1UL ) ) );
 
@@ -378,17 +380,39 @@ test_empty( void ) {
   fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
 }
 
+static void
+test_footprint( void ) {
+  /* Looping over all integers up to UINT_MAX took too long.  A CBMC
+     proof would be nice. */
+  for( ulong i=0UL; i<1000UL; i++ ) {
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i, 0 ) == fd_wsample_footprint( i, 0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i, 1 ) == fd_wsample_footprint( i, 1 ) );
+  }
+  for( ulong i=729UL; i<UINT_MAX; i*=3UL ) {
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 0 ) == fd_wsample_footprint( i-1UL, 0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 1 ) == fd_wsample_footprint( i-1UL, 1 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     0 ) == fd_wsample_footprint( i,     0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     1 ) == fd_wsample_footprint( i,     1 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 0 ) == fd_wsample_footprint( i+1UL, 0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 1 ) == fd_wsample_footprint( i+1UL, 1 ) );
+  }
+  for( ulong i=512UL; i<UINT_MAX; i*=2UL ) {
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 0 ) == fd_wsample_footprint( i-1UL, 0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i-1UL, 1 ) == fd_wsample_footprint( i-1UL, 1 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     0 ) == fd_wsample_footprint( i,     0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i,     1 ) == fd_wsample_footprint( i,     1 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 0 ) == fd_wsample_footprint( i+1UL, 0 ) );
+    FD_TEST( FD_WSAMPLE_FOOTPRINT( i+1UL, 1 ) == fd_wsample_footprint( i+1UL, 1 ) );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  FD_TEST( fd_wsample_footprint( UINT_MAX, 1 ) == 0UL         );
   FD_TEST( fd_wsample_footprint( MAX,      1 )                );
   FD_TEST( fd_wsample_footprint( MAX,      1 )<MAX_FOOTPRINT  );
-
-  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i,  0 ) == FD_WSAMPLE_FOOTPRINT( i,  0 ) );
-  for( ulong i=0UL; i<=(ulong)UINT_MAX+11UL; i+=11UL ) FD_TEST( fd_wsample_footprint( i, 11 ) == FD_WSAMPLE_FOOTPRINT( i, 21 ) );
 
   test_matches_solana();
   test_map();
@@ -396,6 +420,7 @@ main( int     argc,
   test_restore_disabled();
   test_remove_idx();
   test_empty();
+  test_footprint();
 
   test_probability_dist_replacement();
   test_probability_dist_noreplacement();

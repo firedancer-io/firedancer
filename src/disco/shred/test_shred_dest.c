@@ -21,8 +21,6 @@ test_compute_first_matches_solana( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
-  FD_TEST( fd_shred_dest_footprint   ( cnt          ) <= TEST_MAX_FOOTPRINT );
-  FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL ) <= TEST_MAX_FOOTPRINT );
 
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -31,6 +29,8 @@ test_compute_first_matches_solana( void ) {
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
+  FD_TEST( fd_shred_dest_footprint   ( staked, staked-cnt ) <= TEST_MAX_FOOTPRINT );
+  FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL       ) <= TEST_MAX_FOOTPRINT );
 
   fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );
 
@@ -71,8 +71,6 @@ test_compute_children_matches_solana( void ) {
   ulong cnt = t1_dest_info_sz / sizeof(fd_shred_dest_weighted_t);
   fd_shred_dest_weighted_t const * info = (fd_shred_dest_weighted_t const *)t1_dest_info;
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)t1_pubkey;
-  FD_TEST( fd_shred_dest_footprint   ( cnt         ) <= TEST_MAX_FOOTPRINT );
-  FD_TEST( fd_epoch_leaders_footprint( cnt, 2000UL ) <= TEST_MAX_FOOTPRINT );
 
   ulong staked = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
@@ -80,6 +78,9 @@ test_compute_children_matches_solana( void ) {
     stakes[i].stake = info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
+
+  FD_TEST( fd_shred_dest_footprint   ( staked, cnt-staked ) <= TEST_MAX_FOOTPRINT );
+  FD_TEST( fd_epoch_leaders_footprint( cnt,        2000UL ) <= TEST_MAX_FOOTPRINT );
 
   fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 4000UL, staked, stakes ) );
 
@@ -332,17 +333,16 @@ test_performance( void ) {
 
   fd_pubkey_t const * src_key = (fd_pubkey_t const *)(&info[18].pubkey);
   FD_TEST( cnt                                        <= TEST_MAX_VALIDATORS );
-  FD_TEST( fd_shred_dest_footprint   ( cnt          ) <= TEST_MAX_FOOTPRINT  );
-  FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL ) <= TEST_MAX_FOOTPRINT  );
 
   ulong staked = 0UL;
-  ulong total_stake = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     stakes[i].key = info[i].pubkey;
     stakes[i].stake = info[i].stake_lamports;
-    total_stake += info[i].stake_lamports;
     staked += (info[i].stake_lamports>0UL);
   }
+
+  FD_TEST( fd_shred_dest_footprint   ( staked, cnt-staked ) <= TEST_MAX_FOOTPRINT  );
+  FD_TEST( fd_epoch_leaders_footprint( cnt,       10000UL ) <= TEST_MAX_FOOTPRINT  );
 
   long dt = -fd_log_wallclock();
   fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes ) );

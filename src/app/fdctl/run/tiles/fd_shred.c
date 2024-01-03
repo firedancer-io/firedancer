@@ -541,7 +541,7 @@ after_frag( void *             _ctx,
 
       for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
     }
-    if( FD_UNLIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
+    if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);

@@ -340,8 +340,13 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  if( FD_UNLIKELY( MAX_SHRED_DEST_FOOTPRINT != fd_shred_dest_footprint( MAX_SHRED_DESTS ) ) )
-    FD_LOG_ERR(( "MAX_SHRED_DEST_FOOTPRINT should be set to %lu", fd_shred_dest_footprint( MAX_SHRED_DESTS ) ));
+  ulong max = 0UL;
+  for( ulong staked=1UL; staked<MAX_SHRED_DESTS; staked++ ) {
+    max = fd_ulong_max( max, fd_shred_dest_footprint( staked, MAX_SHRED_DESTS-staked ) );
+  }
+
+  if( FD_UNLIKELY( MAX_SHRED_DEST_FOOTPRINT != max ) )
+    FD_LOG_ERR(( "MAX_SHRED_DEST_FOOTPRINT should be %lu = sizeof(fd_shred_dest_t) + %lu", max, max-sizeof(fd_shred_dest_t) ));
 
   memset( identity_key, 'I', sizeof(fd_pubkey_t) );
 
