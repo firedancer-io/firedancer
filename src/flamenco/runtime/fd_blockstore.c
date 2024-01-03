@@ -533,7 +533,7 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
 /* Private function for deleting a block slot */
 static int
 fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
-  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
   if( FD_LIKELY( slot_meta_entry ) )
@@ -755,7 +755,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
     FD_LOG_DEBUG( ( "received all shreds for slot %lu - now building a block", slot_meta->slot ) );
     if( FD_UNLIKELY( !insert ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
 
-    if( FD_UNLIKELY( blockstore->max - blockstore->min >= blockstore->slot_history_max_with_slop ) ) {
+    if( FD_UNLIKELY( blockstore->min != ULONG_MAX &&
+                     blockstore->max >= blockstore->slot_history_max_with_slop &&
+                     blockstore->max - blockstore->min >= blockstore->slot_history_max_with_slop ) ) {
       FD_LOG_WARNING( ( "evicting oldest slot: %lu max: %lu - exceeds slot history max %lu",
                         blockstore->min,
                         blockstore->max,
