@@ -1,7 +1,7 @@
 BASEDIR?=build
 
 SHELL:=bash
-CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_WKSP_NO_LOCK_RECLAIM=1 -DFD_HAS_BACKTRACE=0 -DPB_SYSTEM_HEADER="\"pb_firedancer.h\""
+CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_HAS_BACKTRACE=0 -DPB_SYSTEM_HEADER="\"pb_firedancer.h\""
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++
