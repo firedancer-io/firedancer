@@ -2380,7 +2380,7 @@ int fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
   if( a->stake > b->stake ) {
     return 1;
   } else if (a->stake == b->stake) {
-    return memcmp(&a->pubkey, &b->pubkey, sizeof(fd_pubkey_t)) < 0;
+    return memcmp(&a->pubkey, &b->pubkey, sizeof(fd_pubkey_t)) > 0;
   }
   else
   { // a->stake < b->stake
@@ -2409,10 +2409,9 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     ulong i = 0;
 
     fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = fd_scratch_virtual() };
-    for (fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
+    for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vote_accounts_pool, vote_accounts_root );
         n;
-        n = fd_vote_accounts_pair_t_map_successor(vote_accounts_pool, n), i++)
-    {
+        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ), i++) {
       fd_vote_state_versioned_t vote_state_versioned;
       fd_vote_state_versioned_new(&vote_state_versioned);
       fd_bincode_decode_ctx_t decode_ctx = {
@@ -2420,9 +2419,8 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
           .dataend = &n->elem.value.data[n->elem.value.data_len],
           .valloc = fd_scratch_virtual()
       };
-      if (fd_vote_state_versioned_decode(&vote_state_versioned, &decode_ctx))
-      {
-        FD_LOG_WARNING(("fd_vote_state_versioned_decode failed"));
+      if( fd_vote_state_versioned_decode( &vote_state_versioned, &decode_ctx ) ) {
+        FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed" ));
         return;
       }
 
@@ -2442,10 +2440,8 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     ulong rent_distributed_in_initial_round = 0;
 
     // We now do distribution, reusing the validator stakes array for the rent stares
-    if (enforce_fix)
-    {
-      for (i = 0; i < num_validator_stakes; i++)
-      {
+    if( enforce_fix ) {
+      for( i = 0; i < num_validator_stakes; i++ ) {
         ulong staked = validator_stakes[i].stake;
         ulong rent_share = (ulong)(((uint128)staked * (uint128)rent_to_be_distributed) / (uint128)total_staked);
 
@@ -2454,12 +2450,12 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
       }
     } else {
       // TODO: implement old functionality!
-      FD_LOG_ERR(("unimplemented feature"));
+      FD_LOG_ERR(( "unimplemented feature" ));
     }
 
     ulong leftover_lamports = rent_to_be_distributed - rent_distributed_in_initial_round;
 
-    for (i = 0; i < num_validator_stakes; i++) {
+    for( i = 0; i < num_validator_stakes; i++ ) {
       if (leftover_lamports == 0) {
         break;
       }
@@ -2473,29 +2469,24 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     fd_rent_new(&rent);
     fd_sysvar_rent_read(slot_ctx, &rent);
 
-    for (i = 0; i < num_validator_stakes; i++)
-    {
+    for( i = 0; i < num_validator_stakes; i++ ) {
       ulong rent_to_be_paid = validator_stakes[i].stake;
 
-      if (!enforce_fix || rent_to_be_paid > 0)
-      {
+      if( !enforce_fix || rent_to_be_paid > 0 ) {
         fd_pubkey_t pubkey = validator_stakes[i].pubkey;
 
         FD_BORROWED_ACCOUNT_DECL(rec);
 
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
-        if (FD_UNLIKELY(err))
-        {
+        if( FD_UNLIKELY(err) ) {
           FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
         }
 
-        if (prevent_rent_fix)
-        {
+        if( prevent_rent_fix ) {
           // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
 
-          ulong minbal = fd_rent_exempt_minimum_balance2(&rent, rec->meta->dlen);
-          if (rec->meta->info.lamports + rent_to_be_paid < minbal)
-          {
+          ulong minbal = fd_rent_exempt_minimum_balance2(&rent, rec->const_meta->dlen);
+          if( rec->const_meta->info.lamports + rent_to_be_paid < minbal ) {
             FD_LOG_WARNING(("cannot pay a rent paying account (%32J)", &pubkey));
             leftover_lamports += rent_to_be_paid;
             continue;
@@ -2504,19 +2495,19 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
         rec->meta->info.lamports += rent_to_be_paid;
 
-        err = fd_acc_mgr_commit_raw(slot_ctx->acc_mgr, rec->rec, &pubkey, rec->meta, slot_ctx);
-        if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
-        {
-          FD_LOG_WARNING(("fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err));
+        err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &pubkey, rec->meta, slot_ctx);
+        if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+          FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
         }
+
       }
     } // end of iteration over validator_stakes
     if( enforce_fix && !prevent_rent_fix ) {
-      FD_TEST(leftover_lamports == 0);
+      FD_TEST( leftover_lamports == 0 );
     } else {
       ulong old = slot_ctx->slot_bank.capitalization;
       slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, leftover_lamports);
-      FD_LOG_WARNING(("fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, slot_ctx->slot_bank.capitalization));
+      FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %ld->%ld ", leftover_lamports, old, slot_ctx->slot_bank.capitalization ));
     }
   } FD_SCRATCH_SCOPE_END;
 }
