@@ -275,7 +275,7 @@ install_zstd () {
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
 }
 
