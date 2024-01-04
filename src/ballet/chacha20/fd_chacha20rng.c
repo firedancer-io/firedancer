@@ -64,22 +64,31 @@ fd_chacha20rng_init( fd_chacha20rng_t * rng,
   memcpy( rng->key, key, FD_CHACHA20_KEY_SZ );
   rng->buf_off  = 0UL;
   rng->buf_fill = 0UL;
-  memset( rng->idx_nonce, 0, 16UL );
   fd_chacha20rng_private_refill( rng );
   return rng;
 }
 
+#if FD_HAS_AVX
+
 void
-fd_chacha20rng_private_refill( fd_chacha20rng_t * rng ) {
+fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng );
+
+#else
+
+void
+fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng ) {
   ulong fill_target = FD_CHACHA20RNG_BUFSZ - FD_CHACHA20_BLOCK_SZ;
 
   ulong buf_avail;
   while( (buf_avail=(rng->buf_fill - rng->buf_off))<fill_target ) {
+    ulong idx = rng->buf_fill >> 6;
+    uint idx_nonce[4] __attribute__((aligned(16))) =
+      { (uint)idx, 0U, 0U, 0U };
     fd_chacha20_block( rng->buf + (rng->buf_fill % FD_CHACHA20RNG_BUFSZ),
                        rng->key,
-                       rng->idx_nonce );
+                       idx_nonce );
     rng->buf_fill += (uint)FD_CHACHA20_BLOCK_SZ;
-    rng->idx_nonce[0]++;
   }
 }
 
+#endif
