@@ -74,11 +74,6 @@ typedef struct fd_blockstore_tmp_shred fd_blockstore_tmp_shred_t;
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
 
-/* Bookkeeping for shred idxs, e.g. missing shreds */
-#define SET_NAME fd_blockstore_shred_idx_set
-#define SET_MAX  FD_SHRED_MAX_PER_SLOT
-#include "../../util/tmpl/fd_set.c"
-
 struct fd_blockstore_slot_meta_map {
   ulong          slot;
   fd_slot_meta_t slot_meta;
@@ -320,12 +315,9 @@ fd_blockstore_block_query_bank_hash( fd_blockstore_t * blockstore, ulong slot );
 fd_slot_meta_t *
 fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Returns the missing shreds in a given slot. Note there is a grace period for unreceived shreds.
- * This is calculated using the first timestamp info in SlotMeta and a configurable timeout. */
-int
-fd_blockstore_missing_shreds_query( fd_blockstore_t *               blockstore,
-                                    ulong                           slot,
-                                    fd_blockstore_shred_idx_set_t * missing_shreds );
+/* Return the slot of the parent block */
+ulong
+fd_blockstore_slot_parent_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* Returns the transaction data for the given signature */
 fd_blockstore_txn_map_t *

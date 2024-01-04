@@ -155,6 +155,7 @@ struct fd_repair {
     /* Table of needed shreds */
     fd_needed_elem_t * needed;
     fd_repair_nonce_t oldest_nonce;
+    fd_repair_nonce_t current_nonce;
     fd_repair_nonce_t next_nonce;
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
@@ -183,7 +184,7 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX));
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
-  glob->oldest_nonce = glob->next_nonce = 0;
+  glob->oldest_nonce = glob->current_nonce = glob->next_nonce = 0;
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
   glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
   shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
@@ -314,14 +315,14 @@ static void
 fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
-  /* Try again in 100 msec */
-  fd_pending_event_t * ev = fd_repair_add_pending(glob, glob->now + (long)100e6);
+  /* Try again in 50 msec */
+  fd_pending_event_t * ev = fd_repair_add_pending(glob, glob->now + (long)50e6);
   if (ev) {
     ev->fun = fd_repair_send_requests;
   }
 
   /* Garbage collect old requests */
-  long expire = glob->now - (long)10e9; /* 10 seconds */
+  long expire = glob->now - (long)2e9; /* 2 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -329,22 +330,26 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
       continue;
     if (ele->when > expire)
       break;
-    (*glob->deliver_fail_fun)( &ele->id, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
+    // (*glob->deliver_fail_fun)( &ele->id, ele->slot, ele->shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_TIMEOUT );
     fd_needed_table_remove( glob->needed, &n );
   }
-  glob->oldest_nonce = n;
+  glob->oldest_nonce = n;  
 
-  /* Send requests */
+  /* Send requests starting where we left off last time */
+  if ( (int)(n - glob->current_nonce) < 0 )
+    n = glob->current_nonce;
   ulong j = 0;
   for ( ; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
     if ( NULL == ele )
       continue;
     fd_active_elem_t * active = fd_active_table_query( glob->actives, &ele->id, NULL );
-    if ( NULL == active )
+    if ( NULL == active ) {
+      fd_needed_table_remove( glob->needed, &n );
       continue;
+    }
 
-    if (++j == 500U)
+    if (++j == 100U)
       break;
 
     fd_repair_protocol_t protocol;
@@ -386,7 +391,8 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
     }
 
     fd_repair_sign_and_send(glob, &protocol, &active->addr);
-}
+  }
+  glob->current_nonce = n;
 }
 
 /* Start timed events and other protocol behavior */
@@ -487,16 +493,20 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   fd_needed_elem_t * val = fd_needed_table_query(glob->needed, &key, NULL);
   if ( NULL == val )
     return 0;
-  fd_needed_table_remove(glob->needed, &key);
-  if ( key == glob->oldest_nonce )
-    glob->oldest_nonce = key + 1U;
 
   fd_shred_t const * shred = fd_shred_parse(msg, shredlen);
   if (shred == NULL)
     FD_LOG_WARNING(("invalid shread"));
   else
-    (*glob->deliver_fun)(shred, shredlen, from, glob->fun_arg);
+    (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
+
+  fd_needed_table_remove(glob->needed, &key);
   return 0;
+}
+
+int
+fd_repair_is_full( fd_repair_t * glob ) {
+  return fd_needed_table_is_full(glob->needed);
 }
 
 int

@@ -207,8 +207,9 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
 }
 
 static void
-recv_shred(fd_shred_t const * shred, ulong shred_sz, fd_gossip_peer_addr_t const * from, void * arg) {
+recv_shred(fd_shred_t const * shred, ulong shred_sz, fd_gossip_peer_addr_t const * from, fd_pubkey_t const * id, void * arg) {
   (void)from;
+  (void)id;
   (void)arg;
   FD_LOG_NOTICE(( "shred variant=0x%02x sz=%lu slot=%lu idx=%u header_sz=0x%lx merkle_sz=0x%lx payload_sz=0x%lx",
                   (uint)shred->variant, shred_sz, shred->slot, shred->idx, fd_shred_header_sz(shred->variant),
