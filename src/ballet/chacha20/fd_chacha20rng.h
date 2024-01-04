@@ -26,22 +26,27 @@
 /* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
+#if FD_HAS_AVX
+#define FD_CHACHA20RNG_BUFSZ (8*FD_CHACHA20_BLOCK_SZ)
+#else
 #define FD_CHACHA20RNG_BUFSZ (256UL)
+#endif
 
 struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
   /* ChaCha20 encryption key */
   uchar key[ 32UL ] __attribute__((aligned(32UL)));
 
-  /* Ring buffer of pre-generated ChaCha20 RNG data. */
+  /* Ring buffer of pre-generated ChaCha20 RNG data.
+     Note: We currently assume all reads are 8 byte.  This means the
+           cursor is always aligned by 8 and strictly increases in
+           increments of 8.  Thus, we really only have to refill the
+           buffer if buf_off==buf_fill.  */
   uchar buf[ FD_CHACHA20RNG_BUFSZ ] __attribute__((aligned(FD_CHACHA20_BLOCK_SZ)));
-  uint  buf_off;   /* Total number of bytes consumed */
-  uint  buf_fill;  /* Total number of bytes produced
+  ulong buf_off;   /* Total number of bytes consumed */
+  ulong buf_fill;  /* Total number of bytes produced
                       Always aligned by FD_CHACHA20_BLOCK_SZ */
 
   int mode;
-
-  /* ChaCha20 block index */
-  uint idx_nonce[ 4UL ] __attribute__((aligned(16UL)));
 };
 typedef struct fd_chacha20rng_private fd_chacha20rng_t;
 
@@ -111,12 +116,19 @@ fd_chacha20rng_t *
 fd_chacha20rng_init( fd_chacha20rng_t * rng,
                      void const *       key );
 
-/* fd_chacha20rng_private_refill refills the buffer with random bytes.
-
-   On return, guarantees fd_chacha20rng_avail( rng )>=FD_CHACHA20RNG_BLOCK_SZ */
+/* The refill function .  Not part of the public API. */
 
 void
-fd_chacha20rng_private_refill( fd_chacha20rng_t * rng );
+fd_chacha20rng_refill_avx( fd_chacha20rng_t * rng );
+
+void
+fd_chacha20rng_refill_seq( fd_chacha20rng_t * rng );
+
+#if FD_HAS_AVX
+#define fd_chacha20rng_private_refill fd_chacha20rng_refill_avx
+#else
+#define fd_chacha20rng_private_refill fd_chacha20rng_refill_seq
+#endif
 
 /* fd_chacha20rng_avail returns the number of buffered bytes. */
 
