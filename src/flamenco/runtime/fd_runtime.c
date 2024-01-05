@@ -1487,7 +1487,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   slot_ctx->slot_bank.transaction_count += txn_cnt;
-  
+
   block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
   FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, block_finalize_time_ms ));
@@ -2436,6 +2436,7 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
 
     ulong enforce_fix = FD_FEATURE_ACTIVE(slot_ctx, no_overflow_rent_distribution);
     ulong prevent_rent_fix = FD_FEATURE_ACTIVE(slot_ctx, prevent_rent_paying_rent_recipients);
+    ulong validate_fee_collector_account = FD_FEATURE_ACTIVE(slot_ctx, validate_fee_collector_account);
 
     ulong rent_distributed_in_initial_round = 0;
 
@@ -2464,11 +2465,6 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
       validator_stakes[i].stake++;
     }
 
-    // We really need to cache this...
-    fd_rent_t rent;
-    fd_rent_new(&rent);
-    fd_sysvar_rent_read(slot_ctx, &rent);
-
     for( i = 0; i < num_validator_stakes; i++ ) {
       ulong rent_to_be_paid = validator_stakes[i].stake;
 
@@ -2482,10 +2478,18 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
           FD_LOG_WARNING(("fd_acc_mgr_modify_raw failed (%d)", err));
         }
 
-        if( prevent_rent_fix ) {
+        if (validate_fee_collector_account) {
+          if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
+            FD_LOG_WARNING(("cannot pay a non-system-program owned account (%32J)", &pubkey));
+            leftover_lamports += rent_to_be_paid;
+            continue;
+          }
+        }
+
+        if( prevent_rent_fix | validate_fee_collector_account) {
           // https://github.com/solana-labs/solana/blob/8c5b5f18be77737f0913355f17ddba81f14d5824/accounts-db/src/account_rent_state.rs#L39
 
-          ulong minbal = fd_rent_exempt_minimum_balance2(&rent, rec->const_meta->dlen);
+          ulong minbal = fd_rent_exempt_minimum_balance2(slot_ctx->sysvar_cache.rent, rec->const_meta->dlen);
           if( rec->const_meta->info.lamports + rent_to_be_paid < minbal ) {
             FD_LOG_WARNING(("cannot pay a rent paying account (%32J)", &pubkey));
             leftover_lamports += rent_to_be_paid;
@@ -2548,14 +2552,28 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       return;
     }
 
-    ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2));
+    do {
+      if ( FD_FEATURE_ACTIVE( slot_ctx, validate_fee_collector_account ) ) {
+        if (memcmp(rec->meta->info.owner, fd_solana_system_program_id.key, sizeof(rec->meta->info.owner)) != 0) {
+          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to invalid owner", slot_ctx->slot_bank.collected_fees ));
+          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, slot_ctx->slot_bank.collected_fees);
+          break;
+        }
 
-    rec->meta->info.lamports += fees;
-    // FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
+        uchar not_exempt = fd_rent_exempt_minimum_balance2( slot_ctx->sysvar_cache.rent, rec->meta->dlen) > rec->meta->info.lamports;
+        if (not_exempt) {
+          FD_LOG_WARNING(("fd_runtime_freeze: burn %lu due to non-rent-exempt account", slot_ctx->slot_bank.collected_fees ));
+          slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, slot_ctx->slot_bank.collected_fees);
+          break;
+        }
+      }
 
-    slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
-    // ulong old = slot_ctx->slot_bank.capitalization;
-    // FD_LOG_DEBUG(("fd_runtime_freeze: burn %lu, capitalization %ld->%ld ", fees, old, slot_ctx->slot_bank.capitalization));
+      ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2));
+
+      rec->meta->info.lamports += fees;
+
+      slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
+    } while (false);
 
     slot_ctx->slot_bank.collected_fees = 0;
   }
