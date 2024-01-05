@@ -384,4 +384,4 @@ run-script-test:
 	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) contrib/script-tests.sh
 
 seccomp-policies:
-	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/generate_filters.py {} \;
+	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/test/generate_filters.py {} \;
