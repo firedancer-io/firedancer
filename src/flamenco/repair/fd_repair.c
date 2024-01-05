@@ -15,7 +15,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* Max number of validators that can be actively queried */
-#define FD_ACTIVE_KEY_MAX (1<<10)
+#define FD_ACTIVE_KEY_MAX (1<<11)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<12)
 /* Max number of pending timed events */
@@ -266,7 +266,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
     if (fd_active_table_is_full(glob->actives)) {
-      FD_LOG_WARNING(("too many actives"));
+      FD_LOG_DEBUG(("too many actives"));
       return -1;
     }
     val = fd_active_table_insert(glob->actives, id);

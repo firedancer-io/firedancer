@@ -80,7 +80,7 @@ static fd_pubkey_t pubkey_null = { 0 };
 
 #define MAP_NAME                fd_repair_peer
 #define MAP_T                   fd_repair_peer_t
-#define MAP_LG_SLOT_CNT         10 /* 1kb peers */
+#define MAP_LG_SLOT_CNT         12 /* 4kb peers */
 #define MAP_KEY                 id
 #define MAP_KEY_T               fd_pubkey_t
 #define MAP_KEY_NULL            pubkey_null
@@ -170,30 +170,35 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
         continue;
       if( !( slot >= peer->first_slot && slot <= peer->last_slot ) )
         continue;
+      if ( peer->request_cnt > 100U && peer->reply_cnt*3U < peer->request_cnt ) /* 2/3 fails */
+        continue;
       peers[npeers++]  = peer;
     }
     if( FD_UNLIKELY( !npeers ) ) {
       FD_LOG_DEBUG( ( "unable to find any peers shreds in range of requested slot %lu", slot ) );
       break;
     }
+#define GET_PEER \
+    fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % npeers]; \
+    repair_ctx->peer_iter += 17077
 
     fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( repair_ctx->blockstore, slot );
     if( FD_UNLIKELY( !slot_meta ) ) {
       /* Spread out the requests */
-      fd_repair_peer_t * peer = peers[(repair_ctx->peer_iter++) % npeers];
+      GET_PEER;
       FD_LOG_DEBUG( ( "requesting highest shred from %32J - slot: %lu", peer, slot ) );
       peer->request_cnt++;
       if( FD_UNLIKELY( fd_repair_need_highest_window_index( repair_ctx->repair, &peer->id, slot, 0 ) ) ) {
         FD_LOG_ERR( ( "error requesting highest window idx shred for slot %lu", slot ) );
       };
     } else if( slot - repair_ctx->slot_ctx->slot_bank.slot < LOOK_AHEAD_SHREDS ) {
-      FD_LOG_NOTICE( ( "requesting all shreds from %lu peers - slot: %lu last: %lu", npeers, slot, slot_meta->last_index ) );
+      FD_LOG_DEBUG( ( "requesting all shreds from %lu peers - slot: %lu last: %lu", npeers, slot, slot_meta->last_index ) );
       for( ulong shred_idx = slot_meta->consumed + 1UL;
            shred_idx <= slot_meta->last_index && !fd_repair_is_full( repair_ctx->repair );
            shred_idx++ ) {
         if( fd_blockstore_shred_query( repair_ctx->blockstore, slot, (uint)shred_idx ) ) continue;
         /* Spread out the requests */
-        fd_repair_peer_t * peer = peers[(repair_ctx->peer_iter++) % npeers];
+        GET_PEER;
         peer->request_cnt++;
         if( FD_UNLIKELY( fd_repair_need_window_index( repair_ctx->repair, &peer->id, slot, (uint)shred_idx ) ) ) {
           FD_LOG_ERR( ( "error requesting shreds" ) );
@@ -240,7 +245,8 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info_v1.serve_repair );
     if( FD_UNLIKELY( fd_repair_add_active_peer(
             gossip_ctx->repair, &repair_peer_addr, &data->inner.contact_info_v1.id ) ) ) {
-      FD_LOG_ERR( ( "error adding peer" ) );
+      FD_LOG_DEBUG( ( "error adding peer" ) ); /* Probably filled up the table */
+      return;
     };
 
     fd_repair_peer_t * peer =
@@ -251,7 +257,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     peer->reply_cnt   = 0;
     has_peer          = 1;
 
-    FD_LOG_NOTICE(("adding repair peer %32J", peer->id.uc));
+    FD_LOG_DEBUG(("adding repair peer %32J", peer->id.uc));
   }
 }
 
@@ -422,6 +428,31 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
   return res;
 }
 
+static void
+print_stats( fd_tvu_repair_ctx_t * repair_ctx ) {
+  ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
+  ulong peer_cnt = 0;
+  ulong good_peer_cnt = 0;
+  for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
+    fd_repair_peer_t * peer = &repair_ctx->repair_peers[i];
+    if( memcmp( &peer->id, &pubkey_null, sizeof( fd_pubkey_t ) ) == 0 )
+      continue;
+    ++peer_cnt;
+    if( slot >= peer->first_slot && slot <= peer->last_slot &&
+        !( peer->request_cnt > 100U && peer->reply_cnt*3U < peer->request_cnt ) ) /* 2/3 fails */
+      ++good_peer_cnt;
+    if( peer->request_cnt )
+      FD_LOG_NOTICE(( "peer %32J - avg requests: %lu, avg responses: %lu, ratio: %f, first_slot: %lu, last_slot: %lu",
+                      &peer->id, peer->request_cnt, peer->reply_cnt, ((double)peer->reply_cnt)/((double)peer->request_cnt),
+                      peer->first_slot, peer->last_slot ));
+    /* Do a moving average over several minutes */
+    peer->request_cnt >>= 1;
+    peer->reply_cnt >>= 1;
+  }
+  FD_LOG_NOTICE(( "current slot: %lu, transactions: %lu, peer count: %lu, 'good' peer count: %lu",
+                  slot, repair_ctx->slot_ctx->slot_bank.transaction_count, peer_cnt, good_peer_cnt ));
+}
+
 static int
 tvu_main( fd_gossip_t *        gossip,
           fd_gossip_config_t * gossip_config,
@@ -542,11 +573,16 @@ tvu_main( fd_gossip_t *        gossip,
                         [sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
 
   long last_call = fd_log_wallclock();
+  long last_stats = last_call;
   while( !*stopflag ) {
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( has_peer && ( now - last_call ) > (long)100e6 ) ) {
       repair_missing_shreds( repair_ctx );
       last_call = now;
+    }
+    if( FD_UNLIKELY( ( now - last_stats ) > (long)30e9 ) ) {
+      print_stats( repair_ctx );
+      last_stats = now;
     }
 
     /* Loop gossip */
@@ -998,25 +1034,4 @@ main( int argc, char ** argv ) {
   fd_valloc_free( valloc, fd_repair_delete( fd_repair_leave( repair ), valloc ) );
   fd_halt();
   return 0;
-
-  //   /**********************************************************************/
-  //   /* Outgoing shreds                                                    */
-  //   /**********************************************************************/
-
-  //   uchar const * pod = fd_wksp_pod_attach( "fd1_shred_store.wksp:4096" );
-  //   FD_TEST( pod );
-
-  //   fd_frag_meta_t * in_mcache = fd_mcache_join( fd_wksp_pod_map( pod, "mcache_shred_store_0" )
-  //   ); FD_TEST( in_mcache ); uchar * in_dcache = fd_dcache_join( fd_wksp_pod_map( pod,
-  //   "dcache_shred_store_0" ) ); FD_TEST( in_dcache ); ulong * in_fseq = fd_fseq_join(
-  //   fd_wksp_pod_map( pod, "fseq_shred_store_0_store_0" ) ); FD_TEST( in_fseq );
-
-  //   /*
-  //   const char* config_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--config", NULL, NULL
-  //   ); if ( config_file == NULL ) {
-  //     fprintf( stderr, "--config flag required\n" );
-  //     usage( argv[0] );
-  //     return 1;
-  //   }
-  //   */
 }

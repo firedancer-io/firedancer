@@ -40,6 +40,7 @@
 #define FD_BLOCKSTORE_ERR_TXN_MISSING   0x09
 #define FD_BLOCKSTORE_ERR_INVALID_SHRED 0x04 /* shred was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM        0x05 /* no mem */
+#define FD_BLOCKSTORE_ERR_INVALID_DESHRED 0x10 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_UNKNOWN       0xFF
 
 struct fd_blockstore_tmp_shred_key {

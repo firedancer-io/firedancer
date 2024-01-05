@@ -1909,7 +1909,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     slot_ctx->funk_txn_index = (slot_ctx->funk_txn_index - 1) & 31;
     slot_ctx->funk_txn = &slot_ctx->funk_txn_tower[slot_ctx->funk_txn_index];
     */
-    FD_LOG_ERR(("need to rollback"));
+    FD_LOG_ERR(("need to rollback slot %lu", slot_ctx->slot_bank.slot));
   }
 
   ulong publish_err = fd_funk_txn_publish(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);

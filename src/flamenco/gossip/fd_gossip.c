@@ -15,7 +15,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* How long do we remember values (in millisecs) */
-#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(5*60e3)) /* 5 minutes */
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(2*60e3)) /* 2 minutes */
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be known */

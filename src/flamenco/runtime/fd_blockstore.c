@@ -560,6 +560,7 @@ fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
     fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, block_entry->block.micros_gaddr ) );
     fd_alloc_free( alloc, txns );
     fd_alloc_free( alloc, data );
+    fd_blockstore_block_map_remove( block_map, block_entry );
   }
   return FD_BLOCKSTORE_OK;
 }
@@ -678,9 +679,11 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   }
 
   // deshredder error handling
+  int err;
   switch( rc ) {
   case -FD_SHRED_EINVAL:
-    return FD_BLOCKSTORE_ERR_INVALID_SHRED;
+    err = FD_BLOCKSTORE_ERR_INVALID_SHRED;
+    goto dump_block;
   case -FD_SHRED_ENOMEM:
     FD_LOG_ERR(
         ( "should have alloc'd enough memory above. likely indicates memory corruption." ) );
@@ -692,15 +695,27 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
     return FD_BLOCKSTORE_OK;
   case FD_SHRED_EBATCH:
   case FD_SHRED_EPIPE:
-    FD_LOG_ERR( ( "block was incomplete despite blockstore reporting it as shred-complete. likely "
-                  "indicates programming error." ) );
+    FD_LOG_WARNING(("deshredding slot %lu produced invalid block", slot));
+    err = FD_BLOCKSTORE_ERR_INVALID_DESHRED;
+    goto dump_block;
   case FD_SHRED_EINVAL:
-    return FD_BLOCKSTORE_ERR_INVALID_SHRED;
+    err = FD_BLOCKSTORE_ERR_INVALID_SHRED;
+    goto dump_block;
   case FD_SHRED_ENOMEM:
-    return FD_BLOCKSTORE_ERR_NO_MEM;
+    err = FD_BLOCKSTORE_ERR_NO_MEM;
+    goto dump_block;
   default:
-    return FD_BLOCKSTORE_ERR_UNKNOWN;
+    err = FD_BLOCKSTORE_ERR_UNKNOWN;
   }
+
+ dump_block:
+  /* We failed to deshred the block. Throw it away, and try again from scratch */
+  FD_LOG_WARNING(("dumping block at slot %lu due to error %d", slot, err));
+  fd_blockstore_slot_meta_map_remove( slot_meta_map, slot_meta_entry );
+  fd_alloc_free( alloc, shreds_laddr );
+  fd_alloc_free( alloc, data_laddr );
+  fd_blockstore_block_map_remove( block_map, insert );
+  return err;
 }
 
 int
