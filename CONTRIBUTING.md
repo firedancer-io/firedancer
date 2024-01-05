@@ -12,17 +12,9 @@ behaviors of various common development environments like emacs.
 
 ### Organization
 
-- Please avoid cluttering the repository root
-- `.github`: CI- and repo-related config
-- `config`: GNU Make build system config
-- `contrib`: Miscellaneous code
-- `ffi/rust`: Rust FFI bindings
-- `src`: Main source tree
-  - `app`: Main programs
-  - `ballet`: Protocol-related code (parsers, serializers, cryptography)
-  - `disco`: Tiles
-  - `tango`: Concurrency-related code (message queues, I/O)
-  - `util`: Firedancer standard library
+See [organization.txt](./doc/organization.txt).
+
+Please avoid cluttering the repository root.
 
 ### File Extensions
 
