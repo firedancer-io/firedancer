@@ -52,4 +52,4 @@ jobs:
           gcloud storage cp -r ./build/index.html ${{ vars.COVERAGE_BUCKET }}/
 
       - name: Check fuzz canaries
-        run: ./contrib/find_uncovered_fuzz_canaries.py $(find ./build/ -name 'fuzz_*\.lcov' -type f)
+        run: ./contrib/test/find_uncovered_fuzz_canaries.py $(find ./build/ -name 'fuzz_*\.lcov' -type f)
