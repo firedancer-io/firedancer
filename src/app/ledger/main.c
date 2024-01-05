@@ -144,6 +144,7 @@ main( int     argc,
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
   ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_DEFAULT_SLOT_HISTORY_MAX );
+  ulong        shred_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",     NULL, 1UL << 20 );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * verifyacchash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash",   NULL, NULL      );
@@ -222,9 +223,10 @@ main( int     argc,
     shmem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
-    ulong tmp_shred_max = 1UL << 20;
-    int   lg_txn_max    = 20;
-    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
+
+    int   lg_txn_max    = fd_ulong_find_msb( shred_max ) + 1;
+
+    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, shred_max, lg_txn_max, slot_history_max));
     if (blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -327,7 +329,7 @@ main( int     argc,
 
       fd_memcpy( slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, genesis_hash.uc, 32U );
       slot_ctx->epoch_ctx->epoch_bank.cluster_type = genesis_block.cluster_type;
-      
+
       free(buf);
 
       /* If we are loading from a snapshot, do not overwrite from genesis */
@@ -463,7 +465,7 @@ main( int     argc,
       num_pairs++;
     }
     FD_LOG_NOTICE(("num_iter_accounts: %ld  zero_accounts: %lu", num_iter_accounts, zero_accounts));
-  
+
     fd_hash_t accounts_hash;
     fd_hash_account_deltas(pairs, num_pairs, &accounts_hash, slot_ctx);
 
