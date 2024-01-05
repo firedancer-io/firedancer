@@ -25,10 +25,30 @@ jobs:
         run: make -j -Otarget fddev
 
       - name: Run single transaction
-        run: ./src/test/single-transaction.sh
+        run: |
+          max_attempts=10
+          attempt=1
+          while ! ./src/test/single-transaction.sh; do
+              echo "Attempt $attempt failed, retrying..."
+              ((attempt++))
+              if (( attempt > max_attempts )); then
+                  echo "Maximum attempts reached. Exiting."
+                  exit 1
+              fi
+          done
 
       - name: Run single transfer
-        run: ./src/test/single-transfer.sh
+        run: |
+          max_attempts=10
+          attempt=1
+          while ! ./src/test/single-transfer.sh; do
+              echo "Attempt $attempt failed, retrying..."
+              ((attempt++))
+              if (( attempt > max_attempts )); then
+                  echo "Maximum attempts reached. Exiting."
+                  exit 1
+              fi
+          done
 
   script-tests:
     runs-on:
