@@ -131,6 +131,212 @@ worker_bench( void * tpool,
   (void)l0; (void)l1; (void)m0; (void)m1; (void)n0; (void)n1;
 }
 
+static ulong test_t0; static ulong test_t1;
+static  long test_i0; static  long test_i1;
+static ulong test_a0; static ulong test_a1; static ulong test_a2; static ulong test_a3;
+static ulong test_a4; static ulong test_a5; static ulong test_a6;
+
+/* FIXME: test load balance and reduce range correctness too */
+
+static FD_FOR_ALL_PROTO( test_for_all_0 );
+static FD_FOR_ALL_BEGIN( test_for_all_0, 1L ) {
+  FD_TEST( block_thresh==1L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==0UL     ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     ); FD_TEST( _a3==0UL     );
+  FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_1 );
+static FD_FOR_ALL_BEGIN( test_for_all_1, 2L ) {
+  FD_TEST( block_thresh==2L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     ); FD_TEST( _a3==0UL     );
+  FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_2 );
+static FD_FOR_ALL_BEGIN( test_for_all_2, 3L ) {
+  FD_TEST( block_thresh==3L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==0UL     ); FD_TEST( _a3==0UL     );
+  FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_3 );
+static FD_FOR_ALL_BEGIN( test_for_all_3, 4L ) {
+  FD_TEST( block_thresh==4L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 ); FD_TEST( _a3==0UL     );
+  FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_4 );
+static FD_FOR_ALL_BEGIN( test_for_all_4, 5L ) {
+  FD_TEST( block_thresh==5L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 ); FD_TEST( _a3==test_a3 );
+  FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_5 );
+static FD_FOR_ALL_BEGIN( test_for_all_5, 6L ) {
+  FD_TEST( block_thresh==6L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 ); FD_TEST( _a3==test_a3 );
+  FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_6 );
+static FD_FOR_ALL_BEGIN( test_for_all_6, 7L ) {
+  FD_TEST( block_thresh==7L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 ); FD_TEST( _a3==test_a3 );
+  FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 ); FD_TEST( _a6==0UL     );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_PROTO( test_for_all_7 );
+static FD_FOR_ALL_BEGIN( test_for_all_7, 8L ) {
+  FD_TEST( block_thresh==8L  );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 ); FD_TEST( _a3==test_a3 );
+  FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 ); FD_TEST( _a6==test_a6 );
+} FD_FOR_ALL_END
+
+#define TEST_SPAD_ALIGN     (4096UL)
+#define TEST_SPAD_FOOTPRINT (4096UL)
+#define TEST_SPAD_DEPTH     (128UL)
+#define TEST_SPAD_SZ        (TEST_SPAD_FOOTPRINT - TEST_SPAD_DEPTH*sizeof(ulong))
+
+struct __attribute__((aligned(TEST_SPAD_ALIGN))) {
+  ulong fmem[ TEST_SPAD_DEPTH ];
+  uchar smem[ TEST_SPAD_SZ    ];
+} test_spad[ FD_TILE_MAX ];
+
+static FD_FOR_ALL_BEGIN( test_scratch_attach, 1L ) {
+  fd_scratch_attach( test_spad[tpool_t0].smem, test_spad[tpool_t0].fmem, TEST_SPAD_SZ, TEST_SPAD_DEPTH );
+} FD_FOR_ALL_END
+
+static FD_FOR_ALL_BEGIN( test_scratch_detach, 1L ) {
+  fd_scratch_detach( NULL );
+} FD_FOR_ALL_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_0 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_0, 1L, 2UL, 4UL ) {
+  FD_TEST( block_thresh==1L ); FD_TEST( reduce_align==2UL ); FD_TEST( reduce_footprint==4UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==0UL     ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==1L ); FD_TEST( reduce_align==2UL ); FD_TEST( reduce_footprint==4UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==0UL     ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_1 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_1, 2L, 4UL, 8UL ) {
+  FD_TEST( block_thresh==2L ); FD_TEST( reduce_align==4UL ); FD_TEST( reduce_footprint==8UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==2L ); FD_TEST( reduce_align==4UL ); FD_TEST( reduce_footprint==8UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==0UL     ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_2 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_2, 3L, 8UL, 16UL ) {
+  FD_TEST( block_thresh==3L ); FD_TEST( reduce_align==8UL ); FD_TEST( reduce_footprint==16UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==3L ); FD_TEST( reduce_align==8UL ); FD_TEST( reduce_footprint==16UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==0UL     );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_3 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_3, 4L, 16UL, 32UL ) {
+  FD_TEST( block_thresh==4L ); FD_TEST( reduce_align==16UL ); FD_TEST( reduce_footprint==32UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==4L ); FD_TEST( reduce_align==16UL ); FD_TEST( reduce_footprint==32UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==0UL     ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_4 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_4, 5L, 32UL, 64UL ) {
+  FD_TEST( block_thresh==5L ); FD_TEST( reduce_align==32UL ); FD_TEST( reduce_footprint==64UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==5L ); FD_TEST( reduce_align==32UL ); FD_TEST( reduce_footprint==64UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==0UL     ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_5 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_5, 6L, 64UL, 128UL ) {
+  FD_TEST( block_thresh==6L ); FD_TEST( reduce_align==64UL ); FD_TEST( reduce_footprint==128UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     );
+} FD_MAP_END {
+  FD_TEST( block_thresh==6L ); FD_TEST( reduce_align==64UL ); FD_TEST( reduce_footprint==128UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==0UL     );
+} FD_REDUCE_END
+
+static FD_MAP_REDUCE_PROTO( test_map_reduce_6 );
+static FD_MAP_REDUCE_BEGIN( test_map_reduce_6, 7L, 128UL, 256UL ) {
+  FD_TEST( block_thresh==7L ); FD_TEST( reduce_align==128UL ); FD_TEST( reduce_footprint==256UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 );
+} FD_MAP_END {
+  FD_TEST( block_thresh==7L ); FD_TEST( reduce_align==128UL ); FD_TEST( reduce_footprint==256UL );
+  FD_TEST( (test_t0<=tpool_t0) & (tpool_t0< tpool_t1) & (tpool_t1<=test_t1) );
+  FD_TEST( (test_i0<=block_i0) & (block_i0<=block_i1) & (block_i1<=test_i1) & (block_cnt==(block_i1-block_i0)) );
+  FD_TEST( _a0==test_a0 ); FD_TEST( _a1==test_a1 ); FD_TEST( _a2==test_a2 );
+  FD_TEST( _a3==test_a3 ); FD_TEST( _a4==test_a4 ); FD_TEST( _a5==test_a5 );
+} FD_REDUCE_END
+
+static FD_FOR_ALL_BEGIN( bench_for_all, 1L ) {} FD_FOR_ALL_END
+
+static FD_MAP_REDUCE_BEGIN( bench_map_reduce, 1L, 128UL, 128UL ) {} FD_MAP_END {} FD_REDUCE_END
+
 int
 main( int     argc,
       char ** argv ) {
@@ -437,6 +643,51 @@ main( int     argc,
   }
 # endif
 
+  FD_LOG_NOTICE(( "Testing FD_FOR_ALL" ));
+
+  for( ulong rem=100000UL; rem; rem-- ) {
+    FD_COMPILER_MFENCE();
+    test_t0 = fd_rng_ulong_roll( rng, tile_cnt );
+    test_t1 = fd_rng_ulong_roll( rng, tile_cnt ); fd_swap_if( test_t1<test_t0, test_t0, test_t1 ); test_t1++;
+    test_i0 = (long)fd_rng_int( rng );
+    test_i1 = (long)fd_rng_int( rng ); fd_swap_if( test_i1<test_i0, test_i0, test_i1 );
+    test_a0 = fd_rng_ulong( rng ); test_a1 = fd_rng_ulong( rng ); test_a2 = fd_rng_ulong( rng ); test_a3 = fd_rng_ulong( rng );
+    test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng );
+    FD_COMPILER_MFENCE();
+    FD_FOR_ALL( test_for_all_0, tpool,test_t0,test_t1, test_i0,test_i1 );
+    FD_FOR_ALL( test_for_all_1, tpool,test_t0,test_t1, test_i0,test_i1, test_a0 );
+    FD_FOR_ALL( test_for_all_2, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1 );
+    FD_FOR_ALL( test_for_all_3, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2 );
+    FD_FOR_ALL( test_for_all_4, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3 );
+    FD_FOR_ALL( test_for_all_5, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,test_a4 );
+    FD_FOR_ALL( test_for_all_6, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,test_a4,test_a5 );
+    FD_FOR_ALL( test_for_all_7, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,test_a4,test_a5,test_a6 );
+  }
+
+  FD_LOG_NOTICE(( "Testing FD_MAP_REDUCE" ));
+
+  FD_FOR_ALL( test_scratch_attach, tpool,0UL,tile_cnt, 0L,(long)tile_cnt );
+
+  for( ulong rem=100000UL; rem; rem-- ) {
+    FD_COMPILER_MFENCE();
+    test_t0 = fd_rng_ulong_roll( rng, tile_cnt );
+    test_t1 = fd_rng_ulong_roll( rng, tile_cnt ); fd_swap_if( test_t1<test_t0, test_t0, test_t1 ); test_t1++;
+    test_i0 = (long)fd_rng_int( rng );
+    test_i1 = (long)fd_rng_int( rng ); fd_swap_if( test_i1<test_i0, test_i0, test_i1 );
+    test_a0 = fd_rng_ulong( rng ); test_a1 = fd_rng_ulong( rng ); test_a2 = fd_rng_ulong( rng ); test_a3 = fd_rng_ulong( rng );
+    test_a4 = fd_rng_ulong( rng ); test_a5 = fd_rng_ulong( rng ); test_a6 = fd_rng_ulong( rng );
+    FD_COMPILER_MFENCE();
+    FD_MAP_REDUCE( test_map_reduce_0, tpool,test_t0,test_t1, test_i0,test_i1,                                                  test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_1, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,                                         test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_2, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,                                 test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_3, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,                         test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_4, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,                 test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_5, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,test_a4,         test_a6 );
+    FD_MAP_REDUCE( test_map_reduce_6, tpool,test_t0,test_t1, test_i0,test_i1, test_a0,test_a1,test_a2,test_a3,test_a4,test_a5, test_a6 );
+  }
+
+  FD_FOR_ALL( test_scratch_detach, tpool,0UL,tile_cnt, 0L,(long)tile_cnt );
+
   FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
 
   FD_LOG_NOTICE(( "Testing fd_tpool_worker_state_cstr" ));
@@ -448,13 +699,14 @@ main( int     argc,
   cstr = fd_tpool_worker_state_cstr( FD_TPOOL_WORKER_STATE_HALT ); FD_TEST( cstr && !strcmp( cstr, "halt"    ) );
   cstr = fd_tpool_worker_state_cstr( -1 );                         FD_TEST( cstr && !strcmp( cstr, "unknown" ) );
 
-  FD_LOG_NOTICE(( "Benching dispatch" ));
-
   tpool = fd_tpool_init( tpool_mem, tile_cnt ); FD_TEST( tpool );
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) FD_TEST( fd_tpool_worker_push( tpool, tile_idx, NULL, 0UL )==tpool );
 
   ulong iter_cnt = 65536UL;
   float overhead;
+
+  FD_LOG_NOTICE(( "Benchmarking exec_all" ));
+
   for( ulong worker_cnt=1UL; worker_cnt<=tile_cnt; worker_cnt++ ) {
 
     /* warmup */
@@ -475,14 +727,60 @@ main( int     argc,
     }
   }
 
+  FD_LOG_NOTICE(( "Benchmarking FOR_ALL" ));
+
+  for( ulong worker_cnt=1UL; worker_cnt<=tile_cnt; worker_cnt++ ) {
+
+    /* warmup */
+    for( ulong rem=1024UL; rem; rem-- ) FD_FOR_ALL( bench_for_all, tpool, 0L,worker_cnt, 0L,worker_cnt );
+
+    /* for real */
+    long elapsed = -fd_log_wallclock();
+    for( ulong rem=iter_cnt; rem; rem-- ) FD_FOR_ALL( bench_for_all, tpool, 0L,worker_cnt, 0L,worker_cnt );
+    elapsed += fd_log_wallclock();
+
+    float dt = ((float)elapsed) / ((float)iter_cnt);
+    if( worker_cnt==1UL ) {
+      overhead = dt;
+      FD_LOG_NOTICE(( "%4lu workers %9.3f ns (%9.3f overhead)", worker_cnt, (double)dt, (double)overhead ));
+    } else {
+      float dt_per_level = (dt-overhead) / (float)fd_ulong_find_msb( worker_cnt );
+      FD_LOG_NOTICE(( "%4lu workers %9.3f ns (%9.3f dt_per_level)", worker_cnt, (double)dt, (double)dt_per_level ));
+    }
+  }
+
+  FD_LOG_NOTICE(( "Benchmarking MAP_REDUCE" ));
+
+  FD_FOR_ALL( test_scratch_attach, tpool,0UL,tile_cnt, 0L,(long)tile_cnt );
+
+  for( ulong worker_cnt=1UL; worker_cnt<=tile_cnt; worker_cnt++ ) {
+
+    /* warmup */
+    for( ulong rem=1024UL; rem; rem-- ) FD_MAP_REDUCE( bench_map_reduce, tpool, 0L,worker_cnt, 0L,worker_cnt, NULL );
+
+    /* for real */
+    long elapsed = -fd_log_wallclock();
+    for( ulong rem=iter_cnt; rem; rem-- ) FD_MAP_REDUCE( bench_map_reduce, tpool, 0L,worker_cnt, 0L,worker_cnt, NULL );
+    elapsed += fd_log_wallclock();
+
+    float dt = ((float)elapsed) / ((float)iter_cnt);
+    if( worker_cnt==1UL ) {
+      overhead = dt;
+      FD_LOG_NOTICE(( "%4lu workers %9.3f ns (%9.3f overhead)", worker_cnt, (double)dt, (double)overhead ));
+    } else {
+      float dt_per_level = (dt-overhead) / (float)fd_ulong_find_msb( worker_cnt );
+      FD_LOG_NOTICE(( "%4lu workers %9.3f ns (%9.3f dt_per_level)", worker_cnt, (double)dt, (double)dt_per_level ));
+    }
+
+  }
+
+  FD_FOR_ALL( test_scratch_detach, tpool,0UL,tile_cnt, 0L,(long)tile_cnt );
+
   FD_TEST( fd_tpool_fini( tpool )==(void *)tpool_mem );
 
-  /* FIXME: better coverage of scratch attach / detach */
-
   fd_rng_delete( fd_rng_leave( rng ) );
-  
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-
