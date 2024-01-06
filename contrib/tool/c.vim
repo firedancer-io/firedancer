@@ -26,6 +26,7 @@ syn keyword cOperator     FD_STRINGIFY
 syn keyword cOperator     FD_CONCAT2 FD_CONCAT3 FD_CONCAT4
 syn keyword cOperator     FD_EXPAND_THEN_STRINGIFY
 syn keyword cOperator     FD_EXPAND_THEN_CONCAT2 FD_EXPAND_THEN_CONCAT3 FD_EXPAND_THEN_CONCAT4
+syn keyword cOperator     FD_VA_ARGS_SELECT
 syn keyword cOperator     FD_SRC_LOCATION
 syn keyword cOperator     FD_STATIC_ASSERT
 syn keyword cOperator     FD_ADDRESS_OF_PACKED_MEMBER

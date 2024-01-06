@@ -343,6 +343,14 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_EXPAND_THEN_CONCAT3(a,b,c)FD_CONCAT3(a,b,c)
 #define FD_EXPAND_THEN_CONCAT4(a,b,c,d)FD_CONCAT4(a,b,c,d)
 
+/* FD_VA_ARGS_SELECT(__VA_ARGS__,e32,e31,...e1):  Macro that expands to
+   en at compile time where n is number of items in the __VA_ARGS__
+   list.  If __VA_ARGS__ is empty, returns e1.  Assumes __VA_ARGS__ has
+   at most 32 arguments.  Useful for making a variadic macro whose
+   behavior depends on the number of arguments in __VA_ARGS__. */
+
+#define FD_VA_ARGS_SELECT(A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,a,b,c,d,e,f,_,...)_
+
 /* FD_SRC_LOCATION returns a const cstr holding the line of code where
    FD_SRC_LOCATION was used. */
 
