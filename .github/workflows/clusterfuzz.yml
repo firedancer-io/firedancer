@@ -1,17 +1,29 @@
-name: Clusterfuzz
+name: Publish to ClusterFuzz
 on:
   workflow_call:
   workflow_dispatch:
 jobs:
-  publish:
+  clusterfuzz-publish:
     name: Build Fuzzers for ${{ matrix.feature_set }} feature set
+    environment:
+      name: clusterfuzz
+      url: 'https://isol-clusterfuzz.appspot.com/'
     strategy:
       matrix:
-        feature_set: [modern, highend]
+        machine:
+          - linux_clang_zen2
+          - linux_clang_icelake
+        include:
+          - machine: linux_clang_zen2
+            artifact_dir: build/linux/clang/zen2
+            qualifier: modern
+          - machine: linux_clang_icelake
+            artifact_dir: build/linux/clang/icelake
+            qualifier: highend
     runs-on:
       group: github-v1
     env:
-      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+      MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
     steps:
       - uses: actions/checkout@v4
@@ -28,14 +40,14 @@ jobs:
 
       - name: List Artifacts
         run: |
-          ls build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
+          ls ${{ matrix.artifact_dir }}/fuzz-test
 
       - uses: firedancer-io/clusterfuzz-action@main
         name: Upload fuzz targets to ClusterFuzz
         with:
           bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
-          artifact-dir: build/linux/clang/combi/${{ matrix.feature_set }}/fuzz-test
-          object-prefix: main/libfuzzer/${{ matrix.feature_set }}/firedancer
+          artifact-dir: ${{ matrix.artifact_dir }}/fuzz-test
+          object-prefix: main/libfuzzer/${{ matrix.qualifier }}/firedancer
           project-id: isol-clusterfuzz
-          qualifier: ${{ matrix.feature_set }}
+          qualifier: ${{ matrix.qualifier }}
           service-account-credentials: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
