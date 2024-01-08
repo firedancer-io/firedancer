@@ -100,7 +100,7 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 #define MAP_PERFECT_NAME      fd_pack_unwritable
 #define MAP_PERFECT_LG_TBL_SZ 5
 #define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    3995341266U
+#define MAP_PERFECT_HASH_C    714791685U
 #define MAP_PERFECT_KEY       b
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -114,30 +114,31 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
                                           PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
 
-/* SysvarEpochRewards1111111111111111111111111, and
-   ZkTokenProof1111111111111111111111111111111 omitted from this list
-   due to lack of use and lack of space in the table. */
-#define MAP_PERFECT_0  ( SYSVAR_PROG_ID           ),
-#define MAP_PERFECT_1  ( SYSVAR_RECENT_BLKHASH_ID ),
-#define MAP_PERFECT_2  ( SYSVAR_CLOCK_ID          ),
-#define MAP_PERFECT_3  ( SYSVAR_SLOT_HIST_ID      ),
-#define MAP_PERFECT_4  ( SYSVAR_SLOT_HASHES_ID    ),
-#define MAP_PERFECT_5  ( SYSVAR_EPOCH_SCHED_ID    ),
-#define MAP_PERFECT_6  ( SYSVAR_FEES_ID           ),
-#define MAP_PERFECT_7  ( SYSVAR_RENT_ID           ),
+/* This list is a superset of what Lab's is_builtin_key_or_sysvar checks. */
+/* Sysvars */
+#define MAP_PERFECT_0  ( SYSVAR_CLOCK_ID          ),
+#define MAP_PERFECT_1  ( SYSVAR_EPOCH_SCHED_ID    ),
+#define MAP_PERFECT_2  ( SYSVAR_FEES_ID           ),
+#define MAP_PERFECT_3  ( SYSVAR_RECENT_BLKHASH_ID ),
+#define MAP_PERFECT_4  ( SYSVAR_RENT_ID           ),
+#define MAP_PERFECT_5  ( SYSVAR_REWARDS_ID        ),
+#define MAP_PERFECT_6  ( SYSVAR_SLOT_HASHES_ID    ),
+#define MAP_PERFECT_7  ( SYSVAR_SLOT_HIST_ID      ),
 #define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9  ( SYSVAR_LAST_RESTART_ID   ),
-#define MAP_PERFECT_10 ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_11 ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_9  ( SYSVAR_INSTRUCTIONS_ID   ),
+#define MAP_PERFECT_10 ( SYSVAR_LAST_RESTART_ID   ),
+/* Programs */
+#define MAP_PERFECT_11 ( CONFIG_PROG_ID           ),
 #define MAP_PERFECT_12 ( FEATURE_ID               ),
-#define MAP_PERFECT_13 ( CONFIG_PROG_ID           ),
+#define MAP_PERFECT_13 ( NATIVE_LOADER_ID         ),
 #define MAP_PERFECT_14 ( STAKE_PROG_ID            ),
 #define MAP_PERFECT_15 ( STAKE_CONFIG_PROG_ID     ),
-#define MAP_PERFECT_16 ( SYS_PROG_ID              ),
-#define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
+#define MAP_PERFECT_16 ( VOTE_PROG_ID             ),
+#define MAP_PERFECT_17 ( SYS_PROG_ID              ), /* Do not remove. See above. */
 #define MAP_PERFECT_18 ( BPF_LOADER_1_PROG_ID     ),
 #define MAP_PERFECT_19 ( BPF_LOADER_2_PROG_ID     ),
 #define MAP_PERFECT_20 ( BPF_UPGRADEABLE_PROG_ID  ),
+/* Extras */
 #define MAP_PERFECT_21 ( LOADER_V4_PROG_ID        ),
 #define MAP_PERFECT_22 ( ED25519_SV_PROG_ID       ),
 #define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
@@ -145,6 +146,7 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 #define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
 #define MAP_PERFECT_26 ( NATIVE_MINT_ID           ),
 #define MAP_PERFECT_27 ( TOKEN_PROG_ID            ),
+#define MAP_PERFECT_28 ( SYSVAR_PROG_ID           ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
