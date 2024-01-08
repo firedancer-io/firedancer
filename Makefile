@@ -16,14 +16,14 @@
 # would build for the machine "my_machine".  The detailed configuration
 # of the build for this machine would be specified in the file:
 #
-#  config/my_machine.mk
+#  config/machine/my_machine.mk
 #
 # The environment variable EXTRAS allows enabling optional build
-# features in config/with-*.mk.  For example:
+# features in config/extra/with-*.mk.  For example:
 #
 #  make -j EXTRAS="debug"
 #
-# would enable the "with-debug.mk" config.
+# would enable the "with-debug.mk" extra.
 #
 # Build binaries, unit tests, libraries, headers, other build artifacts
 # will be in the directory specified by that file.  As such, builds for
@@ -54,8 +54,6 @@ $(info Using EXTRAS=$(EXTRAS))
 # Default target
 all:
 
-include config/$(MACHINE).mk
-include $(addprefix config/with-,$(addsuffix .mk,$(EXTRAS)))
+include config/machine/$(MACHINE).mk
+include $(addprefix config/extra/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk
-include config/coverage.mk
-

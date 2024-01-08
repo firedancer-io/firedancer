@@ -33,12 +33,6 @@ RUST_PROFILE=debug
 GENHTML=genhtml
 # newer versions of genhtml will require '-ignore-errors unmapped'
 
-# FD_HAS_MAIN: Target supports linking objects with main function.
-# If set to 0, programs and unit tests will not be built. This is
-# useful for some build configs where a library with a main symbol is
-# linked in (e.g. fuzz targets)
-FD_HAS_MAIN:=1
-
 # Parameters passed to libFuzzer tests
 FUZZFLAGS:=-max_total_time=600 -timeout=10 -runs=10
 

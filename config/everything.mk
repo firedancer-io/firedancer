@@ -1,20 +1,21 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test run-script-test help clean distclean asm ppp show-deps seccomp-policies
+.PHONY: all info bin rust include lib unit-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: run-unit-test run-script-test run-fuzz-test run-integration-test
+.PHONY: seccomp-policies cov-report dist-cov-report
 .SECONDARY:
 .SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
-CORPUSDIR:=corpus
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test
+AUX_RULES:=clean distclean help show-deps run-unit-test cov-report dist-cov-report
 
-all: info bin include lib unit-test
+all: info bin include lib unit-test fuzz-test
 
 help:
 	# Configuration
@@ -85,7 +86,7 @@ run-unit-test:
 	#######################################################################
 	# Running unit tests
 	#######################################################################
-	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
+	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -165,19 +166,25 @@ $(1): $(OBJDIR)/$(1)/$(2)
 
 endef
 
-ifeq "$(FD_HAS_MAIN)" "1"
 add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
 add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
-endif
 
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
-# Usage: $(call fuzz-test,name,objs,libs)
+# Usage: $(call make-fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
 
+# _make-exe usage:
+#
+#   $(1): Filename of exe
+#   $(2): List of objects
+#   $(3): List of libraries
+#   $(4): Name of meta target (such that make $(4) will include this target)
+#   $(5): Subdirectory of target
+#   $(6): Extra LDFLAGS
 define _make-exe
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
@@ -187,7 +194,7 @@ $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj
 	# Creating $(5) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
+$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) -Wl,--end-group $(LDFLAGS) $(6) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
@@ -204,36 +211,34 @@ $(OBJDIR)/unit-test/automatic.txt:
 
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test))
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ)))
 
 .PHONY: $(1)_unit
 $(1)_unit:
-	$(MKDIR) "$(CORPUSDIR)/$(1)"
-	$(FIND) $(CORPUSDIR)/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
+	$(MKDIR) "corpus/$(1)" && \
+$(MKDIR) -p "$(OBJDIR)/cov/raw" && \
+FD_LOG_PATH="" \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_unit.profraw" \
+$(FIND) corpus/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
 
 .PHONY: $(1)_run
 $(1)_run:
-	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
-	$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=$(CORPUSDIR)/$(1)/ $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+	$(MKDIR) "corpus/$(1)/explore" && \
+$(MKDIR) -p "$(OBJDIR)/cov/raw" && \
+FD_LOG_PATH="" \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_run.profraw" \
+$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=corpus/$(1)/ $(FUZZFLAGS) corpus/$(1)/explore corpus/$(1)
 
 run-fuzz-test: $(1)_unit
 
 endef
 
-ifeq "$(FD_HAS_MAIN)" "1"
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
 make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
-fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(1)))
-run-fuzz-test:
-	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
-	@exit 1
-else
-make-bin =
-make-unit-test =
-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
-run-unit-test =
+run-unit-test  = $(eval $(call _run-unit-test,$(1)))
+ifdef FD_HAS_FUZZ
+make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 endif
 
 ##############################
@@ -380,8 +385,62 @@ ppp: $(DEPFILES:.d=.i)
 
 endif
 
-run-script-test:
-	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) contrib/script-tests.sh
+run-script-test: bin unit-test
+	mkdir -p "$(OBJDIR)/cov/raw" && \
+OBJDIR=$(OBJDIR) \
+MACHINE=$(MACHINE) \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_tests.profraw" \
+contrib/test/run_script_tests.sh
+
+run-integration-test: fddev
+	mkdir -p "$(OBJDIR)/cov/raw" && \
+OBJDIR=$(OBJDIR) \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/integration_tests.profraw" \
+contrib/test/run_integration_tests.sh
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/test/generate_filters.py {} \;
+
+##############################
+# Coverage
+
+# Merge and index "raw" profile data from test runs
+$(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
+	mkdir -p $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
+#
+# Usage: $(call make-lcov,<report_objdir>,<profdata_objdirs>)
+# e.g. $(call make-lcov,build/cov,build/machine1 build/machine2)
+#      will create build/cov/cov.lcov from build/machine{1,2}/cov/cov.profdata
+define _make-lcov
+$(1)/cov/cov.lcov: $$(addsuffix /cov/cov.profdata,$(2))
+ifeq ($(2),)
+	echo "No profile data found. Did you set OBJDIRS?" >&2 && exit 1
+endif
+	mkdir -p $$(dir $$@) &&				 						   \
+$(LLVM_COV) export                             \
+  -format=lcov                                 \
+  $$(addprefix -instr-profile=,$$<)            \
+  $$(foreach dir,$(2),$$(shell find $(2)/obj   \
+      -name '*.o'                              \
+      -exec printf "-object=%q\n" {} \;))      \
+  --ignore-filename-regex="test_.*\\.c"        \
+> $$@
+endef
+make-lcov = $(eval $(call _make-lcov,$(1),$(2)))
+
+# Create lcov report for current target
+$(call make-lcov,$(OBJDIR),$(OBJDIR))
+
+# Create HTML coverage report using lcov genhtml
+%/cov/html/index.html: %/cov/cov.lcov
+	rm -rf $(dir $@) && $(GENHTML) --output $(dir $@) $<
+	@echo "Created coverage report at $@"
+
+# `make cov-report` produces a coverage report from test runs for the
+# currently selected build profile
+cov-report: $(OBJDIR)/cov/html/index.html
+
+# `make dist-cov-report OBJDIRS="build/native/gcc build/native/clang ..."`
+# produces a coverage report from multiple build profiles
+$(call make-lcov,$(BASEDIR),$(OBJDIRS))
+dist-cov-report: $(BASEDIR)/cov/html/index.html

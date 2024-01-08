@@ -2,8 +2,7 @@
 
 # bash strict mode
 set -xeuo pipefail
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-cd "${SCRIPT_DIR}/../../"
+cd "$(dirname "$0")/../../../.."
 
 cleanup() {
     # TODO: We grep instead of using 'sudo ausearch -c fddev' because ausearch returns 'no matches'
@@ -13,7 +12,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # start fddev, send a single transfer to the locally running RPC endpoint, and if everything works return 0
-FDDEV=./build/native/gcc/bin/fddev
+# TODO don't hardcode build path
+OBJDIR=${OBJDIR:-build/native/gcc}
+FDDEV=${OBJDIR}/bin/fddev
 
 # TODO: For some reason /tmp does not work on the github runner for --log-path
 timeout --preserve-status --kill-after=20 15 $FDDEV configure init all --log-path ./log

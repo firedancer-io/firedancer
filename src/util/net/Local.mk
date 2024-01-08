@@ -8,8 +8,8 @@ $(call make-unit-test,test_pcap,test_pcap,fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pcapng,test_pcapng,fd_util)
 endif
-$(call fuzz-test,fuzz_pcap,fuzz_pcap,fd_util)
-$(call fuzz-test,fuzz_pcapng,fuzz_pcapng,fd_util)
+$(call make-fuzz-test,fuzz_pcap,fuzz_pcap,fd_util)
+$(call make-fuzz-test,fuzz_pcapng,fuzz_pcapng,fd_util)
 $(call run-unit-test,test_eth,)
 $(call run-unit-test,test_ip4,)
 $(call run-unit-test,test_igmp,)
