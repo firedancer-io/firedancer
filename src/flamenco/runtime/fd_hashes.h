@@ -8,7 +8,7 @@
 
 typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
 
-#define FD_PUBKEY_HASH_PAIR_ALIGN (8UL)
+#define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
   fd_pubkey_t const * pubkey;
   fd_hash_t   const * hash;

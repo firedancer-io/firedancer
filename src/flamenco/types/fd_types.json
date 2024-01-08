@@ -176,7 +176,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "fd_stake_history", "type": "treap", "treap_t": "fd_stake_history_entry_t", "treap_query_t": "ulong", "treap_cmp": "(memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 1024, "rev": true }
+        { "name": "fd_stake_history", "type": "treap", "treap_t": "fd_stake_history_entry_t", "treap_query_t": "ulong", "treap_cmp": "(memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 512, "rev": true }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75"
     },
@@ -259,6 +259,21 @@
       "type": "struct",
       "fields": [
         { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key" }
+      ]
+    },
+    {
+      "name": "stake_accounts_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "exists", "type": "uint" }
+      ]
+    },
+    {
+      "name": "stake_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_accounts", "type": "map", "element": "stake_accounts_pair", "key": "key" }
       ]
     },
     {
@@ -910,7 +925,8 @@
         { "name": "eah_stop_slot",         "type": "ulong" },
         { "name": "eah_interval",          "type": "ulong" },
         { "name": "genesis_hash",          "type": "hash" },
-        { "name": "cluster_type",          "type": "uint" }
+        { "name": "cluster_type",          "type": "uint" },
+        { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },
     {
@@ -934,6 +950,8 @@
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
         { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" },
+        { "name": "stake_account_keys",    "type": "stake_accounts"},
+        { "name": "vote_account_keys",     "type": "vote_accounts" },
         { "name": "lamports_per_signature","type": "ulong" },
         { "name": "transaction_count",     "type": "ulong" }
       ]

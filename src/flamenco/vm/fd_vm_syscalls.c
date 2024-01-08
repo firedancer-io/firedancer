@@ -1813,7 +1813,6 @@ fd_vm_syscall_cpi_rust(
       instruction->data.addr,
       instruction->data.len,
       alignof(uchar) );
-  if( FD_UNLIKELY( !data ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
   if ( FD_UNLIKELY( check_authorized_program(instruction->pubkey, ctx->instr_ctx->slot_ctx, data, instruction->data.len) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
   /* Instruction checks ***********************************************/

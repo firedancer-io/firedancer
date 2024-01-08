@@ -292,7 +292,7 @@ typedef struct fd_stake_history_entry_off fd_stake_history_entry_off_t;
 #define FD_STAKE_HISTORY_ENTRY_OFF_FOOTPRINT sizeof(fd_stake_history_entry_off_t)
 #define FD_STAKE_HISTORY_ENTRY_OFF_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MAX 1024
+#define FD_STAKE_HISTORY_MAX 512
 #define POOL_NAME fd_stake_history_pool
 #define POOL_T fd_stake_history_entry_t
 #define POOL_NEXT parent
@@ -516,6 +516,58 @@ struct __attribute__((aligned(8UL))) fd_vote_accounts_off {
 typedef struct fd_vote_accounts_off fd_vote_accounts_off_t;
 #define FD_VOTE_ACCOUNTS_OFF_FOOTPRINT sizeof(fd_vote_accounts_off_t)
 #define FD_VOTE_ACCOUNTS_OFF_ALIGN (8UL)
+
+/* Encoded Size: Fixed (36 bytes) */
+struct __attribute__((aligned(8UL))) fd_stake_accounts_pair {
+  fd_pubkey_t key;
+  uint exists;
+};
+typedef struct fd_stake_accounts_pair fd_stake_accounts_pair_t;
+#define FD_STAKE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_stake_accounts_pair_t)
+#define FD_STAKE_ACCOUNTS_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_accounts_pair_off {
+  uint key_off;
+  uint exists_off;
+};
+typedef struct fd_stake_accounts_pair_off fd_stake_accounts_pair_off_t;
+#define FD_STAKE_ACCOUNTS_PAIR_OFF_FOOTPRINT sizeof(fd_stake_accounts_pair_off_t)
+#define FD_STAKE_ACCOUNTS_PAIR_OFF_ALIGN (8UL)
+
+typedef struct fd_stake_accounts_pair_t_mapnode fd_stake_accounts_pair_t_mapnode_t;
+#define REDBLK_T fd_stake_accounts_pair_t_mapnode_t
+#define REDBLK_NAME fd_stake_accounts_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_stake_accounts_pair_t_mapnode {
+    fd_stake_accounts_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_accounts_pair_t_mapnode_t *
+fd_stake_accounts_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  void * mem = fd_valloc_malloc( valloc, fd_stake_accounts_pair_t_map_align(), fd_stake_accounts_pair_t_map_footprint(len));
+  return fd_stake_accounts_pair_t_map_join(fd_stake_accounts_pair_t_map_new(mem, len));
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_stake_accounts {
+  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_pool;
+  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_root;
+};
+typedef struct fd_stake_accounts fd_stake_accounts_t;
+#define FD_STAKE_ACCOUNTS_FOOTPRINT sizeof(fd_stake_accounts_t)
+#define FD_STAKE_ACCOUNTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_accounts_off {
+  uint stake_accounts_off;
+};
+typedef struct fd_stake_accounts_off fd_stake_accounts_off_t;
+#define FD_STAKE_ACCOUNTS_OFF_FOOTPRINT sizeof(fd_stake_accounts_off_t)
+#define FD_STAKE_ACCOUNTS_OFF_ALIGN (8UL)
 
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
@@ -2017,6 +2069,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   ulong eah_interval;
   fd_hash_t genesis_hash;
   uint cluster_type;
+  fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -2038,6 +2091,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank_off {
   uint eah_interval_off;
   uint genesis_hash_off;
   uint cluster_type_off;
+  uint next_epoch_stakes_off;
 };
 typedef struct fd_epoch_bank_off fd_epoch_bank_off_t;
 #define FD_EPOCH_BANK_OFF_FOOTPRINT sizeof(fd_epoch_bank_off_t)
@@ -2061,6 +2115,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+  fd_stake_accounts_t stake_account_keys;
+  fd_vote_accounts_t vote_account_keys;
   ulong lamports_per_signature;
   ulong transaction_count;
 };
@@ -2085,6 +2141,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint collected_rent_off;
   uint epoch_stakes_off;
   uint last_restart_slot_off;
+  uint stake_account_keys_off;
+  uint vote_account_keys_off;
   uint lamports_per_signature_off;
   uint transaction_count_off;
 };
@@ -4484,6 +4542,30 @@ void fd_vote_accounts_walk(void * w, fd_vote_accounts_t const * self, fd_types_w
 ulong fd_vote_accounts_size(fd_vote_accounts_t const * self);
 ulong fd_vote_accounts_footprint( void );
 ulong fd_vote_accounts_align( void );
+
+void fd_stake_accounts_pair_new(fd_stake_accounts_pair_t* self);
+int fd_stake_accounts_pair_decode(fd_stake_accounts_pair_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_stake_accounts_pair_decode_unsafe(fd_stake_accounts_pair_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_pair_decode_offsets(fd_stake_accounts_pair_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_pair_encode(fd_stake_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_accounts_pair_destroy(fd_stake_accounts_pair_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_accounts_pair_walk(void * w, fd_stake_accounts_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_stake_accounts_pair_size(fd_stake_accounts_pair_t const * self);
+ulong fd_stake_accounts_pair_footprint( void );
+ulong fd_stake_accounts_pair_align( void );
+
+void fd_stake_accounts_new(fd_stake_accounts_t* self);
+int fd_stake_accounts_decode(fd_stake_accounts_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_stake_accounts_decode_unsafe(fd_stake_accounts_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_decode_offsets(fd_stake_accounts_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_encode(fd_stake_accounts_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_accounts_destroy(fd_stake_accounts_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_accounts_walk(void * w, fd_stake_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_stake_accounts_size(fd_stake_accounts_t const * self);
+ulong fd_stake_accounts_footprint( void );
+ulong fd_stake_accounts_align( void );
 
 void fd_stake_weight_new(fd_stake_weight_t* self);
 int fd_stake_weight_decode(fd_stake_weight_t* self, fd_bincode_decode_ctx_t * ctx);

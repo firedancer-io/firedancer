@@ -45,6 +45,14 @@ int write_stake_state(
     ushort is_new_account
 );
 
+void
+fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
+
+void
+fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
+
+void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t * history );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

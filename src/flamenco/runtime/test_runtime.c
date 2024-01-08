@@ -149,7 +149,7 @@ replay( global_state_t * state,
 
   if (state->slot_ctx->acc_mgr->blockstore->max < state->end_slot)
     state->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
-
+  // FD_LOG_WARNING(("Failing here"))
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
   fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
@@ -206,9 +206,9 @@ replay( global_state_t * state,
       }
 
       expected = fd_blockstore_block_query_bank_hash( state->slot_ctx->acc_mgr->blockstore, slot );
-      if ( FD_UNLIKELY( !expected ) )
+      if ( FD_UNLIKELY( !expected ) ) {
         FD_LOG_ERR(("slot %lu is missing its bank hash", slot));
-      else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
+      } else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
         FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
                          slot,
                          expected,
@@ -225,6 +225,15 @@ replay( global_state_t * state,
           if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
             FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
         }
+      }
+      if (0==memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL )) {
+        ulong publish_err = fd_funk_txn_publish(state->slot_ctx->acc_mgr->funk, state->slot_ctx->funk_txn, 1);
+        if (publish_err == 0)
+        {
+          FD_LOG_ERR(("publish err - %lu", publish_err));
+          return -1;
+        }
+        state->slot_ctx->funk_txn = NULL;
       }
     }
 
@@ -359,17 +368,19 @@ main( int     argc,
   fd_blockstore_t * blockstore;
   tag = FD_BLOCKSTORE_MAGIC;
   if (fd_wksp_tag_query(funk_wksp, &tag, 1, &info, 1) > 0) {
+    FD_LOG_WARNING(("Wksp blockstore"));
     shmem = fd_wksp_laddr_fast( funk_wksp, info.gaddr_lo );
     blockstore = fd_blockstore_join(shmem);
     if (blockstore == NULL)
       FD_LOG_ERR(( "failed to join a blockstore" ));
   } else {
+    FD_LOG_WARNING(("Alloc blockstore"));
     shmem = fd_wksp_alloc_laddr( funk_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
-    ulong tmp_shred_max = 1UL << 18;
-    int   lg_txn_max    = 18;
-    ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
+    ulong tmp_shred_max = 1UL << 23;
+    int   lg_txn_max    = 20;
+    ulong slot_history_max = 6000;//FD_DEFAULT_SLOT_HISTORY_MAX;
     blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max));
     if (blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
@@ -484,6 +495,39 @@ main( int     argc,
 
     state.slot_ctx->slot_bank.collected_fees = 0;
     state.slot_ctx->slot_bank.collected_rent = 0;
+
+    FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
+                    (long)state.slot_ctx->slot_bank.slot,
+                    state.slot_ctx->slot_bank.capitalization));
+    fd_stake_accounts_pair_t_mapnode_t * new_root = NULL;
+    fd_stake_accounts_pair_t_mapnode_t * new_pool = fd_stake_accounts_pair_t_map_alloc( state.slot_ctx->valloc, 100000 );
+    for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+         n;
+         n = fd_stake_accounts_pair_t_map_successor_const( state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n) ) {
+      fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_acquire( new_pool );
+      fd_memcpy( &entry->elem, &n->elem, sizeof(fd_stake_accounts_pair_t));
+      fd_stake_accounts_pair_t_map_insert( new_pool, &new_root, entry );
+    }
+    fd_bincode_destroy_ctx_t destroy = {.valloc = state.slot_ctx->valloc};
+    fd_stake_accounts_destroy(&state.slot_ctx->slot_bank.stake_account_keys, &destroy);
+
+    state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = new_root;
+    state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = new_pool;
+
+    fd_vote_accounts_pair_t_mapnode_t * new_vote_root = NULL;
+    fd_vote_accounts_pair_t_mapnode_t * new_vote_pool = fd_vote_accounts_pair_t_map_alloc( state.slot_ctx->valloc, 100000 );
+
+    for ( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
+          n;
+          n = fd_vote_accounts_pair_t_map_successor_const( state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n )) {
+      fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_acquire( new_vote_pool );
+      fd_memcpy( &entry->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
+      fd_vote_accounts_pair_t_map_insert( new_vote_pool, &new_vote_root, entry );
+    }
+    fd_vote_accounts_destroy( &state.slot_ctx->slot_bank.vote_account_keys, &destroy );
+
+    state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = new_vote_root;
+    state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = new_vote_pool;
   }
 
   ulong tcnt = fd_tile_cnt();

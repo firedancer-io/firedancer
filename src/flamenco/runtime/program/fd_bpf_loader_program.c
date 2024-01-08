@@ -307,11 +307,10 @@ if (memcmp(signature, sig, 64) == 0) {
     }
     trace_buf_out += sprintf(trace_buf_out, "\0");
     fputs(trace_buf, stderr);
-  }
+    }
 
   // fclose(trace_fd);
   // free(trace);
-
   }
   fd_vm_trace_context_destroy( &trace_ctx );
   fd_valloc_free( ctx.txn_ctx->valloc, trace);

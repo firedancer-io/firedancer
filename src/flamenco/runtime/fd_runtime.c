@@ -228,6 +228,11 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
       .vote_accounts_root = vacc_root,
   };
 
+  slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes = (fd_vote_accounts_t){
+    .vote_accounts_pool = vacc_pool,
+    .vote_accounts_root = vacc_root,
+  };
+
   /* Initializes the stakes cache in the Bank structure. */
   slot_ctx->epoch_ctx->epoch_bank.stakes = (fd_stakes_t){
       .stake_delegations_pool = sacc_pool,
@@ -618,6 +623,7 @@ fd_runtime_execute_txn_task(void *tpool,
   // FD_LOG_DEBUG(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
 
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
+  // FD_LOG_WARNING(("Transaction result %d for %64J", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off));
 }
 
 // struct fd_execute_txn_task_info {
@@ -1268,14 +1274,17 @@ fd_runtime_block_update_current_leader( fd_exec_slot_ctx_t * slot_ctx ) {
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx ) {
   // TODO: this is not part of block execution, move it.
-  if (slot_ctx->slot_bank.slot != 0) {
-    ulong slot_idx = 0;
-    ulong new_epoch = fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx);
-    if (slot_idx == 1UL && new_epoch == 0UL) {
+  if( slot_ctx->slot_bank.slot != 0 ) {
+    ulong slot_idx;
+    ulong prev_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.prev_slot, &slot_idx );
+    ulong new_epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+    if (slot_idx==1UL && new_epoch==0UL) {
       /* the block after genesis has a height of 1*/
       slot_ctx->slot_bank.block_height = 1UL;
     }
-    if (slot_idx == 0UL) {
+    
+    if( prev_epoch < new_epoch || slot_idx == 0 ) {
+      FD_LOG_DEBUG(("Epoch boundary"));
       /* Epoch boundary! */
       fd_process_new_epoch(slot_ctx, new_epoch - 1UL);
     }
@@ -1912,12 +1921,12 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     FD_LOG_ERR(("need to rollback slot %lu", slot_ctx->slot_bank.slot));
   }
 
-  ulong publish_err = fd_funk_txn_publish(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);
-  if (publish_err == 0)
-  {
-    FD_LOG_ERR(("publish err - %lu", publish_err));
-    return -1;
-  }
+  // ulong publish_err = fd_funk_txn_publish(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);
+  // if (publish_err == 0)
+  // {
+  //   FD_LOG_ERR(("publish err - %lu", publish_err));
+  //   return -1;
+  // }
 
   block_eval_time += fd_log_wallclock();
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
@@ -1926,7 +1935,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
-  slot_ctx->funk_txn = parent_txn;
+  // slot_ctx->funk_txn = parent_txn;
   return 0;
 }
 
@@ -2520,10 +2529,10 @@ void
 fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong total_rent_collected = slot_ctx->slot_bank.collected_rent;
   ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &slot_ctx->epoch_ctx->epoch_bank.rent );
+  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burned_portion );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
 
-  // FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu",
-      // slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
+  FD_LOG_WARNING(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
   if( rent_to_be_distributed == 0 ) {
     return;
   }
@@ -2568,11 +2577,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
         }
       }
 
-      ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2));
-
+      ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2) );
+      ulong burn = slot_ctx->slot_bank.collected_fees / 2;
       rec->meta->info.lamports += fees;
+      // FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
 
-      slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, fees);
+      ulong old = slot_ctx->slot_bank.capitalization;
+      slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burn);
+      FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %ld->%ld ", burn, old, slot_ctx->slot_bank.capitalization));
     } while (false);
 
     slot_ctx->slot_bank.collected_fees = 0;
@@ -2584,6 +2596,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_runtime_distribute_rent(slot_ctx);
 
+  FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %ld ", slot_ctx->slot_bank.capitalization));
   slot_ctx->slot_bank.collected_rent = 0;
 }
 
@@ -2617,7 +2630,6 @@ fd_runtime_slot_bank_key( void ) {
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = fd_epoch_bank_size(&slot_ctx->epoch_ctx->epoch_bank);
-
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
   fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
@@ -2875,6 +2887,43 @@ int fd_global_import_solana_manifest(fd_exec_slot_ctx_t *slot_ctx,
     FD_SCRATCH_SCOPE_END;
   }
 
+  // Stash epoch stakes for next epoch
+  {
+    FD_SCRATCH_SCOPE_BEGIN
+    {
+      ulong epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot_bank->slot, NULL) + 1;
+      fd_epoch_stakes_t const *stakes = NULL;
+      fd_epoch_epoch_stakes_pair_t const *epochs = oldbank->epoch_stakes;
+      for (ulong i = 0; i < manifest->bank.epoch_stakes_len; i++)
+      {
+        if (epochs[i].key == epoch)
+        {
+          stakes = &epochs[i].value;
+          break;
+        }
+      }
+
+      if (FD_UNLIKELY(!stakes))
+        FD_LOG_ERR(("Snapshot missing EpochStakes for epoch %lu", epoch));
+
+      /* TODO Hacky way to copy by serialize/deserialize :( */
+      fd_vote_accounts_t const *vaccs = &stakes->stakes.vote_accounts;
+      ulong bufsz = fd_vote_accounts_size(vaccs);
+      uchar *buf = fd_scratch_alloc(1UL, bufsz);
+      fd_bincode_encode_ctx_t encode_ctx = {
+          .data = buf,
+          .dataend = (void *)((ulong)buf + bufsz)};
+      FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
+      fd_bincode_decode_ctx_t decode_ctx = {
+          .data = buf,
+          .dataend = (void const *)((ulong)buf + bufsz),
+          .valloc = slot_ctx->epoch_ctx->valloc,
+      };
+      FD_TEST(fd_vote_accounts_decode(&epoch_bank->next_epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
+    }
+    FD_SCRATCH_SCOPE_END;
+  }
+
   int result = fd_runtime_save_epoch_bank(slot_ctx);
   if (result != FD_EXECUTOR_INSTR_SUCCESS)
   {
@@ -2948,7 +2997,7 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
     FD_LOG_INFO(("schedule->first_normal_epoch = %lu", schedule.first_normal_epoch));
     FD_LOG_INFO(("schedule->first_normal_slot = %lu", schedule.first_normal_slot));
 
-    fd_vote_accounts_t const *epoch_vaccs = &slot_ctx->slot_bank.epoch_stakes;
+    fd_vote_accounts_t const * epoch_vaccs = &slot_ctx->slot_bank.epoch_stakes;
 
     ulong epoch = fd_slot_to_epoch(&schedule, slot, NULL);
     ulong slot0 = fd_epoch_slot0(&schedule, epoch);
@@ -2983,6 +3032,114 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
       /* Derive */
       fd_epoch_leaders_derive(slot_ctx->epoch_ctx->leaders, epoch_weights, epoch);
     }
+  }
+  FD_SCRATCH_SCOPE_END;
+}
+
+void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+
+  // TODO: do we need to update the vote accounts as well? Trying to update them breaks things
+
+  ulong stake_delegations_size = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
+  stake_delegations_size += fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+
+  fd_delegation_pair_t_mapnode_t * new_stake_root = NULL;
+  fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( slot_ctx->epoch_ctx->valloc, stake_delegations_size );
+
+  for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root ); 
+        n; 
+        n = fd_delegation_pair_t_map_successor_const( stakes->stake_delegations_pool, n ) ) {
+      fd_pubkey_t const * stake_acc = &n->elem.account;
+      FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+      if (fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec ) != FD_ACC_MGR_SUCCESS  ) {
+          continue;
+      }
+
+      fd_stake_state_v2_t stake_state;
+      if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
+          continue;
+      }
+      fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_acquire( new_stake_pool );
+      fd_memcpy(&entry->elem.account, stake_acc, sizeof(fd_pubkey_t));
+      fd_memcpy(&entry->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
+      fd_delegation_pair_t_map_insert( new_stake_pool, &new_stake_root, entry );
+  }
+
+  for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root ); 
+        n; 
+        n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
+      fd_pubkey_t const * stake_acc = &n->elem.key;
+      FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+      if (fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec ) != FD_ACC_MGR_SUCCESS ) {
+          continue;
+      }
+
+      fd_stake_state_v2_t stake_state;
+      if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
+          continue;
+      }
+      fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_acquire( new_stake_pool );
+      fd_memcpy(&entry->elem.account, stake_acc, sizeof(fd_pubkey_t));
+      fd_memcpy(&entry->elem.delegation, &stake_state.inner.stake.stake.delegation, sizeof(fd_delegation_t));
+      fd_delegation_pair_t_map_insert( new_stake_pool, &new_stake_root, entry );
+  }
+  fd_bincode_destroy_ctx_t destroy_slot = {.valloc = slot_ctx->valloc};
+  fd_vote_accounts_destroy( &slot_ctx->slot_bank.vote_account_keys, &destroy_slot );
+  fd_stake_accounts_destroy(&slot_ctx->slot_bank.stake_account_keys, &destroy_slot );
+
+  fd_bincode_destroy_ctx_t destroy_epoch = {.valloc = slot_ctx->epoch_ctx->valloc};
+  for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
+    fd_delegation_pair_destroy(&n->elem, &destroy_epoch);
+  }
+  fd_valloc_free( slot_ctx->epoch_ctx->valloc, fd_delegation_pair_t_map_delete(fd_delegation_pair_t_map_leave( stakes->stake_delegations_pool) ) );
+
+  stakes->stake_delegations_root = new_stake_root;
+  stakes->stake_delegations_pool = new_stake_pool;
+
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );
+}
+
+void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
+  FD_SCRATCH_SCOPE_BEGIN 
+  {
+    fd_vote_accounts_t const * vaccs = &slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes;
+    ulong bufsz = fd_vote_accounts_size(vaccs);
+    uchar *buf = fd_scratch_alloc(1UL, bufsz);
+    fd_bincode_encode_ctx_t encode_ctx = {
+        .data = buf,
+        .dataend = (void *)((ulong)buf + bufsz)};
+    FD_TEST(fd_vote_accounts_encode(vaccs, &encode_ctx) == FD_BINCODE_SUCCESS);
+    fd_bincode_decode_ctx_t decode_ctx = {
+        .data = buf,
+        .dataend = (void const *)((ulong)buf + bufsz),
+        .valloc = slot_ctx->valloc,
+    };
+    fd_bincode_destroy_ctx_t slot_destroy = {.valloc = slot_ctx->valloc};
+    fd_vote_accounts_destroy(&slot_ctx->slot_bank.epoch_stakes, &slot_destroy);
+    FD_TEST(fd_vote_accounts_decode(&slot_ctx->slot_bank.epoch_stakes, &decode_ctx) == FD_BINCODE_SUCCESS);
+
+    fd_bincode_destroy_ctx_t epoch_destroy = {.valloc = slot_ctx->epoch_ctx->valloc};
+    fd_vote_accounts_destroy(&slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes, &epoch_destroy);
+
+    ulong next_bufsz = fd_vote_accounts_size(&slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts);
+    uchar * next_buf = fd_scratch_alloc(1UL, next_bufsz);
+    fd_bincode_encode_ctx_t next_encode = {
+      .data = next_buf,
+      .dataend = (void *)((ulong)next_buf + next_bufsz)
+    };
+    FD_TEST(fd_vote_accounts_encode(&slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts, &next_encode) == FD_BINCODE_SUCCESS);
+    fd_bincode_decode_ctx_t next_decode = {
+      .data = buf,
+      .dataend = (void *)((ulong)next_buf + next_bufsz),
+      .valloc = slot_ctx->epoch_ctx->valloc
+    };
+    FD_TEST(fd_vote_accounts_decode(&slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes, &next_decode) == FD_BINCODE_SUCCESS);
+
   }
   FD_SCRATCH_SCOPE_END;
 }
@@ -3023,28 +3180,24 @@ void fd_process_new_epoch(
 
   fd_runtime_update_leaders(slot_ctx, slot_ctx->slot_bank.slot);
 
-  /*
-let (_, update_epoch_stakes_time) = measure!(
-       self.update_epoch_stakes(leader_schedule_epoch),
-       "update_epoch_stakes",
-   ); */
-  if (FD_FEATURE_ACTIVE(slot_ctx, enable_partitioned_epoch_reward))
-  {
-    begin_partitioned_rewards(slot_ctx, parent_epoch);
-  }
-  else
-  {
-    // TODO: need to complete this path
-    update_rewards(slot_ctx, parent_epoch);
+      /*
+  let (_, update_epoch_stakes_time) = measure!(
+           self.update_epoch_stakes(leader_schedule_epoch),
+           "update_epoch_stakes",
+       ); */
+  if ( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ) {
+    begin_partitioned_rewards( slot_ctx, parent_epoch );
+  } else {
+    update_rewards( slot_ctx, parent_epoch);
   }
 
-  // (TODO) Update sysvars before processing transactions
-  // new.update_slot_hashes();
-  // new.update_stake_history(Some(parent_epoch));
-  // new.update_clock(Some(parent_epoch));
-  // new.update_fees();
-  fd_sysvar_fees_init(slot_ctx);
-  // new.update_last_restart_slot()
+  fd_update_stake_delegations( slot_ctx );
+  
+  fd_stake_history_t history;
+  fd_sysvar_stake_history_read( slot_ctx, &history );
+  refresh_vote_accounts( slot_ctx, &history );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot)));
+  fd_update_epoch_stakes( slot_ctx );
 }

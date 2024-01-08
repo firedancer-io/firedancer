@@ -1890,7 +1890,8 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
   default:
     __builtin_unreachable();
   }
-  uint commission_split = fd_uint_min( *( (uint *)commission ), 100 );
+  uchar deref_commision = *commission;
+  uint commission_split = fd_uint_min( (uint)deref_commision, 100 );
   result->is_split      = ( commission_split != 0 && commission_split != 100 );
   if( commission_split == 0 ) {
     result->voter_portion  = 0;
@@ -1915,10 +1916,9 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
   // any residual fractional lamports.
 
   result->voter_portion =
-      (ulong)( (__uint128_t)on * (__uint128_t)commission_split / (__uint128_t)100 );
+      (ulong)( (uint128)on * (uint128)commission_split / (uint128)100 );
   result->staker_portion =
-      (ulong)( (__uint128_t)on * (__uint128_t)( 100 - commission_split ) / (__uint128_t)100 );
-  return;
+      (ulong)( (uint128)on * (uint128)( 100 - commission_split ) / (uint128)100 );
 }
 
 /**********************************************************************/
@@ -1990,6 +1990,114 @@ process_authorize_with_seed_instruction(
                   ctx );
 
   return rc;
+}
+
+static void
+remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
+  fd_vote_accounts_pair_t_mapnode_t key;
+  fd_memcpy( key.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
+
+  fd_vote_accounts_t * epoch_vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  if (epoch_vote_accounts->vote_accounts_pool == NULL) {
+    FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+    return;
+  }
+  fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_find(epoch_vote_accounts->vote_accounts_pool, epoch_vote_accounts->vote_accounts_root, &key);
+  if (FD_LIKELY( entry )) {
+    fd_vote_accounts_pair_t_map_remove( epoch_vote_accounts->vote_accounts_pool, &epoch_vote_accounts->vote_accounts_root, entry);
+  }
+
+  if (slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool == NULL) {
+    FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+    return;
+  }
+  entry = fd_vote_accounts_pair_t_map_find(slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, &key);
+  if (FD_UNLIKELY( entry )) {
+    fd_vote_accounts_pair_t_map_remove( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, entry);
+  }
+}
+
+uint vote_state_versions_is_correct_and_initialized( fd_vote_state_versioned_t * vote_state, fd_borrowed_account_t * vote_account ) {
+  // TODO: replace magic numbers
+  switch ( vote_state->discriminant ) {
+    case fd_vote_state_versioned_enum_current: {
+      uint data_len_check = vote_account->const_meta->dlen == 3762;
+      uchar test_data[114] = {0};
+      uint data_check = memcmp(((uchar*)vote_account->const_data + 4), test_data, 114) != 0;
+      return data_check && data_len_check;
+    }
+    case fd_vote_state_versioned_enum_v1_14_11: {
+      uint data_len_check = vote_account->const_meta->dlen == 3731;
+      uchar test_data[82] = {0};
+      uint data_check = memcmp(((uchar*)vote_account->const_data + 4), test_data, 82) != 0;
+      return data_check && data_len_check;
+    }
+    default:
+      return 0;
+  }
+  return 0;
+}
+
+static void
+upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
+  fd_bincode_decode_ctx_t decode = {
+      .data    = vote_account->const_data,
+      .dataend = vote_account->const_data + vote_account->const_meta->dlen,
+      .valloc  = slot_ctx->valloc,
+  };
+  fd_vote_state_versioned_t vote_state[1] = {0};
+  if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
+    remove_vote_account( slot_ctx, vote_account );
+    return;
+  }
+
+  if ( vote_state_versions_is_correct_and_initialized( vote_state, vote_account ) ) {
+    fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+
+    fd_vote_accounts_pair_t_mapnode_t key;
+    fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));
+    if (stakes->vote_accounts.vote_accounts_pool == NULL) {
+      FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+      return;
+    }
+    fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key);
+    if ( FD_UNLIKELY( !entry ) ) {
+      if (slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool == NULL) {
+        FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+        return;
+      }
+      fd_vote_accounts_pair_t_mapnode_t * existing = fd_vote_accounts_pair_t_map_find( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, &key );
+      if ( !existing ) {
+        fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool );
+        if (!new_node) {
+          FD_LOG_ERR(("Map full"));
+        }
+        fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
+        new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
+        fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, new_node );
+      } else {
+        existing->elem.value.lamports = vote_account->const_meta->info.lamports;
+      }
+    } else {
+      entry->elem.value.lamports = vote_account->const_meta->info.lamports;
+    }
+  } else {
+    remove_vote_account( slot_ctx, vote_account );
+  }
+}
+
+static void
+store_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
+  fd_pubkey_t const * owner = (fd_pubkey_t const *)vote_account->const_meta->info.owner;
+
+  if (memcmp(owner->uc, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) != 0) {
+      return;
+  }
+  if (vote_account->const_meta->info.lamports == 0) {
+    remove_vote_account( slot_ctx, vote_account );
+  } else {
+    upsert_vote_account( slot_ctx, vote_account );
+  }
 }
 
 /**********************************************************************/
@@ -2508,9 +2616,11 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     FD_LOG_ERR( ( "unsupported vote instruction: %u", instruction.discriminant ) );
   }
 
+  store_vote_account( ctx.slot_ctx, me );
+
   fd_vote_instruction_destroy( &instruction, &destroy );
   return rc;
-}
+} 
 
 /**********************************************************************/
 /* Public API                                                         */

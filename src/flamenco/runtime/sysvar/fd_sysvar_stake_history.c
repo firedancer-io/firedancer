@@ -5,9 +5,10 @@
 
 void write_stake_history( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  ulong min_size = 16392;
+  ulong max_size = 16392;
+  ulong curr_size = stake_history->treap->ele_cnt * 32 + 8;
+  ulong          sz = fd_ulong_max( max_size, curr_size );
 
-  ulong          sz = fd_ulong_max( min_size, fd_stake_history_size( stake_history ) );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
@@ -17,6 +18,7 @@ void write_stake_history( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* sta
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+
 }
 
 int fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* result ) {
@@ -46,14 +48,28 @@ void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   write_stake_history( slot_ctx, &stake_history );
 }
 
-void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * global, fd_stake_history_entry_t * entry) {
+void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_entry_t * entry) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
-  fd_sysvar_stake_history_read( global, &stake_history);
+  fd_sysvar_stake_history_read( slot_ctx, &stake_history);
+
+  if (fd_stake_history_treap_ele_cnt( stake_history.treap ) == fd_stake_history_treap_ele_max( stake_history.treap )) {
+    fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( stake_history.treap, stake_history.pool );
+    fd_stake_history_entry_t * ele = fd_stake_history_treap_fwd_iter_ele( iter, stake_history.pool );
+    stake_history.treap = fd_stake_history_treap_ele_remove( stake_history.treap, ele, stake_history.pool );
+    fd_stake_history_pool_ele_release( stake_history.pool, ele );
+  }
+
   ulong idx = fd_stake_history_pool_idx_acquire( stake_history.pool );
 
   stake_history.pool[ idx ].epoch = entry->epoch;
-  fd_memcpy(&stake_history.pool[ idx ], entry, sizeof(fd_stake_history_entry_t));
-  fd_stake_history_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
-  write_stake_history( global, &stake_history);
+  stake_history.pool[ idx ].activating = entry->activating;
+  stake_history.pool[ idx ].effective = entry->effective;
+  stake_history.pool[ idx ].deactivating = entry->deactivating;
+  stake_history.treap = fd_stake_history_treap_idx_insert( stake_history.treap, idx, stake_history.pool );
+
+
+  write_stake_history( slot_ctx, &stake_history);
+  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
+  fd_stake_history_destroy( &stake_history, &destroy );
 }

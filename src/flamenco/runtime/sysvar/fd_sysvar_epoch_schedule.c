@@ -36,6 +36,7 @@ static void
 write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
                       fd_epoch_schedule_t * epoch_schedule ) {
   ulong   sz  = fd_epoch_schedule_size( epoch_schedule );
+  FD_LOG_WARNING(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
   uchar * enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
@@ -137,6 +138,7 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
     ulong epoch_len = 1UL<<( epoch + (ulong)fd_uint_find_lsb( FD_EPOCH_LEN_MIN ) );
           offset    = slot - ( epoch_len - FD_EPOCH_LEN_MIN );
   } else {
+    // FD_LOG_WARNING(("First %lu slots per epoch %lu", schedule->first_normal_slot, schedule->slots_per_epoch));
     ulong n_slot  = slot - schedule->first_normal_slot;
     ulong n_epoch = n_slot / schedule->slots_per_epoch;
           epoch   = schedule->first_normal_epoch + n_epoch;

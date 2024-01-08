@@ -95,7 +95,7 @@ fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account ) {
 
 void *
 fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account ) {
-  uint is_changed = borrowed_account->data != borrowed_account->orig_data;
+  uint is_changed = borrowed_account->meta != borrowed_account->orig_meta;
   if( is_changed ) {
     return borrowed_account->meta;
   }

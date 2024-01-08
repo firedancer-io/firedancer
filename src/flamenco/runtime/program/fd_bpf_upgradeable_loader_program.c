@@ -270,12 +270,13 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
     .alloc               = {.offset = 0}
   };
 
-  ulong trace_sz = 16 * 1024 * 1024;
+  ulong trace_sz = 4 * 1024 * 1024;
   fd_vm_trace_entry_t * trace = NULL;
   fd_vm_trace_context_t trace_ctx;
   (void) trace_sz;
   (void) trace;
   (void) trace_ctx;
+
 #ifdef FD_DEBUG_SBPF_TRACES
 
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;

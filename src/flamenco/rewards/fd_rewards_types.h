@@ -29,6 +29,7 @@ struct fd_vote_reward_t_mapnode {
   fd_pubkey_t vote_pubkey;
   ulong vote_rewards;
   uchar commission;
+  uchar needs_store;
 };
 
 typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
@@ -85,7 +86,7 @@ typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calcula
 
 struct fd_point_value {
   ulong rewards;
-  __uint128_t points;
+  uint128 points;
 };
 typedef struct fd_point_value fd_point_value_t;
 
@@ -97,7 +98,7 @@ struct fd_calculated_stake_rewards{
 typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
 struct fd_calculate_stake_points {
-  __uint128_t points;
+  uint128 points;
   ulong new_credits_observed;
   uint force_credits_update_with_skipped_reward;
 };

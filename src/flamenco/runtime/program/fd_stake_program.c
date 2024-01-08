@@ -2196,6 +2196,74 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
       self, target_epoch, stake_history, new_rate_activation_epoch );
 }
 
+/* Removes stake delegation from epoch stakes and updates vote account */
+void 
+fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  fd_stake_accounts_pair_t_mapnode_t key;
+  fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+  if ( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
+    FD_LOG_DEBUG(("Stake accounts pool does not exist"));
+    return;
+  }
+  fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_find(slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key);
+  if (FD_UNLIKELY( entry )) {
+    fd_stake_accounts_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, entry);
+    // TODO: do we need a release here?
+  }
+}
+
+/* Updates stake delegation in epoch stakes */
+void 
+fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  FD_TEST( stake_account->const_meta->info.lamports != 0 );
+  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+
+  fd_delegation_pair_t_mapnode_t key;
+  fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));
+
+  if ( stakes->stake_delegations_pool == NULL) {
+    FD_LOG_DEBUG(("Stake delegations pool does not exist"));
+    return;
+  }
+
+  fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
+  if ( FD_UNLIKELY( !entry ) ) {
+    fd_stake_accounts_pair_t_mapnode_t key;
+    fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+    if ( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
+      FD_LOG_DEBUG(("Stake accounts pool does not exist"));
+      return;
+    }
+    fd_stake_accounts_pair_t_mapnode_t * stake_entry = fd_stake_accounts_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key );
+    if ( stake_entry ) {
+      stake_entry->elem.exists = 1;
+    } else {
+      fd_stake_accounts_pair_t_mapnode_t * new_node = fd_stake_accounts_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool );
+      ulong size = fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+      FD_LOG_WARNING(("Curr stake account size %lu %lx", size, slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool));
+      if ( new_node == NULL ) {
+        FD_LOG_ERR(("Stake accounts keys map full %lu", size));
+      }
+      new_node->elem.exists = 1;
+      fd_memcpy( new_node->elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+      fd_stake_accounts_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, new_node );
+    }
+  }
+}
+
+void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  fd_pubkey_t const * owner = (fd_pubkey_t const *)stake_account->const_meta->info.owner;
+
+  if (memcmp(owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) != 0) {
+      return;
+  }
+  if (stake_account->const_meta->info.lamports == 0) {
+    fd_stakes_remove_stake_delegation( slot_ctx, stake_account );
+  } else {
+    fd_stakes_upsert_stake_delegation( slot_ctx, stake_account );
+  }
+}
+
 int
 fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   int                      rc;
@@ -2287,6 +2355,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       fd_pubkey_t const * custodian_pubkey = NULL;
       rc = get_optional_pubkey( ctx, 3, false, &custodian_pubkey );
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+      FD_LOG_WARNING(("Authorize instruction"));
       rc = authorize( me,
                       signers,
                       authorized_pubkey,
@@ -2298,7 +2367,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                       &ctx.txn_ctx->custom_err );
     } else {
       fd_sol_sysvar_clock_t clock_default = { 0 };
-
+      FD_LOG_WARNING(("Authorize instruction"));
       rc = authorize( me,
                       signers,
                       authorized_pubkey,
@@ -2899,6 +2968,12 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   default:
     FD_LOG_ERR( ( "unsupported stake instruction: %u", instruction.discriminant ) );
   }
+
+  fd_borrowed_account_t * me = NULL;
+  int err                    = get_stake_account( ctx.txn_ctx, &ctx, &me );
+  if( FD_UNLIKELY( err != FD_PROGRAM_OK ) ) return err;
+
+  fd_store_stake_delegation( ctx.slot_ctx, me );
 
   fd_stake_instruction_destroy( &instruction, &destroy );
   return rc;

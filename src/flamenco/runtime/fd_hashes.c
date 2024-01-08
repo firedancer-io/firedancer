@@ -53,7 +53,7 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   }
 
   for( ulong i = 0; i < pairs_len; ++i ) {
-    if (0) {
+    if (false) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
 
       /*
@@ -156,6 +156,7 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
 
     // check, have we filled this level and ones above it.
     for( ulong j = i+1; j < height; ++j ) {
+      FD_LOG_DEBUG(("P %lu", j));
       // if the level is full, finalize and push into next level.
       if (num_hashes[j] == FD_ACCOUNT_DELTAS_MERKLE_FANOUT) {
         num_hashes[j] = 0;
@@ -268,8 +269,8 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_pa
   //     &slot_ctx->slot_bank.poh.hash,
   //     slot_ctx->signature_cnt );
 
-  // FD_LOG_DEBUG(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
-  //                slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
+  FD_LOG_WARNING(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
+                 slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
 }
 
 struct fd_accounts_hash_task_info {
@@ -483,7 +484,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     rec_cnt++;
   }
-
   /* Iterate over accounts that have been changed in the current
      database transaction. */
 

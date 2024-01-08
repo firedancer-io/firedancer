@@ -289,6 +289,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
         }
         
         metadata->info.lamports = lamports;
+        // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
+        //   fd_account_set_owner(&ctx, metadata, acc, owner);
+        // }
         fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
         // add to dirty list
@@ -557,6 +560,9 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx, ulong const 
       input_cursor += sizeof(uchar);
 
       metadata->info.lamports = lamports;
+      // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
+      //   fd_account_set_owner(&ctx, metadata, acc, owner);
+      // }
       fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
 
       metadata->dlen = pre_lens[i];

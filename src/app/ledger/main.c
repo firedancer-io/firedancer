@@ -71,8 +71,8 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   if (err != NULL) {
     FD_LOG_ERR(("fd_rocksdb_last_slot returned %s", err));
   }
-  if (end_slot > last_slot)
-    end_slot = last_slot;
+  // if (end_slot > last_slot)
+  //   end_slot = last_slot;
 
   ulong start_slot = slot_ctx->slot_bank.slot;
   if ( last_slot < start_slot ) {
@@ -109,8 +109,17 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
     fd_slot_meta_destroy(&m, &ctx);
 
     ret = fd_rocksdb_root_iter_next( &iter, &m, slot_ctx->valloc );
-    if (ret < 0)
-      FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
+    if (ret < 0) {
+      FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
+      if (slot + 1 == 223344000) {
+        slot += 8;
+      }
+      ret = fd_rocksdb_get_meta(&rocks_db, slot + 1, &m, slot_ctx->valloc);
+      if (ret < 0) {
+        break;
+      }
+    }
+      // FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
   } while (1);
 
   fd_rocksdb_root_iter_destroy( &iter );
@@ -211,7 +220,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( wksp, shmem ) ));
 
-  fd_blockstore_t* blockstore;
+  fd_blockstore_t * blockstore;
 
   tag = FD_BLOCKSTORE_MAGIC;
   if (fd_wksp_tag_query(wksp, &tag, 1, &info, 1) > 0) {

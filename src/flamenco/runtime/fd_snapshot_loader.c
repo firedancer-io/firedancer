@@ -299,6 +299,12 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
 
   fd_recent_block_hashes_decode( &slot_ctx->slot_bank.recent_block_hashes, &ctx );
 
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
+  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
+
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
+  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
+
   fd_runtime_save_slot_bank( slot_ctx );
   fd_runtime_save_epoch_bank( slot_ctx );
 }

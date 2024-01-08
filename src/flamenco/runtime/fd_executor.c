@@ -365,6 +365,15 @@ fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  uint bpf_upgradeable_in_txn = 0;
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    fd_pubkey_t * acc = &txn_ctx->accounts[i];
+    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+      bpf_upgradeable_in_txn = 1;
+      break;
+    }
+  }
+
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
@@ -375,9 +384,17 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       // FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
     }
 
+    uint is_executable = borrowed_account->const_meta != NULL && borrowed_account->const_meta->info.executable;
     if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i ) ) {
-      void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
-      fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+      if ( is_executable ) {
+        if ( bpf_upgradeable_in_txn && memcmp( borrowed_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0 ) {
+          void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+          fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+        }
+      } else {
+        void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+        fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+      }
     }
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
@@ -613,6 +630,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
+    // fd_txn_t const *txn = txn_ctx->txn_descriptor;
+    // fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
+    // uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
@@ -626,9 +647,9 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
-          // FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d)", exec_result, txn_ctx->custom_err ));
+          // FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
         } else {
-          // FD_LOG_WARNING(( "fd_execute_instr failed (%d)", exec_result ));
+          // FD_LOG_WARNING(( "fd_execute_instr failed (%d) for %64J", exec_result, sig ));
         }
         if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
@@ -662,11 +683,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-      if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
+      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+      if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) || acc_rec->const_meta->info.executable ) {
         continue;
       }
-
-      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
       if( acc_rec->meta->info.lamports == 0 ) {
         acc_rec->meta->dlen = 0;

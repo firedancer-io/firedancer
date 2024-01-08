@@ -473,7 +473,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   state->inner.lookup_table.meta.has_authority = 1;
   state->inner.lookup_table.meta.deactivation_slot = ULONG_MAX;
 
-  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, sizeof(fd_address_lookup_table_state_t), &lut_acct );
+  fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, 0, &lut_acct );
   FD_TEST( lut_acct->meta );
 
   int state_err = fd_addrlut_serialize_meta( state, lut_acct->data, sizeof(fd_address_lookup_table_state_t) );
