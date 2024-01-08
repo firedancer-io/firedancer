@@ -11,64 +11,37 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - name: stage
         run: bash ffi/rust/firedancer-sys/stage.sh
-      - uses: actions-rs/cargo@v1
-        with:
-          command: package
-          args: --allow-dirty --manifest-path ffi/rust/firedancer-sys/Cargo.toml
+      - run: cargo package --allow-dirty --manifest-path ffi/rust/firedancer-sys/Cargo.toml
 
   test:
     name: cargo-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all
+        working-directory: ffi/rust
 
   fmt:
     name: cargo-rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all -- --check
+        working-directory: ffi/rust
 
   clippy:
     name: cargo-clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all -- -D warnings
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo clippy --all -- -D warnings
+        working-directory: ffi/rust
 
   cargo-deny:
     name: cargo-deny
@@ -77,4 +50,4 @@ jobs:
     - uses: actions/checkout@v4
     - uses: EmbarkStudios/cargo-deny-action@v1
       with:
-        command: check bans licenses sources
+        command: --manifest-path ffi/rust/Cargo.toml check bans licenses sources

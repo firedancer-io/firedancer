@@ -16,7 +16,7 @@ jobs:
           - linux_gcc_noarch64    # least capable target
           - linux_gcc_icelake     # most capable target
           - linux_clang_x86_64
-          - linux_clang_zen2
+          - linux_clang_haswell
           - linux_clang_icelake
         # Attach additional params to machine types
         include:
@@ -26,7 +26,7 @@ jobs:
             group: rhel85-icelake
           - machine: linux_clang_x86_64
             extras: fuzz
-          - machine: linux_clang_zen2
+          - machine: linux_clang_haswell
             extras: fuzz
           - machine: linux_clang_icelake
             group: rhel85-icelake

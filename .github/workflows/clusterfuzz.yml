@@ -4,18 +4,17 @@ on:
   workflow_dispatch:
 jobs:
   clusterfuzz-publish:
-    name: Build Fuzzers for ${{ matrix.feature_set }} feature set
     environment:
       name: clusterfuzz
       url: 'https://isol-clusterfuzz.appspot.com/'
     strategy:
       matrix:
         machine:
-          - linux_clang_zen2
+          - linux_clang_haswell
           - linux_clang_icelake
         include:
-          - machine: linux_clang_zen2
-            artifact_dir: build/linux/clang/zen2
+          - machine: linux_clang_haswell
+            artifact_dir: build/linux/clang/haswell
             qualifier: modern
           - machine: linux_clang_icelake
             artifact_dir: build/linux/clang/icelake
