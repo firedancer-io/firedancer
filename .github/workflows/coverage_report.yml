@@ -25,7 +25,7 @@ jobs:
       - name: Generate all coverage
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          MACHINES="linux_clang_x86_64 linux_clang_zen2 linux_clang_icelake" \
+          MACHINES="linux_clang_x86_64 linux_clang_haswell linux_clang_icelake" \
           EXTRAS="llvm-cov fuzz" \
           COV_REPORT=1 \
           contrib/test/ci_tests.sh
@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload artifact
         run: |
-          gcloud storage rm -r ${{ vars.COVERAGE_BUCKET }}/
+          gcloud storage rm -r ${{ vars.COVERAGE_BUCKET }}/ || true
           gcloud storage cp -r ./build/cov/html/* ${{ vars.COVERAGE_BUCKET }}/
 
       - name: Upload coverage report to CodeCov

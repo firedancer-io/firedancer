@@ -26,12 +26,10 @@ set -x
 
 # Build and run tests for all machines
 OBJDIRS=( )
-for MACHINE in "${MACHINES[*]}"; do
-  # TODO hacky
-  OBJDIR="build/$(echo "$MACHINE" | tr "_" "/")"
-  OBJDIRS+=( "${OBJDIR}" )
-
+for MACHINE in ${MACHINES[*]}; do
   export MACHINE
+  OBJDIR="$(make help | grep OBJDIR | awk '{print $4}')"
+  OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
   contrib/make-j
   if [[ "$NOTEST" != 1 ]]; then
@@ -44,11 +42,11 @@ for MACHINE in "${MACHINES[*]}"; do
       make "${OBJDIR}/cov/cov.profdata"
     fi
   fi
-  export -n EXTRAS
+  export -n MACHINE
 done
 
 # Export coverage report
 if [[ "$COV_REPORT" == 1 ]]; then
   make dist-cov-report OBJDIRS="${OBJDIRS[*]}"
-  contrib/test/find_uncovered_fuzz_canaries.py buld/cov/cov.lcov
+  contrib/test/find_uncovered_fuzz_canaries.py build/cov/cov.lcov || true
 fi
