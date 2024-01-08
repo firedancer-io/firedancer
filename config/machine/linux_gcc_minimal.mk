@@ -1,11 +1,11 @@
 BUILDDIR:=linux/gcc/minimal
 
 include config/base.mk
-include config/with-security.mk
-include config/with-gcc.mk
-include config/with-debug.mk
-include config/with-brutality.mk
-include config/with-optimization.mk
+include config/extra/with-security.mk
+include config/extra/with-gcc.mk
+include config/extra/with-debug.mk
+include config/extra/with-brutality.mk
+include config/extra/with-optimization.mk
 
 # Turn on POSIX style logging in this target to facilitate
 # cross-platform development

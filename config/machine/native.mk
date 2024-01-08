@@ -24,27 +24,29 @@ ifeq ($(FD_IS_GNU),1)
     endif
 endif
 
-ifeq ($(FD_USING_GCC),1)
+ifdef FD_USING_GCC
 include config/base.mk
 	CC:=gcc
 	CXX:=g++
 	LD:=g++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
-else ifeq ($(FD_USING_CLANG),1)
+include config/extra/with-gcc.mk
+else ifdef FD_USING_CLANG
 include config/base.mk
 	CC=clang
 	CXX=clang++
 	LD=clang++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __clang_major__ |  awk '{print $$3}')
+include config/extra/with-clang.mk
 endif
 
 BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
 
-include config/with-brutality.mk
-include config/with-optimization.mk
-include config/with-debug.mk
-include config/with-security.mk
+include config/extra/with-brutality.mk
+include config/extra/with-optimization.mk
+include config/extra/with-debug.mk
+include config/extra/with-security.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
@@ -63,7 +65,7 @@ $(call map-define,FD_HAS_AESNI, __AES__)
 # Older version of GCC (<10) don't fully support AVX512, so we disable
 # it in those cases. Older versions of Clang (<8) don't support it
 # either, but Firedancer doesn't support those versions.
-ifeq ($(FD_USING_GCC),1)
+ifdef FD_USING_GCC
        ifeq ($(shell test $(FD_COMPILER_MAJOR_VERSION) -lt 10 && echo 1),1)
                FD_HAS_AVX512:=
                FD_HAS_AVX512_MESSAGE:=(Disabled because GCC version $(FD_COMPILER_MAJOR_VERSION) not >= 10.0)
@@ -71,7 +73,7 @@ ifeq ($(FD_USING_GCC),1)
 # This line cannot be indented properly
 $(call map-define,FD_HAS_AVX512, __AVX512IFMA__)
        endif
-else ifeq ($(FD_USING_CLANG),1)
+else ifdef FD_USING_CLANG
 $(call map-define,FD_HAS_AVX512, __AVX512IFMA__)
 endif
 
@@ -82,22 +84,16 @@ $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 $(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
 
-ifeq ($(FD_HAS_THREADS),1)
-include config/with-threads.mk
+ifdef FD_HAS_THREADS
+include config/extra/with-threads.mk
 endif
 
-ifeq ($(FD_HAS_OPENSSL),1)
-include config/with-openssl.mk
+ifdef FD_IS_X86_64
+include config/extra/with-x86-64.mk
 endif
 
-include config/with-zstd.mk
-
-ifeq ($(FD_IS_X86_64),1)
-include config/x86-64-flags.mk
-	ifeq ($(FD_USING_GCC),1)
-include config/x86-64-gcc-flags.mk
-	else ifeq ($(FD_USING_CLANG),1)
-include config/x86-64-clang-flags.mk
-include config/with-clang.mk
-	endif
+ifdef FD_HAS_OPENSSL
+include config/extra/with-openssl.mk
 endif
+
+include config/extra/with-zstd.mk
