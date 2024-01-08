@@ -53,7 +53,7 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   }
 
   for( ulong i = 0; i < pairs_len; ++i ) {
-    if (false) {
+    if (0) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
 
       /*
@@ -321,7 +321,6 @@ fd_account_hash_task( void *tpool,
   if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
     task_info->hash_changed = 1;
   } else if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) 
-    && !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) 
     && acc_meta->slot == slot_ctx->slot_bank.slot ) {
     /* Even if the hash didnt change, in this scenario, the record did! */
     task_info->hash_changed = 1;

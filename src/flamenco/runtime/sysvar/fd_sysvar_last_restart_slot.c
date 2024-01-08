@@ -58,6 +58,9 @@ fd_sysvar_last_restart_slot_read( fd_exec_slot_ctx_t const *             slot_ct
 void
 fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) return;
+  fd_sol_sysvar_last_restart_slot_t result;
+  fd_sysvar_last_restart_slot_read( slot_ctx, &result );
+  if ( result.slot == slot_ctx->slot_bank.last_restart_slot.slot ) return;
 
   /* Set this every slot? */
   uchar data[ 8 ];

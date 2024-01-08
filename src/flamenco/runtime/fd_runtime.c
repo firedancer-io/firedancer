@@ -2279,6 +2279,14 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
 
   info->lamports -= (ulong)due;
   slot_ctx->slot_bank.collected_rent += (ulong)due;
+
+  if (!FD_FEATURE_ACTIVE(slot_ctx, skip_rent_rewrites) || !(due == 0 && info->rent_epoch != 0)) {
+    // By changing the slot, this forces the account to be updated
+    // in the account_delta_hash which matches the "rent rewrite"
+    // behavior in solana.
+
+    acc->slot = slot_ctx->slot_bank.slot;
+  }
   return 1;
 
   // RentCollector::collect_from_existing_account (exit)
@@ -2297,7 +2305,7 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
        rec_ro != NULL;
        rec_ro = fd_funk_part_next(rec_ro, rec_map)) {
     fd_pubkey_t const *key = fd_type_pun_const(rec_ro->pair.key[0].uc);
-
+    FD_LOG_WARNING(("Collecting rent from %32J", key));
     FD_BORROWED_ACCOUNT_DECL(rec);
     int err = fd_acc_mgr_view(acc_mgr, txn, key, rec);
 
@@ -2331,14 +2339,6 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
     if (rec->const_meta->info.rent_epoch <= epoch)
       /* Actually invoke rent collection */
       (void)fd_runtime_collect_rent_account(slot_ctx, rec->meta, key, epoch);
-
-    if (!FD_FEATURE_ACTIVE(slot_ctx, skip_rent_rewrites)) {
-      // By changing the slot, this forces the account to be updated
-      // in the account_delta_hash which matches the "rent rewrite"
-      // behavior in solana.
-
-      rec->meta->slot = slot_ctx->slot_bank.slot;
-    }
   }
 }
 
@@ -2580,6 +2580,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
       ulong fees = (slot_ctx->slot_bank.collected_fees - (slot_ctx->slot_bank.collected_fees / 2) );
       ulong burn = slot_ctx->slot_bank.collected_fees / 2;
       rec->meta->info.lamports += fees;
+      rec->meta->slot = slot_ctx->slot_bank.slot;
       // FD_LOG_DEBUG(( "fd_runtime_freeze: slot:%ld global->collected_fees: %ld, sending %ld to leader (%32J) (resulting %ld), burning %ld", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.collected_fees, fees, slot_ctx->leader, rec->meta->info.lamports, fees ));
 
       ulong old = slot_ctx->slot_bank.capitalization;
