@@ -182,7 +182,7 @@ main( int argc, char **argv ) {
   FD_TEST( rc == FD_IP_PROBE_RQD );
 
   /* now send a probe */
-  uchar buf[2048];
+  uchar buf[FD_IP_ARP_SZ];
   ulong buf_sz  = sizeof( buf );
   ulong arp_len = 0;
 

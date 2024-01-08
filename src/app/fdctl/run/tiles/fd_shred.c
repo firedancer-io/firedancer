@@ -128,7 +128,6 @@ typedef struct {
   uint                 src_ip_addr;
   uchar                src_mac_addr[ 6 ];
   ushort               shred_listen_port;
-  fd_ip_t            * ip;
 
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
@@ -221,7 +220,6 @@ scratch_footprint( fd_topo_tile_t * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(),                    fd_ip_footprint( 256UL, 256UL )         );
   l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
@@ -259,45 +257,6 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
 
 static inline void
 finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
-
-  fd_shred_dest_weighted_t * dests    = ctx->new_dest_ptr;
-  ulong                      dest_cnt = ctx->new_dest_cnt;
-
-  for( ulong i=0UL; i<dest_cnt; i++ ) {
-    /* Resolve the destination */
-    int can_send_to_dest = 0;
-    if( FD_LIKELY( dests[i].ip4 ) ) {
-
-      uint out_next_ip[1];
-      uint out_ifindex[1];
-      int res = fd_ip_route_ip_addr( dests[i].mac_addr, out_next_ip, out_ifindex, ctx->ip, dests[i].ip4 );
-
-      if( FD_LIKELY( res==FD_IP_SUCCESS ) ) {
-        can_send_to_dest = 1;
-      }
-      else if( FD_LIKELY( res==FD_IP_PROBE_RQD ) ) {
-        uchar * arp_packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-        ulong arp_sz[1];
-        res = fd_ip_arp_gen_arp_probe( arp_packet, sizeof(fd_ip_arp_t), arp_sz, *out_next_ip, ctx->src_ip_addr, ctx->src_mac_addr );
-        if( res!=FD_IP_SUCCESS ) FD_LOG_ERR(( "Generation of arp probe failed" ));
-
-        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong   sig = fd_disco_netmux_sig( 0U, 0U, FD_NETMUX_SIG_IGNORE_HDR_SZ, SRC_TILE_SHRED, (ushort)0 ); /* arp is not IP */
-        fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
-            *arp_sz, 0UL, 0UL, tspub );
-        ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-        ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, *arp_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
-      } else {
-        /* increment counter */
-      }
-    }
-    if( FD_UNLIKELY( !can_send_to_dest ) ) {
-      dests[i].ip4  =         0U;
-      dests[i].port = (ushort)0 ;
-      memset( dests[i].mac_addr, 0, 6UL );
-    }
-  }
-
   fd_stake_ci_dest_add_fini( ctx->stake_ci, ctx->new_dest_cnt );
 }
 
@@ -458,7 +417,7 @@ send_shred( fd_shred_ctx_t *      ctx,
 
   eth_ip_udp_t * hdr = (eth_ip_udp_t *)packet;
 
-  memcpy( hdr->eth->dst, dest->mac_addr, 6UL );
+  memset( hdr->eth->dst, 0, 6UL );
 
   memcpy( hdr->ip4->daddr_c, &dest->ip4, 4UL );
   hdr->ip4->net_id     = fd_ushort_bswap( ctx->net_id++ );
@@ -608,40 +567,6 @@ after_frag( void *             _ctx,
 }
 
 static inline void
-warmup_arp_cache( fd_shred_ctx_t * ctx ) {
-  FD_LOG_NOTICE(( "Trying to find route to 1.1.1.1 to warmup the arp cache" ));
-  fd_ip_t * ip = ctx->ip;
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  while( 1 ) {
-    uchar mac[6];
-    uint  out_next_ip[1];
-    uint  out_ifindex[1];
-
-    fd_ip_route_fetch( ip );
-    fd_ip_arp_fetch  ( ip );
-    int res = fd_ip_route_ip_addr( mac, out_next_ip, out_ifindex, ip, 0x01010101 );
-    if( res==FD_IP_NO_ROUTE  ) { FD_LOG_WARNING(( "No route to 1.1.1.1. Skipping warmup." )); return; }
-    if( res==FD_IP_SUCCESS   ) break;
-    if( res!=FD_IP_PROBE_RQD ) FD_LOG_ERR(( "Unicast address resolved to multicast/broadcast" ));
-
-    uchar * arp_packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    ulong arp_sz[1];
-    res = fd_ip_arp_gen_arp_probe( arp_packet, sizeof(fd_ip_arp_t), arp_sz, *out_next_ip, ctx->src_ip_addr, ctx->src_mac_addr );
-    if( res!=FD_IP_SUCCESS ) FD_LOG_ERR(( "Generation of arp probe failed" ));
-
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    ulong   sig = fd_disco_netmux_sig( 0U, 0U, FD_NETMUX_SIG_IGNORE_HDR_SZ, SRC_TILE_SHRED, (ushort)0 ); /* arp is not IP */
-    fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
-        *arp_sz, 0UL, tsorig, tspub );
-    ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-    ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, *arp_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
-
-    long spin_start = fd_log_wallclock();
-    while( fd_log_wallclock() - spin_start < 1000000L ) FD_SPIN_PAUSE(); /* Pause for at least 1 millisecond */
-  }
-  FD_LOG_NOTICE(( "ARP cache warmed" ));
-}
-static inline void
 populate_packet_header_template( eth_ip_udp_t * pkt,
                                  ulong          shred_payload_sz,
                                  uint           src_ip,
@@ -675,8 +600,6 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
-  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
-  if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
 
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
@@ -719,7 +642,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
 
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, shred_store_mcache_depth,
                                                             128UL * tile->shred.fec_resolver_depth );
@@ -870,10 +792,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_batch.slot           = 0UL;
   fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
 
-  fd_ip_arp_fetch( ctx->ip );
-  fd_ip_route_fetch( ctx->ip );
-  warmup_arp_cache( ctx );
-
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -883,12 +801,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
-
-  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
-  FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_shred( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)netlink_fd );
+  (void)scratch;
+  populate_sock_filter_policy_shred( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_shred_instr_cnt;
 }
 
@@ -896,16 +810,14 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_shred_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_shred_ctx_t ), sizeof( fd_shred_ctx_t ) );
+  (void)scratch;
 
-  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
   return out_cnt;
 }
 

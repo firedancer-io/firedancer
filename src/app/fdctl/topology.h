@@ -209,6 +209,7 @@ typedef struct {
       ulong  xdp_tx_queue_size;
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
+      uchar  src_mac_addr[6];
       ushort allow_ports[ 3 ];
     } net;
 

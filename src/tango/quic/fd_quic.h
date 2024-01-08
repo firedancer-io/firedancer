@@ -82,7 +82,6 @@
 /* TODO provide fd_quic on non-hosted targets */
 
 #include "../aio/fd_aio.h"
-#include "../ip/fd_ip.h"
 #include "../tls/fd_tls.h"
 #include "../../util/fd_util.h"
 
@@ -441,8 +440,6 @@ struct fd_quic {
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
 
-  fd_ip_t * ip;    /* ownership transferred to fd_quic */
-
   /* ... private variable-length structures follow ... */
 };
 typedef struct fd_quic fd_quic_t;
@@ -474,16 +471,11 @@ fd_quic_footprint( fd_quic_limits_t const * limits );
    or server.  mem is a non-NULL pointer to this region in the local
    address with the required footprint and alignment.  limits is a
    temporary reference, identical to the one given to fd_quic_footprint
-   used to figure out the required footprint.
-
-   The QUIC takes a local join to a fd_ip_t and it will use this for
-   the lifetime of the IP.  The caller should make sure the IP stays
-   joined until the fd_quic_leave is called. */
+   used to figure out the required footprint. */
 
 FD_QUIC_API void *
 fd_quic_new( void *                   mem,
-             fd_quic_limits_t const * limits,
-             fd_ip_t *                ip );
+             fd_quic_limits_t const * limits );
 
 /* fd_quic_join joins the caller to the fd_quic.  shquic points to the
    first byte of the memory region backing the QUIC in the caller's

@@ -53,7 +53,6 @@ struct fd_quic_layout {
   ulong event_queue_off; /* offset of event queue mem region */
   int   lg_slot_cnt;     /* see conn_map_new                 */
   ulong tls_off;         /* offset of fd_quic_tls_t          */
-  ulong ip_off;          /* offset of fd_ip_t                */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -134,8 +133,7 @@ fd_quic_footprint( fd_quic_limits_t const * limits ) {
 
 FD_QUIC_API void *
 fd_quic_new( void * mem,
-             fd_quic_limits_t const * limits,
-             fd_ip_t * ip ) {
+             fd_quic_limits_t const * limits ) {
 
   /* Argument checks */
 
@@ -176,12 +174,6 @@ fd_quic_new( void * mem,
 
   /* Set limits */
   memcpy( &quic->limits, limits, sizeof( fd_quic_limits_t ) );
-
-  if( !ip ) {
-    FD_LOG_WARNING(( "NULL fd_ip" ));
-    return NULL;
-  }
-  quic->ip = ip;
 
   FD_COMPILER_MFENCE();
   quic->magic = FD_QUIC_MAGIC;
@@ -474,12 +466,6 @@ fd_quic_init( fd_quic_t * quic ) {
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
   return quic;
-}
-
-/* get pointer to fd_ip_t */
-fd_ip_t *
-fd_quic_get_ip( fd_quic_t * quic ) {
-  return quic->ip;
 }
 
 /* fd_quic_enc_level_to_pn_space maps of encryption level in [0,4) to
@@ -1326,26 +1312,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* Save peer's network endpoint */
 
-      uchar  dst_mac_addr_u6[6] = {0};
-      uint   dst_ip_addr        = FD_LOAD( uint, pkt->ip4->saddr_c );
       ushort dst_udp_port       = pkt->udp->net_sport;
-
-      /* Do route and arp query. If these fail, assume the source mac
-         works, which will be true in symmetric setups */
-      uchar  arp_mac_addr[6]  = {0};
-      uint   arp_next_ip_addr = 0;
-      uint   arp_ifindex      = 0;
-      uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
-      int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
-                                         &arp_next_ip_addr,
-                                         &arp_ifindex,
-                                         fd_quic_get_ip( quic ),
-                                         arp_host_dst_ip );
-      if( arp_rtn == FD_IP_SUCCESS ) {
-        memcpy( dst_mac_addr_u6, arp_mac_addr, 6 );
-      } else {
-        memcpy( dst_mac_addr_u6, pkt->eth->src, 6 );
-      }
+      uint   dst_ip_addr        = FD_LOAD( uint, pkt->ip4->saddr_c );
+      uchar  dst_mac_addr_u6[6] = {0};
+      memcpy( dst_mac_addr_u6, pkt->eth->src, 6 );
 
       /* TODO in the case of FD_IP_PROBE_RQD, we should initiate an ARP probe
          But in this case, we don't want to keep a full connection state
@@ -3151,16 +3121,6 @@ fd_quic_service( fd_quic_t * quic ) {
 
   ulong now = fd_quic_now( quic );
 
-  /* do we need to update the arp or routing tables? */
-  fd_ip_t * ip = fd_quic_get_ip( quic );
-  long ip_upd_period_ns = (long)5e9; /* every 5 seconds seems reasonable */
-  if( FD_UNLIKELY( (long)( now - state->ip_table_upd ) > ip_upd_period_ns ) ) {
-    fd_ip_arp_fetch( ip );
-    fd_ip_route_fetch( ip );
-
-    state->ip_table_upd = now;
-  }
-
   /* service events */
   fd_quic_conn_t * conn = NULL;
   while( service_queue_cnt( state->service_queue ) ) {
@@ -4535,128 +4495,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 }
 
 void
-fd_quic_send_arp( fd_quic_t *      quic,
-                  fd_quic_conn_t * conn,
-                  uint             next_hop_ip_addr,
-                  uint             ifindex ) {
-  fd_ip_t * ip   = fd_quic_get_ip( quic );
-  ulong     wait = (ulong)1e6; /* default wait for next arp action is 1ms */
-
-  ulong now = fd_quic_now( quic );
-
-  /* prepare kernel ARP table, else ARP reply will be ignored by the kernel */
-  int arp_table_rtn = fd_ip_update_arp_table( ip, next_hop_ip_addr, ifindex );
-  switch( arp_table_rtn ) {
-    case FD_IP_RETRY:   wait = (ulong)50e3; __attribute__((fallthrough));
-    case FD_IP_SUCCESS: (void)0;            __attribute__((fallthrough));
-    case FD_IP_PROBE_RQD:
-      fd_quic_reschedule_conn( conn, now + wait );
-      break;
-
-    case FD_IP_ERROR:
-      fd_quic_reschedule_conn( conn, now + (ulong)100e6 );
-      return;
-
-    default:
-      FD_LOG_WARNING(( "Unhandled return value from fd_ip_update_arp_table: %d",
-            arp_table_rtn ));
-      fd_quic_reschedule_conn( conn, now + (ulong)100e6 );
-      /* try sending anyway */
-  }
-
-  /* need ip_addr in host order */
-  uint host_ip_addr = fd_uint_bswap( quic->config.net.ip_addr );
-
-  /* load an ARP packet */
-  uchar buf[1024];
-  ulong arp_len = 0;
-  if( fd_ip_arp_gen_arp_probe( buf,
-                               sizeof( buf ),
-                               &arp_len,
-                               next_hop_ip_addr,
-                               host_ip_addr,
-                               quic->config.link.src_mac_addr ) ) {
-    FD_LOG_WARNING(( "fd_ip_arp_gen_arp_probe failed" ));
-    return;
-  }
-
-  /* send it */
-  fd_aio_pkt_info_t aio_buf = { .buf = buf, .buf_sz = (ushort)arp_len };
-  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, 1 /* flush */ );
-  if( aio_rc == FD_AIO_ERR_AGAIN ) {
-    /* transient condition */
-    return;
-  } else if( aio_rc != FD_AIO_SUCCESS ) {
-    FD_LOG_WARNING(( "Fatal error reported by aio peer" ));
-    /* fallthrough to reset buffer */
-  }
-}
-
-void
 fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
   (void)now;
-  /* are we handling ARP? */
-  int   arp_status        = conn->arp_status;
-  ulong arp_update_period = (ulong)( 500e6 );
-  if( FD_UNLIKELY( arp_status == FD_ARP_STATUS_WAITING  ||
-                   arp_status == FD_ARP_STATUS_REQUIRED ||
-                   now        >  conn->arp_update + arp_update_period ) ) {
-    /* get ip */
-    fd_ip_t * ip = fd_quic_get_ip( quic );
-
-    /* get current peer info */
-    fd_quic_endpoint_t *peer = &conn->peer[conn->cur_peer_idx];
-
-    /* ensure we have an updated arp table */
-    if( arp_status == FD_ARP_STATUS_WAITING ) {
-      fd_ip_arp_fetch( ip );
-    }
-
-    /* do routing */
-    uint   dst_ip_addr      = peer->net.ip_addr;
-    uchar  arp_mac_addr[6]  = {0};
-    uint   arp_next_ip_addr = 0;
-    uint   arp_ifindex      = 0;
-    uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
-    int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
-                                       &arp_next_ip_addr,
-                                       &arp_ifindex,
-                                       ip,
-                                       arp_host_dst_ip );
-    if( FD_LIKELY( arp_rtn == FD_IP_SUCCESS ) ) {
-      memcpy( peer->mac_addr, arp_mac_addr, 6 );
-      conn->arp_status = FD_ARP_STATUS_RESOLVED;
-      conn->arp_update = now;
-    } else {
-      switch( arp_rtn ) {
-        case FD_IP_PROBE_RQD:
-          conn->arp_status = FD_ARP_STATUS_WAITING;
-
-          /* send ARP */
-          fd_quic_send_arp( quic, conn, arp_next_ip_addr, arp_ifindex );
-
-          /* may have no MAC address, but may resolve later udpsock, for example,
-          so continue */
-          break;
-
-        case FD_IP_NO_ROUTE:
-          FD_LOG_WARNING(( "No route to host 0x%08x", dst_ip_addr ));
-
-          /* wait for a period and retry */
-          fd_quic_reschedule_conn( conn, now + (ulong)1e9 );
-          return;
-        default:
-          FD_LOG_WARNING(( "Unexpected routing for host 0x%08x. Code: %x",
-                           dst_ip_addr,
-                           arp_rtn ));
-
-          /* wait for a period and retry */
-          fd_quic_reschedule_conn( conn, now + (ulong)1e9 );
-          return;
-      }
-    }
-  }
-
 
   /* handle expiry on pkt_meta */
   fd_quic_pkt_meta_retry( quic, conn, 0 /* don't force */ );
@@ -5268,34 +5108,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->peer[ peer_idx ].net.udp_port = dst_udp_port;
   memset( &conn->peer[ peer_idx ].mac_addr, 0, 6 );
   conn->peer_cnt                      = 1;
-
-  /* do routing */
-  uchar  arp_mac_addr[6]  = {0};
-  uint   arp_next_ip_addr = 0;
-  uint   arp_ifindex      = 0;
-  uint   arp_host_dst_ip  = fd_uint_bswap( dst_ip_addr );
-  int arp_rtn = fd_ip_route_ip_addr( arp_mac_addr,
-                                     &arp_next_ip_addr,
-                                     &arp_ifindex,
-                                     fd_quic_get_ip( quic ),
-                                     arp_host_dst_ip );
-  switch( arp_rtn ) {
-    case FD_IP_SUCCESS:
-      memcpy( &conn->peer[peer_idx].mac_addr, arp_mac_addr, 6 );
-      conn->arp_status = FD_ARP_STATUS_RESOLVED;
-      break;
-    case FD_IP_PROBE_RQD:
-      conn->arp_status = FD_ARP_STATUS_REQUIRED;
-      break;
-
-    case FD_IP_NO_ROUTE:
-      FD_LOG_WARNING(( "No route to address " FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( dst_ip_addr ) ));
-      break;
-
-    default:
-      FD_LOG_WARNING(( "Unexpected routing for ip address 0x%08x. Code: %x",
-            dst_ip_addr, arp_rtn ));
-  }
 
   /* initialize other ack members */
   fd_memset( conn->acks_tx,     0, sizeof( conn->acks_tx ) );
