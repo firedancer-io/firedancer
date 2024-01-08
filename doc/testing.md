@@ -23,8 +23,9 @@ For further info on system tuning, refer to [getting-started.md](./getting-start
 Assuming system is configured and dependencies are installed:
 
 ```
-./contrib/make-j
-./test.sh --page-sz normal
+sudo src/util/shmem/fd_shmem_cfg alloc 2 gigantic 0
+make -j
+make run-unit-test
 ```
 
 For large page and NUMA configuration, refer to `./test.sh --help`.

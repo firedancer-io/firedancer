@@ -11,5 +11,5 @@ $(call add-objs,fd_sha256_batch_avx512,fd_ballet)
 endif
 
 $(call make-unit-test,test_sha256,test_sha256,fd_ballet fd_util)
-$(call fuzz-test,fuzz_sha256,fuzz_sha256,fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_sha256,fuzz_sha256,fd_ballet fd_util)
 $(call run-unit-test,test_sha256)

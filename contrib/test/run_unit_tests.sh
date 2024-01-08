@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test.sh is a poor man's NUMA-aware greedy test scheduler.
+# run_unit_tests.sh is a poor man's NUMA-aware greedy test scheduler.
 
 set -euo pipefail
 
@@ -60,9 +60,14 @@ while [[ $# -gt 0 ]]; do
 
 done
 
-if [[ -z "$TESTS" ]]; then
-  echo "config/test.sh should not be run directly!" >&2
-  exit 1
+if [[ -z "$TESTS" && -z "${RECURSE_GUARD:-}" ]]; then
+  # No tests given, so indirect test execution through Make and retry.
+  # This ensures that we select the correct build dir for the current
+  # environment ($CC, $MACHINE, etc).
+  # Make then re-executes this file with the proper parameters.
+
+  export RECURSE_GUARD=1
+  exec make run-unit-test TEST_OPTS="$*"
 fi
 
 # Parse command-line args

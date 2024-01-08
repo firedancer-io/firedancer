@@ -1,14 +1,21 @@
 #!/bin/bash
 set -x
 
-# This script expects OBJDIR and MACHINE to be set
+if [[ ! -d "/sys/devices/system/cpu/cpu79" ]]; then
+  echo "WARN: This script requires at least 80 cores, skipping" >&2
+  exit 0
+fi
+
+# This script complements the automatic unit tests
+#
+# Expects OBJDIR and MACHINE to be set
 
 LOG_PATH="/tmp/fd-unit-test-${MACHINE:?}-report"
 BIN="${OBJDIR:?}/bin"
 UNIT_TEST="${OBJDIR}/unit-test"
 
 rm    -rf $LOG_PATH
-mkdir -pv  $LOG_PATH
+mkdir -pv $LOG_PATH
 
 FD_LOG_PATH="-"
 export FD_LOG_PATH
@@ -23,15 +30,6 @@ taskset -c  6 nice -n -19 $UNIT_TEST/test_alloc_ctl > $LOG_PATH/alloc_ctl 2>&1 &
 taskset -c  8 nice -n -19 $UNIT_TEST/test_pod_ctl   > $LOG_PATH/pod_ctl   2>&1 & # script
 taskset -c 10 nice -n -19 $UNIT_TEST/test_tango_ctl > $LOG_PATH/tango_ctl 2>&1 & # script
 wait
-
-taskset -c 12 nice -n -19 $UNIT_TEST/test_ar             --tile-cpus 12      2> $LOG_PATH/ar         &
-taskset -c 14 nice -n -19 $UNIT_TEST/test_funk_base      --tile-cpus 14      2> $LOG_PATH/funk_base  &
-taskset -c 16 nice -n -19 $UNIT_TEST/test_funk_txn       --tile-cpus 16      2> $LOG_PATH/funk_txn   &
-taskset -c 18 nice -n -19 $UNIT_TEST/test_funk_rec       --tile-cpus 18      2> $LOG_PATH/funk_rec   &
-taskset -c 20 nice -n -19 $UNIT_TEST/test_funk_val       --tile-cpus 20      2> $LOG_PATH/funk_val   &
-taskset -c 22 nice -n -19 $UNIT_TEST/test_funk           --tile-cpus 22      2> $LOG_PATH/funk       &
-taskset -c 24 nice -n -19 $UNIT_TEST/test_fxp            --tile-cpus 24      2> $LOG_PATH/fxp        &
-taskset -c 26 nice -n -19 $UNIT_TEST/test_uwide          --tile-cpus 26      2> $LOG_PATH/uwide      &
 
 # FIXME: USE FD_IMPORT PCAP FILE
 taskset -c 28 nice -n -19 $UNIT_TEST/test_pcap           --tile-cpus 28 --in tmp/test_in.pcap --out tmp/test_out.pcap 2> $LOG_PATH/pcap &
@@ -49,11 +47,6 @@ taskset -c 34 nice -n -19 $UNIT_TEST/test_cnc            --tile-cpus 34-36/2 2> 
 taskset -c 38 nice -n -19 $UNIT_TEST/test_replay         --tile-cpus 38-42/2 --tx-pcap /tmp/test.pcap 2> $LOG_PATH/replay &
 
 taskset -c 44 nice -n -19 $UNIT_TEST/test_tile           --tile-cpus 44-50/2 2> $LOG_PATH/tile_multi &
-
-taskset -c 52 nice -n -19 $UNIT_TEST/test_wksp_used_treap --tile-cpus 52 2> $LOG_PATH/wksp_used_treap &
-taskset -c 54 nice -n -19 $UNIT_TEST/test_wksp_free_treap --tile-cpus 54 2> $LOG_PATH/wksp_free_treap &
-taskset -c 56 nice -n -19 $UNIT_TEST/test_wksp_admin      --tile-cpus 56 2> $LOG_PATH/wksp_admin      &
-taskset -c 58 nice -n -19 $UNIT_TEST/test_wksp_user       --tile-cpus 58 2> $LOG_PATH/wksp_user       &
 
 # Needs at least 1 free gigantic page on numa 0
 taskset -c 60 nice -n -19 $UNIT_TEST/test_wksp_helper     --tile-cpus 60 2> $LOG_PATH/wksp_helper     &
