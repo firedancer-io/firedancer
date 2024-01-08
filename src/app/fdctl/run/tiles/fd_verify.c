@@ -101,7 +101,7 @@ after_frag( void *             _ctx,
   /* Sanity check that should never fail. We should have atleast
      FD_TPU_DCACHE_MTU bytes available. */
   if( FD_UNLIKELY( *opt_sz < sizeof(ushort) ) ) {
-    FD_LOG_ERR( ("invalid opt_sz(%x)", *opt_sz ) );
+    FD_LOG_ERR( ("invalid opt_sz(%lx)", *opt_sz ) );
   }
 
   uchar * udp_payload = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -112,7 +112,7 @@ after_frag( void *             _ctx,
     FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
   }
 
-  /* txn contents are located in shared memory accessible to the dedup tile 
+  /* txn contents are located in shared memory accessible to the dedup tile
      and the contents are controlled by the quic tile. We must perform
      validation */
   fd_txn_t * txn = (fd_txn_t*) fd_ulong_align_up( (ulong)(udp_payload) + payload_sz, 2UL );
@@ -121,11 +121,11 @@ after_frag( void *             _ctx,
   ushort message_off    = txn->message_off;
   ushort acct_addr_off  = txn->acct_addr_off;
   ushort signature_off  = txn->signature_off;
-  
+
   if( FD_UNLIKELY( message_off >= payload_sz  || acct_addr_off + FD_TXN_ACCT_ADDR_SZ > payload_sz || signature_off + FD_TXN_SIGNATURE_SZ > payload_sz ) ) {
     FD_LOG_ERR( ("txn is invalid: payload_sz = %x, message_off = %x, acct_addr_off = %x, signature_off = %x", payload_sz, message_off, acct_addr_off, signature_off ) );
   }
-  
+
   uchar local_sig[FD_TXN_SIGNATURE_SZ]  __attribute__((aligned(8)));
   ulong const * public_key = (ulong const *)(udp_payload + acct_addr_off);
   uchar const * msg        = (uchar const *)(udp_payload + message_off);
