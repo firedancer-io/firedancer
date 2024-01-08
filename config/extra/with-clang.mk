@@ -41,3 +41,6 @@ CPPFLAGS+=-DFD_USING_CLANG=1 -Wno-address-of-packed-member -Wno-unused-command-l
 
 FD_USING_CLANG:=1
 
+# Don't attempt to transform vsprtps into vrsqrtps (not IEEE-compliant)
+
+CPPFLAGS+=-Xclang -target-feature -Xclang +fast-vector-fsqrt
