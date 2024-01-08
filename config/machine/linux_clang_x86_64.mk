@@ -1,17 +1,15 @@
 BUILDDIR?=linux/clang/x86_64
 
 include config/base.mk
-include config/with-security.mk
-include config/with-clang.mk
-include config/with-debug.mk
-include config/with-brutality.mk
-include config/with-optimization.mk
-include config/with-threads.mk
-include config/with-openssl.mk
-include config/with-zstd.mk
-
-include config/x86-64-clang-flags.mk
-include config/x86-64-flags.mk
+include config/extra/with-security.mk
+include config/extra/with-clang.mk
+include config/extra/with-x86-64.mk
+include config/extra/with-debug.mk
+include config/extra/with-brutality.mk
+include config/extra/with-optimization.mk
+include config/extra/with-threads.mk
+include config/extra/with-openssl.mk
+include config/extra/with-zstd.mk
 
 # Clang sadly doesn't support important optimizations.  This practically
 # limits clang usage to code hygiene usage for the time being.  Here,

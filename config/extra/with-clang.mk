@@ -30,7 +30,9 @@ LD:=clang++
 # there wasn't some subtle inconsistency created between them in the
 # process).
 
-CPPFLAGS+=-DFD_USING_CLANG=1 -Wno-address-of-packed-member -Wno-unused-command-line-argument
+CPPFLAGS+=-DFD_USING_CLANG=1 -Wno-address-of-packed-member -Wno-unused-command-line-argument -Wno-bitwise-instead-of-logical
+
+LDFLAGS+=-lrt
 
 # Sigh ... clang doesn't understand some important command line
 # arguments (a couple of the more esoteric warnings in the brutality,

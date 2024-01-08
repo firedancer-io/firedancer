@@ -1,14 +1,15 @@
 BUILDDIR?=linux/gcc/zen2
 
 include config/base.mk
-include config/with-security.mk
-include config/with-gcc.mk
-include config/with-debug.mk
-include config/with-brutality.mk
-include config/with-optimization.mk
-include config/with-threads.mk
-include config/with-openssl.mk
-include config/with-zstd.mk
+include config/extra/with-security.mk
+include config/extra/with-gcc.mk
+include config/extra/with-x86-64.mk
+include config/extra/with-debug.mk
+include config/extra/with-brutality.mk
+include config/extra/with-optimization.mk
+include config/extra/with-threads.mk
+include config/extra/with-openssl.mk
+include config/extra/with-zstd.mk
 
 # GCC 8 (Firedancer's minimum supported GCC version) only supports znver1.
 ifeq ($(shell $(CC) -dumpversion),8)
@@ -17,9 +18,7 @@ else
 CPPFLAGS+=-march=znver2 -mtune=znver2
 endif
 
-CPPFLAGS+=-fomit-frame-pointer \
-  -mfpmath=sse \
-  -mbranch-cost=5 \
+CPPFLAGS+=\
   -DFD_HAS_INT128=1 \
   -DFD_HAS_DOUBLE=1 \
   -DFD_HAS_ALLOCA=1 \
