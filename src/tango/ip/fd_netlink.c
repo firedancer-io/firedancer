@@ -715,7 +715,7 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
        the FD_NL_ARP_FLAGS_UNSUPPORTED flags must not be present */
     if( ( entry->flags & FD_NL_ARP_FLAGS_UNSUPPORTED ) == 0 ) {
       entry->flags |= FD_NL_ARP_FLAGS_USED;
-      entry->state = msg->ndm_state;
+      entry->state  = msg->ndm_state;
       arp_entry_idx++;
     }
 
@@ -763,7 +763,6 @@ fd_nl_update_arp_table( fd_nl_t *           nl,
   }
 
   /* find the entry, if one exists */
-  long idx       = -1L;
   int  cur_state = -1; /* -1 indicates no existing entry */
   for( ulong j = 0; j < arp_table_cap; ++j ) {
     fd_nl_arp_entry_t * entry = &arp_table[j];
@@ -772,7 +771,6 @@ fd_nl_update_arp_table( fd_nl_t *           nl,
     if( ( entry->flags & FD_NL_RT_FLAGS_USED ) == 0 ) break;
 
     if( entry->dst_ip_addr == ip_addr ) {
-      idx       = (long)j;
       cur_state = (int)entry->state;
       break;
     }
@@ -930,7 +928,6 @@ fd_nl_update_arp_table( fd_nl_t *           nl,
 
   /* state has changed, reload table */
   fd_nl_load_arp_table( nl, arp_table, arp_table_cap );
-  (void)idx; /* TODO remove idx, as unneeded */
 
   return rtn;
 }

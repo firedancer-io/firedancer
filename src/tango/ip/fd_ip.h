@@ -29,11 +29,13 @@
 /* magic */
 #define FD_IP_MAGIC (0x37ad94a6ec098fc1UL)
 
+/* size of an ARP probe packet, including eth header */
+#define FD_IP_ARP_SZ (sizeof(fd_ip_arp_t))
+
 /* alias fd_ip_route_entry_t to fd_nl_route_entry_t
    and   fd_ip_arp_entry_t   to fd_nl_arp_entry_t */
 typedef fd_nl_route_entry_t fd_ip_route_entry_t;
 typedef fd_nl_arp_entry_t   fd_ip_arp_entry_t;
-
 
 struct fd_ip {
   ulong magic;
@@ -292,7 +294,6 @@ int
 fd_ip_update_arp_table( fd_ip_t * ip,
                         uint      ip_addr,
                         uint      ifindex );
-
 
 FD_PROTOTYPES_END
 

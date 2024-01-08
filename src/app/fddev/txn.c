@@ -158,9 +158,8 @@ txn_cmd_fn( args_t *         args,
                                             "wksp",
                                             0UL );
   FD_TEST( wksp );
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits, ip ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits ) );
   FD_TEST( quic );
 
   if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_public_key, 32UL, 0 ) ) )
