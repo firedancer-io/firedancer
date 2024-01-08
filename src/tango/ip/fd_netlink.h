@@ -6,6 +6,25 @@
 #include <linux/neighbour.h>
 
 
+#define FD_ARP_STATES(x,...) \
+    x( NUD_NONE       , __VA_ARGS__ ) \
+    x( NUD_NOARP      , __VA_ARGS__ ) \
+    x( NUD_PERMANENT  , __VA_ARGS__ ) \
+    x( NUD_DELAY      , __VA_ARGS__ ) \
+    x( NUD_STALE      , __VA_ARGS__ ) \
+    x( NUD_REACHABLE  , __VA_ARGS__ )
+
+#define FD_ARP_STATE_MATCH_BEGIN(value,state) \
+    ( (state) == value ? #value :
+
+#define FD_ARP_STATE_MATCH_END(value,state) \
+    )
+
+#define FD_ARP_STATE_STRING(state)                \
+    FD_ARP_STATES(FD_ARP_STATE_MATCH_BEGIN,state) \
+    "UNKNOWN"                                     \
+    FD_ARP_STATES(FD_ARP_STATE_MATCH_END,state)
+
 /* Defined the buffer space used in netlink calls
    We are not expecting many routing entries or ARP cache entries */
 #define FD_NL_BUF_SZ 4096UL

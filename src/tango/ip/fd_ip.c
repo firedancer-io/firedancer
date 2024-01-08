@@ -111,7 +111,6 @@ fd_ip_join( void * mem ) {
 void *
 fd_ip_leave( fd_ip_t * ip ) {
   if( !ip ) {
-    FD_LOG_WARNING(( "fd_ip_leave a NULL fd_ip" ));
     return NULL;
   }
 
@@ -188,10 +187,9 @@ fd_ip_arp_query( fd_ip_t *            ip,
                  fd_ip_arp_entry_t ** arp,
                  uint                 ip_addr ) {
   fd_ip_arp_entry_t * arp_table     = fd_ip_arp_table_get( ip );
-  ulong               arp_table_cap = ip->num_arp_entries;
+  ulong               arp_table_sz  = ip->cur_num_arp_entries;
 
-  fd_ip_arp_entry_t * entry = fd_nl_arp_query( arp_table, arp_table_cap, ip_addr );
-
+  fd_ip_arp_entry_t * entry = fd_nl_arp_query( arp_table, arp_table_sz, ip_addr );
   if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
 
   *arp = entry;
@@ -287,9 +285,11 @@ fd_ip_route_query( fd_ip_t *              ip,
   fd_ip_route_entry_t * route_table     = fd_ip_route_table_get( ip );
   ulong                 route_table_cap = ip->num_route_entries;
 
+  if( FD_UNLIKELY( route_table_cap == 0 ) ) return FD_IP_RETRY;
+
   fd_ip_route_entry_t * entry = fd_nl_route_query( route_table, route_table_cap, ip_addr );
 
-  if( FD_UNLIKELY( !entry ) ) return FD_IP_ERROR;
+  if( FD_UNLIKELY( !entry ) ) return FD_IP_NO_ROUTE;
 
   *route = entry;
 
@@ -335,8 +335,8 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   /* query routing table */
   fd_ip_route_entry_t * route_entry = NULL;
   int route_rtn = fd_ip_route_query( ip, &route_entry, ip_addr );
-  if( route_rtn ) {
-    return FD_IP_NO_ROUTE; /* no routing entry */
+  if( route_rtn != FD_IP_SUCCESS ) {
+    return route_rtn; /* no routing entry */
   }
 
   /* routing entry found */
@@ -348,25 +348,6 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   if( route_entry->nh_ip_addr ) {
     next_ip_addr = route_entry->nh_ip_addr; /* use next hop */
   } else {
-    //uint host_mask = ~route_entry->dst_netmask;
-    //if( ( ip_addr & host_mask ) == ( 0xffffffff & host_mask ) ) {
-    //  /* Local address, and subnet broadcast - send to ff:ff:ff:ff:ff:ff */
-
-    //  /* broadcast */
-    //  out_dst_mac[0] = 0xffU;
-    //  out_dst_mac[1] = 0xffU;
-    //  out_dst_mac[2] = 0xffU;
-    //  out_dst_mac[3] = 0xffU;
-    //  out_dst_mac[4] = 0xffU;
-    //  out_dst_mac[5] = 0xffU;
-
-    //  *out_ifindex = route_entry->oif;
-
-    //  return FD_IP_BROADCAST;
-    //}
-
-    /* else local unicast */
-
     next_ip_addr = ip_addr;
   }
 
@@ -379,7 +360,7 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   /* query ARP table */
   fd_ip_arp_entry_t * arp_entry = NULL;
   int arp_rtn = fd_ip_arp_query( ip, &arp_entry, next_ip_addr );
-  if( arp_rtn ) {
+  if( arp_rtn != FD_IP_SUCCESS ) {
     return FD_IP_PROBE_RQD; /* no entry, so send probe */
   }
 
@@ -406,15 +387,12 @@ fd_ip_update_arp_table( fd_ip_t * ip,
   /* query the table */
   fd_ip_arp_entry_t * arp = NULL;
 
-  if( fd_ip_arp_query( ip, &arp, ip_addr ) == FD_IP_SUCCESS ) {
+  /* if entry already exists, return success */
+  if( fd_ip_arp_query( ip, &arp, ip_addr ) == FD_IP_SUCCESS ) return FD_IP_SUCCESS;
 
-    return fd_nl_update_arp_table( netlink,
-                                   fd_ip_arp_table_get(ip),
-                                   ip->num_arp_entries,
-                                   ip_addr,
-                                   ifindex );
-  } else {
-    /* arp entry already in cache, so return success */
-    return FD_IP_SUCCESS;
-  }
+  return fd_nl_update_arp_table( netlink,
+                                 fd_ip_arp_table_get(ip),
+                                 ip->num_arp_entries,
+                                 ip_addr,
+                                 ifindex );
 }

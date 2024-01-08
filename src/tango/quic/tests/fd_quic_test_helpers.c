@@ -111,8 +111,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
                        fd_quic_limits_t const * limits,
                        int                      role,
                        fd_rng_t *               rng ) {
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
-  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits, ip );
+  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits );
   FD_TEST( shquic );
 
   fd_quic_t * quic = fd_quic_join( shquic );
@@ -139,7 +138,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)100e6; /* 100ms */
+  config->idle_timeout     = (ulong)200e6; /* 200ms */
   config->service_interval = (ulong) 10e6; /*  10ms */
   strcpy( config->sni, "local" );
 

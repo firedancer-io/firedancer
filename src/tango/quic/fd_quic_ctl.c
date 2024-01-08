@@ -59,8 +59,7 @@ main( int     argc,
         FD_LOG_ERR(( "%i: %s: fd_wksp_laddr( \"%s\", %lu ) failed\n\tDo %s help for help", cnt, cmd, _wksp, gaddr, bin ));
       }
 
-      fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
-      void * shquic = fd_quic_new( shmem, &limits, ip );
+      void * shquic = fd_quic_new( shmem, &limits );
       if( FD_UNLIKELY( !shquic ) ) {
         fd_wksp_free( wksp, gaddr );
         fd_wksp_detach( wksp );

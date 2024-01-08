@@ -6,6 +6,7 @@
 #include "../../../../tango/xdp/fd_xdp.h"
 #include "../../../../tango/xdp/fd_xsk_private.h"
 #include "../../../../util/net/fd_ip4.h"
+#include "../../../../tango/ip/fd_ip.h"
 
 #include <linux/unistd.h>
 
@@ -26,6 +27,7 @@ typedef struct {
   fd_mux_context_t * mux;
 
   uint   src_ip_addr;
+  uchar  src_mac_addr[6];
   ushort allow_ports[ FD_NET_PORT_ALLOW_CNT ];
 
   fd_wksp_t * in_mem;
@@ -36,6 +38,9 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  fd_ip_t *   ip;
+  long        ip_next_upd;
 } fd_net_ctx_t;
 
 typedef struct {
@@ -44,6 +49,8 @@ typedef struct {
 
   fd_xsk_t * lo_xsk;
   void *     lo_xsk_aio;
+
+  fd_ip_t *  ip;
 } fd_net_init_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -64,6 +71,7 @@ scratch_footprint( fd_topo_tile_t * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_xsk_align(),     fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
     l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(), fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
+  l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 0U, 0U ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -160,6 +168,17 @@ before_credit( void * _ctx,
   }
 }
 
+static void
+during_housekeeping( void * _ctx ) {
+  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( now > ctx->ip_next_upd ) ) {
+    ctx->ip_next_upd = now + (long)60e9;
+    fd_ip_arp_fetch( ctx->ip );
+    fd_ip_route_fetch( ctx->ip );
+  }
+}
+
 FD_FN_PURE static int
 route_loopback( uint  tile_ip_addr,
                 ulong sig ) {
@@ -219,6 +238,29 @@ during_frag( void * _ctx,
 }
 
 static void
+send_arp_probe( fd_net_ctx_t * ctx,
+                uint           dst_ip_addr,
+                uint           ifindex ) {
+  uchar          arp_buf[FD_IP_ARP_SZ];
+  ulong          arp_len = 0UL;
+
+  uint           src_ip_addr  = ctx->src_ip_addr;
+  uchar *        src_mac_addr = ctx->src_mac_addr;
+
+  /* prepare arp table */
+  int arp_table_rtn = fd_ip_update_arp_table( ctx->ip, dst_ip_addr, ifindex );
+
+  if( FD_UNLIKELY( arp_table_rtn == FD_IP_SUCCESS ) ) {
+    /* generate a probe */
+    fd_ip_arp_gen_arp_probe( arp_buf, FD_IP_ARP_SZ, &arp_len, dst_ip_addr, fd_uint_bswap( src_ip_addr ), src_mac_addr );
+
+    /* send the probe */
+    fd_aio_pkt_info_t aio_buf = { .buf = arp_buf, .buf_sz = (ushort)arp_len };
+    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+  }
+}
+
+static void
 after_frag( void *             _ctx,
             ulong              in_idx,
             ulong              seq,
@@ -242,7 +284,69 @@ after_frag( void *             _ctx,
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
     ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
   } else {
-    ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+    /* extract dst ip */
+    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_ip_addr( *opt_sig ) );
+
+    uint  next_hop    = 0U;
+    uchar dst_mac[6]  = {0};
+    uint  if_idx      = 0;
+
+    /* route the packet */
+    /*
+     * determine the destination:
+     *   same host
+     *   same subnet
+     *   other
+     * determine the next hop
+     *   localhost
+     *   gateway
+     *   subnet local host
+     * determine the mac address of the next hop address
+     *   and the local ipv4 and eth addresses */
+    int rtn = fd_ip_route_ip_addr( dst_mac, &next_hop, &if_idx, ctx->ip, dst_ip );
+    if( FD_UNLIKELY( rtn == FD_IP_PROBE_RQD ) ) {
+      /* another fd_net instance might have already resolved this address
+         so simply try another fetch */
+      fd_ip_arp_fetch( ctx->ip );
+      rtn = fd_ip_route_ip_addr( dst_mac, &next_hop, &if_idx, ctx->ip, dst_ip );
+    }
+
+    long now;
+    switch( rtn ) {
+      case FD_IP_PROBE_RQD:
+        /* TODO possibly buffer some data while waiting for ARPs to complete */
+        /* TODO rate limit ARPs */
+        /* TODO add caching of ip_dst -> routing info */
+        send_arp_probe( ctx, next_hop, if_idx );
+
+        /* refresh tables */
+        now = fd_log_wallclock();
+        ctx->ip_next_upd = now + (long)200e3;
+        break;
+      case FD_IP_NO_ROUTE:
+        /* cannot make progress here */
+        break;
+      case FD_IP_SUCCESS:
+        /* set destination mac address */
+        memcpy( ctx->frame, dst_mac, 6UL );
+
+        /* set source mac address */
+        memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
+
+        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+        break;
+      case FD_IP_RETRY:
+        /* refresh tables */
+        now = fd_log_wallclock();
+        ctx->ip_next_upd = now + (long)200e3;
+        /* TODO consider buffering */
+        break;
+      case FD_IP_MULTICAST:
+      case FD_IP_BROADCAST:
+      default:
+        /* should not occur in current use cases */
+        break;
+    }
   }
 
   *opt_filter = 1;
@@ -296,6 +400,10 @@ privileged_init( fd_topo_t *      topo,
                                       tile->net.xdp_aio_depth );
     if( FD_UNLIKELY( !ctx->lo_xsk_aio ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
   }
+
+  /* init fd_ip */
+  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ),
+                                   0UL, 0UL ) );
 }
 
 static void
@@ -325,6 +433,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->src_ip_addr = tile->net.src_ip_addr;
+  memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
 
   for( ulong i=0UL; i<FD_NET_PORT_ALLOW_CNT; i++ ) {
     if( FD_UNLIKELY( !tile->net.allow_ports[ i ] ) ) FD_LOG_ERR(( "net tile listen port %lu was 0", i ));
@@ -352,6 +461,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  ctx->ip = init_ctx->ip;
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -368,7 +479,8 @@ populate_allowed_seccomp( void *               scratch,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = init_ctx->lo_xsk ? init_ctx->lo_xsk->xsk_fd : init_ctx->xsk->xsk_fd;
   FD_TEST( init_ctx->xsk->xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)init_ctx->xsk->xsk_fd, (uint)allow_fd2 );
+  int netlink_fd = fd_ip_netlink_get( init_ctx->ip )->fd;
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)init_ctx->xsk->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
   return sock_filter_policy_net_instr_cnt;
 }
 
@@ -379,7 +491,7 @@ populate_allowed_fds( void * scratch,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_init_ctx_t * init_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_init_ctx_t ), sizeof( fd_net_init_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt < 4 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt < 5 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -388,6 +500,7 @@ populate_allowed_fds( void * scratch,
   out_fds[ out_cnt++ ] = init_ctx->xsk->xsk_fd;
   if( FD_UNLIKELY( init_ctx->lo_xsk ) )
     out_fds[ out_cnt++ ] = init_ctx->lo_xsk->xsk_fd;
+  out_fds[ out_cnt++ ] = fd_ip_netlink_get( init_ctx->ip )->fd;
   return out_cnt;
 }
 
@@ -399,6 +512,7 @@ fd_tile_config_t fd_tile_net = {
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_during_housekeeping  = during_housekeeping,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

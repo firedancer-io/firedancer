@@ -997,6 +997,7 @@ config_parse( int *      pargc,
         tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
         tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
         tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
+        memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
         break;

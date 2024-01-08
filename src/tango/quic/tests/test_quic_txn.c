@@ -199,8 +199,7 @@ main( int argc,
   FD_TEST( quic_footprint );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
-  fd_quic_t * quic = fd_quic_new( mem, &quic_limits, ip );
+  fd_quic_t * quic = fd_quic_new( mem, &quic_limits );
   FD_TEST( quic );
 
   fd_quic_udpsock_t _udpsock;

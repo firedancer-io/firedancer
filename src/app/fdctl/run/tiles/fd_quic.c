@@ -6,7 +6,6 @@
 #include "../../../../tango/xdp/fd_xsk_aio.h"
 #include "../../../../tango/xdp/fd_xsk.h"
 #include "../../../../tango/ip/fd_netlink.h"
-#include "../../../../tango/ip/fd_ip.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <openssl/err.h>
@@ -40,7 +39,6 @@ typedef struct {
 
   fd_mux_context_t * mux;
 
-  fd_ip_t *        ip;
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
 
@@ -122,12 +120,11 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_aio_align(), fd_aio_footprint() );
   fd_quic_limits_t limits = quic_limits( tile );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  ulong            l      = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )      );
+  l = FD_LAYOUT_APPEND( l, fd_aio_align(),           fd_aio_footprint()           );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -549,14 +546,16 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
-  if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
+  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() );
 
   fd_quic_limits_t limits = quic_limits( tile );
   void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits, ctx->ip ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
   uchar const * public_key = load_key_into_protected_memory( tile->quic.identity_key_path, 1 /* public key only */ );
   fd_memcpy( quic->config.identity_public_key, public_key, 32UL );
+
+  /* needed so unprivileged can finish initializing quic */
+  ctx->quic = quic;
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
@@ -594,10 +593,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-
-  fd_quic_limits_t limits = quic_limits( tile );
-  void * quic_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
 
   /* End privileged allocs */
 
@@ -612,10 +607,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  fd_ip_arp_fetch( ctx->ip );
-  fd_ip_route_fetch( ctx->ip );
-  fd_quic_t * quic = fd_quic_join( quic_mem );
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
+  fd_quic_t * quic = ctx->quic;
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "quic is NULL" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.net.ip_addr                = tile->quic.ip_addr;
@@ -699,12 +692,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-
-  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
-  FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)netlink_fd );
+  (void)scratch;
+  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_quic_instr_cnt;
 }
 
@@ -712,16 +701,14 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  (void)scratch;
 
-  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
   return out_cnt;
 }
 
