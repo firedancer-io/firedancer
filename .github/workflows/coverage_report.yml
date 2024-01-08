@@ -42,3 +42,12 @@ jobs:
         run: |
           gcloud storage rm -r ${{ vars.COVERAGE_BUCKET }}/
           gcloud storage cp -r ./build/cov/html/* ${{ vars.COVERAGE_BUCKET }}/
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: build/cov/cov.lcov
+          name: dist-cov-report
+          fail_ci_if_error: false
+          functionalities: search
