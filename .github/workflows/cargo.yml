@@ -1,6 +1,6 @@
-# On every PR and main commit, run check, package, test, rustfmt, clippy
+# Run check, package, test, rustfmt, clippy
 
-name: CI
+name: Cargo
 on:
   workflow_dispatch:
 jobs:

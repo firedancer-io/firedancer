@@ -1,0 +1,50 @@
+# Runs unit tests, script tests, and fuzz tests.
+
+name: Tests
+on:
+  workflow_call:
+  workflow_dispatch:
+jobs:
+  test:
+    strategy:
+      # We cannot possibly test everything on every commit.
+      # This matrix is a tradeoff between required resources and
+      # test coverage.  You should probably only remove machine
+      # targets from here, not add more.
+      matrix:
+        machine:
+          - linux_gcc_noarch64    # least capable target
+          - linux_gcc_icelake     # most capable target
+          - linux_clang_x86_64
+          - linux_clang_zen2
+          - linux_clang_icelake
+        # Attach additional params to machine types
+        include:
+          - machine: linux_gcc_noarch64
+            notest: true
+          - machine: linux_gcc_icelake
+            group: rhel85-icelake
+          - machine: linux_clang_x86_64
+            extras: fuzz
+          - machine: linux_clang_zen2
+            extras: fuzz
+          - machine: linux_clang_icelake
+            group: rhel85-icelake
+            extras: fuzz asan ubsan
+    runs-on:
+      group: ${{ matrix.group || 'github-v1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Run tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          MACHINES=${{ matrix.machine }} \
+          EXTRAS="${{ matrix.extras || '' }}" \
+          NOTEST=${{ matrix.notest || '' }} \
+          contrib/test/ci_tests.sh

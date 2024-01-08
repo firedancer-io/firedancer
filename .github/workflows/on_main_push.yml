@@ -1,34 +1,12 @@
 name: On Main Push
 on:
   push:
-    branches:
-      - main
-      - next
-  workflow_dispatch:
+    branches: [main]
 jobs:
-  test-unit:
-    name: Unit Tests with Sanitizers Enabled
-    uses: ./.github/workflows/_test_unit_with_sanitizers.yml
+  book:
+    uses: ./.github/workflows/book.yml
     secrets: inherit
 
-  test-fuzz-regressions:
-    name: Test for Fuzzing Regressions
-    uses: ./.github/workflows/_test_fuzz_regressions.yml
+  clusterfuzz:
+    uses: ./.github/workflows/clusterfuzz.yml
     secrets: inherit
-
-  build-frankendancer:
-    name: Build Frankendancer
-    uses: ./.github/workflows/build_everything.yml
-
-  test-functional:
-    name: Functional Tests
-    uses: ./.github/workflows/functional_tests.yml
-
-  publish-to-clusterfuzz:
-    name: Publish to Clusterfuzz
-    uses: ./.github/workflows/_publish_to_clusterfuzz.yml
-    secrets: inherit
-
-  whitespace-check:
-    name: Check for Whitespaces
-    uses: ./.github/workflows/trailing_whitespace.yml
