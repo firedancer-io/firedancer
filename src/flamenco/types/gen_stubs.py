@@ -254,6 +254,7 @@ class StructMember:
     def __init__(self, container, json):
         self.name = json["name"]
         self.type = json["type"]
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def emitPreamble(self):
         pass
@@ -1062,6 +1063,7 @@ class OptionMember:
         self.name = json["name"]
         self.element = json["element"]
         self.flat = json.get("flat", False)
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
     def emitPreamble(self):
         pass
@@ -1489,12 +1491,16 @@ class StructType:
         print(f'int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx) {{', file=body)
         print('  int err;', file=body)
         for f in self.fields:
+            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
             f.emitDecodePreflight()
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
         print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         for f in self.fields:
+            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                print('  if( ctx->data == ctx->dataend ) return;', file=body)
             f.emitDecodeUnsafe()
         print("}", file=body)
 
