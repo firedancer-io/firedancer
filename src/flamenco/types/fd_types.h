@@ -528,6 +528,70 @@ typedef struct fd_snapshot_slot_acc_vecs fd_snapshot_slot_acc_vecs_t;
 #define FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT sizeof(fd_snapshot_slot_acc_vecs_t)
 #define FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN (8UL)
 
+union fd_reward_type_inner {
+  uchar nonempty; /* Hack to support enums with no inner structures */ 
+};
+typedef union fd_reward_type_inner fd_reward_type_inner_t;
+
+/* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11 */
+struct fd_reward_type {
+  uint discriminant;
+  fd_reward_type_inner_t inner;
+};
+typedef struct fd_reward_type fd_reward_type_t;
+#define FD_REWARD_TYPE_FOOTPRINT sizeof(fd_reward_type_t)
+#define FD_REWARD_TYPE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_reward_info {
+  fd_reward_type_t reward_type;
+  ulong lamports;
+  ulong staker_rewards;
+  ulong new_credits_observed;
+  ulong post_balance;
+  long commission;
+};
+typedef struct fd_reward_info fd_reward_info_t;
+#define FD_REWARD_INFO_FOOTPRINT sizeof(fd_reward_info_t)
+#define FD_REWARD_INFO_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_reward {
+  fd_pubkey_t stake_pubkey;
+  fd_reward_info_t reward_info;
+};
+typedef struct fd_stake_reward fd_stake_reward_t;
+#define FD_STAKE_REWARD_FOOTPRINT sizeof(fd_stake_reward_t)
+#define FD_STAKE_REWARD_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_serializable_stake_rewards {
+  ulong body_len;
+  fd_stake_reward_t* body;
+};
+typedef struct fd_serializable_stake_rewards fd_serializable_stake_rewards_t;
+#define FD_SERIALIZABLE_STAKE_REWARDS_FOOTPRINT sizeof(fd_serializable_stake_rewards_t)
+#define FD_SERIALIZABLE_STAKE_REWARDS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_start_block_height_and_rewards {
+  ulong start_block_height;
+  ulong stake_rewards_by_partition_len;
+  fd_serializable_stake_rewards_t* stake_rewards_by_partition;
+};
+typedef struct fd_start_block_height_and_rewards fd_start_block_height_and_rewards_t;
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_FOOTPRINT sizeof(fd_start_block_height_and_rewards_t)
+#define FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN (8UL)
+
+union fd_serializable_epoch_reward_status_inner {
+  fd_start_block_height_and_rewards_t Active;
+};
+typedef union fd_serializable_epoch_reward_status_inner fd_serializable_epoch_reward_status_inner_t;
+
+struct fd_serializable_epoch_reward_status {
+  uint discriminant;
+  fd_serializable_epoch_reward_status_inner_t inner;
+};
+typedef struct fd_serializable_epoch_reward_status fd_serializable_epoch_reward_status_t;
+#define FD_SERIALIZABLE_EPOCH_REWARD_STATUS_FOOTPRINT sizeof(fd_serializable_epoch_reward_status_t)
+#define FD_SERIALIZABLE_EPOCH_REWARD_STATUS_ALIGN (8UL)
+
 /* Accounts DB related fields in a snapshot */
 struct __attribute__((aligned(8UL))) fd_solana_accounts_db_fields {
   ulong storages_len;
@@ -548,6 +612,9 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_deserializable_versioned_bank_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
+  fd_bank_incremental_snapshot_persistence_t* bank_incremental_snapshot_persistence;
+  fd_hash_t* epoch_account_hash;
+  fd_serializable_epoch_reward_status_t* epoch_reward_status;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
@@ -1120,6 +1187,7 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
+  fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
 #define FD_EPOCH_BANK_FOOTPRINT sizeof(fd_epoch_bank_t)
@@ -1132,6 +1200,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong prev_slot;
   fd_hash_t poh;
   fd_hash_t banks_hash;
+  fd_hash_t epoch_account_hash;
   fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
   ulong block_height;
@@ -1140,6 +1209,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+  ulong lamports_per_signature;
+  ulong transaction_count;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -1154,40 +1225,6 @@ struct __attribute__((aligned(8UL))) fd_prev_epoch_inflation_rewards {
 typedef struct fd_prev_epoch_inflation_rewards fd_prev_epoch_inflation_rewards_t;
 #define FD_PREV_EPOCH_INFLATION_REWARDS_FOOTPRINT sizeof(fd_prev_epoch_inflation_rewards_t)
 #define FD_PREV_EPOCH_INFLATION_REWARDS_ALIGN (8UL)
-
-union fd_reward_type_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
-};
-typedef union fd_reward_type_inner fd_reward_type_inner_t;
-
-/* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11 */
-struct fd_reward_type {
-  uint discriminant;
-  fd_reward_type_inner_t inner;
-};
-typedef struct fd_reward_type fd_reward_type_t;
-#define FD_REWARD_TYPE_FOOTPRINT sizeof(fd_reward_type_t)
-#define FD_REWARD_TYPE_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_reward_info {
-  fd_reward_type_t reward_type;
-  ulong lamports;
-  ulong staker_rewards;
-  ulong new_credits_observed;
-  ulong post_balance;
-  long commission;
-};
-typedef struct fd_reward_info fd_reward_info_t;
-#define FD_REWARD_INFO_FOOTPRINT sizeof(fd_reward_info_t)
-#define FD_REWARD_INFO_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_stake_reward {
-  fd_pubkey_t stake_pubkey;
-  fd_reward_info_t reward_info;
-};
-typedef struct fd_stake_reward fd_stake_reward_t;
-#define FD_STAKE_REWARD_FOOTPRINT sizeof(fd_stake_reward_t)
-#define FD_STAKE_REWARD_ALIGN (8UL)
 
 #define DEQUE_NAME deq_ulong
 #define DEQUE_T ulong
@@ -2727,6 +2764,90 @@ ulong fd_snapshot_slot_acc_vecs_size(fd_snapshot_slot_acc_vecs_t const * self);
 ulong fd_snapshot_slot_acc_vecs_footprint( void );
 ulong fd_snapshot_slot_acc_vecs_align( void );
 
+void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant);
+void fd_reward_type_new(fd_reward_type_t* self);
+int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_reward_type_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_reward_type_decode_unsafe(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_reward_type_size(fd_reward_type_t const * self);
+ulong fd_reward_type_footprint( void );
+ulong fd_reward_type_align( void );
+
+FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self);
+FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self);
+enum {
+fd_reward_type_enum_fee = 0,
+fd_reward_type_enum_rent = 1,
+fd_reward_type_enum_staking = 2,
+fd_reward_type_enum_voting = 3,
+}; 
+void fd_reward_info_new(fd_reward_info_t* self);
+int fd_reward_info_decode(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_reward_info_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_reward_info_decode_unsafe(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_reward_info_destroy(fd_reward_info_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_reward_info_size(fd_reward_info_t const * self);
+ulong fd_reward_info_footprint( void );
+ulong fd_reward_info_align( void );
+
+void fd_stake_reward_new(fd_stake_reward_t* self);
+int fd_stake_reward_decode(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_reward_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_stake_reward_decode_unsafe(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_reward_encode(fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_reward_destroy(fd_stake_reward_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_reward_walk(void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_stake_reward_size(fd_stake_reward_t const * self);
+ulong fd_stake_reward_footprint( void );
+ulong fd_stake_reward_align( void );
+
+void fd_serializable_stake_rewards_new(fd_serializable_stake_rewards_t* self);
+int fd_serializable_stake_rewards_decode(fd_serializable_stake_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_serializable_stake_rewards_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_serializable_stake_rewards_decode_unsafe(fd_serializable_stake_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_serializable_stake_rewards_encode(fd_serializable_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_serializable_stake_rewards_destroy(fd_serializable_stake_rewards_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_serializable_stake_rewards_walk(void * w, fd_serializable_stake_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_serializable_stake_rewards_size(fd_serializable_stake_rewards_t const * self);
+ulong fd_serializable_stake_rewards_footprint( void );
+ulong fd_serializable_stake_rewards_align( void );
+
+void fd_start_block_height_and_rewards_new(fd_start_block_height_and_rewards_t* self);
+int fd_start_block_height_and_rewards_decode(fd_start_block_height_and_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_start_block_height_and_rewards_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_start_block_height_and_rewards_decode_unsafe(fd_start_block_height_and_rewards_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_start_block_height_and_rewards_encode(fd_start_block_height_and_rewards_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_start_block_height_and_rewards_destroy(fd_start_block_height_and_rewards_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_start_block_height_and_rewards_walk(void * w, fd_start_block_height_and_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_start_block_height_and_rewards_size(fd_start_block_height_and_rewards_t const * self);
+ulong fd_start_block_height_and_rewards_footprint( void );
+ulong fd_start_block_height_and_rewards_align( void );
+
+void fd_serializable_epoch_reward_status_new_disc(fd_serializable_epoch_reward_status_t* self, uint discriminant);
+void fd_serializable_epoch_reward_status_new(fd_serializable_epoch_reward_status_t* self);
+int fd_serializable_epoch_reward_status_decode(fd_serializable_epoch_reward_status_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_serializable_epoch_reward_status_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_serializable_epoch_reward_status_decode_unsafe(fd_serializable_epoch_reward_status_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_serializable_epoch_reward_status_encode(fd_serializable_epoch_reward_status_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_serializable_epoch_reward_status_destroy(fd_serializable_epoch_reward_status_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_serializable_epoch_reward_status_walk(void * w, fd_serializable_epoch_reward_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_serializable_epoch_reward_status_size(fd_serializable_epoch_reward_status_t const * self);
+ulong fd_serializable_epoch_reward_status_footprint( void );
+ulong fd_serializable_epoch_reward_status_align( void );
+
+FD_FN_PURE uchar fd_serializable_epoch_reward_status_is_Active(fd_serializable_epoch_reward_status_t const * self);
+FD_FN_PURE uchar fd_serializable_epoch_reward_status_is_Inactive(fd_serializable_epoch_reward_status_t const * self);
+enum {
+fd_serializable_epoch_reward_status_enum_Active = 0,
+fd_serializable_epoch_reward_status_enum_Inactive = 1,
+}; 
 void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t* self);
 int fd_solana_accounts_db_fields_decode(fd_solana_accounts_db_fields_t* self, fd_bincode_decode_ctx_t * ctx);
 int fd_solana_accounts_db_fields_decode_preflight(fd_bincode_decode_ctx_t * ctx);
@@ -3252,50 +3373,6 @@ void fd_prev_epoch_inflation_rewards_walk(void * w, fd_prev_epoch_inflation_rewa
 ulong fd_prev_epoch_inflation_rewards_size(fd_prev_epoch_inflation_rewards_t const * self);
 ulong fd_prev_epoch_inflation_rewards_footprint( void );
 ulong fd_prev_epoch_inflation_rewards_align( void );
-
-void fd_reward_type_new_disc(fd_reward_type_t* self, uint discriminant);
-void fd_reward_type_new(fd_reward_type_t* self);
-int fd_reward_type_decode(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_reward_type_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_reward_type_decode_unsafe(fd_reward_type_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_reward_type_destroy(fd_reward_type_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_reward_type_walk(void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_reward_type_size(fd_reward_type_t const * self);
-ulong fd_reward_type_footprint( void );
-ulong fd_reward_type_align( void );
-
-FD_FN_PURE uchar fd_reward_type_is_fee(fd_reward_type_t const * self);
-FD_FN_PURE uchar fd_reward_type_is_rent(fd_reward_type_t const * self);
-FD_FN_PURE uchar fd_reward_type_is_staking(fd_reward_type_t const * self);
-FD_FN_PURE uchar fd_reward_type_is_voting(fd_reward_type_t const * self);
-enum {
-fd_reward_type_enum_fee = 0,
-fd_reward_type_enum_rent = 1,
-fd_reward_type_enum_staking = 2,
-fd_reward_type_enum_voting = 3,
-}; 
-void fd_reward_info_new(fd_reward_info_t* self);
-int fd_reward_info_decode(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_reward_info_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_reward_info_decode_unsafe(fd_reward_info_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_reward_info_destroy(fd_reward_info_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_reward_info_walk(void * w, fd_reward_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_reward_info_size(fd_reward_info_t const * self);
-ulong fd_reward_info_footprint( void );
-ulong fd_reward_info_align( void );
-
-void fd_stake_reward_new(fd_stake_reward_t* self);
-int fd_stake_reward_decode(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_stake_reward_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_stake_reward_decode_unsafe(fd_stake_reward_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_stake_reward_encode(fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_stake_reward_destroy(fd_stake_reward_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_stake_reward_walk(void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_stake_reward_size(fd_stake_reward_t const * self);
-ulong fd_stake_reward_footprint( void );
-ulong fd_stake_reward_align( void );
 
 void fd_vote_new(fd_vote_t* self);
 int fd_vote_decode(fd_vote_t* self, fd_bincode_decode_ctx_t * ctx);

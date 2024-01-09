@@ -454,6 +454,60 @@
       ]
     },
     {
+      "name": "reward_type",
+      "type": "enum",
+      "variants": [
+        { "name": "fee" },
+        { "name": "rent" },
+        { "name": "staking" },
+        { "name": "voting" }
+      ],
+      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
+    },
+    {
+      "name": "reward_info",
+      "type": "struct",
+      "fields": [
+        { "name": "reward_type", "type": "reward_type" },
+        { "name": "lamports", "type": "ulong" },
+        { "name": "staker_rewards", "type": "ulong" },
+        { "name": "new_credits_observed", "type": "ulong" },
+        { "name": "post_balance", "type": "ulong" },
+        { "name": "commission", "type": "long" }
+      ]
+    },
+    {
+      "name": "stake_reward",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_pubkey", "type": "pubkey" },
+        { "name": "reward_info", "type": "reward_info" }
+      ]
+    },
+    {
+      "name": "serializable_stake_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "body", "type": "vector", "element": "stake_reward" }
+      ]
+    },
+    {
+      "name": "start_block_height_and_rewards",
+      "type": "struct",
+      "fields": [
+        { "name": "start_block_height", "type": "ulong" },
+        { "name": "stake_rewards_by_partition", "type": "vector", "element": "serializable_stake_rewards" }
+      ]
+    },
+    {
+      "name": "serializable_epoch_reward_status",
+      "type": "enum",
+      "variants": [
+          { "name": "Active", "type": "start_block_height_and_rewards"},
+          { "name": "Inactive"}
+      ]
+    },
+    {
       "name": "solana_accounts_db_fields",
       "type": "struct",
       "fields": [
@@ -471,9 +525,12 @@
       "type": "struct",
       "alignment": "16",
       "fields": [
-        { "name": "bank",                     "type": "deserializable_versioned_bank" },
-        { "name": "accounts_db",              "type": "solana_accounts_db_fields" },
-        { "name": "lamports_per_signature",   "type": "ulong" }
+        { "name": "bank",                                  "type": "deserializable_versioned_bank" },
+        { "name": "accounts_db",                           "type": "solana_accounts_db_fields" },
+        { "name": "lamports_per_signature",                "type": "ulong" },
+        { "name": "bank_incremental_snapshot_persistence", "type": "option", "element": "bank_incremental_snapshot_persistence", "ignore_underflow": true },
+        { "name": "epoch_account_hash",                    "type": "option", "element": "hash",                                  "ignore_underflow": true },
+        { "name": "epoch_reward_status",                   "type": "option", "element": "serializable_epoch_reward_status",      "ignore_underflow": true }
       ]
     },
     {
@@ -926,7 +983,8 @@
         { "name": "max_tick_height",       "type": "ulong" },
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
-        { "name": "rent",                  "type": "rent" }
+        { "name": "rent",                  "type": "rent" },
+        { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },
     {
@@ -940,6 +998,7 @@
         { "name": "prev_slot",             "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
         { "name": "banks_hash",            "type": "hash" },
+        { "name": "epoch_account_hash",    "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
         { "name": "block_height",          "type": "ulong" },
@@ -947,7 +1006,9 @@
         { "name": "collected_fees",        "type": "ulong" },
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
-        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" }
+        { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" },
+        { "name": "lamports_per_signature","type": "ulong" },
+        { "name": "transaction_count",     "type": "ulong" }
       ]
     },
     {
@@ -958,37 +1019,6 @@
         { "name": "prev_epoch_duration_in_years", "type": "double" },
         { "name": "validator_rate", "type": "double" },
         { "name": "foundation_rate", "type": "double" }
-      ]
-    },
-    {
-      "name": "reward_type",
-      "type": "enum",
-      "variants": [
-        { "name": "fee" },
-        { "name": "rent" },
-        { "name": "staking" },
-        { "name": "voting" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/sdk/src/reward_type.rs#L5-L11"
-    },
-    {
-      "name": "reward_info",
-      "type": "struct",
-      "fields": [
-        { "name": "reward_type", "type": "reward_type" },
-        { "name": "lamports", "type": "ulong" },
-        { "name": "staker_rewards", "type": "ulong" },
-        { "name": "new_credits_observed", "type": "ulong" },
-        { "name": "post_balance", "type": "ulong" },
-        { "name": "commission", "type": "long" }
-      ]
-    },
-    {
-      "name": "stake_reward",
-      "type": "struct",
-      "fields": [
-        { "name": "stake_pubkey", "type": "pubkey" },
-        { "name": "reward_info", "type": "reward_info" }
       ]
     },
     {
