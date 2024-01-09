@@ -36,6 +36,32 @@ test_vm_syscall_sol_curve_multiscalar_mul(
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
+static void
+test_fd_vm_syscall_sol_curve_group_op(
+    char *                test_case_name,
+    fd_vm_exec_context_t *vm_ctx,
+    ulong                 curve_id,
+    ulong                 op_id,
+    ulong                 in0_vm_addr,
+    ulong                 in1_vm_addr,
+    ulong                 result_point_vm_addr,
+    ulong                 expected_ret_code,
+    ulong                 expected_syscall_ret,
+    void *                expected_result_host_ptr
+) {
+    ulong ret_code = 0UL;
+    ulong syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm_ctx, curve_id, op_id, in0_vm_addr, in1_vm_addr, result_point_vm_addr, &ret_code);
+    FD_TEST( ret_code == expected_ret_code );
+    FD_TEST( syscall_ret == expected_syscall_ret );
+
+    void * result_point_host_addr = fd_vm_translate_vm_to_host( vm_ctx, result_point_vm_addr, 32, 1 );
+    if (ret_code == 0 && syscall_ret == 0) {
+        FD_TEST( memcmp( result_point_host_addr, expected_result_host_ptr, 32 ) == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -66,6 +92,8 @@ main( int     argc,
   ulong scalar_vm_addr = 0;
   ulong point_vm_addr = 0;
   ulong result_point_vm_addr = 0;
+  ulong in0_vm_addr = 0;
+  ulong in1_vm_addr = 0;
   void * expected_result_host_ptr = NULL;
 
   // invalid
@@ -83,7 +111,7 @@ main( int     argc,
   );
 
   // success
-  // https://github.com/solana-labs/solana/blob/v1.17.7/programs/bpf_loader/src/syscalls/mod.rs#L3107
+  // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107
   {
     uchar _scalars[ 64 ] = {
       254, 198, 23, 138, 67, 243, 184, 110, 236, 115, 236, 205, 205, 215, 79, 114, 45, 250,
@@ -161,6 +189,150 @@ main( int     argc,
       scalar_vm_addr,
       point_vm_addr,
       2UL,
+      result_point_vm_addr,
+      0UL, // ret_code
+      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    );
+  }
+
+  // test 0 + P
+  {
+    uchar _points[ 64 ] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      78, 173, 9, 241, 180, 224, 31, 107, 176, 210, 144, 240, 118, 73, 70, 191, 128, 119,
+      141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
+    }; uchar * points = _points;
+
+    uchar _expected[ 32 ] = {
+      78, 173, 9, 241, 180, 224, 31, 107, 176, 210, 144, 240, 118, 73, 70, 191, 128, 119,
+      141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
+    };
+
+    memcpy( &vm_ctx.heap[0], points, 64 );
+
+    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    expected_result_host_ptr = _expected;
+
+    test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: ristretto255, add 0 + P",
+      &vm_ctx,
+      FD_FLAMENCO_ECC_RISTRETTO255,
+      FD_FLAMENCO_ECC_G_ADD,
+      in0_vm_addr,
+      in1_vm_addr,
+      result_point_vm_addr,
+      0UL, // ret_code
+      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    );
+  }
+
+  // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L2948C8-L2948C46
+  {
+    uchar _points[ 64 ] = {
+      208, 165, 125, 204, 2, 100, 218, 17, 170, 194, 23, 9, 102, 156, 134, 136, 217, 190, 98,
+      34, 183, 194, 228, 153, 92, 11, 108, 103, 28, 57, 88, 15,
+      208, 241, 72, 163, 73, 53, 32, 174, 54, 194, 71, 8, 70, 181, 244, 199, 93, 147, 99,
+      231, 162, 127, 25, 40, 39, 19, 140, 132, 112, 212, 145, 108,
+      // 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      // 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    }; uchar * points = _points;
+
+    uchar _expected[ 32 ] = {
+      78, 173, 9, 241, 180, 224, 31, 107, 176, 210, 144, 240, 118, 73, 70, 191, 128, 119,
+      141, 113, 125, 215, 161, 71, 49, 176, 87, 38, 180, 177, 39, 78,
+    };
+
+    memcpy( &vm_ctx.heap[0], points, 64 );
+
+    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    expected_result_host_ptr = _expected;
+
+    test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: ristretto255, add",
+      &vm_ctx,
+      FD_FLAMENCO_ECC_RISTRETTO255,
+      FD_FLAMENCO_ECC_G_ADD,
+      in0_vm_addr,
+      in1_vm_addr,
+      result_point_vm_addr,
+      0UL, // ret_code
+      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    );
+  }
+
+  {
+    uchar _points[ 64 ] = {
+      208, 165, 125, 204, 2, 100, 218, 17, 170, 194, 23, 9, 102, 156, 134, 136, 217, 190, 98,
+      34, 183, 194, 228, 153, 92, 11, 108, 103, 28, 57, 88, 15,
+      208, 241, 72, 163, 73, 53, 32, 174, 54, 194, 71, 8, 70, 181, 244, 199, 93, 147, 99,
+      231, 162, 127, 25, 40, 39, 19, 140, 132, 112, 212, 145, 108,
+    }; uchar * points = _points;
+
+    uchar _expected[ 32 ] = {
+      150, 72, 222, 61, 148, 79, 96, 130, 151, 176, 29, 217, 231, 211, 0, 215, 76, 86, 212,
+      146, 110, 128, 24, 151, 187, 144, 108, 233, 221, 208, 157, 52,
+    };
+
+    memcpy( &vm_ctx.heap[0], points, 64 );
+
+    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    expected_result_host_ptr = _expected;
+
+    test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: ristretto255, sub",
+      &vm_ctx,
+      FD_FLAMENCO_ECC_RISTRETTO255,
+      FD_FLAMENCO_ECC_G_SUB,
+      in0_vm_addr,
+      in1_vm_addr,
+      result_point_vm_addr,
+      0UL, // ret_code
+      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      expected_result_host_ptr
+    );
+  }
+
+  {
+    uchar _scalars[ 32 ] = {
+      254, 198, 23, 138, 67, 243, 184, 110, 236, 115, 236, 205, 205, 215, 79, 114, 45, 250,
+      78, 137, 3, 107, 136, 237, 49, 126, 117, 223, 37, 191, 88, 6,
+    }; uchar * scalars = _scalars;
+
+    uchar _points[ 32 ] = {
+      208, 241, 72, 163, 73, 53, 32, 174, 54, 194, 71, 8, 70, 181, 244, 199, 93, 147, 99,
+      231, 162, 127, 25, 40, 39, 19, 140, 132, 112, 212, 145, 108,
+    }; uchar * points = _points;
+
+    uchar _expected[ 32 ] = {
+      4, 16, 46, 2, 53, 151, 201, 133, 117, 149, 232, 164, 119, 109, 136, 20, 153, 24, 124,
+      21, 101, 124, 80, 19, 119, 100, 77, 108, 65, 187, 228, 5,
+    };
+
+    memcpy( &vm_ctx.heap[0], scalars, 32 );
+    memcpy( &vm_ctx.heap[32], points, 32 );
+
+    in0_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START;
+    in1_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 32UL;
+    result_point_vm_addr = FD_VM_MEM_MAP_HEAP_REGION_START + 64UL;
+    expected_result_host_ptr = _expected;
+
+    test_fd_vm_syscall_sol_curve_group_op(
+      "fd_vm_syscall_sol_curve_group_op: ristretto255, mul",
+      &vm_ctx,
+      FD_FLAMENCO_ECC_RISTRETTO255,
+      FD_FLAMENCO_ECC_G_MUL,
+      in0_vm_addr,
+      in1_vm_addr,
       result_point_vm_addr,
       0UL, // ret_code
       FD_VM_SYSCALL_SUCCESS, // syscall_ret
