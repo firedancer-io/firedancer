@@ -100,7 +100,7 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 #define MAP_PERFECT_NAME      fd_pack_unwritable
 #define MAP_PERFECT_LG_TBL_SZ 5
 #define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    714791685U
+#define MAP_PERFECT_HASH_C    1402126759U
 #define MAP_PERFECT_KEY       b
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -126,20 +126,20 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 #define MAP_PERFECT_7  ( SYSVAR_SLOT_HIST_ID      ),
 #define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
 #define MAP_PERFECT_9  ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_10 ( SYSVAR_LAST_RESTART_ID   ),
+#define MAP_PERFECT_10 ( SYSVAR_EPOCH_REWARDS_ID  ),
+#define MAP_PERFECT_11 ( SYSVAR_LAST_RESTART_ID   ),
 /* Programs */
-#define MAP_PERFECT_11 ( CONFIG_PROG_ID           ),
-#define MAP_PERFECT_12 ( FEATURE_ID               ),
-#define MAP_PERFECT_13 ( NATIVE_LOADER_ID         ),
-#define MAP_PERFECT_14 ( STAKE_PROG_ID            ),
-#define MAP_PERFECT_15 ( STAKE_CONFIG_PROG_ID     ),
-#define MAP_PERFECT_16 ( VOTE_PROG_ID             ),
-#define MAP_PERFECT_17 ( SYS_PROG_ID              ), /* Do not remove. See above. */
-#define MAP_PERFECT_18 ( BPF_LOADER_1_PROG_ID     ),
-#define MAP_PERFECT_19 ( BPF_LOADER_2_PROG_ID     ),
-#define MAP_PERFECT_20 ( BPF_UPGRADEABLE_PROG_ID  ),
+#define MAP_PERFECT_12 ( CONFIG_PROG_ID           ),
+#define MAP_PERFECT_13 ( FEATURE_ID               ),
+#define MAP_PERFECT_14 ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_15 ( STAKE_PROG_ID            ),
+#define MAP_PERFECT_16 ( STAKE_CONFIG_PROG_ID     ),
+#define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
+#define MAP_PERFECT_18 ( SYS_PROG_ID              ), /* Do not remove. See above. */
+#define MAP_PERFECT_19 ( BPF_LOADER_1_PROG_ID     ),
+#define MAP_PERFECT_20 ( BPF_LOADER_2_PROG_ID     ),
+#define MAP_PERFECT_21 ( BPF_UPGRADEABLE_PROG_ID  ),
 /* Extras */
-#define MAP_PERFECT_21 ( LOADER_V4_PROG_ID        ),
 #define MAP_PERFECT_22 ( ED25519_SV_PROG_ID       ),
 #define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
 #define MAP_PERFECT_24 ( COMPUTE_BUDGET_PROG_ID   ),
