@@ -81,7 +81,7 @@ fd_vm_syscall_sol_curve_group_op(
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
       int p0v = !!fd_ed25519_point_decompress( p0, p0c );
-      int p1v = !!fd_ed25519_point_decompress( p0, p1c );
+      int p1v = !!fd_ed25519_point_decompress( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
@@ -106,7 +106,7 @@ fd_vm_syscall_sol_curve_group_op(
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
       int p0v = !!fd_ed25519_point_decompress( p0, p0c );
-      int p1v = !!fd_ed25519_point_decompress( p0, p1c );
+      int p1v = !!fd_ed25519_point_decompress( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
@@ -160,7 +160,7 @@ fd_vm_syscall_sol_curve_group_op(
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
       int p0v = !!fd_ristretto255_point_decompress( p0, p0c );
-      int p1v = !!fd_ristretto255_point_decompress( p0, p1c );
+      int p1v = !!fd_ristretto255_point_decompress( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
@@ -171,6 +171,7 @@ fd_vm_syscall_sol_curve_group_op(
         fd_ristretto255_point_compress( hc, h );
         ret = 0UL;
       }
+
       break;
     }
     case FD_FLAMENCO_ECC_G_SUB: {
@@ -185,7 +186,7 @@ fd_vm_syscall_sol_curve_group_op(
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
       int p0v = !!fd_ristretto255_point_decompress( p0, p0c );
-      int p1v = !!fd_ristretto255_point_decompress( p0, p1c );
+      int p1v = !!fd_ristretto255_point_decompress( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
