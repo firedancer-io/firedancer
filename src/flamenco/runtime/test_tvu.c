@@ -66,6 +66,77 @@ static fd_rpc_ctx_t * rpc_ctx = NULL;
 
 static int gossip_sockfd = -1;
 
+typedef struct {
+  char const * blockstore_wksp_name;
+  char const * funk_wksp_name;
+  char const * gossip_peer_addr;
+  char const * incremental_snapshot;
+  char const * load;
+  char const * my_gossip_addr;
+  char const * my_repair_addr;
+  char const * repair_peer_addr;
+  char const * repair_peer_id;
+  char const * snapshot;
+  ulong  index_max;
+  ulong  page_cnt;
+  ulong  tcnt;
+  ulong  txn_max;
+  ushort rpc_port;
+} args_t;
+
+static args_t
+parse_args( int argc, char ** argv ) {
+  char const * blockstore_wksp_name =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
+  char const * funk_wksp_name =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
+  char const * peer_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
+  char const * incremental =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+  char const * load =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
+  char const * my_gossip_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
+  char const * my_repair_addr =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
+  char const * repair_peer_addr_ =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
+  char const * repair_peer_id_ =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
+  char const * snapshot =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+  ulong  index_max =
+      fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
+  ulong  page_cnt =
+      fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
+  ulong  tcnt =
+      fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
+  ulong  xactions_max =
+      fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
+  ushort rpc_port =
+      fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
+
+  args_t args = {
+    .blockstore_wksp_name = blockstore_wksp_name,
+    .funk_wksp_name = funk_wksp_name,
+    .gossip_peer_addr = peer_addr,
+    .incremental_snapshot = incremental,
+    .load = load,
+    .my_gossip_addr = my_gossip_addr,
+    .my_repair_addr = my_repair_addr,
+    .repair_peer_addr = repair_peer_addr_,
+    .repair_peer_id = repair_peer_id_,
+    .snapshot = snapshot,
+    .index_max = index_max,
+    .page_cnt = page_cnt,
+    .tcnt = tcnt,
+    .txn_max = xactions_max,
+    .rpc_port = rpc_port
+  };
+  return args;
+}
+
 struct fd_repair_peer {
   fd_pubkey_t id;
   uint        hash;
@@ -459,8 +530,8 @@ tvu_main( fd_gossip_t *        gossip,
           fd_tvu_repair_ctx_t * repair_ctx,
           fd_repair_config_t * repair_config,
           volatile int *       stopflag,
-          int                  argc,
-          char **              argv ) {
+          char const * repair_peer_id_,
+          char const * repair_peer_addr_ ) {
 
   /* initialize gossip */
   int gossip_fd;
@@ -539,10 +610,6 @@ tvu_main( fd_gossip_t *        gossip,
   fd_repair_start( repair_ctx->repair );
 
   /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
-  char const * repair_peer_id_ =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
-  char const * repair_peer_addr_ =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
   if( repair_peer_id_ ) {
     fd_pubkey_t repair_peer_id;
     fd_base58_decode_32( repair_peer_id_, repair_peer_id.uc );
@@ -649,17 +716,35 @@ tvu_main( fd_gossip_t *        gossip,
   return 0;
 }
 
-int
-main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
+typedef struct {
+  int                   blowup;
+  fd_gossip_t *         gossip;
+  fd_gossip_config_t *  gossip_config;
+  fd_repair_t *         repair;
+  fd_tvu_repair_ctx_t * repair_ctx;
+  fd_repair_config_t *  repair_config;
+  volatile int *        stopflag;
+} tvu_main_args_t;
 
+static tvu_main_args_t
+tvu_main_setup( fd_valloc_t valloc,
+                char const * blockstore_wksp_name,
+                char const * funk_wksp_name,
+                char const * peer_addr,
+                char const * incremental,
+                char const * load,
+                char const * my_gossip_addr,
+                char const * my_repair_addr,
+                char const * snapshot,
+                ulong  index_max,
+                ulong  page_cnt,
+                ulong  tcnt,
+                ulong  xactions_max,
+                ushort rpc_port ) {
   /**********************************************************************/
   /* Anonymous wksp                                                     */
   /**********************************************************************/
 
-  ulong  page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
   char * _page_sz = "gigantic";
   ulong  numa_idx = fd_shmem_numa_idx( 0 );
   FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
@@ -674,24 +759,22 @@ main( int argc, char ** argv ) {
   /* funk */
   /**********************************************************************/
 
-  char const * snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
-  char const * load = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
-
   char hostname[64];
   gethostname( hostname, sizeof( hostname ) );
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
   fd_wksp_t *  funk_wksp = NULL;
-  ulong        def_index_max;
-  char const * funk_wksp_name =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
   if( funk_wksp_name == NULL ) {
     funk_wksp     = wksp;
-    def_index_max = 100000000;
+    if( index_max == ULONG_MAX ) {
+      index_max = 100000000;
+    }
   } else {
     funk_wksp = fd_wksp_attach( funk_wksp_name );
     if( funk_wksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
-    def_index_max = 350000000;
+    if( index_max == ULONG_MAX ) {
+      index_max = 350000000;
+    }
   }
   FD_TEST( funk_wksp );
 
@@ -720,8 +803,6 @@ main( int argc, char ** argv ) {
     void * shmem =
         fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
-    ulong index_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, def_index_max );
-    ulong xactions_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
     funk               = fd_funk_join( fd_funk_new( shmem, 1, hashseed, xactions_max, index_max ) );
     if( funk == NULL ) {
       fd_wksp_free_laddr( shmem );
@@ -732,9 +813,6 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* Blockstore                                                         */
   /**********************************************************************/
-
-  char const * blockstore_wksp_name =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
 
   fd_wksp_t * blockstore_wksp = NULL;
   if( blockstore_wksp == NULL ) {
@@ -806,8 +884,6 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* snapshots                                                          */
   /**********************************************************************/
-
-  char const * incremental = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
 
   ulong snapshot_slot = 0;
   if( snapshot ) {
@@ -916,7 +992,6 @@ main( int argc, char ** argv ) {
   /* rpc service                                                        */
   /**********************************************************************/
   rpc_ctx         = fd_rpc_alloc_ctx( funk, blockstore, &public_key, slot_ctx, valloc );
-  ushort rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
   fd_rpc_start_service( rpc_port, rpc_ctx );
 #endif
 
@@ -938,14 +1013,14 @@ main( int argc, char ** argv ) {
   repair_config.private_key = private_key;
   repair_config.public_key  = &public_key;
 
-  char const * my_repair_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
   FD_TEST( resolve_hostport( my_repair_addr, &repair_config.my_addr ) );
 
   repair_config.deliver_fun      = repair_deliver_fun;
   repair_config.deliver_fail_fun = repair_deliver_fail_fun;
 
-  ulong tcnt = fd_tile_cnt();
+  if( tcnt == ULONG_MAX ) {
+    tcnt = fd_tile_cnt();
+  }
   uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t * tpool = NULL;
   if( tcnt > 1 ) {
@@ -968,7 +1043,8 @@ main( int argc, char ** argv ) {
   repair_config.fun_arg          = &repair_ctx;
   repair_config.send_fun         = send_packet;
 
-  if( fd_repair_set_config( repair, &repair_config ) ) return 1;
+  int blowup = 0;
+  if( fd_repair_set_config( repair, &repair_config ) ) blowup = 1;
 
   /**********************************************************************/
   /* Gossip                                                             */
@@ -980,8 +1056,6 @@ main( int argc, char ** argv ) {
   gossip_config.private_key = private_key;
   gossip_config.public_key  = &public_key;
 
-  char const * my_gossip_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
   FD_TEST( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
 
   gossip_config.shred_version = 0;
@@ -999,11 +1073,44 @@ main( int argc, char ** argv ) {
   if( fd_gossip_set_config( gossip, &gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
-  char const * peer_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
   fd_gossip_peer_addr_t gossip_peer_addr;
   if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
+
+  tvu_main_args_t setup = {
+    .blowup = blowup,
+    .gossip = gossip,
+    .gossip_config = &gossip_config,
+    .repair = repair,
+    .repair_ctx = &repair_ctx,
+    .repair_config = &repair_config,
+    .stopflag = &stopflag,
+  };
+  return setup;
+}
+
+int
+main( int argc, char ** argv ) {
+  fd_boot( &argc, &argv );
+  fd_flamenco_boot( &argc, &argv );
+  fd_valloc_t valloc = fd_libc_alloc_virtual();
+
+  args_t args = parse_args( argc, argv );
+  tvu_main_args_t tvu_main_args = tvu_main_setup( valloc,
+                                                  args.blockstore_wksp_name,
+                                                  args.funk_wksp_name,
+                                                  args.gossip_peer_addr,
+                                                  args.incremental_snapshot,
+                                                  args.load,
+                                                  args.my_gossip_addr,
+                                                  args.my_repair_addr,
+                                                  args.snapshot,
+                                                  args.index_max,
+                                                  args.page_cnt,
+                                                  args.tcnt,
+                                                  args.txn_max,
+                                                  args.rpc_port );
+  if( tvu_main_args.blowup ) return 1;
 
   /**********************************************************************/
   /* Tile                                                               */
@@ -1012,13 +1119,13 @@ main( int argc, char ** argv ) {
   signal( SIGINT, stop );
   signal( SIGPIPE, SIG_IGN );
 
-  if( tvu_main( gossip,
-                &gossip_config,
-                &repair_ctx,
-                &repair_config,
-                &stopflag,
-                argc,
-                argv ) ) {
+  if( tvu_main( tvu_main_args.gossip,
+                tvu_main_args.gossip_config,
+                tvu_main_args.repair_ctx,
+                tvu_main_args.repair_config,
+                tvu_main_args.stopflag,
+                args.repair_peer_id,
+                args.repair_peer_addr ) ) {
     return 1;
   }
 
@@ -1030,8 +1137,8 @@ main( int argc, char ** argv ) {
   fd_rpc_stop_service( rpc_ctx );
   fd_valloc_free( valloc, rpc_ctx );
 #endif
-  fd_valloc_free( valloc, fd_gossip_delete( fd_gossip_leave( gossip ), valloc ) );
-  fd_valloc_free( valloc, fd_repair_delete( fd_repair_leave( repair ), valloc ) );
+  fd_valloc_free( valloc, fd_gossip_delete( fd_gossip_leave( tvu_main_args.gossip ), valloc ) );
+  fd_valloc_free( valloc, fd_repair_delete( fd_repair_leave( tvu_main_args.repair ), valloc ) );
   fd_halt();
   return 0;
 }
