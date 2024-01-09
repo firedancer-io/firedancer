@@ -58,6 +58,18 @@ fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx );
 void *
 fd_exec_slot_ctx_delete( void * mem );
 
+/* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
+   context and recovers it from the manifest of a Solana Labs snapshot.
+   Moves ownership of manifest to this function.  Assumes objects in
+   manifest were allocated using slot ctx valloc (U.B. otherwise).
+   Assumes that slot context and epoch context use same valloc.
+   On return, manifest is destroyed.  Returns ctx on success.
+   On failure, logs reason for error and returns NULL. */
+
+fd_exec_slot_ctx_t *
+fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
+                          fd_solana_manifest_t * manifest );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h */
