@@ -726,6 +726,21 @@ typedef struct {
   volatile int *        stopflag;
 } tvu_main_args_t;
 
+// TODO: LML - put these into a workspace
+  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT]
+      __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
+  fd_exec_epoch_ctx_t * epoch_ctx;
+  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT]
+      __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
+  fd_exec_slot_ctx_t * slot_ctx;
+  fd_acc_mgr_t _acc_mgr[1];
+  fd_repair_config_t repair_config;
+  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  fd_tvu_repair_ctx_t repair_ctx;
+  fd_gossip_config_t gossip_config;
+  fd_tvu_gossip_ctx_t gossip_ctx;
+  fd_gossip_peer_addr_t gossip_peer_addr;
+
 static tvu_main_args_t
 tvu_main_setup( fd_valloc_t valloc,
                 char const * blockstore_wksp_name,
@@ -865,20 +880,13 @@ tvu_main_setup( fd_valloc_t valloc,
   /* slot_ctx                                                           */
   /**********************************************************************/
 
-  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT]
-      __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
-  fd_exec_epoch_ctx_t * epoch_ctx =
-      fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-
-  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT]
-      __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  slot_ctx  = fd_exec_slot_ctx_join(  fd_exec_slot_ctx_new( slot_ctx_mem ) );
   slot_ctx->epoch_ctx           = epoch_ctx;
 
   epoch_ctx->valloc = valloc;
   slot_ctx->valloc  = valloc;
 
-  fd_acc_mgr_t _acc_mgr[1];
   slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk, blockstore );
 
   /**********************************************************************/
@@ -1007,7 +1015,6 @@ tvu_main_setup( fd_valloc_t valloc,
   /* Repair                                                             */
   /**********************************************************************/
 
-  fd_repair_config_t repair_config;
   fd_memset( &repair_config, 0, sizeof( repair_config ) );
 
   repair_config.private_key = private_key;
@@ -1021,7 +1028,6 @@ tvu_main_setup( fd_valloc_t valloc,
   if( tcnt == ULONG_MAX ) {
     tcnt = fd_tile_cnt();
   }
-  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
   fd_tpool_t * tpool = NULL;
   if( tcnt > 1 ) {
     tpool = fd_tpool_init( tpool_mem, tcnt );
@@ -1035,11 +1041,12 @@ tvu_main_setup( fd_valloc_t valloc,
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
   fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
 
-  fd_tvu_repair_ctx_t repair_ctx = { .repair                 = repair,
-                                     .repair_peers           = repair_peers,
-                                     .blockstore             = blockstore,
-                                     .slot_ctx               = slot_ctx,
-                                     .peer_iter              = 0 };
+  repair_ctx.repair = repair;
+  repair_ctx.repair_peers = repair_peers;
+  repair_ctx.blockstore = blockstore;
+  repair_ctx.slot_ctx = slot_ctx;
+  repair_ctx.peer_iter = 0;
+
   repair_config.fun_arg          = &repair_ctx;
   repair_config.send_fun         = send_packet;
 
@@ -1050,7 +1057,6 @@ tvu_main_setup( fd_valloc_t valloc,
   /* Gossip                                                             */
   /**********************************************************************/
 
-  fd_gossip_config_t gossip_config;
   fd_memset( &gossip_config, 0, sizeof( gossip_config ) );
 
   gossip_config.private_key = private_key;
@@ -1067,13 +1073,13 @@ tvu_main_setup( fd_valloc_t valloc,
   void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
   fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
 
-  fd_tvu_gossip_ctx_t gossip_ctx = {
-      .gossip = gossip, .repair_peers = repair_peers, .repair = repair };
+  gossip_ctx.gossip = gossip;
+  gossip_ctx.repair_peers = repair_peers;
+  gossip_ctx.repair = repair;
   gossip_config.fun_arg = &gossip_ctx;
   if( fd_gossip_set_config( gossip, &gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
-  fd_gossip_peer_addr_t gossip_peer_addr;
   if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
 

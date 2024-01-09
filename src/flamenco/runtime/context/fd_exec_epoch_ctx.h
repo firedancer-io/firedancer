@@ -8,7 +8,7 @@
 
 
 /* Context needed to execute a single epoch. */
-#define FD_EXEC_EPOCH_CTX_ALIGN (8UL)
+#define FD_EXEC_EPOCH_CTX_ALIGN (16UL)
 struct __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN))) fd_exec_epoch_ctx {
   ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 

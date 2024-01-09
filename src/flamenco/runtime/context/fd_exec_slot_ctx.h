@@ -18,7 +18,7 @@ struct fd_acc_mgr;
 typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 /* Context needed to execute a single slot. */
-#define FD_EXEC_SLOT_CTX_ALIGN (8UL)
+#define FD_EXEC_SLOT_CTX_ALIGN (16UL)
 struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
