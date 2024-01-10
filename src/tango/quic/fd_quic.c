@@ -163,7 +163,8 @@ fd_quic_new( void * mem,
                  | ( limits->handshake_cnt   ==0UL )
                  | ( limits->inflight_pkt_cnt==0UL )
                  | ( limits->tx_buf_sz       ==0UL ) ) ) {
-    return 0UL;
+    FD_LOG_WARNING(( "invalid limits" ));
+    return NULL;
   }
 
   ulong footprint = fd_quic_footprint( limits );
