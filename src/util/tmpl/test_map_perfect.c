@@ -232,6 +232,72 @@ test_zero( void ) {
   FD_TEST( table_without_0_tbl[ 1 ].key );
 }
 
+#if FD_HAS_AVX512
+#include "../simd/fd_avx512.h"
+uint find32( uint vals[ static 32 ],
+             ulong cnt              ) {
+  /* TODO: Make this more generic, add non-AVX implementation. Right now
+     this only works on up to 32 keys. */
+
+  /* Fill the extra entries with a duplicate of the last entry */
+  for( ulong i=cnt; i<32UL; i++ ) vals[ i ] = vals[ cnt-1UL ];
+
+  wwu_t w0 = wwu_ld( vals      );
+  wwu_t w1 = wwu_ld( vals+16UL );
+
+  wwu_t one = wwu_bcast( 1U );
+
+  for( uint c=1U; c < UINT_MAX; c++ ) {
+    wwu_t _c = wwu_bcast( c ); /* Is it better to add `one` to itself?
+                                  The compiler can probably make that
+                                  decision. */
+    wwu_t p0 = wwu_shr( wwu_mul( _c, w0 ), 32-5 );
+    wwu_t p1 = wwu_shr( wwu_mul( _c, w1 ), 32-5 );
+
+    /* We check how many values are representing by converting each
+       value to a bitvector, then or-ing them all together. */
+    wwu_t mask0 = wwu_shl_vector( one, p0 );
+    wwu_t mask1 = wwu_shl_vector( one, p1 );
+    wwu_t combined = wwu_or( mask0, mask1 );
+    /* Intel helpfully gives us _mm512_reduce_or_epi32, which compiles
+       to a sequence of instructions.  I'm not sure how optimal it is,
+       but it seems to be good enough. */
+    uint ored_all = (uint)_mm512_reduce_or_epi32( combined );
+
+    if( FD_UNLIKELY( fd_uint_popcnt( ored_all )==(int)cnt ) ) return c;
+  }
+  return 0U;
+}
+uint find16( uint vals[ static 16 ],
+             ulong cnt              ) {
+  /* Fill the extra entries with a duplicate of the last entry */
+  for( ulong i=cnt; i<16UL; i++ ) vals[ i ] = vals[ cnt-1UL ];
+
+  wwu_t w0 = wwu_ld( vals      );
+
+  wwu_t one = wwu_bcast( 1U );
+
+  for( uint c=1U; c < UINT_MAX; c++ ) {
+    wwu_t _c = wwu_bcast( c ); /* Is it better to add `one` to itself?
+                                  The compiler can probably make that
+                                  decision. */
+    wwu_t p0 = wwu_shr( wwu_mul( _c, w0 ), 32-4 );
+
+    /* We check how many values are representing by converting each
+       value to a bitvector, then or-ing them all together. */
+    wwu_t mask0 = wwu_shl_vector( one, p0 );
+    /* Intel helpfully gives us _mm512_reduce_or_epi32, which compiles
+       to a sequence of instructions.  I'm not sure how optimal it is,
+       but it seems to be good enough. */
+    uint ored_all = (uint)_mm512_reduce_or_epi32( mask0 );
+
+    if( FD_UNLIKELY( fd_uint_popcnt( ored_all )==(int)cnt ) ) return c;
+  }
+  return 0U;
+}
+#endif
+
+
 int
 main( int     argc,
       char ** argv ) {
@@ -242,6 +308,27 @@ main( int     argc,
   test_is_permutation(); /* No value,  complex key */
   test_permutation_idx();/* Has value, complex key */
   test_zero();
+
+#if FD_HAS_AVX512
+  uint sysvars[ 16 ] __attribute__((aligned(64)))
+                     = { 1083391431U, 1602521824U, 2556646952U, 3789714888U, 3815109318U,
+                         2145702658U, 3210257666U,  624709763U, 1288277025U, 3013340670U,
+                         2106867661U,   81058357U };
+  FD_LOG_NOTICE(( "Constant for sysvars: %u", find16( sysvars, 12UL ) ));
+
+  uint builtin_prog[ 16 ] __attribute__((aligned(64)))
+                          = { 826502856U, 3515002607U, 1460842543U, 3868264296U,          0U,
+                              611732860U, 2241143741U,  685857337U, 1041567970U };
+  FD_LOG_NOTICE(( "Constant for builtin programs: %u", find16( builtin_prog, 9UL ) ));
+
+  uint combined[ 32 ] __attribute__((aligned(64)))
+                      = { 1083391431U, 1602521824U, 2556646952U, 3789714888U, 3815109318U,
+                          2145702658U, 3210257666U,  624709763U, 1288277025U, 3013340670U,
+                          2106867661U,   81058357U,  826502856U, 3515002607U, 1460842543U,
+                          3868264296U,          0U,  611732860U, 2241143741U,  685857337U,
+                          1041567970U };
+  FD_LOG_NOTICE(( "Constant for combined: %u", find32( combined, 21UL ) ));
+#endif
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -8,7 +8,9 @@ $(call add-objs,fd_acc_mgr,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_system_ids.h)
 $(call add-objs,fd_system_ids,fd_flamenco)
-endif
+$(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet) 
+$(call run-unit-test,test_system_ids,)

@@ -2,7 +2,7 @@
 #define HEADER_fd_src_ballet_pack_fd_pack_cost_h
 #include "../fd_ballet_base.h"
 #include "fd_compute_budget_program.h"
-#include "fd_pack_pubkeys.h"
+#include "../../flamenco/runtime/fd_system_ids_pp.h"
 
 /* The functions in this header implement the transaction cost model
    that is soon to be part of consensus.
