@@ -1858,46 +1858,33 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 fd_tpool_t *tpool,
                                 ulong max_workers,
                                 ulong * txn_cnt ) {
-  // TODO: FIX!
-  //   slot_ctx->tower.funk_txn_index = (slot_ctx->tower.funk_txn_index + 1) & 0x1F;
-  //   fd_tower_entry_t *te = &slot_ctx->tower.funk_txn_tower[slot_ctx->tower.funk_txn_index];
-  //   fd_funk_txn_t * old_txn = te->txn;
-  // //  ulong old_slot = te->slot;
-
-  //   if (old_txn != NULL ) {
-  //     if (slot_ctx->tower.constipate) {
-  //       if (NULL != slot_ctx->tower.blockage)
-  //         fd_funk_txn_merge( slot_ctx->acc_mgr->funk, old_txn, 0);
-  //       else
-  //         slot_ctx->tower.blockage = old_txn;
-  //     } else
-  //       slot_ctx->tower.blockage = NULL;
-  //     FD_LOG_DEBUG(( "publishing funk txn in tower: idx: %u", slot_ctx->tower.funk_txn_index ));
-  //     fd_funk_txn_publish( slot_ctx->acc_mgr->funk, old_txn, 0 );
-  //   }
-  //   te->txn = slot_ctx->funk_txn = txn;
-  //   te->slot = slot_ctx->slot_bank.slot;
-
-  // This is simple now but really we need to execute block_verify in
-  // its own thread/tile and IT needs to parallelize the
-  // microblock verifies in that out into worker threads as well.
-  //
-  // Then, start executing the slot in the main thread, wait for the
-  // block_verify to complete, and only return successful when the
-  // verify threads complete successfully..
+  /* Publish any transaction older than 31 slots */
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
+  uint depth = 0;
+  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
+    if (++depth == 31U) {
+      FD_LOG_NOTICE(("publishing %32J", &txn->xid));
+      ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
+      if (publish_err == 0) {
+        FD_LOG_ERR(("publish err"));
+        return -1;
+      }
+      break;
+    }
+  }
 
   long block_eval_time = -fd_log_wallclock();
   fd_block_info_t block_info;
   int ret = fd_runtime_block_prepare(block, blocklen, slot_ctx->valloc, &block_info);
   *txn_cnt = block_info.txn_cnt;
 
-  fd_funk_txn_t *parent_txn = slot_ctx->funk_txn;
+  /* Use the blockhash as the funk xid */
   fd_funk_txn_xid_t xid;
+  fd_memcpy(xid.uc, fd_blockstore_block_query_hash(slot_ctx->acc_mgr->blockstore, slot_ctx->slot_bank.slot), sizeof(fd_funk_txn_xid_t));
 
-  fd_memcpy(xid.uc, block_info.microblock_batch_infos[0].microblock_infos[0].microblock_hdr.hash, sizeof(fd_funk_txn_xid_t));
-
-  fd_funk_txn_t *child_txn = fd_funk_txn_prepare(slot_ctx->acc_mgr->funk, parent_txn, &xid, 1);
-  slot_ctx->funk_txn = child_txn;
+  /* push a new transaction on the stack */
+  slot_ctx->funk_txn = fd_funk_txn_prepare(funk, slot_ctx->funk_txn, &xid, 1);
 
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
     ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool, max_workers);
@@ -1910,23 +1897,10 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
   // FIXME: better way of using starting slot
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != ret ) ) {
-    // Not exactly sure what I am supposed to do if execute fails to
-    // this point...  is this a "log and fall over?"
-    /*
-    fd_funk_cancel(slot_ctx->funk, slot_ctx->funk_txn, 0);
-    *slot_ctx->funk_txn = *fd_funk_root(slot_ctx->funk);
-    slot_ctx->funk_txn_index = (slot_ctx->funk_txn_index - 1) & 31;
-    slot_ctx->funk_txn = &slot_ctx->funk_txn_tower[slot_ctx->funk_txn_index];
-    */
-    FD_LOG_ERR(("need to rollback slot %lu", slot_ctx->slot_bank.slot));
+    FD_LOG_WARNING(("rollback slot %lu to slot %u due to execution failure",
+                    slot_ctx->slot_bank.slot, slot_ctx->slot_bank.prev_slot));
+    fd_runtime_rollback_to( slot_ctx, slot_ctx->slot_bank.prev_slot );
   }
-
-  // ulong publish_err = fd_funk_txn_publish(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);
-  // if (publish_err == 0)
-  // {
-  //   FD_LOG_ERR(("publish err - %lu", publish_err));
-  //   return -1;
-  // }
 
   block_eval_time += fd_log_wallclock();
   double block_eval_time_ms = (double)block_eval_time * 1e-6;
@@ -1935,8 +1909,32 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
-  // slot_ctx->funk_txn = parent_txn;
   return 0;
+}
+
+/* rollback transaction tower to the state where the given slot just FINISHED executing */
+void
+fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
+  fd_blockstore_t * blockstore = slot_ctx->acc_mgr->blockstore;
+  FD_LOG_WARNING(("rolling back to slot %lu", slot));
+  while( slot_ctx->slot_bank.prev_slot > slot ) {
+    /* Get the blockhash, which is used as the funk transaction id */ 
+    fd_funk_txn_xid_t xid;
+    fd_memcpy(xid.uc, fd_blockstore_block_query_hash(blockstore, slot_ctx->slot_bank.prev_slot), sizeof(fd_funk_txn_xid_t));
+    /* Cancel the funk transaction */
+    fd_funk_txn_t * txn = fd_funk_txn_query(&xid, txnmap);
+    if (txn) {
+      if (slot_ctx->funk_txn == txn) /* Roll back to the parent transaction */
+        slot_ctx->funk_txn = fd_funk_txn_parent(txn, txnmap);
+      fd_funk_txn_cancel(funk, txn, 0);
+    }
+    /* Dump the block from the blockstore */
+    fd_blockstore_remove_slot(blockstore, slot_ctx->slot_bank.prev_slot);
+    /* Recover the old bank state */
+    fd_runtime_recover_banks(slot_ctx, 1);
+  }
 }
 
 ulong
@@ -2305,7 +2303,7 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
        rec_ro != NULL;
        rec_ro = fd_funk_part_next(rec_ro, rec_map)) {
     fd_pubkey_t const *key = fd_type_pun_const(rec_ro->pair.key[0].uc);
-    FD_LOG_WARNING(("Collecting rent from %32J", key));
+    FD_LOG_DEBUG(("Collecting rent from %32J", key));
     FD_BORROWED_ACCOUNT_DECL(rec);
     int err = fd_acc_mgr_view(acc_mgr, txn, key, rec);
 
@@ -3201,4 +3199,56 @@ void fd_process_new_epoch(
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
   FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot)));
   fd_update_epoch_stakes( slot_ctx );
+}
+
+void
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_txn_t * txn = slot_ctx->funk_txn;
+  
+  {
+    if ( delete_first ) {
+      fd_bincode_destroy_ctx_t ctx;
+      ctx.valloc  = slot_ctx->valloc;
+      fd_epoch_bank_destroy(&slot_ctx->epoch_ctx->epoch_bank, &ctx);
+    }
+    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data = val;
+    ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx.valloc  = slot_ctx->valloc;
+    FD_TEST( fd_epoch_bank_decode(&slot_ctx->epoch_ctx->epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
+
+    FD_LOG_NOTICE(( "recovered epoch_bank" ));
+  }
+
+  {
+    if ( delete_first ) {
+      fd_bincode_destroy_ctx_t ctx;
+      ctx.valloc  = slot_ctx->valloc;
+      fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
+    }
+    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    if ( rec == NULL )
+      FD_LOG_ERR(("failed to read banks record"));
+    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+    fd_bincode_decode_ctx_t ctx;
+    ctx.data = val;
+    ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx.valloc  = slot_ctx->valloc;
+    FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
+
+    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J",
+                    (long)slot_ctx->slot_bank.slot,
+                    slot_ctx->slot_bank.banks_hash.hash,
+                    slot_ctx->slot_bank.poh.hash ));
+
+    slot_ctx->slot_bank.collected_fees = 0;
+    slot_ctx->slot_bank.collected_rent = 0;
+  }
 }

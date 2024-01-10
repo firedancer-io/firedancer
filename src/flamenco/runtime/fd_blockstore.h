@@ -113,17 +113,18 @@ struct fd_blockstore_txn_ref {
 typedef struct fd_blockstore_txn_ref fd_blockstore_txn_ref_t;
 
 struct fd_blockstore_block {
-  ulong shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
-  ulong shreds_cnt;
-  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
-  ulong micros_cnt;
-  ulong txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
-  ulong txns_cnt;
-  long  ts;         /* timestamp in nanosecs */
-  ulong data_gaddr; /* ptr to the beginning of the block's allocated data region */
-  ulong sz;         /* block size */
-  ulong height;     /* block height */
+  ulong     shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
+  ulong     shreds_cnt;
+  ulong     micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
+  ulong     micros_cnt;
+  ulong     txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
+  ulong     txns_cnt;
+  long      ts;         /* timestamp in nanosecs */
+  ulong     data_gaddr; /* ptr to the beginning of the block's allocated data region */
+  ulong     sz;         /* block size */
+  ulong     height;     /* block height */
   fd_hash_t bank_hash;
+  uint      flags;
 };
 typedef struct fd_blockstore_block fd_blockstore_block_t;
 
@@ -323,6 +324,10 @@ fd_blockstore_slot_parent_query( fd_blockstore_t * blockstore, ulong slot );
 /* Returns the transaction data for the given signature */
 fd_blockstore_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] );
+
+/* Delete a block slot */
+int
+fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot );
 
 /* Remove the all slots less than min_slots from blockstore by
    removing them from all relevant internal structures. Used to maintain

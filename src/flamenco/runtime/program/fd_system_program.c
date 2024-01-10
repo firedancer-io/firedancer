@@ -68,7 +68,7 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   fd_borrowed_account_t * sender_rec = NULL;
   int err = fd_instr_borrowed_account_view( &ctx, sender, &sender_rec );
   if (FD_UNLIKELY( err )){
-    // Special case where there is an attempt to transfer 
+    // Special case where there is an attempt to transfer
     // from a 0 lamport account.
     if (requested_lamports == 0) {
       fd_borrowed_account_t * receiver_rec = NULL;
@@ -82,7 +82,7 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     }
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
-    
+
   if (sender_rec->const_meta->dlen > 0)
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
@@ -95,7 +95,7 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
   if ( FD_UNLIKELY( memcmp(sender->uc, receiver->uc, sizeof(fd_pubkey_t)) == 0 ) ) {
     fd_borrowed_account_t * receiver_rec;
     err = fd_instr_borrowed_account_modify( &ctx, receiver, 0UL, &receiver_rec );
-    // FIXME: is this the correct error to return here? 
+    // FIXME: is this the correct error to return here?
     if (FD_EXECUTOR_INSTR_SUCCESS != err)
       return err;
     return FD_EXECUTOR_INSTR_SUCCESS;

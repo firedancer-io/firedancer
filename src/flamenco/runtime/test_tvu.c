@@ -181,28 +181,28 @@ static void
 eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
   ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
   while( 1 ) {
-    fd_blockstore_block_t * blk = fd_blockstore_block_query( repair_ctx->blockstore, slot );
 
-    if ( blk == NULL ) {
-      /* Determine if we should skip blocks */
-      for( ulong skip = 0; skip < 20; ++skip ) {
-        ulong par = fd_blockstore_slot_parent_query( repair_ctx->blockstore, slot + skip );
-        if( par == ULONG_MAX ) /* not found */ continue;
-        if( par != repair_ctx->slot_ctx->slot_bank.prev_slot ) return;
-        if( skip ) {
-          FD_LOG_NOTICE(("skipping from block %lu to %lu", slot, slot + skip));
-          repair_ctx->slot_ctx->slot_bank.slot = slot + skip;
-        }
-        break;
+    /* Search for the next block to execute */
+    for( ulong skip = 0; 1; ++skip ) {
+      if( skip > 32U ) return; /* searching too far */
+      ulong par = fd_blockstore_slot_parent_query( repair_ctx->blockstore, slot + skip );
+      if( par == ULONG_MAX ) continue; /* not found/no metadata */
+      if( par > repair_ctx->slot_ctx->slot_bank.prev_slot ) return; /* wait for missing blocks */
+      if( par < repair_ctx->slot_ctx->slot_bank.prev_slot ) /* wrong fork executed, roll back */
+        fd_runtime_rollback_to( repair_ctx->slot_ctx, par );
+      /* we should have the right parent now */
+      FD_TEST( par == repair_ctx->slot_ctx->slot_bank.prev_slot );
+      if( skip > 0 ) {
+        FD_LOG_NOTICE(("skipping from block %lu to %lu", slot, slot + skip));
+        slot += skip;
       }
-      return;
+      repair_ctx->slot_ctx->slot_bank.slot = slot;
+      break;
     }
     
-    /* We already have the block in the ledger somehow */
-    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( repair_ctx->blockstore, slot );
-    if( FD_UNLIKELY( !slot_meta ) )
-      FD_LOG_ERR(("missing meta for slot %lu", slot ));
-
+    fd_blockstore_block_t * blk = fd_blockstore_block_query( repair_ctx->blockstore, slot );
+    if( blk == NULL ) /* we have the metadata but not the actual block */
+      return;
     ulong txn_cnt = 0;
     FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, fd_blockstore_block_data_laddr( repair_ctx->blockstore, blk ), blk->sz, NULL, 1, &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS);
     (void)txn_cnt;
@@ -215,6 +215,8 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
     repair_ctx->blockstore->root++;
     repair_ctx->slot_ctx->slot_bank.prev_slot = slot;
     repair_ctx->slot_ctx->slot_bank.slot = ++slot;
+
+    fd_runtime_save_slot_bank( repair_ctx->slot_ctx );
   }
 }
 
@@ -932,43 +934,7 @@ tvu_main_setup( fd_valloc_t valloc,
     fd_snapshot_load( snapshotfiles, slot_ctx, 1 );
 
   } else {
-    {
-      FD_LOG_NOTICE(("reading epoch bank record"));
-      fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
-      if ( rec == NULL )
-        FD_LOG_ERR(("failed to read banks record"));
-      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
-      fd_bincode_decode_ctx_t ctx2;
-      ctx2.data = val;
-      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-      ctx2.valloc  = slot_ctx->valloc;
-      FD_TEST( fd_epoch_bank_decode(&epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-      FD_LOG_NOTICE(( "decoded epoch" ));
-    }
-
-    {
-      FD_LOG_NOTICE(("reading slot bank record"));
-      fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
-      if ( rec == NULL )
-        FD_LOG_ERR(("failed to read banks record"));
-      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
-      fd_bincode_decode_ctx_t ctx2;
-      ctx2.data = val;
-      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-      ctx2.valloc  = slot_ctx->valloc;
-      FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-      FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                      (long)slot_ctx->slot_bank.slot,
-                      slot_ctx->slot_bank.banks_hash.hash,
-                      slot_ctx->slot_bank.poh.hash ));
-
-      slot_ctx->slot_bank.collected_fees = 0;
-      slot_ctx->slot_bank.collected_rent = 0;
-    }
+    fd_runtime_recover_banks( slot_ctx, 0 );
   }
   
   snapshot_slot                 = slot_ctx->slot_bank.slot;
@@ -1097,6 +1063,9 @@ tvu_main_setup( fd_valloc_t valloc,
 
 int
 main( int argc, char ** argv ) {
+  signal( SIGINT, stop );
+  signal( SIGPIPE, SIG_IGN );
+
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
   fd_valloc_t valloc = fd_libc_alloc_virtual();
@@ -1121,9 +1090,6 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
   /* Tile                                                               */
   /**********************************************************************/
-
-  signal( SIGINT, stop );
-  signal( SIGPIPE, SIG_IGN );
 
   if( tvu_main( tvu_main_args.gossip,
                 tvu_main_args.gossip_config,

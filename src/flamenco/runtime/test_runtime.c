@@ -56,6 +56,7 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar.h"
 #include "fd_runtime.h"
+#include "fd_replay.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "program/fd_stake_program.h"
 #include "../stakes/fd_stakes.h"
@@ -65,47 +66,6 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 
 #include <dirent.h>
 #include <signal.h>
-
-struct slot_capitalization {
-  ulong key;
-  uint  hash;
-  ulong capitalization;
-};
-typedef struct slot_capitalization slot_capitalization_t;
-
-#define MAP_NAME        capitalization_map
-#define MAP_T           slot_capitalization_t
-#define LG_SLOT_CNT 15
-#define MAP_LG_SLOT_CNT LG_SLOT_CNT
-#include "../../util/tmpl/fd_map.c"
-
-struct global_state {
-  fd_exec_slot_ctx_t *   slot_ctx;
-  fd_exec_epoch_ctx_t *  epoch_ctx;
-  fd_capture_ctx_t *     capture_ctx;
-
-  int                    argc;
-  char       **          argv;
-
-  char const *           name;
-  ulong                  pages;
-  ulong                  end_slot;
-  char const *           cmd;
-  char const *           reset;
-  char const *           load;
-  char const *           capitalization_file;
-  slot_capitalization_t  capitalization_map_mem[ 1UL << LG_SLOT_CNT ];
-  slot_capitalization_t *map;
-
-  FILE * capture_file;
-  fd_tpool_t *     tpool;
-  ulong            max_workers;
-  uchar                  abort_on_mismatch;
-
-  fd_wksp_t * local_wksp;
-};
-typedef struct global_state global_state_t;
-
 
 static void
 usage( char const * progname ) {
@@ -127,140 +87,12 @@ usage( char const * progname ) {
 }
 
 int
-replay( global_state_t * state,
-        int              justverify,
-        fd_tpool_t *     tpool,
-        ulong            max_workers ) {
-  /* Create scratch allocator */
-
-  state->tpool = tpool;
-  state->max_workers = max_workers;
-
-  ulong  smax = 256 /*MiB*/ << 20;
-  void * smem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_smem_align(), smax, 1UL );
-  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-  ulong  scratch_depth = 128UL;
-  void * fmem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
-  if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
-
-  fd_scratch_attach( smem, fmem, smax, scratch_depth );
-
-  fd_features_restore( state->slot_ctx );
-
-  if (state->slot_ctx->acc_mgr->blockstore->max < state->end_slot)
-    state->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
-  // FD_LOG_WARNING(("Failing here"))
-  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
-
-  fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
-
-  long replay_time = -fd_log_wallclock();
-  ulong txn_cnt = 0;
-  ulong slot_cnt = 0;
-  fd_blockstore_t * blockstore = state->slot_ctx->acc_mgr->blockstore;
-
-  ulong prev_slot = state->slot_ctx->slot_bank.slot;
-  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
-    state->slot_ctx->slot_bank.prev_slot = prev_slot;
-    state->slot_ctx->slot_bank.slot      = slot;
-
-    FD_LOG_DEBUG(("reading slot %ld", slot));
-
-    fd_blockstore_block_t * blk = fd_blockstore_block_query(blockstore, slot);
-    if (blk == NULL) {
-      FD_LOG_WARNING(("failed to read slot %ld", slot));
-      continue;
-    }
-    uchar * val = fd_blockstore_block_data_laddr(blockstore, blk);
-    ulong sz = blk->sz;
-
-    if ( justverify ) {
-      fd_block_info_t block_info;
-      int ret = fd_runtime_block_prepare( val, sz, state->slot_ctx->valloc, &block_info );
-      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      txn_cnt += block_info.txn_cnt;
-
-      fd_hash_t poh_hash;
-      fd_memcpy( poh_hash.hash, state->slot_ctx->slot_bank.poh.hash, sizeof(fd_hash_t) );
-      ret = fd_runtime_block_verify_tpool( &block_info, &poh_hash, &poh_hash, state->slot_ctx->valloc, tpool, max_workers );
-      FD_TEST( ret == FD_RUNTIME_EXECUTE_SUCCESS );
-      slot_cnt++;
-    } else {
-      ulong blk_txn_cnt = 0;
-      FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, tpool, max_workers, &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
-      txn_cnt += blk_txn_cnt;
-      slot_cnt++;
-
-      uchar const * expected = fd_blockstore_block_query_hash( state->slot_ctx->acc_mgr->blockstore, slot );
-      if ( FD_UNLIKELY( !expected ) )
-        FD_LOG_ERR(("slot %lu is missing its hash", slot));
-      else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.poh.hash, expected, 32UL ) ) ) {
-        FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%32J, got=%32J",
-                         slot,
-                         expected,
-                         state->slot_ctx->slot_bank.poh.hash ));
-        if( state->abort_on_mismatch ) {
-          __asm__( "int $3" );
-          return 1;
-        }
-      }
-
-      expected = fd_blockstore_block_query_bank_hash( state->slot_ctx->acc_mgr->blockstore, slot );
-      if ( FD_UNLIKELY( !expected ) ) {
-        FD_LOG_ERR(("slot %lu is missing its bank hash", slot));
-      } else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
-        FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-                         slot,
-                         expected,
-                         state->slot_ctx->slot_bank.banks_hash.hash ));
-        if( state->abort_on_mismatch ) {
-          __asm__( "int $3" );
-          return 1;
-        }
-      }
-
-      if (NULL != state->capitalization_file) {
-        slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
-        if (NULL != c) {
-          if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
-            FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
-        }
-      }
-      if (0==memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL )) {
-        ulong publish_err = fd_funk_txn_publish(state->slot_ctx->acc_mgr->funk, state->slot_ctx->funk_txn, 1);
-        if (publish_err == 0)
-        {
-          FD_LOG_ERR(("publish err - %lu", publish_err));
-          return -1;
-        }
-        state->slot_ctx->funk_txn = NULL;
-      }
-    }
-
-    prev_slot = slot;
-  }
-
-  replay_time += fd_log_wallclock();
-  double replay_time_s = (double)replay_time * 1e-9;
-  double tps = (double)txn_cnt / replay_time_s;
-  double sec_per_slot = replay_time_s/(double)slot_cnt;
-  FD_LOG_NOTICE(( "replay completed - slots: %lu, elapsed: %6.6f s, txns: %lu, tps: %6.6f, sec/slot: %6.6f", slot_cnt, replay_time_s, txn_cnt, tps, sec_per_slot ));
-
-  // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
-
-  FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
-  fd_wksp_free_laddr( fmem                      );
-  return 0;
-}
-
-int
 main( int     argc,
       char ** argv ) {
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  global_state_t state;
+  fd_replay_state_t state;
   fd_memset(&state, 0, sizeof(state));
 
   state.argc = argc;
@@ -459,76 +291,7 @@ main( int     argc,
     state.capture_ctx->trace_mode |= FD_RUNTIME_TRACE_REPLAY;
   }
 
-  {
-    FD_LOG_NOTICE(("reading epoch bank record"));
-    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global_const(state.slot_ctx->acc_mgr->funk, NULL, &id);
-    if ( rec == NULL )
-      FD_LOG_ERR(("failed to read epoch banks record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
-    fd_bincode_decode_ctx_t ctx2;
-    ctx2.data = val;
-    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx2.valloc  = state.slot_ctx->valloc;
-    FD_TEST( fd_epoch_bank_decode(&state.epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-    FD_LOG_NOTICE(( "decoded epoch" ));
-  }
-
-  {
-    FD_LOG_NOTICE(("reading slot bank record"));
-    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global_const(state.slot_ctx->acc_mgr->funk, NULL, &id);
-    if ( rec == NULL )
-      FD_LOG_ERR(("failed to read banks record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(state.slot_ctx->acc_mgr->funk) );
-    fd_bincode_decode_ctx_t ctx2;
-    ctx2.data = val;
-    ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx2.valloc  = state.slot_ctx->valloc;
-    FD_TEST( fd_slot_bank_decode(&state.slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-    FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                    (long)state.slot_ctx->slot_bank.slot,
-                    state.slot_ctx->slot_bank.banks_hash.hash,
-                    state.slot_ctx->slot_bank.poh.hash ));
-
-    state.slot_ctx->slot_bank.collected_fees = 0;
-    state.slot_ctx->slot_bank.collected_rent = 0;
-
-    FD_LOG_NOTICE(( "decoded slot=%ld capitalization=%ld",
-                    (long)state.slot_ctx->slot_bank.slot,
-                    state.slot_ctx->slot_bank.capitalization));
-    fd_stake_accounts_pair_t_mapnode_t * new_root = NULL;
-    fd_stake_accounts_pair_t_mapnode_t * new_pool = fd_stake_accounts_pair_t_map_alloc( state.slot_ctx->valloc, 100000 );
-    for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-         n;
-         n = fd_stake_accounts_pair_t_map_successor_const( state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n) ) {
-      fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_acquire( new_pool );
-      fd_memcpy( &entry->elem, &n->elem, sizeof(fd_stake_accounts_pair_t));
-      fd_stake_accounts_pair_t_map_insert( new_pool, &new_root, entry );
-    }
-    fd_bincode_destroy_ctx_t destroy = {.valloc = state.slot_ctx->valloc};
-    fd_stake_accounts_destroy(&state.slot_ctx->slot_bank.stake_account_keys, &destroy);
-
-    state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = new_root;
-    state.slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = new_pool;
-
-    fd_vote_accounts_pair_t_mapnode_t * new_vote_root = NULL;
-    fd_vote_accounts_pair_t_mapnode_t * new_vote_pool = fd_vote_accounts_pair_t_map_alloc( state.slot_ctx->valloc, 100000 );
-
-    for ( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
-          n;
-          n = fd_vote_accounts_pair_t_map_successor_const( state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n )) {
-      fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_acquire( new_vote_pool );
-      fd_memcpy( &entry->elem, &n->elem, sizeof(fd_vote_accounts_pair_t));
-      fd_vote_accounts_pair_t_map_insert( new_vote_pool, &new_vote_root, entry );
-    }
-    fd_vote_accounts_destroy( &state.slot_ctx->slot_bank.vote_account_keys, &destroy );
-
-    state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = new_vote_root;
-    state.slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = new_vote_pool;
-  }
+  fd_runtime_recover_banks( state.slot_ctx, 0 );
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -548,7 +311,10 @@ main( int     argc,
   }
 
   if (strcmp(state.cmd, "replay") == 0) {
-    int err = replay(&state, 0, tpool, tcnt);
+    state.tpool = tpool;
+    state.max_workers = tcnt;
+
+    int err = fd_replay(&state);
     if( err!=0 ) return err;
 
     if (NULL != confirm_hash) {
@@ -579,12 +345,6 @@ main( int     argc,
     }
 
   }
-
-  if (strcmp(state.cmd, "verifyonly") == 0)
-    replay(&state, 1, tpool, tcnt);
-
-  if (strcmp(state.cmd, "hashonly") == 0)
-    replay(&state, 2, tpool, tcnt);
 
   // fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.capture_ctx->capture ) ) );
   if( state.capture_file  ) fclose( state.capture_file );

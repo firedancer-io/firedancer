@@ -1664,7 +1664,7 @@ int fd_vote_accounts_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_vote_accounts_decode_unsafe(fd_vote_accounts_t* self, fd_bincode_decode_ctx_t * ctx) {
   ulong vote_accounts_len;
   fd_bincode_uint64_decode_unsafe(&vote_accounts_len, ctx);
-  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(ctx->valloc, vote_accounts_len);
+  self->vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(ctx->valloc, fd_ulong_max(vote_accounts_len, 10000));
   self->vote_accounts_root = NULL;
   for (ulong i = 0; i < vote_accounts_len; ++i) {
     fd_vote_accounts_pair_t_mapnode_t* node = fd_vote_accounts_pair_t_map_acquire(self->vote_accounts_pool);
@@ -1829,7 +1829,7 @@ int fd_stake_accounts_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_stake_accounts_decode_unsafe(fd_stake_accounts_t* self, fd_bincode_decode_ctx_t * ctx) {
   ulong stake_accounts_len;
   fd_bincode_uint64_decode_unsafe(&stake_accounts_len, ctx);
-  self->stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc(ctx->valloc, stake_accounts_len);
+  self->stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc(ctx->valloc, fd_ulong_max(stake_accounts_len, 100000));
   self->stake_accounts_root = NULL;
   for (ulong i = 0; i < stake_accounts_len; ++i) {
     fd_stake_accounts_pair_t_mapnode_t* node = fd_stake_accounts_pair_t_map_acquire(self->stake_accounts_pool);

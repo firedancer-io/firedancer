@@ -9,6 +9,7 @@ $(call add-hdrs, \
 	fd_acc_mgr.h \
 	fd_hashes.h \
 	fd_runtime.h \
+	fd_replay.h \
 	fd_borrowed_account.h \
 	fd_system_ids.h \
 	fd_rawtxn.h \
@@ -26,6 +27,7 @@ $(call add-objs, \
 	fd_acc_mgr \
 	fd_hashes \
 	fd_runtime \
+	fd_replay \
 	fd_system_ids \
 	fd_pubkey_utils \
 	fd_fork_mgr \

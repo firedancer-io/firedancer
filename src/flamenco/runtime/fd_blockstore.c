@@ -283,9 +283,6 @@ fd_blockstore_leave( fd_blockstore_t * blockstore ) {
   return (void *)blockstore;
 }
 
-static int
-fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot );
-
 void *
 fd_blockstore_delete( void * shblockstore ) {
   fd_blockstore_t * blockstore = (fd_blockstore_t *)shblockstore;
@@ -530,8 +527,8 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
   blk->block.txns_cnt   = txns_cnt;
 }
 
-/* Private function for deleting a block slot */
-static int
+/* Delete a block slot */
+int
 fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
@@ -643,6 +640,7 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   insert->block.txns_gaddr   = 0;
   insert->block.txns_cnt     = 0;
   insert->block.height       = 0;
+  insert->block.flags        = 0;
   fd_memset(insert->block.bank_hash.hash, 0, 32U);
 
   // deshred the shreds into the block mem
@@ -790,6 +788,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
       break;
     case FD_BLOCKSTORE_ERR_SLOT_FULL:
       FD_LOG_DEBUG( ( "already deshredded slot %lu. ignoring.", slot_meta->slot ) );
+      break;
+    case FD_BLOCKSTORE_ERR_INVALID_DESHRED:
+      FD_LOG_DEBUG( ( "failed to deshred slot %lu. ignoring.", slot_meta->slot ) );
       break;
     default:
       FD_LOG_ERR( ( "deshred err %d", rc ) );
