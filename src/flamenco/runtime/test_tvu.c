@@ -740,6 +740,8 @@ typedef struct {
   fd_gossip_config_t gossip_config;
   fd_tvu_gossip_ctx_t gossip_ctx;
   fd_gossip_peer_addr_t gossip_peer_addr;
+  uchar private_key[32];
+  fd_pubkey_t public_key;
 
 static tvu_main_args_t
 tvu_main_setup( fd_valloc_t valloc,
@@ -989,10 +991,8 @@ tvu_main_setup( fd_valloc_t valloc,
   /* Identity                                                           */
   /**********************************************************************/
 
-  uchar private_key[32];
   FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
 #ifdef FD_HAS_LIBMICROHTTP
