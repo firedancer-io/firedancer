@@ -22,7 +22,7 @@ FD_PROTOTYPES_BEGIN
    - scalar
 */
 
-inline uchar *
+static inline uchar *
 fd_zktpp_transcript_challenge_scalar( uchar                   scalar[ static 32 ],
                                       fd_zktpp_transcript_t * transcript,
                                       char const * const      label,
@@ -42,7 +42,7 @@ fd_zktpp_transcript_challenge_scalar( uchar                   scalar[ static 32 
    - scalar
  */
 
-inline void
+static inline void
 fd_zktpp_transcript_append_point( fd_zktpp_transcript_t * transcript,
                                   char const * const      label,
                                   uint const              label_len,
@@ -50,7 +50,7 @@ fd_zktpp_transcript_append_point( fd_zktpp_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, point, 32 );
 }
 
-inline static int
+static inline int
 fd_zktpp_transcript_validate_and_append_point( fd_zktpp_transcript_t * transcript,
                                                char const * const      label,
                                                uint const              label_len,
@@ -62,7 +62,7 @@ fd_zktpp_transcript_validate_and_append_point( fd_zktpp_transcript_t * transcrip
   return FD_TRANSCRIPT_SUCCESS;
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,
                                    char const * const      label,
                                    uint const              label_len,
@@ -70,7 +70,7 @@ fd_zktpp_transcript_append_pubkey( fd_zktpp_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, pubkey, 32 );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_append_ciphertext( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
                                        uint const              label_len,
@@ -78,7 +78,7 @@ fd_zktpp_transcript_append_ciphertext( fd_zktpp_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, ciphertext, 64 );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_append_commitment( fd_zktpp_transcript_t * transcript,
                                        char const * const      label,
                                        uint const              label_len,
@@ -86,7 +86,7 @@ fd_zktpp_transcript_append_commitment( fd_zktpp_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, commitment, 32 );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_append_handle( fd_zktpp_transcript_t * transcript,
                                    char const * const      label,
                                    uint const              label_len,
@@ -94,7 +94,7 @@ fd_zktpp_transcript_append_handle( fd_zktpp_transcript_t * transcript,
   fd_merlin_transcript_append_message( transcript, label, label_len, handle, 32 );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_append_scalar( fd_zktpp_transcript_t * transcript,
                                    char const * const      label,
                                    uint const              label_len,
@@ -111,34 +111,34 @@ fd_zktpp_transcript_append_scalar( fd_zktpp_transcript_t * transcript,
    - pubkey_proof
  */
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_innerproduct( fd_zktpp_transcript_t * transcript,
                                          ulong const             n ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("ipp v1") );
   fd_merlin_transcript_append_u64( transcript, FD_TRANSCRIPT_LITERAL("n"), n );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_equality_proof( fd_zktpp_transcript_t * transcript ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("equality-proof") );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_zero_balance_proof( fd_zktpp_transcript_t * transcript ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("zero-balance-proof") );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_grp_ciph_val_proof( fd_zktpp_transcript_t * transcript ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("validity-proof") );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_batched_grp_ciph_val_proof( fd_zktpp_transcript_t * transcript ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("batched-validity-proof") );
 }
 
-inline void
+static inline void
 fd_zktpp_transcript_domsep_pubkey_proof( fd_zktpp_transcript_t * transcript ) {
   fd_merlin_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("dom-sep"), (uchar *)FD_TRANSCRIPT_LITERAL("pubkey-proof") );
 }
