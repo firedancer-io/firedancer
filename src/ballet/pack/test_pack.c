@@ -162,11 +162,13 @@ make_vote_transaction( ulong i ) {
   uchar * p = payload_scratch[ i ];
 
   fd_memcpy( p, sample_vote, sample_vote_sz );
+  payload_sz[ i ] = sample_vote_sz;
+
   /* Make signature and the two writable accounts unique */
   p[ 0x01+(i%8) ] = (uchar)(p[ 0x01+(i%8) ] + 1UL + (i/8));
   p[ 0x45+(i%8) ] = (uchar)(p[ 0x45+(i%8) ] + 1UL + (i/8));
   p[ 0x65+(i%8) ] = (uchar)(p[ 0x65+(i%8) ] + 1UL + (i/8));
-  fd_txn_parse( p, sample_vote_sz, txn_scratch[i], NULL );
+  FD_TEST( fd_txn_parse( p, sample_vote_sz, txn_scratch[i], NULL ) );
 }
 
 static void
@@ -323,7 +325,7 @@ void test_vote( void ) {
   schedule_validate_microblock( pack, 30000UL, 1.0f, 3UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
-  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].is_simple_vote );
+  for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
 }
 
 static void

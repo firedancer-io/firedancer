@@ -68,9 +68,10 @@ dev1_cmd_fn( args_t *         args,
     if( FD_UNLIKELY( idx >= config->topo.tile_cnt ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
 
     tile_main_args_t args = {
-      .config = config,
-      .tile   = &config->topo.tiles[ idx ],
-      .pipefd = -1, /* no parent process to notify about termination */
+      .config   = config,
+      .tile     = &config->topo.tiles[ idx ],
+      .pipefd   = -1, /* no parent process to notify about termination */
+      .no_shmem = 0,
     };
     result = tile_main( &args );
   }

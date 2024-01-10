@@ -615,7 +615,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     FD_COMPILER_MFENCE();
 
     int filter = 0;
-    if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, sig, chunk, sz, &filter );
+    if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, &filter );
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
@@ -628,11 +628,12 @@ fd_mux_tile( fd_cnc_t *              cnc,
     }
 
     ulong out_sz = sz;
+    ulong out_tsorig = tsorig;
     if( FD_LIKELY( !filter ) ) {
       /* We have successfully loaded the metadata.  Decide whether it
           is interesting downstream and publish or filter accordingly. */
 
-      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, &sig, &chunk, &out_sz, &filter, &mux );
+      if( FD_LIKELY( callbacks->after_frag ) ) callbacks->after_frag( ctx, (ulong)this_in->idx, seq_found, &sig, &chunk, &out_sz, &out_tsorig, &filter, &mux );
     }
 
     long next = fd_tickcount();

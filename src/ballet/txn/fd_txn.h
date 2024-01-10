@@ -240,7 +240,7 @@ struct fd_txn {
 
   /* addr_table_lookup_cnt: The number of address lookup tables this
      transaction contains.  Must be 0 if transaction_version==FD_TXN_VLEGACY.
-     addr_table_lookup_cnt in [0, FD_TXN_TABLE_LOOKUP_MAX]. */
+     addr_table_lookup_cnt in [0, FD_TXN_ADDR_TABLE_LOOKUP_MAX]. */
   uchar       addr_table_lookup_cnt;
 
   /* addr_table_adtl_writable_cnt: The total number of writable account

@@ -476,7 +476,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   fd_txn_t * txn = TXN(txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
 
-  ulong cost = fd_pack_compute_cost( txnp, &txnp->is_simple_vote );
+  ulong cost = fd_pack_compute_cost( txnp, &txnp->flags );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
@@ -502,7 +502,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   out->rewards     = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
   out->compute_est = (uint)cost;
 
-  out->root = txnp->is_simple_vote ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
+  out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
@@ -721,6 +721,18 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       continue;
     }
 
+    if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL ) ) {
+      /* This transaction reads or writes to additional accounts from
+         an address lookup table.  We don't yet know what they are
+         so we can't check for conflicts and instead just never schedule
+         the transaction. 
+         
+         TODO: We should load the accounts here and check them for
+         conflicts properly.  The accounts can change with the bank so
+         it's non-trivial. */
+      continue;
+    }
+
     if( FD_PACK_BITSET_INTERSECT4_EMPTY( bitset_rw_in_use, bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) {
       fd_txn_acct_iter_t ctrl[1];
       /* Check conflicts between this transaction's writable accounts and
@@ -767,9 +779,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
 
       fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
       fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-      out->payload_sz     = cur->txn->payload_sz;
-      out->meta           = cur->txn->meta;
-      out->is_simple_vote = cur->txn->is_simple_vote;
+      out->payload_sz = cur->txn->payload_sz;
+      out->meta       = cur->txn->meta;
+      out->flags      = cur->txn->flags;
       out++;
 
       fd_txn_acct_iter_t ctrl[1];

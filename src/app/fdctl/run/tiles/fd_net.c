@@ -199,11 +199,13 @@ before_frag( void * _ctx,
 static void
 during_frag( void * _ctx,
              ulong in_idx,
+             ulong seq,
              ulong sig,
              ulong chunk,
              ulong sz,
              int * opt_filter ) {
   (void)in_idx;
+  (void)seq;
   (void)sig;
   (void)opt_filter;
 
@@ -219,14 +221,18 @@ during_frag( void * _ctx,
 static void
 after_frag( void *             _ctx,
             ulong              in_idx,
+            ulong              seq,
             ulong *            opt_sig,
             ulong *            opt_chunk,
             ulong *            opt_sz,
+            ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   (void)in_idx;
+  (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
+  (void)opt_tsorig;
   (void)opt_filter;
   (void)mux;
 

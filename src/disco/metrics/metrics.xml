@@ -39,6 +39,62 @@ metric introduced.
   <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
 </enum>
 
+<enum name="BankSlotAcquire">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="TooHigh" label="Too high" />
+    <int value="2" name="TooLow" label="Too low" />
+</enum>
+
+<enum name="BankLoadAddressLookupTable">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="SlotHashesSysvarNotFound" label="The slot hashes syvar could not be found." />
+    <int value="2" name="AccountNotFound" label="The account storing the address lookup table was deactivated or could not be found." />
+    <int value="3" name="InvalidAccountOwner" label="The account that owns the referenced lookup table is not the address lookup table program." />
+    <int value="4" name="InvalidAccountData" label="The data for the referenced address lookup table is malformed." />
+    <int value="5" name="InvalidIndex" label="The referenced index in the address lookup table does not exist." />
+</enum>"
+
+<enum name="TransactionError">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism." />
+    <int value="2" name="AccountLoadedTwice" label="A `Pubkey` appears twice in the transaction's `account_keys`.  Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys." />
+    <int value="3" name="AccountNotFound" label="Attempt to debit an account but found no record of a prior credit." />
+    <int value="4" name="ProgramAccountNotFound" label="Attempt to load a program that does not exist." />
+    <int value="5" name="InsufficientFundsForFee" label="The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction." />
+    <int value="6" name="InvalidAccountForFee" label="This account may not be used to pay transaction fees." />
+    <int value="7" name="AlreadyProcessed" label="The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack." />
+    <int value="8" name="BlockhashNotFound" label="The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded." />
+    <int value="9" name="InstructionError" label="An error occurred while processing an instruction." />
+    <int value="10" name="CallChainTooDeep" label="Loader call chain is too deep." />
+    <int value="11" name="MissingSignatureForFee" label="Transaction requires a fee but has no signature present." />
+    <int value="12" name="InvalidAccountIndex" label="Transaction contains an invalid account reference." />
+    <int value="13" name="SignatureFailure" label="Transaction did not pass signature verification." />
+    <int value="14" name="InvalidProgramForExecution" label="This program may not be used for executing instructions." />
+    <int value="15" name="SanitizeFailure" label="Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked." />
+    <int value="16" name="ClusterMaintenance" label="Transactions are currently disabled due to cluster maintenance." />
+    <int value="17" name="AccountBorrowOutstanding" label="Transaction processing left an account with an outstanding borrowed reference." />
+    <int value="18" name="WouldExceedMaxBlockCostLimit" label="Transaction would exceed max Block Cost Limit." />
+    <int value="19" name="UnsupportedVersion" label="Transaction version is unsupported." />
+    <int value="20" name="InvalidWritableAccount" label="Transaction loads a writable account that cannot be written." />
+    <int value="21" name="WouldExceedMaxAccountCostLimit" label="Transaction would exceed max account limit within the block." />
+    <int value="22" name="WouldExceedAccountDataBlockLimit" label="Transaction would exceed account data limit within the block." />
+    <int value="23" name="TooManyAccountLocks" label="Transaction locked too many accounts." />
+    <int value="24" name="AddressLookupTableNotFound" label="Address lookup table not found." />
+    <int value="25" name="InvalidAddressLookupTableOwner" label="Attempted to lookup addresses from an account owned by the wrong program." />
+    <int value="26" name="InvalidAddressLookupTableData" label="Attempted to lookup addresses from an invalid account." />
+    <int value="27" name="InvalidAddressLookupTableIndex" label="Address table lookup uses an invalid index." />
+    <int value="28" name="InvalidRentPayingAccount" label="Transaction leaves an account with a lower balance than rent-exempt minimum." />
+    <int value="29" name="WouldExceedMaxVoteCostLimit" label="Transaction would exceed max Vote Cost Limit." />
+    <int value="30" name="WouldExceedAccountDataTotalLimit" label="Transaction would exceed total account data limit." />
+    <int value="31" name="DuplicateInstruction" label="Transaction contains a duplicate instruction that is not allowed." />
+    <int value="32" name="InsufficientFundsForRent" label="Transaction results in an account with insufficient funds for rent." />
+    <int value="33" name="MaxLoadedAccountsDataSizeExceeded" label="Transaction exceeded max loaded accounts data size cap." />
+    <int value="34" name="InvalidLoadedAccountsDataSizeLimit" label="LoadedAccountsDataSizeLimit set for transaction must be greater than 0." />
+    <int value="35" name="ResanitizationNeeded" label="Sanitized transaction differed before/after feature activiation. Needs to be resanitized." />
+    <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
+    <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
+</enum>
+
 <group name="Link" link="all" linkside="out">
     <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
 </group>
@@ -123,6 +179,29 @@ metric introduced.
     <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
 </group>
 
+<group name="BankTile" tile="bank">
+    <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
+    <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
+
+    <counter name="SlotAcquire" enum="BankSlotAcquire" summary="Result of acquiring a slot." />
+
+    <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
+    <counter name="TransactionLoad" enum="TransactionError" summary="Result of loading a transaction." />
+    <counter name="TransactionExecuting" enum="TransactionError" summary="Result of executing a transaction. Could be a failure or success." />
+    <counter name="TransactionExecuted" enum="TransactionError" summary="When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail." />
+</group>
+
+<group name="PohTile" tile="poh">
+    <counter name="MicroblockTooEarly" summary="Received a microblock but it was for a slot that's after the current leader bank." />
+    <counter name="MicroblockTooLate" summary="Received a microblock but it was for a slot that's before the current leader bank." />
+    <counter name="MicroblockNoLongerLeader" summary="Received a microblock that was on time, but we are no longer leader at the target slot." />
+    <counter name="ReplayTooEarly" summary="Received a notification of a new bank but it was for a slot that's earlier than the current time." />
+    <counter name="ReplayTooLate" summary="Received a notification of a new bank but it was for a slot that's later than the current time." />
+    <counter name="ReplayNoLongerLeader" summary="Received a notification of a new bank that was on time, but we are no longer leader at the target slot." />
+    <counter name="LeaderSlotMissedBackpressure" summary="Couldn't tell pack to start packing, because the PoH tile was backpressured." />
+    <counter name="NoLeaderBank" summary="Got sent transactions for a valid leader slot, but we did not have a leader bank available." />
+</group>
+
 <group name="Quic" tile="quic">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
@@ -176,4 +255,8 @@ metric introduced.
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
 
 </group>
+
+<group name="StoreTile" tile="store">
+</group>
+
 </metrics>

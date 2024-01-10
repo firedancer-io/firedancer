@@ -135,7 +135,7 @@ if __name__ == '__main__':
     os.makedirs('generated', exist_ok=True)  # Ensure the directory exists
 
     max_offset = 0
-    for tile in ['all', 'quic', 'pack']:
+    for tile in ['all', 'quic', 'pack', 'bank', 'poh', 'store']:
         tile_metrics = [x for x in metrics if x.tile == tile]
         max_offset = max(max_offset, sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' or x.tile == tile]))
 
@@ -149,7 +149,7 @@ if __name__ == '__main__':
                 # Tiles have their tile specific metrics placed after the 'all' section
                 offset = sum([OFFSETS[x.type] for x in metrics if x.tile == 'all' and not x.link])
 
-            just = max([len(x.full_name()) for x in tile_metrics])
+            just = max([len(x.full_name()) for x in tile_metrics]) if tile_metrics else 0
             prior_group_link = tile == 'all'
             prior_group_id = None
             for metric in tile_metrics:

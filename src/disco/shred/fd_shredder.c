@@ -25,7 +25,7 @@ fd_shredder_new( void * mem, void const * pubkey, ushort shred_version ) {
   memcpy( shredder->leader_pubkey, pubkey, 32UL );
 
   fd_memset( &(shredder->meta), 0, sizeof(fd_entry_batch_meta_t) );
-  shredder->meta.slot         = ULONG_MAX;
+  shredder->slot              = ULONG_MAX;
   shredder->data_idx_offset   = 0UL;
   shredder->parity_idx_offset = 0UL;
 
@@ -88,6 +88,7 @@ fd_shredder_t *
 fd_shredder_init_batch( fd_shredder_t *               shredder,
                         void const    *               entry_batch,
                         ulong                         entry_batch_sz,
+                        ulong                         slot,
                         fd_entry_batch_meta_t const * metadata ) {
 
   if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL; /* FIXME: should this warn? Silently expand it to 1 byte? */
@@ -96,11 +97,12 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
   shredder->sz          = entry_batch_sz;
   shredder->offset      = 0UL;
 
-  if( FD_UNLIKELY( metadata->slot != shredder->meta.slot ) ) {
+  if( FD_UNLIKELY( slot != shredder->slot ) ) {
     shredder->data_idx_offset   = 0UL;
     shredder->parity_idx_offset = 0UL;
   }
 
+  shredder->slot = slot;
   shredder->meta = *metadata;
 
   return shredder;
@@ -138,7 +140,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   ulong parity_merkle_sz        = parity_shred_payload_sz + 0x59UL - 0x40UL;
 
   ulong last_in_batch           = (chunk_size+offset==entry_sz);
-  int   block_complete          = shredder->meta.tick==shredder->meta.bank_max_tick_height;
+  int   block_complete          = shredder->meta.block_complete;
 
   fd_reedsol_t * reedsol = fd_reedsol_encode_init( shredder->reedsol, parity_shred_payload_sz );
 
@@ -152,7 +154,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     ulong shred_payload_sz = fd_ulong_min( entry_sz-offset, data_shred_payload_sz );
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, (uchar)tree_depth );
-    shred->slot               = shredder->meta.slot;
+    shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->data_idx_offset + i);
     shred->version            = (ushort)(shredder->shred_version);
     shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);
@@ -180,7 +182,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     fd_shred_t         * shred = (fd_shred_t *)parity_shreds[ j ];
 
     shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, (uchar)tree_depth );
-    shred->slot               = shredder->meta.slot;
+    shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->parity_idx_offset + j);
     shred->version            = (ushort)(shredder->shred_version);
     shred->fec_set_idx        = (uint  )(shredder->data_idx_offset);

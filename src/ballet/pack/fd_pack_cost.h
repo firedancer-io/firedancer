@@ -115,7 +115,7 @@ static const ulong FD_PACK_TYPICAL_VOTE_COST = ( COST_PER_SIGNATURE             
    pointed to by is_simple_vote. */
 static inline ulong
 fd_pack_compute_cost( fd_txn_p_t * txnp,
-                      int        * is_simple_vote ) {
+                      uint       * flags ) {
   fd_txn_t * txn = TXN(txnp);
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
@@ -177,7 +177,8 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
                                        ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
 
 
-  *is_simple_vote = (vote_instr_cnt==1UL) & (txn->instr_cnt==1UL);
+  if( FD_LIKELY( (vote_instr_cnt==1UL) & (txn->instr_cnt==1UL) ) ) *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+  else                                                             *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
   return signature_cost + writable_cost + builtin_cost + instr_data_cost + non_builtin_cost;

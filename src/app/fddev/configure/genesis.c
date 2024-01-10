@@ -15,9 +15,7 @@ enabled( config_t * const config ) {
   return 1;
 }
 
-/* todo ... port this out of solana code */
-extern void solana_genesis_main( const char ** args );
-
+extern void fd_ext_genesis_main( const char ** args );
 
 static void
 init( config_t * const config ) {
@@ -96,7 +94,7 @@ init( config_t * const config ) {
       FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     umask( S_IRWXO | S_IRWXG );
-    solana_genesis_main( (const char **)argv );
+    fd_ext_genesis_main( (const char **)argv );
     exit_group( 0 );
   } else {
     int wstatus;

@@ -42,11 +42,12 @@ test_shredder_pcap( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->block_complete = 1;
 
   /* The pcap has all the data shreds before the parity shreds, so we'll
      make two passes over the data, one to check the data shreds, and
      the other to check the parity shreds. */
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
@@ -74,12 +75,10 @@ test_shredder_pcap( void ) {
 
   /* Start a dummy batch with a different slot number to reset all the
      indices. */
-  meta->slot++;
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 1UL, meta ) );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
-  meta->slot--;
 
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
   for( ulong i=0UL; i<7UL; i++ ) {
     fd_fec_set_t _set[ 1 ];
 
@@ -172,7 +171,7 @@ perf_test( void ) {
   ulong iterations = 100UL;
   long dt = -fd_log_wallclock();
   for( ulong iter=0UL; iter<iterations; iter++ ) {
-    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, meta );
+    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
@@ -187,6 +186,7 @@ perf_test( void ) {
 static void
 perf_test2( void ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1UL, 0UL, "perf_test2", 0UL );
+  FD_TEST( wksp );
   uchar * entry_batch = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, PERF_TEST2_SZ, 2UL ) );
   uchar * fec_memory  = fd_wksp_laddr_fast( wksp, fd_wksp_alloc( wksp, 128UL, (FD_REEDSOL_DATA_SHREDS_MAX + FD_REEDSOL_PARITY_SHREDS_MAX)*1800UL, 3UL ) );
 
@@ -206,7 +206,7 @@ perf_test2( void ) {
   ulong bytes_produced = 0UL;
   long dt = -fd_log_wallclock();
   for( ulong iter=0UL; iter<iterations; iter++ ) {
-    fd_shredder_init_batch( shredder, entry_batch, PERF_TEST2_SZ, meta );
+    fd_shredder_init_batch( shredder, entry_batch, PERF_TEST2_SZ, 0UL, meta );
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {

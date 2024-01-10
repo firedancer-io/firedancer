@@ -49,10 +49,6 @@ bench_cpu_idx( config_t * const config ) {
   ushort i;
   for( i=0; i<128; i++ ) {
     int found = 0;
-    if( FD_UNLIKELY( i==config->layout.poh_core ) ) {
-      found = 1;
-      break;
-    }
     for( ulong j=0; j<affinity_tile_cnt; j++ ) {
       if( tile_to_cpu[ j ]==i ) {
         found = 1;
