@@ -63,9 +63,9 @@ test_one_batch( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->tick = meta->bank_max_tick_height = 100UL;
+  meta->block_complete = 1;
 
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
 
   fd_fec_set_t _set[ 1 ];
   fd_fec_set_t out_sets[ 12UL ];
@@ -125,9 +125,9 @@ test_interleaved( void ) {
   uchar const * pubkey = test_private_key+32UL;
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->tick = meta->bank_max_tick_height = 100UL;
+  meta->block_complete = 1;
 
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
 
   fd_fec_set_t _set[ 2 ];
   uchar * ptr = fec_set_memory;
@@ -168,9 +168,9 @@ test_rolloff( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->tick = meta->bank_max_tick_height = 100UL;
+  meta->block_complete = 1;
 
-  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, meta ) );
+  FD_TEST( fd_shredder_init_batch( shredder, test_bin, test_bin_sz, 0UL, meta ) );
 
   fd_fec_set_t _set[ 3 ];
   uchar * ptr = fec_set_memory;
@@ -213,7 +213,7 @@ perf_test( void ) {
 
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
-  meta->tick = meta->bank_max_tick_height = 100UL;
+  meta->block_complete = 1;
 
   FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
@@ -226,7 +226,7 @@ perf_test( void ) {
   ulong iterations = 100UL;
   long dt = -fd_log_wallclock();
   for( ulong iter=0UL; iter<iterations; iter++ ) {
-    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, meta );
+    fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {

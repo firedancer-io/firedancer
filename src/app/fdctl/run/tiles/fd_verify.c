@@ -66,10 +66,12 @@ mux_ctx( void * scratch ) {
 static inline void
 during_frag( void * _ctx,
              ulong in_idx,
+             ulong seq,
              ulong sig,
              ulong chunk,
              ulong sz,
              int * opt_filter ) {
+  (void)seq;
   (void)sig;
   (void)opt_filter;
 
@@ -87,13 +89,17 @@ during_frag( void * _ctx,
 static inline void
 after_frag( void *             _ctx,
             ulong              in_idx,
+            ulong              seq,
             ulong *            opt_sig,
             ulong *            opt_chunk,
             ulong *            opt_sz,
+            ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   (void)in_idx;
+  (void)seq;
   (void)opt_sig;
+  (void)opt_tsorig;
   (void)mux;
 
   fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;

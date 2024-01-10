@@ -200,7 +200,6 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., snapshots,           path                                                      );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
-  ENTRY_UINT  ( ., layout,              poh_core                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
@@ -482,7 +481,9 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY_DEDUP }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP_PACK   }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK_BANK    }; wksp_cnt++;
-  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_SHRED   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_POH     }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK_BUSY    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_POH_SHRED    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_STORE  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STAKE_OUT    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC_IN    }; wksp_cnt++;
@@ -494,6 +495,7 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_PACK   }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BANK   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_POH    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC }; wksp_cnt++;
@@ -517,19 +519,20 @@ topo_initialize( config_t * config ) {
   } while(0)
 
   LINK( config->layout.net_tile_count,    FD_TOPO_LINK_KIND_NET_TO_NETMUX,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0,                      1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0UL,                    1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, 0,                      config->tiles.quic.txn_reassembly_count );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_STAKE_TO_OUT,    FD_TOPO_WKSP_KIND_STAKE_OUT,    128UL,                                    32UL + 40200UL * 40UL,  1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_PACK_TO_BANK,    FD_TOPO_WKSP_KIND_PACK_BANK,    128UL,                                    USHORT_MAX,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    FD_POH_SHRED_MTU,       1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   FD_TOPO_WKSP_KIND_BANK_SHRED,   128UL,                                    8UL  + 40200UL * 38UL,  1UL );
-  /* See long comment in fd_shred_tile.c for an explanation about the size of this dcache. */
+  LINK( config->layout.bank_tile_count,   FD_TOPO_LINK_KIND_BANK_TO_POH,     FD_TOPO_WKSP_KIND_BANK_POH,     128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_POH_TO_SHRED,    FD_TOPO_WKSP_KIND_POH_SHRED,    128UL,                                    USHORT_MAX,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   FD_TOPO_WKSP_KIND_POH_SHRED,    128UL,                                    8UL  + 40200UL * 38UL,  1UL );
+  /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
   topo->link_cnt = link_cnt;
@@ -555,7 +558,8 @@ topo_initialize( config_t * config ) {
   TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_VERIFY, FD_TOPO_WKSP_KIND_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_DEDUP,  FD_TOPO_WKSP_KIND_DEDUP,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_PACK,   FD_TOPO_WKSP_KIND_PACK,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_PACK_TO_BANK,    i ) );
-  TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   ULONG_MAX                                                       );
+  TILE( config->layout.bank_tile_count,   FD_TOPO_TILE_KIND_BANK,   FD_TOPO_WKSP_KIND_BANK,   fd_topo_find_link( topo, FD_TOPO_LINK_KIND_BANK_TO_POH,     i ) );
+  TILE( 1,                                FD_TOPO_TILE_KIND_POH,    FD_TOPO_WKSP_KIND_POH,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_POH_TO_SHRED,    i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
@@ -595,7 +599,16 @@ topo_initialize( config_t * config ) {
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
+  /* These pack to bank links are reliable, but they are flow controlled
+     by the busy flag that sits between them.  We don't mark them
+     reliable here because it creates a reliable link loop (poh -> pack
+     -> bank) which leads to credit starvation. */
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 0 );
+  /* Same as above. */
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 0 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_BANK_TO_POH,     i,   1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
@@ -975,6 +988,10 @@ config_parse( int *      pargc,
         strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_BANK:
+        break;
+      case FD_TOPO_TILE_KIND_POH:
+        tile->poh.bank_cnt = config->layout.bank_tile_count;
+        strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_SHRED:
         tile->shred.depth = config->topo.links[ tile->out_link_id_primary ].depth;

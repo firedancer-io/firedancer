@@ -177,7 +177,7 @@ static void write_stdout( char * buf, ulong buf_sz ) {
 
 static int stop1 = 0;
 
-#define FD_MONITOR_TEXT_BUF_SZ 32768
+#define FD_MONITOR_TEXT_BUF_SZ 65536
 char buffer[ FD_MONITOR_TEXT_BUF_SZ ];
 char buffer2[ FD_MONITOR_TEXT_BUF_SZ ];
 
@@ -332,10 +332,6 @@ run_monitor( config_t * const config,
         switch( link->kind ) {
           /* Special case Solana produced link names for now since we can't find them
              in the topology. */
-          case FD_TOPO_LINK_KIND_POH_TO_SHRED: {
-            producer = "poh";
-            break;
-          }
           case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
             producer = "stakes";
             break;

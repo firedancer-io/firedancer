@@ -89,27 +89,12 @@
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
-struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
-  ulong shred_cnt;
-  ulong stride;
-  ulong offset;
-  ulong shred_sz; /* The size of each shred */
-  /* For i in [0, shred_cnt), shred i's payload spans bytes
-     [i*stride+offset, i*stride+offset+shred_sz ), counting from the
-     start of the struct, not this point. */
-  union {
-    fd_shred_t shred;
-    uchar      buffer[ FD_SHRED_MAX_SZ ];
-  } pkts[ 34 ];
-};
-typedef struct fd_shred34 fd_shred34_t;
-
 #define DCACHE_ENTRIES_PER_FEC_SET (4UL)
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) < USHORT_MAX, shred_34 );
 FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX, shred_34 );
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
-FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==40UL, poh_shred_mtu );
+FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
 
 /* Part 2: Shred destinations */
 struct __attribute__((packed)) fd_shred_dest_wire {
@@ -321,16 +306,22 @@ before_frag( void * _ctx,
 
   fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
 
-  *opt_filter = (in_idx==NET_IN_IDX) & (fd_disco_netmux_sig_port( sig )!=ctx->shred_listen_port);
+  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
+    *opt_filter = fd_disco_netmux_sig_port( sig )!=ctx->shred_listen_port;
+  } else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) {
+    *opt_filter = fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
+  }
 }
 
 static void
 during_frag( void * _ctx,
              ulong  in_idx,
+             ulong  seq,
              ulong  sig,
              ulong  chunk,
              ulong  sz,
              int *  opt_filter ) {
+  (void)seq;
   (void)opt_filter;
 
   fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
@@ -358,7 +349,7 @@ during_frag( void * _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
-    /* This is a frag from the bank tile.  We'll copy it to our pending
+    /* This is a frag from the PoH tile.  We'll copy it to our pending
        microblock batch and shred it if necessary (last in block or
        above watermark).  We just go ahead and shred it here, even
        though we may get overrun.  If we do end up getting overrun, we
@@ -381,29 +372,30 @@ during_frag( void * _ctx,
        anyway. */
     FD_TEST( entry_sz + ctx->pending_batch.pos <= sizeof(ctx->pending_batch.payload) );
 
-    if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=entry_meta->slot) ) ) {
+    ulong target_slot = fd_disco_poh_sig_slot( sig );
+    if( FD_UNLIKELY( (ctx->pending_batch.microblock_cnt>0) & (ctx->pending_batch.slot!=target_slot) ) ) {
       /* TODO: The Labs client sends a dummy entry batch with only 1
          byte and the block-complete bit set.  This helps other
          validators know that the block is dead and they should not try
          to continue building a fork on it.  We probably want a similar
          approach eventually. */
       FD_LOG_WARNING(( "Abandoning %lu microblocks for slot %lu and switching to slot %lu",
-            ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, entry_meta->slot ));
+            ctx->pending_batch.microblock_cnt, ctx->pending_batch.slot, target_slot ));
       ctx->pending_batch.slot           = 0UL;
       ctx->pending_batch.pos            = 0UL;
       ctx->pending_batch.microblock_cnt = 0UL;
     }
 
-    ctx->pending_batch.slot = entry_meta->slot;
+    ctx->pending_batch.slot = target_slot;
     /* Ugh, yet another memcpy */
     fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
     ctx->pending_batch.pos += entry_sz;
     ctx->pending_batch.microblock_cnt++;
 
-    int last_in_batch = (entry_meta->tick==entry_meta->bank_max_tick_height) | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
+    int last_in_batch = entry_meta->block_complete | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
 
     if( FD_UNLIKELY( last_in_batch )) {
-      fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, entry_meta );
+      fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, sizeof(ulong)+ctx->pending_batch.pos, target_slot, entry_meta );
 
       /* We sized this so it fits in one FEC set */
       FD_TEST( fd_shredder_next_fec_set( ctx->shredder, ctx->shred_signing_key, out ) );
@@ -482,15 +474,19 @@ send_shred( fd_shred_ctx_t *      ctx,
 static void
 after_frag( void *             _ctx,
             ulong              in_idx,
+            ulong              seq,
             ulong *            opt_sig,
             ulong *            opt_chunk,
             ulong *            opt_sz,
+            ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
   (void)in_idx;
+  (void)seq;
   (void)opt_sig;
   (void)opt_chunk;
   (void)opt_sz;
+  (void)opt_tsorig;
   (void)opt_filter;
 
   fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;

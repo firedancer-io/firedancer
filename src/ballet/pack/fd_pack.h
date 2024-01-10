@@ -8,12 +8,11 @@
 #include "../fd_ballet_base.h"
 #include "../txn/fd_txn.h"
 #include "fd_est_tbl.h"
-
+#include "fd_microblock.h"
 
 #define FD_PACK_ALIGN     (128UL)
 
 #define FD_PACK_MAX_BANK_TILES 63UL
-
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
@@ -24,26 +23,9 @@
 
 /* ---- End consensus-critical constants */
 
-
-/* Is this structure useful in other parts of the codebase? Should this
-   go somewhere else? */
-struct fd_txn_p {
-  uchar payload[FD_TPU_MTU];
-  ulong payload_sz;
-  ulong meta;
-  int   is_simple_vote; /* Populated by pack */
-  /* union {
-    This would be ideal but doesn't work because of the flexible array member
-    uchar _[FD_TXN_MAX_SZ];
-    fd_txn_t txn;
-  }; */
-  /* Access with TXN macro below */
-  uchar _[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
-};
-typedef struct fd_txn_p fd_txn_p_t;
-
-#define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
-
+#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
+#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
+#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
 
 /* Forward declare opaque handle */
 struct fd_pack_private;

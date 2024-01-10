@@ -72,7 +72,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
   ulong memory_required = (ulong) (memory_end - memory_start);
   if( FD_UNLIKELY( memory_required > MEMORY_SZ ) ) {
     printf("FD_UNLIKELY( memory_required < MEMORY_SZ )\n");
-    printf("%d < %d\n", memory_required, MEMORY_SZ);
+    printf("%lu < %lu\n", memory_required, MEMORY_SZ);
     return -1;
   }
 

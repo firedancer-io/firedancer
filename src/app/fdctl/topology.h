@@ -30,20 +30,23 @@
 #define FD_TOPO_WKSP_KIND_VERIFY_DEDUP ( 2UL)
 #define FD_TOPO_WKSP_KIND_DEDUP_PACK   ( 3UL)
 #define FD_TOPO_WKSP_KIND_PACK_BANK    ( 4UL)
-#define FD_TOPO_WKSP_KIND_BANK_SHRED   ( 5UL)
-#define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 6UL)
-#define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 7UL)
-#define FD_TOPO_WKSP_KIND_METRIC_IN    ( 8UL)
-#define FD_TOPO_WKSP_KIND_NET          ( 9UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (10UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (11UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (12UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (13UL)
-#define FD_TOPO_WKSP_KIND_PACK         (14UL)
-#define FD_TOPO_WKSP_KIND_BANK         (15UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (16UL)
-#define FD_TOPO_WKSP_KIND_STORE        (17UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (18UL)
+#define FD_TOPO_WKSP_KIND_BANK_POH     ( 5UL)
+#define FD_TOPO_WKSP_KIND_BANK_BUSY    ( 6UL)
+#define FD_TOPO_WKSP_KIND_POH_SHRED    ( 7UL)
+#define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 8UL)
+#define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 9UL)
+#define FD_TOPO_WKSP_KIND_METRIC_IN    (10UL)
+#define FD_TOPO_WKSP_KIND_NET          (11UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (12UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (13UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (14UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (15UL)
+#define FD_TOPO_WKSP_KIND_PACK         (16UL)
+#define FD_TOPO_WKSP_KIND_BANK         (17UL)
+#define FD_TOPO_WKSP_KIND_POH          (18UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (19UL)
+#define FD_TOPO_WKSP_KIND_STORE        (20UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (21UL)
 #define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
@@ -67,10 +70,11 @@
 #define FD_TOPO_LINK_KIND_GOSSIP_TO_PACK  ( 6UL)
 #define FD_TOPO_LINK_KIND_STAKE_TO_OUT    ( 7UL)
 #define FD_TOPO_LINK_KIND_PACK_TO_BANK    ( 8UL)
-#define FD_TOPO_LINK_KIND_POH_TO_SHRED    ( 9UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (10UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (11UL)
-#define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (12UL)
+#define FD_TOPO_LINK_KIND_BANK_TO_POH     ( 9UL)
+#define FD_TOPO_LINK_KIND_POH_TO_SHRED    (10UL)
+#define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (11UL)
+#define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (12UL)
+#define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (13UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -82,9 +86,10 @@
 #define FD_TOPO_TILE_KIND_DEDUP  ( 4UL)
 #define FD_TOPO_TILE_KIND_PACK   ( 5UL)
 #define FD_TOPO_TILE_KIND_BANK   ( 6UL)
-#define FD_TOPO_TILE_KIND_SHRED  ( 7UL)
-#define FD_TOPO_TILE_KIND_STORE  ( 8UL)
-#define FD_TOPO_TILE_KIND_METRIC ( 9UL)
+#define FD_TOPO_TILE_KIND_POH    ( 7UL)
+#define FD_TOPO_TILE_KIND_SHRED  ( 8UL)
+#define FD_TOPO_TILE_KIND_STORE  ( 9UL)
+#define FD_TOPO_TILE_KIND_METRIC (10UL)
 #define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* A workspace is a Firedance specific memory management structure that
@@ -217,6 +222,11 @@ typedef struct {
   } pack;
 
   struct {
+    ulong bank_cnt;
+    char   identity_key_path[ PATH_MAX ];
+  } poh;
+
+  struct {
     ulong  depth;
     uint   ip_addr;
     uchar  src_mac_addr[ 6 ];
@@ -331,7 +341,9 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_VERIFY_DEDUP: return "verify_dedup";
     case FD_TOPO_WKSP_KIND_DEDUP_PACK:   return "dedup_pack";
     case FD_TOPO_WKSP_KIND_PACK_BANK:    return "pack_bank";
-    case FD_TOPO_WKSP_KIND_BANK_SHRED:   return "bank_shred";
+    case FD_TOPO_WKSP_KIND_BANK_POH:     return "bank_poh";
+    case FD_TOPO_WKSP_KIND_BANK_BUSY:    return "bank_busy";
+    case FD_TOPO_WKSP_KIND_POH_SHRED:    return "poh_shred";
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
     case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
     case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
@@ -342,6 +354,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_DEDUP:        return "dedup";
     case FD_TOPO_WKSP_KIND_PACK:         return "pack";
     case FD_TOPO_WKSP_KIND_BANK:         return "bank";
+    case FD_TOPO_WKSP_KIND_POH:          return "poh";
     case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
     case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
@@ -365,6 +378,7 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK:  return "gossip_pack";
     case FD_TOPO_LINK_KIND_STAKE_TO_OUT:    return "stake_out";
     case FD_TOPO_LINK_KIND_PACK_TO_BANK:    return "pack_bank";
+    case FD_TOPO_LINK_KIND_BANK_TO_POH:     return "bank_poh";
     case FD_TOPO_LINK_KIND_POH_TO_SHRED:    return "poh_shred";
     case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
@@ -375,7 +389,9 @@ fd_topo_link_kind_str( ulong kind ) {
 
 FD_FN_CONST static inline int
 fd_topo_tile_kind_is_labs( ulong kind ) {
-  return kind==FD_TOPO_TILE_KIND_BANK ||
+  return
+    kind==FD_TOPO_TILE_KIND_BANK ||
+    kind==FD_TOPO_TILE_KIND_POH ||
     kind==FD_TOPO_TILE_KIND_STORE;
 }
 
@@ -396,6 +412,7 @@ fd_topo_tile_kind_str( ulong kind ) {
      case FD_TOPO_TILE_KIND_DEDUP:  return "dedup";
      case FD_TOPO_TILE_KIND_PACK:   return "pack";
      case FD_TOPO_TILE_KIND_BANK:   return "bank";
+     case FD_TOPO_TILE_KIND_POH:    return "poh";
      case FD_TOPO_TILE_KIND_SHRED:  return "shred";
      case FD_TOPO_TILE_KIND_STORE:  return "store";
      case FD_TOPO_TILE_KIND_METRIC: return "metric";

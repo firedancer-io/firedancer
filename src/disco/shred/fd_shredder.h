@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_shred_fd_shredder_h
 
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/chacha20/fd_chacha20rng.h"
 #include "../../ballet/wsample/fd_wsample.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
@@ -21,16 +22,6 @@
 
 #define FD_SHREDDER_MAGIC (0xF17EDA2547EDDE70UL) /* FIREDAN SHREDDER V0 */
 
-
-
-struct fd_entry_batch_meta {
-  ulong slot;
-  ulong parent_offset;
-  ulong bank_max_tick_height;
-  ulong reference_tick;
-  ulong tick;
-};
-typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 
 static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
    0UL, 17UL, 18UL, 19UL, 19UL, 20UL, 21UL, 21UL,
@@ -58,6 +49,7 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   uchar             leader_pubkey[ 32 ];
 
   fd_entry_batch_meta_t meta;
+  ulong slot;
   ulong data_idx_offset;
   ulong parity_idx_offset;
 };
@@ -165,6 +157,7 @@ fd_shredder_count_parity_shreds( ulong sz_bytes ) {
 fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
                                         void const                  * entry_batch,
                                         ulong                         entry_batch_sz,
+                                        ulong                         slot,
                                         fd_entry_batch_meta_t const * meta );
 
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
