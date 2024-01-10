@@ -1,6 +1,5 @@
 #include "fd_snapshot.h"
 #include "../../util/archive/fd_tar.h"
-#include "../fd_flamenco.h"
 #include "../types/fd_types.h"
 #include "../runtime/fd_acc_mgr.h"
 
