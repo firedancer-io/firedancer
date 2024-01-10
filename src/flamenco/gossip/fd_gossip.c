@@ -15,7 +15,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* How long do we remember values (in millisecs) */
-#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(2*60e3)) /* 2 minutes */
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(60e3))   /* 1 minute */
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be known */
@@ -784,7 +784,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
   if (peerval == NULL) {
     if (fd_peer_table_is_full(glob->peers)) {
-      FD_LOG_WARNING(("too many peers"));
+      FD_LOG_DEBUG(("too many peers"));
       return;
     }
     peerval = fd_peer_table_insert(glob->peers, from);
@@ -963,7 +963,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   /* Store the value for later pushing/duplicate detection */
   glob->recv_nondup_cnt++;
   if (fd_value_table_is_full(glob->values)) {
-    FD_LOG_WARNING(("too many values"));
+    FD_LOG_DEBUG(("too many values"));
     return;
   }
   msg = fd_value_table_insert(glob->values, &key);
@@ -990,7 +990,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
       if (val == NULL) {
         if (fd_peer_table_is_full(glob->peers)) {
-          FD_LOG_WARNING(("too many peers"));
+          FD_LOG_DEBUG(("too many peers"));
         } else {
           val = fd_peer_table_insert(glob->peers, &pkey);
           if (glob->inactives_cnt < INACTIVES_MAX &&
@@ -1409,7 +1409,7 @@ fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t * data ) {
     return -1;
   }
   if (fd_value_table_is_full(glob->values)) {
-    FD_LOG_WARNING(("too many values"));
+    FD_LOG_DEBUG(("too many values"));
     return -1;
   }
   msg = fd_value_table_insert(glob->values, &key);

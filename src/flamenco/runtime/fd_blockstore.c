@@ -484,12 +484,14 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
         for( ulong j = 0; j < txn->signature_cnt; j++ ) {
           if( FD_UNLIKELY( fd_blockstore_txn_map_key_cnt( txn_map ) ==
                            fd_blockstore_txn_map_key_max( txn_map ) ) ) {
-            return;
+            break;
           }
           fd_blockstore_txn_key_t sig;
           fd_memcpy( &sig, sigs + j, sizeof( sig ) );
           fd_blockstore_txn_map_t * elem = fd_blockstore_txn_map_insert( txn_map, sig );
-          if( elem == NULL ) return;
+          if( elem == NULL ) {
+            break;
+          }
           elem->slot       = slot;
           elem->offset     = blockoff;
           elem->sz         = pay_sz;
@@ -743,6 +745,18 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   slot_meta->last_index      = fd_ulong_max( slot_meta->last_index, shred->idx );
   slot_meta->received        = fd_ulong_max( slot_meta->received, shred->idx );
   slot_meta->parent_slot     = shred->slot - shred->data.parent_off;
+
+  /* See if I already have this shred */
+  fd_blockstore_tmp_shred_t *     tmp_shred_pool = fd_blockstore_tmp_shred_pool( blockstore );
+  fd_blockstore_tmp_shred_map_t * tmp_shred_map  = fd_blockstore_tmp_shred_map( blockstore );
+  fd_blockstore_tmp_shred_key_t   insert_key     = { .slot = shred->slot, .idx = shred->idx };
+  for( const fd_blockstore_tmp_shred_t * query = fd_blockstore_tmp_shred_map_ele_query_const( tmp_shred_map, &insert_key, NULL, tmp_shred_pool );
+       query;
+       query = fd_blockstore_tmp_shred_map_ele_next_const( query, NULL, tmp_shred_pool ) ) {
+    if( memcmp( &query->raw, shred, fd_shred_sz( shred ) ) == 0 )
+      return FD_BLOCKSTORE_OK;
+  }
+
   if( FD_UNLIKELY( shred->idx == slot_meta->consumed + 1U ) ) slot_meta->consumed++;
   while( fd_blockstore_shred_query( blockstore, slot_meta->slot, (uint)slot_meta->consumed + 1U ) ) {
     slot_meta->consumed++;
@@ -751,9 +765,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   // TODO forking stuff: parents, children (next slots), is_connected
   // TODO indexes of contiguous shred window -- if we even want to do it that way
 
-  fd_blockstore_tmp_shred_t *     tmp_shred_pool = fd_blockstore_tmp_shred_pool( blockstore );
-  fd_blockstore_tmp_shred_map_t * tmp_shred_map  = fd_blockstore_tmp_shred_map( blockstore );
-  fd_blockstore_tmp_shred_key_t   insert_key     = { .slot = shred->slot, .idx = shred->idx };
   if( fd_blockstore_tmp_shred_pool_free( tmp_shred_pool ) == 0 ) {
     return FD_BLOCKSTORE_ERR_SHRED_FULL;
   }
@@ -825,7 +836,7 @@ fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_block_map_t * map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
   fd_blockstore_block_map_t * query = fd_blockstore_block_map_query( map, slot, NULL );
-  if( FD_UNLIKELY( !query ) ) return NULL;
+  if( FD_UNLIKELY( !query || query->block.micros_gaddr == 0 ) ) return NULL;
   fd_blockstore_micro_t * micros = fd_wksp_laddr_fast( wksp, query->block.micros_gaddr );
   uchar * data = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
   fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[query->block.micros_cnt - 1].off );

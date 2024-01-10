@@ -150,8 +150,8 @@ fd_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 
-/* rollback transaction tower to the state where the given slot just FINISHED executing */
-void
+/* rollback runtime to the state where the given slot just FINISHED executing */
+int
 fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 
 /* Recover slot_bank and epoch_bnck from funky */

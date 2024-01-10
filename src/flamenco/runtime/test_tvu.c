@@ -179,17 +179,21 @@ typedef struct {
 
 static void
 eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
-  ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
   while( 1 ) {
-
     /* Search for the next block to execute */
+    ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
     for( ulong skip = 0; 1; ++skip ) {
       if( skip > 32U ) return; /* searching too far */
       ulong par = fd_blockstore_slot_parent_query( repair_ctx->blockstore, slot + skip );
       if( par == ULONG_MAX ) continue; /* not found/no metadata */
       if( par > repair_ctx->slot_ctx->slot_bank.prev_slot ) return; /* wait for missing blocks */
-      if( par < repair_ctx->slot_ctx->slot_bank.prev_slot ) /* wrong fork executed, roll back */
-        fd_runtime_rollback_to( repair_ctx->slot_ctx, par );
+      if( par < repair_ctx->slot_ctx->slot_bank.prev_slot ) { /* wrong fork executed, roll back */
+        if( fd_runtime_rollback_to( repair_ctx->slot_ctx, par ) ) {
+          FD_LOG_WARNING(( "failed to roll back to %lu", par ));
+          /* keep trying to make progress */
+          continue;
+        }
+      }
       /* we should have the right parent now */
       FD_TEST( par == repair_ctx->slot_ctx->slot_bank.prev_slot );
       if( skip > 0 ) {
@@ -210,13 +214,6 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
                      slot,
                      repair_ctx->slot_ctx->slot_bank.banks_hash.hash ) );
-
-    /* progress to next slot */
-    repair_ctx->blockstore->root++;
-    repair_ctx->slot_ctx->slot_bank.prev_slot = slot;
-    repair_ctx->slot_ctx->slot_bank.slot = ++slot;
-
-    fd_runtime_save_slot_bank( repair_ctx->slot_ctx );
   }
 }
 
@@ -353,7 +350,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   
   int                   rc;
   if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( repair_ctx->blockstore, NULL, shred ) != FD_BLOCKSTORE_OK ) ) {
-    FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", rc ) );
+    FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", shred->slot, rc ) );
   };
   eval_complete_blocks( repair_ctx );
 }
@@ -858,7 +855,7 @@ tvu_main_setup( fd_valloc_t valloc,
     // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
     // - 1mb of txns
     ulong tmp_shred_max = 1UL << 20;
-    int   lg_txn_max    = 20;
+    int   lg_txn_max    = 21;
     ulong slot_history_max = FD_DEFAULT_SLOT_HISTORY_MAX;
     blockstore          = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
     if( blockstore == NULL ) {
