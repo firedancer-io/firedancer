@@ -4,10 +4,18 @@
 #include "../util/scratch/fd_scratch.h"
 #include "../ballet/base58/fd_base58.h"
 #include "../ballet/sha256/fd_sha256.h"
-#include "runtime/fd_runtime.h"
 #include "types/fd_types_custom.h"
 
 #define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
+
+/* fd_rawtxn_b_t is a convenience type to store a pointer to a
+   serialized transaction.  Should probably be removed in the future. */
+
+struct fd_rawtxn_b {
+  void * raw;
+  ushort txn_sz;
+};
+typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 
 FD_PROTOTYPES_BEGIN
 

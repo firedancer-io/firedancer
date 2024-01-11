@@ -1,5 +1,6 @@
 #include "fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_rent_lists.h"
 #include "sysvar/fd_sysvar_rent.h"

@@ -7,6 +7,7 @@ struct fd_tower_entry {
   fd_funk_txn_t *  txn;
   ulong            slot;
 };
+
 typedef struct fd_tower_entry fd_tower_entry_t;
 
 struct fd_tower_ctx {
@@ -15,6 +16,7 @@ struct fd_tower_ctx {
   ushort           funk_txn_index;
   uchar            constipate;
 };
+
 typedef struct fd_tower_ctx fd_tower_ctx_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_tower_ctx_h */

@@ -6,7 +6,6 @@
 #include "fd_runtime.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "fd_borrowed_account.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
@@ -52,8 +51,6 @@ struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
 
   uchar skip_rent_rewrites : 1;
 };
-
-typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 /* FD_ACC_MGR_{ALIGN,FOOTPRINT} specify the parameters for the memory
    region backing an fd_acc_mgr_t. */
