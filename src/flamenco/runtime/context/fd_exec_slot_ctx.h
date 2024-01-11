@@ -1,22 +1,19 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
+#include "../fd_runtime.h"
 #include "../../../funk/fd_funk.h"
-#include "../../../util/fd_util_base.h"
 #include "../../../util/rng/fd_rng.h"
-#include "../../../util/valloc/fd_valloc.h"
 #include "../../../util/wksp/fd_wksp.h"
 
 //#include "../../rewards/fd_rewards_types.h"
 #include "../../types/fd_types.h"
 
-#include "fd_exec_epoch_ctx.h"
 #include "fd_tower_ctx.h"
 
-struct fd_acc_mgr;
-typedef struct fd_acc_mgr fd_acc_mgr_t;
+/* fd_exec_slot_ctx_t is the context that stays constant during all
+   transactions in a block. */
 
-/* Context needed to execute a single slot. */
 #define FD_EXEC_SLOT_CTX_ALIGN (8UL)
 struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
@@ -40,7 +37,7 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   fd_pubkey_t const *      leader; /* Current leader */
   fd_slot_bank_t           slot_bank;
 };
-typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
+
 #define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )
 #define FD_EXEC_SLOT_CTX_MAGIC (0xC2287BA2A5E6FC3DUL) /* random */
 

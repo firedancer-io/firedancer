@@ -1,4 +1,5 @@
 #include "fd_exec_slot_ctx.h"
+#include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 
 #include <time.h>
