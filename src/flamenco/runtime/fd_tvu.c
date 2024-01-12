@@ -869,20 +869,8 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   FD_TEST( resolve_hostport( my_repair_addr, &tvu_args->repair_config.my_addr ) );
 
   tvu_args->repair_config.deliver_fun      = repair_deliver_fun;
+  tvu_args->repair_config.send_fun         = send_packet;
   tvu_args->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
-
-  if( tcnt == ULONG_MAX ) {
-    tcnt = fd_tile_cnt();
-  }
-  fd_tpool_t * tpool = NULL;
-  if( tcnt > 1 ) {
-    tpool = fd_tpool_init( tvu_args->tpool_mem, tcnt );
-    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    for( ulong i = 1; i < tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
-        FD_LOG_ERR( ( "failed to launch worker" ) );
-    }
-  }
 
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
   fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
@@ -896,7 +884,6 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   repair_ctx->peer_iter = 0;
 
   tvu_args->repair_config.fun_arg  = &repair_ctx;
-  tvu_args->repair_config.send_fun = send_packet;
 
   if( fd_repair_set_config( repair, &tvu_args->repair_config ) ) tvu_args->blowup = 1;
 
@@ -929,4 +916,22 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
 
   if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &tvu_args->gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
+
+  /**********************************************************************/
+  /* Thread pool                                                        */
+  /**********************************************************************/
+
+  if( tcnt == ULONG_MAX ) {
+    tcnt = fd_tile_cnt();
+  }
+  fd_tpool_t * tpool = NULL;
+  if( tcnt > 1 ) {
+    tpool = fd_tpool_init( tvu_args->tpool_mem, tcnt );
+    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    for( ulong i = 1; i < tcnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
+        FD_LOG_ERR( ( "failed to launch worker" ) );
+    }
+  }
+
 }
