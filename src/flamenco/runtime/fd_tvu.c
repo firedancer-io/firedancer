@@ -765,10 +765,10 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   /* slot_ctx                                                           */
   /**********************************************************************/
 
-  fd_exec_epoch_ctx_t * epoch_ctx =
-    tvu_args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( tvu_args->epoch_ctx_mem ) );
-  fd_exec_slot_ctx_t * slot_ctx =
-    tvu_args->slot_ctx  = fd_exec_slot_ctx_join(  fd_exec_slot_ctx_new( tvu_args->slot_ctx_mem ) );
+  fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( tvu_args->epoch_ctx_mem ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join(  fd_exec_slot_ctx_new( tvu_args->slot_ctx_mem ) );
+  slot_ctx->epoch_ctx = tvu_args->epoch_ctx = epoch_ctx;
+  tvu_args->slot_ctx  = slot_ctx;
 
   epoch_ctx->valloc = valloc;
   slot_ctx->valloc  = valloc;
@@ -816,43 +816,7 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     fd_snapshot_load( snapshotfiles, slot_ctx, 1 );
 
   } else {
-    {
-      FD_LOG_NOTICE(("reading epoch bank record"));
-      fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
-      if ( rec == NULL )
-        FD_LOG_ERR(("failed to read banks record"));
-      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
-      fd_bincode_decode_ctx_t ctx2;
-      ctx2.data = val;
-      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-      ctx2.valloc  = slot_ctx->valloc;
-      FD_TEST( fd_epoch_bank_decode(&epoch_ctx->epoch_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-      FD_LOG_NOTICE(( "decoded epoch" ));
-    }
-
-    {
-      FD_LOG_NOTICE(("reading slot bank record"));
-      fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-      fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, NULL, &id);
-      if ( rec == NULL )
-        FD_LOG_ERR(("failed to read banks record"));
-      void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
-      fd_bincode_decode_ctx_t ctx2;
-      ctx2.data = val;
-      ctx2.dataend = (uchar*)val + fd_funk_val_sz( rec );
-      ctx2.valloc  = slot_ctx->valloc;
-      FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx2 )==FD_BINCODE_SUCCESS );
-
-      FD_LOG_NOTICE(( "decoded slot=%ld banks_hash=%32J poh_hash %32J",
-                      (long)slot_ctx->slot_bank.slot,
-                      slot_ctx->slot_bank.banks_hash.hash,
-                      slot_ctx->slot_bank.poh.hash ));
-
-      slot_ctx->slot_bank.collected_fees = 0;
-      slot_ctx->slot_bank.collected_rent = 0;
-    }
+    fd_runtime_recover_banks( slot_ctx, 0 );
   }
   
   snapshot_slot                 = slot_ctx->slot_bank.slot;
