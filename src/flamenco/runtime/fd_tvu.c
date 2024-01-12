@@ -116,7 +116,8 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
     if( blk == NULL ) /* we have the metadata but not the actual block */
       return;
     ulong txn_cnt = 0;
-    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, fd_blockstore_block_data_laddr( repair_ctx->blockstore, blk ), blk->sz, NULL, 1, &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS);
+    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, fd_blockstore_block_data_laddr( repair_ctx->blockstore, blk ),
+                                         blk->sz, repair_ctx->tpool, repair_ctx->max_workers, &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS);
     (void)txn_cnt;
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
@@ -930,5 +931,6 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
-
+  repair_ctx->tpool = tpool;
+  repair_ctx->max_workers = tcnt;
 }

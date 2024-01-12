@@ -19,6 +19,8 @@ typedef struct {
   fd_repair_peer_t *   repair_peers;
   fd_blockstore_t *    blockstore;
   fd_exec_slot_ctx_t * slot_ctx;
+  fd_tpool_t *         tpool;
+  ulong                max_workers;
   ulong                peer_iter;
 } fd_tvu_repair_ctx_t;
 
