@@ -615,27 +615,9 @@ tvu_main( fd_gossip_t *        gossip,
   return 0;
 }
 
-static volatile int stopflag = 0;
-
-// TODO: LML - put these into a workspace
-uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT]
-    __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
-fd_exec_epoch_ctx_t * epoch_ctx;
-uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT]
-    __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
-fd_exec_slot_ctx_t * slot_ctx;
-fd_acc_mgr_t _acc_mgr[1];
-fd_repair_config_t repair_config;
-uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-fd_tvu_repair_ctx_t repair_ctx;
-fd_gossip_config_t gossip_config;
-fd_tvu_gossip_ctx_t gossip_ctx;
-fd_gossip_peer_addr_t gossip_peer_addr;
-uchar private_key[32];
-fd_pubkey_t public_key;
-
-tvu_main_args_t
-tvu_main_setup( fd_valloc_t valloc,
+void
+tvu_main_setup( tvu_main_args_t * tvu_args,
+                fd_valloc_t valloc,
                 fd_wksp_t  * _wksp,
                 char const * blockstore_wksp_name,
                 char const * funk_wksp_name,
@@ -650,6 +632,9 @@ tvu_main_setup( fd_valloc_t valloc,
                 ulong  tcnt,
                 ulong  xactions_max,
                 ushort rpc_port ) {
+  
+  fd_memset( tvu_args, 0, sizeof( tvu_main_args_t ) );
+
   /**********************************************************************/
   /* Anonymous wksp                                                     */
   /**********************************************************************/
@@ -780,14 +765,15 @@ tvu_main_setup( fd_valloc_t valloc,
   /* slot_ctx                                                           */
   /**********************************************************************/
 
-  epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-  slot_ctx  = fd_exec_slot_ctx_join(  fd_exec_slot_ctx_new( slot_ctx_mem ) );
-  slot_ctx->epoch_ctx           = epoch_ctx;
+  fd_exec_epoch_ctx_t * epoch_ctx =
+    tvu_args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( tvu_args->epoch_ctx_mem ) );
+  fd_exec_slot_ctx_t * slot_ctx =
+    tvu_args->slot_ctx  = fd_exec_slot_ctx_join(  fd_exec_slot_ctx_new( tvu_args->slot_ctx_mem ) );
 
   epoch_ctx->valloc = valloc;
   slot_ctx->valloc  = valloc;
 
-  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, funk, blockstore );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( tvu_args->_acc_mgr, funk, blockstore );
 
   /**********************************************************************/
   /* snapshots                                                          */
@@ -889,15 +875,15 @@ tvu_main_setup( fd_valloc_t valloc,
   /* Identity                                                           */
   /**********************************************************************/
 
-  FD_TEST( 32UL == getrandom( private_key, 32UL, 0 ) );
+  FD_TEST( 32UL == getrandom( tvu_args->private_key, 32UL, 0 ) );
   fd_sha512_t sha[1];
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
+  FD_TEST( fd_ed25519_public_from_private( tvu_args->public_key.uc, tvu_args->private_key, sha ) );
 
 #ifdef FD_HAS_LIBMICROHTTP
   /**********************************************************************/
   /* rpc service                                                        */
   /**********************************************************************/
-  rpc_ctx         = fd_rpc_alloc_ctx( funk, blockstore, &public_key, slot_ctx, valloc );
+  rpc_ctx         = fd_rpc_alloc_ctx( funk, blockstore, &tvu_args->public_key, slot_ctx, valloc );
   fd_rpc_start_service( rpc_port, rpc_ctx );
 #endif
 
@@ -913,22 +899,20 @@ tvu_main_setup( fd_valloc_t valloc,
   /* Repair                                                             */
   /**********************************************************************/
 
-  fd_memset( &repair_config, 0, sizeof( repair_config ) );
+  tvu_args->repair_config.private_key = tvu_args->private_key;
+  tvu_args->repair_config.public_key  = &tvu_args->public_key;
 
-  repair_config.private_key = private_key;
-  repair_config.public_key  = &public_key;
+  FD_TEST( resolve_hostport( my_repair_addr, &tvu_args->repair_config.my_addr ) );
 
-  FD_TEST( resolve_hostport( my_repair_addr, &repair_config.my_addr ) );
-
-  repair_config.deliver_fun      = repair_deliver_fun;
-  repair_config.deliver_fail_fun = repair_deliver_fail_fun;
+  tvu_args->repair_config.deliver_fun      = repair_deliver_fun;
+  tvu_args->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
 
   if( tcnt == ULONG_MAX ) {
     tcnt = fd_tile_cnt();
   }
   fd_tpool_t * tpool = NULL;
   if( tcnt > 1 ) {
-    tpool = fd_tpool_init( tpool_mem, tcnt );
+    tpool = fd_tpool_init( tvu_args->tpool_mem, tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 1; i < tcnt; ++i ) {
       if( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
@@ -938,57 +922,47 @@ tvu_main_setup( fd_valloc_t valloc,
 
   void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
   fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
+  tvu_args->repair         = repair;
 
-  repair_ctx.repair = repair;
-  repair_ctx.repair_peers = repair_peers;
-  repair_ctx.blockstore = blockstore;
-  repair_ctx.slot_ctx = slot_ctx;
-  repair_ctx.peer_iter = 0;
+  fd_tvu_repair_ctx_t * repair_ctx = &tvu_args->repair_ctx;
+  repair_ctx->repair = repair;
+  repair_ctx->repair_peers = repair_peers;
+  repair_ctx->blockstore = blockstore;
+  repair_ctx->slot_ctx = slot_ctx;
+  repair_ctx->peer_iter = 0;
 
-  repair_config.fun_arg          = &repair_ctx;
-  repair_config.send_fun         = send_packet;
+  tvu_args->repair_config.fun_arg  = &repair_ctx;
+  tvu_args->repair_config.send_fun = send_packet;
 
-  int blowup = 0;
-  if( fd_repair_set_config( repair, &repair_config ) ) blowup = 1;
+  if( fd_repair_set_config( repair, &tvu_args->repair_config ) ) tvu_args->blowup = 1;
 
   /**********************************************************************/
   /* Gossip                                                             */
   /**********************************************************************/
 
-  fd_memset( &gossip_config, 0, sizeof( gossip_config ) );
+  tvu_args->gossip_config.private_key = tvu_args->private_key;
+  tvu_args->gossip_config.public_key  = &tvu_args->public_key;
 
-  gossip_config.private_key = private_key;
-  gossip_config.public_key  = &public_key;
+  FD_TEST( resolve_hostport( my_gossip_addr, &tvu_args->gossip_config.my_addr ) );
 
-  FD_TEST( resolve_hostport( my_gossip_addr, &gossip_config.my_addr ) );
-
-  gossip_config.shred_version = 0;
-  gossip_config.deliver_fun   = gossip_deliver_fun;
-  gossip_config.send_fun      = gossip_send_packet;
+  tvu_args->gossip_config.shred_version = 0;
+  tvu_args->gossip_config.deliver_fun   = gossip_deliver_fun;
+  tvu_args->gossip_config.send_fun      = gossip_send_packet;
 
   ulong seed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
   void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
   fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
+  tvu_args->gossip         = gossip;
 
-  gossip_ctx.gossip = gossip;
-  gossip_ctx.repair_peers = repair_peers;
-  gossip_ctx.repair = repair;
-  gossip_config.fun_arg = &gossip_ctx;
-  if( fd_gossip_set_config( gossip, &gossip_config ) )
+  fd_tvu_gossip_ctx_t * gossip_ctx = &tvu_args->gossip_ctx;
+  gossip_ctx->gossip = gossip;
+  gossip_ctx->repair_peers = repair_peers;
+  gossip_ctx->repair = repair;
+  tvu_args->gossip_config.fun_arg = &gossip_ctx;
+  if( fd_gossip_set_config( gossip, &tvu_args->gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &gossip_peer_addr ) ) )
+  if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &tvu_args->gossip_peer_addr ) ) )
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
-
-  tvu_main_args_t setup = {
-    .blowup = blowup,
-    .gossip = gossip,
-    .gossip_config = &gossip_config,
-    .repair = repair,
-    .repair_ctx = &repair_ctx,
-    .repair_config = &repair_config,
-    .stopflag = &stopflag,
-  };
-  return setup;
 }

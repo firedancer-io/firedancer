@@ -154,21 +154,23 @@ main( int argc, char ** argv ) {
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
   args_t args = parse_args( argc, argv );
-  tvu_main_args_t tvu_main_args = tvu_main_setup( valloc,
-                                                  NULL,
-                                                  args.blockstore_wksp_name,
-                                                  args.funk_wksp_name,
-                                                  args.gossip_peer_addr,
-                                                  args.incremental_snapshot,
-                                                  args.load,
-                                                  args.my_gossip_addr,
-                                                  args.my_repair_addr,
-                                                  args.snapshot,
-                                                  args.index_max,
-                                                  args.page_cnt,
-                                                  args.tcnt,
-                                                  args.txn_max,
-                                                  args.rpc_port );
+  tvu_main_args_t tvu_main_args;
+  tvu_main_setup( &tvu_main_args,
+                  valloc,
+                  NULL,
+                  args.blockstore_wksp_name,
+                  args.funk_wksp_name,
+                  args.gossip_peer_addr,
+                  args.incremental_snapshot,
+                  args.load,
+                  args.my_gossip_addr,
+                  args.my_repair_addr,
+                  args.snapshot,
+                  args.index_max,
+                  args.page_cnt,
+                  args.tcnt,
+                  args.txn_max,
+                  args.rpc_port );
   if( tvu_main_args.blowup ) return 1;
 
   /**********************************************************************/
@@ -176,10 +178,10 @@ main( int argc, char ** argv ) {
   /**********************************************************************/
 
   if( tvu_main( tvu_main_args.gossip,
-                tvu_main_args.gossip_config,
-                tvu_main_args.repair_ctx,
-                tvu_main_args.repair_config,
-                tvu_main_args.stopflag,
+                &tvu_main_args.gossip_config,
+                &tvu_main_args.repair_ctx,
+                &tvu_main_args.repair_config,
+                &tvu_main_args.stopflag,
                 args.repair_peer_id,
                 args.repair_peer_addr ) ) {
     return 1;
