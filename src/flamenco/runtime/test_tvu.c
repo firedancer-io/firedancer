@@ -137,11 +137,11 @@ parse_args( int argc, char ** argv ) {
 }
 
 // SIGINT signal handler
-volatile int stopflag = 0;
+volatile int * stopflag;
 static void
 stop( int sig ) {
   (void)sig;
-  stopflag = 1;
+  *stopflag = 1;
 }
 
 int
@@ -172,6 +172,7 @@ main( int argc, char ** argv ) {
                   args.txn_max,
                   args.rpc_port );
   if( tvu_main_args.blowup ) return 1;
+  stopflag = &tvu_main_args.stopflag;
 
   /**********************************************************************/
   /* Tile                                                               */
@@ -193,10 +194,7 @@ main( int argc, char ** argv ) {
 
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_stop_service( rpc_ctx );
-  fd_valloc_free( valloc, rpc_ctx );
 #endif
-  fd_valloc_free( valloc, fd_gossip_delete( fd_gossip_leave( tvu_main_args.gossip ), valloc ) );
-  fd_valloc_free( valloc, fd_repair_delete( fd_repair_leave( tvu_main_args.repair ), valloc ) );
   fd_halt();
   return 0;
 }
