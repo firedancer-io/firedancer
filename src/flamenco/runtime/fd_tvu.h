@@ -3,6 +3,9 @@
 #include "../rpc/fd_rpc_service.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
+#include "context/fd_exec_epoch_ctx.h"
+#include "context/fd_exec_slot_ctx.h"
+#include "fd_acc_mgr.h"
 
 struct fd_repair_peer {
   fd_pubkey_t id;
