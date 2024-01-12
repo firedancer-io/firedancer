@@ -61,10 +61,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#ifdef FD_HAS_LIBMICROHTTP
-static fd_rpc_ctx_t * rpc_ctx = NULL;
-#endif
-
 typedef struct {
   char const * blockstore_wksp_name;
   char const * funk_wksp_name;
@@ -193,7 +189,7 @@ main( int argc, char ** argv ) {
   /***********************************************************************/
 
 #ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_stop_service( rpc_ctx );
+  fd_rpc_stop_service( tvu_main_args.rpc_ctx );
 #endif
   fd_halt();
   return 0;

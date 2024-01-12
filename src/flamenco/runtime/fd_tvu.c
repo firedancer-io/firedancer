@@ -60,10 +60,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#ifdef FD_HAS_LIBMICROHTTP
-static fd_rpc_ctx_t * rpc_ctx = NULL;
-#endif
-
 static int gossip_sockfd = -1;
 
 static fd_pubkey_t pubkey_null = { 0 };
@@ -846,8 +842,8 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   /**********************************************************************/
   /* rpc service                                                        */
   /**********************************************************************/
-  rpc_ctx         = fd_rpc_alloc_ctx( funk, blockstore, &tvu_args->public_key, slot_ctx, valloc );
-  fd_rpc_start_service( rpc_port, rpc_ctx );
+  tvu_args->rpc_ctx = fd_rpc_alloc_ctx( funk, blockstore, &tvu_args->public_key, slot_ctx, valloc );
+  fd_rpc_start_service( rpc_port, tvu_args->rpc_ctx );
 #endif
 
   /**********************************************************************/

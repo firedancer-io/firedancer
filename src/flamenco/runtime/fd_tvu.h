@@ -53,6 +53,10 @@ typedef struct {
   fd_gossip_t *         gossip;
   fd_repair_t *         repair;
   volatile int          stopflag;
+#ifdef FD_HAS_LIBMICROHTTP
+  fd_rpc_ctx_t *        rpc_ctx;
+#endif
+
 } tvu_main_args_t;
 
 void
