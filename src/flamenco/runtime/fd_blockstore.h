@@ -329,6 +329,10 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 int
 fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot );
 
+/* Discard all the unassembled shreds for a block */
+int
+fd_blockstore_discard_shreds( fd_blockstore_t * blockstore, ulong slot );
+
 /* Remove the all slots less than min_slots from blockstore by
    removing them from all relevant internal structures. Used to maintain
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */

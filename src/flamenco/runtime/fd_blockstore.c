@@ -564,6 +564,28 @@ fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
   return FD_BLOCKSTORE_OK;
 }
 
+/* Discard all the unassembled shreds for a block */
+int
+fd_blockstore_discard_shreds( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
+  fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
+  fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
+  if( FD_UNLIKELY( !slot_meta_entry ) ) return 0;
+  fd_blockstore_tmp_shred_t *     tmp_shred_pool = fd_blockstore_tmp_shred_pool( blockstore );
+  fd_blockstore_tmp_shred_map_t * tmp_shred_map  = fd_blockstore_tmp_shred_map( blockstore );
+  ulong shred_cnt = slot_meta_entry->slot_meta.last_index + 1;
+  for( uint i = 0; i < shred_cnt; i++ ) {
+    fd_blockstore_tmp_shred_key_t key = { .slot = slot, .idx = i };
+    fd_blockstore_tmp_shred_t * ele;
+    while( FD_UNLIKELY(
+        ele = fd_blockstore_tmp_shred_map_ele_remove( tmp_shred_map, &key, NULL, tmp_shred_pool ) ) )
+      fd_blockstore_tmp_shred_pool_ele_release( tmp_shred_pool, ele );
+  }
+  slot_meta_entry->slot_meta.consumed = (ulong)-1L;
+  slot_meta_entry->slot_meta.received = 0;
+  return 0;
+}
+
 /* Remove the all slots less than min_slots from blockstore by
    removing them from all relevant internal structures. Used to maintain
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
@@ -673,9 +695,10 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
                       fd_shred_payload_sz( shred ) ) );
 
     off += fd_shred_payload_sz( shred );
+    fd_blockstore_tmp_shred_t * ele;
     while( FD_UNLIKELY(
-        fd_blockstore_tmp_shred_map_ele_remove( tmp_shred_map, &key, NULL, tmp_shred_pool ) ) )
-      ;
+      ele = fd_blockstore_tmp_shred_map_ele_remove( tmp_shred_map, &key, NULL, tmp_shred_pool ) ) )
+      fd_blockstore_tmp_shred_pool_ele_release( tmp_shred_pool, ele );
   }
 
   // deshredder error handling
@@ -715,11 +738,29 @@ fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
   fd_alloc_free( alloc, shreds_laddr );
   fd_alloc_free( alloc, data_laddr );
   fd_blockstore_block_map_remove( block_map, insert );
+  for( uint i = 0; i < shred_cnt; i++ ) {
+    fd_blockstore_tmp_shred_key_t key = { .slot = slot, .idx = i };
+    fd_blockstore_tmp_shred_t * ele;
+    while( FD_UNLIKELY(
+      ele = fd_blockstore_tmp_shred_map_ele_remove( tmp_shred_map, &key, NULL, tmp_shred_pool ) ) )
+      fd_blockstore_tmp_shred_pool_ele_release( tmp_shred_pool, ele );
+  }
   return err;
 }
 
 int
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_meta_opt, fd_shred_t const * shred ) {
+  /* See if I already have this shred */
+  fd_blockstore_tmp_shred_t *     tmp_shred_pool = fd_blockstore_tmp_shred_pool( blockstore );
+  fd_blockstore_tmp_shred_map_t * tmp_shred_map  = fd_blockstore_tmp_shred_map( blockstore );
+  fd_blockstore_tmp_shred_key_t   insert_key     = { .slot = shred->slot, .idx = shred->idx };
+  for( const fd_blockstore_tmp_shred_t * query = fd_blockstore_tmp_shred_map_ele_query_const( tmp_shred_map, &insert_key, NULL, tmp_shred_pool );
+       query;
+       query = fd_blockstore_tmp_shred_map_ele_next_const( query, NULL, tmp_shred_pool ) ) {
+    if( memcmp( &query->raw, shred, fd_shred_sz( shred ) ) == 0 )
+      return FD_BLOCKSTORE_OK;
+  }
+
   fd_blockstore_slot_meta_map_t * slot_meta_map =
       fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry =
@@ -745,18 +786,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   slot_meta->last_index      = fd_ulong_max( slot_meta->last_index, shred->idx );
   slot_meta->received        = fd_ulong_max( slot_meta->received, shred->idx );
   slot_meta->parent_slot     = shred->slot - shred->data.parent_off;
-
-  /* See if I already have this shred */
-  fd_blockstore_tmp_shred_t *     tmp_shred_pool = fd_blockstore_tmp_shred_pool( blockstore );
-  fd_blockstore_tmp_shred_map_t * tmp_shred_map  = fd_blockstore_tmp_shred_map( blockstore );
-  fd_blockstore_tmp_shred_key_t   insert_key     = { .slot = shred->slot, .idx = shred->idx };
-  for( const fd_blockstore_tmp_shred_t * query = fd_blockstore_tmp_shred_map_ele_query_const( tmp_shred_map, &insert_key, NULL, tmp_shred_pool );
-       query;
-       query = fd_blockstore_tmp_shred_map_ele_next_const( query, NULL, tmp_shred_pool ) ) {
-    if( memcmp( &query->raw, shred, fd_shred_sz( shred ) ) == 0 )
-      return FD_BLOCKSTORE_OK;
-  }
-
   if( FD_UNLIKELY( shred->idx == slot_meta->consumed + 1U ) ) slot_meta->consumed++;
   while( fd_blockstore_shred_query( blockstore, slot_meta->slot, (uint)slot_meta->consumed + 1U ) ) {
     slot_meta->consumed++;

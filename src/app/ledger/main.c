@@ -153,7 +153,7 @@ main( int     argc,
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   char const * txnstatus    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",    NULL, "false"   );
   ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_DEFAULT_SLOT_HISTORY_MAX );
-  ulong        shred_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",     NULL, 1UL << 20 );
+  ulong        shred_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",     NULL, 1UL << 17 );
   ulong        end_slot     = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifyhash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",   NULL, NULL      );
   char const * verifyacchash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash",   NULL, NULL      );

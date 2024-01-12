@@ -102,7 +102,10 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
       /* we should have the right parent now */
       FD_TEST( par == repair_ctx->slot_ctx->slot_bank.prev_slot );
       if( skip > 0 ) {
-        FD_LOG_NOTICE(("skipping from block %lu to %lu", slot, slot + skip));
+        FD_LOG_NOTICE(("skipping from block %lu to %lu", slot, slot+skip));
+        for( ulong i = slot+1; i < slot+skip; ++i )
+          /* Discard incomplete blocks. We will never request the rest of the shreds */
+          fd_blockstore_discard_shreds( repair_ctx->blockstore, i );
         slot += skip;
       }
       repair_ctx->slot_ctx->slot_bank.slot = slot;
