@@ -927,7 +927,8 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     tpool = fd_tpool_init( tvu_args->tpool_mem, tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 1; i < tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, 0UL ) == NULL )
+      void * smem = fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
+      if( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
