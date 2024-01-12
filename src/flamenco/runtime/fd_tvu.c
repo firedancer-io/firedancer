@@ -754,10 +754,8 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
 
   ulong  smax   = 1 << 26UL; /* 64 MiB scratch memory */
   ulong  sdepth = 128;       /* 128 scratch frames */
-  void * smem   = fd_wksp_alloc_laddr(
-      wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ), 421UL );
-  void * fmem = fd_wksp_alloc_laddr(
-      wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
+  void * smem   = fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
+  void * fmem = fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
 
@@ -855,8 +853,7 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   /* Peers                                                           */
   /**********************************************************************/
 
-  void * repair_peers_mem =
-      (uchar *)fd_wksp_alloc_laddr( wksp, fd_repair_peer_align(), fd_repair_peer_footprint(), 1UL );
+  void * repair_peers_mem = (uchar *)fd_valloc_malloc( valloc, fd_repair_peer_align(), fd_repair_peer_footprint() );
   fd_repair_peer_t * repair_peers = fd_repair_peer_join( fd_repair_peer_new( repair_peers_mem ) );
 
   /**********************************************************************/
@@ -883,7 +880,7 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   repair_ctx->slot_ctx = slot_ctx;
   repair_ctx->peer_iter = 0;
 
-  tvu_args->repair_config.fun_arg  = &repair_ctx;
+  tvu_args->repair_config.fun_arg  = repair_ctx;
 
   if( fd_repair_set_config( repair, &tvu_args->repair_config ) ) tvu_args->blowup = 1;
 
@@ -910,7 +907,7 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   gossip_ctx->gossip = gossip;
   gossip_ctx->repair_peers = repair_peers;
   gossip_ctx->repair = repair;
-  tvu_args->gossip_config.fun_arg = &gossip_ctx;
+  tvu_args->gossip_config.fun_arg = gossip_ctx;
   if( fd_gossip_set_config( gossip, &tvu_args->gossip_config ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
