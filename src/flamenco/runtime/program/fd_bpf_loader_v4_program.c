@@ -46,15 +46,15 @@ check_program_account( fd_exec_instr_ctx_t       ctx,
 
   /* Unpack arguments */
 
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs =  ctx.txn_ctx->accounts;
-  ulong                   instr_acc_cnt  = ctx.instr->acct_cnt;
-  uchar const *           program_data   = (uchar const *)program_meta + program_meta->hlen;
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
+
+  ulong         instr_acc_cnt = ctx.instr->acct_cnt;
+  uchar const * program_data  = (uchar const *)program_meta + program_meta->hlen;
 
   /* Assume instruction account index 1 to be authority */
 
   FD_TEST( instr_acc_cnt >= 2 );
-  fd_pubkey_t const * authority = &txn_accs[ instr_acc_idxs[1] ];
+  fd_pubkey_t const * authority = instr_accs[1]->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L209 */
   if( FD_UNLIKELY( 0!=memcmp( program_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
@@ -75,13 +75,13 @@ check_program_account( fd_exec_instr_ctx_t       ctx,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L218 */
-  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, instr_acc_idxs[0] ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx.instr, 0 ) ) ) {
     // TODO Log: "Program account is not writeable"
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
   /* https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L222 */
-  if( FD_UNLIKELY( !fd_txn_is_signer( ctx.txn_ctx->txn_descriptor, instr_acc_idxs[1] ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 1 ) ) ) {
     // TODO Log: "Authority did not sign"
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -170,11 +170,11 @@ _process_write( fd_exec_instr_ctx_t                                  ctx,
 
   /* Context */
 
-  uchar const *   instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t *   txn_accs       = ctx.txn_ctx->accounts;
-  ulong           instr_acc_cnt  = ctx.instr->acct_cnt;
-  fd_acc_mgr_t *  acc_mgr        = ctx.acc_mgr;
-  fd_funk_txn_t * funk_txn       = ctx.funk_txn;
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
+
+  ulong           instr_acc_cnt = ctx.instr->acct_cnt;
+  fd_acc_mgr_t *  acc_mgr       = ctx.acc_mgr;
+  fd_funk_txn_t * funk_txn      = ctx.funk_txn;
 
   /* Unpack accounts
 
@@ -183,11 +183,7 @@ _process_write( fd_exec_instr_ctx_t                                  ctx,
   if( FD_UNLIKELY( instr_acc_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  ulong program_id_idx = instr_acc_idxs[0];
-  //ulong authority_idx  = instr_acc_idxs[1];
-
-  fd_pubkey_t const * program_id = &txn_accs[ program_id_idx ];
-  //fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
+  fd_pubkey_t const * program_id = instr_accs[0]->pubkey;
 
   /* Read program account */
   FD_BORROWED_ACCOUNT_DECL(program_rec);
@@ -239,13 +235,12 @@ static int
 _process_truncate( fd_exec_instr_ctx_t ctx,
                    uint                new_sz ) {
 
-  uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs       = ctx.txn_ctx->accounts;
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
 
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  ulong authority_idx = instr_acc_idxs[1];
+  fd_pubkey_t const * authority_addr = instr_accs[1]->pubkey;
 
   fd_borrowed_account_t * program = NULL;
   int err = fd_instr_borrowed_account_view_idx( &ctx, 0, &program );
@@ -355,7 +350,7 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
         (fd_bpf_loader_v4_state_t *)fd_type_pun( program->data );
       state->slot   = 0UL;
       state->status = FD_BPF_LOADER_V4_STATUS_RETRACTED;
-      fd_memcpy( state->authority_addr, txn_accs[authority_idx].key, sizeof(fd_pubkey_t) );
+      fd_memcpy( state->authority_addr, authority_addr, sizeof(fd_pubkey_t) );
     }
   }
 
@@ -366,18 +361,19 @@ static int
 _process_deploy( fd_exec_instr_ctx_t ctx ) {
 
   /* Accounts */
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  if (ctx.instr->acct_cnt < 2) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
-  const fd_pubkey_t * program_acc = &txn_accs[instr_acc_idxs[0]];
-  const fd_pubkey_t * authority_address = &txn_accs[instr_acc_idxs[1]];
-  const fd_pubkey_t * source_program = NULL;
 
-  if( ctx.instr->acct_cnt >= 3 ) {
-    source_program = &txn_accs[instr_acc_idxs[2]];
-  }
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
+
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  fd_pubkey_t const * program_acc       = instr_accs[0]->pubkey;
+  fd_pubkey_t const * authority_address = instr_accs[1]->pubkey;
+  fd_pubkey_t const * source_program    = NULL;
+
+  if( ctx.instr->acct_cnt >= 3 )
+    source_program = instr_accs[2]->pubkey;
+
   // Load program account
   FD_BORROWED_ACCOUNT_DECL(program_acc_rec);
   int err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, program_acc, 1, 0, program_acc_rec);
@@ -456,10 +452,11 @@ static int
 _process_retract( fd_exec_instr_ctx_t ctx ) {
 
   /* Context */
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  fd_acc_mgr_t *      acc_mgr        = ctx.acc_mgr;
-  fd_funk_txn_t *     funk_txn       = ctx.funk_txn;
+
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
+
+  fd_acc_mgr_t *  acc_mgr  = ctx.acc_mgr;
+  fd_funk_txn_t * funk_txn = ctx.funk_txn;
 
   /* Unpack accounts
 
@@ -468,11 +465,7 @@ _process_retract( fd_exec_instr_ctx_t ctx ) {
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  ulong program_id_idx = instr_acc_idxs[0];
-  //ulong authority_idx  = instr_acc_idxs[1];
-
-  fd_pubkey_t const * program_id = &txn_accs[ program_id_idx ];
-  //fd_pubkey_t const * authority  = &txn_accs[ authority_idx  ];
+  fd_pubkey_t const * program_id = instr_accs[0]->pubkey;
 
   /* Read program account */
   FD_BORROWED_ACCOUNT_DECL(program_rec);
@@ -503,7 +496,7 @@ _process_retract( fd_exec_instr_ctx_t ctx ) {
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L516 */
-  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx.instr, 0 ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
@@ -519,10 +512,11 @@ static int
 _process_transfer_authority( fd_exec_instr_ctx_t ctx ) {
 
   /* Context */
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
-  fd_acc_mgr_t *      acc_mgr  = ctx.acc_mgr;
-  fd_funk_txn_t *     funk_txn = ctx.funk_txn;
+
+  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
+
+  fd_acc_mgr_t *  acc_mgr  = ctx.acc_mgr;
+  fd_funk_txn_t * funk_txn = ctx.funk_txn;
 
   /* Unpack accounts
 
@@ -531,16 +525,11 @@ _process_transfer_authority( fd_exec_instr_ctx_t ctx ) {
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  ulong program_id_idx    = instr_acc_idxs[0];
-  ulong new_authority_idx = ULONG_MAX;
-
-  fd_pubkey_t const * program_id    = &txn_accs[ program_id_idx    ];
+  fd_pubkey_t const * program_id    = instr_accs[0]->pubkey;
   fd_pubkey_t const * new_authority = NULL;
 
-  if( FD_UNLIKELY( ctx.instr->acct_cnt >= 3 ) ) {
-    new_authority_idx = instr_acc_idxs[2];
-    new_authority     = &txn_accs[ new_authority_idx ];
-  }
+  if( ctx.instr->acct_cnt >= 3 )
+    new_authority = instr_accs[2]->pubkey;
 
   /* Read program account */
   FD_BORROWED_ACCOUNT_DECL(program_rec);
@@ -554,7 +543,7 @@ _process_transfer_authority( fd_exec_instr_ctx_t ctx ) {
 
   /* For some reason, third instruction account is checked later */
   if( new_authority ) {
-    if( FD_UNLIKELY( !fd_txn_is_signer( ctx.txn_ctx->txn_descriptor, (int)new_authority_idx ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx.instr, 2 ) ) ) {
       // TODO Log: "New authority did not sign"
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
@@ -562,7 +551,7 @@ _process_transfer_authority( fd_exec_instr_ctx_t ctx ) {
 
   /* Upgrade to writable handle
      https://github.com/solana-labs/solana/blob/d90e1582869d8ef8d386a1c156eda987404c43be/programs/loader-v4/src/lib.rs#L542 */
-  if( FD_UNLIKELY( !fd_txn_is_writable( ctx.txn_ctx->txn_descriptor, (int)program_id_idx ) ) )
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx.instr, 0 ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   err = fd_acc_mgr_modify( acc_mgr, funk_txn, program_id, /* do_create */ 0, 0UL, program_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return err;
