@@ -147,10 +147,10 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
-    
+
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
-  
+
   if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
     FD_LOG_ERR(( "bad magic" ));
   }
@@ -193,10 +193,10 @@ fd_acc_mgr_modify_raw_prealloc( fd_acc_mgr_t *        acc_mgr,
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
-    
+
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
-  
+
   if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
     FD_LOG_ERR(( "bad magic" ));
   }
@@ -408,7 +408,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * borrowed_account = accounts[i];
       ulong batch_idx = account_batch_idxs[i];
-      
+
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
       task_info->accounts[task_info->accounts_cnt++] = borrowed_account;
     }

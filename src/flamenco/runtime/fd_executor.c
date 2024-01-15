@@ -5,7 +5,6 @@
 
 #include "../../util/rng/fd_rng.h"
 #include "../nanopb/pb_encode.h"
-#include "../trace/fd_txntrace.h"
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_deprecated_loader_program.h"
@@ -312,59 +311,6 @@ fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx ) {
   } FD_SCRATCH_SCOPE_END;
 }
 
-/* fd_executor_dump_txntrace creates a new file in the trace dir
-   containing the given binary blob. */
-
-static void FD_FN_UNUSED
-fd_executor_dump_txntrace( fd_exec_slot_ctx_t *         slot_ctx,
-                           fd_capture_ctx_t *           capture_ctx,
-                           fd_ed25519_sig_t const *     sig,
-                           fd_soltrace_TxnTrace const * trace ) {
-
-  if( FD_UNLIKELY( !fd_scratch_push_is_safe() ) ) return;
-  FD_SCRATCH_SCOPE_BEGIN {
-    if( FD_UNLIKELY( !fd_scratch_prepare_is_safe( 1UL ) ) ) return;
-
-    /* Serialize to open-ended scratch frame */
-    ulong   data_bufsz = fd_scratch_free();
-    uchar * data       = fd_scratch_prepare( 1UL );
-    pb_ostream_t ostream = pb_ostream_from_buffer( data, data_bufsz );
-    if( FD_UNLIKELY( !pb_encode( &ostream, fd_soltrace_TxnTrace_fields, trace ) ) ) {
-      FD_LOG_ERR(( "pb_encode of trace %p failed (%lu bufsz, %lu written): %s",
-          (void *)trace, data_bufsz, ostream.bytes_written, PB_GET_ERROR( &ostream ) ));
-      fd_scratch_cancel();
-      return;
-    }
-    ulong data_sz = ostream.bytes_written;
-    fd_scratch_publish( data+data_sz );
-
-    /* Formulate file name */
-    char filename[ 128UL ];
-    /* 118 (20+1+88+9) chars + null terminator */
-    snprintf( filename, sizeof(filename), "%lu-%64J.txntrace",
-      slot_ctx->slot_bank.slot, sig );
-
-    /* Create file */
-    int dump_fd = openat( capture_ctx->trace_dirfd, filename, O_WRONLY|O_CREAT|O_TRUNC, 0666 );
-    if( FD_UNLIKELY( dump_fd<0 ) ) {
-      FD_LOG_WARNING(( "openat(%d, %s) failed (%d-%s)",
-                      capture_ctx->trace_dirfd, filename, errno, fd_io_strerror( errno ) ));
-      return;
-    }
-
-    /* Write file */
-    long nbytes = write( dump_fd, data, data_sz );
-    if( FD_UNLIKELY( nbytes!=(long)data_sz ) ) {
-      FD_LOG_WARNING(( "write to %s failed (%d-%s)",
-          filename, errno, fd_io_strerror( errno ) ));
-      close( dump_fd );
-      unlinkat( capture_ctx->trace_dirfd, filename, 0 );
-      return;
-    }
-    close( dump_fd );
-  } FD_SCRATCH_SCOPE_END;
-}
-
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   uint bpf_upgradeable_in_txn = 0;
@@ -436,30 +382,10 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->executable_cnt = j;
 }
 
-static void FD_FN_UNUSED
-fd_executor_retrace( fd_exec_slot_ctx_t *          slot_ctx FD_PARAM_UNUSED,
-                     fd_soltrace_TxnInput const * trace_pre,
-                     fd_soltrace_TxnDiff  const * trace_post0,
-                     fd_wksp_t *                  local_wksp ) {
-
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_soltrace_TxnDiff  _trace_post1[1];
-    fd_soltrace_TxnDiff * trace_post1 =
-      fd_txntrace_replay( _trace_post1, trace_pre, local_wksp );
-
-    if( FD_UNLIKELY( !trace_post1 ) )
-      FD_LOG_ERR(( "fd_txntrace_replay failed" ));
-
-    if( FD_UNLIKELY( !fd_txntrace_diff( trace_post0, trace_post1 ) ) )
-      FD_LOG_ERR(( "fd_txntrace_replay returned incorrect trace:\n%s",
-          fd_txntrace_diff_cstr() ));
-  } FD_SCRATCH_SCOPE_END;
-}
-
 /* Stuff to be done before multithreading can begin */
 int
 fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_exec_txn_ctx_t * txn_ctx,
                                fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw ) {
   fd_exec_txn_ctx_new( txn_ctx );

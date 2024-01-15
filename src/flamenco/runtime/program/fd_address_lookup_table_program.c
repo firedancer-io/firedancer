@@ -128,8 +128,8 @@ static inline void create_account_meta(fd_pubkey_t const * key, uchar is_signer,
   fd_memcpy(meta->pubkey, key->key, sizeof(fd_pubkey_t));
 }
 
-static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx, 
-                                              fd_system_program_instruction_t const * instr, 
+static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
+                                              fd_system_program_instruction_t const * instr,
                                               fd_vm_rust_account_meta_t const * acct_metas,
                                               ulong acct_metas_len,
                                               fd_pubkey_t const * signers,
@@ -673,7 +673,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L253-L255 */
     if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-      err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE; 
+      err = FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
       break;
     }
 
@@ -1122,7 +1122,7 @@ fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_
       FD_LOG_WARNING(("Failed to decode instruction"));
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
-      
+
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:
