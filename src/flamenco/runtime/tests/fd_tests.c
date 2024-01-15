@@ -1,6 +1,7 @@
 #include "fd_tests.h"
 #include "../sysvar/fd_sysvar.h"
 #include "../../../ballet/base58/fd_base58.h"
+#include "../../../ballet/base64/fd_base64.h"
 #include "../../fd_flamenco.h"
 #include <errno.h>
 #include <stdio.h>
@@ -8,8 +9,6 @@
 #include <sys/types.h>
 #include <signal.h>
 #include "../../types/fd_types_yaml.h"
-#include "../../../ballet/base64/fd_base64.h"
-#include "../program/fd_bpf_loader_v4_program.h"  /* TODO remove this */
 #include "../fd_system_ids.h"
 
 const char *verbose = NULL;
