@@ -36,30 +36,8 @@
 #define FD_TVU_TILE_SLOT_DELAY 32
 
 #include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../flamenco/runtime/fd_snapshot_loader.h"
-#include "../../flamenco/types/fd_types.h"
-#include "../../util/fd_util.h"
 #include "fd_tvu.h"
-#include "../../util/net/fd_eth.h"
-#include "../fd_flamenco.h"
-#include "../gossip/fd_gossip.h"
-#include "../repair/fd_repair.h"
-#include "../rpc/fd_rpc_service.h"
-#include "context/fd_exec_epoch_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
-#ifdef FD_HAS_LIBMICROHTTP
-#endif
-#include <arpa/inet.h>
-#include <errno.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/random.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 // SIGINT signal handler
 volatile int * stopflag;
