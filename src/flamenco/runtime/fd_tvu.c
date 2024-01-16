@@ -107,7 +107,7 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
       repair_ctx->slot_ctx->slot_bank.slot = slot;
       break;
     }
-    
+
     fd_blockstore_block_t * blk = fd_blockstore_block_query( repair_ctx->blockstore, slot );
     if( blk == NULL ) /* we have the metadata but not the actual block */
       return;
@@ -128,7 +128,7 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
 
 #define LOOK_AHEAD_HIGHEST 20
 #define LOOK_AHEAD_SHREDS 2
-  
+
   for( ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
        slot - repair_ctx->slot_ctx->slot_bank.slot < LOOK_AHEAD_HIGHEST
          && !fd_repair_is_full( repair_ctx->repair );
@@ -248,11 +248,11 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   fd_repair_peer_t * peer = fd_repair_peer_query( repair_ctx->repair_peers, *id, NULL );
   if( FD_LIKELY( peer ) )
     peer->reply_cnt++;
-    
+
   if( shred->slot < repair_ctx->slot_ctx->slot_bank.slot ||
       fd_blockstore_block_query( repair_ctx->blockstore, shred->slot ) != NULL )
     return;
-  
+
   int                   rc;
   if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( repair_ctx->blockstore, NULL, shred ) != FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", shred->slot, rc ) );
@@ -421,13 +421,13 @@ print_stats( fd_tvu_repair_ctx_t * repair_ctx ) {
 }
 
 int
-tvu_main( fd_gossip_t *        gossip,
-          fd_gossip_config_t * gossip_config,
-          fd_tvu_repair_ctx_t * repair_ctx,
-          fd_repair_config_t * repair_config,
-          volatile int *       stopflag,
-          char const * repair_peer_id_,
-          char const * repair_peer_addr_ ) {
+fd_tvu_main( fd_gossip_t *        gossip,
+             fd_gossip_config_t * gossip_config,
+             fd_tvu_repair_ctx_t * repair_ctx,
+             fd_repair_config_t * repair_config,
+             volatile int *       stopflag,
+             char const * repair_peer_id_,
+             char const * repair_peer_addr_ ) {
 
   /* initialize gossip */
   int gossip_fd;
@@ -613,24 +613,14 @@ tvu_main( fd_gossip_t *        gossip,
 }
 
 void
-tvu_main_setup( tvu_main_args_t * tvu_args,
-                fd_valloc_t valloc,
-                fd_wksp_t  * _wksp,
-                char const * blockstore_wksp_name,
-                char const * funk_wksp_name,
-                char const * peer_addr,
-                char const * incremental,
-                char const * load,
-                char const * my_gossip_addr,
-                char const * my_repair_addr,
-                char const * snapshot,
-                ulong  index_max,
-                ulong  page_cnt,
-                ulong  tcnt,
-                ulong  xactions_max,
-                ushort rpc_port ) {
-  
-  fd_memset( tvu_args, 0, sizeof( tvu_main_args_t ) );
+fd_tvu_main_setup( fd_runtime_ctx_t * tvu_args,
+                   int live,
+                   fd_wksp_t  * _wksp,
+                   fd_runtime_args_t *args ) {
+
+  fd_memset( tvu_args, 0, sizeof( fd_runtime_ctx_t ) );
+
+  tvu_args->live = live;
 
   /**********************************************************************/
   /* Anonymous wksp                                                     */
@@ -641,16 +631,18 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     char * _page_sz = "gigantic";
     ulong  numa_idx = fd_shmem_numa_idx( 0 );
     FD_LOG_NOTICE( ( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)",
-                    page_cnt,
+                    args->page_cnt,
                     _page_sz,
                     numa_idx ) );
     wksp = fd_wksp_new_anonymous(
-        fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+        fd_cstr_to_shmem_page_sz( _page_sz ), args->page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
 
   } else {
     wksp = _wksp;
   }
   FD_TEST( wksp );
+
+  tvu_args->local_wksp = wksp;
 
   /**********************************************************************/
   /* funk */
@@ -661,27 +653,27 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
 
   fd_wksp_t *  funk_wksp = NULL;
-  if( funk_wksp_name == NULL ) {
+  if( args->funk_wksp_name == NULL ) {
     funk_wksp     = wksp;
-    if( index_max == ULONG_MAX ) {
-      index_max = 100000000;
+    if( args->index_max == ULONG_MAX ) {
+      args->index_max = 100000000;
     }
   } else {
-    funk_wksp = fd_wksp_attach( funk_wksp_name );
-    if( funk_wksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
-    if( index_max == ULONG_MAX ) {
-      index_max = 350000000;
+    funk_wksp = fd_wksp_attach( args->funk_wksp_name );
+    if( funk_wksp == NULL ) FD_LOG_ERR( ( "failed to attach to workspace %s", args->funk_wksp_name ) );
+    if( args->index_max == ULONG_MAX ) {
+      args->index_max = 350000000;
     }
   }
   FD_TEST( funk_wksp );
 
-  if( snapshot ) {
+  if( args->snapshot ) {
     if( wksp != funk_wksp )
       /* Start from scratch */
       fd_wksp_reset( funk_wksp, (uint)hashseed );
-  } else if( load ) {
-    FD_LOG_NOTICE(("loading %s", load));
-    int err = fd_wksp_restore(funk_wksp, load, (uint)hashseed);
+  } else if( args->load ) {
+    FD_LOG_NOTICE(("loading %s", args->load));
+    int err = fd_wksp_restore(funk_wksp, args->load, (uint)hashseed);
     if (err)
       FD_LOG_ERR(("load failed: error %d", err));
 
@@ -700,11 +692,38 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     void * shmem =
         fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
     if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
-    funk               = fd_funk_join( fd_funk_new( shmem, 1, hashseed, xactions_max, index_max ) );
+    funk               = fd_funk_join( fd_funk_new( shmem, 1, hashseed, args->txn_max, args->index_max ) );
     if( funk == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR( ( "failed to allocate a funky" ) );
     }
+  }
+
+  /**********************************************************************/
+  /* we need a local allocator */
+  /**********************************************************************/
+
+  void * alloc_shmem = fd_wksp_alloc_laddr( tvu_args->local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) {
+    FD_LOG_ERR(( "fd_alloc too large for workspace" ));
+  }
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) {
+    FD_LOG_ERR(( "fd_allow_new failed" ));
+  }
+  tvu_args->alloc = fd_alloc_join( alloc_shalloc, 3UL );
+  if( FD_UNLIKELY( !tvu_args->alloc ) ) {
+    FD_LOG_ERR(( "fd_alloc_join failed" ));
+  }
+
+  fd_valloc_t valloc;
+
+  if( strcmp( args->allocator, "libc" ) == 0 ) {
+    valloc = fd_libc_alloc_virtual();
+  } else if ( strcmp( args->allocator, "wksp" ) == 0 ) {
+    valloc = fd_alloc_virtual( tvu_args->alloc );
+  } else {
+    FD_LOG_ERR(( "unknown allocator specified" ));
   }
 
   /**********************************************************************/
@@ -715,7 +734,7 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   if( blockstore_wksp == NULL ) {
     blockstore_wksp = wksp;
   } else {
-    blockstore_wksp = fd_wksp_attach( blockstore_wksp_name );
+    blockstore_wksp = fd_wksp_attach( args->blockstore_wksp_name );
   }
   FD_TEST( blockstore_wksp );
 
@@ -775,10 +794,10 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   /**********************************************************************/
 
   ulong snapshot_slot = 0;
-  if( snapshot ) {
-    if (!incremental )
+  if( args->snapshot ) {
+    if (!args->incremental_snapshot )
       FD_LOG_WARNING(("Running without incremental snapshot. This only makes sense if you're using a local validator."));
-    const char * p = strstr( snapshot, "snapshot-" );
+    const char * p = strstr( args->snapshot, "snapshot-" );
     if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
     do {
       const char * p2 = strstr( p + 1, "snapshot-" );
@@ -788,8 +807,8 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     if( sscanf( p, "snapshot-%lu", &snapshot_slot ) < 1 )
       FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
 
-    if( incremental ) {
-      p = strstr( incremental, "snapshot-" );
+    if( args->incremental_snapshot ) {
+      p = strstr( args->incremental_snapshot, "snapshot-" );
       if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
       do {
         const char * p2 = strstr( p + 1, "snapshot-" );
@@ -805,15 +824,15 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
     }
 
     const char * snapshotfiles[3];
-    snapshotfiles[0] = snapshot;
-    snapshotfiles[1] = incremental;
+    snapshotfiles[0] = args->snapshot;
+    snapshotfiles[1] = args->incremental_snapshot;
     snapshotfiles[2] = NULL;
     fd_snapshot_load( snapshotfiles, slot_ctx, 1 );
 
   } else {
     fd_runtime_recover_banks( slot_ctx, 0 );
   }
-  
+
   snapshot_slot                 = slot_ctx->slot_bank.slot;
   slot_ctx->slot_bank.prev_slot = snapshot_slot;
   slot_ctx->slot_bank.slot++;
@@ -838,96 +857,149 @@ tvu_main_setup( tvu_main_args_t * tvu_args,
   fd_sha512_t sha[1];
   FD_TEST( fd_ed25519_public_from_private( tvu_args->public_key.uc, tvu_args->private_key, sha ) );
 
-#ifdef FD_HAS_LIBMICROHTTP
-  /**********************************************************************/
-  /* rpc service                                                        */
-  /**********************************************************************/
-  tvu_args->rpc_ctx = fd_rpc_alloc_ctx( funk, blockstore, &tvu_args->public_key, slot_ctx, valloc );
-  fd_rpc_start_service( rpc_port, tvu_args->rpc_ctx );
-#endif
-
-  /**********************************************************************/
-  /* Peers                                                           */
-  /**********************************************************************/
-
-  void * repair_peers_mem = (uchar *)fd_valloc_malloc( valloc, fd_repair_peer_align(), fd_repair_peer_footprint() );
-  fd_repair_peer_t * repair_peers = fd_repair_peer_join( fd_repair_peer_new( repair_peers_mem ) );
-
-  /**********************************************************************/
-  /* Repair                                                             */
-  /**********************************************************************/
-
-  tvu_args->repair_config.private_key = tvu_args->private_key;
-  tvu_args->repair_config.public_key  = &tvu_args->public_key;
-
-  FD_TEST( resolve_hostport( my_repair_addr, &tvu_args->repair_config.my_addr ) );
-
-  tvu_args->repair_config.deliver_fun      = repair_deliver_fun;
-  tvu_args->repair_config.send_fun         = send_packet;
-  tvu_args->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
-
-  void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
-  fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
-  tvu_args->repair         = repair;
-
-  fd_tvu_repair_ctx_t * repair_ctx = &tvu_args->repair_ctx;
-  repair_ctx->repair = repair;
-  repair_ctx->repair_peers = repair_peers;
-  repair_ctx->blockstore = blockstore;
-  repair_ctx->slot_ctx = slot_ctx;
-  repair_ctx->peer_iter = 0;
-
-  tvu_args->repair_config.fun_arg  = repair_ctx;
-
-  if( fd_repair_set_config( repair, &tvu_args->repair_config ) ) tvu_args->blowup = 1;
-
-  /**********************************************************************/
-  /* Gossip                                                             */
-  /**********************************************************************/
-
-  tvu_args->gossip_config.private_key = tvu_args->private_key;
-  tvu_args->gossip_config.public_key  = &tvu_args->public_key;
-
-  FD_TEST( resolve_hostport( my_gossip_addr, &tvu_args->gossip_config.my_addr ) );
-
-  tvu_args->gossip_config.shred_version = 0;
-  tvu_args->gossip_config.deliver_fun   = gossip_deliver_fun;
-  tvu_args->gossip_config.send_fun      = gossip_send_packet;
-
-  ulong seed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
-
-  void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
-  fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
-  tvu_args->gossip         = gossip;
-
-  fd_tvu_gossip_ctx_t * gossip_ctx = &tvu_args->gossip_ctx;
-  gossip_ctx->gossip = gossip;
-  gossip_ctx->repair_peers = repair_peers;
-  gossip_ctx->repair = repair;
-  tvu_args->gossip_config.fun_arg = gossip_ctx;
-  if( fd_gossip_set_config( gossip, &tvu_args->gossip_config ) )
-    FD_LOG_ERR( ( "error setting gossip config" ) );
-
-  if( fd_gossip_add_active_peer( gossip, resolve_hostport( peer_addr, &tvu_args->gossip_peer_addr ) ) )
-    FD_LOG_ERR( ( "error adding gossip active peer" ) );
-
   /**********************************************************************/
   /* Thread pool                                                        */
   /**********************************************************************/
 
-  if( tcnt == ULONG_MAX ) {
-    tcnt = fd_tile_cnt();
+  if( args->tcnt == ULONG_MAX ) {
+    args->tcnt = fd_tile_cnt();
   }
   fd_tpool_t * tpool = NULL;
-  if( tcnt > 1 ) {
-    tpool = fd_tpool_init( tvu_args->tpool_mem, tcnt );
+  if( args->tcnt > 1 ) {
+    tpool = fd_tpool_init( tvu_args->tpool_mem, args->tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    for( ulong i = 1; i < tcnt; ++i ) {
+    for( ulong i = 1; i < args->tcnt; ++i ) {
       void * smem = fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
       if( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
-  repair_ctx->tpool = tpool;
-  repair_ctx->max_workers = tcnt;
+  tvu_args->tpool = tpool;
+  tvu_args->max_workers = args->tcnt;
+
+  if (tvu_args->live) {
+#ifdef FD_HAS_LIBMICROHTTP
+    /**********************************************************************/
+    /* rpc service                                                        */
+    /**********************************************************************/
+    tvu_args->rpc_ctx = fd_rpc_alloc_ctx( funk, blockstore, &tvu_args->public_key, slot_ctx, valloc );
+    fd_rpc_start_service( args->rpc_port, tvu_args->rpc_ctx );
+#endif
+
+    /**********************************************************************/
+    /* Peers                                                           */
+    /**********************************************************************/
+
+    void * repair_peers_mem = (uchar *)fd_valloc_malloc( valloc, fd_repair_peer_align(), fd_repair_peer_footprint() );
+    fd_repair_peer_t * repair_peers = fd_repair_peer_join( fd_repair_peer_new( repair_peers_mem ) );
+
+    /**********************************************************************/
+    /* Repair                                                             */
+    /**********************************************************************/
+
+    tvu_args->repair_config.private_key = tvu_args->private_key;
+    tvu_args->repair_config.public_key  = &tvu_args->public_key;
+
+    FD_TEST( resolve_hostport( args->my_repair_addr, &tvu_args->repair_config.my_addr ) );
+
+    tvu_args->repair_config.deliver_fun      = repair_deliver_fun;
+    tvu_args->repair_config.send_fun         = send_packet;
+    tvu_args->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
+
+    void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
+    fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
+    tvu_args->repair         = repair;
+
+    fd_tvu_repair_ctx_t * repair_ctx = &tvu_args->repair_ctx;
+    repair_ctx->repair = repair;
+    repair_ctx->repair_peers = repair_peers;
+    repair_ctx->blockstore = blockstore;
+    repair_ctx->slot_ctx = slot_ctx;
+    repair_ctx->peer_iter = 0;
+
+    tvu_args->repair_config.fun_arg  = repair_ctx;
+
+    if( fd_repair_set_config( repair, &tvu_args->repair_config ) ) tvu_args->blowup = 1;
+
+    /**********************************************************************/
+    /* Gossip                                                             */
+    /**********************************************************************/
+
+    tvu_args->gossip_config.private_key = tvu_args->private_key;
+    tvu_args->gossip_config.public_key  = &tvu_args->public_key;
+
+    FD_TEST( resolve_hostport( args->my_gossip_addr, &tvu_args->gossip_config.my_addr ) );
+
+    tvu_args->gossip_config.shred_version = 0;
+    tvu_args->gossip_config.deliver_fun   = gossip_deliver_fun;
+    tvu_args->gossip_config.send_fun      = gossip_send_packet;
+
+    ulong seed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
+
+    void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
+    fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
+    tvu_args->gossip         = gossip;
+
+    fd_tvu_gossip_ctx_t * gossip_ctx = &tvu_args->gossip_ctx;
+    gossip_ctx->gossip = gossip;
+    gossip_ctx->repair_peers = repair_peers;
+    gossip_ctx->repair = repair;
+    tvu_args->gossip_config.fun_arg = gossip_ctx;
+    if( fd_gossip_set_config( gossip, &tvu_args->gossip_config ) )
+      FD_LOG_ERR( ( "error setting gossip config" ) );
+
+    if( fd_gossip_add_active_peer( gossip, resolve_hostport( args->gossip_peer_addr, &tvu_args->gossip_peer_addr ) ) )
+      FD_LOG_ERR( ( "error adding gossip active peer" ) );
+
+    repair_ctx->tpool = tpool;
+    repair_ctx->max_workers = args->tcnt;
+  } // if (tvu_args->live)
+}
+
+int
+fd_tvu_parse_args( fd_runtime_args_t *args, int argc, char ** argv ) {
+
+  const char *wksp                = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp", NULL, NULL );
+  if (NULL != wksp)
+    FD_LOG_ERR(("--wksp is no longer a valid argument.  Please use --funk-wksp"));
+
+  const char *pages               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--pages",  NULL, NULL);
+  if (NULL != pages)
+    FD_LOG_ERR(("--pages is no longer a valid argument.  Please use --page-cnt"));
+
+  char const *index_max_opt           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--index-max", NULL, NULL );
+  if (NULL != index_max_opt)
+    FD_LOG_ERR(("--index-max is no longer a valid argument.  Please use --indexmax"));
+
+  args->blockstore_wksp_name = fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
+  args->funk_wksp_name = fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
+  args->gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
+  args->incremental_snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+  args->load = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
+  args->my_gossip_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
+  args->my_repair_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
+  args->repair_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
+  args->repair_peer_id = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
+  args->snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+  args->index_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
+  args->page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
+  args->tcnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
+  args->txn_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
+  args->rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
+
+  args->end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
+  args->cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
+  args->reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
+
+  args->capitalization_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cap",          NULL, NULL);
+
+  args->allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator", NULL, "wksp" );
+  args->validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
+  args->capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
+  args->trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
+  args->retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
+
+  args->abort_on_mismatch = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
+
+  return 0;
 }

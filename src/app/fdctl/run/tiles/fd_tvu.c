@@ -17,8 +17,8 @@ ushort      g_rpc_port = 12000;
 static int
 doit() {
   fd_valloc_t valloc = fd_libc_alloc_virtual();
-  tvu_main_args_t tvu_main_args;
-  tvu_main_setup( &tvu_main_args,
+  fd_runtime_ctx_t fd_runtime_ctx;
+  tvu_main_setup( &fd_runtime_ctx,
                   valloc,
                   g_wksp,
                   NULL,
@@ -34,17 +34,17 @@ doit() {
                   1,
                   1000, // TODO: LML add --txnmax to default.toml
                   g_rpc_port );
-  if( tvu_main_args.blowup ) FD_LOG_ERR(( "blowup" ));
+  if( fd_runtime_ctx.blowup ) FD_LOG_ERR(( "blowup" ));
 
   /**********************************************************************/
   /* Tile                                                               */
   /**********************************************************************/
 
-  if( tvu_main( tvu_main_args.gossip,
-                &tvu_main_args.gossip_config,
-                &tvu_main_args.repair_ctx,
-                &tvu_main_args.repair_config,
-                &tvu_main_args.stopflag,
+  if( tvu_main( fd_runtime_ctx.gossip,
+                &fd_runtime_ctx.gossip_config,
+                &fd_runtime_ctx.repair_ctx,
+                &fd_runtime_ctx.repair_config,
+                &fd_runtime_ctx.stopflag,
                 g_repair_peer_id,
                 g_repair_peer_addr ) ) {
     return 1;

@@ -22,7 +22,7 @@ LEDGER="v1176-big"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
-PAGES="--pages 5"
+PAGES="--page-cnt 5"
 IMAX="--indexmax 100000"
 START="--start 241819853"
 HISTORY="--slothistory 3000"
@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -p|--pages)
-       PAGES="--pages $2"
+       PAGES="--page-cnt $2"
        shift
        shift
        ;;

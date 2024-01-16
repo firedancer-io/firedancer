@@ -3,23 +3,15 @@
 #include "fd_replay.h"
 
 int
-fd_replay( fd_replay_state_t * state )
+fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
 {
-  /* Create scratch allocator */
-
-  ulong  smax = 256 /*MiB*/ << 20;
-  void * smem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_smem_align(), smax, 1UL );
-  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "Failed to alloc scratch mem" ));
-  ulong  scratch_depth = 128UL;
-  void * fmem = fd_wksp_alloc_laddr( state->local_wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( scratch_depth ), 2UL );
-  if( FD_UNLIKELY( !fmem ) ) FD_LOG_ERR(( "Failed to alloc scratch frames" ));
-
-  fd_scratch_attach( smem, fmem, smax, scratch_depth );
+  ulong r = fd_funk_txn_cancel_all(state->slot_ctx->acc_mgr->funk, 1);
+  FD_LOG_INFO(( "Cancelled old transactions %lu", r ));
 
   fd_features_restore( state->slot_ctx );
 
-  if (state->slot_ctx->acc_mgr->blockstore->max < state->end_slot)
-    state->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
+  if (state->slot_ctx->acc_mgr->blockstore->max < args->end_slot)
+    args->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
   // FD_LOG_WARNING(("Failing here"))
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
@@ -31,7 +23,7 @@ fd_replay( fd_replay_state_t * state )
   fd_blockstore_t * blockstore = state->slot_ctx->acc_mgr->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
-  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < state->end_slot; ++slot ) {
+  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 
@@ -78,13 +70,15 @@ fd_replay( fd_replay_state_t * state )
       }
     }
 
-    if (NULL != state->capitalization_file) {
+#if 0
+    if (NULL != args->capitalization_file) {
       slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
       if (NULL != c) {
         if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
           FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
       }
     }
+#endif
     if (0==memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL )) {
       ulong publish_err = fd_funk_txn_publish(state->slot_ctx->acc_mgr->funk, state->slot_ctx->funk_txn, 1);
       if (publish_err == 0)
@@ -106,33 +100,30 @@ fd_replay( fd_replay_state_t * state )
 
   // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
 
-  FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
-  fd_wksp_free_laddr( fmem                      );
   return 0;
 }
 
 
 ulong
-fd_replay_state_align( void ) {
-  return alignof(fd_replay_state_t);
+fd_runtime_ctx_align( void ) {
+  return alignof(fd_runtime_ctx_t);
 }
 
 ulong
-fd_replay_state_footprint( void ) {
-  return sizeof(fd_replay_state_t);
+fd_runtime_ctx_footprint( void ) {
+  return sizeof(fd_runtime_ctx_t);
 }
 
 void *
-fd_replay_state_new( void * shmem ) {
-  fd_replay_state_t * replay_state = (fd_replay_state_t *)shmem;
+fd_runtime_ctx_new( void * shmem ) {
+  fd_runtime_ctx_t * replay_state = (fd_runtime_ctx_t *)shmem;
 
   if( FD_UNLIKELY( !replay_state ) ) {
     FD_LOG_WARNING(( "NULL replay_state" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_replay_state_align() ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_runtime_ctx_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned replay_state" ));
     return NULL;
   }
@@ -140,25 +131,25 @@ fd_replay_state_new( void * shmem ) {
   return (void *) replay_state;
 }
 
-/* fd_replay_state_join returns the local join to the wksp backing the funk.
+/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
    The lifetime of the returned pointer is at least as long as the
    lifetime of the local join.  Assumes funk is a current local join. */
 
-fd_replay_state_t *
-fd_replay_state_join( void * state ) {
-  return (fd_replay_state_t *) state;
+fd_runtime_ctx_t *
+fd_runtime_ctx_join( void * state ) {
+  return (fd_runtime_ctx_t *) state;
 }
 
-/* fd_replay_state_leave leaves an existing join.  Returns the underlying
+/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
    shfunk on success and NULL on failure.  (logs details). */
 
 void *
-fd_replay_state_leave( fd_replay_state_t * state ) {
+fd_runtime_ctx_leave( fd_runtime_ctx_t * state ) {
   return state;
 }
 
-/* fd_replay_state_delete unformats a wksp allocation used as a replay_state */
+/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
 void *
-fd_replay_state_delete( void * state ) {
+fd_runtime_ctx_delete( void * state ) {
   return state;
 }

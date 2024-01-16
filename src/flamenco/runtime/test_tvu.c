@@ -61,77 +61,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-typedef struct {
-  char const * blockstore_wksp_name;
-  char const * funk_wksp_name;
-  char const * gossip_peer_addr;
-  char const * incremental_snapshot;
-  char const * load;
-  char const * my_gossip_addr;
-  char const * my_repair_addr;
-  char const * repair_peer_addr;
-  char const * repair_peer_id;
-  char const * snapshot;
-  ulong  index_max;
-  ulong  page_cnt;
-  ulong  tcnt;
-  ulong  txn_max;
-  ushort rpc_port;
-} args_t;
-
-static args_t
-parse_args( int argc, char ** argv ) {
-  char const * blockstore_wksp_name =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
-  char const * funk_wksp_name =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
-  char const * peer_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
-  char const * incremental =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
-  char const * load =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
-  char const * my_gossip_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
-  char const * my_repair_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
-  char const * repair_peer_addr_ =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
-  char const * repair_peer_id_ =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
-  char const * snapshot =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
-  ulong  index_max =
-      fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
-  ulong  page_cnt =
-      fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
-  ulong  tcnt =
-      fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
-  ulong  xactions_max =
-      fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
-  ushort rpc_port =
-      fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
-
-  args_t args = {
-    .blockstore_wksp_name = blockstore_wksp_name,
-    .funk_wksp_name = funk_wksp_name,
-    .gossip_peer_addr = peer_addr,
-    .incremental_snapshot = incremental,
-    .load = load,
-    .my_gossip_addr = my_gossip_addr,
-    .my_repair_addr = my_repair_addr,
-    .repair_peer_addr = repair_peer_addr_,
-    .repair_peer_id = repair_peer_id_,
-    .snapshot = snapshot,
-    .index_max = index_max,
-    .page_cnt = page_cnt,
-    .tcnt = tcnt,
-    .txn_max = xactions_max,
-    .rpc_port = rpc_port
-  };
-  return args;
-}
-
 // SIGINT signal handler
 volatile int * stopflag;
 static void
@@ -147,41 +76,29 @@ main( int argc, char ** argv ) {
 
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
 
-  args_t args = parse_args( argc, argv );
-  tvu_main_args_t tvu_main_args;
-  tvu_main_setup( &tvu_main_args,
-                  valloc,
-                  NULL,
-                  args.blockstore_wksp_name,
-                  args.funk_wksp_name,
-                  args.gossip_peer_addr,
-                  args.incremental_snapshot,
-                  args.load,
-                  args.my_gossip_addr,
-                  args.my_repair_addr,
-                  args.snapshot,
-                  args.index_max,
-                  args.page_cnt,
-                  args.tcnt,
-                  args.txn_max,
-                  args.rpc_port );
-  if( tvu_main_args.blowup ) return 1;
-  stopflag = &tvu_main_args.stopflag;
+  fd_runtime_args_t args;
+  FD_TEST(fd_tvu_parse_args( &args, argc, argv ) == 0);
+
+  fd_runtime_ctx_t global_ctx;
+  memset(&global_ctx, 0, sizeof(global_ctx));
+
+  fd_tvu_main_setup( &global_ctx, 1, NULL, &args);
+  if( global_ctx.blowup ) return 1;
+  stopflag = &global_ctx.stopflag;
 
   /**********************************************************************/
   /* Tile                                                               */
   /**********************************************************************/
 
-  if( tvu_main( tvu_main_args.gossip,
-                &tvu_main_args.gossip_config,
-                &tvu_main_args.repair_ctx,
-                &tvu_main_args.repair_config,
-                &tvu_main_args.stopflag,
-                args.repair_peer_id,
-                args.repair_peer_addr ) ) {
-    return 1;
+  if( fd_tvu_main( global_ctx.gossip,
+                   &global_ctx.gossip_config,
+                   &global_ctx.repair_ctx,
+                   &global_ctx.repair_config,
+                   &global_ctx.stopflag,
+                   args.repair_peer_id,
+                   args.repair_peer_addr ) ) {
+       return 1;
   }
 
   /***********************************************************************/
@@ -189,7 +106,7 @@ main( int argc, char ** argv ) {
   /***********************************************************************/
 
 #ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_stop_service( tvu_main_args.rpc_ctx );
+  fd_rpc_stop_service( global_ctx.rpc_ctx );
 #endif
   fd_halt();
   return 0;

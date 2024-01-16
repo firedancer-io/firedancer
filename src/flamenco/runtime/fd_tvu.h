@@ -7,6 +7,34 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_acc_mgr.h"
 
+typedef struct {
+  char const * blockstore_wksp_name;
+  char const * funk_wksp_name;
+  char const * gossip_peer_addr;
+  char const * incremental_snapshot;
+  char const * load;
+  char const * my_gossip_addr;
+  char const * my_repair_addr;
+  char const * repair_peer_addr;
+  char const * repair_peer_id;
+  char const * snapshot;
+  char const * cmd;
+  char const * reset;
+  char const * capitalization_file;
+  char const * allocator;
+  char const * validate_db;
+  char const * capture_fpath;
+  char const * trace_fpath;
+  int  retrace;
+  int  abort_on_mismatch;
+  ulong  end_slot;
+  ulong  index_max;
+  ulong  page_cnt;
+  ulong  tcnt;
+  ulong  txn_max;
+  ushort rpc_port;
+} fd_runtime_args_t;
+
 struct fd_repair_peer {
   fd_pubkey_t id;
   uint        hash;
@@ -35,24 +63,25 @@ typedef struct {
 
 typedef struct {
   /* Private variables needed to construct objects */
-  uchar epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT]
-    __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
+  uchar                 epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
   fd_exec_epoch_ctx_t * epoch_ctx;
-  uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT]
-    __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
-  fd_exec_slot_ctx_t * slot_ctx;
-  fd_acc_mgr_t _acc_mgr[1];
-  fd_repair_config_t repair_config;
-  uchar tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
-  fd_tvu_repair_ctx_t repair_ctx;
-  fd_gossip_config_t gossip_config;
-  fd_tvu_gossip_ctx_t gossip_ctx;
+  uchar                 slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_SLOT_CTX_ALIGN ) ) );
+  fd_exec_slot_ctx_t *  slot_ctx;
+  fd_acc_mgr_t          _acc_mgr[1];
+  fd_repair_config_t    repair_config;
+  uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
+  fd_tpool_t           *tpool;
+  fd_alloc_t           *alloc;
+  fd_tvu_repair_ctx_t   repair_ctx;
+  fd_gossip_config_t    gossip_config;
+  fd_tvu_gossip_ctx_t   gossip_ctx;
   fd_gossip_peer_addr_t gossip_peer_addr;
-  uchar private_key[32];
-  fd_pubkey_t public_key;
+  uchar                 private_key[32];
+  fd_pubkey_t           public_key;
 
   /* Public variables */
   int                   blowup;
+  int                   live;
   fd_gossip_t *         gossip;
   fd_repair_t *         repair;
   volatile int          stopflag;
@@ -60,31 +89,29 @@ typedef struct {
   fd_rpc_ctx_t *        rpc_ctx;
 #endif
 
-} tvu_main_args_t;
+  // random crap
+  fd_capture_ctx_t *     capture_ctx;
+  fd_wksp_t           * local_wksp;
+  ulong                  max_workers;
+  uchar                  abort_on_mismatch;
+} fd_runtime_ctx_t;
 
 void
-tvu_main_setup( tvu_main_args_t * tvu_args,
-                fd_valloc_t valloc,
-                fd_wksp_t  * _wksp,
-                char const * blockstore_wksp_name,
-                char const * funk_wksp_name,
-                char const * peer_addr,
-                char const * incremental,
-                char const * load,
-                char const * my_gossip_addr,
-                char const * my_repair_addr,
-                char const * snapshot,
-                ulong  index_max,
-                ulong  page_cnt,
-                ulong  tcnt,
-                ulong  xactions_max,
-                ushort rpc_port );
+fd_tvu_main_setup( fd_runtime_ctx_t * tvu_args,
+                   int live,
+                   fd_wksp_t  * _wksp,
+                   fd_runtime_args_t *args);
 
 int
-tvu_main( fd_gossip_t *        gossip,
-          fd_gossip_config_t * gossip_config,
-          fd_tvu_repair_ctx_t * repair_ctx,
-          fd_repair_config_t * repair_config,
-          volatile int *       stopflag,
-          char const * repair_peer_id_,
-          char const * repair_peer_addr_ );
+fd_tvu_main( fd_gossip_t *        gossip,
+             fd_gossip_config_t * gossip_config,
+             fd_tvu_repair_ctx_t * repair_ctx,
+             fd_repair_config_t * repair_config,
+             volatile int *       stopflag,
+             char const * repair_peer_id_,
+             char const * repair_peer_addr_ );
+
+int
+fd_tvu_parse_args( fd_runtime_args_t *args,
+                   int argc,
+                   char ** argv);
