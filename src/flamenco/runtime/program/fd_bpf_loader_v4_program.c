@@ -1,7 +1,6 @@
 #include "fd_bpf_loader_v4_program.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
-#include "../context/fd_exec_txn_ctx.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../sysvar/fd_sysvar_clock.h"
@@ -146,15 +145,14 @@ _process_meta_instruction( fd_exec_instr_ctx_t ctx ) {
 }
 
 int
-fd_executor_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
+fd_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
   //if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
   //  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   //}
 
   /* Query program ID */
-  fd_pubkey_t const * txn_accs =  ctx.txn_ctx->accounts;
-  fd_pubkey_t const * program_id = &txn_accs[ ctx.instr->program_id ];
+  fd_pubkey_t const * program_id = &ctx.instr->program_id_pubkey;
 
   if( 0==memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return _process_meta_instruction( ctx );

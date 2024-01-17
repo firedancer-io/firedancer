@@ -17,7 +17,6 @@ struct fd_instr_info {
   uchar *               data;
   fd_pubkey_t           program_id_pubkey;
 
-  uchar                 acct_txn_idxs[128];
   uchar                 acct_flags[128];
   fd_pubkey_t           acct_pubkeys[128];
 
