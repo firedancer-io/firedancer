@@ -90,7 +90,7 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t ctx );
    is not a recognized native program. */
 
 fd_exec_instr_fn_t
-fd_executor_lookup_native_program( fd_pubkey_t const * program_id );
+fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
    instruction processing.  Does fd_scratch allocations.  Returns an
@@ -99,6 +99,14 @@ fd_executor_lookup_native_program( fd_pubkey_t const * program_id );
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
+
+/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
+   human readable cstr.  The lifetime of the returned pointer is
+   infinite and the call itself is thread safe.  The returned pointer is
+   always to a non-NULL cstr. */
+
+FD_FN_CONST char const *
+fd_executor_instr_strerror( int err );
 
 FD_PROTOTYPES_END
 

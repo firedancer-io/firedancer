@@ -7,8 +7,7 @@
 /* fd_exec_instr_ctx_t is the context needed to execute a single
    instruction (program invocation). */
 
-#define FD_EXEC_INSTR_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_INSTR_CTX_ALIGN))) fd_exec_instr_ctx {
+struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   ulong magic; /* ==FD_EXEC_INSTR_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
@@ -22,7 +21,8 @@ struct __attribute__((aligned(FD_EXEC_INSTR_CTX_ALIGN))) fd_exec_instr_ctx {
   fd_instr_info_t const *     instr;
 };
 
-#define FD_EXEC_INSTR_CTX_FOOTPRINT ( sizeof(fd_exec_instr_ctx_t) )
+#define FD_EXEC_INSTR_CTX_ALIGN     (alignof(fd_exec_instr_ctx_t))
+#define FD_EXEC_INSTR_CTX_FOOTPRINT (sizeof (fd_exec_instr_ctx_t))
 #define FD_EXEC_INSTR_CTX_MAGIC (0x18964FC6EDAAC5A8UL) /* random */
 
 FD_PROTOTYPES_BEGIN

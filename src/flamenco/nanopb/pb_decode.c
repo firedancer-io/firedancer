@@ -13,7 +13,7 @@
     #define checkreturn __attribute__((warn_unused_result))
 #endif
 
-#include "pb.h"
+#include "pb_firedancer.h"
 #include "pb_decode.h"
 #include "pb_common.h"
 

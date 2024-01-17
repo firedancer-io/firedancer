@@ -14,8 +14,7 @@
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
-#define FD_EXEC_SLOT_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
+struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t *    epoch_ctx;
@@ -38,8 +37,17 @@ struct __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN))) fd_exec_slot_ctx {
   fd_slot_bank_t           slot_bank;
 };
 
-#define FD_EXEC_SLOT_CTX_FOOTPRINT ( sizeof(fd_exec_slot_ctx_t) )
+#define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
+#define FD_EXEC_SLOT_CTX_FOOTPRINT (sizeof (fd_exec_slot_ctx_t))
 #define FD_EXEC_SLOT_CTX_MAGIC (0xC2287BA2A5E6FC3DUL) /* random */
+
+/* FD_FEATURE_ACTIVE evalutes to 1 if the given feature is active, 0
+   otherwise.  First arg is the fd_exec_slot_ctx_t.  Second arg is the
+   name of the feature.
+
+   Example usage:   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) */
+
+#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
 FD_PROTOTYPES_BEGIN
 
