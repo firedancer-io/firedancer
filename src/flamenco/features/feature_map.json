@@ -83,14 +83,14 @@
   {"name":"executables_incur_cpi_data_cost","pubkey": "7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829"},
   {"name":"fix_recent_blockhashes","pubkey": "6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo"},
   {"name":"update_rewards_from_cached_accounts","pubkey": "28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9"},
-  {"name":"enable_partitioned_epoch_reward","pubkey": "HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8"},
+  {"name":"enable_partitioned_epoch_reward","pubkey": "41tVp5qR1XwWRt5WifvtSQyuxtqQWJgEK8w91AtBqSwP"},
   {"name":"spl_token_v3_4_0","pubkey": "Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN"},
   {"name":"spl_associated_token_account_v1_1_0","pubkey": "FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8"},
   {"name":"default_units_per_instruction","pubkey": "J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q"},
   {"name":"stake_allow_zero_undelegated_amount","pubkey": "sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw"},
   {"name":"require_static_program_ids_in_transaction","pubkey": "8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC"},
   {"name":"stake_raise_minimum_delegation_to_1_sol","pubkey": "9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i"},
-  {"name":"stake_minimum_delegation_for_rewards","pubkey": "ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH"},
+  {"name":"stake_minimum_delegation_for_rewards","pubkey": "G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ"},
   {"name":"add_set_compute_unit_price_ix","pubkey": "98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g"},
   {"name":"disable_deploy_of_alloc_free_syscall","pubkey": "79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im"},
   {"name":"include_account_index_in_rent_error","pubkey": "2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY"},
@@ -173,5 +173,10 @@
   {"name":"update_hashes_per_tick3","pubkey":"8C8MCtsab5SsfammbzvYz65HHauuUYdbY2DZ4sznH6h5"},
   {"name":"update_hashes_per_tick4","pubkey":"8We4E7DPwF2WfAN8tRTtWQNhi98B99Qpuj7JoZ3Aikgg"},
   {"name":"update_hashes_per_tick5","pubkey":"BsKLKAn1WM4HVhPRDsjosmqSg2J8Tq5xP2s2daDS6Ni4"},
-  {"name":"update_hashes_per_tick6","pubkey":"FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv"}
+  {"name":"update_hashes_per_tick6","pubkey":"FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv"},
+  {"name":"validate_fee_collector_account","pubkey":"prpFrMtgNmzaNzkPJg9o753fVvbHKqNrNTm76foJ2wm"},
+  {"name":"enable_zk_transfer_with_fee","pubkey":"zkNLP7EQALfC1TYeB3biDU7akDckj8iPkvh9y2Mt2K3"},
+  {"name":"drop_legacy_shreds","pubkey":"GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy"},
+  {"name":"consume_blockstore_duplicate_proofs","pubkey":"6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ"},
+  {"name":"index_erasure_conflict_duplicate_proofs","pubkey":"dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa"}
 ]
