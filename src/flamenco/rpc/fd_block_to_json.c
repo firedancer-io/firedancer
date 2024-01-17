@@ -272,8 +272,11 @@ int fd_block_to_json( fd_textstream_t * ts,
                       long maxvers,
                       enum fd_block_detail detail,
                       int rewards) {
+  fd_blockstore_start_read( blks );
+  
   fd_blockstore_block_t * blk = fd_blockstore_block_query(blks, slot);
   if (blk == NULL) {
+    fd_blockstore_end_read( blks );
     return -1;
   }
 
@@ -350,7 +353,10 @@ int fd_block_to_json( fd_textstream_t * ts,
 #endif
         
         int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, val2, val2_sz, encoding, maxvers, detail, rewards );
-        if ( r ) return r;
+        if ( r ) {
+          fd_blockstore_end_read( blks );
+          return r;
+        }
 
         EMIT_SIMPLE("}");
         
@@ -365,5 +371,7 @@ int fd_block_to_json( fd_textstream_t * ts,
 
   fd_textstream_sprintf(ts, "},\"id\":%lu}", call_id);
 
+  fd_blockstore_end_read( blks );
+  
   return 0;
 }

@@ -262,6 +262,8 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
                          fd_slot_meta_t *  m,
                          fd_blockstore_t * blockstore,
                          int txnstatus ) {
+  fd_blockstore_start_write( blockstore );
+  
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -290,12 +292,14 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     if (!valid || cur_slot != slot) {
       FD_LOG_WARNING(("missing shreds for slot %ld", slot));
       rocksdb_iter_destroy(iter);
+      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
     if (index != i) {
       FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
       rocksdb_iter_destroy(iter);
+      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
@@ -305,6 +309,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     if (data == NULL) {
       FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);
+      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
@@ -314,11 +319,13 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     if (shred == NULL) {
       FD_LOG_WARNING(("failed to parse shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);
+      fd_blockstore_end_write(blockstore);
       return -1;
     }
     if (fd_blockstore_shred_insert( blockstore, m, shred ) != FD_BLOCKSTORE_OK) {
       FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);
+      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
@@ -443,5 +450,6 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     }
   }
 
+  fd_blockstore_end_write(blockstore);
   return 0;
 }

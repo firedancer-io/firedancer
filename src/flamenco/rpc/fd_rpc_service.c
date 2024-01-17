@@ -366,6 +366,7 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   if (endslotn > ctx->slot_ctx->slot_bank.slot)
     endslotn = ctx->slot_ctx->slot_bank.slot;
 
+  fd_blockstore_start_read( ctx->blks );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
@@ -377,6 +378,7 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
     }
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
+  fd_blockstore_end_read( ctx->blks );
 
   fd_web_replier_done(replier);
   return 0;
@@ -415,6 +417,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   if (limitn > 500000)
     limitn = 500000;
 
+  fd_blockstore_start_read( ctx->blks );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
@@ -426,6 +429,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
     }
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
+  fd_blockstore_end_read( ctx->blks );
 
   fd_web_replier_done(replier);
   return 0;
@@ -886,6 +890,7 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
                         ctx->slot_ctx->slot_bank.slot);
 
   // Iterate through account ids
+  fd_blockstore_start_read( ctx->blks );
   for ( ulong i = 0; ; ++i ) {
     // Path to argument
     uint path[4];
@@ -917,6 +922,7 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
     fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
                          elem->slot);
   }
+  fd_blockstore_end_read( ctx->blks );
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
@@ -1084,16 +1090,19 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     fd_web_replier_done(replier);
     return 0;
   }
+  fd_blockstore_start_read( ctx->blks );
   fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->blks, key );
   if ( FD_UNLIKELY( NULL == elem ) ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
     fd_web_replier_done(replier);
+    fd_blockstore_end_read( ctx->blks );
     return 0;
   }
 
   fd_blockstore_block_t * blk = fd_blockstore_block_query( ctx->blks, elem->slot );
   if (blk == NULL) {
     fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
+    fd_blockstore_end_read( ctx->blks );
     return 0;
   }
 
@@ -1114,6 +1123,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);
+  fd_blockstore_end_read( ctx->blks );
   return 0;
 }
 

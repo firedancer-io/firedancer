@@ -225,6 +225,7 @@ fd_blockstore_new( void * shmem,
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( blockstore->magic ) = FD_BLOCKSTORE_MAGIC;
+  fd_readwrite_new( &blockstore->lock );
   FD_COMPILER_MFENCE();
 
   return (void *)blockstore;
@@ -922,4 +923,24 @@ fd_blockstore_set_height( fd_blockstore_t * blockstore,
   fd_blockstore_block_t * query = fd_blockstore_block_query( blockstore, slot );
   if( query )
     query->height = block_height;
+}
+
+void
+fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot ) {
+  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
+  fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
+  for( ulong i = around_slot-5; i < around_slot+20; ++i ) {
+    fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, i, NULL );
+    if( !slot_meta_entry ) continue;
+    fd_blockstore_block_map_t * block_entry = fd_blockstore_block_map_query( block_map, i, NULL );
+    FD_LOG_NOTICE(( "%sslot=%lu received=%ld consumed=%ld last=%ld size=%ld",
+                    (i == around_slot ? "*" : " "),
+                    i,
+                    (long)slot_meta_entry->slot_meta.received,
+                    (long)slot_meta_entry->slot_meta.consumed,
+                    (long)slot_meta_entry->slot_meta.last_index,
+                    (block_entry == NULL ? -1L : (long)block_entry->block.sz) ));
+  }
+  
 }

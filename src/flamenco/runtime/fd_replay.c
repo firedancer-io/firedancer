@@ -29,20 +29,24 @@ fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
 
     FD_LOG_DEBUG(("reading slot %ld", slot));
 
+    fd_blockstore_start_read(blockstore);
     fd_blockstore_block_t * blk = fd_blockstore_block_query(blockstore, slot);
     if (blk == NULL) {
       FD_LOG_WARNING(("failed to read slot %ld", slot));
+      fd_blockstore_end_read(blockstore);
       continue;
     }
     uchar * val = fd_blockstore_block_data_laddr(blockstore, blk);
     ulong sz = blk->sz;
+    fd_blockstore_end_read(blockstore);
 
     ulong blk_txn_cnt = 0;
     FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, state->tpool, state->max_workers, &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
-    uchar const * expected = fd_blockstore_block_query_hash( state->slot_ctx->acc_mgr->blockstore, slot );
+    fd_blockstore_start_read(blockstore);
+    uchar const * expected = fd_blockstore_block_query_hash( blockstore, slot );
     if ( FD_UNLIKELY( !expected ) )
       FD_LOG_ERR(("slot %lu is missing its hash", slot));
     else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.poh.hash, expected, 32UL ) ) ) {
@@ -52,11 +56,12 @@ fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
           state->slot_ctx->slot_bank.poh.hash ));
       if( state->abort_on_mismatch ) {
         __asm__( "int $3" );
+        fd_blockstore_end_read(blockstore);
         return 1;
       }
     }
 
-    expected = fd_blockstore_block_query_bank_hash( state->slot_ctx->acc_mgr->blockstore, slot );
+    expected = fd_blockstore_block_query_bank_hash( blockstore, slot );
     if ( FD_UNLIKELY( !expected ) ) {
       FD_LOG_ERR(("slot %lu is missing its bank hash", slot));
     } else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
@@ -66,9 +71,11 @@ fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
           state->slot_ctx->slot_bank.banks_hash.hash ));
       if( state->abort_on_mismatch ) {
         __asm__( "int $3" );
+        fd_blockstore_end_read(blockstore);
         return 1;
       }
     }
+    fd_blockstore_end_read(blockstore);
 
 #if 0
     if (NULL != args->capitalization_file) {

@@ -7,6 +7,7 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "stdbool.h"
+#include "fd_readwrite_lock.h"
 
 /* FD_BLOCKSTORE_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a blockstore.  ALIGN should be a positive integer power of 2.
@@ -185,6 +186,7 @@ struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
   ulong blockstore_gaddr;
   ulong wksp_tag;
   ulong seed;
+  fd_readwrite_lock_t lock;
 
   /* Slot metadata */
 
@@ -344,6 +346,33 @@ void
 fd_blockstore_set_height( fd_blockstore_t * blockstore,
                           ulong slot,
                           ulong block_height );
+
+/* Acquire a read lock */
+static inline void
+fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
+  fd_readwrite_start_read( &blockstore->lock );
+}
+
+/* Release a read lock */
+static inline void
+fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
+  fd_readwrite_end_read( &blockstore->lock );
+}
+
+/* Acquire a write lock */
+static inline void
+fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
+  fd_readwrite_start_write( &blockstore->lock );
+}
+
+/* Release a write lock */
+static inline void
+fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
+  fd_readwrite_end_write( &blockstore->lock );
+}
+
+void
+fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );
 
 FD_PROTOTYPES_END
 

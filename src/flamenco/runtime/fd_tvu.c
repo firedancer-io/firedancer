@@ -80,14 +80,21 @@ static bool has_peer                              = 0;
 
 static void
 eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
+  fd_blockstore_start_read( repair_ctx->blockstore );
   while( 1 ) {
     /* Search for the next block to execute */
     ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
     for( ulong skip = 0; 1; ++skip ) {
-      if( skip > 32U ) return; /* searching too far */
+      if( skip > 32U ) {
+        fd_blockstore_end_read( repair_ctx->blockstore );
+        return; /* searching too far */
+      }
       ulong par = fd_blockstore_slot_parent_query( repair_ctx->blockstore, slot + skip );
       if( par == ULONG_MAX ) continue; /* not found/no metadata */
-      if( par > repair_ctx->slot_ctx->slot_bank.prev_slot ) return; /* wait for missing blocks */
+      if( par > repair_ctx->slot_ctx->slot_bank.prev_slot ) {
+        fd_blockstore_end_read( repair_ctx->blockstore );
+        return; /* wait for missing blocks */
+      }
       if( par < repair_ctx->slot_ctx->slot_bank.prev_slot ) { /* wrong fork executed, roll back */
         if( fd_runtime_rollback_to( repair_ctx->slot_ctx, par ) ) {
           FD_LOG_WARNING(( "failed to roll back to %lu", par ));
@@ -99,27 +106,40 @@ eval_complete_blocks( fd_tvu_repair_ctx_t * repair_ctx ) {
       FD_TEST( par == repair_ctx->slot_ctx->slot_bank.prev_slot );
       if( skip > 0 ) {
         FD_LOG_NOTICE(("skipping from block %lu to %lu", slot, slot+skip));
+        fd_blockstore_end_read( repair_ctx->blockstore );
+        fd_blockstore_start_write( repair_ctx->blockstore );
         for( ulong i = slot+1; i < slot+skip; ++i )
           /* Discard incomplete blocks. We will never request the rest of the shreds */
           fd_blockstore_discard_shreds( repair_ctx->blockstore, i );
         slot += skip;
+        fd_blockstore_end_write( repair_ctx->blockstore );
+        fd_blockstore_start_read( repair_ctx->blockstore );
       }
       repair_ctx->slot_ctx->slot_bank.slot = slot;
       break;
     }
 
     fd_blockstore_block_t * blk = fd_blockstore_block_query( repair_ctx->blockstore, slot );
-    if( blk == NULL ) /* we have the metadata but not the actual block */
+    if( blk == NULL ) { /* we have the metadata but not the actual block */
+      fd_blockstore_end_read( repair_ctx->blockstore );
       return;
-    ulong txn_cnt = 0;
-    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, fd_blockstore_block_data_laddr( repair_ctx->blockstore, blk ),
+    }
+    uchar const * data = fd_blockstore_block_data_laddr( repair_ctx->blockstore, blk );
+    
+    fd_blockstore_end_read( repair_ctx->blockstore );
+    
+    ulong txn_cnt = 0;    
+    FD_TEST(fd_runtime_block_eval_tpool( repair_ctx->slot_ctx, NULL, data,
                                          blk->sz, repair_ctx->tpool, repair_ctx->max_workers, &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS);
     (void)txn_cnt;
 
     FD_LOG_NOTICE( ( "bank hash for slot %lu: %32J",
                      slot,
                      repair_ctx->slot_ctx->slot_bank.banks_hash.hash ) );
+
+    fd_blockstore_start_read( repair_ctx->blockstore );
   }
+  fd_blockstore_end_read( repair_ctx->blockstore );
 }
 
 static void
@@ -129,6 +149,7 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
 #define LOOK_AHEAD_HIGHEST 20
 #define LOOK_AHEAD_SHREDS 2
 
+  fd_blockstore_start_read( repair_ctx->blockstore );
   for( ulong slot = repair_ctx->slot_ctx->slot_bank.slot;
        slot - repair_ctx->slot_ctx->slot_bank.slot < LOOK_AHEAD_HIGHEST
          && !fd_repair_is_full( repair_ctx->repair );
@@ -153,7 +174,8 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
       FD_LOG_DEBUG( ( "unable to find any peers shreds in range of requested slot %lu", slot ) );
       break;
     }
-#define GET_PEER \
+
+#define GET_PEER                                                     \
     fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % npeers]; \
     repair_ctx->peer_iter += 17077
 
@@ -181,6 +203,7 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
       }
     }
   }
+  fd_blockstore_end_read( repair_ctx->blockstore );
 }
 
 static void
@@ -249,14 +272,21 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   if( FD_LIKELY( peer ) )
     peer->reply_cnt++;
 
+  fd_blockstore_start_write( repair_ctx->blockstore );
+  
   if( shred->slot < repair_ctx->slot_ctx->slot_bank.slot ||
-      fd_blockstore_block_query( repair_ctx->blockstore, shred->slot ) != NULL )
+      fd_blockstore_block_query( repair_ctx->blockstore, shred->slot ) != NULL ) {
+    fd_blockstore_end_write( repair_ctx->blockstore );
     return;
+  }
 
   int                   rc;
   if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( repair_ctx->blockstore, NULL, shred ) != FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING( ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", shred->slot, rc ) );
   };
+
+  fd_blockstore_end_write( repair_ctx->blockstore );
+
   eval_complete_blocks( repair_ctx );
 }
 

@@ -1881,6 +1881,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
   /* Use the blockhash as the funk xid */
   fd_funk_txn_xid_t xid;
+
+  fd_blockstore_start_read(slot_ctx->acc_mgr->blockstore);
   ulong slot = slot_ctx->slot_bank.slot;
   const uchar * hash = fd_blockstore_block_query_hash(slot_ctx->acc_mgr->blockstore, slot);
   if( hash == NULL ) {
@@ -1891,6 +1893,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     /* push a new transaction on the stack */
     slot_ctx->funk_txn = fd_funk_txn_prepare(funk, slot_ctx->funk_txn, &xid, 1);
   }
+  fd_blockstore_end_read(slot_ctx->acc_mgr->blockstore);
 
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
     ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool, max_workers);
@@ -1935,10 +1938,15 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
   fd_blockstore_t * blockstore = slot_ctx->acc_mgr->blockstore;
   FD_LOG_WARNING(("rolling back to slot %lu", slot));
   /* Get the blockhash, which is used as the funk transaction id */
+  fd_blockstore_start_read(blockstore);
   uchar const * hash = fd_blockstore_block_query_hash(blockstore, slot);
-  if( !hash ) return -1;
+  if( !hash ) {
+    fd_blockstore_end_read(blockstore);
+    return -1;
+  }
   fd_funk_txn_xid_t xid;
   fd_memcpy(xid.uc, hash, sizeof(fd_funk_txn_xid_t));
+  fd_blockstore_end_read(blockstore);
   /* Switch to the funk transaction */
   fd_funk_txn_t * txn = fd_funk_txn_query(&xid, txnmap);
   if( !txn) return -1;
