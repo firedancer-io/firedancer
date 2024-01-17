@@ -112,6 +112,7 @@ extern fd_tile_config_t fd_tile_bank;
 extern fd_tile_config_t fd_tile_poh;
 extern fd_tile_config_t fd_tile_shred;
 extern fd_tile_config_t fd_tile_store;
+extern fd_tile_config_t fd_tile_sign;
 extern fd_tile_config_t fd_tile_metric;
 
 void *

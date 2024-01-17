@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_disco_shred_fd_shredder_h
 #define HEADER_fd_src_disco_shred_fd_shredder_h
 
+#include "../keyguard/fd_remote_signer.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/chacha20/fd_chacha20rng.h"
@@ -22,6 +23,9 @@
 
 #define FD_SHREDDER_MAGIC (0xF17EDA2547EDDE70UL) /* FIREDAN SHREDDER V0 */
 
+typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
+
+
 
 static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
    0UL, 17UL, 18UL, 19UL, 19UL, 20UL, 21UL, 21UL,
@@ -34,7 +38,6 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ushort shred_version;
 
   fd_sha256_batch_t sha256 [ 1 ];
-  fd_sha512_t       sha512 [ 1 ]; /* Needed for signing */
   fd_reedsol_t      reedsol[ 1 ];
   union __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN))) {
     fd_bmtree_commit_t bmtree;
@@ -46,7 +49,8 @@ struct __attribute__((aligned(FD_SHREDDER_ALIGN))) fd_shredder_private {
   ulong        sz;
   ulong        offset;
 
-  uchar             leader_pubkey[ 32 ];
+  void *                signer_ctx;
+  fd_shredder_sign_fn * signer;
 
   fd_entry_batch_meta_t meta;
   ulong slot;
@@ -64,7 +68,7 @@ FD_FN_CONST static inline ulong fd_shredder_footprint( void ) { return sizeof(fd
    key of the validator that will sign the shreds this shredder
    produces.  The value provided for shred_version will be stored in the
    shred_version field of each shred that this shredder produces. */
-void          * fd_shredder_new(  void * mem, void const * pubkey, ushort shred_version );
+void          * fd_shredder_new(  void * mem, fd_shredder_sign_fn * signer, void * signer_ctx, ushort shred_version );
 fd_shredder_t * fd_shredder_join( void * mem );
 void *          fd_shredder_leave(  fd_shredder_t * shredder );
 void *          fd_shredder_delete( void *          mem      );
@@ -177,7 +181,7 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
    has been consumed already by previous calls to this function.  On
    success, advances the position of the shredder within the batch
    without finishing the batch. */
-fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, void const * signing_private_key, fd_fec_set_t * result );
+fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, fd_fec_set_t * result );
 
 /* fd_shredder_fini_batch finishes the in process batch.  shredder must
    be a valid local join that is currently in a batch.  Upon return,

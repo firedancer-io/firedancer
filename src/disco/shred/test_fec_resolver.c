@@ -22,6 +22,31 @@ FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  
 
 fd_shredder_t _shredder[ 1 ];
 
+struct signer_ctx {
+  fd_sha512_t sha512[ 1 ];
+
+  uchar const * public_key;
+  uchar const * private_key;
+};
+typedef struct signer_ctx signer_ctx_t;
+
+void
+signer_ctx_init( signer_ctx_t * ctx,
+                 uchar const *  private_key ) {
+  FD_TEST( fd_sha512_init( fd_sha512_new( ctx->sha512 ) ) );
+  ctx->public_key  = private_key + 32UL;
+  ctx->private_key = private_key;
+}
+
+void
+test_signer( void *        _ctx,
+             uchar *       signature,
+             uchar const * merkle_root ) {
+  signer_ctx_t * ctx = (signer_ctx_t *)_ctx;
+
+  fd_ed25519_sign( signature, merkle_root, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+}
+
 static int
 sets_eq( fd_fec_set_t const * a, fd_fec_set_t const * b ) {
   if( (a==NULL) ^ (b==NULL) ) return 0;
@@ -56,7 +81,10 @@ allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
 
 static void
 test_one_batch( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   uchar const * pubkey = test_private_key+32UL;
@@ -91,7 +119,7 @@ test_one_batch( void ) {
   /* To complete an FEC set, you need at least (# of data shreds) total
      shreds and at least one parity shred. */
   for( ulong i=0UL; i<7UL; i++ ) {
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
 
     for( ulong j=0UL; j<set->data_shred_cnt;       j++ ) ADD_SHRED( r1, set->data_shreds  [ j ], OKAY    );
     ADD_SHRED( r1, set->parity_shreds[ 0 ], COMPLETES );
@@ -119,7 +147,10 @@ test_one_batch( void ) {
 
 static void
 test_interleaved( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   uchar const * pubkey = test_private_key+32UL;
@@ -138,8 +169,8 @@ test_interleaved( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_set_t const * out_fec[1];
@@ -159,7 +190,10 @@ test_interleaved( void ) {
 
 static void
 test_rolloff( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
   uchar const * pubkey = test_private_key+32UL;
   fd_fec_set_t const * out_fec[1];
@@ -182,9 +216,9 @@ test_rolloff( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, test_private_key, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, test_private_key, _set+1UL );
-  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, test_private_key, _set+2UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set     );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL );
+  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, _set+2UL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
@@ -215,7 +249,10 @@ perf_test( void ) {
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
   meta->block_complete = 1;
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -230,7 +267,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, _set );
     }
     fd_shredder_fini_batch( shredder );
   }

@@ -36,17 +36,22 @@
 #define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 8UL)
 #define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 9UL)
 #define FD_TOPO_WKSP_KIND_METRIC_IN    (10UL)
-#define FD_TOPO_WKSP_KIND_NET          (11UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (12UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (13UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (14UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (15UL)
-#define FD_TOPO_WKSP_KIND_PACK         (16UL)
-#define FD_TOPO_WKSP_KIND_BANK         (17UL)
-#define FD_TOPO_WKSP_KIND_POH          (18UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (19UL)
-#define FD_TOPO_WKSP_KIND_STORE        (20UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (21UL)
+
+#define FD_TOPO_WKSP_KIND_SHRED_SIGN   (11UL)
+#define FD_TOPO_WKSP_KIND_SIGN_SHRED   (12UL)
+
+#define FD_TOPO_WKSP_KIND_NET          (13UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (14UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (15UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (16UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (17UL)
+#define FD_TOPO_WKSP_KIND_PACK         (18UL)
+#define FD_TOPO_WKSP_KIND_BANK         (19UL)
+#define FD_TOPO_WKSP_KIND_POH          (20UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (21UL)
+#define FD_TOPO_WKSP_KIND_STORE        (22UL)
+#define FD_TOPO_WKSP_KIND_SIGN         (23UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (24UL)
 #define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
@@ -75,6 +80,8 @@
 #define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (11UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (12UL)
 #define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (13UL)
+#define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (14UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (15UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -89,7 +96,8 @@
 #define FD_TOPO_TILE_KIND_POH    ( 7UL)
 #define FD_TOPO_TILE_KIND_SHRED  ( 8UL)
 #define FD_TOPO_TILE_KIND_STORE  ( 9UL)
-#define FD_TOPO_TILE_KIND_METRIC (10UL)
+#define FD_TOPO_TILE_KIND_SIGN   (10UL)
+#define FD_TOPO_TILE_KIND_METRIC (11UL)
 #define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* A workspace is a Firedance specific memory management structure that
@@ -163,6 +171,9 @@ typedef struct {
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
   int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
+  int   in_link_poll[ 16 ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
+                                   If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
+                                   reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
   ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
 
@@ -186,59 +197,65 @@ typedef struct {
 
   /* Configuration fields.  These are required to be known by the topology so it can determine the
      total size of Firedancer in memory. */
-  struct {
-    char   app_name[ 256 ];
-    char   interface[ 16 ];
-    ulong  xdp_rx_queue_size;
-    ulong  xdp_tx_queue_size;
-    ulong  xdp_aio_depth;
-    uint   src_ip_addr;
-    ushort allow_ports[ 3 ];
-  } net;
+  union {
+    struct {
+      char   app_name[ 256 ];
+      char   interface[ 16 ];
+      ulong  xdp_rx_queue_size;
+      ulong  xdp_tx_queue_size;
+      ulong  xdp_aio_depth;
+      uint   src_ip_addr;
+      ushort allow_ports[ 3 ];
+    } net;
 
-  struct {
-    ulong  depth;
-    uint   reasm_cnt;
-    ulong  max_concurrent_connections;
-    ulong  max_concurrent_handshakes;
-    ulong  max_inflight_quic_packets;
-    ulong  tx_buf_size;
-    ulong  max_concurrent_streams_per_connection;
-    uint   ip_addr;
-    uchar  src_mac_addr[ 6 ];
-    ushort quic_transaction_listen_port;
-    ushort legacy_transaction_listen_port;
-    ulong  idle_timeout_millis;
-  } quic;
+    struct {
+      ulong  depth;
+      uint   reasm_cnt;
+      ulong  max_concurrent_connections;
+      ulong  max_concurrent_handshakes;
+      ulong  max_inflight_quic_packets;
+      ulong  tx_buf_size;
+      ulong  max_concurrent_streams_per_connection;
+      uint   ip_addr;
+      uchar  src_mac_addr[ 6 ];
+      ushort quic_transaction_listen_port;
+      ushort legacy_transaction_listen_port;
+      ulong  idle_timeout_millis;
+    } quic;
 
-  struct {
-    ulong tcache_depth;
-  } dedup;
+    struct {
+      ulong tcache_depth;
+    } dedup;
 
-  struct {
-    ulong max_pending_transactions;
-    ulong bank_tile_count;
-    char  identity_key_path[ PATH_MAX ];
-  } pack;
+    struct {
+      ulong max_pending_transactions;
+      ulong bank_tile_count;
+      char  identity_key_path[ PATH_MAX ];
+    } pack;
 
-  struct {
-    ulong bank_cnt;
-    char   identity_key_path[ PATH_MAX ];
-  } poh;
+    struct {
+      ulong bank_cnt;
+      char   identity_key_path[ PATH_MAX ];
+    } poh;
 
-  struct {
-    ulong  depth;
-    uint   ip_addr;
-    uchar  src_mac_addr[ 6 ];
-    ulong  fec_resolver_depth;
-    char   identity_key_path[ PATH_MAX ];
-    ushort shred_listen_port;
-    ulong  expected_shred_version;
-  } shred;
+    struct {
+      ulong  depth;
+      uint   ip_addr;
+      uchar  src_mac_addr[ 6 ];
+      ulong  fec_resolver_depth;
+      char   identity_key_path[ PATH_MAX ];
+      ushort shred_listen_port;
+      ulong  expected_shred_version;
+    } shred;
 
-  struct {
-    ushort prometheus_listen_port;
-  } metric;
+    struct {
+      char   identity_key_path[ PATH_MAX ];
+    } sign;
+
+    struct {
+      ushort prometheus_listen_port;
+    } metric;
+  };
 } fd_topo_tile_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -347,6 +364,8 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
     case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
     case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
+    case FD_TOPO_WKSP_KIND_SHRED_SIGN:   return "shred_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_SHRED:   return "sign_shred";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
     case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
     case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
@@ -357,6 +376,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_POH:          return "poh";
     case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
+    case FD_TOPO_WKSP_KIND_SIGN:         return "sign";
     case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
@@ -383,6 +403,8 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
     case FD_TOPO_LINK_KIND_CRDS_TO_SHRED:   return "crds_shred";
+    case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:   return "shred_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_SHRED:   return "sign_shred";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -415,6 +437,7 @@ fd_topo_tile_kind_str( ulong kind ) {
      case FD_TOPO_TILE_KIND_POH:    return "poh";
      case FD_TOPO_TILE_KIND_SHRED:  return "shred";
      case FD_TOPO_TILE_KIND_STORE:  return "store";
+     case FD_TOPO_TILE_KIND_SIGN:   return "sign";
      case FD_TOPO_TILE_KIND_METRIC: return "metric";
      default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }

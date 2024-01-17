@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-22"
+    affinity = "0-23"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
