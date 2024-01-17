@@ -79,7 +79,7 @@ fd_exec_epoch_ctx_delete( void * mem ) {
   }
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
-  fd_epoch_bank_destroy(&hdr->epoch_bank, &ctx);
+  fd_epoch_bank_destroy( &hdr->epoch_bank, &ctx );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

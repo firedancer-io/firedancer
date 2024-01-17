@@ -4,6 +4,7 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_rent_lists.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include <assert.h>
 
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
@@ -25,6 +26,15 @@ fd_acc_mgr_new( void *      mem,
   acc_mgr->funk = funk;
   return acc_mgr;
 
+}
+
+void *
+fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr ) {
+
+  if( FD_UNLIKELY( !acc_mgr ) ) return NULL;
+
+  memset( acc_mgr, 0, FD_ACC_MGR_FOOTPRINT );
+  return acc_mgr;
 }
 
 static ulong
@@ -140,6 +150,38 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
     account->starting_dlen = meta->dlen;
 
   if (ULONG_MAX == account->starting_lamports)
+    account->starting_lamports = meta->info.lamports;
+
+  return FD_ACC_MGR_SUCCESS;
+}
+
+int
+fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
+                   fd_funk_txn_t *         txn,
+                   fd_pubkey_t const *     pubkey,
+                   int                     do_create,
+                   ulong                   min_data_sz,
+                   fd_borrowed_account_t * account ) {
+  int err = FD_ACC_MGR_SUCCESS;
+
+  fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
+  if( FD_UNLIKELY( !meta ) ) return err;
+
+  assert( account->magic == FD_BORROWED_ACCOUNT_MAGIC );
+
+  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
+
+  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
+    return FD_ACC_MGR_ERR_WRONG_MAGIC;
+
+  account->orig_rec  = account->const_rec  = account->rec;
+  account->orig_meta = account->const_meta = account->meta = meta;
+  account->orig_data = account->const_data = account->data = (uchar *)meta + meta->hlen;
+
+  if( ULONG_MAX == account->starting_dlen )
+    account->starting_dlen = meta->dlen;
+
+  if( ULONG_MAX == account->starting_lamports )
     account->starting_lamports = meta->info.lamports;
 
   return FD_ACC_MGR_SUCCESS;

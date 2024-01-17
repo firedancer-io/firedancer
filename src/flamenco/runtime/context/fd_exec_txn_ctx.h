@@ -1,12 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 
-#include "../../../ballet/txn/fd_txn.h"
+#include "../fd_runtime.h"
 #include "../../../util/fd_util_base.h"
 
 #include "../fd_borrowed_account.h"
-
-#include "fd_exec_epoch_ctx.h"
 #include "fd_exec_instr_ctx.h"
 
 /* Return data for syscalls */
@@ -21,8 +19,7 @@ typedef struct fd_txn_return_data fd_txn_return_data_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
-#define FD_EXEC_TXN_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
+struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
@@ -53,7 +50,8 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
 };
 
-#define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t) )
+#define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
+#define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t))
 #define FD_EXEC_TXN_CTX_MAGIC (0x9AD93EE71469F4D7UL) /* random */
 
 FD_PROTOTYPES_BEGIN

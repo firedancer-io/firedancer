@@ -46,13 +46,10 @@ FD_PROTOTYPES_BEGIN
 fd_borrowed_account_t *
 fd_borrowed_account_init( void * ptr );
 
-void
-fd_borrowed_account_resize( fd_borrowed_account_t * borowed_account,
-                            ulong dlen,
-                            fd_valloc_t valloc );
-void
-fd_borrowed_account_restore( fd_borrowed_account_t * borrowed_account,
-                             fd_valloc_t valloc );
+void *
+fd_borrowed_account_resize( fd_borrowed_account_t * borrowed_account,
+                            void *                  buf,
+                            ulong                   dlen );
 
 void
 fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_account,
