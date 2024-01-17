@@ -32,7 +32,7 @@
 
      // Indirect API
      fd_feature_id_t const * id;
-     ulong activation_slot = fd_features_query( id );
+     ulong activation_slot = fd_features_get( id );
      ... id->index safe in [0,FD_FEATURE_CNT) ... */
 
 typedef union fd_features fd_features_t;
@@ -72,32 +72,44 @@ fd_features_enable_all( fd_features_t * );
      }} */
 
 static inline fd_feature_id_t const *
-fd_feature_iter_init( void ) {{
+fd_feature_iter_init( void ) {
   return ids;
-}}
+}
 
 static inline int
-fd_feature_iter_done( fd_feature_id_t const * id ) {{
+fd_feature_iter_done( fd_feature_id_t const * id ) {
   return id->index == ULONG_MAX;
-}}
+}
 
 static inline fd_feature_id_t const *
-fd_feature_iter_next( fd_feature_id_t const * id ) {{
+fd_feature_iter_next( fd_feature_id_t const * id ) {
   return id+1;
-}}
+}
+
+/* fd_features_set sets the activation slot of the given feature ID. */
 
 static inline void
 fd_features_set( fd_features_t *         features,
                  fd_feature_id_t const * id,
-                 ulong                   slot ) {{
+                 ulong                   slot ) {
   features->f[ id->index ] = slot;
-}}
+}
+
+/* fd_features_get returns the activation slot of the given feature ID.
+   Returns ULONG_MAX if the feature is not scheduled for activation. */
 
 static inline ulong
-fd_features_query( fd_features_t const *   features,
-                   fd_feature_id_t const * id ) {{
+fd_features_get( fd_features_t const *   features,
+                 fd_feature_id_t const * id ) {
   return features->f[ id->index ];
-}}
+}
+
+/* fd_feature_id_query queries a feature ID given the first 8 bytes of
+   the feature address (little-endian order).  Returns pointer to ID in
+   `ids` array on success, or NULL on failure. */
+
+FD_FN_CONST fd_feature_id_t const *
+fd_feature_id_query( ulong prefix );
 
 FD_PROTOTYPES_END
 
