@@ -488,6 +488,9 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STAKE_OUT    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC_IN    }; wksp_cnt++;
 
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_SIGN   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_SHRED   }; wksp_cnt++;
+
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NET    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_NETMUX }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC   }; wksp_cnt++;
@@ -498,6 +501,7 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_POH    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STORE  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
@@ -535,21 +539,27 @@ topo_initialize( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
+  LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   FD_TOPO_WKSP_KIND_SHRED_SIGN,   128UL,                                    32UL,                   1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   FD_TOPO_WKSP_KIND_SIGN_SHRED,   128UL,                                    64UL,                   1UL );
+
   topo->link_cnt = link_cnt;
 
   ulong tile_cnt = 0UL;
 
-#define TILE( cnt, kind1, wksp, out_link_id_primary1 ) do {                                               \
-    for( ulong i=0; i<cnt; i++ ) {                                                                        \
-      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,                        \
-                                                  .kind                = kind1,                           \
-                                                  .kind_id             = i,                               \
-                                                  .wksp_id             = fd_topo_find_wksp( topo, wksp ), \
-                                                  .in_cnt              = 0,                               \
-                                                  .out_link_id_primary = out_link_id_primary1,            \
-                                                  .out_cnt             = 0 };                             \
-      tile_cnt++;                                                                                         \
-    }                                                                                                     \
+#define TILE( cnt, kind1, wksp, out_link_id_primary1 ) do {                                    \
+    ulong wksp_id = fd_topo_find_wksp( topo, wksp );                                           \
+    if( FD_UNLIKELY( wksp_id==ULONG_MAX ) )                                                    \
+      FD_LOG_ERR(( "could not find workspace %s", fd_topo_wksp_kind_str( wksp ) ));            \
+    for( ulong i=0; i<cnt; i++ ) {                                                             \
+      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,             \
+                                                  .kind                = kind1,                \
+                                                  .kind_id             = i,                    \
+                                                  .wksp_id             = wksp_id,              \
+                                                  .in_cnt              = 0,                    \
+                                                  .out_link_id_primary = out_link_id_primary1, \
+                                                  .out_cnt             = 0 };                  \
+      tile_cnt++;                                                                              \
+    }                                                                                          \
   } while(0)
 
   TILE( config->layout.net_tile_count,    FD_TOPO_TILE_KIND_NET,    FD_TOPO_WKSP_KIND_NET,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i ) );
@@ -562,17 +572,19 @@ topo_initialize( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_POH,    FD_TOPO_WKSP_KIND_POH,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_POH_TO_SHRED,    i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_SHRED,  FD_TOPO_WKSP_KIND_SHRED,  fd_topo_find_link( topo, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,   FD_TOPO_WKSP_KIND_SIGN,   ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
 
   topo->tile_cnt = tile_cnt;
 
-#define TILE_IN( kind, kind_id, link, link_id, reliable ) do {                              \
+#define TILE_IN( kind, kind_id, link, link_id, reliable, poll ) do {                        \
     ulong tile_id = fd_topo_find_tile( topo, kind, kind_id );                               \
     if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                               \
       FD_LOG_ERR(( "could not find tile %s %lu", fd_topo_tile_kind_str( kind ), kind_id )); \
     fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                        \
     tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );      \
     tile->in_link_reliable[ tile->in_cnt ] = reliable;                                      \
+    tile->in_link_poll    [ tile->in_cnt ] = poll;                                          \
     tile->in_cnt++;                                                                         \
   } while(0)
 
@@ -588,33 +600,42 @@ topo_initialize( config_t * config ) {
     tile->out_cnt++;                                                                        \
   } while(0)
 
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i,   0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_OUT( FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i      );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_VERIFY, i,   FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i,   0 ); /* No reliable consumers, verify tiles may be overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i,   1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_VERIFY, i,   FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  i,   0, 1 ); /* No reliable consumers, verify tiles may be overrun */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i,   1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1, 1 );
   /* These pack to bank links are reliable, but they are flow controlled
      by the busy flag that sits between them.  We don't mark them
      reliable here because it creates a reliable link loop (poh -> pack
      -> bank) which leads to credit starvation. */
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 0 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_PACK_TO_BANK,    0UL, 0, 1 );
   /* Same as above. */
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 0 );
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_BANK_TO_POH,     i,   1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   0UL, 1 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_BANK,   i,   FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 0, 1 );
+  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_BANK_TO_POH,     i,   1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   0UL, 1, 1 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL    );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  0UL, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  0UL, 1, 1 );
+
+  /* Sign links don't need to be reliable because they are synchronous,
+     so there's at most one fragment in flight at a time anyway.  The
+     sign links are also not polled by the mux, instead the tiles will
+     read the sign responses out of band in a dedicated spin loop. */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL, 0, 1 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL, 0, 0 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL    );
 }
 
 static void
@@ -1003,6 +1024,9 @@ config_parse( int *      pargc,
         tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        break;
+      case FD_TOPO_TILE_KIND_SIGN:
+        strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_METRIC:
         tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;

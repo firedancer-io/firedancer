@@ -512,7 +512,7 @@ fd_topo_validate( fd_topo_t * topo ) {
   /* Tiles have valid wksp_ids */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( FD_UNLIKELY( topo->tiles[ i ].wksp_id >= topo->wksp_cnt ) )
-      FD_LOG_ERR(( "invalid workspace id %lu", topo->tiles[ i ].wksp_id ));
+      FD_LOG_ERR(( "tile %lu of kind %lu has invalid workspace id %lu", i, topo->tiles[ i ].kind, topo->tiles[ i ].wksp_id ));
   }
 
   /* Links have valid wksp_ids */
@@ -638,6 +638,14 @@ fd_topo_validate( fd_topo_t * topo ) {
         if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] == topo->tiles[ i ].out_link_id_primary ) )
           FD_LOG_ERR(( "tile %lu has in link %lu same as primary out", i, topo->tiles[ i ].in_link_id[ j ] ));
       }
+    }
+  }
+
+  /* Non polling tile ins are also not reliable */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
+      if( FD_UNLIKELY( !topo->tiles[ i ].in_link_poll[ j ] && topo->tiles[ i ].in_link_reliable[ j ] ) )
+        FD_LOG_ERR(( "tile %lu has in link %lu which is not polled but reliable", i, topo->tiles[ i ].in_link_id[ j ] ));
     }
   }
 

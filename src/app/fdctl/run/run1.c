@@ -124,7 +124,11 @@ tile_main( void * _args ) {
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
+  ulong polled_in_cnt = 0UL;
   for( ulong i=0; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
+    polled_in_cnt += 1;
     in_mcache[ i ] = args->config->topo.links[ tile->in_link_id[ i ] ].mcache;
     FD_TEST( in_mcache[ i ] );
     in_fseq[ i ]   = tile->in_link_fseq[ i ];
@@ -136,7 +140,7 @@ tile_main( void * _args ) {
   for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &args->config->topo.tiles[ i ];
     for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
         out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
         FD_TEST( out_fseq[ out_cnt_reliable ] );
         out_cnt_reliable++;
@@ -167,7 +171,7 @@ tile_main( void * _args ) {
   fd_rng_t rng[1];
   fd_mux_tile( tile->cnc,
                config->mux_flags,
-               tile->in_cnt,
+               polled_in_cnt,
                in_mcache,
                in_fseq,
                tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,

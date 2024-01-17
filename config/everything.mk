@@ -399,7 +399,7 @@ LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/integration_tests.profraw" \
 contrib/test/run_integration_tests.sh
 
 seccomp-policies:
-	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/test/generate_filters.py {} \;
+	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
 
 ##############################
 # LLVM Coverage
