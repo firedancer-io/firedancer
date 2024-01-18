@@ -14,6 +14,3 @@ jobs:
   tests-fddev:
     uses: ./.github/workflows/tests_fddev.yml
     secrets: inherit
-
-  whitespace-check:
-    uses: ./.github/workflows/trailing_whitespace.yml
