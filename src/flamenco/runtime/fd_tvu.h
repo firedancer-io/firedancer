@@ -23,6 +23,7 @@ typedef struct {
   char const * capitalization_file;
   char const * allocator;
   char const * validate_db;
+  char const * validate_snapshot;
   char const * capture_fpath;
   char const * trace_fpath;
   int  retrace;

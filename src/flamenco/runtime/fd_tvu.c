@@ -857,7 +857,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t * tvu_args,
     snapshotfiles[0] = args->snapshot;
     snapshotfiles[1] = args->incremental_snapshot;
     snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx, 1 );
+    fd_snapshot_load( snapshotfiles, slot_ctx, strcasecmp(args->validate_snapshot, "true") == 0);
 
   } else {
     fd_runtime_recover_banks( slot_ctx, 0 );
@@ -1001,35 +1001,32 @@ fd_tvu_parse_args( fd_runtime_args_t *args, int argc, char ** argv ) {
   if (NULL != index_max_opt)
     FD_LOG_ERR(("--index-max is no longer a valid argument.  Please use --indexmax"));
 
-  args->blockstore_wksp_name = fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
-  args->funk_wksp_name = fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
-  args->gossip_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
-  args->incremental_snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
-  args->load = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
-  args->my_gossip_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
-  args->my_repair_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
-  args->repair_peer_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
-  args->repair_peer_id = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
-  args->snapshot = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
-  args->index_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
-  args->page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
-  args->tcnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
-  args->txn_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
-  args->rpc_port = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
-
-  args->end_slot            = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
-  args->cmd                 = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
-  args->reset               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
-
-  args->capitalization_file = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cap",          NULL, NULL);
-
+  args->blockstore_wksp_name    = fd_env_strip_cmdline_cstr( &argc, &argv, "--blockstore-wksp", NULL, NULL );
+  args->funk_wksp_name          = fd_env_strip_cmdline_cstr( &argc, &argv, "--funk-wksp", NULL, NULL );
+  args->gossip_peer_addr        = fd_env_strip_cmdline_cstr( &argc, &argv, "--gossip-peer-addr", NULL, ":1024" );
+  args->incremental_snapshot    = fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
+  args->load                    = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
+  args->my_gossip_addr          = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
+  args->my_repair_addr          = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
+  args->repair_peer_addr        = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
+  args->repair_peer_id          = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
+  args->snapshot                = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
+  args->index_max               = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
+  args->page_cnt                = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL);
+  args->tcnt                    = fd_env_strip_cmdline_ulong( &argc, &argv, "--tcnt", NULL, ULONG_MAX );
+  args->txn_max                 = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax", NULL, 1000 );
+  args->rpc_port                = fd_env_strip_cmdline_ushort( &argc, &argv, "--rpc-port", NULL, 8899U );
+  args->end_slot                = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",     NULL, ULONG_MAX);
+  args->cmd                     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",          NULL, NULL);
+  args->reset                   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",        NULL, NULL);
+  args->capitalization_file     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cap",          NULL, NULL);
   args->allocator               = fd_env_strip_cmdline_cstr ( &argc, &argv, "--allocator", NULL, "wksp" );
   args->validate_db             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate",  NULL, NULL );
+  args->validate_snapshot       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--validate-snapshot",  NULL, "false" );
   args->capture_fpath           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",   NULL, NULL );
   args->trace_fpath             = fd_env_strip_cmdline_cstr ( &argc, &argv, "--trace",     NULL, NULL );
   args->retrace                 = fd_env_strip_cmdline_int  ( &argc, &argv, "--retrace",   NULL, 0    );
-
-  args->abort_on_mismatch = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
+  args->abort_on_mismatch       = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
 
   return 0;
 }
