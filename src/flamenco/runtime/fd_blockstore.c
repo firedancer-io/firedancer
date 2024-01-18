@@ -788,7 +788,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   slot_meta->received        = fd_ulong_max( slot_meta->received, shred->idx );
   slot_meta->parent_slot     = shred->slot - shred->data.parent_off;
   if( FD_UNLIKELY( shred->idx == slot_meta->consumed + 1U ) ) slot_meta->consumed++;
-  while( fd_blockstore_shred_query( blockstore, slot_meta->slot, (uint)slot_meta->consumed + 1U ) ) {
+  while( fd_blockstore_shred_query( blockstore, shred->slot, (uint)slot_meta->consumed + 1U ) ) {
     slot_meta->consumed++;
   }
 
@@ -806,10 +806,10 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   fd_memcpy( &ele->raw, shred, fd_shred_sz( shred ) );
   fd_blockstore_tmp_shred_map_t * insert =
       fd_blockstore_tmp_shred_map_ele_insert( tmp_shred_map, ele, tmp_shred_pool );
+  if( FD_UNLIKELY( !insert ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
 
   if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
-    FD_LOG_DEBUG( ( "received all shreds for slot %lu - now building a block", slot_meta->slot ) );
-    if( FD_UNLIKELY( !insert ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
+    FD_LOG_DEBUG( ( "received all shreds for slot %lu - now building a block", shred->slot ) );
 
     if( FD_UNLIKELY( blockstore->min != ULONG_MAX &&
                      blockstore->max >= blockstore->slot_history_max_with_slop &&
@@ -823,15 +823,15 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
       }
     }
 
-    int rc = fd_blockstore_deshred( blockstore, slot_meta->slot );
+    int rc = fd_blockstore_deshred( blockstore, shred->slot );
     switch( rc ) {
     case FD_BLOCKSTORE_OK:
       break;
     case FD_BLOCKSTORE_ERR_SLOT_FULL:
-      FD_LOG_DEBUG( ( "already deshredded slot %lu. ignoring.", slot_meta->slot ) );
+      FD_LOG_DEBUG( ( "already deshredded slot %lu. ignoring.", shred->slot ) );
       break;
     case FD_BLOCKSTORE_ERR_INVALID_DESHRED:
-      FD_LOG_DEBUG( ( "failed to deshred slot %lu. ignoring.", slot_meta->slot ) );
+      FD_LOG_DEBUG( ( "failed to deshred slot %lu. ignoring.", shred->slot ) );
       break;
     default:
       FD_LOG_ERR( ( "deshred err %d", rc ) );
