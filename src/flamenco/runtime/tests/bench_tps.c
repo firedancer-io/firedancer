@@ -1,9 +1,9 @@
-#include "../fd_quic.h"
-#include "fd_quic_test_helpers.h"
+#include "../../../tango/quic/fd_quic.h"
+#include "../../../tango/quic/tests/fd_quic_test_helpers.h"
 
 #include <stdlib.h>
 
-#include "../../xdp/fd_xdp.h"
+#include "../../../tango/xdp/fd_xdp.h"
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/fd_util.h"
