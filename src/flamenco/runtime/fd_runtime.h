@@ -158,6 +158,9 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
 void
 fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first );
 
+void
+fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

@@ -798,7 +798,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t * tvu_args,
   /* Scratch                                                            */
   /**********************************************************************/
 
-  ulong  smax   = 1 << 26UL; /* 64 MiB scratch memory */
+  ulong  smax   = 1 << 27UL; /* 128 MiB scratch memory */
   ulong  sdepth = 128;       /* 128 scratch frames */
   void * smem   = fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
   void * fmem = fd_valloc_malloc( valloc, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ) );
@@ -1029,4 +1029,15 @@ fd_tvu_parse_args( fd_runtime_args_t *args, int argc, char ** argv ) {
   args->abort_on_mismatch       = (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
 
   return 0;
+}
+
+void
+fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args ) {
+#ifdef FD_HAS_LIBMICROHTTP
+  fd_rpc_stop_service( tvu_args->rpc_ctx );
+#endif
+  fd_exec_slot_ctx_t * slot_ctx = tvu_args->slot_ctx;
+  if (NULL != slot_ctx->epoch_ctx->leaders)
+    fd_valloc_free(slot_ctx->valloc, slot_ctx->epoch_ctx->leaders);
+  fd_runtime_delete_banks( slot_ctx );
 }

@@ -1120,8 +1120,8 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_tpool_t * tpool,
                                         ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_execute_txn_task_info_t * task_infos = fd_valloc_malloc(slot_ctx->valloc, 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
-    fd_execute_txn_task_info_t * wave_task_infos = fd_valloc_malloc(slot_ctx->valloc, 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
+    fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
+    fd_execute_txn_task_info_t * wave_task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
     ulong wave_task_infos_cnt = 0;
     int res = fd_runtime_prepare_txns_phase1( slot_ctx, task_infos, txn_ptrs, raw_txns, txn_cnt );
     if( res != 0 ) {
@@ -1472,32 +1472,35 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                     fd_tpool_t * tpool,
                                     ulong max_workers ) {
   long block_execute_time = -fd_log_wallclock();
+  long block_finalize_time;
 
   int res = fd_runtime_block_execute_prepare( slot_ctx );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
 
-  ulong txn_cnt = block_info->txn_cnt;
-  fd_txn_t ** txn_ptrs = fd_valloc_malloc(slot_ctx->valloc, alignof(fd_txn_t *), txn_cnt * sizeof(fd_txn_t *));
-  fd_rawtxn_b_t * raw_txns = fd_valloc_malloc(slot_ctx->valloc, alignof(fd_rawtxn_b_t), txn_cnt * sizeof(fd_rawtxn_b_t));
+  FD_SCRATCH_SCOPE_BEGIN {
+    ulong txn_cnt = block_info->txn_cnt;
+    fd_txn_t ** txn_ptrs = fd_scratch_alloc(alignof(fd_txn_t *), txn_cnt * sizeof(fd_txn_t *));
+    fd_rawtxn_b_t * raw_txns = fd_scratch_alloc(alignof(fd_rawtxn_b_t), txn_cnt * sizeof(fd_rawtxn_b_t));
 
-  fd_runtime_block_collect_txns( block_info, raw_txns, txn_ptrs );
+    fd_runtime_block_collect_txns( block_info, raw_txns, txn_ptrs );
 
-  res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, txn_ptrs, raw_txns, txn_cnt, tpool, max_workers );
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    return res;
-  }
+    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, txn_ptrs, raw_txns, txn_cnt, tpool, max_workers );
+    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+      return res;
+    }
 
-  long block_finalize_time = -fd_log_wallclock();
-  res = fd_runtime_block_execute_finalize_tpool( slot_ctx, block_info, tpool, max_workers );
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    return res;
-  }
+    block_finalize_time = -fd_log_wallclock();
+    res = fd_runtime_block_execute_finalize_tpool( slot_ctx, block_info, tpool, max_workers );
+    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+      return res;
+    }
+    block_finalize_time += fd_log_wallclock();
 
-  slot_ctx->slot_bank.transaction_count += txn_cnt;
+    slot_ctx->slot_bank.transaction_count += txn_cnt;
+  } FD_SCRATCH_SCOPE_END;
 
-  block_finalize_time += fd_log_wallclock();
   double block_finalize_time_ms = (double)block_finalize_time * 1e-6;
   FD_LOG_INFO(( "finalized block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, block_finalize_time_ms ));
 
@@ -3269,5 +3272,20 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
 
     slot_ctx->slot_bank.collected_fees = 0;
     slot_ctx->slot_bank.collected_rent = 0;
+  }
+}
+
+void
+fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
+  {
+    fd_bincode_destroy_ctx_t ctx;
+    ctx.valloc  = slot_ctx->valloc;
+    fd_epoch_bank_destroy(&slot_ctx->epoch_ctx->epoch_bank, &ctx);
+  }
+
+  {
+    fd_bincode_destroy_ctx_t ctx;
+    ctx.valloc  = slot_ctx->valloc;
+    fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
   }
 }

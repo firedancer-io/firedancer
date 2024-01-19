@@ -82,9 +82,7 @@ main( int argc, char ** argv ) {
   /* Cleanup                                                             */
   /***********************************************************************/
 
-#ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_stop_service( global_ctx.rpc_ctx );
-#endif
+  fd_tvu_main_teardown( &global_ctx );
   fd_halt();
   return 0;
 }

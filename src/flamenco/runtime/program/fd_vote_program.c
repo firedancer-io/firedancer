@@ -4,6 +4,7 @@
 #include "../fd_executor.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_runtime.h"
+#include "../../../util/scratch/fd_scratch.h"
 #include "fd_program_util.h"
 #include <limits.h>
 #include <math.h>
@@ -2040,50 +2041,54 @@ uint vote_state_versions_is_correct_and_initialized( fd_vote_state_versioned_t *
 
 static void
 upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote_account ) {
-  fd_bincode_decode_ctx_t decode = {
+  FD_SCRATCH_SCOPE_BEGIN {
+
+    fd_bincode_decode_ctx_t decode = {
       .data    = vote_account->const_data,
       .dataend = vote_account->const_data + vote_account->const_meta->dlen,
-      .valloc  = slot_ctx->valloc,
-  };
-  fd_vote_state_versioned_t vote_state[1] = {0};
-  if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
-    remove_vote_account( slot_ctx, vote_account );
-    return;
-  }
-
-  if ( vote_state_versions_is_correct_and_initialized( vote_state, vote_account ) ) {
-    fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
-
-    fd_vote_accounts_pair_t_mapnode_t key;
-    fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));
-    if (stakes->vote_accounts.vote_accounts_pool == NULL) {
-      FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+      .valloc  = fd_scratch_virtual()
+    };
+    fd_vote_state_versioned_t vote_state[1] = {0};
+    if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
+      remove_vote_account( slot_ctx, vote_account );
       return;
     }
-    fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key);
-    if ( FD_UNLIKELY( !entry ) ) {
-      if (slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool == NULL) {
+
+    if ( vote_state_versions_is_correct_and_initialized( vote_state, vote_account ) ) {
+      fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+
+      fd_vote_accounts_pair_t_mapnode_t key;
+      fd_memcpy(&key.elem.key, vote_account->pubkey->uc, sizeof(fd_pubkey_t));
+      if (stakes->vote_accounts.vote_accounts_pool == NULL) {
         FD_LOG_DEBUG(("Vote accounts pool does not exist"));
         return;
       }
-      fd_vote_accounts_pair_t_mapnode_t * existing = fd_vote_accounts_pair_t_map_find( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, &key );
-      if ( !existing ) {
-        fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool );
-        if (!new_node) {
-          FD_LOG_ERR(("Map full"));
+      fd_vote_accounts_pair_t_mapnode_t * entry = fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key);
+      if ( FD_UNLIKELY( !entry ) ) {
+        if (slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool == NULL) {
+          FD_LOG_DEBUG(("Vote accounts pool does not exist"));
+          return;
         }
-        fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
-        new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
-        fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, new_node );
+        fd_vote_accounts_pair_t_mapnode_t * existing = fd_vote_accounts_pair_t_map_find( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, &key );
+        if ( !existing ) {
+          fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool );
+          if (!new_node) {
+            FD_LOG_ERR(("Map full"));
+          }
+          fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
+          new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
+          fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, new_node );
+        } else {
+          existing->elem.value.lamports = vote_account->const_meta->info.lamports;
+        }
       } else {
-        existing->elem.value.lamports = vote_account->const_meta->info.lamports;
+        entry->elem.value.lamports = vote_account->const_meta->info.lamports;
       }
     } else {
-      entry->elem.value.lamports = vote_account->const_meta->info.lamports;
+      remove_vote_account( slot_ctx, vote_account );
     }
-  } else {
-    remove_vote_account( slot_ctx, vote_account );
-  }
+
+  } FD_SCRATCH_SCOPE_END;
 }
 
 static void
