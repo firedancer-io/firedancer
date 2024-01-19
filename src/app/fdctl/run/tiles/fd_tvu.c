@@ -16,37 +16,38 @@ ushort      g_rpc_port = 12000;
 
 static int
 doit() {
-  fd_valloc_t valloc = fd_libc_alloc_virtual();
   fd_runtime_ctx_t fd_runtime_ctx;
-  tvu_main_setup( &fd_runtime_ctx,
-                  valloc,
-                  g_wksp,
-                  NULL,
-                  NULL,
-                  g_gossip_peer_addr,
-                  NULL,
-                  NULL,
-                  ":0",
-                  ":0",
-                  g_snapshot,
-                  ULONG_MAX,
-                  g_page_cnt,
-                  1,
-                  1000, // TODO: LML add --txnmax to default.toml
-                  g_rpc_port );
+  fd_runtime_args_t args = {
+    .gossip_peer_addr     = g_gossip_peer_addr,
+    .my_gossip_addr       = ":0",
+    .my_repair_addr       = ":0",
+    .repair_peer_addr     = g_repair_peer_addr,
+    .repair_peer_id       = g_repair_peer_id,
+    .snapshot             = g_snapshot,
+    .allocator            = "libc",
+    .index_max            = ULONG_MAX,
+    .page_cnt             = g_page_cnt,
+    .tcnt                 = 1,
+    .txn_max              = 1000, // TODO: LML add --txnmax to default.toml
+    .rpc_port             = g_rpc_port,
+  };
+  fd_tvu_main_setup( &fd_runtime_ctx,
+                     1,
+                     g_wksp,
+                     &args );
   if( fd_runtime_ctx.blowup ) FD_LOG_ERR(( "blowup" ));
 
   /**********************************************************************/
   /* Tile                                                               */
   /**********************************************************************/
 
-  if( tvu_main( fd_runtime_ctx.gossip,
-                &fd_runtime_ctx.gossip_config,
-                &fd_runtime_ctx.repair_ctx,
-                &fd_runtime_ctx.repair_config,
-                &fd_runtime_ctx.stopflag,
-                g_repair_peer_id,
-                g_repair_peer_addr ) ) {
+  if( fd_tvu_main( fd_runtime_ctx.gossip,
+                   &fd_runtime_ctx.gossip_config,
+                   &fd_runtime_ctx.repair_ctx,
+                   &fd_runtime_ctx.repair_config,
+                   &fd_runtime_ctx.stopflag,
+                   g_repair_peer_id,
+                   g_repair_peer_addr ) ) {
     return 1;
   }
   return 0;
