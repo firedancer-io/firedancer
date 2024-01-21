@@ -239,8 +239,17 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_id                                            );
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_addr                                          );
   ENTRY_STR   ( ., tiles.tvu,           gossip_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.tvu,           my_gossip_addr                                            );
+  ENTRY_STR   ( ., tiles.tvu,           my_repair_addr                                            );
+  ENTRY_STR   ( ., tiles.tvu,           tvu_addr                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           tvu_fwd_addr                                              );
   ENTRY_STR   ( ., tiles.tvu,           snapshot                                                  );
   ENTRY_UINT  ( ., tiles.tvu,           page_cnt                                                  );
+  ENTRY_USHORT( ., tiles.tvu,           gossip_listen_port                                        );
+  ENTRY_USHORT( ., tiles.tvu,           repair_listen_port                                        );
+  ENTRY_USHORT( ., tiles.tvu,           tvu_port                                                  );
+  ENTRY_USHORT( ., tiles.tvu,           tvu_fwd_port                                              );
+  ENTRY_USHORT( ., tiles.tvu,           rpc_listen_port                                           );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
@@ -539,6 +548,7 @@ topo_initialize( config_t * config ) {
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
+  LINK( 1,                                FD_TOPO_LINK_KIND_TVU_TO_NETMUX,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   FD_TOPO_WKSP_KIND_DEDUP_PACK,   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
@@ -588,7 +598,7 @@ topo_initialize( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_STORE,  FD_TOPO_WKSP_KIND_STORE,  ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,   FD_TOPO_WKSP_KIND_SIGN,   ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
-  TILE( 1,                                FD_TOPO_TILE_KIND_TVU,    FD_TOPO_WKSP_KIND_TVU,    ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_TVU,    FD_TOPO_WKSP_KIND_TVU,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_TVU_TO_NETMUX,   i ) );
 
   topo->tile_cnt = tile_cnt;
 
@@ -658,6 +668,8 @@ topo_initialize( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL, 0, 0 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_TVU_TO_NETMUX,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 }
 
 static void
@@ -1005,6 +1017,10 @@ config_parse( int *      pargc,
         tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
         tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
         tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
+        tile->net.allow_ports[ 3 ] = config->tiles.tvu.gossip_listen_port;
+        tile->net.allow_ports[ 4 ] = config->tiles.tvu.repair_listen_port;
+        tile->net.allow_ports[ 5 ] = config->tiles.tvu.tvu_port;
+        tile->net.allow_ports[ 6 ] = config->tiles.tvu.tvu_fwd_port;
         memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
@@ -1061,8 +1077,18 @@ config_parse( int *      pargc,
         strncpy( tile->tvu.repair_peer_id, config->tiles.tvu.repair_peer_id, sizeof(tile->tvu.repair_peer_id) );
         strncpy( tile->tvu.repair_peer_addr, config->tiles.tvu.repair_peer_addr, sizeof(tile->tvu.repair_peer_addr) );
         strncpy( tile->tvu.gossip_peer_addr, config->tiles.tvu.gossip_peer_addr, sizeof(tile->tvu.gossip_peer_addr) );
+
+        strncpy( tile->tvu.my_gossip_addr, config->tiles.tvu.my_gossip_addr, sizeof(tile->tvu.my_gossip_addr) );
+        strncpy( tile->tvu.my_repair_addr, config->tiles.tvu.my_repair_addr, sizeof(tile->tvu.my_repair_addr) );
+        strncpy( tile->tvu.tvu_addr, config->tiles.tvu.tvu_addr, sizeof(tile->tvu.tvu_addr) );
+        strncpy( tile->tvu.tvu_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->tvu.tvu_fwd_addr) );
         strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
         tile->tvu.page_cnt = config->tiles.tvu.page_cnt;
+        tile->tvu.gossip_listen_port = config->tiles.tvu.gossip_listen_port;
+        tile->tvu.repair_listen_port = config->tiles.tvu.repair_listen_port;
+        tile->tvu.tvu_port           = config->tiles.tvu.tvu_port;
+        tile->tvu.tvu_fwd_port       = config->tiles.tvu.tvu_fwd_port;
+        tile->tvu.rpc_listen_port    = config->tiles.tvu.rpc_listen_port;
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

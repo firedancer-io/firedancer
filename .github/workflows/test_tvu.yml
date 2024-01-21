@@ -18,7 +18,7 @@ jobs:
 
       - name: build
         run: |
-          ./contrib/make-j all
+          ./contrib/make-j fddev all
 
       - name: test-tvu.sh
         run: |
@@ -31,3 +31,9 @@ jobs:
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           ./test-tvu-load.sh
+
+      - name: test-tvu-fddev.sh
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          ./test-tvu-fddev.sh

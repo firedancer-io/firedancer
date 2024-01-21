@@ -201,8 +201,17 @@ typedef struct {
       char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
       char repair_peer_addr[ 22 ];
       char gossip_peer_addr[ 22 ];
+      char my_gossip_addr[ 22 ];
+      char my_repair_addr[ 22 ];
+      char tvu_addr[ 22 ];
+      char tvu_fwd_addr[ 22 ];
       char snapshot[ PATH_MAX ];
       uint page_cnt;
+      ushort gossip_listen_port;
+      ushort repair_listen_port;
+      ushort tvu_port;
+      ushort tvu_fwd_port;
+      ushort rpc_listen_port;
     } tvu;
   } tiles;
 } config_t;

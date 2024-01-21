@@ -36,6 +36,7 @@ if ! command -v test_tvu > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/unit-test":$PATH
 fi
 
+sudo env "PATH=$PATH" fddev configure fini xdp
 
 echo "Creating mint and stake authority keys..."
 solana-keygen new --no-bip39-passphrase -o faucet.json > /dev/null
@@ -96,6 +97,7 @@ done
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
 # sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
+fd_shmem_cfg reset
 
 fd_frank_ledger --cmd ingest \
                 --snapshotfile snapshot* \

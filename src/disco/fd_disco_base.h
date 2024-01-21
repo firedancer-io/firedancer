@@ -9,6 +9,7 @@
 #define SRC_TILE_NET   (0UL)
 #define SRC_TILE_QUIC  (1UL)
 #define SRC_TILE_SHRED (2UL)
+#define SRC_TILE_TVU   (3UL)
 
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)

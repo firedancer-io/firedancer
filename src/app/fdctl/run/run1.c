@@ -170,11 +170,13 @@ tile_main( void * _args ) {
   if( FD_UNLIKELY( config->lazy ) ) lazy = config->lazy( scratch_mem );
 
   fd_rng_t rng[1];
+  // TODO: LML be sure to remove this once runtime/test_tvu.c is gone
   // if the tile is tvu then run tvu_main
+  // if( 1 ) {
   if( FD_LIKELY( tile->kind != FD_TOPO_TILE_KIND_TVU ) ) {
     fd_mux_tile( tile->cnc,
                  config->mux_flags,
-                 tile->in_cnt,
+                 polled_in_cnt,
                  in_mcache,
                  in_fseq,
                  tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,
@@ -190,7 +192,7 @@ tile_main( void * _args ) {
   } else {
     fd_tvu_tile( tile->cnc,
                  config->mux_flags,
-                 tile->in_cnt,
+                 polled_in_cnt,
                  in_mcache,
                  in_fseq,
                  tile->out_link_id_primary == ULONG_MAX ? NULL : args->config->topo.links[ tile->out_link_id_primary ].mcache,

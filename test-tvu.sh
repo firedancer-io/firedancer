@@ -14,7 +14,7 @@ cleanup() {
   rm -rf "$TMPDIR"
 }
 
-trap cleanup EXIT SIGINT SIGTERM
+#trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR=$SCRIPT_DIR
@@ -36,6 +36,7 @@ if ! command -v test_tvu > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/unit-test":$PATH
 fi
 
+sudo env "PATH=$PATH" fddev configure fini xdp
 
 echo "Creating mint and stake authority keys..."
 solana-keygen new --no-bip39-passphrase -o faucet.json > /dev/null
@@ -64,7 +65,7 @@ GENESIS_OUTPUT=$(solana-genesis \
 GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred version:)' | xargs)
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
-PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1 )
+PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
 RUST_LOG=trace solana-validator \
     --identity id.json \
@@ -96,6 +97,7 @@ done
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
 # sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
+fd_shmem_cfg reset
 
 timeout 30 test_tvu \
     --rpc-port 9999 \

@@ -25,6 +25,7 @@ dev_cmd_args( int *    pargc,
                              fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" ) ||
                              fd_env_strip_cmdline_contains( pargc, pargv, "--no-labs" );
   const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
+  // const char * debug_tile = NULL;
   if( FD_UNLIKELY( debug_tile ) )
     strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
 }

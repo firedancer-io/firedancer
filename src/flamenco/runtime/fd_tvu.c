@@ -781,7 +781,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     snapshotfiles[0] = args->snapshot;
     snapshotfiles[1] = args->incremental_snapshot;
     snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx, strcasecmp( args->validate_snapshot, "true" ) == 0 );
+    fd_snapshot_load( snapshotfiles, slot_ctx, 0 );
+    // TODO: LML: segfault because of __strcasecmp_l_avx
+    // fd_snapshot_load( snapshotfiles, slot_ctx, strcasecmp( args->validate_snapshot, "true" ) == 0 );
 
   } else {
     fd_runtime_recover_banks( slot_ctx, 0 );

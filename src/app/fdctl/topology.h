@@ -88,6 +88,7 @@
 #define FD_TOPO_LINK_KIND_SIGN_TO_QUIC    (15UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (16UL)
 #define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (17UL)
+#define FD_TOPO_LINK_KIND_TVU_TO_NETMUX   (18UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -213,7 +214,7 @@ typedef struct {
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
-      ushort allow_ports[ 3 ];
+      ushort allow_ports[ 7 ];
     } net;
 
     struct {
@@ -269,8 +270,17 @@ typedef struct {
       char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
       char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
       char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char my_gossip_addr[ 22 ];
+      char my_repair_addr[ 22 ];
+      char tvu_addr[ 22 ];
+      char tvu_fwd_addr[ 22 ];
       char snapshot[ PATH_MAX ];
       uint page_cnt;
+      ushort gossip_listen_port;
+      ushort repair_listen_port;
+      ushort tvu_port;
+      ushort tvu_fwd_port;
+      ushort rpc_listen_port;
     } tvu;
   };
 } fd_topo_tile_t;
@@ -427,6 +437,7 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SIGN_TO_QUIC:    return "sign_quic";
     case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:   return "shred_sign";
     case FD_TOPO_LINK_KIND_SIGN_TO_SHRED:   return "sign_shred";
+    case FD_TOPO_LINK_KIND_TVU_TO_NETMUX:   return "tvu_netmux";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }

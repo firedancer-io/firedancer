@@ -496,7 +496,7 @@ dynamic_port_range = "18900-19000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-22"
+    affinity = "0-24"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -752,8 +752,18 @@ dynamic_port_range = "18900-19000"
         repair_peer_id = "6twW6ey7kZmPT8YE7gchcRYPDYESB3baCDT6t92jdF9b"
         repair_peer_addr = "147.75.199.41:8008"
         gossip_peer_addr = "147.75.199.41:8001"
+        my_gossip_addr   = ":9001"
+        my_repair_addr   = ":9002"
+        tvu_addr         = ":9003"
+        tvu_fwd_addr     = ":9004"
+        page_cnt = 25
+        # TODO: LML pick the right port
+        gossip_listen_port = 12001
+        repair_listen_port = 12001
+        tvu_port           = 12001
+        tvu_fwd_port       = 12001
+        rpc_listen_port    = 12000
         snapshot = "/data/llamb/tmp-test-tvu.1LqXfl/snapshot-200-HkXT5YYU2aKPu6pUz2uHpJeHapjVfDkM4B5uPaaSEU17.tar.zst"
-        page_cnt = 60
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order

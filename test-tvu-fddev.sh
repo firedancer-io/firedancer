@@ -2,6 +2,8 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 # create temporary files in the user's home directory because it's likely to be on a large disk
 TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
 cd $TMPDIR
@@ -13,12 +15,13 @@ cleanup() {
   rm -rf "$TMPDIR"
 }
 
-trap cleanup EXIT SIGINT SIGTERM
+#trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
-FD_DIR="$HOME/code/firedancer-private"
+FD_DIR=$SCRIPT_DIR
 
 sudo killall fddev || true
+sudo killall solana-validator || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -30,7 +33,7 @@ if ! command -v fddev > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/bin":$PATH
 fi
 
-fddev configure fini all >/dev/null 2>&1
+#fddev configure fini all >/dev/null 2>&1
 
 echo "Creating mint and stake authority keys..."
 solana-keygen new --no-bip39-passphrase -o faucet.json > /dev/null
@@ -59,7 +62,7 @@ GENESIS_OUTPUT=$(solana-genesis \
 GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred version:)' | xargs)
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
-PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1)
+PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
 RUST_LOG=trace solana-validator \
     --identity id.json \
@@ -79,6 +82,7 @@ RUST_LOG=trace solana-validator \
     --gossip-port 8001 \
     --gossip-host $PRIMARY_IP \
     --full-rpc-api \
+    --allow-private-addr \
     --log validator.log &
 
 sleep 90
@@ -94,11 +98,10 @@ echo "[tiles.tvu]
   repair_peer_addr = \"$PRIMARY_IP:8008\"
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
   snapshot = \"$(echo snapshot*)\"
-  page_cnt = 60
+  page_cnt = 25
 " > fddev.toml
 
-timeout 120 fddev --no-sandbox --log-path fddev.log --config fddev.toml >/dev/null 2>&1 || true
-    
-grep -q "evaluated block successfully" test_tvu.log
-grep -qv "Bank hash mismatch" test_tvu.log
-
+timeout 120 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
+sleep 10
+grep -q "evaluated block successfully" $(readlink -f fddev.log)
+grep -qv "Bank hash mismatch" $(readlink -f fddev.log)
