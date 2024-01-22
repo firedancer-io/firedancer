@@ -57,22 +57,28 @@ main( int argc, char ** argv ) {
   fd_runtime_args_t args;
   FD_TEST(fd_tvu_parse_args( &args, argc, argv ) == 0);
 
-  fd_runtime_ctx_t global_ctx;
-  memset(&global_ctx, 0, sizeof(global_ctx));
+  fd_runtime_ctx_t runtime_ctx;
+  memset(&runtime_ctx, 0, sizeof(runtime_ctx));
 
-  fd_tvu_main_setup( &global_ctx, 1, NULL, &args);
-  if( global_ctx.blowup ) return 1;
-  stopflag = &global_ctx.stopflag;
+  fd_tvu_repair_ctx_t repair_ctx;
+  memset(&repair_ctx, 0, sizeof(repair_ctx));
+
+  fd_tvu_gossip_ctx_t gossip_ctx;
+  memset(&gossip_ctx, 0, sizeof(gossip_ctx));
+
+  fd_tvu_main_setup( &runtime_ctx, &repair_ctx, &gossip_ctx, 1, NULL, &args);
+  if( runtime_ctx.blowup ) return 1;
+  stopflag = &runtime_ctx.stopflag;
 
   /**********************************************************************/
   /* Tile                                                               */
   /**********************************************************************/
 
-  if( fd_tvu_main( global_ctx.gossip,
-                   &global_ctx.gossip_config,
-                   &global_ctx.repair_ctx,
-                   &global_ctx.repair_config,
-                   &global_ctx.stopflag,
+  if( fd_tvu_main( runtime_ctx.gossip,
+                   &runtime_ctx.gossip_config,
+                   &repair_ctx,
+                   &runtime_ctx.repair_config,
+                   &runtime_ctx.stopflag,
                    args.repair_peer_id,
                    args.repair_peer_addr ) ) {
        return 1;
@@ -82,7 +88,7 @@ main( int argc, char ** argv ) {
   /* Cleanup                                                             */
   /***********************************************************************/
 
-  fd_tvu_main_teardown( &global_ctx );
+  fd_tvu_main_teardown( &runtime_ctx );
   fd_halt();
   return 0;
 }

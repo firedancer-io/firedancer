@@ -292,14 +292,14 @@ int fd_block_to_json( fd_textstream_t * ts,
   if ( meta ) {
     fd_textstream_sprintf(ts, "\"blockHeight\":%lu,\"blockTime\":%ld,\"blockhash\":\"",
                           blk->height, blk->ts/(long)1e9);
-    uchar const * hash = fd_blockstore_block_query_hash( blks, slot );
+    fd_hash_t const * hash = fd_blockstore_block_hash_query( blks, slot );
     if (hash)
-      fd_textstream_encode_base58(ts, hash, FD_SHA256_HASH_SZ);
+      fd_textstream_encode_base58(ts, hash->hash, FD_SHA256_HASH_SZ);
     fd_textstream_sprintf(ts, "\",\"parentSlot\":%lu,\"previousBlockhash\":\"",
                           meta->parent_slot);
-    hash = fd_blockstore_block_query_hash( blks, meta->parent_slot );
+    hash = fd_blockstore_block_hash_query( blks, meta->parent_slot );
     if (hash)
-      fd_textstream_encode_base58(ts, hash, FD_SHA256_HASH_SZ);
+      fd_textstream_encode_base58(ts, hash->hash, FD_SHA256_HASH_SZ);
     fd_textstream_sprintf(ts, "\",");
   }
 

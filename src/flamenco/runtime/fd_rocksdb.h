@@ -5,6 +5,7 @@
 
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/block/fd_microblock.h"
+#include "fd_blockstore.h"
 #include "../types/fd_types.h"
 #include <rocksdb/c.h>
 
@@ -151,8 +152,6 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
                                ulong          slot,
                                void const *   sig,
                                ulong *        psz );
-
-typedef struct fd_blockstore fd_blockstore_t;
 
 /* Import from rocksdb into blockstore */
 

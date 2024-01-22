@@ -1,6 +1,58 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_replay_h
 #define HEADER_fd_src_flamenco_runtime_fd_replay_h
 
+/* fd_replay tracks the vote stake a given slot has accumulated. This is used by the RPC node to
+  provide commitment statuses on a block (and prune forks once a slot is finalized).
+
+  This is not to be confused with fd_replay, which is an implementation of fork choice for active
+  voting and consensus participation.
+
+  In particular, note that "confirmed" and "finalized" have different definitions in an RPC context
+  vs. a voting validator's context.
+
+  In RPC, a slot is:
+    - confirmed when >66% of stake has voted for it directly
+    - finalized when >66% of stake has voted for it directly and indirectly (i.e. all ancestors)
+  */
+
+#include "../gossip/fd_gossip.h"
+#include "../repair/fd_repair.h"
+#include "context/fd_capture_ctx.h"
+#include "context/fd_exec_slot_ctx.h"
+#include "fd_blockstore.h"
+
+struct fd_replay_slot {
+  ulong                slot;
+  ulong                next;
+  fd_exec_slot_ctx_t  slot_ctx;
+  ulong                stake; /* how much stake has voted on this slot */
+};
+typedef struct fd_replay_slot fd_replay_slot_t;
+
+#define POOL_NAME fd_replay_pool
+#define POOL_T    fd_replay_slot_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME  fd_replay_frontier
+#define MAP_ELE_T fd_replay_slot_t
+#define MAP_KEY   slot
+#include "../../util/tmpl/fd_map_chain.c"
+
+struct fd_replay {
+  fd_replay_frontier_t *    frontier; /* map of slots to slot_ctxs, representing the fork heads */
+  fd_replay_slot_t *        pool;
+  fd_epoch_stakes_t const * epoch_stakes;
+
+  /* Services */
+  fd_blockstore_t * blockstore;
+  fd_funk_t *       funk;
+  fd_tpool_t *      tpool;
+  ulong             max_workers;
+  fd_repair_t *     repair;
+  fd_gossip_t *     gossip;
+};
+typedef struct fd_replay fd_replay_t;
+
 struct slot_capitalization {
   ulong key;
   uint  hash;
@@ -10,49 +62,69 @@ typedef struct slot_capitalization slot_capitalization_t;
 
 #define MAP_NAME        capitalization_map
 #define MAP_T           slot_capitalization_t
-#define LG_SLOT_CNT 15
+#define LG_SLOT_CNT     15
 #define MAP_LG_SLOT_CNT LG_SLOT_CNT
 #include "../../util/tmpl/fd_map.c"
 
-#include "fd_tvu.h"
+#define FD_REPLAY_STATE_ALIGN ( 8UL )
 
-#define FD_REPLAY_STATE_ALIGN     (8UL)
-
-#define FD_REPLAY_STATE_FOOTPRINT (sizeof(struct fd_runtime_ctx))
+#define FD_REPLAY_STATE_FOOTPRINT ( sizeof( struct fd_runtime_ctx ) )
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_runtime_ctx_{align,footprint} return FD_REPLAY_STATE_{ALIGN,FOOTPRINT}. */
+/* fd_replay_{align,footprint} return the required alignment and
+   footprint of a memory region suitable for use as replay with up to node_max
+   nodes and 1 << lg_msg_max msgs. align returns FD_replay_ALIGN. */
 
-FD_FN_CONST ulong
-fd_runtime_ctx_align( void );
+FD_FN_CONST static inline ulong
+fd_replay_align( void ) {
+  return alignof( fd_replay_t );
+}
 
-FD_FN_CONST ulong
-fd_runtime_ctx_footprint( void );
+FD_FN_CONST static inline ulong
+fd_replay_footprint( ulong node_max ) {
+  return sizeof( fd_replay_t ) + fd_replay_frontier_footprint( node_max ) +
+         fd_replay_pool_footprint( node_max ) + fd_replay_frontier_footprint( node_max );
+}
 
-void *
-fd_runtime_ctx_new( void * shmem );
-
-/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
-   The lifetime of the returned pointer is at least as long as the
-   lifetime of the local join.  Assumes funk is a current local join. */
-
-fd_runtime_ctx_t *
-fd_runtime_ctx_join( void * state );
-
-/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
-   shfunk on success and NULL on failure.  (logs details). */
+/* fd_replay_new formats an unused memory region for use as a replay. mem is a non-NULL pointer to
+   this region in the local address space with the required footprint and alignment.*/
 
 void *
-fd_runtime_ctx_leave( fd_runtime_ctx_t * state );
+fd_replay_new( void * mem, ulong node_max, ulong seed );
 
-/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
+/* fd_replay_join joins the caller to the replay. replay points to the first byte of the memory
+   region backing the replay in the caller's address space.
+
+   Returns a pointer in the local address space to the replay structure on success.
+
+   The replay is not inteded to be shared across multiple processes, and attempts to join from other
+   processes will result in invalid pointers. */
+
+fd_replay_t *
+fd_replay_join( void * replay );
+
+/* fd_replay_leave leaves a current local join. Returns a pointer to the underlying shared memory
+   region on success and NULL on failure (logs details). Reasons for failure include replay is NULL.
+ */
+
 void *
-fd_runtime_ctx_delete( void * state );
+fd_replay_leave( fd_replay_t const * replay );
 
-int fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args );
+/* fd_replay_delete unformats a memory region used as a replay. Assumes only the local process is
+   joined to the region. Returns a pointer to the underlying shared memory region or NULL if used
+   obviously in error (e.g. replay is obviously not a replay ... logs details). The ownership of the
+   memory region is transferred to the caller. */
+
+void *
+fd_replay_delete( void * replay );
+
+void
+fd_replay_slot_execute( fd_replay_t * replay, ulong slot, fd_replay_slot_t * parent );
+
+void
+fd_replay_slot_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
-
 
 #endif

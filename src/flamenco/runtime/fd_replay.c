@@ -1,163 +1,146 @@
+#include "fd_replay.h"
 #include "../fd_flamenco.h"
 #include "fd_account.h"
-#include "fd_replay.h"
-#include "fd_hashes.h"
 
-int
-fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
-{
-  ulong r = fd_funk_txn_cancel_all(state->slot_ctx->acc_mgr->funk, 1);
-  FD_LOG_INFO(( "Cancelled old transactions %lu", r ));
+void *
+fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
 
-  fd_features_restore( state->slot_ctx );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING( ( "NULL mem" ) );
+    return NULL;
+  }
 
-  if (state->slot_ctx->blockstore->max < args->end_slot)
-    args->end_slot = state->slot_ctx->blockstore->max;
-  // FD_LOG_WARNING(("Failing here"))
-  fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_replay_align() ) ) ) {
+    FD_LOG_WARNING( ( "misaligned mem" ) );
+    return NULL;
+  }
 
-  fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
+  ulong footprint = fd_replay_footprint( slot_max );
+  if( FD_UNLIKELY( !footprint ) ) {
+    FD_LOG_WARNING( ( "bad slot_max (%lu)", slot_max ) );
+    return NULL;
+  }
 
-  long replay_time = -fd_log_wallclock();
+  fd_memset( mem, 0, footprint );
+
+  ulong laddr = (ulong)mem;
+
+  fd_replay_t * replay = (fd_replay_t *)mem;
+  laddr                = fd_ulong_align_up( laddr + sizeof( fd_replay_t ), fd_replay_pool_align() );
+  replay->pool         = fd_replay_pool_new( (void *)laddr, slot_max );
+  laddr =
+      fd_ulong_align_up( laddr + fd_replay_pool_footprint( slot_max ), fd_replay_frontier_align() );
+  replay->frontier = fd_replay_frontier_new( (void *)laddr, slot_max, seed );
+
+  return mem;
+}
+
+/* TODO only safe for local joins */
+fd_replay_t *
+fd_replay_join( void * replay ) {
+
+  if( FD_UNLIKELY( !replay ) ) {
+    FD_LOG_WARNING( ( "NULL replay" ) );
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay, fd_replay_align() ) ) ) {
+    FD_LOG_WARNING( ( "misaligned replay" ) );
+    return NULL;
+  }
+
+  fd_replay_t * replay_ = (fd_replay_t *)replay;
+  replay_->pool         = fd_replay_pool_join( replay_->pool );
+  replay_->frontier     = fd_replay_frontier_join( replay_->frontier );
+
+  return replay_;
+}
+
+void *
+fd_replay_leave( fd_replay_t const * replay ) {
+
+  if( FD_UNLIKELY( !replay ) ) {
+    FD_LOG_WARNING( ( "NULL replay" ) );
+    return NULL;
+  }
+
+  return (void *)replay;
+}
+
+void *
+fd_replay_delete( void * replay ) {
+
+  if( FD_UNLIKELY( !replay ) ) {
+    FD_LOG_WARNING( ( "NULL replay" ) );
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay, fd_replay_align() ) ) ) {
+    FD_LOG_WARNING( ( "misaligned replay" ) );
+    return NULL;
+  }
+
+  return replay;
+}
+
+// TODO lock inside here vs. caller
+void
+fd_replay_slot_execute( fd_replay_t * replay, ulong slot, fd_replay_slot_t * parent ) {
+  FD_LOG_NOTICE( ( "executing replay" ) );
+  fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
+  if( block == NULL ) { /* we have the metadata but not the actual block */
+    FD_LOG_ERR( ( "programming error: calling fd_replay_slot_execute when block isn't there." ) );
+  }
+  uchar const * block_data = fd_blockstore_block_data_laddr( replay->blockstore, block );
+
   ulong txn_cnt = 0;
-  ulong slot_cnt = 0;
-  fd_blockstore_t * blockstore = state->slot_ctx->blockstore;
+  parent->slot_ctx.slot_bank.prev_slot = parent->slot;
+  parent->slot_ctx.slot_bank.slot = slot;
+  parent->slot_ctx.slot_bank.collected_fees = 0;
+  parent->slot_ctx.slot_bank.collected_rent = 0;
 
-  ulong prev_slot = state->slot_ctx->slot_bank.slot;
-  for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < args->end_slot; ++slot ) {
-    state->slot_ctx->slot_bank.prev_slot = prev_slot;
-    state->slot_ctx->slot_bank.slot      = slot;
+  FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
+                                        NULL,
+                                        block_data,
+                                        block->sz,
+                                        replay->tpool,
+                                        replay->max_workers,
+                                        &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+  (void)txn_cnt;
 
-    FD_LOG_DEBUG(("reading slot %ld", slot));
-
-    fd_blockstore_start_read(blockstore);
-    fd_blockstore_block_t * blk = fd_blockstore_block_query(blockstore, slot);
-    if (blk == NULL) {
-      FD_LOG_WARNING(("failed to read slot %ld", slot));
-      fd_blockstore_end_read(blockstore);
-      continue;
-    }
-    uchar * val = fd_blockstore_block_data_laddr(blockstore, blk);
-    ulong sz = blk->sz;
-    fd_blockstore_end_read(blockstore);
-
-    ulong blk_txn_cnt = 0;
-    FD_TEST( fd_runtime_block_eval_tpool( state->slot_ctx, state->capture_ctx, val, sz, state->tpool, state->max_workers, &blk_txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
-    txn_cnt += blk_txn_cnt;
-    slot_cnt++;
-
-    fd_blockstore_start_read(blockstore);
-    uchar const * expected = fd_blockstore_block_query_hash( blockstore, slot );
-    if ( FD_UNLIKELY( !expected ) )
-      FD_LOG_ERR(("slot %lu is missing its hash", slot));
-    else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.poh.hash, expected, 32UL ) ) ) {
-      FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%32J, got=%32J",
-          slot,
-          expected,
-          state->slot_ctx->slot_bank.poh.hash ));
-      if( state->abort_on_mismatch ) {
-        __asm__( "int $3" );
-        fd_blockstore_end_read(blockstore);
-        return 1;
-      }
-    }
-
-    expected = fd_blockstore_block_query_bank_hash( blockstore, slot );
-    if ( FD_UNLIKELY( !expected ) ) {
-      FD_LOG_ERR(("slot %lu is missing its bank hash", slot));
-    } else if( FD_UNLIKELY( 0!=memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) ) {
-      FD_LOG_WARNING(( "Bank hash mismatch! slot=%lu expected=%32J, got=%32J",
-          slot,
-          expected,
-          state->slot_ctx->slot_bank.banks_hash.hash ));
-      if( state->abort_on_mismatch ) {
-        __asm__( "int $3" );
-        fd_blockstore_end_read(blockstore);
-        return 1;
-      }
-    }
-    fd_blockstore_end_read(blockstore);
-
-#if 0
-    if (NULL != args->capitalization_file) {
-      slot_capitalization_t *c = capitalization_map_query(state->map, slot, NULL);
-      if (NULL != c) {
-        if (state->slot_ctx->slot_bank.capitalization != c->capitalization)
-          FD_LOG_ERR(( "capitalization missmatch!  slot=%lu got=%ld != expected=%ld  (%ld)", slot, state->slot_ctx->slot_bank.capitalization, c->capitalization,  state->slot_ctx->slot_bank.capitalization - c->capitalization  ));
-      }
-    }
-#endif
-    if (0==memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL )) {
-      ulong publish_err = fd_funk_txn_publish(state->slot_ctx->acc_mgr->funk, state->slot_ctx->funk_txn, 1);
-      if (publish_err == 0)
-        {
-          FD_LOG_ERR(("publish err - %lu", publish_err));
-          return -1;
-        }
-      state->slot_ctx->funk_txn = NULL;
-    }
-
-    prev_slot = slot;
-  }
-
-  replay_time += fd_log_wallclock();
-  double replay_time_s = (double)replay_time * 1e-9;
-  double tps = (double)txn_cnt / replay_time_s;
-  double sec_per_slot = replay_time_s/(double)slot_cnt;
-  FD_LOG_NOTICE(( "replay completed - slots: %lu, elapsed: %6.6f s, txns: %lu, tps: %6.6f, sec/slot: %6.6f", slot_cnt, replay_time_s, txn_cnt, tps, sec_per_slot ));
-
-  // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
-
-  return 0;
+  /* parent->slot_ctx is now child->slot_ctx, so re-insert into the map keyed by child slot */
+  fd_replay_slot_t * child =
+      fd_replay_frontier_ele_remove( replay->frontier, &parent->slot, NULL, replay->pool );
+  child->slot = child->slot_ctx.slot_bank.prev_slot; /* this is a hack to fix the fact eval is setting +1 */
+  fd_replay_frontier_ele_insert( replay->frontier, child, replay->pool );
+  FD_LOG_NOTICE(
+      ( "bank hash for slot %lu: %32J", child->slot, child->slot_ctx.slot_bank.banks_hash.hash ) );
 }
 
+void
+fd_replay_slot_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
+  fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
+  if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
+  fd_funk_txn_xid_t xid;
+  fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
+  fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
+  if( !txn ) FD_LOG_ERR( ( "missing txn" ) );
+  slot_ctx->funk_txn        = txn;
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( replay->funk, slot_ctx->funk_txn, &id );
+  if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
+  void *                  val = fd_funk_val( rec, fd_funk_wksp( replay->funk ) );
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data    = val;
+  ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
+  ctx.valloc  = slot_ctx->valloc;
+  FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
 
-ulong
-fd_runtime_ctx_align( void ) {
-  return alignof(fd_runtime_ctx_t);
-}
-
-ulong
-fd_runtime_ctx_footprint( void ) {
-  return sizeof(fd_runtime_ctx_t);
-}
-
-void *
-fd_runtime_ctx_new( void * shmem ) {
-  fd_runtime_ctx_t * replay_state = (fd_runtime_ctx_t *)shmem;
-
-  if( FD_UNLIKELY( !replay_state ) ) {
-    FD_LOG_WARNING(( "NULL replay_state" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_runtime_ctx_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned replay_state" ));
-    return NULL;
-  }
-
-  return (void *) replay_state;
-}
-
-/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
-   The lifetime of the returned pointer is at least as long as the
-   lifetime of the local join.  Assumes funk is a current local join. */
-
-fd_runtime_ctx_t *
-fd_runtime_ctx_join( void * state ) {
-  return (fd_runtime_ctx_t *) state;
-}
-
-/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
-   shfunk on success and NULL on failure.  (logs details). */
-
-void *
-fd_runtime_ctx_leave( fd_runtime_ctx_t * state ) {
-  return state;
-}
-
-/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
-void *
-fd_runtime_ctx_delete( void * state ) {
-  return state;
+  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J",
+                   (long)slot_ctx->slot_bank.slot,
+                   slot_ctx->slot_bank.banks_hash.hash,
+                   slot_ctx->slot_bank.poh.hash ) );
+  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
 }

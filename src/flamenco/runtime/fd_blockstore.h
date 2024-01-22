@@ -19,11 +19,12 @@
 
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
-#define FD_DEFAULT_SLOTS_PER_EPOCH        ( 432000UL )
-#define FD_DEFAULT_SHREDS_PER_EPOCH       ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
-#define FD_BLOCKSTORE_DUP_SHREDS_MAX      ( 32UL ) /* TODO think more about this */
-#define FD_DEFAULT_SLOT_HISTORY_MAX       ( 1024UL )
-#define FD_BLOCKSTORE_BLOCK_SZ_MAX        ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
+#define FD_SLOT_NULL                 ( ULONG_MAX )
+#define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
+#define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
+#define FD_BLOCKSTORE_DUP_SHREDS_MAX ( 32UL ) /* TODO think more about this */
+#define FD_DEFAULT_SLOT_HISTORY_MAX  ( 1024UL )
+#define FD_BLOCKSTORE_BLOCK_SZ_MAX   ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -32,17 +33,17 @@
 // https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
 #define FD_REPAIR_TIMEOUT ( 200 / FD_MS_PER_TICK )
 
-#define FD_BLOCKSTORE_OK                0x00
-#define FD_BLOCKSTORE_ERR_SHRED_FULL    0x01 /* no space left for shreds */
-#define FD_BLOCKSTORE_ERR_SLOT_FULL     0x02 /* no space left for slots */
-#define FD_BLOCKSTORE_ERR_TXN_FULL      0x03 /* no space left for txns */
-#define FD_BLOCKSTORE_ERR_SHRED_MISSING 0x07
-#define FD_BLOCKSTORE_ERR_SLOT_MISSING  0x08
-#define FD_BLOCKSTORE_ERR_TXN_MISSING   0x09
-#define FD_BLOCKSTORE_ERR_INVALID_SHRED 0x04 /* shred was invalid */
-#define FD_BLOCKSTORE_ERR_NO_MEM        0x05 /* no mem */
-#define FD_BLOCKSTORE_ERR_INVALID_DESHRED 0x10 /* deshredded block was invalid */
-#define FD_BLOCKSTORE_ERR_UNKNOWN       0xFF
+#define FD_BLOCKSTORE_OK                  0x00
+#define FD_BLOCKSTORE_ERR_SHRED_FULL      0x10 /* no space left for shreds */
+#define FD_BLOCKSTORE_ERR_SLOT_FULL       0x11 /* no space left for slots */
+#define FD_BLOCKSTORE_ERR_TXN_FULL        0x12 /* no space left for txns */
+#define FD_BLOCKSTORE_ERR_SHRED_MISSING   0x20
+#define FD_BLOCKSTORE_ERR_SLOT_MISSING    0x21
+#define FD_BLOCKSTORE_ERR_TXN_MISSING     0x22
+#define FD_BLOCKSTORE_ERR_INVALID_SHRED   0x30 /* shred was invalid */
+#define FD_BLOCKSTORE_ERR_INVALID_DESHRED 0x31 /* deshredded block was invalid */
+#define FD_BLOCKSTORE_ERR_NO_MEM          0x40 /* no mem */
+#define FD_BLOCKSTORE_ERR_UNKNOWN         0xFF
 
 struct fd_blockstore_tmp_shred_key {
   ulong slot;
@@ -83,11 +84,11 @@ struct fd_blockstore_slot_meta_map {
 };
 typedef struct fd_blockstore_slot_meta_map fd_blockstore_slot_meta_map_t;
 
-#define MAP_NAME fd_blockstore_slot_meta_map
-#define MAP_T    fd_blockstore_slot_meta_map_t
-#define MAP_KEY  slot
-#define MAP_KEY_NULL ULONG_MAX
-#define MAP_KEY_INVAL(k) (!(k ^ ULONG_MAX))
+#define MAP_NAME           fd_blockstore_slot_meta_map
+#define MAP_T              fd_blockstore_slot_meta_map_t
+#define MAP_KEY            slot
+#define MAP_KEY_NULL       ULONG_MAX
+#define MAP_KEY_INVAL( k ) ( !( k ^ ULONG_MAX ) )
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 /* A shred that has been deshredded and is part of a block */
@@ -136,11 +137,11 @@ struct fd_blockstore_block_map {
 };
 typedef struct fd_blockstore_block_map fd_blockstore_block_map_t;
 
-#define MAP_NAME fd_blockstore_block_map
-#define MAP_T    fd_blockstore_block_map_t
-#define MAP_KEY  slot
-#define MAP_KEY_NULL ULONG_MAX
-#define MAP_KEY_INVAL(k) (!(k ^ ULONG_MAX))
+#define MAP_NAME           fd_blockstore_block_map
+#define MAP_T              fd_blockstore_block_map_t
+#define MAP_KEY            slot
+#define MAP_KEY_NULL       ULONG_MAX
+#define MAP_KEY_INVAL( k ) ( !( k ^ ULONG_MAX ) )
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct fd_blockstore_txn_key {
@@ -175,10 +176,9 @@ int fd_blockstore_txn_key_equal(fd_blockstore_txn_key_t k0, fd_blockstore_txn_ke
 uint fd_blockstore_txn_key_hash(fd_blockstore_txn_key_t k);
 #define MAP_KEY_HASH(k)      fd_blockstore_txn_key_hash(k)
 #include "../../util/tmpl/fd_map_dynamic.c"
-/* clang-format on */
 
 // TODO make this private
-struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
+struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
 
   /* Metadata */
 
@@ -201,9 +201,9 @@ struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
   ulong tmp_shred_map_gaddr;  /* map of (slot, shred_idx)->shred */
 
   int   lg_slot_max;
-  ulong slot_meta_map_gaddr; /* map of slot->slot_meta */
+  ulong slot_meta_map_gaddr;        /* map of slot->slot_meta */
   ulong block_map_gaddr;
-  ulong slot_history_max;    /* maximum block history */
+  ulong slot_history_max;           /* maximum block history */
   ulong slot_history_max_with_slop; /* maximum block history with some padding */
 
   int   lg_txn_max;
@@ -215,11 +215,19 @@ struct __attribute__( ( aligned( FD_BLOCKSTORE_ALIGN ) ) ) fd_blockstore {
 
   ulong alloc_gaddr;
 };
-typedef struct fd_blockstore fd_blockstore_t;
+/* clang-format on */
+
+struct fd_blockstore_private;
+typedef struct fd_blockstore_private fd_blockstore_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_blockstore_{align,footprint} return FD_BLOCKSTORE_{ALIGN,FOOTPRINT}. */
+/* Construction API */
+
+/* fd_blockstore_{align,footprint} return the required alignment and
+   footprint of a memory region suitable for use as blockstore with depth
+   entries.  align returns FD_BLOCKSTORE_ALIGN. lg_txn_max is assumed to be an
+   integer greater than or equal to zero. */
 
 FD_FN_CONST ulong
 fd_blockstore_align( void );
@@ -227,6 +235,36 @@ fd_blockstore_align( void );
 FD_FN_CONST ulong
 fd_blockstore_footprint( void );
 
+/* fd_blockstore_new formats an unused memory region for use as a blockstore.
+   shmem is a non-NULL pointer to this region in the local address space
+   with the required footprint and alignment.  depth is the number of
+   cache entries (should be an integer power of 2 >= FD_BLOCKSTORE_BLOCK).
+   The blockstore will also have an app_sz byte application region for
+   application specific usage.  seq0 is the initial fragment sequence
+   number a producer should use for this blockstore.
+
+   The cache entries will be initialized such all queries for any
+   sequence number will fail immediately after creation.  They will
+   further be initialized such that for any consumer initialized to
+   start receiving a sequence number at or after seq0 will think it is
+   ahead of the producer (such that it will wait for its sequence number
+   cleanly instead of immediately trying to recover a gap).  Conversely,
+   consumers initialized to start receiving a sequence number before
+   seq0 will think they are behind the producer (thus realize it is been
+   incorrectly initialized and can recover appropriately).  Anybody who
+   looks at the blockstore entries directly will also see the entries are
+   initialized to have zero sz (such that they shouldn't try deference
+   any fragment payloads), have the SOM and EOM bits set (so they
+   shouldn't try to interpret the entry as part of some message spread
+   over multiple fragments) and have the ERR bit set (so they don't
+   think there is any validity to the meta data or payload).
+
+   The application region will be initialized to zero.
+
+   Returns shmem (and the memory region it points to will be formatted
+   as a blockstore, caller is not joined) on success and NULL on failure
+   (logs details).  Reasons for failure include obviously bad shmem or
+   bad depth. */
 void *
 fd_blockstore_new( void * shmem,
                    ulong  wksp_tag,
@@ -288,7 +326,9 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_blockstore_bloc
  * TODO eventually this will need to support "upsert" duplicate shred handling
  */
 int
-fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_meta_opt, fd_shred_t const * shred );
+fd_blockstore_shred_insert( fd_blockstore_t *  blockstore,
+                            fd_slot_meta_t *   slot_meta_opt,
+                            fd_shred_t const * shred );
 
 /* Query blockstore for shred at slot, shred_idx. Returns a pointer to the shred or NULL if not in
  * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
@@ -305,47 +345,51 @@ fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_
 fd_blockstore_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Get the final poh hash for a given slot */
-uchar const *
-fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot );
+/* Query blockstore for the block hash at slot. This is the final poh hash for a slot. */
+fd_hash_t const *
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Get the bank hash for a given slot */
-uchar const *
-fd_blockstore_block_query_bank_hash( fd_blockstore_t * blockstore, ulong slot );
+/* Query blockstore for the bank hash for a given slot. */
+fd_hash_t const *
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Query blockstore for slot_meta at slot. Returns a pointer to the slot_meta or NULL if not in
- * blockstore. The returned pointer lifetime is until the slot meta is removed. Check return value
- * for error info. */
+/* Query blockstore for slot meta at slot. Returns a pointer to the slot meta or NULL if not in
+   blockstore. The returned pointer lifetime is until the slot meta is removed. */
 fd_slot_meta_t *
 fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Return the slot of the parent block */
+/* Query the parent slot of slot */
 ulong
 fd_blockstore_slot_parent_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* Returns the transaction data for the given signature */
+/* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
+   slot children of the current frontier that are shred complete. */
+fd_blockstore_block_t *
+fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
+                                    ulong *           parents,
+                                    ulong             parents_sz );
+
+/* Query the transaction data for the given signature */
 fd_blockstore_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED25519_SIG_SZ] );
 
-/* Delete a block slot */
+/* Remove slot from blockstore, including all relevant internal structures. */
 int
-fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* Discard all the unassembled shreds for a block */
+/* Remove all the tmp shreds for slot. */
 int
-fd_blockstore_discard_shreds( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_tmp_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 
-/* Remove the all slots less than min_slots from blockstore by
+/* Remove all slots less than min_slots from blockstore by
    removing them from all relevant internal structures. Used to maintain
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
 int
-fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot );
+fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot );
 
 /* Set the height for a block */
 void
-fd_blockstore_set_height( fd_blockstore_t * blockstore,
-                          ulong slot,
-                          ulong block_height );
+fd_blockstore_block_height_set( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
 /* Acquire a read lock */
 static inline void

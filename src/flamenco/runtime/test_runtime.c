@@ -35,8 +35,8 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 #include "../fd_flamenco.h"
 #include <errno.h>
 #include "fd_runtime.h"
-#include "fd_replay.h"
 #include "context/fd_capture_ctx.h"
+#include "fd_tvu.h"
 
 int
 main( int     argc,
@@ -50,7 +50,13 @@ main( int     argc,
   fd_runtime_ctx_t state;
   fd_memset(&state, 0, sizeof(state));
 
-  fd_tvu_main_setup( &state, 0, NULL, &args);
+  fd_tvu_repair_ctx_t repair_ctx;
+  memset(&repair_ctx, 0, sizeof(repair_ctx));
+
+  fd_tvu_gossip_ctx_t gossip_ctx;
+  memset(&gossip_ctx, 0, sizeof(gossip_ctx));
+
+  fd_tvu_main_setup( &state, &repair_ctx, &gossip_ctx, 0, NULL, &args);
 
   // TODO: tracing, captures, and capitalization is broken
 #if 0
@@ -104,7 +110,7 @@ main( int     argc,
   fd_runtime_recover_banks( state.slot_ctx, 0 );
 
   if (strcmp(args.cmd, "replay") == 0) {
-    int err = fd_replay(&state, &args);
+    int err = fd_runtime_replay(&state, &args);
     if( err!=0 ) return err;
   }
 

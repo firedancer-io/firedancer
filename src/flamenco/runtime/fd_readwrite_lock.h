@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_readwrite_lock_h
 #define HEADER_fd_src_flamenco_runtime_fd_readwrite_lock_h
 
+#include "../fd_flamenco_base.h"
+
 struct __attribute__((aligned(64UL))) fd_readwrite_lock {
   volatile uint readcount;
   volatile uint writecount;

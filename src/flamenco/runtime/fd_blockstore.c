@@ -312,7 +312,7 @@ fd_blockstore_delete( void * shblockstore ) {
   /* Free all value resources here */
 
   for( ulong i = blockstore->min; i <= blockstore->max; i++ )
-    fd_blockstore_remove_slot(blockstore, i);
+    fd_blockstore_slot_remove(blockstore, i);
 
   fd_wksp_free_laddr( fd_alloc_delete( fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr ) ) );
   fd_wksp_free_laddr(
@@ -532,7 +532,7 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
 
 /* Delete a block slot */
 int
-fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
+fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
@@ -567,7 +567,7 @@ fd_blockstore_remove_slot( fd_blockstore_t * blockstore, ulong slot ) {
 
 /* Discard all the unassembled shreds for a block */
 int
-fd_blockstore_discard_shreds( fd_blockstore_t * blockstore, ulong slot ) {
+fd_blockstore_tmp_shreds_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_meta_map_t * slot_meta_map = fd_wksp_laddr_fast( wksp, blockstore->slot_meta_map_gaddr );
   fd_blockstore_slot_meta_map_t * slot_meta_entry = fd_blockstore_slot_meta_map_query( slot_meta_map, slot, NULL );
@@ -591,7 +591,7 @@ fd_blockstore_discard_shreds( fd_blockstore_t * blockstore, ulong slot ) {
    removing them from all relevant internal structures. Used to maintain
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
 int
-fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot ) {
+fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot ) {
   if ( blockstore->min >= min_slot )
     return FD_BLOCKSTORE_OK;
 
@@ -606,7 +606,7 @@ fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot ) {
 
   /* Scrub slot_meta and block map */
   for ( ulong i = old_min_slot; i < min_slot; ++i ) {
-    int err = fd_blockstore_remove_slot(blockstore, i);
+    int err = fd_blockstore_slot_remove(blockstore, i);
     if( FD_UNLIKELY(err) )
       return err;
   }
@@ -616,6 +616,7 @@ fd_blockstore_remove_before( fd_blockstore_t * blockstore, ulong min_slot ) {
 /* Deshred and construct a block once we've received all shreds for a slot. */
 static int
 fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_LOG_WARNING(("deshredding %lu", slot));
   fd_blockstore_block_map_t * block_map = fd_blockstore_block_map( blockstore );
   if( FD_UNLIKELY( fd_blockstore_block_map_query( block_map, slot, NULL ) ) ) {
     FD_LOG_ERR( ( "duplicate blocks not supported" ) );
@@ -818,7 +819,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
                         blockstore->min,
                         blockstore->max,
                         blockstore->slot_history_max ) );
-      if( FD_UNLIKELY( fd_blockstore_remove_before( blockstore, blockstore->max - blockstore->slot_history_max ) != FD_BLOCKSTORE_OK ) ) {
+      if( FD_UNLIKELY( fd_blockstore_slot_history_remove( blockstore, blockstore->max - blockstore->slot_history_max ) != FD_BLOCKSTORE_OK ) ) {
         FD_LOG_WARNING( ( "failed to find and remove min slot. likely programming error." ) );
       }
     }
@@ -861,8 +862,8 @@ fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
 }
 
 /* Get the final poh hash for a given slot */
-uchar const *
-fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
+fd_hash_t const *
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_block_map_t * map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
   fd_blockstore_block_map_t * query = fd_blockstore_block_map_query( map, slot, NULL );
@@ -870,17 +871,17 @@ fd_blockstore_block_query_hash( fd_blockstore_t * blockstore, ulong slot ) {
   fd_blockstore_micro_t * micros = fd_wksp_laddr_fast( wksp, query->block.micros_gaddr );
   uchar * data = fd_wksp_laddr_fast( wksp, query->block.data_gaddr );
   fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[query->block.micros_cnt - 1].off );
-  return last_micro->hash;
+  return (fd_hash_t *)fd_type_pun(last_micro->hash);
 }
 
 /* Get the bank hash for a given slot */
-uchar const *
-fd_blockstore_block_query_bank_hash( fd_blockstore_t * blockstore, ulong slot ) {
+fd_hash_t const *
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_blockstore_block_map_t * map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
   fd_blockstore_block_map_t * query = fd_blockstore_block_map_query( map, slot, NULL );
   if( FD_UNLIKELY( !query ) ) return NULL;
-  return query->block.bank_hash.hash;
+  return &query->block.bank_hash;
 }
 
 fd_slot_meta_t *
@@ -917,7 +918,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
 
 /* Set the height for a block */
 void
-fd_blockstore_set_height( fd_blockstore_t * blockstore,
+fd_blockstore_block_height_set( fd_blockstore_t * blockstore,
                           ulong slot,
                           ulong block_height ) {
   fd_blockstore_block_t * query = fd_blockstore_block_query( blockstore, slot );
