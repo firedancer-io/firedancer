@@ -117,9 +117,9 @@ test_withdraw( FD_FN_UNUSED fd_rng_t * rng ) {
   tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
-  instr->data_sz -= 10;
+  instr->data_sz = (ushort)(instr->data_sz - 10);
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz += 10;
+  instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
 #if BENCH
@@ -165,9 +165,9 @@ test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
-  instr->data_sz -= 10;
+  instr->data_sz = (ushort)(instr->data_sz - 10);
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz += 10;
+  instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
 #if BENCH
@@ -213,9 +213,9 @@ test_batched_range_proof_u128( FD_FN_UNUSED fd_rng_t * rng ) {
   // tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
-  instr->data_sz -= 10;
+  instr->data_sz = (ushort)(instr->data_sz - 10);
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz += 10;
+  instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
 #if BENCH
@@ -261,9 +261,9 @@ test_ciphertext_commitment_equality( FD_FN_UNUSED fd_rng_t * rng ) {
   tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
-  instr->data_sz -= 10;
+  instr->data_sz = (ushort)(instr->data_sz - 10);
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz += 10;
+  instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
 #if BENCH
@@ -309,9 +309,9 @@ test_batched_grouped_ciphertext_validity( FD_FN_UNUSED fd_rng_t * rng ) {
   tx[1 + proof_offset] ^= 0xff;
 
   // invalid data
-  instr->data_sz -= 10;
+  instr->data_sz = (ushort)(instr->data_sz - 10);
   FD_TEST( fd_zktpp_process_verify_proof( *ctx )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
-  instr->data_sz += 10;
+  instr->data_sz = (ushort)(instr->data_sz + 10);
 
   /* Benchmarks */
 #if BENCH

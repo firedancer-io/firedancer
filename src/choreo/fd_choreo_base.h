@@ -24,7 +24,6 @@ union __attribute__((packed)) fd_hash {
 typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
-static const fd_hash_t hash_null = { 0 };
 static const fd_pubkey_t pubkey_null = { 0 };
 
 struct __attribute__((aligned(8UL))) fd_slot_hash {
@@ -38,7 +37,6 @@ typedef struct fd_slot_hash fd_slot_hash_t;
 #define FD_SLOT_HASH_EQ(a,b)   ((((a)->slot)==((b)->slot)) & !(memcmp(((a)->hash.uc),((b)->hash.uc),sizeof(fd_hash_t))))
 /* clang-format on */
 
-static const fd_slot_hash_t slot_hash_null = { .slot = FD_SLOT_NULL, .hash = hash_null };
+static const fd_slot_hash_t slot_hash_null = { .slot = FD_SLOT_NULL, .hash = {{0}} };
 
 #endif /* HEADER_fd_src_choreo_fd_choreo_base_h */
-
