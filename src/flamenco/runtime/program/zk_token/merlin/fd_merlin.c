@@ -29,7 +29,7 @@ strobe128_absorb( fd_merlin_strobe128_t * ctx,
                   ulong const             data_len) {
   for ( ulong i=0; i<data_len; i++ ) {
     ctx->state_bytes[ctx->pos] ^= data[i];
-    ctx->pos += 1;
+    ctx->pos++;
     if (ctx->pos == STROBE_R) {
       strobe128_run_f(ctx);
     }
@@ -43,7 +43,7 @@ strobe128_squeeze( fd_merlin_strobe128_t * ctx,
   for ( ulong i=0; i<data_len; i++ ) {
     data[i] = ctx->state_bytes[ctx->pos];
     ctx->state_bytes[ctx->pos] = 0;
-    ctx->pos += 1;
+    ctx->pos++;
     if (ctx->pos == STROBE_R) {
       strobe128_run_f(ctx);
     }
@@ -68,7 +68,7 @@ strobe128_begin_op( fd_merlin_strobe128_t * ctx,
   */
 
   uchar old_begin = ctx->pos_begin;
-  ctx->pos_begin = ctx->pos + 1;
+  ctx->pos_begin = (uchar)(ctx->pos + 1);
   ctx->cur_flags = flags;
 
   uchar data[2] = { old_begin, flags };

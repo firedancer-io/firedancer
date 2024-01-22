@@ -96,7 +96,7 @@ static inline void
 fd_readwrite_start_write( fd_readwrite_lock_t * lock ) {
   for(;;) {
     fd_readwrite_private_lock( lock );
-    if( FD_LIKELY( (!lock->readcount) & (!lock->writecount) ) ) {
+    if( FD_LIKELY( ((int)(!lock->readcount)) & ((int)(!lock->writecount)) ) ) {
       lock->writecount++;
       FD_TEST(lock->writecount == 1U);
       fd_readwrite_private_unlock( lock );
