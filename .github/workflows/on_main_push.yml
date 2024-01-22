@@ -1,7 +1,7 @@
 name: On Main Push
 on:
   push:
-    branches: [main]
+    branches: [runtime]
 jobs:
   book:
     uses: ./.github/workflows/book.yml

@@ -1,7 +1,7 @@
 name: On Pull Request
 on:
   push:
-    branches: [main]
+    branches: [runtime]
   pull_request:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
