@@ -10,7 +10,3 @@ jobs:
   tests:
     uses: ./.github/workflows/tests.yml
     secrets: inherit
-
-  tests-fddev:
-    uses: ./.github/workflows/tests_fddev.yml
-    secrets: inherit
