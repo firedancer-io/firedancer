@@ -285,28 +285,37 @@ fd_snapshot_restore_manifest( fd_exec_slot_ctx_t *     slot_ctx,
   fd_valloc_t slot_valloc = slot_ctx->valloc;
 
   /* Decode manifest placing dynamic data structures onto slot context
-    heap.  Once the epoch context heap is separated out, we need to
-    revisit this. */
+     heap.  Once the epoch context heap is separated out, we need to
+     revisit this. */
 
   fd_solana_manifest_t manifest[1];
   fd_bincode_decode_ctx_t decode =
       { .data    = manifest_buf,
         .dataend = manifest_buf + manifest_bufsz,
-        .valloc  = slot_valloc };
+        .valloc  = slot_valloc /* expected by fd_exec_slot_ctx_recover */ };
   int decode_err = fd_solana_manifest_decode( manifest, &decode );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", decode_err ));
     return 0;
   }
 
-  /* Move over objects and recover state */
+  /* Move over accounts DB fields */
+
+  fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
+  fd_memset( &manifest->accounts_db, 0, sizeof(fd_solana_accounts_db_fields_t) );
+
+  /* Move over objects and recover state
+     This destroys all remaining fields with the slot context valloc. */
 
   int ok = !!fd_exec_slot_ctx_recover( slot_ctx, manifest );
 
   /* Read AccountVec map */
 
   if( FD_LIKELY( ok ) )
-    ok = fd_snapshot_accv_index( accv_map, &manifest->accounts_db );
+    ok = fd_snapshot_accv_index( accv_map, &accounts_db );
+
+  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_valloc };
+  fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
 
   return ok;
 }
@@ -396,12 +405,17 @@ fd_snapshot_restore_file( void *                restore_,
 
   /* Detect account vec files.  These are files that contain a vector
      of accounts in Solana Labs "AppendVec" format. */
-  FD_TEST( sizeof("accounts/")<FD_TAR_NAME_SZ );
-  if( 0==strncmp( meta->name, "accounts/", sizeof("accounts/")-1) )
+  assert( sizeof("accounts/")<FD_TAR_NAME_SZ );
+  if( 0==strncmp( meta->name, "accounts/", sizeof("accounts/")-1) ) {
+    if( FD_UNLIKELY( !restore->manifest_done ) ) {
+      FD_LOG_WARNING(( "Unsupported snapshot: encountered AppendVec before manifest" ));
+      return -1;
+    }
     return fd_snapshot_restore_accv_prepare( restore, meta, sz );
+  }
 
   /* Snapshot manifest */
-  FD_TEST( sizeof("snapshots/status_cache")<FD_TAR_NAME_SZ );
+  assert( sizeof("snapshots/status_cache")<FD_TAR_NAME_SZ );
   if( 0==strncmp( meta->name, "snapshots/", sizeof("snapshots/")-1) &&
       0!=strcmp ( meta->name, "snapshots/status_cache" ) )
     return fd_snapshot_restore_manifest_prepare( restore, sz );
@@ -508,6 +522,7 @@ fd_snapshot_read_manifest_chunk( fd_snapshot_restore_t * restore,
       FD_LOG_WARNING(( "fd_snapshot_restore_manifest failed" ));
       return NULL;
     }
+    restore->manifest_done = 1;
     restore->state = STATE_DONE;
   }
   return end;

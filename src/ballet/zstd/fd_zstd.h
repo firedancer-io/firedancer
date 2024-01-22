@@ -90,10 +90,10 @@ fd_zstd_peek( fd_zstd_peek_t * peek,
    memory region backing a fd_zstd_dstream_t.  max_window_sz is the
    largest window size that this object is able to handle. */
 
-ulong
+FD_FN_CONST ulong
 fd_zstd_dstream_align( void );
 
-ulong
+FD_FN_CONST ulong
 fd_zstd_dstream_footprint( ulong max_window_sz );
 
 /* fd_zstd_dstream_new creates a new dstream object backed by the memory
