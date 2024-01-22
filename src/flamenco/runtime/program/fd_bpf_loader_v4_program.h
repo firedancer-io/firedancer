@@ -47,11 +47,11 @@ fd_bpf_loader_v4_get_state( fd_account_meta_t const * meta,
   return (fd_bpf_loader_v4_state_t *)fd_bpf_loader_v4_get_state_laddr( meta, data );
 }
 
-/* fd_bpf_loader_v4_program_execute_instruction is the
-   instruction processing entrypoint for the Solana BPF loader program */
+/* fd_bpf_loader_v4_program_execute is the instruction processing
+   entrypoint for the Solana BPF loader program */
 
 int
-fd_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx );
+fd_bpf_loader_v4_program_execute( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

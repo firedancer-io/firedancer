@@ -145,7 +145,7 @@ _process_meta_instruction( fd_exec_instr_ctx_t ctx ) {
 }
 
 int
-fd_bpf_loader_v4_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
+fd_bpf_loader_v4_program_execute( fd_exec_instr_ctx_t ctx ) {
 
   //if( !FD_FEATURE_ACTIVE( ctx.slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
   //  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
