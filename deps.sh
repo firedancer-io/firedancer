@@ -114,7 +114,7 @@ fetch () {
 
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
-  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.4"
+  checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo openssl   https://github.com/quictls/openssl.git    "openssl-3.1.4-quic1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
@@ -150,7 +150,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler )
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev )
 
   echo "[~] Checking for required DEB packages"
 
@@ -288,7 +288,7 @@ install_zstd () {
   cd ./opt/git/zstd/lib
 
   echo "[+] Installing zstd to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" install-pc install-static install-includes install-shared
+  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
 }
 

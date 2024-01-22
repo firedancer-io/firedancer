@@ -19,8 +19,11 @@ fd_chacha20_quarter_round( uint * a,
 void *
 fd_chacha20_block( void *       _block,
                    void const * _key,
-                   uint         idx,
-                   void const * _nonce ) {
+                   void const * _idx_nonce ) {
+
+  uint *       block     = __builtin_assume_aligned( _block,     64UL );
+  uint const * key       = __builtin_assume_aligned( _key,       32UL );
+  uint const * idx_nonce = __builtin_assume_aligned( _idx_nonce, 16UL );
 
   /* Construct the input ChaCha20 block state as the following
      matrix of little endian uint entries:
@@ -36,18 +39,13 @@ fd_chacha20_block( void *       _block,
        b is the block index
        n is the nonce */
 
-  uint * block = (uint *)_block;
   block[ 0 ] = 0x61707865U;
   block[ 1 ] = 0x3320646eU;
   block[ 2 ] = 0x79622d32U;
   block[ 3 ] = 0x6b206574U;
 
-  uint const * key = (uint const *)_key;
-  memcpy( block+ 4, key, 8*sizeof(uint) );
-
-  block[ 12 ] = idx;
-  uint const * nonce = (uint const *)_nonce;
-  memcpy( block+13, nonce, 3*sizeof(uint) );
+  memcpy( block+ 4, key,       8*sizeof(uint) );
+  memcpy( block+12, idx_nonce, 4*sizeof(uint) );
 
   /* Remember the input state for later use */
 

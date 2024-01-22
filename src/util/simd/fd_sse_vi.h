@@ -136,8 +136,16 @@ vi_insert_variable( vi_t a, int n, int v ) {
 #define vi_or(a,b)     _mm_or_si128(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define vi_xor(a,b)    _mm_xor_si128(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+/* vi_rol(x,n) returns vi( rotate_left (x0,n), rotate_left (x1,n), ... )
+   vi_ror(x,n) returns vi( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+#if FD_HAS_AVX512
+#define vi_rol(a,imm)  _mm_rol_epi32( (a), (imm) )
+#define vi_ror(a,imm)  _mm_ror_epi32( (a), (imm) )
+#else
 static inline vi_t vi_rol( vi_t a, int imm ) { return vi_or( vi_shl(  a, imm & 31 ), vi_shru( a, (-imm) & 31 ) ); }
 static inline vi_t vi_ror( vi_t a, int imm ) { return vi_or( vi_shru( a, imm & 31 ), vi_shl(  a, (-imm) & 31 ) ); }
+#endif
 
 static inline vi_t vi_rol_variable( vi_t a, int n ) { return vi_or( vi_shl_variable(  a, n&31 ), vi_shru_variable( a, (-n)&31 ) ); }
 static inline vi_t vi_ror_variable( vi_t a, int n ) { return vi_or( vi_shru_variable( a, n&31 ), vi_shl_variable(  a, (-n)&31 ) ); }

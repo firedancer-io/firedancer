@@ -14,7 +14,7 @@
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)
 
 void fd_tokenbalance_to_json( fd_textstream_t * ts, struct _fd_solblock_TokenBalance * b ) {
-  fd_textstream_sprintf(ts, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%u\",\"uiTokenAmount\":{",
+  fd_textstream_sprintf(ts, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%s\",\"uiTokenAmount\":{",
                         b->account_index, b->mint, b->owner, b->program_id);
   fd_textstream_sprintf(ts, "\"amount\":\"%s\",", b->ui_token_amount.amount);
   int dec;
@@ -284,9 +284,9 @@ int fd_block_to_json( fd_textstream_t * ts,
 
   uchar const * block = fd_blockstore_block_data_laddr(blks, blk);
   ulong block_sz = blk->sz;
-  
-  FD_LOG_DEBUG(("converting ptr 0x%lx, sz %lu", block, block_sz));
-  
+
+  FD_LOG_DEBUG(("converting ptr %p, sz %lu", (void *)block, block_sz));
+
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   if ( meta ) {
@@ -302,7 +302,7 @@ int fd_block_to_json( fd_textstream_t * ts,
       fd_textstream_encode_base58(ts, hash, FD_SHA256_HASH_SZ);
     fd_textstream_sprintf(ts, "\",");
   }
-    
+
   EMIT_SIMPLE("\"transactions\":[");
 
   int first_txn = 1;
@@ -351,7 +351,7 @@ int fd_block_to_json( fd_textstream_t * ts,
           }
         }
 #endif
-        
+
         int r = fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, val2, val2_sz, encoding, maxvers, detail, rewards );
         if ( r ) {
           fd_blockstore_end_read( blks );
@@ -359,7 +359,7 @@ int fd_block_to_json( fd_textstream_t * ts,
         }
 
         EMIT_SIMPLE("}");
-        
+
         blockoff += pay_sz;
       }
     }

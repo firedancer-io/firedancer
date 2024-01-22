@@ -13,6 +13,7 @@ fd_topo_tile_to_config( fd_topo_tile_t * tile ) {
     case FD_TOPO_TILE_KIND_DEDUP:  return &fd_tile_dedup;
     case FD_TOPO_TILE_KIND_PACK:   return &fd_tile_pack;
     case FD_TOPO_TILE_KIND_BANK:   return &fd_tile_bank;
+    case FD_TOPO_TILE_KIND_POH:    return &fd_tile_poh;
     case FD_TOPO_TILE_KIND_SHRED:  return &fd_tile_shred;
     case FD_TOPO_TILE_KIND_STORE:  return &fd_tile_store;
     case FD_TOPO_TILE_KIND_METRIC: return &fd_tile_metric;

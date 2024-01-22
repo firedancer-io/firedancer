@@ -9,6 +9,9 @@ target/
 *.lcov
 *.profraw
 
+# Clang
+.clangd
+
 # Rust
 **/Cargo.lock
 

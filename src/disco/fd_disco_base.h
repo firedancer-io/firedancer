@@ -10,6 +10,9 @@
 #define SRC_TILE_QUIC  (1UL)
 #define SRC_TILE_SHRED (2UL)
 
+#define POH_PKT_TYPE_MICROBLOCK    (0UL)
+#define POH_PKT_TYPE_BECAME_LEADER (1UL)
+
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
    XSK entry size, so this value follows naturally. */
@@ -22,18 +25,12 @@
    asserted in fd_shred_tile.c). */
 #define FD_SHRED_STORE_MTU (41792UL)
 
-/* FD_POH_SHRED_MTU is the size of the raw transaction portion of the
-   largest microblock the pack tile will produce, plus the 48B of
-   microblock header (hash and 2 ulongs) plus the fd_entry_batch_meta_t
-   metadata. */
-#define FD_POH_SHRED_MTU (40UL + 48UL + FD_TPU_MTU * 31UL)
-
 /* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
 #define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
 /* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust
    shims, so if the value changes, this acts as a reminder to change it
    in the Rust code. */
-FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2094UL, tpu_dcache_mtu_check );
+FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2086UL, tpu_dcache_mtu_check );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
@@ -62,6 +59,24 @@ FD_FN_CONST static inline uint   fd_disco_netmux_sig_ip_addr ( ulong sig ) { ret
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_port    ( ulong sig ) { return (sig>>16UL) & 0xFFFFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_src_tile( ulong sig ) { return (sig>>12UL) & 0xFUL; }
 FD_FN_CONST static inline ushort fd_disco_netmux_sig_dst_idx ( ulong sig ) { return (sig>> 0UL) & 0xFUL; }
+
+FD_FN_CONST static inline ulong
+fd_disco_poh_sig( ulong slot,
+                  ulong pkt_type,
+                  ulong bank_tile ) {
+   /* The high 7 bits of the low byte of the signature field is the bank
+      idx.  Banks will filter to only handle frags with their own idx.
+      The higher 7 bytes are the slot number.  Technically, the slot
+      number is a ulong, but it won't hit 256^7 for about 10^9 years at
+      the current rate.  The lowest bit of the low byte is the packet
+      type. */
+  return (slot << 8) | ((bank_tile & 0x7FUL) << 1) | (pkt_type & 0x1UL);
+}
+
+FD_FN_CONST static inline ulong fd_disco_poh_sig_pkt_type( ulong sig ) { return (sig & 0x1UL); }
+FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig >> 8); }
+FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 1) & 0x7FUL; }
+
 /* fd_disco_netmux_sig_hdr_sz extracts the total size of the Ethernet,
    IP, and UDP headers from the netmux signature field.  The UDP payload
    of the packet stored in the corresponding frag begins at the returned

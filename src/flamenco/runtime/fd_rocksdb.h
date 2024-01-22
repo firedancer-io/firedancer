@@ -3,9 +3,9 @@
 
 #if FD_HAS_ROCKSDB
 
-#include "fd_banks_solana.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/block/fd_microblock.h"
+#include "../types/fd_types.h"
 #include <rocksdb/c.h>
 
 #define FD_ROCKSDB_CF_CNT (8UL)

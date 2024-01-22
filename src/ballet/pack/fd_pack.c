@@ -2,13 +2,13 @@
 #include "fd_pack.h"
 #include "fd_pack_cost.h"
 #include "fd_compute_budget_program.h"
+#include "fd_pack_bitset.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
-
+#include "../../disco/metrics/fd_metrics.h"
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
-
 
 /* fd_pack_ord_txn_t: An fd_txn_p_t with information required to order
    it by priority */
@@ -25,6 +25,9 @@ struct fd_pack_private_ord_txn {
      uint/uint though. */
   uint         rewards;     /* in Lamports */
   uint         compute_est; /* in compute units */
+
+  FD_PACK_BITSET_DECLARE( rw_bitset ); /* all accts this txn references */
+  FD_PACK_BITSET_DECLARE(  w_bitset ); /* accts this txn write-locks    */
 
   /* The treap fields */
   ulong parent;
@@ -90,6 +93,28 @@ struct fd_pack_sig_to_txn {
 typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 
 
+/* fd_pack_bitset_acct_mapping_t: An element of an fd_map_dynamic that
+   maps an account address to the number of transactions that are
+   referencing it and the bit that is reserved to indicate it in the
+   bitset, if any. */
+struct fd_pack_bitset_acct_mapping {
+  fd_acct_addr_t key; /* account address */
+  ulong          ref_cnt;
+
+  /* first_instance and first_instance_was_write are only valid when
+     bit==FD_PACK_BITSET_FIRST_INSTANCE, which is set when ref_cnt
+     transitions from 0 to 1.  These just exist to implement the
+     optimization that accounts referenced a single time aren't
+     allocated a bit, but this seems to be an important optimization. */
+  fd_pack_ord_txn_t * first_instance;
+  int                 first_instance_was_write;
+
+  /* bit is in [0, FD_PACK_BITSET_MAX) U
+     { FD_PACK_BITSET_FIRST_INSTANCE, FD_PACK_BITSET_SLOWPATH }. */
+  ushort              bit;
+};
+typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
+
 /* Table of special addresses that are not allowed to be written to.  We
    immediately reject and refuse to pack any transaction that tries to
    write to one of these accounts.  Because we reject any writes to any
@@ -100,7 +125,7 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 #define MAP_PERFECT_NAME      fd_pack_unwritable
 #define MAP_PERFECT_LG_TBL_SZ 5
 #define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    3995341266U
+#define MAP_PERFECT_HASH_C    1402126759U
 #define MAP_PERFECT_KEY       b
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
@@ -114,37 +139,39 @@ typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
                                           PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
 
-/* SysvarEpochRewards1111111111111111111111111, and
-   ZkTokenProof1111111111111111111111111111111 omitted from this list
-   due to lack of use and lack of space in the table. */
-#define MAP_PERFECT_0  ( SYSVAR_PROG_ID           ),
-#define MAP_PERFECT_1  ( SYSVAR_RECENT_BLKHASH_ID ),
-#define MAP_PERFECT_2  ( SYSVAR_CLOCK_ID          ),
-#define MAP_PERFECT_3  ( SYSVAR_SLOT_HIST_ID      ),
-#define MAP_PERFECT_4  ( SYSVAR_SLOT_HASHES_ID    ),
-#define MAP_PERFECT_5  ( SYSVAR_EPOCH_SCHED_ID    ),
-#define MAP_PERFECT_6  ( SYSVAR_FEES_ID           ),
-#define MAP_PERFECT_7  ( SYSVAR_RENT_ID           ),
+/* This list is a superset of what Lab's is_builtin_key_or_sysvar checks. */
+/* Sysvars */
+#define MAP_PERFECT_0  ( SYSVAR_CLOCK_ID          ),
+#define MAP_PERFECT_1  ( SYSVAR_EPOCH_SCHED_ID    ),
+#define MAP_PERFECT_2  ( SYSVAR_FEES_ID           ),
+#define MAP_PERFECT_3  ( SYSVAR_RECENT_BLKHASH_ID ),
+#define MAP_PERFECT_4  ( SYSVAR_RENT_ID           ),
+#define MAP_PERFECT_5  ( SYSVAR_REWARDS_ID        ),
+#define MAP_PERFECT_6  ( SYSVAR_SLOT_HASHES_ID    ),
+#define MAP_PERFECT_7  ( SYSVAR_SLOT_HIST_ID      ),
 #define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9  ( SYSVAR_LAST_RESTART_ID   ),
-#define MAP_PERFECT_10 ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_11 ( NATIVE_LOADER_ID         ),
-#define MAP_PERFECT_12 ( FEATURE_ID               ),
-#define MAP_PERFECT_13 ( CONFIG_PROG_ID           ),
-#define MAP_PERFECT_14 ( STAKE_PROG_ID            ),
-#define MAP_PERFECT_15 ( STAKE_CONFIG_PROG_ID     ),
-#define MAP_PERFECT_16 ( SYS_PROG_ID              ),
+#define MAP_PERFECT_9  ( SYSVAR_INSTRUCTIONS_ID   ),
+#define MAP_PERFECT_10 ( SYSVAR_EPOCH_REWARDS_ID  ),
+#define MAP_PERFECT_11 ( SYSVAR_LAST_RESTART_ID   ),
+/* Programs */
+#define MAP_PERFECT_12 ( CONFIG_PROG_ID           ),
+#define MAP_PERFECT_13 ( FEATURE_ID               ),
+#define MAP_PERFECT_14 ( NATIVE_LOADER_ID         ),
+#define MAP_PERFECT_15 ( STAKE_PROG_ID            ),
+#define MAP_PERFECT_16 ( STAKE_CONFIG_PROG_ID     ),
 #define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
-#define MAP_PERFECT_18 ( BPF_LOADER_1_PROG_ID     ),
-#define MAP_PERFECT_19 ( BPF_LOADER_2_PROG_ID     ),
-#define MAP_PERFECT_20 ( BPF_UPGRADEABLE_PROG_ID  ),
-#define MAP_PERFECT_21 ( LOADER_V4_PROG_ID        ),
+#define MAP_PERFECT_18 ( SYS_PROG_ID              ), /* Do not remove. See above. */
+#define MAP_PERFECT_19 ( BPF_LOADER_1_PROG_ID     ),
+#define MAP_PERFECT_20 ( BPF_LOADER_2_PROG_ID     ),
+#define MAP_PERFECT_21 ( BPF_UPGRADEABLE_PROG_ID  ),
+/* Extras */
 #define MAP_PERFECT_22 ( ED25519_SV_PROG_ID       ),
 #define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
 #define MAP_PERFECT_24 ( COMPUTE_BUDGET_PROG_ID   ),
 #define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
 #define MAP_PERFECT_26 ( NATIVE_MINT_ID           ),
 #define MAP_PERFECT_27 ( TOKEN_PROG_ID            ),
+#define MAP_PERFECT_28 ( SYSVAR_PROG_ID           ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -202,6 +229,18 @@ static const fd_acct_addr_t null_addr = { 0 };
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
+#define MAP_NAME              bitset_map
+#define MAP_T                 fd_pack_bitset_acct_mapping_t
+#define MAP_KEY_T             fd_acct_addr_t
+#define MAP_KEY_NULL          null_addr
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL(k, null_addr)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_MEMOIZE           0
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
   ulong      pack_depth;
@@ -232,25 +271,22 @@ struct fd_pack_private {
   fd_pack_ord_txn_t * pool;
 
   /* Transactions in the pool can be in one of various trees.  The
-     default situation is that the transaction is in pending
+     default situation is that the transaction is in pending or
      pending_votes, depending on whether it is a vote or not.
 
      If this were the only storage for transactions though, in the case
      that there are a lot of transactions that conflict, we'd end up
      going through transactions a bunch of times.  To optimize that,
      when we know that we won't be able to consider a transaction until
-     at least the kth microblock in the future, we stick it in a "data
-     structure" like a bucket queue based on when it will become
-     available.
+     at least a certain microblock finishes, we stick it in a "data
+     structure" like a bucket queue based on which currently scheduled
+     microblocks it conflicts with.
 
      This is just a performance optimization and done on a best effort
-     basis; a transaction coming out of delayed might still not be
-     available because of new conflicts.  Transactions in pending might
-     have conflicts we just haven't discovered yet.  The authoritative
-     source for conflicts is acct_uses_{read,write}.
-
-     Unlike typical bucket queues, the buckets here form a ring, and
-     each element of the ring is a tree. */
+     basis; a transaction coming out of conflicting_with might still not
+     be available because of new conflicts.  Transactions in pending
+     might have conflicts we just haven't discovered yet.  The
+     authoritative source for conflicts is acct_uses_{read,write}. */
 
   treap_t pending[1];
   treap_t pending_votes[1];
@@ -261,6 +297,14 @@ struct fd_pack_private {
      bank tiles are using the account and whether that use is read or
      write (msb). */
   fd_pack_addr_use_t   * acct_in_use;
+
+  /* bitset_{w, rw}_in_use stores a subset of the information in
+     acct_in_use using the compressed set format explained at the top of
+     this file.  rw_in_use stores accounts in use for read or write
+     while w_in_use stores only those in use for write. */
+  FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
+  FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
+
   fd_pack_addr_use_t   * writer_costs;
   fd_pack_sig_to_txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
@@ -272,6 +316,19 @@ struct fd_pack_private {
      microblock finishes. */
   fd_pack_addr_use_t * use_by_bank    [ FD_PACK_MAX_BANK_TILES ];
   ulong                use_by_bank_cnt[ FD_PACK_MAX_BANK_TILES ];
+
+  fd_histf_t txn_per_microblock [ 1 ];
+  fd_histf_t vote_per_microblock[ 1 ];
+  /* bitset_avail: a stack of which bits are not currently reserved and
+     can be used to represent an account address.
+     Indexed [0, bitset_avail_cnt].  Element 0 is fixed at
+     FD_PACK_BITSET_SLOWPATH. */
+  ushort bitset_avail[ 1UL+FD_PACK_BITSET_MAX ];
+  ulong  bitset_avail_cnt;
+
+  /* acct_to_bitset: an fd_map_dynamic that maps acct addresses to the
+     reference count, which bit, etc. */
+  fd_pack_bitset_acct_mapping_t * acct_to_bitset;
 };
 
 typedef struct fd_pack_private fd_pack_t;
@@ -283,6 +340,7 @@ fd_pack_footprint( ulong pack_depth,
   if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_BANK_TILES) ) ) return 0UL;
 
   ulong l;
+  ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
   ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
 
@@ -290,17 +348,18 @@ fd_pack_footprint( ulong pack_depth,
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
   int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
+  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                      );
-  l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL )  ); /* pool          */
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz )  ); /* acct_in_use   */
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     )  ); /* writer_costs  */
-  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth       )  ); /* signature_map */
-  l = FD_LAYOUT_APPEND( l, 32UL,               max_acct_in_flight                     ); /* use_by_bank   */
+  l = FD_LAYOUT_APPEND( l, FD_PACK_ALIGN,      sizeof(fd_pack_t)                               );
+  l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL           ) ); /* pool           */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn               ) ); /* writer_costs   */
+  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth                 ) ); /* signature_map  */
+  l = FD_LAYOUT_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
+  l = FD_LAYOUT_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp          ) ); /* acct_to_bitset */
   return FD_LAYOUT_FINI( l, FD_PACK_ALIGN );
 }
-
 
 void *
 fd_pack_new( void *     mem,
@@ -310,6 +369,7 @@ fd_pack_new( void *     mem,
              ulong      max_microblocks_per_block,
              fd_rng_t * rng                       ) {
 
+  ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
   ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
 
@@ -317,16 +377,18 @@ fd_pack_new( void *     mem,
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
   int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
+  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_pack_t * pack    = FD_SCRATCH_ALLOC_APPEND( l,  FD_PACK_ALIGN,                  sizeof(fd_pack_t)                     );
+  fd_pack_t * pack    = FD_SCRATCH_ALLOC_APPEND( l,  FD_PACK_ALIGN,       sizeof(fd_pack_t)                             );
   /* The pool has one extra element that is used between insert_init and
      cancel/fini. */
-  void * _pool        = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),               trp_pool_footprint ( pack_depth+1UL ) );
-  void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_uses_tbl_sz ) );
-  void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),              acct_uses_footprint( lg_max_txn     ) );
-  void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),                sig2txn_footprint  ( lg_depth       ) );
-  void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                           max_acct_in_flight                    );
+  void * _pool        = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),    trp_pool_footprint ( pack_depth+1UL         ) );
+  void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz         ) );
+  void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_txn             ) );
+  void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( lg_depth               ) );
+  void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
+  void * _acct_bitset = FD_SCRATCH_ALLOC_APPEND( l,  bitset_map_align(),  bitset_map_footprint( lg_acct_in_trp        ) );
 
   pack->pack_depth                  = pack_depth;
   pack->bank_tile_cnt               = bank_tile_cnt;
@@ -352,6 +414,8 @@ fd_pack_new( void *     mem,
   treap_new( (void*)pack->delay_end_block, pack_depth );
   for( ulong i=0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) treap_new( (void*)(pack->conflicting_with+i), pack_depth );
 
+  FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
+  FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
   acct_uses_new( _uses,        lg_uses_tbl_sz );
   acct_uses_new( _writer_cost, lg_max_txn     );
@@ -361,6 +425,16 @@ fd_pack_new( void *     mem,
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank[i]=use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*max_txn_per_microblock+1UL);
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i]=0UL;
 
+  fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ),
+                                           FD_MHIST_MAX( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ) );
+  fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTES_PER_MICROBLOCK_COUNT ),
+                                           FD_MHIST_MAX( PACK, VOTES_PER_MICROBLOCK_COUNT ) );
+
+  pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
+  for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
+  pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
+
+  bitset_map_new( _acct_bitset, lg_acct_in_trp );
 
   return mem;
 }
@@ -374,18 +448,23 @@ fd_pack_join( void * mem ) {
   ulong bank_tile_cnt          = pack->bank_tile_cnt;
   ulong max_txn_per_microblock = pack->max_txn_per_microblock;
 
+  ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
   ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
   int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
+  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
 
-  pack->pool          = trp_pool_join(  FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),  trp_pool_footprint ( pack_depth+1UL ) ) );
-  pack->acct_in_use   = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_uses_tbl_sz ) ) );
-  pack->writer_costs  = acct_uses_join( FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(), acct_uses_footprint( lg_max_txn     ) ) );
-  pack->signature_map = sig2txn_join(   FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),   sig2txn_footprint  ( lg_depth       ) ) );
+  pack->pool          = trp_pool_join(   FD_SCRATCH_ALLOC_APPEND( l, trp_pool_align(),   trp_pool_footprint ( pack_depth+1UL ) ) );
+  pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz ) ) );
+  pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     ) ) );
+  pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint  ( lg_depth       ) ) );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
+  pack->acct_to_bitset= bitset_map_join( FD_SCRATCH_ALLOC_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp) ) );
 
+  FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack_depth );
   return pack;
 }
 
@@ -397,7 +476,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   fd_txn_t * txn = TXN(txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt;
 
-  ulong cost = fd_pack_compute_cost( txnp, &txnp->is_simple_vote );
+  ulong cost = fd_pack_compute_cost( txnp, &txnp->flags );
 
   if( FD_UNLIKELY( !cost ) ) return 0;
 
@@ -423,7 +502,7 @@ fd_pack_estimate_rewards_and_compute( fd_txn_p_t        * txnp,
   out->rewards     = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
   out->compute_est = (uint)cost;
 
-  out->root = txnp->is_simple_vote ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
+  out->root = (txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE) ? FD_ORD_TXN_ROOT_PENDING_VOTE : FD_ORD_TXN_ROOT_PENDING;
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "TXN estimated compute %lu+-%f. Rewards: %lu + %lu", compute_expected, (double)compute_variance, sig_rewards, adtl_rewards ));
@@ -453,7 +532,12 @@ fd_pack_can_fee_payer_afford( fd_acct_addr_t const * acct_addr,
 fd_txn_p_t * fd_pack_insert_txn_init(   fd_pack_t * pack                   ) { return trp_pool_ele_acquire( pack->pool )->txn; }
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)txn ); }
 
-void
+#define REJECT( reason ) do {                                       \
+                           trp_pool_ele_release( pack->pool, ord ); \
+                           return FD_PACK_INSERT_REJECT_ ## reason; \
+                         } while( 0 )
+
+int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_p_t * txnp ) {
 
@@ -464,10 +548,8 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, payload );
 
-  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) {
-    trp_pool_ele_release( pack->pool, ord );
-    return;
-  }
+  if( FD_UNLIKELY( !fd_pack_estimate_rewards_and_compute( txnp, ord ) ) ) REJECT( ESTIMATION_FAIL );
+
 
   fd_txn_acct_iter_t ctrl[1];
   int writes_to_sysvar = 0;
@@ -480,55 +562,102 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   /* Throw out transactions ... */
   /*           ... that are unfunded */
-  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE  );
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) REJECT( TOO_LARGE     );
   /*           ... that try to write to a sysvar */
-  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR );
   /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) { trp_pool_ele_release( pack->pool, ord ); return; }
+  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL )      ) ) REJECT( DUPLICATE     );
 
   /* TODO: Add recent blockhash based expiry here */
 
+  int replaces = 0;
   if( FD_UNLIKELY( pack->pending_txn_cnt == pack->pack_depth ) ) {
     /* If the tree is full, we'll double check to make sure this is
        better than the worst element in the tree before inserting.  If
        the new transaction is better than that one, we'll delete it and
        insert the new transaction. Otherwise, we'll throw away this
        transaction. */
-    /* TODO: Increment a counter to mark this is happening */
     fd_pack_ord_txn_t * worst = treap_fwd_iter_ele( treap_fwd_iter_init( pack->pending, pack->pool ), pack->pool );
     if( FD_UNLIKELY( !worst ) ) {
       /* We have nothing to sacrifice because they're all in other
          trees. */
-      trp_pool_ele_release( pack->pool, ord );
-      return;
+      REJECT( FULL );
     }
     else if( !COMPARE_WORSE( worst, ord ) ) {
       /* What we have in the tree is better than this transaction, so just
          pretend this transaction never happened */
-      trp_pool_ele_release( pack->pool, ord );
-      return;
+      REJECT( PRIORITY );
     } else {
       /* Remove the worst from the tree */
+      replaces = 1;
       fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
-      sig2txn_remove( pack->signature_map, sig2txn_query( pack->signature_map, worst_sig, NULL ) );
-
-      treap_ele_remove    ( pack->pending, worst, pack->pool );
-      trp_pool_ele_release( pack->pool,    worst             );
-      pack->pending_txn_cnt--;
+      fd_pack_delete_transaction( pack, worst_sig );
     }
+  }
+
+  FD_PACK_BITSET_CLEAR( ord->rw_bitset );
+  FD_PACK_BITSET_CLEAR( ord->w_bitset  );
+
+  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+    if( FD_UNLIKELY( q==NULL ) ) {
+      q = bitset_map_insert( pack->acct_to_bitset, accts[i] );
+      q->ref_cnt                  = 0UL;
+      q->first_instance           = ord;
+      q->first_instance_was_write = 1;
+      q->bit                      = FD_PACK_BITSET_FIRST_INSTANCE;
+    } else if( FD_UNLIKELY( q->bit == FD_PACK_BITSET_FIRST_INSTANCE ) ) {
+      q->bit = pack->bitset_avail[ pack->bitset_avail_cnt ];
+      pack->bitset_avail_cnt = fd_ulong_if( !!pack->bitset_avail_cnt, pack->bitset_avail_cnt-1UL, 0UL );
+
+      FD_PACK_BITSET_SETN( q->first_instance->rw_bitset, q->bit );
+      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( q->first_instance->w_bitset, q->bit );
+    }
+
+    q->ref_cnt++;
+    FD_PACK_BITSET_SETN( ord->rw_bitset, q->bit );
+    FD_PACK_BITSET_SETN( ord->w_bitset , q->bit );
+  }
+
+  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
+
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+    if( FD_UNLIKELY( q==NULL ) ) {
+      q = bitset_map_insert( pack->acct_to_bitset, accts[i] );
+      q->ref_cnt                  = 0UL;
+      q->first_instance           = ord;
+      q->first_instance_was_write = 0;
+      q->bit                      = FD_PACK_BITSET_FIRST_INSTANCE;
+    } else if( FD_UNLIKELY( q->bit == FD_PACK_BITSET_FIRST_INSTANCE ) ) {
+      q->bit = pack->bitset_avail[ pack->bitset_avail_cnt ];
+      pack->bitset_avail_cnt = fd_ulong_if( !!pack->bitset_avail_cnt, pack->bitset_avail_cnt-1UL, 0UL );
+
+      FD_PACK_BITSET_SETN( q->first_instance->rw_bitset, q->bit );
+      if( q->first_instance_was_write ) FD_PACK_BITSET_SETN( q->first_instance->w_bitset, q->bit );
+    }
+
+    q->ref_cnt++;
+    FD_PACK_BITSET_SETN( ord->rw_bitset, q->bit );
   }
 
   pack->pending_txn_cnt++;
 
   sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
 
-  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) )
+  if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
-  else
+    return replaces ? FD_PACK_INSERT_ACCEPT_VOTE_REPLACE : FD_PACK_INSERT_ACCEPT_VOTE_ADD;
+  } else {
     treap_ele_insert( pack->pending,       ord, pack->pool );
+    return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
+  }
 }
+#undef REJECT
 
 typedef struct {
   ulong cus_scheduled;
@@ -543,23 +672,39 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
                                   ulong        txn_limit,
                                   ulong        bank_tile,
                                   fd_txn_p_t * out ) {
+  /* With the bitset account representation, it's faster to skip a
+     transaction close to 20 times than to move it to the delayed heap
+     and then move it back. */
+  move_delayed = 0;
 
   fd_pack_ord_txn_t  * pool         = pack->pool;
   fd_pack_addr_use_t * acct_in_use  = pack->acct_in_use;
   fd_pack_addr_use_t * writer_costs = pack->writer_costs;
 
+  FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
+  FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
+  FD_PACK_BITSET_COPY( bitset_rw_in_use, pack->bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( bitset_w_in_use,  pack->bitset_w_in_use  );
+
   fd_pack_addr_use_t * use_by_bank     = pack->use_by_bank    [bank_tile];
   ulong                use_by_bank_cnt = pack->use_by_bank_cnt[bank_tile];
 
-  ulong txns_scheduled = 0UL;
-  ulong cus_scheduled  = 0UL;
+  ulong txns_considered = 0UL;
+  ulong txns_scheduled  = 0UL;
+  ulong cus_scheduled   = 0UL;
 
   ulong bank_tile_mask = 1UL << bank_tile;
+
+  ulong fast_path = 0UL;
+  ulong slow_path = 0UL;
+  ulong cu_limit_c = 0UL;
 
   treap_rev_iter_t prev;
   for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool );
       (cu_limit>=FD_PACK_MIN_TXN_COST) & (txn_limit>0) & !treap_rev_iter_done( _cur ); _cur=prev ) {
     prev = treap_rev_iter_next( _cur, pool );
+
+    txns_considered++;
 
     fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
 
@@ -569,38 +714,57 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
     ulong conflicts = 0UL;
     int   delay_end_block = 0;
 
-    if( cur->compute_est>cu_limit ) {
+    if( FD_UNLIKELY( cur->compute_est>cu_limit ) ) {
       /* Too big to be scheduled at the moment, but might be okay for
          the next microblock, so we don't want to delay it. */
+      cu_limit_c++;
       continue;
     }
 
-    fd_txn_acct_iter_t ctrl[1];
-    /* Check conflicts between this transaction's writable accounts and
-       current readers */
-    for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-        i=fd_txn_acct_iter_next( i, ctrl ) ) {
-
-      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
-      if( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) {
-        /* Can't be scheduled until the next block */
-        conflicts = ULONG_MAX;
-        delay_end_block = 1;
-        break;
-      }
-
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use, acct[i], NULL );
-      if( use ) conflicts |= use->in_use_by; /* break? */
+    if( FD_UNLIKELY( txn->addr_table_adtl_cnt>0UL ) ) {
+      /* This transaction reads or writes to additional accounts from
+         an address lookup table.  We don't yet know what they are
+         so we can't check for conflicts and instead just never schedule
+         the transaction. 
+         
+         TODO: We should load the accounts here and check them for
+         conflicts properly.  The accounts can change with the bank so
+         it's non-trivial. */
+      continue;
     }
 
-    /* Check conflicts between this transaction's readonly accounts and
-       current writers */
-    for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-        i=fd_txn_acct_iter_next( i, ctrl ) ) {
-      if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
+    if( FD_PACK_BITSET_INTERSECT4_EMPTY( bitset_rw_in_use, bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) {
+      fd_txn_acct_iter_t ctrl[1];
+      /* Check conflicts between this transaction's writable accounts and
+         current readers */
+      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+          i=fd_txn_acct_iter_next( i, ctrl ) ) {
 
-      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
-      if( use ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
+        fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
+        if( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) {
+          /* Can't be scheduled until the next block */
+          conflicts = ULONG_MAX;
+          delay_end_block = 1;
+          break;
+        }
+
+        fd_pack_addr_use_t * use = acct_uses_query( acct_in_use, acct[i], NULL );
+        if( use ) conflicts |= use->in_use_by; /* break? */
+      }
+
+      /* Check conflicts between this transaction's readonly accounts and
+         current writers */
+      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+          i=fd_txn_acct_iter_next( i, ctrl ) ) {
+        if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
+
+        fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
+        if( use ) conflicts |= (use->in_use_by & FD_PACK_IN_USE_WRITABLE) ? use->in_use_by : 0UL;
+      }
+      slow_path++;
+    } else {
+      conflicts = bank_tile_mask;
+      fast_path++;
     }
 
     if( conflicts==0UL ) {
@@ -610,8 +774,17 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       cu_limit -= cur->compute_est;
       txn_limit--;
 
-      *out++ = *cur->txn; /* TODO: this copies more bytes than necessary in most cases */
+      FD_PACK_BITSET_OR( bitset_rw_in_use, cur->rw_bitset );
+      FD_PACK_BITSET_OR( bitset_w_in_use,  cur->w_bitset  );
 
+      fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
+      fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+      out->payload_sz = cur->txn->payload_sz;
+      out->meta       = cur->txn->meta;
+      out->flags      = cur->txn->flags;
+      out++;
+
+      fd_txn_acct_iter_t ctrl[1];
       for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
           i=fd_txn_acct_iter_next( i, ctrl ) ) {
         fd_acct_addr_t acct_addr = acct[i];
@@ -624,6 +797,20 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
         use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE;
 
         use_by_bank[use_by_bank_cnt++] = *use;
+
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct[i], NULL );
+        if( FD_UNLIKELY( !(--q->ref_cnt) ) ) {
+          ushort bit = q->bit;
+          bitset_map_remove( pack->acct_to_bitset, q );
+          /* There aren't any more references to this transaction in the
+             heap, so it can't cause any conflicts.  That means we
+             actually don't need to record that we are using it, which
+             is good because we want to release the bit. */
+          FD_PACK_BITSET_CLEARN( bitset_rw_in_use, bit );
+          FD_PACK_BITSET_CLEARN( bitset_w_in_use,  bit );
+
+          if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
+        }
       }
       for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
           i=fd_txn_acct_iter_next( i, ctrl ) ) {
@@ -636,9 +823,19 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
 
         if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
         use->in_use_by |= bank_tile_mask;
+
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct[i], NULL );
+        if( FD_UNLIKELY( !(--q->ref_cnt) ) ) {
+          ushort bit = q->bit;
+          bitset_map_remove( pack->acct_to_bitset, q );
+          FD_PACK_BITSET_CLEARN( bitset_rw_in_use, bit );
+
+          if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
+        }
       }
 
       fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+
       fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
       sig2txn_remove( pack->signature_map, in_tbl );
 
@@ -657,8 +854,18 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       treap_ele_insert( move_to,    cur, pool );
     }
   }
+  FD_MCNT_INC( PACK, TRANSACTION_SKIPPED, txns_considered-txns_scheduled );
+#if DETAILED_LOGGING
+  FD_LOG_NOTICE(( "cu_limit: %lu, fast_path: %lu, slow_path: %lu", cu_limit_c, fast_path, slow_path ));
+#else
+  (void)cu_limit_c;
+  (void)fast_path;
+  (void)slow_path;
+#endif
 
   pack->use_by_bank_cnt[bank_tile] = use_by_bank_cnt;
+  FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
 
   sched_return_t to_return = { .cus_scheduled = cus_scheduled, .txns_scheduled = txns_scheduled };
   return to_return;
@@ -676,16 +883,29 @@ fd_pack_microblock_complete( fd_pack_t * pack,
      always okay to clear the writable bit. */
   ulong clear_mask = ~((1UL<<bank_tile) | FD_PACK_IN_USE_WRITABLE);
 
+  FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
+  FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
+  FD_PACK_BITSET_COPY( bitset_rw_in_use, pack->bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( bitset_w_in_use,  pack->bitset_w_in_use  );
+
   fd_pack_addr_use_t * base = pack->use_by_bank[bank_tile];
   for( ulong i=0UL; i<pack->use_by_bank_cnt[bank_tile]; i++ ) {
     fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use, base[i].key, NULL );
     FD_TEST( use );
     use->in_use_by &= clear_mask;
 
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, base[i].key, NULL );
+    if( q && (q->bit < FD_PACK_BITSET_MAX) ) {
+      FD_PACK_BITSET_CLEARN( bitset_w_in_use, q->bit );
+      if( !use->in_use_by ) FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
+    }
     if( FD_LIKELY( !use->in_use_by ) ) acct_uses_remove( pack->acct_in_use, use );
   }
 
   pack->use_by_bank_cnt[bank_tile] = 0UL;
+
+  FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
+  FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
 
   /* outstanding_microblock_mask never has the writable bit set, so we
      don't care about clearing it here either. */
@@ -706,13 +926,16 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
                                            (ulong)((float)pack->max_txn_per_microblock * vote_fraction) );
 
-  if( FD_UNLIKELY( pack->microblock_cnt >= pack->max_microblocks_per_block ) ) return 0UL;
+  if( FD_UNLIKELY( pack->microblock_cnt >= pack->max_microblocks_per_block ) ) {
+    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+    return 0UL;
+  }
 
   ulong cu_limit  = total_cus - vote_cus;
   ulong txn_limit = pack->max_txn_per_microblock - vote_reserved_txns;
   ulong scheduled = 0UL;
 
-  sched_return_t status;
+  sched_return_t status, status1;
 
   /* Try to schedule non-vote transactions */
   status = fd_pack_schedule_microblock_impl( pack, pack->pending,       1, cu_limit, txn_limit,          bank_tile, out+scheduled );
@@ -724,14 +947,14 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
 
   /* Schedule vote transactions */
-  status = fd_pack_schedule_microblock_impl( pack, pack->pending_votes, 0, vote_cus, vote_reserved_txns, bank_tile, out+scheduled );
+  status1= fd_pack_schedule_microblock_impl( pack, pack->pending_votes, 0, vote_cus, vote_reserved_txns, bank_tile, out+scheduled );
 
-  scheduled                   += status.txns_scheduled;
-  pack->cumulative_vote_cost  += status.cus_scheduled;
-  pack->cumulative_block_cost += status.cus_scheduled;
+  scheduled                   += status1.txns_scheduled;
+  pack->cumulative_vote_cost  += status1.cus_scheduled;
+  pack->cumulative_block_cost += status1.cus_scheduled;
   /* Add any remaining CUs/txns to the non-vote limits */
-  txn_limit += vote_reserved_txns - status.txns_scheduled;
-  cu_limit  += vote_cus - status.cus_scheduled;
+  txn_limit += vote_reserved_txns - status1.txns_scheduled;
+  cu_limit  += vote_cus - status1.cus_scheduled;
 
 
   /* Fill any remaining space with non-vote transactions */
@@ -742,6 +965,13 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   pack->microblock_cnt += (ulong)(scheduled>0UL);
   pack->outstanding_microblock_mask |= 1UL << bank_tile;
+
+  /* Update metrics counters */
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
+  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
+
+  fd_histf_sample( pack->txn_per_microblock,  scheduled              );
+  fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
   return scheduled;
 }
@@ -763,6 +993,14 @@ fd_pack_end_block( fd_pack_t * pack ) {
   acct_uses_clear( pack->writer_costs );
 
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
+
+  /* If our stake is low and we don't become leader often, end_block
+     might get called on the order of O(1/hr), which feels too
+     infrequent to do anything related to metrics.  However, we only
+     update the histograms when we are leader, so this is actually a
+     good place to copy them. */
+  FD_MHIST_COPY( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT, pack->txn_per_microblock  );
+  FD_MHIST_COPY( PACK, VOTES_PER_MICROBLOCK_COUNT,              pack->vote_per_microblock );
 }
 
 static void
@@ -794,6 +1032,13 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 
   sig2txn_clear( pack->signature_map );
 
+  FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
+  FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
+  bitset_map_clear( pack->acct_to_bitset );
+  pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
+  for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
+  pack->bitset_avail_cnt = FD_PACK_BITSET_MAX;
+
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
 }
 
@@ -817,6 +1062,26 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
     case FD_ORD_TXN_ROOT_PENDING_VOTE:     root = pack->pending_votes;                                               break;
     case FD_ORD_TXN_ROOT_DELAY_END_BLOCK:  root = pack->delay_end_block;                                             break;
     default:                               root = pack->conflicting_with+(root_idx-FD_ORD_TXN_ROOT_DELAY_BANK_BASE); break;
+  }
+
+  fd_txn_t * _txn = TXN( containing->txn );
+  fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( _txn, containing->txn->payload );
+  fd_txn_acct_iter_t ctrl[1];
+  for( ulong i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
+
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+    FD_TEST( q ); /* q==NULL not be possible */
+
+    q->ref_cnt--;
+
+    if( FD_UNLIKELY( q->ref_cnt==0UL ) ) {
+      ushort bit = q->bit;
+      bitset_map_remove( pack->acct_to_bitset, q );
+
+      if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
+    }
   }
   treap_ele_remove( root, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );

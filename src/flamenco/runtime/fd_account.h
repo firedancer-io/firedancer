@@ -328,11 +328,11 @@ int fd_account_check_set_data(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct
 //    ///
 //    /// Fills it with zeros at the end if is extended or truncates at the end otherwise.
 
-static inline int 
-fd_account_check_set_data_length( fd_exec_instr_ctx_t * ctx, 
-                                  fd_account_meta_t const * acct, 
-                                  fd_pubkey_t const * key, 
-                                  ulong new_length, 
+static inline int
+fd_account_check_set_data_length( fd_exec_instr_ctx_t * ctx,
+                                  fd_account_meta_t const * acct,
+                                  fd_pubkey_t const * key,
+                                  ulong new_length,
                                   int * err ) {
   if (!fd_account_can_data_be_resized( ctx, acct, new_length, err ))
     return 0;
@@ -343,9 +343,9 @@ fd_account_check_set_data_length( fd_exec_instr_ctx_t * ctx,
   return 1;
 }
 
-static inline int 
+static inline int
 fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
-                            fd_account_meta_t * acct, 
+                            fd_account_meta_t * acct,
                             fd_pubkey_t const * key,
                             ulong new_length,
                             int space_check,
@@ -467,11 +467,11 @@ int fd_account_is_signer_( fd_exec_instr_ctx_t const * ctx,
 //
 
 static inline
-int fd_account_set_executable( fd_exec_instr_ctx_t * ctx, 
+int fd_account_set_executable( fd_exec_instr_ctx_t * ctx,
                                fd_pubkey_t const * program_acc, fd_account_meta_t * metadata, char is_executable) {
   fd_rent_t rent;
   fd_rent_new( &rent );
-  if (fd_sysvar_rent_read( ctx->slot_ctx, &rent ) == 0) {
+  if( fd_sysvar_rent_read( &rent, ctx->slot_ctx ) ) {
     ulong min_balance = fd_rent_exempt_minimum_balance(ctx->slot_ctx, metadata->dlen);
     if (metadata->info.lamports < min_balance) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;

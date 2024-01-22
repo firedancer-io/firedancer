@@ -17,11 +17,13 @@
 #include "info/fd_block_info.h"
 #include "info/fd_microblock_batch_info.h"
 #include "info/fd_microblock_info.h"
+#include "program/fd_builtin_programs.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 
 #include "fd_system_ids.h"
 #include "../vm/fd_vm_context.h"
+#include "fd_blockstore.h"
 
 #include <stdio.h>
 #include <ctype.h>
@@ -1282,7 +1284,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx ) {
       /* the block after genesis has a height of 1*/
       slot_ctx->slot_bank.block_height = 1UL;
     }
-    
+
     if( prev_epoch < new_epoch || slot_idx == 0 ) {
       FD_LOG_DEBUG(("Epoch boundary"));
       /* Epoch boundary! */
@@ -1308,22 +1310,19 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx ) {
 
   /* Load sysvars into cache */
   fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );
-  result = fd_sysvar_slot_hashes_read( slot_ctx, slot_ctx->sysvar_cache.slot_hashes );
-  if( result != 0 ) {
+  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache.slot_hashes, slot_ctx ) ) ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
 
   fd_rent_new( slot_ctx->sysvar_cache.rent );
-  result = fd_sysvar_rent_read( slot_ctx, slot_ctx->sysvar_cache.rent );
-  if( result != 0 ) {
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( slot_ctx->sysvar_cache.rent, slot_ctx ) ) ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
 
   fd_sol_sysvar_clock_new( slot_ctx->sysvar_cache.clock );
-  result = fd_sysvar_clock_read( slot_ctx, slot_ctx->sysvar_cache.clock );
-  if( result != 0 ) {
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( slot_ctx->sysvar_cache.clock, slot_ctx ) ) ) {
     FD_LOG_WARNING(("reading sysvars failed"));
     return result;
   }
@@ -1885,9 +1884,9 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   /* Use the blockhash as the funk xid */
   fd_funk_txn_xid_t xid;
 
-  fd_blockstore_start_read(slot_ctx->acc_mgr->blockstore);
+  fd_blockstore_start_read(slot_ctx->blockstore);
   ulong slot = slot_ctx->slot_bank.slot;
-  const uchar * hash = fd_blockstore_block_query_hash(slot_ctx->acc_mgr->blockstore, slot);
+  const uchar * hash = fd_blockstore_block_query_hash(slot_ctx->blockstore, slot);
   if( hash == NULL ) {
     ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
     FD_LOG_WARNING(("missing blockhash for %lu", slot));
@@ -1896,7 +1895,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     /* push a new transaction on the stack */
     slot_ctx->funk_txn = fd_funk_txn_prepare(funk, slot_ctx->funk_txn, &xid, 1);
   }
-  fd_blockstore_end_read(slot_ctx->acc_mgr->blockstore);
+  fd_blockstore_end_read(slot_ctx->blockstore);
 
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
     ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool, max_workers);
@@ -1923,7 +1922,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
   /* progress to next slot next time */
-  slot_ctx->acc_mgr->blockstore->root++;
+  slot_ctx->blockstore->root++;
   slot_ctx->slot_bank.prev_slot = slot;
   slot_ctx->slot_bank.slot = slot+1;
 
@@ -1938,7 +1937,7 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
   FD_LOG_NOTICE(( "rolling back to %lu", slot ));
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
-  fd_blockstore_t * blockstore = slot_ctx->acc_mgr->blockstore;
+  fd_blockstore_t * blockstore = slot_ctx->blockstore;
   FD_LOG_WARNING(("rolling back to slot %lu", slot));
   /* Get the blockhash, which is used as the funk transaction id */
   fd_blockstore_start_read(blockstore);
@@ -2704,7 +2703,7 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   slot_ctx->slot_bank.block_height += 1UL;
 
   // Update blockstore
-  fd_blockstore_set_height( slot_ctx->acc_mgr->blockstore,
+  fd_blockstore_set_height( slot_ctx->blockstore,
                             slot_ctx->slot_bank.slot,
                             slot_ctx->slot_bank.block_height );
 
@@ -2832,8 +2831,8 @@ int fd_global_import_solana_manifest(fd_exec_slot_ctx_t *slot_ctx,
   epoch_bank->epoch_schedule = oldbank->rent_collector.epoch_schedule;
   epoch_bank->rent = oldbank->rent_collector.rent;
 
-  if (NULL != manifest->epoch_accounts_hash)
-    fd_memcpy(&slot_bank->epoch_account_hash, manifest->epoch_accounts_hash, FD_SHA256_HASH_SZ);
+  if (NULL != manifest->epoch_account_hash)
+    fd_memcpy(&slot_bank->epoch_account_hash, manifest->epoch_account_hash, FD_SHA256_HASH_SZ);
 
   slot_bank->collected_rent = oldbank->collected_rent;
   slot_bank->collected_fees = oldbank->collector_fees;
@@ -3011,7 +3010,7 @@ void fd_runtime_update_leaders(fd_exec_slot_ctx_t *slot_ctx, ulong slot)
   {
 
     fd_epoch_schedule_t schedule;
-    fd_sysvar_epoch_schedule_read(slot_ctx, &schedule);
+    fd_sysvar_epoch_schedule_read( &schedule, slot_ctx );
     FD_LOG_INFO(("schedule->slots_per_epoch = %lu", schedule.slots_per_epoch));
     FD_LOG_INFO(("schedule->leader_schedule_slot_offset = %lu", schedule.leader_schedule_slot_offset));
     FD_LOG_INFO(("schedule->warmup = %d", schedule.warmup));
@@ -3068,8 +3067,8 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
   fd_delegation_pair_t_mapnode_t * new_stake_root = NULL;
   fd_delegation_pair_t_mapnode_t * new_stake_pool = fd_delegation_pair_t_map_alloc( slot_ctx->epoch_ctx->valloc, stake_delegations_size );
 
-  for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root ); 
-        n; 
+  for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root );
+        n;
         n = fd_delegation_pair_t_map_successor_const( stakes->stake_delegations_pool, n ) ) {
       fd_pubkey_t const * stake_acc = &n->elem.account;
       FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -3087,8 +3086,8 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
       fd_delegation_pair_t_map_insert( new_stake_pool, &new_stake_root, entry );
   }
 
-  for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root ); 
-        n; 
+  for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+        n;
         n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
       fd_pubkey_t const * stake_acc = &n->elem.key;
       FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -3126,7 +3125,7 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN 
+  FD_SCRATCH_SCOPE_BEGIN
   {
     fd_vote_accounts_t const * vaccs = &slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes;
     ulong bufsz = fd_vote_accounts_size(vaccs);
@@ -3213,9 +3212,9 @@ void fd_process_new_epoch(
   }
 
   fd_update_stake_delegations( slot_ctx );
-  
+
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( slot_ctx, &history );
+  fd_sysvar_stake_history_read( &history, slot_ctx );
   refresh_vote_accounts( slot_ctx, &history );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
@@ -3227,7 +3226,7 @@ void
 fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txn = slot_ctx->funk_txn;
-  
+
   {
     if ( delete_first ) {
       fd_bincode_destroy_ctx_t ctx;

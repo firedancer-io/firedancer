@@ -1,0 +1,53 @@
+# Creates a coverage report and uploads it to Google Cloud Storage.
+# Includes unit tests, script tests, and fuzz tests.
+# Should only be run on trusted code (such as commits merged to main).
+
+name: Coverage Report
+on:
+  workflow_call:
+  workflow_dispatch:
+jobs:
+  coverage-report:
+    name: Coverage Report
+    runs-on:
+      group: rhel85-icelake
+    environment:
+      name: coverage-report
+      url: ${{ vars.COVERAGE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+
+      - name: Generate all coverage
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          MACHINES="linux_clang_x86_64 linux_clang_haswell linux_clang_icelake" \
+          EXTRAS="llvm-cov fuzz" \
+          COV_REPORT=1 \
+          contrib/test/ci_tests.sh
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Upload artifact
+        run: |
+          gcloud storage rm -r ${{ vars.COVERAGE_BUCKET }}/ || true
+          gcloud storage cp -r ./build/cov/html/* ${{ vars.COVERAGE_BUCKET }}/
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: build/cov/cov.lcov
+          name: dist-cov-report
+          fail_ci_if_error: false
+          functionalities: search

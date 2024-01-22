@@ -13,7 +13,7 @@
 #include "fd_vm_cpi.h"
 #include "fd_vm_trace.h"
 
-#include "../runtime/fd_executor.h"
+#include "../runtime/fd_runtime.h"
 
 /* sBPF instruction validation error codes */
 #define FD_VM_SBPF_VALIDATE_SUCCESS               (0UL)  /* Program is valid. */

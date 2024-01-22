@@ -24,9 +24,9 @@ static void __attribute__((destructor)) free_buf(void) {
 }
 
 static fd_account_meta_t const *
-read_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx, 
-                                   fd_pubkey_t const * program_acc, 
-                                   fd_bpf_upgradeable_loader_state_t * result, 
+read_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx,
+                                   fd_pubkey_t const * program_acc,
+                                   fd_bpf_upgradeable_loader_state_t * result,
                                    int * opt_err ) {
 
   fd_borrowed_account_t * rec = NULL;
@@ -52,9 +52,9 @@ read_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx,
 }
 
 static fd_account_meta_t const *
-read_bpf_upgradeable_loader_state_executable( fd_exec_instr_ctx_t * instr_ctx, 
-                                   fd_pubkey_t const * program_acc, 
-                                   fd_bpf_upgradeable_loader_state_t * result, 
+read_bpf_upgradeable_loader_state_executable( fd_exec_instr_ctx_t * instr_ctx,
+                                   fd_pubkey_t const * program_acc,
+                                   fd_bpf_upgradeable_loader_state_t * result,
                                    int * opt_err ) {
 
   fd_borrowed_account_t * rec = NULL;
@@ -80,9 +80,9 @@ read_bpf_upgradeable_loader_state_executable( fd_exec_instr_ctx_t * instr_ctx,
 }
 
 fd_account_meta_t const *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx, 
-                                               uchar program_id, 
-                                               fd_bpf_upgradeable_loader_state_t * result, 
+read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
+                                               uchar program_id,
+                                               fd_bpf_upgradeable_loader_state_t * result,
                                                int * opt_err ) {
 
   fd_borrowed_account_t * rec = NULL;
@@ -136,11 +136,9 @@ int write_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx, fd_pubk
 // This is literally called before every single instruction execution... To make it fast we are duplicating some code
 int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey ) {
   int err = 0;
-  char * raw_acc_data = (char*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw_acc_data)))
+  fd_account_meta_t const * m = fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
+  if (FD_UNLIKELY( !fd_acc_exists( m ) ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-
-  fd_account_meta_t * m = (fd_account_meta_t *) raw_acc_data;
 
   if( memcmp( m->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
@@ -149,7 +147,7 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
     return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data = raw_acc_data + m->hlen,
+    .data    = (uchar *)m + m->hlen,
     .dataend = (char *) ctx.data + m->dlen,
     .valloc  = slot_ctx->valloc,
   };
@@ -323,7 +321,7 @@ if (memcmp(signature, sig, 64) == 0) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-if (memcmp(signature, sig, 64) == 0) {  
+if (memcmp(signature, sig, 64) == 0) {
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
@@ -349,7 +347,7 @@ if (memcmp(signature, sig, 64) == 0) {
     trace_buf_out += out_len;
     trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
     prev_cus = trace[i].cus;
-  
+
     fd_vm_trace_mem_entry_t * mem_ent = trace_ent.mem_entries_head;
     ulong j = 0;
     while( j < trace_ent.mem_entries_used ) {
@@ -366,7 +364,7 @@ if (memcmp(signature, sig, 64) == 0) {
         //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
         //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
         //           prev_mod = (ulong)k;
-        //           break;              
+        //           break;
         //         }
         //       }
         //       prev_mem_ent = prev_mem_ent->next;
@@ -387,7 +385,7 @@ if (memcmp(signature, sig, 64) == 0) {
           trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
         }
       }
-      
+
 
       fd_valloc_free(ctx.txn_ctx->valloc, mem_ent->data);
 
@@ -847,7 +845,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     }
 
     fd_sol_sysvar_clock_t clock;
-    FD_TEST( 0==fd_sysvar_clock_read( ctx.slot_ctx, &clock ) );
+    FD_TEST( fd_sysvar_clock_read( &clock, ctx.slot_ctx ) );
 
     // Is program executable?
     if( !program_acc_rec->const_meta->info.executable ) {
@@ -1175,7 +1173,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
 
       if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown)) {
         fd_sol_sysvar_clock_t clock;
-        fd_sysvar_clock_read(ctx.slot_ctx, &clock);
+        fd_sysvar_clock_read( &clock, ctx.slot_ctx );
         if (clock.slot == loader_state.inner.program_data.slot) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
@@ -1366,7 +1364,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
 
       if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown)) {
         fd_sol_sysvar_clock_t clock;
-        fd_sysvar_clock_read(ctx.slot_ctx, &clock);
+        fd_sysvar_clock_read( &clock, ctx.slot_ctx );
         if (clock.slot == loader_state.inner.program_data.slot) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
@@ -1485,7 +1483,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     }
 
     fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read(ctx.slot_ctx, &clock);
+    fd_sysvar_clock_read( &clock, ctx.slot_ctx );
     ulong clock_slot = clock.slot;
 
     fd_bpf_upgradeable_loader_state_t programdata_acc_state;

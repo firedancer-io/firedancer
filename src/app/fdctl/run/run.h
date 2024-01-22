@@ -10,6 +10,7 @@ typedef struct {
   config_t *       config;
   fd_topo_tile_t * tile;
   int              pipefd;
+  int              no_shmem;
 } tile_main_args_t;
 
 int

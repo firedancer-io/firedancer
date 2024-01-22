@@ -10,6 +10,7 @@
 #include <signal.h>
 #include "../../types/fd_types_yaml.h"
 #include "../fd_system_ids.h"
+#include "../fd_blockstore.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;
@@ -241,7 +242,8 @@ int fd_executor_run_test(
   }
 
   fd_acc_mgr_t _acc_mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, suite->funk, suite->blockstore );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( _acc_mgr, suite->funk );
+  slot_ctx->blockstore = suite->blockstore;
 
   /* Prepare a new Funk transaction to execute this test in */
   fd_funk_txn_xid_t xid;
@@ -326,8 +328,7 @@ int fd_executor_run_test(
        TODO The slot number should not be in bank */
     do {
       fd_sol_sysvar_clock_t clock[1];
-      int err = fd_sysvar_clock_read( slot_ctx, clock );
-      if( err==0 ) {
+      if( fd_sysvar_clock_read( clock, slot_ctx ) ) {
         slot_ctx->slot_bank.slot = clock->slot;
         *slot_ctx->sysvar_cache.clock = *clock;
       }
@@ -337,8 +338,7 @@ int fd_executor_run_test(
     do {
       fd_rent_t rent[1];
       fd_rent_new(rent);
-      int err = fd_sysvar_rent_read( slot_ctx, rent );
-      if( err==0 ) {
+      if( fd_sysvar_rent_read( rent, slot_ctx ) ) {
         *slot_ctx->sysvar_cache.rent = *rent;
       }
     } while(0);
@@ -346,8 +346,7 @@ int fd_executor_run_test(
     /* Restore slot hashes sysvar */
     do {
       fd_slot_hashes_t slot_hashes[1];
-      int err = fd_sysvar_slot_hashes_read( slot_ctx, slot_hashes );
-      if( err==0 )
+      if( fd_sysvar_slot_hashes_read( slot_hashes, slot_ctx ) )
         *slot_ctx->sysvar_cache.slot_hashes = *slot_hashes;
     } while(0);
 
@@ -397,7 +396,7 @@ int fd_executor_run_test(
     if (fail_before == test->test_number)
       kill(getpid(), SIGTRAP);
 
-    int exec_result = fd_execute_instr( &instr, &txn_ctx );
+    int exec_result = fd_execute_instr( &txn_ctx, &instr );
     fd_execute_txn_finalize( slot_ctx, &txn_ctx, exec_result );
 
     if ( exec_result != test->expected_result ) {

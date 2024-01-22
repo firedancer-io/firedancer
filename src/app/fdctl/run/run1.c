@@ -50,20 +50,25 @@ tile_main( void * _args ) {
   }
 
   ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
-  fd_log_private_group_id_set( pid );
-  fd_log_private_thread_id_set( pid );
+  fd_log_cpu_set( NULL );
+  fd_log_private_tid_set( pid );
+  char thread_name[ FD_LOG_NAME_MAX ] = {0};
+  snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+  fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_log_group_id() ));
 
   /* preload shared memory before sandboxing, so it is already mapped */
-  fd_topo_join_tile_workspaces( args->config->name,
-                                &args->config->topo,
-                                tile );
+  if( FD_LIKELY( !args->no_shmem ) ) {
+    fd_topo_join_tile_workspaces( args->config->name,
+                                  &args->config->topo,
+                                  tile );
+  }
 
   fd_tile_config_t * config = fd_topo_tile_to_config( tile );
 
-  void * scratch_mem   = NULL;
+  void * scratch_mem = NULL;
   if( FD_LIKELY( config->scratch_align ) ) {
     scratch_mem = (uchar*)args->config->topo.workspaces[ tile->wksp_id ].wksp + tile->user_mem_offset;
     if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch_mem, config->scratch_align() ) ) )
@@ -79,14 +84,21 @@ tile_main( void * _args ) {
     allow_fds_offset = 1UL;
     allow_fds[ 0 ] = args->pipefd;
   }
-  ulong allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
-                                                      (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
-                                                      allow_fds+allow_fds_offset );
+  ulong allow_fds_cnt = 0UL;
+  if( FD_LIKELY( config->populate_allowed_fds ) ) {
+    allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
+                                                  (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
+                                                  allow_fds+allow_fds_offset );
+  } 
+
 
   struct sock_filter seccomp_filter[ 128UL ];
-  ulong seccomp_filter_cnt = config->populate_allowed_seccomp( scratch_mem,
-                                                               sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
-                                                               seccomp_filter );
+  ulong seccomp_filter_cnt = 0UL;
+  if( FD_LIKELY( config->populate_allowed_seccomp ) ) {
+    seccomp_filter_cnt = config->populate_allowed_seccomp( scratch_mem,
+                                                           sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
+                                                           seccomp_filter );
+  }
 
   fd_sandbox( args->config->development.sandbox,
               args->config->uid,
@@ -194,14 +206,18 @@ tile_main( void * _args ) {
 void
 run1_cmd_fn( args_t *         args,
              config_t * const config ) {
+  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  fd_log_private_tid_set( pid );
+
   ulong tile_id = fd_topo_find_tile( &config->topo, args->run1.tile_kind, args->run1.kind_id );
   if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu not found", fd_topo_tile_kind_str( args->run1.tile_kind ), args->run1.kind_id ));
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
 
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  char thread_name[ FD_LOG_NAME_MAX ] = {0};
+  snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+  fd_log_thread_set( thread_name );
 
-  fd_log_private_tid_set( tile->id );
-  fd_log_thread_set( fd_topo_tile_kind_str( tile->kind ) );
+  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   cpu_set_t affinity[1];
   if( FD_UNLIKELY( -1==sched_getaffinity( 0, sizeof( affinity ), affinity ) ) ) FD_LOG_ERR(( "sched_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -225,6 +241,7 @@ run1_cmd_fn( args_t *         args,
     .config      = config,
     .tile        = tile,
     .pipefd      = args->run1.pipe_fd,
+    .no_shmem    = 0,
   };
 
   /* Also clone tiles into PID namespaces so they cannot signal each

@@ -159,8 +159,16 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 #define wv_or(a,b)     _mm256_or_si256(     (a), (b) ) /* [   a0 |b0    a1 |b1 ...   a3 |b3 ] */
 #define wv_xor(a,b)    _mm256_xor_si256(    (a), (b) ) /* [   a0 ^b0    a1 ^b1 ...   a3 ^b3 ] */
 
+/* wv_rol(x,n) returns wv( rotate_left (x0,n), rotate_left (x1,n), ... )
+   wv_ror(x,n) returns wv( rotate_right(x0,n), rotate_right(x1,n), ... ) */
+
+#if FD_HAS_AVX512
+#define wv_rol(a,imm)  _mm256_rol_epi64( (a), (imm) )
+#define wv_ror(a,imm)  _mm256_ror_epi64( (a), (imm) )
+#else
 static inline wv_t wv_rol( wv_t a, int imm ) { return wv_or( wv_shl( a, imm & 63 ), wv_shr( a, (-imm) & 63 ) ); }
 static inline wv_t wv_ror( wv_t a, int imm ) { return wv_or( wv_shr( a, imm & 63 ), wv_shl( a, (-imm) & 63 ) ); }
+#endif
 
 static inline wv_t wv_rol_variable( wv_t a, int n ) { return wv_or( wv_shl_variable( a, n&63 ), wv_shr_variable( a, (-n)&63 ) ); }
 static inline wv_t wv_ror_variable( wv_t a, int n ) { return wv_or( wv_shr_variable( a, n&63 ), wv_shl_variable( a, (-n)&63 ) ); }

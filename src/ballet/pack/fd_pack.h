@@ -8,12 +8,11 @@
 #include "../fd_ballet_base.h"
 #include "../txn/fd_txn.h"
 #include "fd_est_tbl.h"
-
+#include "fd_microblock.h"
 
 #define FD_PACK_ALIGN     (128UL)
 
 #define FD_PACK_MAX_BANK_TILES 63UL
-
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
@@ -24,26 +23,9 @@
 
 /* ---- End consensus-critical constants */
 
-
-/* Is this structure useful in other parts of the codebase? Should this
-   go somewhere else? */
-struct fd_txn_p {
-  uchar payload[FD_TPU_MTU];
-  ulong payload_sz;
-  ulong meta;
-  int   is_simple_vote; /* Populated by pack */
-  /* union {
-    This would be ideal but doesn't work because of the flexible array member
-    uchar _[FD_TXN_MAX_SZ];
-    fd_txn_t txn;
-  }; */
-  /* Access with TXN macro below */
-  uchar _[FD_TXN_MAX_SZ] __attribute__((aligned(alignof(fd_txn_t))));
-};
-typedef struct fd_txn_p fd_txn_p_t;
-
-#define TXN(txn_p) ((fd_txn_t *)( (txn_p)->_ ))
-
+#define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
+#define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
+#define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
 
 /* Forward declare opaque handle */
 struct fd_pack_private;
@@ -104,6 +86,65 @@ FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
    FD_PACK_MAX_BANK_TILES]. */
 FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
 
+
+/* Return values for fd_pack_insert_txn_fini:  Non-negative values
+   indicate the transaction was accepted and may be returned in a future
+   microblock.  Negative values indicate that the transaction was
+   rejected and will never be returned in a future microblock.
+   Transactions can be rejected through no fault of their own, so it
+   doesn't necessarily imply bad behavior.
+
+   The non-negative (success) codes are essentially a bitflag of two
+   bits:
+    * whether the transaction met the critera for a simple vote or not,
+    * whether this transaction replaced a previously accepted, low
+      priority transaction, rather than being accepted in addition to all
+      the previously accepted transactions.  Since pack maintains a heap
+      with a fixed max size of pack_depth, replacing transaction is
+      necessary whenever the heap is full.
+
+   The negative (failure) codes are a normal enumeration (not a
+   bitflag).
+    * PRIORITY: pack's heap was full and the transaction's priority was
+      lower than the worst currently accepted transaction.
+    * DUPLICATE: the transaction is a duplicate of a currently accepted
+      transaction.
+    * UNAFFORDABLE: the fee payer could not afford the transaction fee
+      (not yet implemented).
+    * TOO_LARGE: the transaction requested too many CUs and would never
+      be scheduled if it had been accepted.
+    * ESTIMATION_FAIL: estimation of the transaction's compute cost and
+      fee failed, typically because the transaction contained a
+      malformed ComputeBudgetProgram instruction.
+    * WRITES_SYSVAR: the transaction attempts to write-lock a sysvar.
+      Write-locking a sysvar can cause heavy contention.  Solana Labs
+      solves this by downgrading these to read locks, but we instead
+      solve it by refusing to pack such transactions.
+    * FULL: in rare situations where the heap is full, pack may not be
+      able to accept a transaction regardless of its priority because a
+      transaction cannot be found to be replaced.  This mostly can
+      happen if the whole heap is full of votes.
+
+    NOTE: The corresponding enum in metrics.xml must be kept in sync
+    with any changes to these return values. */
+#define FD_PACK_INSERT_ACCEPT_VOTE_REPLACE    ( 3)
+#define FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE ( 2)
+#define FD_PACK_INSERT_ACCEPT_VOTE_ADD        ( 1)
+#define FD_PACK_INSERT_ACCEPT_NONVOTE_ADD     ( 0)
+#define FD_PACK_INSERT_REJECT_PRIORITY        (-1)
+#define FD_PACK_INSERT_REJECT_DUPLICATE       (-2)
+#define FD_PACK_INSERT_REJECT_UNAFFORDABLE    (-3)
+#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-4)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-5)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-6)
+#define FD_PACK_INSERT_REJECT_FULL            (-7)
+
+/* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
+   range [-FD_PACK_INSERT_RETVAL_OFF,
+   -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
+#define FD_PACK_INSERT_RETVAL_OFF  7
+#define FD_PACK_INSERT_RETVAL_CNT 11
+
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
    that may be scheduled by the pack object.
@@ -124,10 +165,13 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
    interest in the transaction after _fini or _cancel have been called.
 
    pack must be a local join of a pack object.  From the caller's
-   perspective, these functions cannot fail.
+   perspective, these functions cannot fail, though pack may reject a
+   transaction for a variety of reasons.  fd_pack_insert_txn_fini
+   returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
+   codes explained above.
  */
 fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                   );
-void         fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn );
 void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
 
 

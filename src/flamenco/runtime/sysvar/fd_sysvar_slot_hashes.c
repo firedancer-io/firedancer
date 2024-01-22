@@ -35,15 +35,9 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
 
     fd_slot_hashes_t slot_hashes;
-    int err = fd_sysvar_slot_hashes_read( slot_ctx, &slot_hashes );
-    switch( err ) {
-    case 0: break;
-    case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
+    if( !fd_sysvar_slot_hashes_read( &slot_hashes, slot_ctx ) ) {
       slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc );
       FD_TEST( slot_hashes.hashes );
-      break;
-    default:
-      FD_LOG_ERR(( "fd_sysvar_slot_hashes_read failed (%d)", err ));
     }
 
     fd_slot_hash_t * hashes = slot_hashes.hashes;
@@ -80,16 +74,16 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
   } FD_SCRATCH_SCOPE_END;
 }
 
-int
-fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
-                            fd_slot_hashes_t *    result ) {
+fd_slot_hashes_t *
+fd_sysvar_slot_hashes_read( fd_slot_hashes_t *    result,
+                            fd_exec_slot_ctx_t *  slot_ctx ) {
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
   FD_BORROWED_ACCOUNT_DECL(rec);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, rec );
-  if (FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS))
-    return err;
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
   fd_bincode_decode_ctx_t decode = {
     .data    = rec->const_data,
@@ -97,9 +91,7 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
     .valloc  = slot_ctx->valloc /* !!! There is no reason to place this on the slot_ctx heap.  Use scratch instead. */
   };
 
-  err = fd_slot_hashes_decode( result, &decode );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
-    return err;
-
-  return 0;
+  if( FD_UNLIKELY( fd_slot_hashes_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
+  return result;
 }

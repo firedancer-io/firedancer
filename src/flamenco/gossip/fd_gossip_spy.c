@@ -8,7 +8,6 @@
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 
 #include "fd_gossip.h"
-#include "../fd_flamenco.h"
 #include "../../util/fd_util.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../types/fd_types_yaml.h"
@@ -209,9 +208,10 @@ resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
   return res;
 }
 
-int main(int argc, char **argv) {
-  fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+int
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
@@ -281,6 +281,5 @@ int main(int argc, char **argv) {
   fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob), valloc));
 
   fd_halt();
-
   return 0;
 }

@@ -87,8 +87,17 @@ static inline void  wwv_stu( void * m, wwv_t x ) { _mm512_storeu_epi64( m, x ); 
    wwv_rol_vector(x,y) returns wwv( rotate_left (x0,y0), rotate_left (x1,y1), ... )
    wwv_ror_vector(x,y) returns wwv( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
 
-static inline wwv_t wwv_rol( wwv_t a, ulong n ) { return wwv_or( wwv_shl( a, n & 63UL ), wwv_shr( a, (-n) & 63UL ) ); }
-static inline wwv_t wwv_ror( wwv_t a, ulong n ) { return wwv_or( wwv_shr( a, n & 63UL ), wwv_shl( a, (-n) & 63UL ) ); }
+static inline wwv_t wwv_rol( wwv_t a, ulong n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_rol_epi64( (a), (n)&63 ) :
+         wwv_or( wwv_shl( a, n & 63UL ), wwv_shr( a, (-n) & 63UL ) );
+}
+
+static inline wwv_t wwv_ror( wwv_t a, ulong n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_ror_epi64( (a), (n)&63 ) :
+         wwv_or( wwv_shr( a, n & 63UL ), wwv_shl( a, (-n) & 63UL ) );
+}
 
 static inline wwv_t wwv_rol_vector( wwv_t a, wwv_t b ) {
   wwv_t m = wwv_bcast( 63UL );

@@ -12,7 +12,9 @@ FD_PROTOTYPES_BEGIN
 void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the stake history sysvar */
-int fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* result );
+fd_stake_history_t *
+fd_sysvar_stake_history_read( fd_stake_history_t * result,
+                              fd_exec_slot_ctx_t * slot_ctx );
 
 /* Update the stake history sysvar account - called during epoch boundary*/
 void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_entry_t * entry);

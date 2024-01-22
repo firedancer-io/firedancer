@@ -14,7 +14,7 @@
 #include "fd_quic_test_helpers.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 fd_quic_t *server_quic = NULL;
 
@@ -159,9 +159,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   fd_boot(argc, argv);
   atexit(fd_halt);
 
-  /* Disable parsing error logging */
-  fd_log_level_stderr_set(4);
-
   ulong cpu_idx = fd_tile_cpu_id(fd_tile_idx());
   if (cpu_idx > fd_shmem_cpu_cnt())
     cpu_idx = 0UL;
@@ -169,7 +166,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   char const *_page_sz =
       fd_env_strip_cmdline_cstr(argc, argv, "--page-sz", NULL, "normal");
   ulong page_cnt =
-      fd_env_strip_cmdline_ulong(argc, argv, "--page-cnt", NULL, 1500UL);
+      fd_env_strip_cmdline_ulong(argc, argv, "--page-cnt", NULL, 3200UL);
   ulong numa_idx = fd_env_strip_cmdline_ulong(argc, argv, "--numa-idx", NULL,
                                               fd_shmem_numa_idx(cpu_idx));
 

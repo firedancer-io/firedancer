@@ -5,8 +5,6 @@
 #include "../../../ballet/block/fd_microblock.h"
 #include "../../../ballet/txn/fd_txn.h"
 
-#include "../fd_rawtxn.h"
-
 #include "fd_microblock_info.h"
 
 struct fd_microblock_batch_info {

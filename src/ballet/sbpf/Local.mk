@@ -3,4 +3,4 @@ $(call add-objs,fd_sbpf_loader,fd_ballet)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_sbpf_load_prog,test_sbpf_load_prog,fd_ballet fd_util)
 endif
-$(call fuzz-test,fuzz_sbpf_loader,fuzz_sbpf_loader,fd_ballet fd_util)
+$(call make-fuzz-test,fuzz_sbpf_loader,fuzz_sbpf_loader,fd_ballet fd_util)

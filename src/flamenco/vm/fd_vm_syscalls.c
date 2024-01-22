@@ -1427,7 +1427,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
-static bool check_id(const uchar * program_id, uchar * loader) {
+static bool check_id(uchar const * program_id, uchar const * loader) {
   return memcmp(program_id, loader, sizeof(fd_pubkey_t)) == 0;
 }
 
@@ -1737,7 +1737,7 @@ fd_vm_syscall_cpi_c(
   }
 
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  int err_exec = fd_execute_instr( &cpi_instr, ctx->instr_ctx->txn_ctx );
+  int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
@@ -1868,7 +1868,7 @@ fd_vm_syscall_cpi_rust(
   }
 
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
-  int err_exec = fd_execute_instr( &cpi_instr, ctx->instr_ctx->txn_ctx );
+  int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
   FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
@@ -1954,7 +1954,7 @@ fd_vm_syscall_sol_get_return_data(
     return err;
   }
 
-  fd_transaction_return_data_t * return_data = &ctx->instr_ctx->txn_ctx->return_data;
+  fd_txn_return_data_t * return_data = &ctx->instr_ctx->txn_ctx->return_data;
   length = fd_ulong_min(length, return_data->len);
 
   if (FD_LIKELY(length != 0)) {
@@ -2078,7 +2078,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
 
   fd_sol_sysvar_clock_t clock;
   fd_sol_sysvar_clock_new( &clock );
-  fd_sysvar_clock_read( ctx->instr_ctx->slot_ctx, &clock );
+  fd_sysvar_clock_read( &clock, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -2110,7 +2110,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
 
   fd_epoch_schedule_t schedule;
   fd_epoch_schedule_new( &schedule );
-  fd_sysvar_epoch_schedule_read( ctx->instr_ctx->slot_ctx, &schedule );
+  fd_sysvar_epoch_schedule_read( &schedule, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -2142,7 +2142,7 @@ fd_vm_syscall_sol_get_fees_sysvar(
 
   fd_sysvar_fees_t fees;
   fd_sysvar_fees_new( &fees );
-  fd_sysvar_fees_read( ctx->instr_ctx->slot_ctx, &fees );
+  fd_sysvar_fees_read( &fees, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -2174,7 +2174,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
 
   fd_rent_t rent;
   fd_rent_new( &rent );
-  fd_sysvar_rent_read( ctx->instr_ctx->slot_ctx, &rent );
+  fd_sysvar_rent_read( &rent, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,

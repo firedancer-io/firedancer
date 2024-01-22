@@ -113,10 +113,10 @@ fd_rpc_serve_one( void * args ) {
   int printed;
   char * method = cJSON_GetObjectItem( json, "method" )->valuestring;
   if( !strcmp( method, "getLatestBlockhash" ) ) {
-    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": { \"value\": { \"blockhash\": \"EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N\" } } }",
+    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\": { \"value\": { \"blockhash\": \"EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N\" } } }",
                         cJSON_GetObjectItem( json, "id" )->valuestring );
   } else if( !strcmp( method, "getTransactionCount" ) ) {
-    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": 268 }",
+    printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\": 268 }",
                         cJSON_GetObjectItem( json, "id" )->valuestring );
   } else {
     FD_LOG_WARNING(( "%s", method ));

@@ -17,9 +17,9 @@ void fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx);
    accounts manager.  On success, returns 0 and writes deserialized
    value into *result.  On failure, returns the bincode/acc_mgr error
    code. */
-int
-fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_slot_hashes_t * result );
+fd_slot_hashes_t *
+fd_sysvar_slot_hashes_read( fd_slot_hashes_t *   result,
+                            fd_exec_slot_ctx_t * slot_ctx );
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h */
 

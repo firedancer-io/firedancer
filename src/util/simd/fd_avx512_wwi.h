@@ -87,8 +87,17 @@ static inline void  wwi_stu( void * m, wwi_t x ) { _mm512_storeu_epi32( m, x ); 
    wwi_rol_vector(x,y) returns wwi( rotate_left (x0,y0), rotate_left (x1,y1), ... )
    wwi_ror_vector(x,y) returns wwi( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
 
-static inline wwi_t wwi_rol( wwi_t a, int n ) { return wwi_or( wwi_shl ( a, n & 31 ), wwi_shru( a, (-n) & 31 ) ); }
-static inline wwi_t wwi_ror( wwi_t a, int n ) { return wwi_or( wwi_shru( a, n & 31 ), wwi_shl ( a, (-n) & 31 ) ); }
+static inline wwi_t wwi_rol( wwi_t a, int n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_rol_epi32( (a), (n)&31 ) :
+         wwi_or( wwi_shl ( a, n & 31 ), wwi_shru( a, (-n) & 31 ) );
+}
+
+static inline wwi_t wwi_ror( wwi_t a, int n ) {
+  return __builtin_constant_p(n) ?
+         _mm512_ror_epi32( (a), (n)&31 ) :
+         wwi_or( wwi_shru( a, n & 31 ), wwi_shl ( a, (-n) & 31 ) );
+}
 
 static inline wwi_t wwi_rol_vector( wwi_t a, wwi_t b ) {
   wwi_t m = wwi_bcast( 31 );

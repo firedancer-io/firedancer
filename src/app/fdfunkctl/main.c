@@ -264,7 +264,7 @@ type_lookup(const char *type, fd_types_funcs_t * t) {
 static void
 inspect_acct_cmd(fd_funk_t * funk, const char * key_str, char const * type) {
   fd_funk_rec_t const * rec = resolve_rec(funk, key_str);
-  if (!fd_acc_mgr_is_key(rec->pair.key))
+  if (!fd_funk_key_is_acc(rec->pair.key))
     FD_LOG_ERR(("not an account record"));
   fprintf(outf, "{ \"key\":\"%32J.%32J:%32J\", ", rec->pair.key->uc, rec->pair.key->uc + 32U, rec->pair.xid->uc);
   uchar const * raw = (uchar const *)fd_funk_val(rec, fd_funk_wksp( funk ));
@@ -278,7 +278,7 @@ inspect_acct_cmd(fd_funk_t * funk, const char * key_str, char const * type) {
     fd_types_funcs_t tfuns;
     type_lookup(type, &tfuns);
     fprintf(outf, ", \"content\":\"");
-    
+
     fd_scratch_push();
     fd_bincode_decode_ctx_t decode = {
       .data    = raw + meta->hlen,
@@ -295,7 +295,7 @@ inspect_acct_cmd(fd_funk_t * funk, const char * key_str, char const * type) {
       FD_LOG_ERR(("decode failed"));
     tfuns.walk_fun(yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
     fd_scratch_pop();
-    
+
     fprintf(outf, "\"");
   }
   fprintf(outf, " }\n");
@@ -306,9 +306,9 @@ find_acct_cmd(fd_funk_t * funk, const char * pubkey_str) {
   fd_pubkey_t pubkey;
   if (NULL == fd_base58_decode_32(pubkey_str, pubkey.uc))
     FD_LOG_ERR(("invalid base58 encoding"));
-  fd_funk_rec_key_t key = fd_acc_mgr_key(&pubkey);
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );          /* Previously verified */
-  fd_funk_txn_t * map     = fd_funk_txn_map( funk, wksp ); /* Previously verified */
+  fd_funk_rec_key_t key  = fd_acc_funk_key(&pubkey);
+  fd_wksp_t *       wksp = fd_funk_wksp( funk );          /* Previously verified */
+  fd_funk_txn_t *   map  = fd_funk_txn_map( funk, wksp ); /* Previously verified */
   fprintf(outf, "[");
   int first = 1;
   for( fd_funk_txn_map_iter_t iter = fd_funk_txn_map_iter_init( map );
@@ -356,7 +356,7 @@ main( int     argc,
 # define SCRATCH_DEPTH (4UL)
   static ulong fmem[ SCRATCH_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   fd_scratch_attach( smem, fmem, SMAX, SCRATCH_DEPTH );
-  
+
   char const * outfname = fd_env_strip_cmdline_cstr ( &argc, &argv, "--out", NULL, NULL );
   if (NULL == outfname)
     outf = stdout;
@@ -490,7 +490,7 @@ main( int     argc,
 
   if (outf != stdout)
     fclose(outf);
-  
+
   fd_log_flush();
   fd_flamenco_halt();
   fd_halt();

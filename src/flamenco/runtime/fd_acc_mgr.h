@@ -1,14 +1,15 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h
 #define HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h
 
-#include "../fd_flamenco_base.h"
+/* fd_acc_mgr provides APIs for the Solana account database. */
+
+#include "fd_runtime.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
-#include "fd_banks_solana.h"
-#include "fd_hashes.h"
 #include "fd_borrowed_account.h"
-#include "context/fd_exec_slot_ctx.h"
-#include "fd_blockstore.h"
+
+/* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
+   To be stored in an int. */
 
 #define FD_ACC_MGR_SUCCESS             (0)
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
@@ -16,51 +17,130 @@
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
-#define MAX_ACC_SIZE (10UL<<20) /* 10MB */
+/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
-/* fd_acc_mgr_t is the main interface for Solana runtime account data.
-   (What is the point of this type?  It literally only wraps funky) */
+#define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
-#define FD_ACC_MGR_FOOTPRINT (sizeof(fd_acc_mgr_t))
-#define FD_ACC_MGR_ALIGN     (8UL)
+/* fd_acc_mgr_t translates between the runtime account DB abstraction
+   and the actual funk database.  Also manages rent collection.
+   fd_acc_mgr_t cannot be relocated to another address space.
 
-struct __attribute__((aligned(FD_ACC_MGR_ALIGN))) fd_acc_mgr {
+   ### Translation
+
+   Each runtime account is backed by a funk record.  However, not all
+   funk records contain an account.  Funk records may temporarily hold
+   "deleted accounts".
+
+   The memory layout of the acc_mgr funk record data is
+   (fd_account_meta_t, padding, account data). */
+
+struct __attribute__((aligned(16UL))) fd_acc_mgr {
   fd_funk_t * funk;
-  fd_blockstore_t * blockstore;
-  ulong slots_per_epoch;
+
+  ulong slots_per_epoch;  /* see epoch schedule.  do not update directly */
+
+  /* part_width is the width of rent partition.  Each partition is a
+     contiguous sub-range of [0,2^256) where each element is an
+     account address. */
+
   ulong part_width;
-  uchar skip_rent_rewrites;
+
+  /* skip_rent_rewrites is a feature flag controlling rent collection
+     behavior during eager rent collection passes. */
+
+  uchar skip_rent_rewrites : 1;
+
   uint is_locked;
 };
-typedef struct fd_acc_mgr fd_acc_mgr_t;
+
+/* FD_ACC_MGR_{ALIGN,FOOTPRINT} specify the parameters for the memory
+   region backing an fd_acc_mgr_t. */
+
+#define FD_ACC_MGR_ALIGN     (alignof(fd_acc_mgr_t))
+#define FD_ACC_MGR_FOOTPRINT ( sizeof(fd_acc_mgr_t))
 
 FD_PROTOTYPES_BEGIN
+
+/* Management API *****************************************************/
 
 /* fd_acc_mgr_new formats a memory region suitable to hold an
    fd_acc_mgr_t.  Binds newly created object to global and returns
    cast. */
 
 fd_acc_mgr_t *
-fd_acc_mgr_new( void *            mem,
-                fd_funk_t *       funk,
-                fd_blockstore_t * blockstore );
+fd_acc_mgr_new( void *      mem,
+                fd_funk_t * funk );
 
-/* fd_acc_mgr_key returns a fd_funk database key given a pubkey. */
+/* fd_acc_mgr_delete releases the memory region used by an fd_acc_mgr_t
+   and returns it to the caller. */
 
-fd_funk_rec_key_t
-fd_acc_mgr_key( fd_pubkey_t const * pubkey );
+void *
+fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr );
 
-/* fd_acc_mgr_is_key returns 1 if given fd_funk key is an account
+/* Funk key handling **************************************************/
+
+/* fd_acc_funk_key returns a fd_funk database key given an account
+   address. */
+
+FD_FN_PURE static inline fd_funk_rec_key_t
+fd_acc_funk_key( fd_pubkey_t const * pubkey ) {
+  fd_funk_rec_key_t key = {0};
+  fd_memcpy( key.c, pubkey, sizeof(fd_pubkey_t) );
+  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
+  return key;
+}
+
+/* fd_funk_key_is_acc returns 1 if given fd_funk key is an account
    managed by fd_acc_mgr_t, and 0 otherwise. */
 
-int
-fd_acc_mgr_is_key( fd_funk_rec_key_t const * id );
+FD_FN_PURE static inline int
+fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
+  return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
+}
 
-/* Change the number of epochs per slot, repartition funk */
+/* fd_funk_key_to_acc reinterprets a funk rec key as an account address.
+   Safe assuming fd_funk_key_is_acc( id )==1. */
 
-void
-fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                ulong slots_per_epoch );
+FD_FN_CONST static inline fd_pubkey_t const *
+fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
+  return (fd_pubkey_t const *)fd_type_pun_const( id->c );
+}
+
+
+/* Account Access API *************************************************/
+
+static inline void
+fd_account_meta_init( fd_account_meta_t * m ) {
+  fd_memset( m, 0, sizeof(fd_account_meta_t) );
+  m->magic = FD_ACCOUNT_META_MAGIC;
+  m->hlen  = sizeof(fd_account_meta_t);
+}
+
+/* fd_acc_exists checks if the account in a funk record exists or was
+   deleted.  Handles NULL input safely.  Returns 0 if the account was
+   deleted (zero lamports, empty data, zero owner).  Otherwise, returns
+   1. */
+
+static inline int
+fd_acc_exists( fd_account_meta_t const * m ) {
+
+  if( !m ) return 0;
+
+# if FD_HAS_AVX
+  wl_t o = wl_ldu( m->info.owner );
+  int has_owner = !_mm256_testz_si256( o, o );
+# else
+  int has_owner = 0;
+  for( ulong i=0UL; i<32UL; i++ )
+    has_owner |= m->info.owner[i];
+  has_owner = !!has_owner;
+# endif
+
+  return ( ( m->info.lamports > 0 ) |
+           ( m->dlen          > 0 ) |
+           ( has_owner            ) );
+
+}
 
 /* fd_acc_mgr_view_raw requests a read-only handle to account data.
    acc_mgr is the global account manager object.  txn is the database
@@ -88,71 +168,18 @@ fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_acc_mgr_modify_raw to acquire a mutable handle. */
 
-void const *
+fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
                      fd_funk_rec_t const ** opt_out_rec,
                      int *                  opt_err );
 
-static inline int
-FD_RAW_ACCOUNT_EXISTS(void const *ptr) {
-  if (NULL == ptr) {
-    return 0;
-  }
-
-  fd_account_meta_t const *m = (fd_account_meta_t const *) ptr;
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpragmas"
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
-  ulong *ul = (ulong *) &m->info.owner[0];
-#pragma GCC diagnostic pop
-
-  return (0 < m->info.lamports) ||
-    (0 < m->dlen) ||
-    (FD_LOAD(ulong, &ul[0]) != 0) ||
-    (FD_LOAD(ulong, &ul[1]) != 0) ||
-    (FD_LOAD(ulong, &ul[2]) != 0) ||
-    (FD_LOAD(ulong, &ul[3]) != 0);
-}
-
-/* fd_acc_mgr_view is a convenience wrapper */
-
-static inline int
+int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account) {
-  int err = FD_ACC_MGR_SUCCESS;
-  uchar const * raw = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err );
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
-
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(raw))) {
-    if (err != FD_ACC_MGR_SUCCESS)
-      return err;
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  fd_account_meta_t const * meta = (fd_account_meta_t const *)raw;
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
-  account->orig_rec = account->const_rec;
-  account->orig_meta = account->const_meta = meta;
-  account->orig_data = account->const_data = raw + meta->hlen;
-
-  if (ULONG_MAX == account->starting_dlen)
-    account->starting_dlen = meta->dlen;
-
-  if (ULONG_MAX == account->starting_lamports)
-    account->starting_lamports = meta->info.lamports;
-
-  return FD_ACC_MGR_SUCCESS;
-}
+                 fd_borrowed_account_t * account );
 
 /* fd_acc_mgr_modify_raw requests a writable handle to an account.
    Follows interface of fd_acc_mgr_modify_raw with the following
@@ -187,7 +214,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
    Caller must eventually commit funk record.  During replay, this is
    done automatically by slot freeze. */
 
-void *
+fd_account_meta_t *
 fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_txn_t *       txn,
                        fd_pubkey_t const *   pubkey,
@@ -197,82 +224,19 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        fd_funk_rec_t **      opt_out_rec,
                        int *                 opt_err );
 
-/* fd_acc_mgr_modify is a convenience wrapper */
+int
+fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
+                   fd_funk_txn_t *         txn,
+                   fd_pubkey_t const *     pubkey,
+                   int                     do_create,
+                   ulong                   min_data_sz,
+                   fd_borrowed_account_t * account );
 
-static inline int
-fd_acc_mgr_modify( fd_acc_mgr_t *         acc_mgr,
-                   fd_funk_txn_t *        txn,
-                   fd_pubkey_t const *    pubkey,
-                   int                    do_create,
-                   ulong                  min_data_sz,
-                   fd_borrowed_account_t * account) {
-  int err = FD_ACC_MGR_SUCCESS;
-
-  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
-  if( FD_UNLIKELY( !raw ) ) return err;
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
-
-  fd_account_meta_t * meta = (fd_account_meta_t *)raw;
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
-  account->orig_rec = account->const_rec = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = raw + meta->hlen;
-
-  if (ULONG_MAX == account->starting_dlen)
-    account->starting_dlen = meta->dlen;
-
-  if (ULONG_MAX == account->starting_lamports)
-    account->starting_lamports = meta->info.lamports;
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
-static inline int
+int
 fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t *         txn,
                  fd_valloc_t             valloc,
-                 fd_borrowed_account_t * account ) {
-  int err = FD_ACC_MGR_SUCCESS;
-
-  if( account->meta == NULL ) {
-    // The meta is NULL so the account is not writable.
-    FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %32J", account->pubkey ));
-    return FD_ACC_MGR_SUCCESS;
-  }
-
-  if( account->orig_data == account->data ) {
-    // We never had to realloc/resize the account, so we have nothing to do.
-    return FD_ACC_MGR_SUCCESS;
-  }
-
-  uchar * raw = fd_acc_mgr_modify_raw( acc_mgr, txn, account->pubkey, 1, account->meta->dlen, account->const_rec, &account->rec, &err );
-  if( FD_UNLIKELY( !raw ) ) {
-    return err;
-  }
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  fd_account_meta_t * meta = (fd_account_meta_t *)raw;
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-  }
-
-  fd_memcpy( raw, account->meta, sizeof(fd_account_meta_t)+account->const_meta->dlen );
-  fd_valloc_free( valloc, account->meta );
-
-  account->orig_rec = account->const_rec = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = raw + meta->hlen;
-
-  return FD_ACC_MGR_SUCCESS;
-}
+                 fd_borrowed_account_t * account );
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
@@ -282,6 +246,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
                             ulong accounts_cnt,
                             fd_tpool_t * tpool,
                             ulong max_workers );
+
 /* fd_acc_mgr_commit_raw finalizes a writable transaction.
    Re-calcluates the account hash.  If the hash changed, persists the
    record to the database.  If uncache is 1, calls fd_funk_val_uncache.
@@ -295,10 +260,10 @@ fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
                        void *              raw,
                        fd_exec_slot_ctx_t * slot_ctx );
 
-static inline
-int fd_acc_mgr_commit( fd_acc_mgr_t *      acc_mgr,
-                       fd_borrowed_account_t *account,
-                       fd_exec_slot_ctx_t *  slot_ctx ) {
+static inline int
+fd_acc_mgr_commit( fd_acc_mgr_t *          acc_mgr,
+                   fd_borrowed_account_t * account,
+                   fd_exec_slot_ctx_t *    slot_ctx ) {
   return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
 }
 
@@ -307,6 +272,19 @@ fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
 
 void
 fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
+
+/* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
+   and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'
+   feature is activated or 'slots_per_epoch' changes. */
+
+void
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                ulong                slots_per_epoch );
+
+/* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
+   readable cstr.  The lifetime of the returned pointer is infinite and
+   the call itself is thread safe.  The returned pointer is always to a
+   non-NULL cstr. */
 
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err );

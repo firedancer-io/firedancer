@@ -9,6 +9,7 @@
 #include "fd_runtime.h"
 #include "fd_account.h"
 #include "context/fd_capture_ctx.h"
+#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -294,13 +295,12 @@ fd_account_hash_task( void *tpool,
   fd_accounts_hash_task_info_t * task_info = (fd_accounts_hash_task_info_t *)tpool + m0;
   fd_exec_slot_ctx_t * slot_ctx = task_info->slot_ctx;
   int err = 0;
-  uchar const * raw_acc_data = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
+  fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_ERR(( "failed to view account during bank hash" ));
   }
 
-  fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)raw_acc_data;
-  uchar const *             acc_data = raw_acc_data + acc_meta->hlen;
+  uchar const *       acc_data = (uchar *)acc_meta + acc_meta->hlen;
   fd_pubkey_t const * acc_key  = fd_type_pun_const( task_info->rec->pair.key[0].uc );
 
   if (FD_UNLIKELY(acc_meta->info.lamports == 0)) {
@@ -320,7 +320,7 @@ fd_account_hash_task( void *tpool,
   /* If hash didn't change, nothing to do */
   if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
     task_info->hash_changed = 1;
-  } else if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) 
+  } else if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot )
     && acc_meta->slot == slot_ctx->slot_bank.slot ) {
     /* Even if the hash didnt change, in this scenario, the record did! */
     task_info->hash_changed = 1;
@@ -340,13 +340,13 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_acc_mgr_is_key( rec->pair.key  ) ) continue;
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
 
     rec_cnt++;
   }
-  
+
   fd_accounts_hash_task_info_t * task_infos = fd_valloc_malloc( slot_ctx->valloc, 8UL, rec_cnt * sizeof(fd_accounts_hash_task_info_t) );
-  
+
   /* Iterate over accounts that have been changed in the current
      database transaction. */
   ulong task_info_idx = 0;
@@ -356,7 +356,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_pubkey_t const * acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
 
-    if( !fd_acc_mgr_is_key( rec->pair.key  ) ) {
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) {
       continue;
     }
     // if( !fd_funk_rec_is_modified( funk, rec ) ) {
@@ -406,7 +406,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = task_info->rec;
-    
+
     fd_pubkey_t const * acc_key = fd_type_pun_const( task_info->rec->pair.key[0].uc );
     int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -479,7 +479,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_acc_mgr_is_key( rec->pair.key  ) ) continue;
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
 
     rec_cnt++;
   }
@@ -503,7 +503,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_pubkey_t const *       acc_key  = fd_type_pun_const( rec->pair.key[0].uc );
 
-    if( !fd_acc_mgr_is_key( rec->pair.key  ) ) continue;
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
     if( !fd_funk_rec_is_modified( funk, rec ) ) continue;
 
     /* Get dirty account */
@@ -511,12 +511,11 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     fd_funk_rec_t const *     rec      = NULL;
 
     int           err = 0;
-    uchar const * _raw = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec, &err);
+    fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec, &err);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to view account during bank hash" ));
     }
-    fd_account_meta_t const * acc_meta = (fd_account_meta_t const *)_raw;
-    uchar const *             acc_data = _raw + acc_meta->hlen;
+    uchar const *             acc_data = (uchar *)acc_meta + acc_meta->hlen;
 
     /* Hash account */
 
@@ -526,7 +525,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     uchar deleted = 0;
 #endif
     // TODO: talk to jsiegel about this
-    if (FD_UNLIKELY(acc_meta->info.lamports == 0)) { //!FD_RAW_ACCOUNT_EXISTS(_raw))) {
+    if (FD_UNLIKELY(acc_meta->info.lamports == 0)) { //!fd_acc_exists(_raw))) {
       fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
 
       /* If we erase records instantly, this causes problems with the
@@ -545,8 +544,8 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* If hash didn't change, nothing to do */
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) ) {
       /* But in this esoteric confluence of features, there is something to do! */
-      if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) 
-        && !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) 
+      if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot )
+        && !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites )
         && acc_meta->slot == slot_ctx->slot_bank.slot ) {
         /* no-op */
       } else {
@@ -819,7 +818,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
         accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
         if (NULL != q)
           accounts_hash_remove(hash_map, q);
@@ -899,7 +898,7 @@ fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
   for (
     fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, NULL); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec))
     {
-      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
         void const * data = fd_funk_val( rec, fd_funk_wksp(funk) );
         fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
         FD_TEST ( metadata->magic == FD_ACCOUNT_META_MAGIC );
@@ -919,7 +918,7 @@ fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
         fd_ristretto255_extended_frombytes( &p2, metadata->rhash );
 
         fd_ristretto255_point_add( &rhash, &rhash, &p2 );
-      } // if ( fd_acc_mgr_is_key( rec->pair.key ) )
+      } // if ( fd_funk_key_is_acc( rec->pair.key ) )
     } // fd_funk_rec_t const *rec = fd_f
 
   // I kinda wish we could just put the point itself into the slot
@@ -989,7 +988,7 @@ fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
     for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
          NULL != rec;
          rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_acc_mgr_is_key( rec->pair.key ) ) {
+      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
         accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
         if (NULL != q)
           accounts_hash_remove(hash_map, q);

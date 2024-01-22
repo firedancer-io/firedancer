@@ -21,9 +21,9 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx );
    (FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT), or that there is a critical runtime
    error. */
 
-int
-fd_sysvar_last_restart_slot_read( fd_exec_slot_ctx_t const *             slot_ctx,
-                                  fd_sol_sysvar_last_restart_slot_t * result );
+fd_sol_sysvar_last_restart_slot_t *
+fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
+                                  fd_exec_slot_ctx_t const *          slot_ctx );
 
 /* fd_sysvar_last_restart_slot_update performs a sysvar update before
    transaction processing.  TODO not completely implemented. */

@@ -1,0 +1,53 @@
+# Run check, package, test, rustfmt, clippy
+
+name: Cargo
+on:
+  workflow_dispatch:
+jobs:
+  package:
+    name: cargo-package
+    runs-on:
+      group: github-v1
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: stage
+        run: bash ffi/rust/firedancer-sys/stage.sh
+      - run: cargo package --allow-dirty --manifest-path ffi/rust/firedancer-sys/Cargo.toml
+
+  test:
+    name: cargo-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all
+        working-directory: ffi/rust
+
+  fmt:
+    name: cargo-rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all -- --check
+        working-directory: ffi/rust
+
+  clippy:
+    name: cargo-clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo clippy --all -- -D warnings
+        working-directory: ffi/rust
+
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        command: --manifest-path ffi/rust/Cargo.toml check bans licenses sources

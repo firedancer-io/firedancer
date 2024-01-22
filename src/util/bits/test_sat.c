@@ -33,9 +33,9 @@ make_test_rand_uint( uint x,        /* Random 32-bit */
 
 #if FD_HAS_INT128
 
-static inline __uint128_t
-make_test_rand_uint128( __uint128_t x,        /* Random 32-bit */
-                        uint *      _ctl ) { /* Least significant 8 bits random, uses them up */
+static inline uint128
+make_test_rand_uint128( uint128 x,       /* Random 32-bit */
+                        uint *  _ctl ) { /* Least significant 8 bits random, uses them up */
   uint ctl = *_ctl;
   int s = (int)(ctl & 31U); ctl >>= 6; /* Shift, in [0,31] */
   int d = (int)(ctl &  1U); ctl >>= 1; /* Direction, in [0,1] */
@@ -135,22 +135,22 @@ fd_uint_sat_mul_ref( uint x,
 
 #if FD_HAS_INT128
 
-static inline __uint128_t
-fd_uint128_sat_add_ref( __uint128_t x, __uint128_t y ) {
-  __uint128_t res = x + y;
+static inline uint128
+fd_uint128_sat_add_ref( uint128 x, uint128 y ) {
+  uint128 res = x + y;
   return fd_uint128_if( res < x, UINT128_MAX, res );
 }
 
-static inline __uint128_t
-fd_uint128_sat_mul_ref( __uint128_t x, __uint128_t y ) {
-  __uint128_t res = x * y;
+static inline uint128
+fd_uint128_sat_mul_ref( uint128 x, uint128 y ) {
+  uint128 res = x * y;
   uchar overflow = ( x != 0 ) && ( y != 0 ) && ( ( res < x ) || ( res < y ) || ( ( res / x ) != y ) );
   return fd_uint128_if( overflow, UINT128_MAX, res );
 }
 
-static inline __uint128_t
-fd_uint128_sat_sub_ref( __uint128_t x, __uint128_t y ) {
-  __uint128_t res = x - y;
+static inline uint128
+fd_uint128_sat_sub_ref( uint128 x, uint128 y ) {
+  uint128 res = x - y;
   return fd_uint128_if( res > x, 0, res );
 }
 
@@ -208,10 +208,14 @@ main( int     argc,
 
 #   define TEST(op,x,y)                                \
     do {                                               \
-      __uint128_t ref   = fd_uint128_sat_##op##_ref ( x, y ); \
-      __uint128_t res   = fd_uint128_sat_## op      ( x, y ); \
+      uint128 ref   = fd_uint128_sat_##op##_ref ( x, y ); \
+      uint128 res   = fd_uint128_sat_## op      ( x, y ); \
       if( ref != res ) { \
-        FD_LOG_ERR(( "FAIL: fd_uint128_sat_" #op " x %llu y %llu ref %llu res %llu", x, y, ref, res )); \
+        FD_LOG_ERR(( "FAIL: fd_uint128_sat_" #op " x %016lx%016lx y %016lx%016lx ref %016lx%016lx res %016lx%016lx", \
+                     (ulong)(((uint128)x)>>64), (ulong)(x), \
+                     (ulong)(((uint128)y)>>64), (ulong)(y), \
+                     (ulong)((ref)>>64), (ulong)(ref),      \
+                     (ulong)((res)>>64), (ulong)(res) ));   \
       } \
     } while(0)
 
@@ -277,13 +281,18 @@ main( int     argc,
 
 #   define TEST(op)                                  \
     do {                                             \
-      uint    t =  fd_rng_uint ( rng );                \
-      __uint128_t x  = make_test_rand_uint128( fd_rng_uint128( rng ), &t ); \
-      __uint128_t y  = make_test_rand_uint128( fd_rng_uint128( rng ), &t ); \
-      __uint128_t ref   = fd_uint128_sat_##op##_ref ( x, y ); \
-      __uint128_t res   = fd_uint128_sat_##op       ( x, y ); \
+      uint    t =  fd_rng_uint ( rng );              \
+      uint128 x  = make_test_rand_uint128( fd_rng_uint128( rng ), &t ); \
+      uint128 y  = make_test_rand_uint128( fd_rng_uint128( rng ), &t ); \
+      uint128 ref   = fd_uint128_sat_##op##_ref ( x, y ); \
+      uint128 res   = fd_uint128_sat_##op       ( x, y ); \
       if( ref != res ) { \
-        FD_LOG_ERR(( "FAIL: %i fd_uint128_sat_" #op " x %llu y %llu ref %llu res %llu", i, x, y, ref, res )); \
+        FD_LOG_ERR(( "FAIL: %i fd_uint128_sat_" #op " x %016lx%016lx y %016lx%016lx ref %016lx%016lx res %016lx%016lx", \
+                     i,                              \
+                     (ulong)(x  >>64), (ulong)(x),   \
+                     (ulong)(y  >>64), (ulong)(y),   \
+                     (ulong)(ref>>64), (ulong)(ref), \
+                     (ulong)(res>>64), (ulong)(res) )); \
       } \
     } while(0)
 

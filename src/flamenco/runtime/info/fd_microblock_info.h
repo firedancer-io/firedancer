@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_microblock_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_microblock_info_h
 
-#include "../../../util/fd_util_base.h"
+#include "../../fd_flamenco_base.h"
 #include "../../../ballet/block/fd_microblock.h"
 #include "../../../ballet/txn/fd_txn.h"
-
-#include "../fd_rawtxn.h"
 
 struct fd_microblock_info {
   fd_microblock_hdr_t microblock_hdr;

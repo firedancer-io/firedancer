@@ -14,7 +14,7 @@
 #include "../../xdp/fd_xdp_redirect_user.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509.h"
+#include "../../../ballet/x509/fd_x509_openssl.h"
 
 int server_complete = 0;
 
@@ -24,6 +24,7 @@ fd_quic_conn_t * server_conn = NULL;
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+  fd_quic_test_boot( &argc, &argv );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -109,6 +110,7 @@ main( int argc, char ** argv ) {
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
+  fd_quic_test_halt();
   fd_halt();
   return 0;
 }

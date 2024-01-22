@@ -159,7 +159,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
   } else {
     input = fd_bpf_loader_input_serialize_aligned(ctx, &input_sz, pre_lens);
   }
-  
+
   if( input==NULL ) {
     fd_valloc_free( ctx.valloc,  fd_sbpf_program_delete( prog ) );
     fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
@@ -200,7 +200,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
 fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig);
-if (memcmp(signature, sig, 64) == 0) {  
+if (memcmp(signature, sig, 64) == 0) {
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
   trace_ctx.trace_entries_used = 0;
@@ -224,7 +224,7 @@ if (memcmp(signature, sig, 64) == 0) {
 
   ulong interp_res;
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (memcmp(signature, sig, 64) == 0) {  
+  if (memcmp(signature, sig, 64) == 0) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -238,7 +238,7 @@ if (memcmp(signature, sig, 64) == 0) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-if (memcmp(signature, sig, 64) == 0) {  
+if (memcmp(signature, sig, 64) == 0) {
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
@@ -280,7 +280,7 @@ if (memcmp(signature, sig, 64) == 0) {
         //         if ((prev_mem_ent->addr <= mem_ent->addr && mem_ent->addr < prev_mem_ent->addr + prev_mem_ent->sz)
         //             || (mem_ent->addr <= prev_mem_ent->addr && prev_mem_ent->addr < mem_ent->addr + mem_ent->sz)) {
         //           prev_mod = (ulong)k;
-        //           break;              
+        //           break;
         //         }
         //       }
         //       prev_mem_ent = prev_mem_ent->next;
@@ -298,7 +298,7 @@ if (memcmp(signature, sig, 64) == 0) {
           trace_buf_out += sprintf(trace_buf_out, "%02X ", mem_ent->data[k]);
         }
       }
-      
+
 
       fd_valloc_free(ctx.txn_ctx->valloc, mem_ent->data);
 
@@ -350,9 +350,9 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   if( ctx.instr->acct_cnt < 1 ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
-  
+
   uchar * data            = ctx.instr->data;
-  
+
   /* Deserialize the BPF Program instruction */
   fd_bpf_loader_program_instruction_t instruction;
   fd_bincode_decode_ctx_t decode_ctx;
@@ -385,7 +385,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
 
   fd_borrowed_account_t * acc = NULL;
   int read_result = fd_instr_borrowed_account_view( &ctx, program_acc, &acc );
-  if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(acc->const_meta))) {
+  if (FD_UNLIKELY(!fd_acc_exists(acc->const_meta))) {
     FD_LOG_WARNING(( "failed to read account metadata, err: %d", read_result ));
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }

@@ -3,7 +3,7 @@
  * 2011 Petteri Aimonen <jpa@kapsi.fi>
  */
 
-#include "pb.h"
+#include "pb_firedancer.h"
 #include "pb_encode.h"
 #include "pb_common.h"
 

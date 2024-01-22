@@ -1,17 +1,18 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_h
 
+#include "../fd_flamenco_base.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
-#include "fd_executor.h"
 #include "../features/fd_features.h"
 #include "fd_rent_lists.h"
 #include "../../ballet/poh/fd_poh.h"
-#include "program/fd_builtin_programs.h"
 #include "../leaders/fd_leaders.h"
-#include "sysvar/fd_sysvar.h"
+#include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
+#include "context/fd_exec_instr_ctx.h"
+#include "context/fd_capture_ctx.h"
 #include "info/fd_block_info.h"
 #include "info/fd_instr_info.h"
 

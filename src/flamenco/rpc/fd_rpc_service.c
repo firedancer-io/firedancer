@@ -23,6 +23,7 @@
 #include "../runtime/fd_runtime.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/fd_blockstore.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
@@ -59,7 +60,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   }
   fd_pubkey_t acct;
   fd_base58_decode_32((const char *)arg, acct.uc);
-  fd_funk_rec_key_t recid = fd_acc_mgr_key(&acct);
+  fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
@@ -197,7 +198,7 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
   }
   fd_pubkey_t acct;
   fd_base58_decode_32((const char *)arg, acct.uc);
-  fd_funk_rec_key_t recid = fd_acc_mgr_key(&acct);
+  fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
   fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
   if (rec == NULL) {
     fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
@@ -778,7 +779,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
     fd_pubkey_t acct;
     fd_base58_decode_32((const char *)arg, acct.uc);
-    fd_funk_rec_key_t recid = fd_acc_mgr_key(&acct);
+    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
     if (rec == NULL) {
       fd_textstream_sprintf(ts, "null");

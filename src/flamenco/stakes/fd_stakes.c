@@ -269,7 +269,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( slot_ctx,  &history );
+  fd_sysvar_stake_history_read( &history, slot_ctx );
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -381,7 +381,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   //   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = new_vote_root;
   //   slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = new_vote_pool;
-  
+
 }
 
 int
@@ -418,6 +418,6 @@ write_stake_state( fd_exec_slot_ctx_t *   global,
     stake_acc_rec->meta->info.rent_epoch = 0UL;
     memcpy( &stake_acc_rec->meta->info.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
   }
-    
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

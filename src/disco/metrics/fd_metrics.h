@@ -5,6 +5,9 @@
 
 #include "generated/fd_metrics_all.h"
 #include "generated/fd_metrics_quic.h"
+#include "generated/fd_metrics_pack.h"
+#include "generated/fd_metrics_bank.h"
+#include "generated/fd_metrics_poh.h"
 
 #include "../../tango/tempo/fd_tempo.h"
 
@@ -93,7 +96,7 @@ extern FD_TL ulong * fd_metrics_tl;
 
 #define FD_MHIST_MIN( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN)
 #define FD_MHIST_SECONDS_MIN( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN))
-#define FD_MHIST_MAX( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MIN)
+#define FD_MHIST_MAX( group, measurement ) (FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX)
 #define FD_MHIST_SECONDS_MAX( group, measurement ) (fd_metrics_convert_seconds_to_ticks(FD_METRICS_HISTOGRAM_##group##_##measurement##_MAX))
 
 #define FD_MHIST_COPY( group, measurement, hist ) do {                   \

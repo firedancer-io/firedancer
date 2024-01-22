@@ -33,31 +33,29 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
 }
 
 
-void
+fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read(
-    fd_exec_slot_ctx_t  * slot_ctx,
     fd_sysvar_epoch_rewards_t * result,
+    fd_exec_slot_ctx_t  * slot_ctx,
     fd_acc_lamports_t * acc_lamports
 ) {
-    FD_BORROWED_ACCOUNT_DECL(rewards_rec);
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_rewards_id, acc );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
-    int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_rewards_id, rewards_rec );
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
-      return;
-    }
+  fd_bincode_decode_ctx_t decode =
+    { .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
+      .valloc  = {0}  /* valloc not required */ };
 
-    fd_bincode_decode_ctx_t decode = {
-      .data    = rewards_rec->const_data,
-      .dataend = rewards_rec->const_data + rewards_rec->const_meta->dlen,
-      .valloc  = slot_ctx->valloc
-    };
+  if( FD_UNLIKELY( fd_sysvar_epoch_rewards_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
 
-    if( FD_UNLIKELY( fd_sysvar_epoch_rewards_decode( result, &decode ) ) )
-        FD_LOG_ERR(("fd_sysvar_epoch_rewards_decode failed"));
+  if( acc_lamports )
+    *acc_lamports = acc->const_meta->info.lamports;
 
-    if (NULL != acc_lamports)
-      *acc_lamports = rewards_rec->const_meta->info.lamports;
+  return result;
 }
 
 /* Update EpochRewards sysvar with distributed rewards */
@@ -68,7 +66,7 @@ fd_sysvar_epoch_rewards_update(
 ) {
     fd_sysvar_epoch_rewards_t result;
     fd_acc_lamports_t acc_lamports = 0UL;
-    fd_sysvar_epoch_rewards_read( slot_ctx, &result, &acc_lamports );
+    fd_sysvar_epoch_rewards_read( &result, slot_ctx, &acc_lamports );
     FD_TEST( acc_lamports != 0 );
 
     FD_TEST( result.epoch_rewards.distributed_rewards + distributed <= result.epoch_rewards.total_rewards );

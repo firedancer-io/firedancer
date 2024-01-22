@@ -15,10 +15,6 @@ include = [
     "wrapper_util.h",
 ]
 
-[features]
-default = []
-fuzz-asan = []
-
 [dependencies]
 paste = "1.0.12"
 

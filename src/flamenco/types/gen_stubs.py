@@ -108,13 +108,13 @@ class PrimitiveMember:
 
     def emitMember(self):
         PrimitiveMember.emitMemberMap[self.type](self.name)
-    
+
     def emitOffsetMember(self):
         print(f'  uint {self.name}_off;', file=header)
 
     def emitOffsetUnionMember(self):
         print(f'{indent}  uint {self.name}_off;', file=header)
-    
+
     isFixedSizeMap = {
         "char" :       True,
         "char*" :      False,
@@ -335,7 +335,7 @@ class StructMember:
 
     def emitOffsetMember(self):
         print(f'  uint {self.name}_off;', file=header)
-    
+
     def emitOffsetUnionMember(self):
         print(f'{indent}  {namespace}_{self.type}_off_t {self.name}_off;', file=header)
 
@@ -372,7 +372,7 @@ class VectorMember:
         self.name = json["name"]
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
-    
+
     def isFixedSize(self):
         return False
 
@@ -391,7 +391,7 @@ class VectorMember:
             print(f'  {self.element}* {self.name};', file=header)
         else:
             print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
-    
+
     def emitOffsetMember(self):
         print(f'  uint {self.name}_off;', file=header)
 
@@ -555,7 +555,7 @@ class DequeMember:
 
     def prefix(self):
         return f'deq_{self.elem_type()}'
-    
+
     def isFixedSize(self):
         return False
 
@@ -635,7 +635,7 @@ class DequeMember:
             fixedsize = fixedsizetypes[elem_type]
             print(f'  err = fd_bincode_bytes_decode_preflight({self.name}_len * {fixedsize}, ctx);', file=body)
             print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
-        else:    
+        else:
             print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
 
             if self.element in simpletypes:
@@ -771,7 +771,7 @@ class MapMember:
             return self.element
         else:
             return f'{namespace}_{self.element}_t'
-    
+
     def isFixedSize(self):
         return False
 
@@ -1347,7 +1347,7 @@ class ArrayMember:
 
     def isFixedSize(self):
         return self.element in fixedsizetypes
-    
+
     def fixedSize(self):
         return self.length * fixedsizetypes[self.element]
 
@@ -1490,7 +1490,7 @@ class OpaqueType:
 
     def isFixedSize(self):
         return self.size is not None
-    
+
     def fixedSize(self):
         return self.size
 
@@ -1580,7 +1580,7 @@ class StructType:
             if not f.isFixedSize():
                 return False
         return True
-    
+
     def fixedSize(self):
         size = 0
         for f in self.fields:
@@ -1658,7 +1658,7 @@ class StructType:
         print('  int err;', file=body)
         for f in self.fields:
             if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;', file=body)
+                print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
             f.emitDecodePreflight()
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
@@ -1666,7 +1666,7 @@ class StructType:
         print(f'void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
         for f in self.fields:
             if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if (ctx->data == ctx->dataend) return;', file=body)
+                print('  if( ctx->data == ctx->dataend ) return;', file=body)
             f.emitDecodeUnsafe()
         print("}", file=body)
 
@@ -1766,9 +1766,9 @@ class EnumType:
         for v in self.variants:
             if size != v.fixedSize():
                 return False
-        
+
         return True
-        
+
     def fixedSize(self):
         all_simple = True
         for v in self.variants:

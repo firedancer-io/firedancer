@@ -1,9 +1,9 @@
 #include "fd_sysvar_clock.h"
-#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
-#include "fd_sysvar_epoch_schedule.h"
+#include "../fd_executor.h"
+#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-
+#include "../context/fd_exec_slot_ctx.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
 #define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
@@ -25,51 +25,54 @@
    ticks_per_slot is found in the genesis block. The default value is 64, for a target slot duration of 400ms:
    https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L22
 */
-uint128 ns_per_slot( ulong ticks_per_slot ) {
+static uint128
+ns_per_slot( ulong ticks_per_slot ) {
   return DEFAULT_TARGET_TICK_DURATION_NS * ticks_per_slot;
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
-long timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
+static long
+timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
   return (long)( slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time + ( ( slot_ctx->slot_bank.slot * ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot ) ) / NS_IN_S ) );
 }
 
-void write_clock( fd_exec_slot_ctx_t * slot_ctx, fd_sol_sysvar_clock_t * clock ) {
+static void
+write_clock( fd_exec_slot_ctx_t *    slot_ctx,
+             fd_sol_sysvar_clock_t * clock ) {
   ulong sz = fd_sol_sysvar_clock_size( clock );
-  unsigned char *enc = fd_alloca( 1, sz );
+  uchar enc[sz];
   memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
-  if ( fd_sol_sysvar_clock_encode( clock, &ctx ) )
+  if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
-int fd_sysvar_clock_read( fd_exec_slot_ctx_t * slot_ctx, fd_sol_sysvar_clock_t * result ) {
+
+fd_sol_sysvar_clock_t *
+fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
+                      fd_exec_slot_ctx_t *    slot_ctx  ) {
   FD_BORROWED_ACCOUNT_DECL(acc);
   int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_clock_id, acc );
+  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
-  switch ( rc ) {
-  case FD_ACC_MGR_SUCCESS:
-    break;
-  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  default:
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
-  }
+  fd_bincode_decode_ctx_t ctx =
+    { .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
+      .valloc  = {0}  /* valloc not required */ };
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = acc->const_data;
-  ctx.dataend = (char *) ctx.data + acc->const_meta->dlen;
-  ctx.valloc  = slot_ctx->valloc;
-
-  return fd_sol_sysvar_clock_decode( result, &ctx );
+  if( FD_UNLIKELY( fd_sol_sysvar_clock_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
+  return result;
 }
 
-void fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx ) {
+void
+fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx ) {
   long timestamp = timestamp_from_genesis( slot_ctx );
 
   fd_sol_sysvar_clock_t clock = {
@@ -85,7 +88,10 @@ void fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx ) {
 /* Bounds the timestamp estimate by the max allowable drift from the expected PoH slot duration.
 
 https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L67 */
-long bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx, long estimate, long epoch_start_timestamp ) {
+static long
+bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
+                          long                 estimate,
+                          long                 epoch_start_timestamp ) {
 
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
@@ -112,7 +118,8 @@ long bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx, long estimate, lon
 
     timestamp = (stake-weighted median of vote timestamps) + ((target slot duration) * (slots since median timestamp vote was received))
  */
-long estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx, uint128 ns_per_slot ) {
+static long
+estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx, uint128 ns_per_slot ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
@@ -127,15 +134,15 @@ long estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx, uint128 ns_per_slot ) {
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
-
-void fd_calculate_stake_weighted_timestamp(
+static void
+fd_calculate_stake_weighted_timestamp(
   fd_exec_slot_ctx_t * slot_ctx,
   long * result_timestamp,
   uint fix_estimate_into_u64
  ) {
   ulong slot_duration = (ulong)ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot );
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( slot_ctx, &clock );
+  fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
   /* stake per timestamp */
   treap_t _treap[1];
@@ -220,7 +227,7 @@ void fd_calculate_stake_weighted_timestamp(
     if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {
       continue;
     }
-  
+
     ulong offset = fd_ulong_sat_mul(slot_duration, slot_delta);
     long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
     /* get stake */
@@ -259,7 +266,7 @@ void fd_calculate_stake_weighted_timestamp(
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
-  fd_sysvar_epoch_schedule_read( slot_ctx, &schedule );
+  fd_sysvar_epoch_schedule_read( &schedule, slot_ctx );
   ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
   FD_LOG_DEBUG(("Epoch start slot %lu", epoch_start_slot));
   ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(slot_ctx->slot_bank.slot, epoch_start_slot));

@@ -205,12 +205,14 @@ typedef void (fd_mux_before_frag_fn)( void * ctx,
    The ctx is a user-provided context object from when the mux tile was
    initialized.
 
-   sig, chunk, and sz are the respective fields from the mcache fragment
-   that was received.  If the producer is not respecting flow control,
-   these may be corrupt or torn and should not be trusted. */
+   seq, sig, chunk, and sz are the respective fields from the mcache
+   fragment that was received.  If the producer is not respecting flow
+   control, these may be corrupt or torn and should not be trusted,
+   except for seq which is read atomically. */
 
 typedef void (fd_mux_during_frag_fn)( void * ctx,
                                       ulong  in_idx,
+                                      ulong  seq,
                                       ulong  sig,
                                       ulong  chunk,
                                       ulong  sz,
@@ -236,20 +238,23 @@ typedef void (fd_mux_during_frag_fn)( void * ctx,
 
    The ctx is a user-provided context object from when the mux tile was
    initialized.  mux should only be used for calling fd_mux_publish to
-   publish a fragment to downstream consumers.
+   publish a fragment to downstream consumers.  seq is the sequence
+   number of the fragment that was read from the input mcache.
 
-   opt_sig, opt_chunk, and opt_sz are the respective fields from the
-   mcache fragment that was received.  The callback can modify these
-   values to change the sig, chunk, and sz of the outgoing frag that is
-   being copied to downstream consumers.  If the producer is not
-   respecting flow control, these may be corrupt or torn and should not
-   be trusted. */
+   opt_sig, opt_chunk, opt_sz, and opt_tsorig are the respective fields
+   from the mcache fragment that was received.  The callback can modify
+   these values to change the sig, chunk, sz, and tsorig of the outgoing
+   frag that is being copied to downstream consumers.  If the producer
+   is not respecting flow control, these may be corrupt or torn and
+   should not be trusted. */
 
 typedef void (fd_mux_after_frag_fn)( void *             ctx,
                                      ulong              in_idx,
+                                     ulong              seq,
                                      ulong *            opt_sig,
                                      ulong *            opt_chunk,
                                      ulong *            opt_sz,
+                                     ulong *            opt_tsorig,
                                      int *              opt_filter,
                                      fd_mux_context_t * mux );
 

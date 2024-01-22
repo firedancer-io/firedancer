@@ -179,6 +179,17 @@
 #define FD_HAS_GFNI 0
 #endif
 
+/* FD_HAS_AESNI indicates that the target supports AES-NI extensions,
+   which accelerate AES encryption and decryption.  While AVX predates
+   the original AES-NI extension, the combination of AES-NI+AVX adds
+   additional opcodes (such as vaesenc, a more flexible variant of
+   aesenc).  Thus, implies FD_HAS_AVX.  A conservative estimate for
+   minimum platform support is Intel Haswell or AMD Zen. */
+
+#ifndef FD_HAS_AESNI
+#define FD_HAS_AESNI 0
+#endif
+
 /* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
 
 #ifndef FD_HAS_COVERAGE
@@ -907,7 +918,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY
+#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC)
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -924,7 +935,9 @@ static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
            ulong                    sz ) {
-//if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
+# ifdef CBMC
+  if( FD_UNLIKELY( !sz ) ) return d; /* Standard says sz 0 is UB, uncomment if target is insane and doesn't treat sz 0 as a nop */
+# endif
   return memcpy( d, s, sz );
 }
 
@@ -939,7 +952,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC)
 
 static inline void *
 fd_memset( void  * d,
@@ -956,7 +969,9 @@ static inline void *
 fd_memset( void  * d,
            int     c,
            ulong   sz ) {
-//if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
+# ifdef CBMC
+  if( FD_UNLIKELY( !sz ) ) return d; /* See fd_memcpy note */
+# endif
   return memset( d, c, sz );
 }
 

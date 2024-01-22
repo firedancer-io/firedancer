@@ -287,7 +287,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           fd_valloc_free( ctx.valloc, input );  // FIXME: need to return an invalid realloc error
           return -1;
         }
-        
+
         metadata->info.lamports = lamports;
         // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
         //   fd_account_set_owner(&ctx, metadata, acc, owner);
@@ -342,8 +342,8 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 }
 
 uchar *
-fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx, 
-                                         ulong * sz, 
+fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
+                                         ulong * sz,
                                          ulong * pre_lens ) {
   ulong serialized_size = 0;
   uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
@@ -427,7 +427,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
 
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
-      if (FD_UNLIKELY(!FD_RAW_ACCOUNT_EXISTS(view_acc->const_meta))) {
+      if (FD_UNLIKELY(!fd_acc_exists(view_acc->const_meta))) {
           FD_LOG_DEBUG(( "SERIAL OF ACC4: %32J UNK", acc ));
 
           fd_memset( serialized_params, 0, sizeof(uchar)  // is_signer

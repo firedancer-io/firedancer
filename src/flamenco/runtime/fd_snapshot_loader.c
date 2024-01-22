@@ -1,5 +1,3 @@
-#define OLD_TAR
-
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -11,190 +9,101 @@
 #include "fd_runtime.h"
 #include "fd_system_ids.h"
 #include "../../util/fd_util.h"
-#ifdef OLD_TAR
-#include "../../util/archive/fd_tar_old.h"
-#else
-#include "../../util/archive/fd_tar.h"
-#endif /* OLD_TAR */
-#include "../../util/compress/fd_compress.h"
 #include "fd_snapshot_loader.h"
+#include "../snapshot/fd_snapshot.h"
+#include "../../ballet/zstd/fd_zstd.h"
+#include <assert.h>
 
-extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
-                                            uchar const          pubkey[ static 32 ],
-                                            char const *         data,
-                                            ulong                sz );
+extern void
+fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
+                                uchar const          pubkey[ static 32 ],
+                                char const *         data,
+                                ulong                sz );
 
-struct SnapshotParser {
-#ifdef OLD_TAR
-  struct fd_tar_old_stream  tarreader_;
-#else
-  struct fd_tar_stream  tarreader_;
-#endif /* OLD_TAR */
-  char*                 tmpstart_;
-  char*                 tmpcur_;
-  char*                 tmpend_;
+/* TODO make this function gracefully handle errors */
 
-  fd_exec_slot_ctx_t *  slot_ctx_;
+static int
+load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
+                   char const *         snapshotfile ) {
 
-  fd_solana_manifest_t* manifest_;
-};
+  if( !fd_scratch_alloc_is_safe( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() ) )
+    FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
+  uchar * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
 
-static void
-SnapshotParser_init(struct SnapshotParser* self, fd_exec_slot_ctx_t * slot_ctx) {
-#ifdef OLD_TAR
-  fd_tar_old_stream_init( &self->tarreader_, slot_ctx->valloc );
-#else
-  fd_tar_stream_init( &self->tarreader_, slot_ctx->valloc );
-#endif /* OLD_TAR */
-  size_t tmpsize = 1<<30;
-  self->tmpstart_ = self->tmpcur_ = (char*)malloc(tmpsize);
-  self->tmpend_ = self->tmpstart_ + tmpsize;
+  if( !fd_scratch_alloc_is_safe( 16UL, FD_SNAPSHOT_RESTORE_SCRATCH_SZ ) )
+    FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
+  uchar * scratch_mem = fd_scratch_alloc( 16UL, FD_SNAPSHOT_RESTORE_SCRATCH_SZ );
 
-  self->slot_ctx_ = slot_ctx;
+  ulong max_window_sz = 10000000;
+  if( !fd_scratch_alloc_is_safe( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) ) )
+    FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
+  uchar * zstd_mem = fd_scratch_alloc( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) );
 
-  self->manifest_ = NULL;
-}
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx, scratch_mem, FD_SNAPSHOT_RESTORE_SCRATCH_SZ );
+  assert( restore );
 
-static void
-SnapshotParser_destroy(struct SnapshotParser* self) {
-  if (self->manifest_) {
-    fd_exec_slot_ctx_t * slot_ctx = self->slot_ctx_;
-    fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-    fd_solana_manifest_destroy(self->manifest_, &ctx);
-    fd_valloc_free( slot_ctx->valloc, self->manifest_ );
-    self->manifest_ = NULL;
-  }
+  fd_tar_reader_t reader_[1];
+  fd_tar_reader_t * reader = fd_tar_reader_new( reader_, &fd_snapshot_restore_tar_vt, restore );
+  assert( reader );
 
-#ifdef OLD_TAR
-  fd_tar_old_stream_delete(&self->tarreader_);
-#else
-  fd_tar_stream_delete(&self->tarreader_);
-#endif /* OLD_TAR */
-  free(self->tmpstart_);
-}
+  fd_zstd_dstream_t * dstream = fd_zstd_dstream_new( zstd_mem, max_window_sz );
+  assert( dstream );
 
-/* why is this creatively named "parse" if it actually loads the
-   snapshot into the database? */
+  FD_LOG_NOTICE(( "reading %s", snapshotfile ));
+  int fd = open( snapshotfile, O_RDONLY );
+  if( FD_UNLIKELY( fd<0 ) )
+    FD_LOG_ERR(( "open(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
 
-static void
-SnapshotParser_parsefd_solana_accounts(struct SnapshotParser* self, char const * name, const void* data, size_t datalen) {
-  ulong id, slot;
-  if (sscanf(name, "accounts/%lu.%lu", &slot, &id) != 2)
-    return;
+  for(;;) {
 
-  fd_slot_account_pair_t_mapnode_t key1;
-  key1.elem.slot = slot;
-  fd_slot_account_pair_t_mapnode_t* node1 = fd_slot_account_pair_t_map_find(
-    self->manifest_->accounts_db.storages_pool, self->manifest_->accounts_db.storages_root, &key1);
-  if (node1 == NULL)
-    return;
+    uchar   in_buf [ 8192 ];
+    uchar * in     = in_buf;
 
-  fd_serializable_account_storage_entry_t_mapnode_t key2;
-  key2.elem.id = id;
-  fd_serializable_account_storage_entry_t_mapnode_t* node2 = fd_serializable_account_storage_entry_t_map_find(
-    node1->elem.accounts_pool, node1->elem.accounts_root, &key2);
-  if (node2 == NULL)
-    return;
-
-  if (node2->elem.accounts_current_len < datalen)
-    datalen = node2->elem.accounts_current_len;
-
-  fd_acc_mgr_t *  acc_mgr = self->slot_ctx_->acc_mgr;
-  fd_funk_txn_t * txn     = self->slot_ctx_->funk_txn;
-
-  while (datalen) {
-    size_t roundedlen = (sizeof(fd_solana_account_hdr_t)+7UL)&~7UL;
-    if (roundedlen > datalen)
-      return;
-
-    fd_solana_account_hdr_t const * hdr = (fd_solana_account_hdr_t const *)data;
-    uchar const * acc_data = (uchar const *)hdr + sizeof(fd_solana_account_hdr_t);
-
-    fd_pubkey_t const * acc_key = (fd_pubkey_t const *)&hdr->meta.pubkey;
+    ulong in_sz = 0UL;
+    int read_err = fd_io_read( fd, in, 1UL, sizeof(in_buf), &in_sz );
+    if( FD_LIKELY( read_err==0 ) ) { /* ok */ }
+    else if( read_err<0 ) { /* EOF */ break; }
+    else {
+      FD_LOG_ERR(( "fd_io_read failed (%d-%s)", read_err, fd_io_strerror( read_err ) ));
+      return 0;
+    }
+    uchar * in_end = in_buf + in_sz;
 
     do {
-      /* Check existing account */
-      FD_BORROWED_ACCOUNT_DECL(rec);
+      uchar   out_buf[ 16384 ];
+      uchar * out     = out_buf;
+      uchar * out_end = out_buf + sizeof(out_buf);
 
-      int read_result = FD_ACC_MGR_SUCCESS;
-      fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( acc_mgr, txn, acc_key, &rec->const_rec, &read_result);
-
-      /* Skip if we previously inserted a newer version */
-      if( read_result == FD_ACC_MGR_SUCCESS ) {
-        if( acc_meta->slot > slot )
-          break;
-      } else if( FD_UNLIKELY( read_result != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-        FD_LOG_ERR(( "database error while loading snapshot: %d", read_result ));
+      int zstd_err = fd_zstd_dstream_read( dstream, (uchar const **)&in, in_end, &out, out_end, NULL );
+      if( FD_UNLIKELY( zstd_err>0 ) ) {
+        FD_LOG_ERR(( "fd_zstd_dstream_read failed" ));
+        return 0;
       }
 
-      if( FD_UNLIKELY( hdr->meta.data_len > MAX_ACC_SIZE ) )
-        FD_LOG_ERR(("account too large: %lu bytes", hdr->meta.data_len));
-
-      /* Write account */
-      int write_result = fd_acc_mgr_modify(acc_mgr, txn, acc_key, /* do_create */ 1, hdr->meta.data_len, rec);
-      if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) )
-        FD_LOG_ERR(("writing account failed"));
-
-      rec->meta->dlen = hdr->meta.data_len;
-      rec->meta->slot = slot;
-      memcpy( &rec->meta->hash, hdr->hash.value, 32UL );
-      memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-      if( hdr->meta.data_len )
-        memcpy( rec->data, acc_data, hdr->meta.data_len );
-
-      /* TODO Check if calculated hash fails to match account hash from snapshot. */
-    } while (0);
-
-    roundedlen = (sizeof(fd_solana_account_hdr_t)+hdr->meta.data_len+7UL)&~7UL;
-    if (roundedlen > datalen)
-      return;
-    data = (char const *)data + roundedlen;
-    datalen -= roundedlen;
+      ulong out_sz = (ulong)( out-out_buf );
+      int tar_err = fd_tar_read( reader, out_buf, out_sz );
+      if( FD_UNLIKELY( tar_err>0 ) ) {
+        FD_LOG_ERR(( "fd_tar_read failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
+        return 0;
+      }
+    } while( in<in_end );
   }
-}
 
-static void
-SnapshotParser_parseSnapshots(struct SnapshotParser* self, const void* data, size_t datalen) {
-  fd_exec_slot_ctx_t * slot_ctx = self->slot_ctx_;
+  /* TODO: Check at this point that zstd, tar, restore have all
+           completed gracefully */
 
-  self->manifest_ = fd_valloc_malloc( slot_ctx->valloc, FD_SOLANA_MANIFEST_ALIGN, FD_SOLANA_MANIFEST_FOOTPRINT );
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data = data;
-  ctx.dataend = (char const *)data + datalen;
-  ctx.valloc  = slot_ctx->valloc;
-  if ( fd_solana_manifest_decode(self->manifest_, &ctx) )
-    FD_LOG_ERR(("fd_solana_manifest_decode failed"));
+  if( FD_UNLIKELY( 0!=close(fd) ) )
+    FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
 
-  if ( fd_global_import_solana_manifest(slot_ctx, self->manifest_) )
-    FD_LOG_ERR(("fd_global_import_solana_manifest failed"));
-}
-
-static void
-SnapshotParser_tarEntry(void* arg, char const * name, const void* data, size_t datalen) {
-  if (datalen == 0)
-    return;
-  if (strncmp(name, "accounts/", sizeof("accounts/")-1) == 0)
-    SnapshotParser_parsefd_solana_accounts((struct SnapshotParser*)arg, name, data, datalen);
-  if (strncmp(name, "snapshots/", sizeof("snapshots/")-1) == 0 &&
-      strcmp(name, "snapshots/status_cache") != 0)
-    SnapshotParser_parseSnapshots((struct SnapshotParser*)arg, data, datalen);
-}
-
-// Return non-zero on end of tarball
-static int
-SnapshotParser_moreData( void *        arg,
-                         uchar const * data,
-                         ulong         datalen ) {
-  struct SnapshotParser* self = (struct SnapshotParser*)arg;
-#ifdef OLD_TAR
-  return fd_tar_old_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
-#else
-  return fd_tar_stream_moreData(&self->tarreader_, data, datalen, SnapshotParser_tarEntry, self);
-#endif /* OLD_TAR */
+  return 0;
 }
 
 void
-fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx, uint verify_hash) {
+fd_snapshot_load( const char **        snapshotfiles,
+                  fd_exec_slot_ctx_t * slot_ctx,
+                  uint                 verify_hash ) {
+
+
   for (uint i = 0; snapshotfiles[i] != NULL; ++i) {
     fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
     fd_funk_txn_xid_t xid;
@@ -212,7 +121,8 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx, uin
     hash[hlen] = '\0';
 
     fd_hash_t fhash;
-    fd_base58_decode_32( hash, fhash.uc);
+    if( FD_UNLIKELY( !fd_base58_decode_32( hash, fhash.uc ) ) )
+      FD_LOG_ERR(( "invalid snapshot hash" ));
 
     FD_TEST(sizeof(xid) == sizeof(fhash));
     memcpy(&xid, &fhash.ul[0], sizeof(xid));
@@ -220,31 +130,9 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx, uin
     fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
     slot_ctx->funk_txn = child_txn;
 
-    struct SnapshotParser parser;
-    SnapshotParser_init(&parser, slot_ctx);
-
-    FD_LOG_NOTICE(( "reading %s", snapshotfile ));
-    int fd = open( snapshotfile, O_RDONLY );
-    if( FD_UNLIKELY( fd<0 ) )
-      FD_LOG_ERR(( "open(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
-
-    int err = 0;
-    if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".zst" ) )
-      err = fd_decompress_zstd( fd, SnapshotParser_moreData, &parser );
-#if FD_HAS_BZ2
-    else if( 0==strcmp( snapshotfile + strlen(snapshotfile) - 4, ".bz2" ) )
-      err = fd_decompress_bz2( fd, SnapshotParser_moreData, &parser );
-#endif
-    else
-      FD_LOG_ERR(( "unknown snapshot compression suffix" ));
-
-    if( err ) FD_LOG_ERR(( "failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
-
-    err = close(fd);
-    if( FD_UNLIKELY( err ) )
-      FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
-
-    SnapshotParser_destroy(&parser);
+    fd_scratch_push();
+    load_one_snapshot( slot_ctx, snapshotfile );
+    fd_scratch_pop();
 
     // In order to calculate the snapshot hash, we need to know what features are active...
     fd_features_restore( slot_ctx );
@@ -274,9 +162,7 @@ fd_snapshot_load(const char ** snapshotfiles, fd_exec_slot_ctx_t * slot_ctx, uin
       }
     }
 
-    FD_LOG_WARNING(("txn_publish_start"));
     fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
-    FD_LOG_WARNING(("txn_publish_stop"));
     slot_ctx->funk_txn = parent_txn;
   }
 

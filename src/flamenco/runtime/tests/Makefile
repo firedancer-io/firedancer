@@ -10,3 +10,6 @@ test_native_programs.c: gen_c_tests.py
 .PHONY: clean
 clean:
 	rm -rf test_native_programs.c generated/
+
+fd_exec_test.pb.h fd_exec_test.pb.c: fd_exec_test.proto
+	nanopb_generator.py -I ../.. -I . -L "" -C fd_exec_test.proto

@@ -12,11 +12,11 @@ fd_sysvar_epoch_rewards_burn_and_purge(
     fd_exec_slot_ctx_t * slot_ctx
 );
 
-void
+fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read(
-    fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_epoch_rewards_t * result,
-    fd_acc_lamports_t * acc_lamports 
+    fd_exec_slot_ctx_t * slot_ctx,
+    fd_acc_lamports_t * acc_lamports
 );
 
 /* Update EpochRewards sysvar with distributed rewards */

@@ -4,8 +4,9 @@
 #include "../fd_executor.h"
 #include "../fd_pubkey_utils.h"
 #include "../fd_runtime.h"
-#include "../../../util/scratch/fd_scratch.h"
+#include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_program_util.h"
+
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -1843,7 +1844,7 @@ fd_vote_acc_credits( fd_exec_instr_ctx_t       ctx,
   int rc;
 
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( ctx.slot_ctx, &clock );
+  fd_sysvar_clock_read( &clock, ctx.slot_ctx );
 
   /* Read vote account */
   fd_borrowed_account_t vote_account = {
@@ -1956,7 +1957,7 @@ process_authorize_with_seed_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( ctx.slot_ctx, &clock );
+  fd_sysvar_clock_read( &clock, ctx.slot_ctx );
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L32
   fd_pubkey_t * expected_authority_keys[SIGNERS_MAX] = { 0 };
@@ -2210,7 +2211,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       break;
     }
     fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.slot_ctx, &clock );
+    fd_sysvar_clock_read( &clock, ctx.slot_ctx );
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L82-L88
     rc = initialize_account( me, &instruction.inner.initialize_account, signers, &clock, ctx );
@@ -2242,7 +2243,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                      memcmp( clock_acc_addr, fd_sysvar_clock_id.key, sizeof( fd_pubkey_t ) ) ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     fd_sol_sysvar_clock_t clock;
-    fd_sysvar_clock_read( ctx.slot_ctx, &clock );
+    fd_sysvar_clock_read( &clock, ctx.slot_ctx );
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L93-L100
     rc = authorize( me, voter_pubkey, vote_authorize, signers, &clock, ctx );
@@ -2358,10 +2359,10 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx,
                                       commission_updates_only_allowed_in_first_half_of_epoch ) ) ) {
       fd_epoch_schedule_t epoch_schedule;
-      fd_sysvar_epoch_schedule_read( ctx.slot_ctx, &epoch_schedule );
+      fd_sysvar_epoch_schedule_read( &epoch_schedule, ctx.slot_ctx );
       fd_sol_sysvar_clock_t clock;
-      rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       if( FD_UNLIKELY( !is_commission_update_allowed( clock.slot, &epoch_schedule ) ) ) {
         ctx.txn_ctx->custom_err = FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -2423,8 +2424,8 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       break;
     }
     fd_sol_sysvar_clock_t clock;
-    rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = process_vote_with_account( me, slot_hashes, &clock, vote, signers, ctx );
 
@@ -2468,8 +2469,8 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache.slot_hashes;
 
       fd_sol_sysvar_clock_t clock;
-      rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       rc = process_vote_state_update( me, slot_hashes, &clock, vote_state_update, signers, ctx );
     } else {
@@ -2527,8 +2528,8 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache.slot_hashes;
 
       fd_sol_sysvar_clock_t clock;
-      rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-      if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
       fd_vote_state_update_t decode;
       fd_vote_state_update_new( &decode );
@@ -2563,9 +2564,9 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       break;
     }
     fd_rent_t rent_sysvar;
-    fd_sysvar_rent_read( ctx.slot_ctx, &rent_sysvar );
+    fd_sysvar_rent_read( &rent_sysvar, ctx.slot_ctx );
     fd_sol_sysvar_clock_t clock_sysvar;
-    fd_sysvar_clock_read( ctx.slot_ctx, &clock_sysvar );
+    fd_sysvar_clock_read( &clock_sysvar, ctx.slot_ctx );
 
     rc = withdraw( ctx, me, instruction.inner.withdraw, 1, signers, &rent_sysvar, &clock_sysvar );
 
@@ -2607,7 +2608,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                        memcmp( clock_acc_addr, fd_sysvar_clock_id.key, sizeof( fd_pubkey_t ) ) ) )
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       fd_sol_sysvar_clock_t clock;
-      fd_sysvar_clock_read( ctx.slot_ctx, &clock );
+      fd_sysvar_clock_read( &clock, ctx.slot_ctx );
 
       rc = authorize( me, voter_pubkey, instruction.inner.authorize_checked, signers, &clock, ctx );
     } else {
@@ -2625,7 +2626,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
   fd_vote_instruction_destroy( &instruction, &destroy );
   return rc;
-} 
+}
 
 /**********************************************************************/
 /* Public API                                                         */

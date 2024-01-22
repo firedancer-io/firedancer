@@ -1,4 +1,3 @@
-#include "../../fd_flamenco.h"
 #include "fd_sysvar_rent.h"
 
 struct fd_rent_exempt_fixture {
@@ -46,7 +45,6 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
 
   fd_rent_exempt_fixture_t const * iter;
   for( iter = test_rent_exempt_vector;
@@ -61,7 +59,6 @@ main( int     argc,
   }
 
   FD_LOG_NOTICE(( "pass" ));
-  fd_flamenco_halt();
   fd_halt();
   return 0;
 }

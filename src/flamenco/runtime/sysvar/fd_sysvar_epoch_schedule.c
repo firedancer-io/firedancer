@@ -1,7 +1,6 @@
 #include "fd_sysvar_epoch_schedule.h"
-#include "../../../flamenco/types/fd_types.h"
 #include "fd_sysvar.h"
-#include "math.h"
+#include "../../../flamenco/types/fd_types.h"
 #include "../fd_system_ids.h"
 
 fd_epoch_schedule_t *
@@ -35,10 +34,10 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 static void
 write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
                       fd_epoch_schedule_t * epoch_schedule ) {
-  ulong   sz  = fd_epoch_schedule_size( epoch_schedule );
+  ulong sz = fd_epoch_schedule_size( epoch_schedule );
   FD_LOG_WARNING(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
-  uchar * enc = fd_alloca( 1, sz );
+  uchar enc[ sz ];
   memset( enc, 0, sz );
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
@@ -49,26 +48,23 @@ write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_epoch_schedule_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
-void
-fd_sysvar_epoch_schedule_read( fd_exec_slot_ctx_t  * slot_ctx,
-                               fd_epoch_schedule_t * result ) {
+fd_epoch_schedule_t *
+fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
+                               fd_exec_slot_ctx_t  * slot_ctx ) {
 
-  FD_BORROWED_ACCOUNT_DECL(epoch_schedule_rec);
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_schedule_id, acc );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_schedule_id, epoch_schedule_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "failed to read epoch schedule sysvar: %d", err ));
-    return;
-  }
+  fd_bincode_decode_ctx_t decode =
+    { .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
+      .valloc  = {0}  /* valloc not required */ };
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = epoch_schedule_rec->const_data,
-    .dataend = epoch_schedule_rec->const_data + epoch_schedule_rec->const_meta->dlen,
-    .valloc  = slot_ctx->valloc
-  };
-
-  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode ) ) )
-    FD_LOG_ERR(("fd_epoch_schedule_decode failed"));
+  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
+  return result;
 }
 
 void

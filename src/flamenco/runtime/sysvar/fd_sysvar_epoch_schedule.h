@@ -31,7 +31,6 @@
    make various epoch-related calculations. */
 
 #include "../../fd_flamenco_base.h"
-#include "../fd_executor.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* FD_EPOCH_LEN_MIN is a protocol constant specifying the smallest
@@ -64,9 +63,9 @@ fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
 /* fd_sysvar_epoch_schedule_read reads the current value of the epoch
    schedule sysvar into result. */
 
-void
-fd_sysvar_epoch_schedule_read( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_epoch_schedule_t * result );
+fd_epoch_schedule_t *
+fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
+                               fd_exec_slot_ctx_t *  slot_ctx );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be

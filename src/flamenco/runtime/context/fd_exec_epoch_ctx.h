@@ -1,25 +1,27 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h
 
+#include "../fd_runtime.h"
 #include "../../features/fd_features.h"
 #include "../fd_rent_lists.h"
 #include "../../leaders/fd_leaders.h"
-#include "../../../util/fd_util_base.h"
 
+/* fd_exec_epoch_ctx_t is the context that stays constant throughout
+   an entire epoch. */
 
-/* Context needed to execute a single epoch. */
-#define FD_EXEC_EPOCH_CTX_ALIGN (16UL)
-struct __attribute__((aligned(FD_EXEC_EPOCH_CTX_ALIGN))) fd_exec_epoch_ctx {
+struct __attribute__((aligned(8UL))) fd_exec_epoch_ctx {
   ulong magic; /* ==FD_EXEC_EPOCH_CTX_MAGIC */
 
+  /* TODO: Epoch context should preallocate instead of using dynamic allocs */
   fd_valloc_t valloc;
 
   fd_epoch_leaders_t * leaders;  /* Current epoch only */
   fd_features_t        features;
   fd_epoch_bank_t      epoch_bank;
 };
-typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
-#define FD_EXEC_EPOCH_CTX_FOOTPRINT ( sizeof(fd_exec_epoch_ctx_t) )
+
+#define FD_EXEC_EPOCH_CTX_ALIGN     (alignof(fd_exec_epoch_ctx_t))
+#define FD_EXEC_EPOCH_CTX_FOOTPRINT ( sizeof(fd_exec_epoch_ctx_t))
 #define FD_EXEC_EPOCH_CTX_MAGIC (0x3E64F44C9F44366AUL) /* random */
 
 FD_PROTOTYPES_BEGIN

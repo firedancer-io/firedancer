@@ -1,12 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../../util/fd_util_base.h"
-
+#include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-
 #include "../fd_borrowed_account.h"
-#include "../fd_rawtxn.h"
 
 
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
@@ -26,6 +23,7 @@ struct fd_instr_info {
 
   fd_borrowed_account_t * borrowed_accounts[128];
 };
+
 typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
@@ -38,8 +36,9 @@ fd_convert_txn_instr_to_instr( fd_txn_t const *        txn_descriptor,
                                fd_borrowed_account_t * borrowed_accounts,
                                fd_instr_info_t *       instr );
 
-static inline uint
-fd_instr_acc_is_writable_idx(fd_instr_info_t const * instr, uchar idx) {
+FD_FN_PURE static inline uint
+fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
+                              uchar                   idx ) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
 }
 
@@ -54,7 +53,7 @@ fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc)
   return 0;
 }
 
-static inline uint
+FD_FN_PURE static inline uint
 fd_instr_acc_is_signer_idx(fd_instr_info_t const * instr, uchar idx) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }

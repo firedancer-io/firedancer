@@ -13,6 +13,8 @@ void fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx );
 int fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the slot history sysvar */
-int fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx, fd_slot_history_t* result );
+int
+fd_sysvar_slot_history_read( fd_slot_history_t *  result,
+                             fd_exec_slot_ctx_t * slot_ctx );
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h */

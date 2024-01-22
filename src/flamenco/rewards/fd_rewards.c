@@ -3,6 +3,7 @@
 #include "math.h"
 
 #include "../runtime/fd_system_ids.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
 
 static double
 total( fd_inflation_t const * inflation, double year ) {
@@ -44,15 +45,15 @@ get_inflation_start_slot( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 static ulong
-get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx, 
-                         fd_epoch_schedule_t const * epoch_schedule, 
+get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_epoch_schedule_t const * epoch_schedule,
                          ulong slot ) {
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2333-L2342 */
     ulong inflaction_activation_slot = get_inflation_start_slot( slot_ctx );
     ulong inflation_start_slot = fd_epoch_slot0(
         epoch_schedule,
         fd_ulong_sat_sub(
-            fd_slot_to_epoch( epoch_schedule, inflaction_activation_slot, NULL ), 
+            fd_slot_to_epoch( epoch_schedule, inflaction_activation_slot, NULL ),
             1 )
         );
 
@@ -282,20 +283,20 @@ static ulong
 vote_balance_and_staked( fd_exec_slot_ctx_t * slot_ctx, fd_stakes_t const * stakes) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/stakes.rs#L346-L356 */
     ulong result = 0;
-    for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root ); 
-         n; 
+    for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
+         n;
          n = fd_vote_accounts_pair_t_map_successor_const( stakes->vote_accounts.vote_accounts_pool, n ) ) {
         result += n->elem.value.lamports;
     }
 
-    for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root ); 
-         n; 
+    for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
+         n;
          n = fd_vote_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n ) ) {
         result += n->elem.value.lamports;
     }
 
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root ); 
-         n; 
+    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( stakes->stake_delegations_pool, stakes->stake_delegations_root );
+         n;
          n = fd_delegation_pair_t_map_successor_const( stakes->stake_delegations_pool, n ) ) {
         fd_pubkey_t const * stake_acc = &n->elem.account;
         FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -307,12 +308,12 @@ vote_balance_and_staked( fd_exec_slot_ctx_t * slot_ctx, fd_stakes_t const * stak
         if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
             continue;
         }
-        
+
         result += stake_state.inner.stake.stake.delegation.stake;
     }
 
-    for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root ); 
-         n; 
+    for( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+         n;
          n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
         fd_pubkey_t const * stake_acc = &n->elem.key;
         FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
@@ -324,7 +325,7 @@ vote_balance_and_staked( fd_exec_slot_ctx_t * slot_ctx, fd_stakes_t const * stak
         if (fd_stake_get_state( stake_acc_rec, &slot_ctx->valloc, &stake_state) != 0) {
             continue;
         }
-        
+
         result += stake_state.inner.stake.stake.delegation.stake;
     }
 
@@ -410,8 +411,8 @@ calculate_reward_points_partitioned(
     ulong actual_len = 0;
     fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
     FD_LOG_WARNING(("Delegations len %lu, slot del len %lu", fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ), fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root )));
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ); 
-         n; 
+    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
+         n;
          n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
     ) {
         fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
@@ -555,7 +556,7 @@ calculate_stake_vote_rewards_account(
     // add stake_reward to the collection
     fd_stake_reward_t stake_reward;
     fd_memcpy(&stake_reward.stake_pubkey, stake_acc, sizeof(fd_pubkey_t));
-    
+
     stake_reward.reward_info = (fd_reward_info_t) {
         .reward_type = { .discriminant = fd_reward_type_enum_staking },
         .commission = (uchar)commission,
@@ -565,7 +566,7 @@ calculate_stake_vote_rewards_account(
         .post_balance = post_lamports
     };
     deq_fd_stake_reward_t_push_tail( stake_reward_deq, stake_reward );
-    
+
     // track voter rewards
     node->vote_rewards = fd_ulong_sat_add(node->vote_rewards, redeemed->voter_rewards);
     node->needs_store = 1;
@@ -601,10 +602,10 @@ calculate_stake_vote_rewards(
     fd_acc_lamports_t total_stake_rewards = 0;
     fd_stake_reward_t * stake_reward_deq = deq_fd_stake_reward_t_alloc( slot_ctx->valloc );
     fd_vote_reward_t_mapnode_t * vote_reward_map = fd_vote_reward_t_map_alloc( slot_ctx->valloc, 24 );  /* 2^24 slots */
-    
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ); 
-         n; 
-         n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n ) 
+
+    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
+         n;
+         n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
     ) {
         fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t const * stake_acc = &n->elem.account;
@@ -653,7 +654,7 @@ calculate_validator_rewards(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
     fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( slot_ctx, &stake_history);
+    fd_sysvar_stake_history_read( &stake_history, slot_ctx );
 
     fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(slot_ctx, &stake_history, rewards, point_value_result);
@@ -862,7 +863,7 @@ pay_validator_rewards(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2789-L2839 */
     fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( slot_ctx, &stake_history);
+    fd_sysvar_stake_history_read( &stake_history, slot_ctx );
     fd_point_value_t point_value_result[1];
     calculate_reward_points(slot_ctx, &stake_history, rewards, point_value_result);
     fd_validator_reward_calculation_t rewards_calc_result[1] = {0};
@@ -901,7 +902,7 @@ pay_validator_rewards(
     ) {
         fd_stake_reward_t * ele =  deq_fd_stake_reward_t_iter_ele( rewards_calc_result->stake_reward_deq, iter );
         fd_pubkey_t const * stake_pubkey = &ele->stake_pubkey;
-        
+
         ulong min_data_sz = 0UL;
         FD_BORROWED_ACCOUNT_DECL(stake_rec);
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_pubkey, 1, min_data_sz, stake_rec);

@@ -10,14 +10,8 @@ fn main() {
     let dir = Path::new(&dir_env);
     let out_dir = Path::new(&out_dir_env);
 
-    let (machine, build_dir) = if cfg!(feature = "fuzz-asan") {
-        (
-            "native_fuzz_asan",
-            out_dir.join("build/native/fuzz_asan"),
-        )
-    } else {
-        ("native_ffi", out_dir.join("build/linux/gcc/x86_64_ffi"))
-    };
+    let machine = "native_ffi";
+    let build_dir = out_dir.join("build/native_ffi/gcc");
 
     let prefix = if dir.join("staging").exists() {
         // Make sure we're actually in `cargo package`, if not the

@@ -1,20 +1,16 @@
 name: On Pull Request
 on:
+  push:
+    branches: [main]
   pull_request:
-  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
-  test-unit:
-    name: Unit Tests
-    uses: ./.github/workflows/_test_unit.yml
+  tests:
+    uses: ./.github/workflows/tests.yml
     secrets: inherit
 
-  build-frankandancer:
-    name: Build Frankendancer
-    uses: ./.github/workflows/build_everything.yml
-
-  whitespace-check:
-    name: Check for Whitespaces
-    uses: ./.github/workflows/trailing_whitespace.yml
+  tests-fddev:
+    uses: ./.github/workflows/tests_fddev.yml
+    secrets: inherit

@@ -257,8 +257,8 @@ validate_split_amount( fd_exec_instr_ctx_t *                   invoke_context,
   };
 
   fd_rent_t rent = { 0 };
-  rc             = fd_sysvar_rent_read( invoke_context->slot_ctx, &rent );
-  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( &rent, invoke_context->slot_ctx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   ulong destination_rent_exempt_reserve =
       fd_rent_exempt_minimum_balance2( &rent, destination_data_len );
@@ -712,7 +712,7 @@ new_warmup_cooldown_rate_epoch( fd_exec_instr_ctx_t * invoke_context,
                                 /* out */ ulong *     epoch ) {
   if( FD_FEATURE_ACTIVE( invoke_context->slot_ctx, reduce_stake_warmup_cooldown ) ) {
     fd_epoch_schedule_t epoch_schedule;
-    fd_sysvar_epoch_schedule_read( invoke_context->slot_ctx, &epoch_schedule );
+    fd_sysvar_epoch_schedule_read( &epoch_schedule, invoke_context->slot_ctx );
     ulong slot = invoke_context->epoch_ctx->features.reduce_stake_warmup_cooldown;
     *epoch     = get_epoch_from_schedule( &epoch_schedule, slot );
     return true;
@@ -1028,10 +1028,9 @@ get_stake_status( fd_exec_instr_ctx_t *          invoke_context,
                   fd_stake_t *                   stake,
                   fd_sol_sysvar_clock_t const *  clock,
                   fd_stake_activation_status_t * out ) {
-  fd_stake_history_t stake_history = { 0 };
-  int                rc;
-  rc = fd_sysvar_stake_history_read( invoke_context->slot_ctx, &stake_history );
-  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  fd_stake_history_t stake_history;
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   ulong new_rate_activation_epoch = ULONG_MAX;
   bool  is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch );
   *out =
@@ -1039,7 +1038,6 @@ get_stake_status( fd_exec_instr_ctx_t *          invoke_context,
                                          clock->epoch,
                                          &stake_history,
                                          fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
-  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
   return FD_PROGRAM_OK;
 }
 
@@ -1468,11 +1466,9 @@ split( fd_exec_instr_ctx_t *     invoke_context,
     bool  is_active;
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE( invoke_context->slot_ctx,
                                          require_rent_exempt_split_destination ) ) ) {
-      fd_sol_sysvar_clock_t clock = { 0 };
-      rc                          = fd_sysvar_clock_read( invoke_context->slot_ctx, &clock );
-      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
+      fd_sol_sysvar_clock_t clock;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, invoke_context->slot_ctx ) ) )
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-      }
 
       fd_stake_activation_status_t status = { 0 };
       rc = get_stake_status( invoke_context, stake, &clock, &status );
@@ -1745,9 +1741,9 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
             uint *                                  custom_err ) {
   int rc;
 
-  fd_sol_sysvar_clock_t clock = { 0 };
-  rc                          = fd_sysvar_clock_read( invoke_context->slot_ctx, &clock );
-  if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  fd_sol_sysvar_clock_t clock;
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, invoke_context->slot_ctx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   fd_borrowed_account_t * uninitialized_stake_account = NULL;
   rc = fd_instr_ctx_try_borrow_instruction_account( invoke_context,
@@ -1801,8 +1797,8 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
     fd_stake_t      stake = stake_account_state.inner.stake.stake;
 
     fd_stake_history_t stake_history = { 0 };
-    rc = fd_sysvar_stake_history_read( invoke_context->slot_ctx, &stake_history );
-    if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     ulong new_rate_activation_epoch = ULONG_MAX;
     bool  is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch );
@@ -1847,8 +1843,8 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   fd_rent_t rent = { 0 };
-  rc             = fd_sysvar_rent_read( invoke_context->slot_ctx, &rent );
-  if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( &rent, invoke_context->slot_ctx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   fd_stake_meta_t uninitialized_stake_meta = stake_meta;
   uninitialized_stake_meta.rent_exempt_reserve =
@@ -2197,7 +2193,7 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 }
 
 /* Removes stake delegation from epoch stakes and updates vote account */
-void 
+void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
   fd_stake_accounts_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
@@ -2213,7 +2209,7 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 }
 
 /* Updates stake delegation in epoch stakes */
-void 
+void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
   FD_TEST( stake_account->const_meta->info.lamports != 0 );
   fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
@@ -2638,9 +2634,9 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                         = get_stake_account( ctx.txn_ctx, &ctx, &me );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    fd_sol_sysvar_clock_t clock = { 0 };
-    rc                          = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    fd_sol_sysvar_clock_t clock;
+    if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = set_lockup( me, lockup, signers, &clock, &ctx.valloc );
     break;
@@ -2850,10 +2846,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                                   .custodian      = (fd_pubkey_t *)custodian_pubkey }; // FIXME
 
       fd_sol_sysvar_clock_t clock;
-      rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-      if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) {
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-      }
 
       rc = set_lockup( me, &lockup, signers, &clock, &ctx.valloc );
     } else {
@@ -2894,8 +2888,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
     fd_sol_sysvar_clock_t clock;
-    rc = fd_sysvar_clock_read( ctx.slot_ctx, &clock );
-    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = deactivate_delinquent(
         transaction_context, &ctx, me, 1, 2, clock.epoch, &ctx.valloc, &ctx.txn_ctx->custom_err );

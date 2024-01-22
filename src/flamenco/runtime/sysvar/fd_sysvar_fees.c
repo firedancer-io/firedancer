@@ -17,26 +17,23 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
 }
 
-void
-fd_sysvar_fees_read( fd_exec_slot_ctx_t * slot_ctx,
-                     fd_sysvar_fees_t * result ) {
+fd_sysvar_fees_t *
+fd_sysvar_fees_read( fd_sysvar_fees_t * result,
+                     fd_exec_slot_ctx_t * slot_ctx ) {
 
-  FD_BORROWED_ACCOUNT_DECL(fees_rec);
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_fees_id, acc );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_fees_id, fees_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "failed to read fees sysvar: %d", err ));
-    return;
-  }
+  fd_bincode_decode_ctx_t decode =
+    { .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
+      .valloc  = {0}  /* valloc not required */ };
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fees_rec->const_data,
-    .dataend = fees_rec->const_data + fees_rec->const_meta->dlen,
-    .valloc  = slot_ctx->valloc
-  };
-
-  if( FD_UNLIKELY( fd_sysvar_fees_decode( result, &decode ) ) )
-    FD_LOG_ERR(("fd_sysvar_fees_decode failed"));
+  if( FD_UNLIKELY( fd_sysvar_fees_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
+  return result;
 }
 
 /*
@@ -99,7 +96,7 @@ fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if ( FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ))
     return;
   fd_sysvar_fees_t fees;
-  fd_sysvar_fees_read( slot_ctx, &fees );
+  fd_sysvar_fees_read( &fees, slot_ctx );
   /* todo: I need to the lamports_per_signature field */
   fees.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
   write_fees( slot_ctx, &fees );

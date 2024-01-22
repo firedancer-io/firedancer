@@ -1,0 +1,13 @@
+FROM docker.io/redhat/ubi8@sha256:56c374376a42da40f3aec753c4eab029b5ea162d70cb5f0cda24758780c31d81 as rhel85
+
+ENV RUST_VERSION=1.73.0
+
+RUN INSTALL_PKGS="git perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov hostname patch" && \
+    dnf install -y --setopt=tsflags=nodoc https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
+    dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
+    dnf clean all -y
+
+RUN curl "https://sh.rustup.rs" -sfo /tmp/rustup.sh && \
+    sh /tmp/rustup.sh -y --default-toolchain ${RUST_VERSION} && \
+    . $HOME/.cargo/env && \
+    rustup show

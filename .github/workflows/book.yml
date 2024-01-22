@@ -2,11 +2,7 @@
 name: Deploy VitePress book site to Pages
 
 on:
-  # Runs on pushes targeting the `main` branch. Change this to `master` if you're
-  # using the `master` branch as the default branch.
-  push:
-    branches: [main]
-
+  workflow_call:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -47,7 +43,7 @@ jobs:
           bun run --cwd ./book build # or pnpm docs:build / yarn docs:build / bun run docs:build
           touch book/.vitepress/dist/.nojekyll
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
+        uses: actions/upload-pages-artifact@v3
         with:
           path: book/.vitepress/dist
 
@@ -62,4 +58,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v3
+        uses: actions/deploy-pages@v4

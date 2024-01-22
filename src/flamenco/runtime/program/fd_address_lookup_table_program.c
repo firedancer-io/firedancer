@@ -192,7 +192,7 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
     FD_LOG_WARNING(("PREPARE FAILED"));
     return (int)exec_err;
   }
-  return fd_execute_instr( instr_info, ctx->txn_ctx );
+  return fd_execute_instr( ctx->txn_ctx, instr_info );
 }
 
 // static ulong
@@ -324,11 +324,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   do {
     fd_slot_hashes_t slot_hashes[1];
-    int slot_hashes_err = fd_sysvar_slot_hashes_read( ctx->slot_ctx, slot_hashes );
-    if( FD_UNLIKELY( slot_hashes_err ) ) {
-      /* TODO what error to return if sysvar read fails? */
-      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-    }
+    if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_hashes, ctx->slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
     int is_recent_slot = 0;
@@ -710,8 +707,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L290 */
     fd_sol_sysvar_clock_t clock[1];
-    int clock_err = fd_sysvar_clock_read( ctx->slot_ctx, clock );
-    if( FD_UNLIKELY( clock_err ) ) { err = clock_err; break; }
+    if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L291-L299 */
     if( clock->slot != state->meta.last_extended_slot ) {
@@ -897,8 +894,8 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L380 */
     fd_sol_sysvar_clock_t clock[1];
-    int clock_err = fd_sysvar_clock_read( ctx->slot_ctx, clock );
-    if( FD_UNLIKELY( clock_err ) ) return clock_err;
+      if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L384 */
     int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
@@ -1018,16 +1015,16 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L437 */
     fd_sol_sysvar_clock_t clock[1];
-    int clock_err = fd_sysvar_clock_read( ctx->slot_ctx, clock );
-    if( FD_UNLIKELY( clock_err ) ) { err = clock_err; break; }
+    if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     int status;
     do {
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438
          TODO THIS SHOULD BE A SCRATCH ALLOC */
       fd_slot_hashes_t slot_hashes[1];
-      int slot_hashes_err = fd_sysvar_slot_hashes_read( ctx->slot_ctx, slot_hashes );
-      if( FD_UNLIKELY( slot_hashes_err ) ) { err = slot_hashes_err; break; }
+      if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_hashes, ctx->slot_ctx ) ) )
+        { err = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR; break; }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
       ulong remaining_blocks = 0UL;

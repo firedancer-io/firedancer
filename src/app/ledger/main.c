@@ -10,15 +10,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include "../../util/fd_util.h"
-#ifdef OLD_TAR
-#include "../../util/archive/fd_tar_old.h"
-#else
-#include "../../util/archive/fd_tar.h"
-#endif /* OLD_TAR */
-#include "../../util/compress/fd_compress.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
-#include "../../flamenco/runtime/fd_banks_solana.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/types/fd_types.h"
@@ -185,7 +178,7 @@ main( int     argc,
   }
 
   /* Create scratch region */
-  ulong  smax   = 512 /*MiB*/ << 20;
+  ulong  smax   = 1024 /*MiB*/ << 20;
   ulong  sdepth = 128;      /* 128 scratch frames */
   void * smem   = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
   void * fmem   = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
@@ -259,7 +252,8 @@ main( int     argc,
   slot_ctx->valloc = fd_alloc_virtual( alloc );
 
   fd_acc_mgr_t mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk, blockstore );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
+  slot_ctx->blockstore = blockstore;
 
   ulong tcnt = fd_tile_cnt();
   uchar tpool_mem[ FD_TPOOL_FOOTPRINT(FD_TILE_MAX) ] __attribute__((aligned(FD_TPOOL_ALIGN)));
@@ -419,7 +413,7 @@ main( int     argc,
     for( fd_feature_id_t const * id = fd_feature_iter_init();
                                      !fd_feature_iter_done( id );
                                  id = fd_feature_iter_next( id ) ) {
-      ulong activated_at = fd_features_query( &slot_ctx->epoch_ctx->features, id );
+      ulong activated_at = fd_features_get( &slot_ctx->epoch_ctx->features, id );
       if( activated_at )
         FD_LOG_DEBUG(( "feature %32J activated at slot %lu", id->id.key, activated_at ));
     }
@@ -444,7 +438,7 @@ main( int     argc,
          !fd_funk_rec_map_iter_done( rec_map, iter );
          iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
-      if ( !fd_acc_mgr_is_key( rec->pair.key ) )
+      if ( !fd_funk_key_is_acc( rec->pair.key ) )
         continue;
 
       if (num_pairs % 10000000 == 0) {

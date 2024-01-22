@@ -90,8 +90,9 @@
    take up, including the instruction array and any address tables.  The
    worst-case transaction is a V0 transaction with only two account
    addresses (a program and a fee payer), and tons of empty instructions (no
-   accounts, no data) and as many address table lookups as possible. */
-#define FD_TXN_MAX_SZ                (860UL)
+   accounts, no data) and as many address table lookups loading a single
+   account as possible. */
+#define FD_TXN_MAX_SZ                (852UL)
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
    transaction. */
@@ -238,7 +239,7 @@ struct fd_txn {
 
   /* addr_table_lookup_cnt: The number of address lookup tables this
      transaction contains.  Must be 0 if transaction_version==FD_TXN_VLEGACY.
-     addr_table_lookup_cnt in [0, FD_TXN_TABLE_LOOKUP_MAX]. */
+     addr_table_lookup_cnt in [0, FD_TXN_ADDR_TABLE_LOOKUP_MAX]. */
   uchar       addr_table_lookup_cnt;
 
   /* addr_table_adtl_writable_cnt: The total number of writable account

@@ -42,6 +42,7 @@
 #include "../../util/net/fd_eth.h"
 #include "../fd_flamenco.h"
 #include "fd_tvu.h"
+#include "fd_hashes.h"
 // #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
 #include "../rpc/fd_rpc_service.h"
@@ -817,7 +818,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t * tvu_args,
   epoch_ctx->valloc = valloc;
   slot_ctx->valloc  = valloc;
 
-  slot_ctx->acc_mgr = fd_acc_mgr_new( tvu_args->_acc_mgr, funk, blockstore );
+  slot_ctx->acc_mgr = fd_acc_mgr_new( tvu_args->_acc_mgr, funk );
+  slot_ctx->blockstore = blockstore;
 
   /**********************************************************************/
   /* snapshots                                                          */

@@ -3,7 +3,7 @@
 
 #ifndef PB_SOLANA_CAPTURE_SRC_FLAMENCO_CAPTURE_FD_SOLCAP_PB_H_INCLUDED
 #define PB_SOLANA_CAPTURE_SRC_FLAMENCO_CAPTURE_FD_SOLCAP_PB_H_INCLUDED
-#include "../nanopb/pb.h"
+#include "../nanopb/pb_firedancer.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.

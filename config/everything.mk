@@ -1,20 +1,21 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test run-unit-test run-script-test help clean distclean asm ppp show-deps seccomp-policies
+.PHONY: all info bin rust include lib unit-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: run-unit-test run-script-test run-fuzz-test run-integration-test
+.PHONY: seccomp-policies cov-report dist-cov-report
 .SECONDARY:
 .SECONDEXPANSION:
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
-CORPUSDIR:=corpus
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test
+AUX_RULES:=clean distclean help show-deps run-unit-test cov-report dist-cov-report
 
-all: info bin include lib unit-test
+all: info bin include lib unit-test fuzz-test
 
 help:
 	# Configuration
@@ -47,10 +48,11 @@ help:
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
-	# "make bin" makes all binaries for the current platform
+	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
@@ -86,7 +88,7 @@ run-unit-test:
 	#######################################################################
 	# Running unit tests
 	#######################################################################
-	config/test.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
+	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -97,7 +99,7 @@ lib: $(OBJDIR)/lib/lib$(1).a
 
 endef
 
-make-lib = $(eval $(call _make-lib,$(strip $(1))))
+make-lib = $(eval $(call _make-lib,$(1)))
 
 ##############################
 # Usage: $(call add-objs,objs,lib)
@@ -110,7 +112,7 @@ $(OBJDIR)/lib/lib$(2).a: $(foreach obj,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)
 
 endef
 
-add-objs = $(eval $(call _add-objs,$(strip $(1)),$(strip $(2))))
+add-objs = $(eval $(call _add-objs,$(1),$(2)))
 
 ##############################
 # Usage: $(call add-asms,asms,lib)
@@ -132,7 +134,7 @@ include: $(foreach hdr,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/include/%,$(OBJ
 
 endef
 
-add-hdrs = $(eval $(call _add-hdrs,$(strip $(1))))
+add-hdrs = $(eval $(call _add-hdrs,$(1)))
 
 ##############################
 # Usage: $(call add-examples,examples)
@@ -143,7 +145,7 @@ include: $(foreach example,$(1),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/example/%,$
 
 endef
 
-add-examples = $(eval $(call _add-examples,$(strip $(1))))
+add-examples = $(eval $(call _add-examples,$(1)))
 
 ##############################
 # Usage: $(call add-scripts,scripts)
@@ -166,36 +168,26 @@ $(1): $(OBJDIR)/$(1)/$(2)
 
 endef
 
-ifeq "$(FD_HAS_MAIN)" "1"
-add-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,bin,$(script))))
-add-test-scripts = $(foreach script,$(strip $(1)),$(eval $(call _add-script,unit-test,$(script))))
-endif
+add-scripts = $(foreach script,$(1),$(eval $(call _add-script,bin,$(script))))
+add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(script))))
 
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
-# Usage: $(call fuzz-test,name,objs,libs)
+# Usage: $(call make-fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
 
+# _make-exe usage:
+#
+#   $(1): Filename of exe
+#   $(2): List of objects
+#   $(3): List of libraries
+#   $(4): Name of meta target (such that make $(4) will include this target)
+#   $(5): Subdirectory of target
+#   $(6): Extra LDFLAGS
 define _make-exe
-
-DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
-
-$(OBJDIR)/$(4)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	#######################################################################
-	# Creating $(4) $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(LDFLAGS) -Wl,--end-group -o $$@
-
-$(4): $(OBJDIR)/$(4)/$(1)
-
-endef
-
-# TODO: LML revisit this to figure out a better way of keeping component 1 build rules in sync with component 2
-define _make-exe-rust
 
 DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
 
@@ -204,7 +196,7 @@ $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj
 	# Creating $(5) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(filter-out -lrocksdb -lz,$(LDFLAGS)) -Wl,--end-group -o $$@
+$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) -Wl,--end-group $(LDFLAGS) $(6) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
@@ -221,36 +213,34 @@ $(OBJDIR)/unit-test/automatic.txt:
 
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test))
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ)))
 
 .PHONY: $(1)_unit
 $(1)_unit:
-	$(MKDIR) "$(CORPUSDIR)/$(1)"
-	$(FIND) $(CORPUSDIR)/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
+	$(MKDIR) "corpus/$(1)" && \
+$(MKDIR) -p "$(OBJDIR)/cov/raw" && \
+FD_LOG_PATH="" \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_unit.profraw" \
+$(FIND) corpus/$(1) -type f -exec $(OBJDIR)/fuzz-test/$(1)/$(1) $(FUZZFLAGS) {} +
 
 .PHONY: $(1)_run
 $(1)_run:
-	$(MKDIR) "$(CORPUSDIR)/$(1)/explore"
-	$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=$(CORPUSDIR)/$(1)/ $(FUZZFLAGS) $(CORPUSDIR)/$(1)/explore $(CORPUSDIR)/$(1)
+	$(MKDIR) "corpus/$(1)/explore" && \
+$(MKDIR) -p "$(OBJDIR)/cov/raw" && \
+FD_LOG_PATH="" \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/$(1)_run.profraw" \
+$(OBJDIR)/fuzz-test/$(1)/$(1) -artifact_prefix=corpus/$(1)/ $(FUZZFLAGS) corpus/$(1)/explore corpus/$(1)
 
 run-fuzz-test: $(1)_unit
 
 endef
 
-ifeq "$(FD_HAS_MAIN)" "1"
-make-bin       = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),bin))
-make-unit-test = $(eval $(call _make-exe,$(strip $(1)),$(strip $(2)),$(strip $(3)),unit-test))
-make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin))
-fuzz-test =
-run-unit-test = $(eval $(call _run-unit-test,$(strip $(1))))
-run-fuzz-test:
-	@echo "Requested run-fuzz-test but profile MACHINE=$(MACHINE) does not support fuzzing" >&2
-	@exit 1
-else
-make-bin =
-make-unit-test =
-fuzz-test = $(eval $(call _fuzz-test,$(strip $(1)),$(strip $(2)),$(strip $(3))))
-run-unit-test =
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
+make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
+run-unit-test  = $(eval $(call _run-unit-test,$(1)))
+ifdef FD_HAS_FUZZ
+make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 endif
 
 ##############################
@@ -268,7 +258,7 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info $(GENERATED)
+$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C source $< to $@
 	#######################################################################
@@ -277,7 +267,7 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info $(GENERATED)
+$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
 	#######################################################################
 	# Generating dependencies for C++ source $< to $@
 	#######################################################################
@@ -312,7 +302,7 @@ $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
 	# Compiling C source $< to assembly $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -g -fverbose-asm $< -o $@.tmp && \
+$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
@@ -365,8 +355,6 @@ $(CP) $^ $@
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
 # If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)
 
-include config/nanopb.mk
-
 # Include all the make fragments
 
 define _include-mk
@@ -399,8 +387,97 @@ ppp: $(DEPFILES:.d=.i)
 
 endif
 
-run-script-test:
-	OBJDIR=$(OBJDIR) MACHINE=$(MACHINE) scripts/script-tests.sh
+run-script-test: bin unit-test
+	mkdir -p "$(OBJDIR)/cov/raw" && \
+OBJDIR=$(OBJDIR) \
+MACHINE=$(MACHINE) \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_tests.profraw" \
+contrib/test/run_script_tests.sh
+
+run-integration-test: fddev
+	mkdir -p "$(OBJDIR)/cov/raw" && \
+OBJDIR=$(OBJDIR) \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/integration_tests.profraw" \
+contrib/test/run_integration_tests.sh
 
 seccomp-policies:
-	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/generate_filters.py {} \;
+	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
+
+##############################
+# LLVM Coverage
+#
+# Below steps create a report which lines of code have been executed/
+# "covered" by tests.  For convenience, below supports merging coverage
+# data from multiple machine types.
+#
+# Enabling the 'llvm-cov' extra has two effects on clang-compiled objects:
+# - Coverage instrumentation is inserted, which causes profile data
+#   to get written out to disk when running code
+# - Adds an "__llvm_covmap" section to each object containing "coverage
+#   mappings".   Those tells tooling how to translate profile data to
+#   source line coverage
+#
+# Documentation:
+#   https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
+#   https://llvm.org/docs/CoverageMappingFormat.html
+#
+# We thus have these steps:
+# 1. Compile with llvm-cov
+# 2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
+# 3. Merge raw profiles from test runs into a single profile per machine using 'llvm-profdata merge'
+# 4. Merge coverage mappings from all objects across all machines into an .ar file
+# 5. Combine profile data and coverage mapping using 'llvm-cov export'
+# 6. Generate HTML report using 'genhtml'
+
+# llvm-cov step 3: Merge and index "raw" profile data from test runs
+$(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
+	mkdir -p $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
+
+# Usage: $(call make-lcov,<report_objdir>,<profdata_objdirs>)
+# e.g. $(call make-lcov,build/cov,build/machine1 build/machine2)
+#      will create build/cov/cov.lcov from build/machine{1,2}/cov/cov.profdata
+define _make-lcov
+# llvm-cov step 4
+# Create a thin archive containing all objects with coverage mappings.
+# Sigh ... llvm-cov has a bug that makes it blow up when it encounters
+# any object in the archive without an __llvm_covmap section, such as
+# objects compiled from assembly code.
+.PHONY: $(1)/cov/mappings.ar
+$(1)/cov/mappings.ar:
+	rm -f $(1)/cov/mappings.ar &&                       \
+  mkdir -p $$(dir $$@) &&                                   \
+  find $$(addsuffix /obj,$(2)) -name '*.o' -exec sh -c      \
+    '[[ -n "`llvm-objdump -h $$$$1 | grep llvm_covmap`" ]]  \
+    && llvm-ar --thin q $$@ $$$$1' sh {} \;
+
+# llvm-cov step 5
+$(1)/cov/cov.lcov: $$(addsuffix /cov/cov.profdata,$(2)) $(1)/cov/mappings.ar
+ifeq ($(2),)
+	echo "No profile data found. Did you set OBJDIRS?" >&2 && exit 1
+endif
+	$(LLVM_COV) export                             \
+  -format=lcov                                 \
+  $$(addprefix -instr-profile=,$$<)            \
+  $(1)/cov/mappings.ar                         \
+  --ignore-filename-regex="test_.*\\.c"        \
+> $$@
+endef
+make-lcov = $(eval $(call _make-lcov,$(1),$(2)))
+
+# Create lcov report for current target
+$(call make-lcov,$(OBJDIR),$(OBJDIR))
+
+# llvm-cov step 6
+# Create HTML coverage report using lcov genhtml
+%/cov/html/index.html: %/cov/cov.lcov
+	rm -rf $(dir $@) && $(GENHTML) --output $(dir $@) $<
+	@echo "Created coverage report at $@"
+
+# `make cov-report` produces a coverage report from test runs for the
+# currently selected build profile
+cov-report: $(OBJDIR)/cov/html/index.html
+
+# `make dist-cov-report OBJDIRS="build/native/gcc build/native/clang ..."`
+# produces a coverage report from multiple build profiles
+$(call make-lcov,$(BASEDIR),$(OBJDIRS))
+dist-cov-report: $(BASEDIR)/cov/html/index.html

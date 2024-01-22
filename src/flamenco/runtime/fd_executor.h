@@ -1,30 +1,27 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-#include <limits.h>
+#include "fd_runtime.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/poh/fd_poh.h"
-#include "context/fd_exec_instr_ctx.h"
-#include "context/fd_capture_ctx.h"
-#include "fd_rawtxn.h"
 
-FD_PROTOTYPES_BEGIN
+/* Instruction error codes */
 
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */
 /* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
- * misnomer, because the instruction hasn't necessarily been executed succesfully yet */
-/* Instruction error codes */
+        misnomer, because the instruction hasn't necessarily been executed succesfully yet */
+
 #define FD_EXECUTOR_INSTR_ERR_FATAL                              ( INT_MIN ) /* Unrecoverable error */
-#define FD_EXECUTOR_INSTR_SUCCESS                                ( 0 )  /* Instruction executed successfully */
-#define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        ( -1 ) /* The program instruction returned an error */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        ( -2 ) /* The arguments provided to a program were invalid */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA                 ( -3 ) /* An instruction's data contents were invalid */
-#define FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA                   ( -4 ) /* An account's data contents was invalid */
-#define FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL                 ( -5 ) /* An account's data was too small */
-#define FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS                 ( -6 ) /* An account's balance was too small to complete the instruction */
-#define FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID               ( -7 ) /* The account did not have the expected program id */
-#define FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE         ( -8 ) /* A signature was required but not found */
-#define FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED            ( -9  ) /* An initialize instruction was sent to an account that has already been initialized. */
+#define FD_EXECUTOR_INSTR_SUCCESS                                (   0 ) /* Instruction executed successfully */
+#define FD_EXECUTOR_INSTR_ERR_GENERIC_ERR                        (  -1 ) /* The program instruction returned an error */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_ARG                        (  -2 ) /* The arguments provided to a program were invalid */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA                 (  -3 ) /* An instruction's data contents were invalid */
+#define FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA                   (  -4 ) /* An account's data contents was invalid */
+#define FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL                 (  -5 ) /* An account's data was too small */
+#define FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS                 (  -6 ) /* An account's balance was too small to complete the instruction */
+#define FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID               (  -7 ) /* The account did not have the expected program id */
+#define FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE         (  -8 ) /* A signature was required but not found */
+#define FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED            (  -9 ) /* An initialize instruction was sent to an account that has already been initialized. */
 #define FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT              ( -10 ) /* An attempt to operate on an account that hasn't been initialized. */
 #define FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR                   ( -11 ) /* Program's instruction lamport balance does not equal the balance after the instruction */
 #define FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID                ( -12 ) /* Program illegally modified an account's program id */
@@ -86,19 +83,31 @@ FD_PROTOTYPES_BEGIN
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
-/* Type definition for native programs, akin to an interface for native programs.
-   The executor will execute instructions designated for a given native program by invoking a function of this type. */
-typedef int(*execute_instruction_func_t) ( fd_exec_instr_ctx_t ctx );
+FD_PROTOTYPES_BEGIN
 
-execute_instruction_func_t
-fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) ;
+/* fd_exec_instr_fn_t processes an instruction.  Returns an error code
+   in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
+
+typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t ctx );
+
+/* fd_executor_lookup_native_program returns the appropriate instruction
+   processor for the given native program ID.  Returns NULL if given ID
+   is not a recognized native program. */
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_program(  fd_pubkey_t const * program_id );
+
+/* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
+   instruction processing.  Does fd_scratch allocations.  Returns an
+   error code in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
 int
-fd_execute_instr( fd_instr_info_t * instr, fd_exec_txn_ctx_t * txn_ctx );
+fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
+                  fd_instr_info_t *   instr_info );
 
 int
 fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx, 
+                               fd_exec_txn_ctx_t * txn_ctx,
                                fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw );
 
@@ -143,7 +152,7 @@ fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
 int
 fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                        fd_exec_txn_ctx_t * txn_ctx, 
+                        fd_exec_txn_ctx_t * txn_ctx,
                         fd_txn_t const * txn_descriptor,
                         fd_rawtxn_b_t const * txn_raw );
 int
@@ -163,6 +172,14 @@ int
 fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
                          fd_borrowed_account_t const * rec,
                          ulong                fee );
+
+/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
+   human readable cstr.  The lifetime of the returned pointer is
+   infinite and the call itself is thread safe.  The returned pointer is
+   always to a non-NULL cstr. */
+
+FD_FN_CONST char const *
+fd_executor_instr_strerror( int err );
 
 FD_PROTOTYPES_END
 

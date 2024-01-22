@@ -1,11 +1,9 @@
 #include "fd_types_meta.h"
-#include "../fd_flamenco.h"
 
 int
 main( int     argc,
       char ** argv ) {
-  fd_boot         ( &argc, &argv );
-  fd_flamenco_boot( &argc, &argv );
+  fd_boot( &argc, &argv );
 
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_NULL    )==1 );
   FD_TEST( fd_flamenco_type_is_primitive( FD_FLAMENCO_TYPE_BOOL    )==1 );
@@ -66,6 +64,5 @@ main( int     argc,
   FD_TEST( fd_flamenco_type_is_collection_end( FD_FLAMENCO_TYPE_MAP_END )==1 );
 
   FD_LOG_NOTICE(( "pass" ));
-  fd_flamenco_halt();
   fd_halt();
 }

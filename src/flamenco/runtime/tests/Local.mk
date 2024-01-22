@@ -1,6 +1,6 @@
 # Unit test only works if there is an accessable rocksdb
 
-ifneq ($(FD_HAS_ROCKSDB),)
+ifdef FD_HAS_ROCKSDB
 
 $(call make-lib,fd_sol_tests)
 $(call add-objs,$(patsubst src/flamenco/runtime/tests/%.c,%,$(wildcard src/flamenco/runtime/tests/generated/*.c)),fd_sol_tests)
@@ -20,4 +20,16 @@ run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/t
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
 #	src/flamenco/runtime/run_bpf_tests.sh
 
+endif
+
+# New executor tests
+
+$(call add-hdrs,fd_exec_test.pb.h)
+$(call add-objs,fd_exec_test.pb,fd_flamenco)
+
+ifdef FD_HAS_INT128
+$(call add-hdrs,fd_exec_instr_test.h)
+$(call add-objs,fd_exec_instr_test,fd_flamenco)
+
+$(call make-unit-test,test_exec_instr,test_exec_instr,fd_flamenco fd_funk fd_ballet fd_util)
 endif

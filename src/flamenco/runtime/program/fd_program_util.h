@@ -8,6 +8,10 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_stake_history.h"
+
 #define FD_DEBUG_MODE 0
 
 #ifndef FD_DEBUG_MODE
@@ -236,8 +240,8 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
   do {                                                                                             \
     FD_SYSVAR_CHECK_SYSVAR_ACCOUNT(                                                                \
         invoke_context->txn_ctx, instruction_context, instruction_account_index, fd_sysvar_id );   \
-    int rc = fd_sysvar_read( invoke_context->slot_ctx, out );                                      \
-    if( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR; \
+    if( FD_UNLIKELY( !fd_sysvar_read( out, invoke_context->slot_ctx ) ) )                          \
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                             \
     return FD_PROGRAM_OK;                                                                          \
   } while( 0 )
 

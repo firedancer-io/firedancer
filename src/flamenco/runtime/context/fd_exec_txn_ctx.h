@@ -1,31 +1,28 @@
-
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 
-#include "../../../ballet/txn/fd_txn.h"
+#include "fd_exec_instr_ctx.h"
 #include "../../../util/fd_util_base.h"
 
 #include "../fd_borrowed_account.h"
-#include "../fd_rawtxn.h"
-
-#include "fd_exec_epoch_ctx.h"
-#include "fd_exec_instr_ctx.h"
 
 /* Return data for syscalls */
-struct transaction_return_data {
-  fd_pubkey_t program_id;
-  ulong len;
-  uchar data[1024];
-};
-typedef struct transaction_return_data fd_transaction_return_data_t;
 
-/* Context needed to execute a single transaction. */
-#define FD_EXEC_TXN_CTX_ALIGN (8UL)
-struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
+struct fd_txn_return_data {
+  fd_pubkey_t program_id;
+  ulong       len;
+  uchar       data[1024];
+};
+
+typedef struct fd_txn_return_data fd_txn_return_data_t;
+
+/* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
+
+struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t *  slot_ctx;
+  fd_exec_slot_ctx_t *        slot_ctx;
 
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
@@ -49,13 +46,39 @@ struct __attribute__((aligned(FD_EXEC_TXN_CTX_ALIGN))) fd_exec_txn_ctx {
   fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
   uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
-  fd_transaction_return_data_t return_data;              /* Data returned from `return_data` syscalls */
+  fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
 };
-typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
-#define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t) )
+
+#define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
+#define FD_EXEC_TXN_CTX_FOOTPRINT ( sizeof(fd_exec_txn_ctx_t))
 #define FD_EXEC_TXN_CTX_MAGIC (0x9AD93EE71469F4D7UL) /* random */
 
 FD_PROTOTYPES_BEGIN
+
+void *
+fd_exec_txn_ctx_new( void * mem );
+
+fd_exec_txn_ctx_t *
+fd_exec_txn_ctx_join( void * mem );
+
+void *
+fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
+
+void *
+fd_exec_txn_ctx_delete( void * mem );
+
+void
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
+                       fd_txn_t const * txn_descriptor,
+                       fd_rawtxn_b_t const * txn_raw );
+void
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
+                                    fd_exec_txn_ctx_t * txn_ctx );
+
+void
+fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
+
+
 int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
@@ -64,7 +87,7 @@ int
 fd_txn_borrowed_account_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
                               fd_borrowed_account_t * * account );
-                            
+
 int
 fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
@@ -80,29 +103,6 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_pubkey_t const * pubkey,
                                 ulong min_data_sz,
                                 fd_borrowed_account_t * * account );
-
-void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
-                       fd_txn_t const * txn_descriptor,
-                       fd_rawtxn_b_t const * txn_raw );
-void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-                                    fd_exec_txn_ctx_t * txn_ctx );
-
-void
-fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
-
-void *
-fd_exec_txn_ctx_new( void * mem );
-
-fd_exec_txn_ctx_t *
-fd_exec_txn_ctx_join( void * mem );
-
-void *
-fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );
-
-void *
-fd_exec_txn_ctx_delete( void * mem );
 
 FD_PROTOTYPES_END
 

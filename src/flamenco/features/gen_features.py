@@ -8,6 +8,7 @@ feature_map.json.
 import argparse
 import json
 from pathlib import Path
+import struct
 
 from base58 import b58decode
 
@@ -92,6 +93,24 @@ fd_feature_id_t const ids[] = {{
 }
   {{ .index = ULONG_MAX }}
 }};
+
+/* TODO replace this with fd_map_perfect */
+
+FD_FN_CONST fd_feature_id_t const *
+fd_feature_id_query( ulong prefix ) {{
+
+  switch( prefix ) {{
+{
+    chr(0xa).join([
+    f'''  case {"0x%016x" % struct.unpack("<Q", b58decode(x["pubkey"])[:8])}: return &ids[{"% 4d" % (i)} ];'''
+    for i, x in enumerate(fm)
+    ])
+}
+  default: break;
+  }}
+
+  return NULL;
+}}
 
 /* Verify that offset calculations are correct */
 

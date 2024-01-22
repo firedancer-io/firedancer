@@ -1,6 +1,7 @@
 #include "../fd_flamenco.h"
 #include "fd_account.h"
 #include "fd_replay.h"
+#include "fd_hashes.h"
 
 int
 fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
@@ -10,8 +11,8 @@ fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
 
   fd_features_restore( state->slot_ctx );
 
-  if (state->slot_ctx->acc_mgr->blockstore->max < args->end_slot)
-    args->end_slot = state->slot_ctx->acc_mgr->blockstore->max;
+  if (state->slot_ctx->blockstore->max < args->end_slot)
+    args->end_slot = state->slot_ctx->blockstore->max;
   // FD_LOG_WARNING(("Failing here"))
   fd_runtime_update_leaders(state->slot_ctx, state->slot_ctx->slot_bank.slot);
 
@@ -20,7 +21,7 @@ fd_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args )
   long replay_time = -fd_log_wallclock();
   ulong txn_cnt = 0;
   ulong slot_cnt = 0;
-  fd_blockstore_t * blockstore = state->slot_ctx->acc_mgr->blockstore;
+  fd_blockstore_t * blockstore = state->slot_ctx->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
   for ( ulong slot = state->slot_ctx->slot_bank.slot+1; slot < args->end_slot; ++slot ) {

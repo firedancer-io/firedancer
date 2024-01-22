@@ -32,26 +32,22 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
                  NULL );
 }
 
-int
-fd_sysvar_last_restart_slot_read( fd_exec_slot_ctx_t const *             slot_ctx,
-                                  fd_sol_sysvar_last_restart_slot_t * result ) {
+fd_sol_sysvar_last_restart_slot_t *
+fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
+                                  fd_exec_slot_ctx_t const *          slot_ctx ) {
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, rec);
+  FD_BORROWED_ACCOUNT_DECL(acc);
+  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, acc);
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
+    return NULL;
 
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return err;
+  fd_bincode_decode_ctx_t decode =
+    { .data    = acc->const_data,
+      .dataend = acc->const_data + acc->const_meta->dlen,
+      .valloc  = {0}  /* valloc not required */ };
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = rec->const_data,
-    .dataend = rec->const_data + rec->const_meta->dlen
-    /* deliberately not setting valloc here, as the data structure
-       does not need dynamic allocations */
-  };
-
-  err = fd_sol_sysvar_last_restart_slot_decode( result, &decode );
-  FD_TEST( err==FD_BINCODE_SUCCESS );
-
+  if( FD_UNLIKELY( fd_sol_sysvar_last_restart_slot_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+    return NULL;
   return FD_ACC_MGR_SUCCESS;
 }
 
@@ -59,7 +55,7 @@ void
 fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) return;
   fd_sol_sysvar_last_restart_slot_t result;
-  fd_sysvar_last_restart_slot_read( slot_ctx, &result );
+  fd_sysvar_last_restart_slot_read( &result, slot_ctx );
   if ( result.slot == slot_ctx->slot_bank.last_restart_slot.slot ) return;
 
   /* Set this every slot? */
