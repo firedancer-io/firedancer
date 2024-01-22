@@ -1,0 +1,29 @@
+name: Build everything
+on:
+  workflow_call:
+  workflow_dispatch:
+jobs:
+  build-frankendancer:
+    strategy:
+      # Since this build is on main, it's not rushed for feedback. Avoid wasting runner minutes by limiting parallelism.
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        compiler: [clang, gcc]
+        feature_set: [modern, highend]
+    runs-on:
+      group: github-v1
+    env:
+      CC: ${{ matrix.compiler }}
+      MACHINE: linux_clang_combi_${{ matrix.feature_set }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.69.0
+
+      - uses: ./.github/actions/deps
+
+      - name: Build everything
+        run: make -j -Otarget all rust

@@ -1,0 +1,4 @@
+[submodule "solana"]
+	path = solana
+	url = https://github.com/firedancer-io/solana.git
+	branch = v1.16-fd

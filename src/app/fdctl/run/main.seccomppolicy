@@ -1,0 +1,54 @@
+# There are two policies involved in booting Firedancer, one for the
+# init process that creates a child process with a PID namespace, and
+# one for the child process with the PID namespace which launches tiles.
+#
+# This policy is for the boot process that creates the PID namespace.
+# The process does almost nothing except spawn the child, and then sit
+# waiting for it to exit like a supervisor.
+
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# pid_namespace: This is the PID of the child process that we created.
+#                There is always exactly one such process.
+unsigned int logfile_fd, unsigned int pid_namespace
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)
+
+# supervisor: wait for the child process to exit
+#
+# The boot process needs to know when the child exits so that it can
+# quit itself.
+wait4: (and (eq (arg 0) pid_namespace) 
+            (eq (arg 2) __WALL) 
+            (eq (arg 3) 0))
+
+# supervisor: kill the child process
+#
+# Since the supervisor is the foreground process for the terminal,
+# signals like SIGINT (Ctrl+C) will go there if the user wishes to
+# kill Firedancer.  The child would terminate without being killed
+# because it waits for SIGHUP from a pipe the main process owns, but
+# we kill() it for cleanliness if we can so that the child processes
+# die before main does.
+kill: (eq (arg 1) SIGKILL)
+
+# supervisor: exit when the child process exits
+#
+# When the wait4 above completes, the child process has exited and the
+# parent will now need to exit itself.
+exit_group

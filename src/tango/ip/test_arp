@@ -1,0 +1,107 @@
+#!/bin/bash -x
+
+: "${IFACE0:=veth_test_arp_0}"
+: "${IFACE1:=veth_test_arp_1}"
+
+NETNS0=/var/run/netns/"$IFACE0"
+NETNS1=/var/run/netns/"$IFACE1"
+
+: "${IFACE0_MAC:=40:00:00:80:00:f0}"
+: "${IFACE1_MAC:=40:00:00:80:00:f1}"
+
+: "${IP_CLASS:=24}"
+: "${IFACE0_ADDR:=192.168.42.10}"
+: "${IFACE1_ADDR:=192.168.42.11}"
+
+CONF=tmp/test_arp.conf
+
+########################################################################
+
+if [ $# -ne 1 ]; then
+  echo ""
+  echo "        build directory not specified"
+  echo ""
+  echo "        Usage: $0 [BUILD_DIRECTORY]"
+  echo ""
+  echo "        Creates two network namespaces with a network config in each"
+  echo "        Runs ARP tests between them"
+  echo ""
+  exit 1
+fi
+
+UNIT_TEST=$1/unit-test
+
+# Disable permanent log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Delete any existing netns and interface
+ip netns delete "$IFACE0" &> /dev/null
+ip netns delete "$IFACE1" &> /dev/null
+
+ip link del dev "$IFACE0" &> /dev/null # Destroys IFACE1 too. Okay if this fails
+ip link del dev "$IFACE1" &> /dev/null # Just in case
+
+# (Re-)create veth virtual network devices
+
+# create namespaces
+ip netns add "$IFACE0" || exit $?
+ip netns add "$IFACE1" || exit $?
+
+# create pair of connected interfaces
+ip link add dev "$IFACE0"       \
+            type veth           \
+            peer name "$IFACE1" \
+  || exit $?
+
+# add MAC addresses
+ip link set dev "$IFACE0" address "$IFACE0_MAC" || exit $?
+ip link set dev "$IFACE1" address "$IFACE1_MAC" || exit $?
+
+# attach interfaces to namespaces
+ip link set "$IFACE0" netns "$IFACE0" || exit $?
+ip link set "$IFACE1" netns "$IFACE1" || exit $?
+
+# add IP addresses
+ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR/$IP_CLASS" dev "$IFACE0" || exit $?
+ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR/$IP_CLASS" dev "$IFACE1" || exit $?
+
+# raise interfaces
+ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
+ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
+
+# set timeout to 60ms to allow the test to complete in a reasonable time
+ip netns exec "$IFACE0" bash -c "/bin/echo 60 > /proc/sys/net/ipv4/neigh/""$IFACE0""/base_reachable_time_ms"
+ip netns exec "$IFACE0" bash -c "/bin/cat /proc/sys/net/ipv4/neigh/""$IFACE0""/base_reachable_time_ms"
+
+ip netns exec "$IFACE0" arp -d $IFACE1_ADDR
+ip netns exec "$IFACE0" arp -n
+
+# run test in namespace "$IFACE0"
+ip netns exec "$IFACE0" $UNIT_TEST/test_arp "$IFACE0" "$IFACE1_ADDR" || exit $?
+
+ip netns exec "$IFACE0" arp -n
+
+# there is a race here, so wait for reply to update kernel ARP table
+# this should not take long!
+sleep "0.1s"
+
+ip netns exec "$IFACE0" arp -n
+
+# check arp table after
+# verify the ip address and mac address are listed together
+ip netns exec "$IFACE0" arp | fgrep "$IFACE1_ADDR" | fgrep "$IFACE1_MAC" || exit $?
+
+# Clean up
+
+# delete namespaces
+ip netns delete "$IFACE0" &> /dev/null
+ip netns delete "$IFACE1" &> /dev/null
+
+# delete interfaces
+ip link del dev "$IFACE0" &> /dev/null
+ip link del dev "$IFACE1" &> /dev/null
+
+echo pass
+exit 0

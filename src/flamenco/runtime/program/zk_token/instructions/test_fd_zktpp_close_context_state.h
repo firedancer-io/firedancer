@@ -1,0 +1,25 @@
+#ifndef HEADER_test_fd_zktpp_close_context_state_h
+#define HEADER_test_fd_zktpp_close_context_state_h
+
+#include "../fd_zktpp_private.h"
+
+// for reference, this context close corresponds to the withdraw tx
+// 01fd5dd258de925a158adf344fede5089121bf6eceb8339cebc707d5f47ab16986803c667a12693265dcdf2d89cd5ddf5da636f6c01d2cf1e64eb662304da78f0001000104be5b54cdb01762497c7fd98bfcaaec1d2a2cad1c2bb5134857b68f0214935ebb39b50f550575dc96d25125430d6a1aa7483b458f5786ef9e7e605ead7d7b9a1362e658c293c604459865e83503e2d1987f4dc07210e3a777477ee13843fcd2650863ba8dd9c4c2fb174a05cba27e2a2cd623573d79e90b35b579fc0d00000000f270416e4022a36d79c23416f8c483693b5da245ec40d4b3049ff5ab11e7d0090103030201000100
+static char *
+tx_close_context_state[] = {
+  "01",
+  "fd5dd258de925a158adf344fede5089121bf6eceb8339cebc707d5f47ab16986803c667a12693265dcdf2d89cd5ddf5da636f6c01d2cf1e64eb662304da78f00",
+  "01000104",
+  "be5b54cdb01762497c7fd98bfcaaec1d2a2cad1c2bb5134857b68f0214935ebb",
+  "39b50f550575dc96d25125430d6a1aa7483b458f5786ef9e7e605ead7d7b9a13",
+  "62e658c293c604459865e83503e2d1987f4dc07210e3a777477ee13843fcd265",
+  "0863ba8dd9c4c2fb174a05cba27e2a2cd623573d79e90b35b579fc0d00000000",
+  "f270416e4022a36d79c23416f8c483693b5da245ec40d4b3049ff5ab11e7d009",
+  "01",
+  "030302010001",
+  "00", // CloseContextState
+};
+
+const ulong instr_offset_close_context_state = 236;
+
+#endif /* HEADER_test_fd_zktpp_close_context_state_h */

@@ -1,0 +1,232 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: "$1" unexpected exit code "$2"
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_tango_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+echo Init
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1 # Try to clean up any leftover wksp from previous tests
+"$BIN"/fd_wksp_ctl new "$WKSP" "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" > /dev/null 2>&1 || init setup $?
+
+echo Testing no-op
+
+"$BIN"/fd_tango_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_tango_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_tango_ctl help || fail help $?
+
+echo Testing tag
+
+"$BIN"/fd_tango_ctl tag   && fail tag $?
+"$BIN"/fd_tango_ctl tag 1 || fail tag $?
+
+echo Testing new-mcache
+
+"$BIN"/fd_tango_ctl new-mcache                          && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache "$WKSP"                  && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache "$WKSP"    512           && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache "$WKSP"    512 4096      && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache bad/name   512 4096 1234 && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache "$WKSP"    -1  4096 1234 && fail new-mcache $?
+"$BIN"/fd_tango_ctl new-mcache "$WKSP"    512 -1   1234 && fail new-mcache $?
+
+MCACHE=$("$BIN"/fd_tango_ctl new-mcache "$WKSP"    512 4096 1234 || fail new-mcache $?)
+
+echo Testing query-mcache
+
+"$BIN"/fd_tango_ctl query-mcache             && fail query-mcache $?
+"$BIN"/fd_tango_ctl query-mcache "$MCACHE"   && fail query-mcache $?
+"$BIN"/fd_tango_ctl query-mcache bad     0   && fail query-mcache $?
+# verbose is zero or non-zero
+"$BIN"/fd_tango_ctl query-mcache "$MCACHE" 0 \
+                    query-mcache "$MCACHE" 1 \
+|| fail query-mcache $?
+
+echo Testing delete-mcache
+
+"$BIN"/fd_tango_ctl delete-mcache           && fail delete-mcache $?
+"$BIN"/fd_tango_ctl delete-mcache bad       && fail delete-mcache $?
+"$BIN"/fd_tango_ctl delete-mcache "$MCACHE" || fail delete-mcache $?
+"$BIN"/fd_tango_ctl delete-mcache "$MCACHE" && fail delete-mcache $?
+
+echo Testing new-dcache
+
+"$BIN"/fd_tango_ctl new-dcache                                && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"                        && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664                && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664 512            && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664 512 32 0       && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache bad/name   1664 512 32 0  4096 && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    -1   512 32 0  4096 && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664 -1  32 0  4096 && fail new-dcache $?
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664 512 -1 0  4096 && fail new-dcache $?
+# compact is zero or non-zero
+"$BIN"/fd_tango_ctl new-dcache "$WKSP"    1664 512 32 0  -1   && fail new-dcache $?
+
+DCACHE0=$("$BIN"/fd_tango_ctl new-dcache "$WKSP" 1664 512 32 0 4096 || fail new-dcache $?)
+DCACHE1=$("$BIN"/fd_tango_ctl new-dcache "$WKSP" 1664 512 32 1 4096 || fail new-dcache $?)
+
+echo Testing new-dcache-raw
+
+"$BIN"/fd_tango_ctl new-dcache-raw                         && fail new-dcache-raw $?
+"$BIN"/fd_tango_ctl new-dcache-raw "$WKSP"                 && fail new-dcache-raw $?
+"$BIN"/fd_tango_ctl new-dcache-raw "$WKSP"    2097152      && fail new-dcache-raw $?
+"$BIN"/fd_tango_ctl new-dcache-raw bad/name   2097152 4096 && fail new-dcache-raw $?
+"$BIN"/fd_tango_ctl new-dcache-raw "$WKSP"    -1      4096 && fail new-dcache-raw $?
+"$BIN"/fd_tango_ctl new-dcache-raw "$WKSP"    2097152 -1   && fail new-dcache-raw $?
+
+DCACHE2=$("$BIN"/fd_tango_ctl new-dcache-raw "$WKSP" 2097152 4096 || fail new-dcache-raw $?)
+
+echo Testing query-dcache
+
+"$BIN"/fd_tango_ctl query-dcache              && fail query-dcache $?
+"$BIN"/fd_tango_ctl query-dcache "$DCACHE0"   && fail query-dcache $?
+"$BIN"/fd_tango_ctl query-dcache bad      0   && fail query-dcache $?
+# verbose is zero or non-zero
+"$BIN"/fd_tango_ctl query-dcache "$DCACHE0" 0 query-dcache "$DCACHE0" 1 \
+                    query-dcache "$DCACHE1" 0 query-dcache "$DCACHE1" 1 \
+                    query-dcache "$DCACHE2" 0 query-dcache "$DCACHE2" 1 \
+|| fail query-dcache $?
+
+echo Testing delete-dcache
+
+"$BIN"/fd_tango_ctl delete-dcache            && fail delete-dcache $?
+"$BIN"/fd_tango_ctl delete-dcache bad        && fail delete-dcache $?
+"$BIN"/fd_tango_ctl delete-dcache "$DCACHE0" \
+                    delete-dcache "$DCACHE1" \
+                    delete-dcache "$DCACHE2" \
+|| fail delete-dcache $?
+"$BIN"/fd_tango_ctl delete-dcache "$DCACHE0" && fail delete-dcache $?
+"$BIN"/fd_tango_ctl delete-dcache "$DCACHE1" && fail delete-dcache $?
+"$BIN"/fd_tango_ctl delete-dcache "$DCACHE2" && fail delete-dcache $?
+
+echo Testing new-fseq
+
+"$BIN"/fd_tango_ctl new-fseq                 && fail new-fseq $?
+"$BIN"/fd_tango_ctl new-fseq "$WKSP"         && fail new-fseq $?
+"$BIN"/fd_tango_ctl new-fseq bad/name 2345   && fail new-fseq $?
+# all seq valid
+FSEQ=$("$BIN"/fd_tango_ctl new-fseq "$WKSP" 2345 || fail new-fseq $?)
+
+echo Testing query-fseq
+
+"$BIN"/fd_tango_ctl query-fseq           && fail query-fseq $?
+"$BIN"/fd_tango_ctl query-fseq "$FSEQ"   && fail query-fseq $?
+"$BIN"/fd_tango_ctl query-fseq bad   0   && fail query-fseq $?
+# verbose is zero or non-zero
+"$BIN"/fd_tango_ctl query-fseq "$FSEQ" 0 || fail query-fseq $?
+"$BIN"/fd_tango_ctl query-fseq "$FSEQ" 1 || fail query-fseq $?
+
+echo Testing delete-fseq
+
+"$BIN"/fd_tango_ctl delete-fseq         && fail delete-fseq $?
+"$BIN"/fd_tango_ctl delete-fseq bad     && fail delete-fseq $?
+"$BIN"/fd_tango_ctl delete-fseq "$FSEQ" || fail delete-fseq $?
+"$BIN"/fd_tango_ctl delete-fseq "$FSEQ" && fail delete-fseq $?
+
+echo Testing new-cnc
+
+"$BIN"/fd_tango_ctl new-cnc                              && fail new-cnc $?
+"$BIN"/fd_tango_ctl new-cnc "$WKSP"                      && fail new-cnc $?
+"$BIN"/fd_tango_ctl new-cnc "$WKSP"       3456           && fail new-cnc $?
+"$BIN"/fd_tango_ctl new-cnc "$WKSP"       3456 4567      && fail new-cnc $?
+"$BIN"/fd_tango_ctl new-cnc bad/name      3456 4567 4096 && fail new-cnc $?
+# type is arbitrary
+# now is arbitrary
+"$BIN"/fd_tango_ctl new-cnc "$WKSP"       3456 4567 -1   && fail new-cnc $?
+CNC=$("$BIN"/fd_tango_ctl new-cnc "$WKSP" 3456 4567 4096 || fail new-cnc $?)
+
+echo Testing query-cnc
+
+"$BIN"/fd_tango_ctl query-cnc          && fail query-cnc $?
+"$BIN"/fd_tango_ctl query-cnc "$CNC"   && fail query-cnc $?
+"$BIN"/fd_tango_ctl query-cnc bad  0   && fail query-cnc $?
+# verbose is zero or non-zero
+"$BIN"/fd_tango_ctl query-cnc "$CNC" 0 || fail query-cnc $?
+"$BIN"/fd_tango_ctl query-cnc "$CNC" 1 || fail query-cnc $?
+
+echo Testing signal-cnc
+
+"$BIN"/fd_tango_ctl signal-cnc             && fail signal-cnc $?
+"$BIN"/fd_tango_ctl signal-cnc "$CNC"      && fail signal-cnc $?
+"$BIN"/fd_tango_ctl signal-cnc bad  halt   && fail signal-cnc $?
+#"$BIN"/fd_tango_ctl signal-cnc "$CNC" halt || fail signal-cnc $? # Not doing this here as this waits for signal to clear
+
+echo Testing delete-cnc
+
+"$BIN"/fd_tango_ctl delete-cnc        && fail delete-cnc $?
+"$BIN"/fd_tango_ctl delete-cnc bad    && fail delete-cnc $?
+"$BIN"/fd_tango_ctl delete-cnc "$CNC" || fail delete-cnc $?
+"$BIN"/fd_tango_ctl delete-cnc "$CNC" && fail delete-cnc $?
+
+echo Testing new-tcache
+
+"$BIN"/fd_tango_ctl new-tcache                     && fail new-tcache $?
+"$BIN"/fd_tango_ctl new-tcache "$WKSP"             && fail new-tcache $?
+"$BIN"/fd_tango_ctl new-tcache "$WKSP"    512      && fail new-tcache $?
+"$BIN"/fd_tango_ctl new-tcache bad/name   512 2048 && fail new-tcache $?
+"$BIN"/fd_tango_ctl new-tcache "$WKSP"    -1  2048 && fail new-tcache $?
+"$BIN"/fd_tango_ctl new-tcache "$WKSP"    512 -1   && fail new-tcache $?
+TCACHE=$("$BIN"/fd_tango_ctl new-tcache "$WKSP" 512 2048 || fail new-tcache $?)
+
+echo Testing query-tcache
+
+"$BIN"/fd_tango_ctl query-tcache             && fail query-tcache $?
+"$BIN"/fd_tango_ctl query-tcache "$TCACHE"   && fail query-tcache $?
+"$BIN"/fd_tango_ctl query-tcache bad     0   && fail query-tcache $?
+# verbose is zero or non-zero
+"$BIN"/fd_tango_ctl query-tcache "$TCACHE" 0 \
+                    query-tcache "$TCACHE" 1 \
+|| fail query-tcache $?
+
+echo Testing reset-tcache
+
+"$BIN"/fd_tango_ctl reset-tcache           && fail reset-tcache $?
+"$BIN"/fd_tango_ctl reset-tcache bad       && fail reset-tcache $?
+"$BIN"/fd_tango_ctl reset-tcache "$TCACHE" || fail reset-tcache $?
+
+echo Testing delete-tcache
+
+"$BIN"/fd_tango_ctl delete-tcache           && fail delete-tcache $?
+"$BIN"/fd_tango_ctl delete-tcache bad       && fail delete-tcache $?
+"$BIN"/fd_tango_ctl delete-tcache "$TCACHE" || fail delete-tcache $?
+"$BIN"/fd_tango_ctl delete-tcache "$TCACHE" && fail delete-tcache $?
+
+
+echo Fini
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
+
+echo pass
+echo Log N/A
+exit 0
+

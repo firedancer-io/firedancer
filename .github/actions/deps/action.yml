@@ -1,0 +1,54 @@
+name: deps
+description: 'Build and cache dependencies'
+inputs:
+  deps-script-path:
+    description: 'Path of deps.sh script'
+    required: true
+    default: './deps.sh'
+  deps-bundle-path:
+    description: 'Path of deps-bundle.sh script'
+    required: true
+    default: './contrib/deps-bundle.sh'
+outputs: {}
+runs:
+  using: composite
+  steps:
+    - name: Has apt-get?
+      shell: bash
+      run: |
+        if command -v apt-get > /dev/null 2>&1; then
+          echo "HAS_APT_GET=1" >> $GITHUB_ENV
+        else
+          echo "HAS_APT_GET=0" >> $GITHUB_ENV
+        fi
+
+    - name: apt-get update
+      shell: bash
+      run: sudo apt-get update
+      if: env.HAS_APT_GET == '1'
+
+    - id: deps-sh-hash
+      shell: bash
+      run: sha256sum '${{ inputs.deps-script-path }}' | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
+
+    - id: deps-sh-cache
+      uses: actions/cache@v3
+      with:
+        path: deps-bundle.tar.zst
+        key: ${{ runner.os }}-deps-sh-${{ steps.deps-sh-hash.outputs.HASH }}
+
+    - name: Install system level dependencies
+      shell: bash
+      run: FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' check
+
+    - name: Install dependencies from cache
+      shell: bash
+      run: tar -Izstd -xvf deps-bundle.tar.zst
+      if: steps.deps-sh-cache.outputs.cache-hit == 'true'
+
+    - name: Install dependencies from scratch
+      shell: bash
+      run: |
+        FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' install
+        '${{ inputs.deps-bundle-path }}'
+      if: steps.deps-sh-cache.outputs.cache-hit != 'true'

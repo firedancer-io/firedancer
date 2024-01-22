@@ -1,0 +1,56 @@
+# There are two policies involved in booting Firedancer, one for the
+# init process that creates a child process with a PID namespace, and
+# one for the child process with the PID namespace which launches tiles.
+#
+# This policy is for the child process which launches tiles.  This
+# process is the init process (PID 0) of the PID namespace, and so if
+# it is killed all Firedancer tiles will be terminated by the kernel.
+
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+unsigned int logfile_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)
+
+# supervisor: poll for any child tile process to exit
+#
+# Tiles should not exit on their own, so after booting them the pidns
+# process simply waits for any child to exit, and if this happens
+# terminates the whole process group with a diagnostic message.
+#
+# Pipe file descriptors are used with poll() to detect process exit (the
+# pipe will SIGHUP) rather than waitpid() so that we can wait for
+# grandchildren and the parent process, rather than just direct
+# children.  The third parameter to poll(), timeout, is an int, and we
+# pass -1.  The BPF program treats all args as ulongs though.
+poll: (and (eq (arg 2) "(unsigned int)-1"))
+
+# supervisor: get exited process exit status
+#
+# Once the parent or a child process has exited, the pidns will wait4()
+# it to get the exit status and print diagnostic information before
+# terminating the rest of the process group.
+wait4: (and (or (eq (arg 2) "(int)__WALL | (int)WNOHANG")
+                (eq (arg 2) "(int)__WALL"))
+            (eq (arg 3) 0))
+
+# supervisor: exit when a child process exits
+#
+# When the wait4 above completes, the child process has exited and the
+# parent will now need to exit itself, which will terminate all tiles
+# as well.
+exit_group

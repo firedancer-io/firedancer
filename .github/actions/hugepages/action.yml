@@ -1,0 +1,18 @@
+name: hugepages
+description: 'Setup 1 GiB gigantic pages'
+inputs:
+  count:
+    description: 'Number of huge pages'
+    required: true
+    default: '64'
+outputs: {}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -x
+        sudo src/util/shmem/fd_shmem_cfg fini || true
+        sudo src/util/shmem/fd_shmem_cfg init 0666 $USER "" || true
+        sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count }}' gigantic 0
+        sudo chown -R $USER:$USER /mnt/.fd

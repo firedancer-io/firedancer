@@ -1,0 +1,269 @@
+#!/bin/bash
+
+fail() {
+  rm -fv "$CHECKPT"
+  echo FAIL: "$1" unexpected exit code "$2"
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_wksp_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+CHECKPT=test_fd_wksp_ctl.checkpt
+STYLE=0
+INFO="The quick brown fox jumps over the lazy dog"
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Try to clean up any leftovers from previous runs (including same name on multiple pages)
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1
+rm -fv "$CHECKPT"
+
+echo Testing no-op
+
+"$BIN"/fd_wksp_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_wksp_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_wksp_ctl help || fail help $?
+
+echo Testing tag
+
+"$BIN"/fd_wksp_ctl tag   && fail tag $?
+"$BIN"/fd_wksp_ctl tag 1 || fail tag $?
+
+echo Testing new
+
+"$BIN"/fd_wksp_ctl new                                                && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"                                        && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT"                         && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ                && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ $CPU_IDX       && fail new $?
+"$BIN"/fd_wksp_ctl new bad/name   "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    0           $PAGE_SZ $CPU_IDX $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" bad_sz   $CPU_IDX $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ -1       $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ ""       $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "q"      $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0q1"    $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-"     $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-q"    $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "1-0"    $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "q-10/2" $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0q10/2" $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-q/2"  $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-10%2" $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-10/"  $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0-10/q" $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "10-0/2" $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ "0;1"    $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ 0-1024   $MODE && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ $CPU_IDX -1    && fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE || fail new $?
+"$BIN"/fd_wksp_ctl new "$WKSP"    "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE && fail new $?
+
+echo Testing alloc
+
+"$BIN"/fd_wksp_ctl alloc                                          && fail alloc $?
+"$BIN"/fd_wksp_ctl alloc "$WKSP"                                  && fail alloc $?
+"$BIN"/fd_wksp_ctl alloc "$WKSP"  4096                            && fail alloc $?
+"$BIN"/fd_wksp_ctl alloc bad/name 4096 2097152                    && fail alloc $?
+"$BIN"/fd_wksp_ctl alloc "$WKSP"  -1   2097152                    && fail alloc $?
+"$BIN"/fd_wksp_ctl alloc "$WKSP"  4096 -1                         && fail alloc $?
+
+GADDR=$("$BIN"/fd_wksp_ctl alloc "$WKSP" 4096 2097152 || fail alloc $?)
+
+GADDR1=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
+GADDR2=$("$BIN"/fd_wksp_ctl tag 1234 alloc "$WKSP" 4096 4096 || fail alloc $?)
+GADDR3=$("$BIN"/fd_wksp_ctl tag 2345 alloc "$WKSP" 4096 4096 || fail alloc $?)
+
+echo Testing checkpt
+
+"$BIN"/fd_wksp_ctl checkpt                                              && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"                                      && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT"                          && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE"                  && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE"         && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt bad/name "$CHECKPT" "$MODE" "$STYLE" "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" -1      "$STYLE" "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" -1       "$INFO" && fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE" "$INFO" || fail checkpt $?
+"$BIN"/fd_wksp_ctl checkpt "$WKSP"  "$CHECKPT" "$MODE" "$STYLE" "$INFO" && fail checkpt $?
+
+echo Testing checkpt-query
+
+"$BIN"/fd_wksp_ctl checkpt-query              && fail checkpt-query $?
+"$BIN"/fd_wksp_ctl checkpt-query "$CHECKPT"   && fail checkpt-query $?
+"$BIN"/fd_wksp_ctl checkpt-query "$CHECKPT" 0 \
+                   checkpt-query "$CHECKPT" 1 \
+                   checkpt-query "$CHECKPT" 2 || fail checkpt-query $?
+
+echo Testing info
+
+"$BIN"/fd_wksp_ctl info         && fail info $?
+"$BIN"/fd_wksp_ctl info "$WKSP" && fail info $?
+"$BIN"/fd_wksp_ctl info bad     1234 \
+                   info "$WKSP"    0 \
+                   info "$WKSP" 4096 \
+                   info "$WKSP"    2 \
+                   info "$WKSP" 1234 \
+                   info "$WKSP" 2345 \
+                   info "$WKSP" 1234 \
+|| fail info $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing memset
+
+"$BIN"/fd_wksp_ctl memset              && fail memset $?
+"$BIN"/fd_wksp_ctl memset "$GADDR"     && fail memset $?
+"$BIN"/fd_wksp_ctl memset bad/name 0   || fail memset $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+"$BIN"/fd_wksp_ctl memset "$GADDR" 0   || fail memset $?
+
+echo Testing check
+
+"$BIN"/fd_wksp_ctl check            && fail check $?
+"$BIN"/fd_wksp_ctl check bad/name   && fail check $?
+"$BIN"/fd_wksp_ctl check "$WKSP"    || fail check $?
+
+echo Testing verify
+
+"$BIN"/fd_wksp_ctl verify            && fail verify $?
+"$BIN"/fd_wksp_ctl verify bad/name   && fail verify $?
+"$BIN"/fd_wksp_ctl verify "$WKSP"    || fail verify $?
+
+echo Testing rebuild
+
+"$BIN"/fd_wksp_ctl rebuild              && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild "$WKSP"      && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild bad/name -   && fail rebuild $?
+"$BIN"/fd_wksp_ctl rebuild "$WKSP"  -   \
+                   rebuild "$WKSP"  123 \
+|| fail rebuild $?
+
+echo Testing usage
+
+"$BIN"/fd_wksp_ctl usage               && fail usage $?
+"$BIN"/fd_wksp_ctl usage bad/name      && fail usage $?
+"$BIN"/fd_wksp_ctl usage bad/name      1 \
+                   usage "$WKSP"       1 \
+                   usage "$WKSP"    1234 \
+                   usage "$WKSP"    2345 \
+|| fail usage $?
+
+echo Testing query
+
+"$BIN"/fd_wksp_ctl query          && fail query $?
+"$BIN"/fd_wksp_ctl query bad/name && fail query $?
+"$BIN"/fd_wksp_ctl query "$WKSP"  || fail query $?
+
+echo Testing tag-query
+
+"$BIN"/fd_wksp_ctl tag-query          && fail tag-query $?
+"$BIN"/fd_wksp_ctl tag-query bad/name \
+                   tag-query "$GADDR"   \
+                   tag-query "$GADDR1"  \
+                   tag-query "$GADDR2"  \
+                   tag-query "$GADDR3"  \
+|| fail tag-query $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing tag-free
+
+"$BIN"/fd_wksp_ctl tag-free         && fail tag-free $?
+"$BIN"/fd_wksp_ctl tag-free "$WKSP" && fail tag-free $?
+"$BIN"/fd_wksp_ctl tag-free bad     1234 \
+                   tag-free "$WKSP"    0 \
+                   tag-free "$WKSP" 4096 \
+                   tag-free "$WKSP"    2 \
+                   tag-free "$WKSP" 1234 \
+                   tag-free "$WKSP" 2345 \
+                   tag-free "$WKSP" 1234 \
+|| fail tag-free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing free
+
+"$BIN"/fd_wksp_ctl free          && fail free $?
+"$BIN"/fd_wksp_ctl free bad/name || fail free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+"$BIN"/fd_wksp_ctl free "$GADDR" || fail free $?
+"$BIN"/fd_wksp_ctl free "$GADDR" || fail free $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Testing reset
+
+"$BIN"/fd_wksp_ctl reset          && fail reset $?
+"$BIN"/fd_wksp_ctl reset bad/name && fail reset $?
+"$BIN"/fd_wksp_ctl reset "$WKSP"  || fail reset $?
+
+echo Testing restore
+
+"$BIN"/fd_wksp_ctl restore                         && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"                 && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"  "$CHECKPT"     && fail restore $?
+"$BIN"/fd_wksp_ctl restore bad/name "$CHECKPT"     && fail restore $?
+"$BIN"/fd_wksp_ctl restore "$WKSP"  "$CHECKPT" -   query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 123 query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 123 query "$WKSP" check "$WKSP" \
+                   restore "$WKSP"  "$CHECKPT" 234 query "$WKSP" check "$WKSP" \
+|| fail restore $?
+rm -fv "$CHECKPT"
+
+# Test checkpt empty wksp, query empty checkpt, restore empty to empty,
+# restore non-empty to empty
+
+"$BIN"/fd_wksp_ctl reset         "$WKSP"                                          \
+                   checkpt       "$WKSP" "$CHECKPT" "$MODE" "$STYLE" "$INFO"      \
+                   checkpt-query "$CHECKPT" 2                                     \
+                   restore       "$WKSP" "$CHECKPT" - query "$WKSP" check "$WKSP" \
+                   alloc         "$WKSP" 1 1          query "$WKSP" check "$WKSP" \
+                   restore       "$WKSP" "$CHECKPT" - query "$WKSP" check "$WKSP" \
+|| fail reset $?
+rm -fv "$CHECKPT"
+
+echo Testing delete
+
+"$BIN"/fd_wksp_ctl delete          && fail delete $?
+"$BIN"/fd_wksp_ctl delete bad/name && fail delete $?
+"$BIN"/fd_wksp_ctl delete "$WKSP"  || fail delete $?
+
+echo Testing multi
+
+"$BIN"/fd_wksp_ctl new           "$WKSP" "$PAGE_CNT" $PAGE_SZ $CPU_IDX $MODE check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   alloc         "$WKSP" 1 1                                 check "$WKSP" \
+                   alloc         "$WKSP" 2 2                                 check "$WKSP" \
+                   alloc         "$WKSP" 4 3                                 check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   checkpt       "$WKSP" "$CHECKPT" "$MODE" "$STYLE" "$INFO" check "$WKSP" \
+                   checkpt-query "$CHECKPT" 2                                check "$WKSP" \
+                   reset         "$WKSP"                                     check "$WKSP" \
+                   alloc         "$WKSP" 8 8                                 check "$WKSP" \
+                   restore       "$WKSP" "$CHECKPT" -                        check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   reset         "$WKSP"                                     check "$WKSP" \
+                   query         "$WKSP"                                     check "$WKSP" \
+                   delete        "$WKSP"                                                   \
+|| fail multi $?
+rm -fv "$CHECKPT"
+
+echo pass
+echo Log N/A
+exit 0

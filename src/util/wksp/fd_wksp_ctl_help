@@ -1,0 +1,110 @@
+
+Usage: fd_wksp_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+tag val
+- Sets the tag for subsequent wksp allocations to val.  Default is 1.
+
+new wksp page_cnt page_sz cpu_idx_seq mode
+- Create a workspace named wksp from page_cnt page_sz pages distributed
+  over numa nodes near cpu_idx_seq.  The region will have the unix
+  permissions specified by mode (assumed octal).  See fd_shmem_ctl help
+  for more details how the pages will be distributed over numa nodes.
+
+delete wksp
+- Delete a workspace named wksp.  If multiple shmem regions exist with
+  same name, try to use the shmem region backed by the largest page size
+
+alloc wksp align sz
+- Allocates sz bytes with global address alignment align from the wksp
+  tagged with the tag value specified above.  align 0 means use the
+  default alignment.  Prints the wksp cstr address of the allocation to
+  stdout on success.
+
+info wksp tag
+- Prints the wksp_gaddr and sz of the wksp allocation matching tag to
+  stdout in the form "[wksp_gaddr] [sz]".  If there are multiple
+  allocations with the same tag, prints the allocation with the lowest
+  gaddr.  If there no allocations that match tag, prints "- 0".
+  Technically speaking, this always succeeds but logs any weirdness
+  detected.
+
+free wksp_gaddr
+- Free allocation pointed to by wksp cstr address wksp_gaddr.
+  wksp_gaddr can point at any byte in the allocation.  Technically
+  speaking, this always succeeds but logs any weirdness detected.
+
+tag-query wksp_gaddr
+- Prints the tag associated with wksp_gaddr to stdout (tags are
+  positive).  If wksp_gaddr does not point to a byte in a wksp
+  allocation, prints 0.  Technically speaking, this always succeeds but
+  logs any weirdness detected.
+
+tag-free wksp tag
+- Free all wksp allocations with the given tag.  Technically speaking,
+  this always succeeds but logs any weirdness detected.
+
+memset wksp_gaddr c
+- Memset allocation pointed to by wksp cstr address wksp_gaddr to byte
+  c.  wksp_gaddr can point at any byte in the allocation.  Technically
+  speaking, this always succeeds but logs any weirdness detected.
+
+check wksp
+- Check if any processes died in middle of a wksp operation.  If not,
+  succeed immediately.  If so, verify and rebuild the wksp as necessary
+  (logging details).  This can fail if the rebuild process detects
+  unresolvable memory corruption.
+
+verify wksp
+- Similar to check but always does a full verification.  This can fail
+  if the verify process finds errors (logs details).
+
+rebuild wksp seed
+- This will rebuild the wksp.  Rebuilding impact any current allocations
+  and can repair many forms of metadata corruption.  This can fail if
+  the rebuild process detects unresolvable memory corruption.  Seed is
+  an arbitrary 32-bit number.  A '-' indicates to rebuild using the
+  current seed.
+
+reset wksp
+- Free all allocations in a workspace.
+
+usage wksp tag
+- Prints a summary of workspace usage to stdout with total, used by
+  all allocs, free, and used by allocs with the given tag.  Technically
+  speaking, this always succeeds but logs any weirdness detected (if
+  wksp does not appear to be a wksp, prints a single line "-" to
+  stdout).
+
+query wksp
+- Print the detailed workspace usage to stdout.
+
+checkpt wksp checkpt mode style info
+- Create a checkpoint for the workspace named wksp at the path checkpt.
+  The checkpt will have the unix permissions specified by mode (assumed
+  octal).  The style of checkpt is given by style.  info is a string
+  that the user can use to provide additional information about the
+  checkpoint.  Supported styles include:
+    0 - default (currently this is raw)
+    1 - raw ... all workspace allocations (partitions with a non-zero
+        tag) will be checkpointed.  Minimal compression and hashing will
+        be done to the checkpoint file.
+
+checkpt-query checkpt verbose
+- Query the checkpoint at the path checkpt.  Verbose indicates the
+  desired verbosity:
+   <1 - low:    checkpoint metadata information
+    1 - medium: low plus original wksp metadata and summary usage
+   >1 - high:   medium plus detailed workspace usage
+
+restore wksp checkpt seed
+- Free all allocations in the workspace named wksp and replace them with
+  allocations in the checkpoint at path checkpt.  The restored wksp will
+  be rebuilt with the given seed.  A '-' indicates to rebuild using the
+  wksp's current seed.  TODO: consider options to rebuild with the
+  checkpt seed.
+

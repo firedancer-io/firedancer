@@ -1,0 +1,73 @@
+#!/bin/bash
+
+set -e
+
+. tmp/test_xdp.conf
+
+DSTADDR=$1
+DSTPORT=$2
+
+CNC_ATTEMPT_CNT=10
+ROUND_TRIP_CNT=1000
+
+# Poll CNC for RX start
+
+for((i=0;i<$CNC_ATTEMPT_CNT;i++)); do
+  echo "Waiting for rx to start ... ($i/$CNC_ATTEMPT_CNT)"
+  if [[ "$("$BIN/fd_tango_ctl" query-cnc $CNC 0 2>/dev/null)" == "0" ]]; then
+    break
+  fi
+  sleep 0.25
+done
+if [[ $i == $CNC_ATTEMPT_CNT ]]; then
+  echo "ERR: Timed out waiting for rx"
+  exit 1
+fi
+
+echo "RX alive"
+# FIXME this might erroneously report alive if RX crashes after setting
+#       run flag -- should detect heartbeat too!
+
+# Send a few pings
+
+coproc sock (exec nc -u $DSTADDR $DSTPORT)
+
+SENT=0
+
+send_packet () {
+  echo "$1" >&"${sock[1]}"
+  SENT=$((SENT+1))
+}
+
+TIMEOUT=1
+TIMEOUTS=0
+ACKS=0
+
+recv_packet () {
+  if ! timeout $TIMEOUT read -r <&"${sock[0]}"; then
+    STATUS=$?
+    if [[ $STATUS == 124 ]]; then
+      TIMEOUTS=$((TIMEOUTS+1))
+    else
+      echo "ERR: nc failed ($STATUS)"
+      exit 1
+    fi
+    return 1
+  else
+    ACKS=$((ACKS+1))
+    return 0
+  fi
+}
+
+ROUND_TRIP_CNT=3
+echo "Sending $ROUND_TRIP_CNT packets"
+for((i=0;i<$ROUND_TRIP_CNT;i++)); do
+  send_packet HELLO
+  echo "Sent packet"
+  if recv_packet; then
+    echo "Received echo"
+  else
+    echo "Timed out"
+    exit 1
+  fi
+done

@@ -1,0 +1,39 @@
+# On every PR and main commit:
+# - Build on GCC and Clang
+# - Test on GCC
+
+name: Make
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - runtime
+  workflow_dispatch:
+jobs:
+  make-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    runs-on:
+      group: github-v1
+    env:
+      CC: ${{ matrix.compiler }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+
+      - name: Build everything
+        run: make -j -Otarget
+
+      - uses: ./.github/actions/hugepages
+
+      - name: Run unit tests
+        run: |
+          sudo prlimit --pid $$ --memlock=-1:-1
+          ./test.sh -j --page-sz gigantic
+          make run-runtime-test

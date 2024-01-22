@@ -1,0 +1,118 @@
+
+Usage: %s [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message
+
+init [BPF_DIR] [PERM] [USER] [GROUP]
+- Prepare an XDP environment by pinning the XDP redirect
+  program and associated eBPF maps in /sys/fs/bpf/[BPF_DIR].
+  All kernel OS resources allocated by fd_xdp_ctl will be
+  local to their [BPF_DIR], allowing for multiple installations
+  on the same machine.
+- /sys/fs/bpf must be a valid bpffs mount.
+- Creates the following files:
+  /sys/fs/bpf/[BPF_DIR]/udp_dsts  eBPF map of UDP/IP listen addrs
+- Must be re-run after each reboot.
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+- /sys/fs/bpf and /sys/fs/bpf/[BPF_DIR] are updated with
+  permission bits in [PERM] and set to owner [USER]:[GROUP].
+  Empty strings for [USER] are [GROUP] use current user
+  defaults.  A typical use case is
+  'init firedancer 0700 $(whoami) ""'
+
+fini [BPF_DIR]
+- Destroy all kernel resources installed by fd_xdp_ctl app
+  [BPF_DIR] including any XDP programs and eBPF maps.
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+
+hook-iface [BPF_DIR] [IFACE] [XDP_MODE]
+- Install the XDP redirect program to the network device
+  [IFACE]. The XDP installation mode [XDP_MODE] can be one of
+  "skb" (supported on all hardware), "drv" (requires driver
+  support), "hw" (requires NIC hardware support).
+- Any XDP program previously installed by fd_xdp_ctl will be
+  replaced. Other XDP programs are left intact.
+- Creates the following files:
+  /sys/fs/bpf/[BPF_DIR]/[IFACE]/xdp   Link to BPF_PROG_TYPE_XDP
+  /sys/fs/bpf/[BPF_DIR]/[IFACE]/xsks  BPF_MAP_TYPE_XSKMAP
+- Must be re-run after each reboot.
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+
+unhook-iface [BPF_DIR] [IFACE]
+- Remove an installation of the XDP program created by
+  fd_xdp_ctl add-iface [IFACE]. No-op if no such XDP
+  program is present on the given interface.
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+
+listen-udp-port [BPF_DIR] [IP_ADDR] [UDP_PORT] [PROTO]
+- Install listener for protocol [PROTO] on IP destination
+  address [IP_ADDR] and UDP destination port [UDP_PORT].
+  [IP_ADDR] must be an IPv4 address in the form of "x.y.z.w".
+  [UDP_PORT] must be a decimal integer in [0;65536).
+  On interfaces running the XDP redirect program, redirects
+  matching packets to active XSKs in [BPF_DIR].
+  If no XSK matches, the affected traffic will be dropped.
+  Fails if a listener installed by fd_xdp_ctl is already
+  registered on this port.
+- Redirected traffic will not reach other OS network facilities
+  such as lower-priority XDP programs or AF_INET sockets.
+- Valid values for [PROTO]:
+  - gossip: Solana Gossip protocol
+  - tpu-udp-user: User txn requests via TPU/UDP
+  - tpu-quic-user: User txn requests via TPU/QUIC
+  - tpu-quic-vote: Vote txn requests via TPU/QUIC
+  - tvu: Turbine shred stream
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+
+release-udp-port [BPF_DIR] [IP_ADDR] [UDP_PORT]
+- Uninstall listener on [IP_ADDR]:[UDP_PORT].
+  XSKs bound to the eBPF program with the given pin-dir will
+  no longer receive packets with the given UDP destination
+  port. Any other sockets listening on this UDP port will start
+  to receive packets again.
+- Requires CAP_SYS_ADMIN, see capabilities(7).
+
+new-xsk [WKSP] [FRAME_SZ] [RX_DEPTH] [TX_DEPTH]
+- Create a new XSK buffer in [WKSP] with the given frame size
+  [FRAME_SZ], RX/Fill queue depth [RX_DEPTH], and TX/Completion
+  queue depth [TX_DEPTH].
+- The value of [FRAME_SZ] is restricted by the Linux kernel.
+  As of Linux 4.18, valid values include 2048 and 4096.
+- Prints the wksp gaddr of the xdp to stdout.
+
+bind-xsk [WKSP:GADDR] [BPF_DIR] [IFACE] [IFACE_QUEUE]
+- Bind the XSK buffer identified by [WKSP:GADDR] to network
+  device [IFACE] on queue number [IFACE_QUEUE].
+- Note that does not create any XSK file descriptors at the
+  time of running this command. XSK fds are created and
+  assigned to this buffer by the receiving tile at runtime.
+- As RSS (receive side scaling) is not supported for all
+  protocols yet (e.g. QUIC), each queue of an interface should
+  be bound to an XSK. This is because the kernel cannot
+  redirect a packet to an XSK bound to a different RX queue
+  than a packet arrives on, and without RSS, packets will
+  arrive at arbitrary queues depending on NIC configuration.
+  Failure to bind at least one XSK for each active iface queue
+  will result in packet loss.
+- The eBPF program installation done in hook-iface must use
+  the same [BPF_DIR] as bind-xsk.
+
+unbind-xsk [WKSP:GADDR]
+- Unbinds the XSK buffer identified by [WKSP:GADDR] from a network
+  device queue. No XSK fd may be assigned to this buffer at the time of
+  running this command.
+
+delete-xsk [WKSP:GADDR]
+- Deletes the XSK buffer at [WKSP:GADDR]. No XSK fd may be
+  assigned to this buffer at the time of running this command.
+
+new-xsk-aio [WKSP] [TX_DEPTH] [AIO_DEPTH]
+- Creates a new XSK fd_aio driver in [WKSP] with the given
+  TX/Completion queue depth [TX_DEPTH] and the given aio batch
+  packet count [AIO_DEPTH].
+
+delete-xsk-aio [WKSP:GADDR]
+- Destroys the XSK fd_aio driver at [WKSP:GADDR].

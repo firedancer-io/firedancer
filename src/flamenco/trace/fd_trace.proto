@@ -1,0 +1,118 @@
+syntax = "proto2";
+package io.firedancer.trace;
+
+import "nanopb.proto";
+option (nanopb_fileopt).package = "fd_soltrace";
+option (nanopb_fileopt).fallback_type = FT_POINTER;
+
+import "src/flamenco/types/fd_solana_block.proto";
+
+// TxnTrace is the top-level structure containing a captured transaction
+// execution input, and optionally a resulting diff.
+message TxnTrace {
+    required TxnInput input = 1
+        [(nanopb).type = FT_POINTER];
+
+    optional TxnDiff diff = 2
+        [(nanopb).type = FT_POINTER];
+}
+
+// TxnInput contains the complete set of inputs to perform a
+// standalone transaction execution.
+message TxnInput {
+    required .solana.storage.ConfirmedBlock.Message transaction = 1;
+
+    // A list of accounts.  Length must match the number of accounts
+    // specified in the transaction.
+    repeated Account account = 2;
+
+    required ImplicitState state = 3;
+}
+
+// TxnDiff contains the complete set of changes directly induced
+// by transaction execuction.
+message TxnDiff {
+    repeated Account account = 1;
+
+    // Lamports collected during current slot, after txn execution
+    required uint64 collected_fees = 2;
+}
+
+message Account {
+    required AccountMeta meta = 1;
+
+    // data, can be ommitted if unchanged.
+    optional bytes data = 2;
+}
+
+message AccountMeta {
+    required uint64 lamports = 1;
+    required uint64 slot = 2;
+    required uint64 rent_epoch = 3;
+    required bytes owner = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required bool executable = 5;
+}
+
+message KeyedAccount {
+    required bytes pubkey = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    required Account account = 2;
+}
+
+// ImplicitState is the complete set of runtime information that is not
+// explicitly mentioned in the transaction message.
+message ImplicitState {
+    // Sysvars includes clock (current slot), rent, epoch schedule, etc.
+    repeated KeyedAccount sysvar = 1;
+
+    // Slot number of last block.
+    required uint64 prev_slot = 2;
+
+    // Blockhash queue
+    repeated RecentBlockhash blockhash = 3;
+
+    // Bank hash at previous slot.
+    optional bytes bank_hash = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // Capitalization of native asset.
+    optional uint64 capitalization = 5;
+
+    // Block height including current block.
+    optional uint64 block_height = 6;
+
+    // Active stake per vote account in current epoch.
+    repeated ValidatorStake epoch_stakes = 7;
+
+    // Lamports collected during current slot, before executing this txn
+    required uint64 collected_fees = 8;
+
+    // Not a sysvar
+    required FeeRateGovernor fee_rate_governor = 9;
+
+    // Feature accounts
+    repeated KeyedAccount feature = 10;
+}
+
+message ValidatorStake {
+    required bytes vote_account_key = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    required uint64 lamports = 2;
+}
+
+message RecentBlockhash {
+    required bytes hash = 1
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    required uint64 lamports_per_signature = 2;
+}
+
+message FeeRateGovernor {
+    required uint64 target_lamports_per_signature = 1;
+    required uint64 target_signatures_per_slot    = 2;
+    required uint64 min_lamports_per_signature    = 3;
+    required uint64 max_lamports_per_signature    = 4;
+    required uint32 burn_percent                  = 5;
+}

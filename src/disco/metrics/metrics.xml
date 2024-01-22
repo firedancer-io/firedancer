@@ -1,0 +1,136 @@
+<!--
+This file describes all possible metrics that could potentially be
+collected and reported by Firedancer.  Metrics are grouped into
+categories.
+
+These metrics must be backwards compatible and you should not change
+existing metric names.  Instead they should be deprecated and a new
+metric introduced.
+-->
+
+<metrics>
+
+<enum name="TpuReasm">
+    <int value="0" name="Success" label="Success" />
+    <int value="1" name="ErrorOversize" label="Oversize message" />
+    <int value="2" name="ErrorSkip" label="Out-of-order data within QUIC stream" />
+    <int value="3" name="ErrorTransaction" label="Rejected transaction" />
+    <int value="4" name="ErrorState" label="Unexpected slot state" />
+</enum>
+
+<enum name="QuicStreamType">
+    <int value="0" name="BidiClient" label="Bidirectional client" />
+    <int value="1" name="BidiServer" label="Bidirectional server" />
+    <int value="2" name="UniClient" label="Unidirectional client" />
+    <int value="3" name="UniServer" label="Unidirectional server" />
+</enum>
+
+<group name="Link" link="all" linkside="out">
+    <counter name="SlowCount" summary="The number of times the consumer was detected as rate limiting consumer by the producer." />
+</group>
+
+<group name="Link" link="all" linkside="in">
+    <counter name="PublishedCount" summary="The number of times the link has consumed and published a fragment." />
+    <counter name="PublishedSizeBytes" summary="The total number of bytes read by the link consumer." />
+    <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
+    <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
+    <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
+    <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
+</group>
+
+<group name="Tile" tile="all">
+    <gauge name="Pid" summary="The process ID of the tile." />
+</group>
+
+<group name="Stem" tile="all">
+    <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0." />
+    <counter name="BackpressureCount" summary="Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing." />
+
+    <!-- The "ticks" converter means that the measurement is sampled in
+         ticks (so it can be done quickly) but reported to the metrics
+         observer as seconds.  The min and max are in terms of seconds,
+         not ticks, from 50 nanoseconds to 50 microseconds. -->
+    <histogram name="LoopHousekeepingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>
+            Duration of one iteration of the run loop which did
+            housekeeping. The various loop durations are mutually
+            exclusive and exhaustive, so the sum of time across all of
+            them is roughly the total running time of the tile. Loop
+            durations are per iteration of the run loop and
+            non-blocking, so for example each 'caught up' sample does
+            not represent the time we waited for new input data, but
+            rather how long each iteration of the spin loop waiting for
+            the data took.
+        </summary>
+    </histogram>
+    <histogram name="LoopBackpressureDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were backpressured by a consumer.</summary>
+    </histogram>
+    <histogram name="LoopCaughtUpDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because there was no new data to process.</summary>
+    </histogram>
+    <histogram name="LoopOverrunPollingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were overrun while polling.</summary>
+    </histogram>
+    <histogram name="LoopOverrunReadingDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we were overrun while reading.</summary>
+    </histogram>
+    <histogram name="LoopFilterBeforeFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment before reading it.</summary>
+    </histogram>
+    <histogram name="LoopFilterAfterFragmentDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which terminated because we filtered the fragment after reading it.</summary>
+    </histogram>
+    <histogram name="LoopFinishDurationSeconds" min="0.000000050" max="0.000050" converter="seconds">
+        <summary>Duration of one iteration of the run loop which received, did not filter, and processed the fragment.</summary>
+    </histogram>
+
+    <histogram name="FragmentFilteredSizeBytes" min="0" max="2094">
+        <summary>Size of each fragment that was filtered and not processed by the tile.</summary>
+    </histogram>
+    <histogram name="FragmentHandledSizeBytes" min="0" max="2094">
+        <summary>Size of each fragment that was processed (not filtered) by the tile.</summary>
+    </histogram>
+</group>
+
+<group name="QuicTile" tile="quic">
+    <counter name="NonQuicReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a non-QUIC UDP transaction." />
+    <counter name="NonQuicReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a non-QUIC UDP transaction." />
+    <counter name="ReassemblyAppend" enum="TpuReasm" summary="Result of fragment reassembly for a QUIC transaction." />
+    <counter name="ReassemblyPublish" enum="TpuReasm" summary="Result of publishing reassmbled fragment for a QUIC transaction." />
+
+    <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
+
+    <counter name="CryptoMallocFailure" summary="Number of tiles crypto_malloc failed to allocate bytes for OpenSSL." />
+
+    <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
+
+    <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
+    <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
+</group>
+
+<group name="Quic" tile="quic">
+    <counter name="ReceivedPackets" summary="Number of IP packets received." />
+    <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP, QUIC headers)." />
+    <counter name="SentPackets" summary="Number of IP packets sent." />
+    <counter name="SentBytes" summary="Total bytes sent (including IP, UDP, QUIC headers)." />
+    <gauge name="ConnectionsActive" summary="The number of currently active QUIC connections." />
+    <counter name="ConnectionsCreated" summary="The total number of connections that have been created." />
+    <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
+    <counter name="ConnectionsAborted" summary="Number of connections aborted." />
+    <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
+    <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
+    <counter name="ConnectionErrorTlsFail" summary="Number of connections that aborted due to TLS failure." />
+    <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
+    <counter name="HandshakesCreated" summary="Number of handshake flows created." />
+    <counter name="HandshakeErrorAllocFail" summary="Number of handshakes dropped due to alloc fail." />
+
+    <counter name="StreamOpened" enum="QuicStreamType" summary="Number of streams opened." />
+    <counter name="StreamClosed" enum="QuicStreamType" summary="Number of streams closed." />
+    <gauge name="StreamActive" enum="QuicStreamType" summary="Number of active streams." />
+
+    <counter name="StreamReceivedEvents" summary="Number of stream RX events." />
+    <counter name="StreamReceivedBytes" summary="Total stream payload bytes received." />
+</group>
+
+</metrics>

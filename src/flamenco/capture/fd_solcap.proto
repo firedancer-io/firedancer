@@ -1,0 +1,77 @@
+syntax = "proto3";
+package solana.capture;
+
+import "nanopb.proto";
+option (nanopb_fileopt).package = "fd_solcap";
+
+// FileMeta is the metadata blob part of the file header
+message FileMeta {
+    // Number of the first slot in this capture file
+    uint64 first_slot = 1;
+
+    // Total number of slots in this capture file
+    uint64 slot_cnt = 2;
+
+    // Magic number of main block type
+    fixed64 main_block_magic = 3;
+}
+
+// BankPreimage contains the pre-image of the bank hash for a given slot.
+// Only present for slots that were not skipped.
+message BankPreimage {
+    uint64 slot = 1;
+
+    bytes bank_hash = 2
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // prev_bank_hash is the bank hash of the previous block
+    bytes prev_bank_hash = 3
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // account_delta_hash is the hash of the changed accounts
+    bytes account_delta_hash = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // poh_hash is the Proof-of-History hash of the current block
+    bytes poh_hash = 5
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+
+    // signature_cnt is the number of transactions in the current block
+    // TODO is this correct?
+    uint64 signature_cnt = 6;
+
+    // account_cnt is the number of accounts changed in the current
+    // block.  This is also the number of leaves in the account delta
+    // Merkle tree.
+    uint64 account_cnt = 7;
+
+    // account_table_coff is offset from the first byte of the current
+    // chunk to the first byte of the account table chunk.
+    int64 account_table_coff = 8;
+}
+
+message AccountTableMeta {
+    // slot is the slot number that this accounts table refers to.
+    uint64 slot = 1;
+
+    // account_table_coff is the chunk offset to the first entry of the
+    // accounts table.
+    uint64 account_table_coff = 2;
+
+    // account_table_cnt is the number of records in the accounts table.
+    // Equals BankPreimage.account_cnt.
+    uint64 account_table_cnt = 3;
+}
+
+message AccountMeta {
+    uint64 lamports = 1;
+    uint64 slot = 2;
+    uint64 rent_epoch = 3;
+    bytes owner = 4
+        [(nanopb).max_size = 32, (nanopb).fixed_length = true];
+    bool executable = 5;
+
+    // data_coff is the chunk offset to account data.
+    int64 data_coff = 6;
+    uint64 data_sz = 7;
+}

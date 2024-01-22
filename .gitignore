@@ -1,0 +1,50 @@
+*ATTIC*
+/build
+bin
+unit-test
+tmp
+
+genhtml/
+target/
+*.lcov
+*.profraw
+
+# Rust
+**/Cargo.lock
+
+# Dependencies
+opt/
+deps-bundle.tar.zst
+
+# Nix
+/result
+
+# Vimdiff
+*.orig
+
+# Vim
+*.swp
+*.swo
+
+# Certificates
+*.csr
+*.crt
+*.pem
+
+# Packet Captures
+*.pcapng
+
+# Logs
+*.log
+
+# VitePress docs
+/book/.vitepress/cache
+/book/.vitepress/dist
+/book/node_modules
+
+# clangd
+.cache
+
+dump
+test.solcap
+test_ledger_backup

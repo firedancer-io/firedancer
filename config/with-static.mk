@@ -1,0 +1,2 @@
+CPPFLAGS+=-static
+LDFLAGS+=-static

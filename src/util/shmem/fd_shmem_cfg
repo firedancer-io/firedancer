@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+
+# Use FD_SHMEM_PATH from the environment if provided for hugetlbfs mount
+# path and fallback on "/mnt/.fd" if not
+
+SHMEM_PATH="${FD_SHMEM_PATH:-/mnt/.fd}"
+
+ALL_TYPES="gigantic huge normal"
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+BIN=$(dirname -- "$BASH_SOURCE")
+NUMA_CNT=`$BIN/fd_shmem_ctl numa-cnt --log-path "" 2> /dev/null`
+
+get_page_size() {
+  if [ "$1" = "normal" ]; then
+    echo 4096
+  elif [ "$1" = "huge" ]; then
+    echo 2097152
+  elif [ "$1" = "gigantic" ]; then
+    echo 1073741824
+  else
+    echo "get_page_size: fail, unsupported page type $1"
+    exit 1
+  fi
+}
+
+get_page_path() {
+  if [ "$1" = "huge" ]; then
+    echo "/sys/devices/system/node/node$2/hugepages/hugepages-2048kB"
+  elif [ "$1" = "gigantic" ]; then
+    echo "/sys/devices/system/node/node$2/hugepages/hugepages-1048576kB"
+  else
+    echo "get_page_path: fail, unsupported page type $1"
+    exit 1
+  fi
+}
+
+get_page_total() {
+  cat `get_page_path $1 $2`/nr_hugepages
+  if [ "$?" != "0" ]; then
+    echo "get_page_total: fail, probably an unsupported OS or not running with appropriate permissions"
+    exit 1
+  fi
+}
+
+get_page_free() {
+  cat `get_page_path $1 $2`/free_hugepages
+  if [ "$?" != "0" ]; then
+    echo "get_page_free: fail, probably an unsupported OS or not running with appropriate permissions"
+    exit 1
+  fi
+}
+
+try_defrag_memory() {
+  echo 1 > /proc/sys/vm/compact_memory # This is a best effort, we don't care if it fails
+  if [ "$?" = "0" ]; then
+    # Wait a tiny bit on success to let the O/S try to do some of
+    # this in the background
+    sleep 0.25
+  fi
+}
+
+init() {
+  SHMEM_PERM=$1
+  SHMEM_USER=$2
+  SHMEM_GROUP=$3
+
+  if [ -d $SHMEM_PATH ]; then
+    echo "init $1 $2 $3: fail, path $SHMEM_PATH exists"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+  mkdir -pv $SHMEM_PATH
+  if [ "$?" != "0" ]; then
+    echo "init $1 $2 $3: fail, unable to create path $SHMEM_PATH, probably not running with appropriate permissions"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  for t in $ALL_TYPES; do
+    MNT_PATH=$SHMEM_PATH/.$t
+    if [ -d $MNT_PATH ]; then
+      echo "init $1 $2 $3: fail, internal error, path $MNT_PATH exists"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+    mkdir -pv $MNT_PATH
+    if [ "$?" != "0" ]; then
+      echo "init $1 $2 $3: fail, internal error, unable to create path $MNT_PATH"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+
+    if grep -q $MNT_PATH /proc/mounts; then
+      echo "init $1 $2 $3: fail, internal error, mount $MNT_PATH already exists"
+      exit 1
+    fi
+    # mount point is large enough to cover the number of whole pages of
+    # system DRAM (in the proc/meminfo total memory sense) for maximum
+    # flexibility.  Since the pages themselves are large, the number of
+    # inodes required in the mount is still quite small practically.
+    # For normal pages, we need to use a tmpfs.
+    try_defrag_memory 2> /dev/null > /dev/null
+    if [ "$t" = "normal" ]; then
+      mount -v -t tmpfs tmpfs $MNT_PATH
+      if [ "$?" != "0" ]; then
+        echo "init $1 $2 $3: fail, mount failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
+    else
+      msz=`awk '/^MemTotal:/ {print $2}' /proc/meminfo` # In KiB
+      psz=`get_page_size $t`
+      msz=$((psz*((1024*msz)/psz))) # Round down to whole pages to be on safe side
+      if [ $msz -le 0 ]; then
+        echo "init $1 $2 $3: fail, msz calculation failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
+      mount -v -t hugetlbfs -o pagesize=$psz,size=$msz none $MNT_PATH
+      if [ "$?" != "0" ]; then
+        echo "init $1 $2 $3: fail, mount failed"
+        echo "Do $0 help for help"
+        exit 1
+      fi
+    fi
+    try_defrag_memory 2> /dev/null > /dev/null
+  done
+
+  chown -v -R $SHMEM_USER:$SHMEM_GROUP $SHMEM_PATH
+  if [ "$?" != "0" ]; then
+    echo "init $1 $2 $3: fail, chown failed"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  chmod -v -R $SHMEM_PERM $SHMEM_PATH
+  if [ "$?" != "0" ]; then
+    echo "init $1 $2 $3: fail, chmod failed"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  echo init $1 $2 $3: success
+}
+
+fini() {
+  if [ -d $SHMEM_PATH ]; then
+    try_defrag_memory 2> /dev/null > /dev/null
+    for t in $ALL_TYPES; do
+      umount -v $SHMEM_PATH/.$t
+      if [ "$?" != "0" ]; then
+        echo "fini: fail, umount failed; attempting to continue"
+        echo "Do $0 help for help"
+      fi
+    done
+    rm -rfv $SHMEM_PATH
+    if [ "$?" != "0" ]; then
+      echo "fini: fail, rm failed"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+    try_defrag_memory 2> /dev/null > /dev/null
+    echo fini: success
+  else
+    echo "fini: fail, path $SHMEM_PATH not accessible; probably uninitialized or not running with appropriate permissions"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+}
+
+query() {
+  echo ""
+  for t in $ALL_TYPES; do
+    if [ "$t" != "normal" ]; then
+      echo "$t pages:"
+      for((n=0;n<NUMA_CNT;n++)); do
+        echo -e "\tnuma $n: `get_page_total $t $n` total, `get_page_free $t $n` free"
+      done
+      echo ""
+    fi
+  done
+  if [ -d $SHMEM_PATH ]; then
+    echo "FD_SHMEM_PATH=$SHMEM_PATH"
+    echo ""
+    for t in $ALL_TYPES; do
+      echo "$t page backed shared memory regions ($SHMEM_PATH/.$t):"
+      for r in `ls $SHMEM_PATH/.$t`; do
+        printf "\t%-20s\t%-20s\t%s\n" $r "`ls -l $SHMEM_PATH/.$t/$r`"
+      done
+      echo ""
+    done
+    echo query: success
+  else
+    echo "query: fail, path $SHMEM_PATH not accessible; probably uninitialized or not running with appropriate permissions"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+}
+
+alloc() {
+  CNT=$1
+  TYPE=$2
+  NUMA=$3
+
+  if [ "$TYPE" = "normal" ]; then
+    echo "alloc $1 $2 $3: fail, normal pages do not require explicit allocation"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  T=`get_page_total $TYPE $NUMA`
+  F=`get_page_free  $TYPE $NUMA`
+  if [ "$T" != "$F" ]; then
+    echo "alloc $1 $2 $3: fail, some pages are in use ($F of $T are currently free)"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  try_defrag_memory 2> /dev/null > /dev/null
+  echo $CNT > `get_page_path $TYPE $NUMA`/nr_hugepages
+  if [ "$?" != "0" ]; then
+    echo "alloc $1 $2 $3: fail, probably not running as superuser"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+  try_defrag_memory 2> /dev/null > /dev/null
+
+  T=`get_page_total $TYPE $NUMA`
+  F=`get_page_free  $TYPE $NUMA`
+  if [ "$T" != "$CNT" ]; then
+    echo "alloc $1 $2 $3: fail, did not get expected number of pages ($F of $T pages are currently free)"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+  if [ "$T" != "$F" ]; then
+    echo "alloc $1 $2 $3: fail, some pages are already in use ($F of $T pages are currently free)"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+
+  echo alloc $1 $2 $3: success
+}
+
+reset() {
+  if [ -d $SHMEM_PATH ]; then
+    try_defrag_memory 2> /dev/null > /dev/null
+    for t in $ALL_TYPES; do
+      rm -vf $SHMEM_PATH/.$t/*
+      if [ "$?" != "0" ]; then
+        echo "reset: fail, rm failed, probably permissions"
+        echo "Do $0 help for help"
+        exit 1
+      fi
+    done
+    try_defrag_memory 2> /dev/null > /dev/null
+    echo "reset: success"
+  else
+    echo "query: fail, path $SHMEM_PATH not accessible; probably uninitialized or not running with appropriate permissions"
+    echo "Do $0 help for help"
+    exit 1
+  fi
+}
+
+if [ $# -lt 1 ]; then
+  echo "Commands not specified"
+  echo "Do $0 help for help"
+  exit 1
+fi
+
+while [ $# -gt 0 ]; do
+
+  OP=$1
+  shift 1
+
+  if [ "$OP" = "help" ]; then
+
+    echo ""
+    echo "Usage: $0 [cmd] [cmd args] [cmd] [cmd args] ..."
+    echo ""
+    echo "Commands are:"
+    echo ""
+    echo "  help"
+    echo "  - Print this help message"
+    echo ""
+    echo "  init [PERM] [USER] [GROUP]"
+    echo "  - Create the OS structures needed for a shared memory IPC domain.  Named"
+    echo "    shared memory region permission defaults will be in the the 'chmod"
+    echo "    [PERM]' / 'chown [USER]:[GROUP]' sense.  Empty strings for [USER] and"
+    echo "    [GROUP] are fine with the same interpretation as chown.  A typical use"
+    echo "    case is 'init 700 [USER] \"\"'.  Multiple domains can coexist"
+    echo "    concurrently at different hugetlbfs mount paths (see below for more"
+    echo "    details)."
+    echo "  - This likely needs to run as a superuser or with sudo"
+    echo ""
+    echo "  fini"
+    echo "  - Destroy the OS structures used for a shared memory IPC domain.  The"
+    echo "    domain to destroy is specified by the hugetlbfs mount path (see"
+    echo "    below for more details)."
+    echo "  - This likely needs to run as a superuser or with sudo."
+    echo ""
+    echo "  alloc [PAGE_CNT] [PAGE_TYPE] [NUMA_NODE]"
+    echo "  - Reserve [PAGE_CNT] [PAGE_TYPE] DRAM-backed pages on numa [NUMA_NODE]"
+    echo "    systemwide.  Does not apply to normal pages."
+    echo "  - This likely needs to run as a superuser or with sudo."
+    echo ""
+    echo "  free [PAGE_TYPE] [NUMA_NODE]"
+    echo "  - Equivalent to alloc 0 [PAGE_TYPE] [NUMA_NODE]."
+    echo "  - Does not apply to normal pages."
+    echo "  - This likely needs to run as a superuser or with sudo."
+    echo ""
+    echo "  query"
+    echo "  - Print the current shared memory utilization for the system and details"
+    echo "    of the named shared memory regions a shared memory IPC.  The domain to"
+    echo "    query is specified by the hugetlbfs mount path (see below for more"
+    echo "    details)."
+    echo "  - This likely needs to run as an authorized user, as a superuser or with"
+    echo "    sudo."
+    echo ""
+    echo "  reset"
+    echo "  - Remove all named shared memory regions for this group.  Like the usual"
+    echo "    UNIX file semantics, the actual underlying pages used by these regions"
+    echo "    will not be freed until there are no more processes that are using"
+    echo "    these regions."
+    echo "  - This likely needs to run as an authorized user, as a superuser or with"
+    echo "    sudo."
+    echo ""
+    echo "Supported page types: $ALL_TYPES"
+    if [ "$NUMA_CNT" = "1" ]; then
+      echo "Supported numa nodes: 0"
+    else
+      echo "Supported numa nodes: 0-$((NUMA_CNT-1))"
+    fi
+    echo ""
+    echo "Hugetlbfs mount path: $SHMEM_PATH"
+    echo "Use the FD_SHMEM_PATH environment variable to manually specify this"
+    echo ""
+
+  elif [ "$OP" = "init" ]; then
+
+    if [ $# -lt 3 ]; then
+      echo "Unexpected number of arguments to init"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+    init $1 $2 $3
+    shift 3
+
+  elif [ "$OP" = "fini" ]; then
+
+    fini
+
+  elif [ "$OP" = "query" ]; then
+
+    query
+
+  elif [ "$OP" = "alloc" ]; then
+
+    if [ $# -lt 3 ]; then
+      echo "Unexpected number of arguments to alloc"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+    alloc $1 $2 $3
+    shift 3
+
+  elif [ "$OP" = "free" ]; then
+
+    if [ $# -lt 2 ]; then
+      echo "Unexpected number of arguments to free"
+      echo "Do $0 help for help"
+      exit 1
+    fi
+    alloc 0 $1 $2
+    shift 2
+
+  elif [ "$OP" = "reset" ]; then
+
+    reset
+
+  else
+
+    echo "Unknown operation ($OP) specified"
+    echo "Do $0 help for help"
+    exit 1
+
+  fi
+
+done
+exit 0
+

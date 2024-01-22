@@ -1,0 +1,1 @@
+CPPFLAGS+=-mfpmath=sse

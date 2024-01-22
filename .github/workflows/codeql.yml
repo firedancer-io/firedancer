@@ -1,0 +1,47 @@
+# Kick off a daily battery of extended tests.
+# Only runs if latest commit was made within today.
+
+name: CodeQL
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  # Build and analyze with CodeQL
+  codeql:
+    name: Analyze
+    runs-on:
+      group: github-v1
+    env:
+      CC: clang
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [cpp, python]  # https://aka.ms/codeql-docs/language-support
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - uses: dtolnay/rust-toolchain@1.73.0
+
+    - uses: ./.github/actions/deps
+
+    # Initializes the CodeQL tools for scanning.
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+
+    - name: Build
+      run: make -j -Otarget all rust
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+        threads: 0

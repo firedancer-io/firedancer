@@ -1,0 +1,5 @@
+noarg
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) 3))
+fsync: (eq (arg 0) 3)
+exit_group

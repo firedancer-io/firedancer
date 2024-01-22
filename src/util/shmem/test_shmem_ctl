@@ -1,0 +1,127 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: "$1" unexpected exit code "$2"
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+SHMEM=test_fd_shmem_ctl
+PAGE_CNT=3
+PAGE_SZ=normal
+CPU_IDX=0
+MODE=0600
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Try to clean up any leftovers from previous runs (including same name with different page size)
+
+"$BIN"/fd_shmem_ctl unlink "$SHMEM" 0 "$SHMEM" 0 "$SHMEM" 0 > /dev/null 2>&1
+
+echo Testing no-op
+
+"$BIN"/fd_shmem_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_shmem_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_shmem_ctl help || fail help $?
+
+echo Testing cpu-cnt
+
+"$BIN"/fd_shmem_ctl cpu-cnt || fail cpu-cnt $?
+
+echo Testing numa-cnt
+
+"$BIN"/fd_shmem_ctl numa-cnt || fail numa-cnt $?
+
+echo Testing cpu-idx
+
+"$BIN"/fd_shmem_ctl cpu-idx   && fail cpu-idx $?
+"$BIN"/fd_shmem_ctl cpu-idx 0 || fail cpu-idx $?
+
+echo Testing numa-idx
+
+"$BIN"/fd_shmem_ctl numa-idx   && fail numa-idx $?
+"$BIN"/fd_shmem_ctl numa-idx 0 || fail numa-idx $?
+
+echo Testing create
+
+"$BIN"/fd_shmem_ctl create                                                      && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"                                             && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT"                               && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ"                    && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX"         && fail create $?
+"$BIN"/fd_shmem_ctl create bad/name   "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   0           "$PAGE_SZ" "$CPU_IDX" "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" -1         "$CPU_IDX" "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" -1         "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" ""         "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "q"        "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0q1"      "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-"       "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-q"      "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "1-0"      "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "q-10/2"   "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0q10/2"   "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-q/2"    "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-10%2"   "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-10/"    "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0-10/q"   "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "10-0/2"   "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "0;1"      "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" 0-1024     "$MODE" && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" -1      && fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" || fail create $?
+"$BIN"/fd_shmem_ctl create "$SHMEM"   "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" && fail create $?
+
+echo Testing query
+
+"$BIN"/fd_shmem_ctl query            && fail query $?
+"$BIN"/fd_shmem_ctl query "$SHMEM"   && fail query $?
+"$BIN"/fd_shmem_ctl query bad/name   0          \
+                    query "$SHMEM"   0          \
+                    query "$SHMEM"   "$PAGE_SZ" \
+                    query "$SHMEM"   normal     \
+                    query "$SHMEM"   huge       \
+                    query "$SHMEM"   gigantic   \
+|| fail query $?
+
+echo Testing unlink
+
+"$BIN"/fd_shmem_ctl unlink                     && fail unlink $?
+"$BIN"/fd_shmem_ctl unlink "$SHMEM"            && fail unlink $?
+"$BIN"/fd_shmem_ctl unlink bad/name            && fail unlink $?
+# Note: bad page_sz will be interpreted as detect page_sz by unlink
+"$BIN"/fd_shmem_ctl unlink "$SHMEM" "$PAGE_SZ" || fail unlink $?
+"$BIN"/fd_shmem_ctl unlink "$SHMEM" "$PAGE_SZ" && fail unlink $?
+
+echo Testing multi
+
+"$BIN"/fd_shmem_ctl query  "$SHMEM" 0                                       \
+                  create "$SHMEM" "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" \
+                  query  "$SHMEM" 0                                         \
+                  unlink "$SHMEM" 0                                         \
+                  query  "$SHMEM" 0                                         \
+|| fail query $?
+
+echo pass
+echo Log N/A
+exit 0
+
