@@ -1,3 +1,4 @@
+ifdef FD_HAS_INT128
 $(call add-objs,fd_zktpp_batched_grouped_ciphertext_validity,fd_flamenco)
 $(call add-objs,fd_zktpp_batched_range_proof_u128,fd_flamenco)
 $(call add-objs,fd_zktpp_batched_range_proof_u256,fd_flamenco)
@@ -12,3 +13,4 @@ $(call add-objs,fd_zktpp_transfer_with_fee,fd_flamenco)
 $(call add-objs,fd_zktpp_transfer_without_fee,fd_flamenco)
 $(call add-objs,fd_zktpp_withdraw,fd_flamenco)
 $(call add-objs,fd_zktpp_zero_balance,fd_flamenco)
+endif
