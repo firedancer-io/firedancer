@@ -313,7 +313,8 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
     -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
-    -DCMAKE_C_FLAGS_RELEASE="-march=native -O3"
+    -DCMAKE_C_FLAGS_RELEASE="-march=native -O3" \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
   echo "[+] Building secp256k1"
   "${MAKE[@]}"
@@ -434,7 +435,8 @@ install_rocksdb () {
     -DSnappy_LIBRARIES="$PREFIX/lib" \
     -DSnappy_INCLUDE_DIRS="$PREFIX/include" \
     -DUSE_RTTI=ON \
-    -DCMAKE_CXX_FLAGS_RELEASE="-march=native"
+    -DCMAKE_CXX_FLAGS_RELEASE="-march=native" \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
@@ -468,7 +470,8 @@ install_snappy () {
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DSNAPPY_BUILD_TESTS=OFF \
-    -DSNAPPY_BUILD_BENCHMARKS=OFF
+    -DSNAPPY_BUILD_BENCHMARKS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   echo "[+] Configured snappy"
 
   echo "[+] Building snappy"
