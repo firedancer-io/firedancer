@@ -515,7 +515,7 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
   /* Benchmarks */
   ulong iter = 10000UL;
 
-  fd_ristretto255_point_t *   f = aligned_alloc( 64, 1000 * sizeof(fd_ristretto255_point_t) );
+  fd_ristretto255_point_t *   f = aligned_alloc( 64, 1015 * sizeof(fd_ristretto255_point_t) );
   uchar _a[1000][32]; uchar * a = (uchar *)_a;
 
   for( ulong i=0; i<1000; i++ )
