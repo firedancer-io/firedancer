@@ -489,12 +489,21 @@ install_libff () {
   cmake .. \
     -G"Unix Makefiles" \
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib"
-  local NJOBS
-  NJOBS=$(( $(nproc) / 2 ))
-  NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make -j $NJOBS
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DBUILD_GMOCK=OFF \
+    -DBUILD_TESTING=OFF \
+    -DINSTALL_GTEST=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  echo "[+] Configured libff"
+
+  echo "[+] Building libff"
+  make -j
+  echo "[+] Successfully built libff"
+
+  echo "[+] Installing libff to $PREFIX"
   make install
+  echo "[+] Successfully installed libff"
 }
 
 install () {
