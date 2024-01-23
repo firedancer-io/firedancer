@@ -451,8 +451,10 @@ install_libmicrohttpd () {
     --prefix="$PREFIX" \
     --disable-https \
     --disable-curl  \
-    --disable-dauth
-  ${MAKE} install
+    --disable-dauth \
+    --with-pic
+  make -j
+  make install
 
   echo "[+] Successfully installed libmicrohttpd"
 }
