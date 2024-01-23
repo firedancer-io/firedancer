@@ -170,8 +170,6 @@ fd_scratch_attach( void * smem,
   fd_scratch_in_prepare = 0;
 # endif
 
-  // fd_asan_poison( smem, smax );
-
   fd_scratch_private_start     = (ulong)smem;
   fd_scratch_private_free      = fd_scratch_private_start;
   fd_scratch_private_stop      = fd_scratch_private_start + smax;
@@ -377,11 +375,6 @@ fd_scratch_publish( void * _end ) {
     FD_LOG_ERR(( "publish needs %lu additional scratch", end-fd_scratch_private_stop ));
   fd_scratch_in_prepare   = 0;
 # endif
-
-// # if FD_HAS_ASAN
-//   void * prev_scratch_private_free = (void *)fd_scratch_private_free;
-//   fd_asan_unpoison( prev_scratch_private_free, end-fd_scratch_private_free );
-// # endif
 
   fd_scratch_private_free = end;
 }

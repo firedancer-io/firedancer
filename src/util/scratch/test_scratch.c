@@ -13,7 +13,6 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
 # if FD_HAS_ALLOCA
@@ -129,7 +128,6 @@ main( int     argc,
 
     if( fd_rng_uint( rng ) & 1U ) {
       mem = (uchar *)fd_scratch_alloc( align, sz );
-      *mem = 1;
     } else {
       mem = (uchar *)fd_scratch_prepare( align );
       if( fd_rng_uint( rng ) & 1U ) {
@@ -137,7 +135,6 @@ main( int     argc,
         mem = (uchar *)fd_scratch_prepare( align );
       }
       fd_scratch_publish( mem + sz );
-      *mem = 1;
     }
 
     ulong a = fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align );
@@ -171,12 +168,13 @@ main( int     argc,
       ulong inner_cnt = fd_rng_ulong_roll( rng, 10UL );
       for( ulong j=0; j < inner_cnt; j++ ) {
         FD_SCRATCH_SCOPE_BEGIN {
-          ulong * m = fd_scratch_alloc( alignof(ulong), sizeof(ulong) );
-          *m = 1;
           FD_TEST( fd_scratch_frame_used()==2UL );
-        } FD_SCRATCH_SCOPE_END;
+        }
+        FD_SCRATCH_SCOPE_END;
       }
-    } FD_SCRATCH_SCOPE_END;
+      FD_TEST( fd_scratch_frame_used()==1UL );
+    }
+    FD_SCRATCH_SCOPE_END;
   }
   FD_TEST( fd_scratch_frame_used()==0UL );
 
