@@ -38,7 +38,7 @@ load_test_tx(char * hex[], ulong hex_sz, ulong * tx_len) {
   hex_len = 0;
   for ( ulong i=0; i<hex_sz/sizeof(char *); i++ ) {
     ulong cur_len = strlen(hex[i]);
-    fd_hex_decode( &tx[hex_len/2], hex[i], cur_len );
+    fd_hex_decode( &tx[hex_len/2], hex[i], cur_len/2 );
     hex_len += cur_len;
   }
   return tx;

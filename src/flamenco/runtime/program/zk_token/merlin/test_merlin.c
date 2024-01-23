@@ -27,7 +27,7 @@ test_equivalence_simple( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_merlin_transcript_append_message( t, FD_MERLIN_LITERAL("some label"), (uchar *)FD_MERLIN_LITERAL("some data") );
   fd_merlin_transcript_challenge_bytes( t, FD_MERLIN_LITERAL("challenge"), challenge, 32 );
 
-  fd_hex_decode( expected, "d5a21972d0d5fe320c0d263fac7fffb8145aa640af6e9bca177c03c7efcf0615", 64 );
+  fd_hex_decode( expected, "d5a21972d0d5fe320c0d263fac7fffb8145aa640af6e9bca177c03c7efcf0615", 32 );
   // for (ulong i=0; i<32; i++) { printf("%02x ", challenge[i]); } printf("\n");
   FD_TEST( memcmp( challenge, expected, 32 )==0 );
 }

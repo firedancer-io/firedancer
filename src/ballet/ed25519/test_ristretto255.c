@@ -227,8 +227,8 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _g[1];  fd_ristretto255_point_t * g = _g;
 
   /* sha512("Ristretto is traditionally a short shot of espresso coffee") */
-  fd_hex_decode( s, "5d1be09e3d0c82fc538112490e35701979d99e06ca3e2b5b54bffe8b4dc772c14d98b696a1bbfb5ca32c436cc61c16563790306c79eaca7705668b47dffe5bb6", 128 );
-  fd_hex_decode( e, "3066f82a1a747d45120d1740f14358531a8f04bbffe6a819f86dfe50f44a0a46", 64 );
+  fd_hex_decode( s, "5d1be09e3d0c82fc538112490e35701979d99e06ca3e2b5b54bffe8b4dc772c14d98b696a1bbfb5ca32c436cc61c16563790306c79eaca7705668b47dffe5bb6", 64 );
+  fd_hex_decode( e, "3066f82a1a747d45120d1740f14358531a8f04bbffe6a819f86dfe50f44a0a46", 32 );
   fd_ristretto255_point_decompress( g, e );
 
   fd_ristretto255_hash_to_curve( h, s );
@@ -358,22 +358,22 @@ test_scalar_validate( FD_FN_UNUSED fd_rng_t * rng ) {
   // invalid
 
   // curve25519 r reduces to 0, hence invalid
-  fd_hex_decode( a, "EDD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  fd_hex_decode( a, "EDD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
   FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
 
-  fd_hex_decode( a, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 64 );
+  fd_hex_decode( a, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 32 );
   FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
 
   // valid
 
-  fd_hex_decode( a, "0000000000000000000000000000000000000000000000000000000000000000", 64 );
+  fd_hex_decode( a, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
   FD_TEST( fd_ed25519_scalar_validate( a )==a );
 
-  fd_hex_decode( a, "0100000000000000000000000000000000000000000000000000000000000000", 64 );
+  fd_hex_decode( a, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
   FD_TEST( fd_ed25519_scalar_validate( a )==a );
 
   // r-1
-  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
   FD_TEST( fd_ed25519_scalar_validate( a )==a );
 
   /* Benchmarks */
@@ -405,7 +405,7 @@ test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
   FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
   FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
-  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+  fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
   fd_ristretto255_point_decompress( t, base_point_multiples[0] );
   fd_ristretto255_point_sub( t, t, f ); // -P
   FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
@@ -448,7 +448,7 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
       memset( _a[2*i], 0, 32 ); _a[2*i][0] = 2;
       fd_ristretto255_point_decompress( &_f[2*i], base_point_multiples[1] );
       /* -P */
-      fd_hex_decode( _a[2*i+1], "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 64 );
+      fd_hex_decode( _a[2*i+1], "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
       fd_ristretto255_point_decompress( &_f[2*i+1], base_point_multiples[1] );
     }
     fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
