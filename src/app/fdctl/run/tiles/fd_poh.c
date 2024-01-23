@@ -723,13 +723,15 @@ fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully p
                   uchar const * reset_blockhash  /* The hash of the last tick in the produced block */ ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
+  int leader_before_reset = ctx->hashcnt>=ctx->next_leader_slot_hashcnt;
+
   fd_memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->hashcnt             = (reset_bank_slot+1UL)*ctx->hashcnt_per_slot;
   ctx->last_hashcnt        = ctx->hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
   ctx->reset_slot_start_ns = fd_log_wallclock();
 
-  if( FD_UNLIKELY( ctx->hashcnt>=ctx->next_leader_slot_hashcnt ) ) {
+  if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.
