@@ -26,6 +26,7 @@ static int
 load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
                    char const *         snapshotfile ) {
 
+  FD_LOG_NOTICE(("fd_snapshot_restore_footprint: %lu", fd_snapshot_restore_footprint()));
   if( !fd_scratch_alloc_is_safe( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() ) )
     FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
   uchar * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );

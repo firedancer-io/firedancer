@@ -130,7 +130,6 @@ repair_deliver_fun( fd_shred_t const *                            shred,
      * replaying. */
     if( FD_UNLIKELY( !parent_block ) ) {
       /* FIXME add peers to ctx */
-      __asm__("int $3");
       fd_repair_need_highest_window_index( repair_ctx->repair, id, shred->slot, shred->idx );
       fd_blockstore_end_read( repair_ctx->blockstore );
       return;
@@ -809,8 +808,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /* Scratch                                                            */
   /**********************************************************************/
 
-  ulong  smax   = 1 << 27UL; /* 128 MiB scratch memory */
-  ulong  sdepth = 128;       /* 128 scratch frames */
+  ulong  smax   = 1 << 30UL; /* 1 GiB scratch memory */
+  ulong  sdepth = 1024;      /* 1024 scratch frames, 1 MiB each */
   void * smem =
       fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
   void * fmem =
