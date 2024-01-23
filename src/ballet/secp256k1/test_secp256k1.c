@@ -53,7 +53,7 @@ test_recover( FD_FN_UNUSED fd_rng_t * rng ) {
     }; uchar * pub_expected = _pub_expected;
     uchar _msg[ 32 ]; uchar * msg = _msg;
     // keccak256("hello world")
-    fd_hex_decode(msg, "47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad", 64);
+    fd_hex_decode(msg, "47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad", 32);
     int rec_id = 0;
     uchar _sig[ 64 ] = {
         0x93, 0x92, 0xC4, 0x6C, 0x42, 0xF6, 0x31, 0x73, 0x81, 0xD4, 0xB2, 0x44, 0xE9, 0x2F, 0xFC,
@@ -76,12 +76,12 @@ test_recover( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // ethereum tests
   // https://github.com/ethereum/go-ethereum/blob/v1.13.4/crypto/secp256k1/secp256_test.go#L206
-  fd_hex_decode(msg, "ce0677bb30baa8cf067c88db9811f4333d131bf8bcf12fe7065d211dce971008", 64);
-  fd_hex_decode(sig, "90f27b8b488db00b00606796d2987f6a5f59ae62ea05effe84fef5b8b0e549984a691139ad57a3f0b906637673aa2f63d1f55cb1a69199d4009eea23ceaddc93", 128);
+  fd_hex_decode(msg, "ce0677bb30baa8cf067c88db9811f4333d131bf8bcf12fe7065d211dce971008", 32);
+  fd_hex_decode(sig, "90f27b8b488db00b00606796d2987f6a5f59ae62ea05effe84fef5b8b0e549984a691139ad57a3f0b906637673aa2f63d1f55cb1a69199d4009eea23ceaddc93", 64);
   // in the go code, this is the last byte of sig
   rec_id = 1;
   // in the go code, the public key is serialized with an extra prefix byte
-  fd_hex_decode(pub_expected, "e32df42865e97135acfb65f3bae71bdc86f4d49150ad6a440b6f15878109880a0a2b2667f7e725ceea70c673093bf67663e0312623c8e091b13cf2c0f11ef652", 128);
+  fd_hex_decode(pub_expected, "e32df42865e97135acfb65f3bae71bdc86f4d49150ad6a440b6f15878109880a0a2b2667f7e725ceea70c673093bf67663e0312623c8e091b13cf2c0f11ef652", 64);
   FD_TEST( fd_secp256k1_recover(pub, msg, sig, rec_id)==pub );
   FD_TEST( !memcmp( pub, pub_expected, 64UL ) );
 
