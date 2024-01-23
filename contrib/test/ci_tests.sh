@@ -32,7 +32,7 @@ for MACHINE in ${MACHINES[*]}; do
   OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
   contrib/make-j
-  if [[ "$NOTEST" != 1 ]]; then
+  if [[ -z "$NOTEST" ]]; then
     make run-unit-test
     if [[ "$HAS_FUZZ" == 1 ]]; then
       make run-fuzz-test
@@ -40,6 +40,9 @@ for MACHINE in ${MACHINES[*]}; do
     make run-script-test
     if [[ "$HAS_LLVM_COV" == 1 ]]; then
       make "${OBJDIR}/cov/cov.profdata"
+    fi
+    if [[ -n "$RUNTIME_TEST" ]]; then
+      make run-runtime-test
     fi
   fi
   export -n MACHINE

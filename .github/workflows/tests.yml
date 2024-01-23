@@ -31,6 +31,7 @@ jobs:
           - machine: linux_clang_icelake
             group: rhel85-icelake
             extras: fuzz asan ubsan
+            runtime_test: true
     runs-on:
       group: ${{ matrix.group || 'github-v1' }}
     steps:
@@ -47,4 +48,5 @@ jobs:
           MACHINES=${{ matrix.machine }} \
           EXTRAS="${{ matrix.extras || '' }}" \
           NOTEST=${{ matrix.notest || '' }} \
+          RUNTIME_TEST=${{ matrix.runtime_test || '' }} \
           contrib/test/ci_tests.sh
