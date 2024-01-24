@@ -1,5 +1,77 @@
 # Firedancer
-This introduction is under construction...
+## Why is Jump Trading Group creating Firedancer?
+There are many blockchains in existence today, each with different
+advantages and disadvantages. What differentiates Solana is its design
+which enables the dissemination of frequent, inexpensive information. It
+is cheap to use so it does not impose an onerous cost on the end user.
+Solana can handle the high throughput requirements that come with the
+bursts of activity.
+
+Over the past twenty years, Jump has built a high-capacity,
+high-reliability, low-latency global network to support our trading and
+address many of the scaling problems that Solana is currently facing. In
+doing so, we have had to think hard about how to take a flood of market
+data and process it more efficiently than our competitors, which means
+pushing the limits of our hardware.
+
+Leveraging our experience over the last two decades in building this
+global network, we believe we are well-positioned to significantly
+improve the power, reliability, and security of the Solana ecosystem.
+
+The Firedancer project requires a significant commitment of Jump
+developer resources, and we are appreciative of the support from the
+Solana Foundation to make this project possible.
+
+## Firedancer’s goal of improving Solana:
+Firedancer is intended to replicate Solana’s functionality but with
+higher performance. Consistent with Solana’s vision, the goal is to
+eliminate software inefficiencies and drive the performance to the
+limits of the hardware, while attempting to not create any new
+vulnerabilities. Firedancer makes minimal use of third party libraries
+for cryptographic and network functionality where there are currently
+bottlenecks.
+
+As a second validator codebase, Firedancer removes the risk of a single
+point of failure. As nodes are distributed more evenly among several
+independent codebases, the overall network will become more robust
+against any one bug. Additionally, Firedancer is written in C, in
+contrast to the Rust codebase of the original Solana validator, which
+further reduces the likelihood of a vulnerability affecting the entire
+network.
+
+Firedancer’s security model is inspired by methods used in the browser
+world which is under perpetual attack. Diversification of security
+approaches is another way the second validator intends to make the
+network more robust.
+
+Improved performance also means current performance needs can be
+achieved with lower cost hardware. This should encourage additional
+validator operators to join the network who were otherwise prohibited by
+current hardware requirements.
+
+## What does the Firedancer team aim to deliver?
+At a high level, the three functional blocks of Solana are network,
+runtime, and the consensus mechanism.
+
+The network layer is essentially code complete, and is being tuned and
+undergoing reviews by auditors.
+
+The first Firedancer validator to go into testnet [is version 0.1 and]
+is nicknamed Frankendancer. It is Firedancer’s networking layer grafted
+onto the Solana runtime and consensus code. Although the networking
+layer will be much faster, it is likely that the performance of the
+Frankendancer validator will be bottlenecked by the legacy runtime and
+consensus code. Frankendancer still offers an advantage with DoS
+mitigation.
+
+This document explains how to bring up Frankendancer in testnet. We hope
+to get feedback from validators while we go through security audits and
+continue to refine the codebase. The goal is to get Frankendancer to
+mainnet in Q2 2024.
+
+In parallel the team has been working on replicating the functionality
+of the runtime and consensus code, with the goal of delivering a fully
+independent validator by the end of 2024.
 
 ## Frankendancer
 Firedancer is a new Solana validator with a new codebase, but it is
