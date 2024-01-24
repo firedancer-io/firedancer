@@ -798,6 +798,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   }
 
   /* Grow the record to the right size */
+  rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
   if ( fd_funk_val_sz( rec ) < min_val_size )
     rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
 

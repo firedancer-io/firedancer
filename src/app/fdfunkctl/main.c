@@ -27,7 +27,7 @@ static void usage(char const * progname) {
   fprintf(stderr, "       print-txns                   print the tree of transactions\n");
   fprintf(stderr, "       publish-txn --xid <xid>      publish/commit the given transaction\n");
   fprintf(stderr, "       cancel-txn --xid <xid>       cancel the given transaction\n");
-  fprintf(stderr, "       merge-txn --xid <xid>        merge the given transaction into its parent\n");
+  fprintf(stderr, "       merge-txn --xid <xid>        merge the children of the given transaction into itself\n");
   fprintf(stderr, "       inspect-txn --xid <xid>      list all the modified records in the given transaction\n");
   fprintf(stderr, "       publish-all-txns             publish all unpublished transaction\n");
   fprintf(stderr, "       cancel-all-txns              cancel all unpublished transaction\n");
@@ -121,7 +121,7 @@ cancel_txn_cmd(fd_funk_t * funk, const char * xid_str) {
 static void
 merge_txn_cmd(fd_funk_t * funk, const char * xid_str) {
   fd_funk_txn_t * txn = resolve_txn(funk, xid_str);
-  FD_TEST(FD_FUNK_SUCCESS == fd_funk_txn_merge(funk, txn, 1));
+  FD_TEST(FD_FUNK_SUCCESS == fd_funk_txn_merge_all_children(funk, txn, 1));
   FD_LOG_NOTICE(("success!"));
 }
 

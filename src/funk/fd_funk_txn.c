@@ -655,6 +655,7 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
       dst_rec->val_sz    = (uint)val_sz;
       dst_rec->val_max   = (uint)val_max;
       dst_rec->val_gaddr = val_gaddr;
+      dst_rec->flags    &= ~FD_FUNK_REC_FLAG_ERASE;
 
       /* Use the new partition */
 
@@ -800,9 +801,9 @@ fd_funk_txn_publish( fd_funk_t *     funk,
 }
 
 int
-fd_funk_txn_merge( fd_funk_t *     funk,
-                   fd_funk_txn_t * txn,
-                   int             verbose ) {
+fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn,
+                                 int             verbose ) {
   if( FD_UNLIKELY( !funk ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
     return FD_FUNK_ERR_INVAL;
@@ -812,44 +813,41 @@ fd_funk_txn_merge( fd_funk_t *     funk,
 
   fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
 
-  ulong txn_max = fd_funk_txn_map_key_max( map );
-
   ulong txn_idx = (ulong)(txn - map);
 
-  ASSERT_IN_PREP( txn_idx );
-
-  if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must not have children" ));
-    return FD_FUNK_ERR_INVAL;
-  }
-
-  if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
-    return FD_FUNK_ERR_INVAL;
-  }
+  ulong oldest_idx = fd_funk_txn_oldest_sibling( funk, map, funk->txn_max, txn_idx );
+  fd_funk_txn_cancel_sibling_list( funk, map, funk->txn_max, funk->cycle_tag++, oldest_idx, txn_idx );
 
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
-  if( FD_UNLIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must have an unpublished parent" ));
-    return FD_FUNK_ERR_INVAL;
+  if( fd_funk_txn_idx_is_null( parent_idx ) ) {
+    /* Publish to root */
+    if( fd_funk_txn_idx( funk->child_head_cidx ) != txn_idx || fd_funk_txn_idx( funk->child_tail_cidx ) != txn_idx )
+      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+    fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
+                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        fd_funk_alloc( funk, wksp ), wksp );
+    /* Inherit the children */
+    funk->child_head_cidx = txn->child_head_cidx;
+    funk->child_tail_cidx = txn->child_tail_cidx;
+  } else {
+    fd_funk_txn_t * parent_txn = map + parent_idx;
+    if( fd_funk_txn_idx( parent_txn->child_head_cidx ) != txn_idx || fd_funk_txn_idx( parent_txn->child_tail_cidx ) != txn_idx )
+      FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
+    fd_funk_txn_update( &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid,
+                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        fd_funk_alloc( funk, wksp ), wksp );
+    /* Inherit the children */
+    parent_txn->child_head_cidx = txn->child_head_cidx;
+    parent_txn->child_tail_cidx = txn->child_tail_cidx;
   }
 
-  ASSERT_IN_PREP( parent_idx );
-
-  /* Merge records from child into parent */
-
-  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
-                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
-                      fd_funk_alloc( funk, wksp ), wksp );
-
-  /* At this point, the record list for the child is empty.  Erase the
-     child.  This is easy because we know it is an only child. */
-
-  fd_funk_txn_t * parent = map + parent_idx;
-
-  parent->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-  parent->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-
+  /* Adjust the parent pointers of the children to point to their grandparent */
+  ulong child_idx = fd_funk_txn_idx( txn->child_head_cidx );
+  while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) {
+    map[ child_idx ].parent_cidx = fd_funk_txn_cidx( parent_idx );
+    child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
+  }  
+  
   fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
@@ -880,76 +878,22 @@ fd_funk_txn_merge_all_children( fd_funk_t *     funk,
   while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) { /* opt for incr pub */
     /* Merge records from child into parent */
 
+    fd_funk_txn_t * txn = &map[ child_idx ];
+    if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->child_head_cidx ) ) ) ) {
+      FD_LOG_WARNING(("cannot call fd_funk_txn_merge_all_children if parent_txn has grandchildren"));
+      return FD_FUNK_ERR_TXN;
+    }
+
     fd_funk_txn_update( &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid,
                         child_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
                         fd_funk_alloc( funk, wksp ), wksp );
     
-    fd_funk_txn_t * txn = &map[ child_idx ];
+    child_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
     fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
-    
-    child_idx = fd_funk_txn_idx( map[ child_idx ].sibling_next_cidx );
   }
 
   parent_txn->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   parent_txn->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-
-  return FD_FUNK_SUCCESS;
-}
-
-
-int
-fd_funk_txn_merge_with_children( fd_funk_t *     funk,
-                                 fd_funk_txn_t * txn,
-                                 int             verbose ) {
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return FD_FUNK_ERR_INVAL;
-  }
-
-  fd_wksp_t * wksp = fd_funk_wksp( funk );
-
-  fd_funk_txn_t * map = fd_funk_txn_map( funk, wksp );
-
-  ulong txn_max = fd_funk_txn_map_key_max( map );
-
-  ulong txn_idx = (ulong)(txn - map);
-
-  ASSERT_IN_PREP( txn_idx );
-
-  if( FD_UNLIKELY( !fd_funk_txn_is_only_child( txn ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must be an only child" ));
-    return FD_FUNK_ERR_INVAL;
-  }
-
-  ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
-  if( FD_UNLIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "txn must have an unpublished parent" ));
-    return FD_FUNK_ERR_INVAL;
-  }
-
-  ASSERT_IN_PREP( parent_idx );
-
-  /* Merge records from child into parent */
-
-  fd_funk_txn_update( &map[ parent_idx ].rec_head_idx, &map[ parent_idx ].rec_tail_idx, parent_idx, &map[ parent_idx ].xid,
-                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
-                      fd_funk_alloc( funk, wksp ), wksp );
-
-  fd_funk_txn_t * parent = map + parent_idx;
-
-  parent->child_head_cidx = txn->child_head_cidx;
-  parent->child_tail_cidx = txn->child_tail_cidx;
-
-  uint grand_child_cidx = parent->child_head_cidx;
-  ulong grand_child_idx = fd_funk_txn_idx( grand_child_cidx );
-  while( !fd_funk_txn_idx_is_null( grand_child_idx ) ) {
-    fd_funk_txn_t * grand_child = map + grand_child_cidx;
-    grand_child->parent_cidx = txn->parent_cidx;
-    grand_child_cidx = grand_child->sibling_next_cidx;
-    grand_child_idx = fd_funk_txn_idx( grand_child_cidx );
-  }
-
-  fd_funk_txn_map_remove( map, fd_funk_txn_xid( txn ) );
 
   return FD_FUNK_SUCCESS;
 }

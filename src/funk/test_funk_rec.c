@@ -486,12 +486,12 @@ main( int     argc,
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
 
       txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
-
       if( !rtxn->parent || !txn_is_only_child( rtxn ) || txn_is_frozen( rtxn ) ) continue;
+      
+      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->parent->xid ), txn_map );
+      FD_TEST( !fd_funk_txn_merge_all_children( tst, ttxn, verbose ) );
 
       txn_merge( ref, rtxn );
-      FD_TEST( !fd_funk_txn_merge( tst, ttxn, verbose ) );
 
     } else { /* Publish (same rate as merge and cancel) */
 
