@@ -72,6 +72,9 @@ during_frag( void * _ctx,
     case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 32UL );
       break;
+    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
+      break;
     default:
       FD_LOG_CRIT(( "unexpected link kind %lu", ctx->in_kind[ in_idx ] ));
   }
@@ -105,6 +108,13 @@ after_frag( void *             _ctx,
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
       }
       fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
+    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN: {
+      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 130UL, FD_KEYGUARD_ROLE_TLS ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
+      }
+      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
       break;
     }
     default:
@@ -157,6 +167,11 @@ unprivileged_init( fd_topo_t *      topo,
       case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:
         FD_TEST( out_link->kind==FD_TOPO_LINK_KIND_SIGN_TO_SHRED );
         FD_TEST( in_link->mtu==32UL );
+        FD_TEST( out_link->mtu==64UL );
+        break;
+      case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:
+        FD_TEST( out_link->kind==FD_TOPO_LINK_KIND_SIGN_TO_QUIC );
+        FD_TEST( in_link->mtu==130UL );
         FD_TEST( out_link->mtu==64UL );
         break;
       default:

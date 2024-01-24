@@ -41,7 +41,7 @@ signer_ctx_init( signer_ctx_t * ctx,
   ctx->private_key = private_key;
 }
 
-void
+static void
 test_signer( void *        _ctx,
              uchar *       signature,
              uchar const * merkle_root ) {

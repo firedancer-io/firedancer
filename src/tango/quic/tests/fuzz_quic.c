@@ -12,6 +12,7 @@
 #include "../fd_quic_private.h"
 #include "../fd_quic_proto.h"
 #include "fd_quic_test_helpers.h"
+#include "../../tls/test_tls_helper.h"
 
 #include "../../../ballet/x509/fd_x509_mock.h"
 
@@ -180,13 +181,6 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
   server_quic->config.initial_rx_max_stream_data = 1 << 14;
   // server_quic->config.retry = 1;
-
-  uchar pkey[32] = {
-      137, 115, 254, 55,  116, 55,  118, 19,  151, 66,  229,
-      24,  188, 62,  99,  209, 162, 16,  6,   7,   24,  81,
-      152, 128, 139, 234, 170, 93,  88,  204, 245, 205,
-  };
-  fd_memcpy( server_quic->config.identity_key, pkey, 32UL );
 
   return 0;
 }

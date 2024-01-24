@@ -83,6 +83,7 @@
 
 #include "../aio/fd_aio.h"
 #include "../ip/fd_ip.h"
+#include "../tls/fd_tls.h"
 #include "../../util/fd_util.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
@@ -235,9 +236,13 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-  /* identity_key: Ed25519 private key of node identity
+  /* identity_key: Ed25519 public key of node identity
      (Can be random bytes) */
-  uchar identity_key[ 32 ];
+  uchar identity_public_key[ 32 ];
+
+  /* Callback for signing TLS 1.3 certificate verify payload */
+  fd_tls_sign_fn_t sign;
+  void *           sign_ctx;
 
 # define FD_QUIC_PATH_LEN 1023UL
   char keylog_file[ FD_QUIC_PATH_LEN+1UL ];

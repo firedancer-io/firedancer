@@ -231,13 +231,8 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
 
   /* Sign certificate */
 
-  fd_sha512_t sha512;
   uchar cert_verify_sig[ 64UL ];
-  fd_ed25519_sign( cert_verify_sig,
-                   sign_msg, 130UL,
-                   this->cert_public_key,
-                   this->cert_private_key,
-                   &sha512 );
+  fd_tls_sign( &this->sign, cert_verify_sig, sign_msg );
 
   /* Create CertificateVerify message */
 

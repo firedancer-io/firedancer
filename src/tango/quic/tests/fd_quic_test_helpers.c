@@ -1,4 +1,5 @@
 #include "fd_quic_test_helpers.h"
+#include "../../tls/test_tls_helper.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -6,6 +7,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
@@ -141,6 +143,14 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->service_interval = (ulong) 10e6; /*  10ms */
   strcpy( config->sni, "local" );
 
+  /* Signer */
+  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
+  *sign_ctx = fd_tls_test_sign_ctx( rng );
+
+  fd_memcpy( config->identity_public_key, sign_ctx->public_key, 32UL );
+  config->sign_ctx = sign_ctx;
+  config->sign     = fd_tls_test_sign_sign;
+
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;
   quic->cb.conn_hs_complete = fd_quic_test_cb_conn_handshake_complete;
@@ -151,9 +161,6 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
-
-  for( ulong j=0UL; j<32UL; j++ )
-    quic->config.identity_key[ j ] = (uchar)fd_rng_uchar( rng );
 
   return quic;
 }

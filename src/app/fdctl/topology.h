@@ -37,21 +37,23 @@
 #define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 9UL)
 #define FD_TOPO_WKSP_KIND_METRIC_IN    (10UL)
 
-#define FD_TOPO_WKSP_KIND_SHRED_SIGN   (11UL)
-#define FD_TOPO_WKSP_KIND_SIGN_SHRED   (12UL)
+#define FD_TOPO_WKSP_KIND_QUIC_SIGN    (11UL)
+#define FD_TOPO_WKSP_KIND_SIGN_QUIC    (12UL)
+#define FD_TOPO_WKSP_KIND_SHRED_SIGN   (13UL)
+#define FD_TOPO_WKSP_KIND_SIGN_SHRED   (14UL)
 
-#define FD_TOPO_WKSP_KIND_NET          (13UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (14UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (15UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (16UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (17UL)
-#define FD_TOPO_WKSP_KIND_PACK         (18UL)
-#define FD_TOPO_WKSP_KIND_BANK         (19UL)
-#define FD_TOPO_WKSP_KIND_POH          (20UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (21UL)
-#define FD_TOPO_WKSP_KIND_STORE        (22UL)
-#define FD_TOPO_WKSP_KIND_SIGN         (23UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (24UL)
+#define FD_TOPO_WKSP_KIND_NET          (15UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (16UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (17UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (18UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (19UL)
+#define FD_TOPO_WKSP_KIND_PACK         (20UL)
+#define FD_TOPO_WKSP_KIND_BANK         (21UL)
+#define FD_TOPO_WKSP_KIND_POH          (22UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (23UL)
+#define FD_TOPO_WKSP_KIND_STORE        (24UL)
+#define FD_TOPO_WKSP_KIND_SIGN         (25UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (26UL)
 #define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
@@ -80,8 +82,10 @@
 #define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (11UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (12UL)
 #define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (13UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (14UL)
-#define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (15UL)
+#define FD_TOPO_LINK_KIND_QUIC_TO_SIGN    (14UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_QUIC    (15UL)
+#define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (16UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (17UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -221,6 +225,7 @@ typedef struct {
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
       ulong  idle_timeout_millis;
+      char  identity_key_path[ PATH_MAX ];
     } quic;
 
     struct {
@@ -364,6 +369,8 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
     case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
     case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
+    case FD_TOPO_WKSP_KIND_QUIC_SIGN:    return "quic_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_QUIC:    return "sign_quic";
     case FD_TOPO_WKSP_KIND_SHRED_SIGN:   return "shred_sign";
     case FD_TOPO_WKSP_KIND_SIGN_SHRED:   return "sign_shred";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
@@ -403,6 +410,8 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
     case FD_TOPO_LINK_KIND_CRDS_TO_SHRED:   return "crds_shred";
+    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:    return "quic_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_QUIC:    return "sign_quic";
     case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:   return "shred_sign";
     case FD_TOPO_LINK_KIND_SIGN_TO_SHRED:   return "sign_shred";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;

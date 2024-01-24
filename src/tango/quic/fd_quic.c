@@ -321,10 +321,10 @@ fd_quic_init( fd_quic_t * quic ) {
 
   do {
     ulong x = 0U;
-    for( ulong i=0UL; i<32UL; i++ ) x |= quic->config.identity_key[i];
+    for( ulong i=0UL; i<32UL; i++ ) x |= quic->config.identity_public_key[i];
 
     if( FD_UNLIKELY( !x ) ) {
-      FD_LOG_WARNING(( "cfg.identity_key not set" ));
+      FD_LOG_WARNING(( "cfg.identity_public_key not set" ));
       return NULL;
     }
   } while(0);
@@ -417,7 +417,12 @@ fd_quic_init( fd_quic_t * quic ) {
     .secret_cb             = fd_quic_tls_cb_secret,
     .handshake_complete_cb = fd_quic_tls_cb_handshake_complete,
 
-    .cert_private_key      = quic->config.identity_key
+    .signer = {
+      .ctx     = config->sign_ctx,
+      .sign_fn = config->sign,
+    },
+
+    .cert_public_key       = quic->config.identity_public_key,
   };
 
   ulong tls_laddr = (ulong)quic + layout.tls_off;
@@ -4692,10 +4697,10 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
             /* clear out hs_data here, as we don't need it anymore */
             fd_quic_tls_hs_data_t * hs_data = NULL;
 
-            int enc_level = (int)fd_quic_enc_level_appdata_id;
+            uint enc_level = (uint)fd_quic_enc_level_appdata_id;
             hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
             while( hs_data ) {
-              fd_quic_tls_pop_hs_data( conn->tls_hs, (int)enc_level );
+              fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
               hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
             }
 
