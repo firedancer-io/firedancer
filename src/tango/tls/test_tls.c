@@ -188,16 +188,20 @@ test_tls_pair( void ) {
 
   fd_tls_t  _client[1];
   fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_test_sign_ctx_t client_sign_ctx = fd_tls_test_sign_ctx( rng );
   *client = (fd_tls_t) {
-    .rand       =  fd_tls_test_rand( rng ),
+    .rand       = fd_tls_test_rand( rng ),
+    .sign       = fd_tls_test_sign( &client_sign_ctx ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
   };
 
   fd_tls_t _server[1];
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  fd_tls_test_sign_ctx_t server_sign_ctx = fd_tls_test_sign_ctx( rng );
   *server = (fd_tls_t) {
     .rand       = fd_tls_test_rand( rng ),
+    .sign       = fd_tls_test_sign( &server_sign_ctx ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
   };
@@ -205,15 +209,12 @@ test_tls_pair( void ) {
   /* Generate keys */
 
   for( ulong b=0; b<32UL; b++ ) server->kex_private_key [b] = fd_rng_uchar( rng );
-  for( ulong b=0; b<32UL; b++ ) server->cert_private_key[b] = fd_rng_uchar( rng );
+  fd_memcpy( server->cert_public_key, server_sign_ctx.public_key, 32UL );
   for( ulong b=0; b<32UL; b++ ) client->kex_private_key [b] = fd_rng_uchar( rng );
-  for( ulong b=0; b<32UL; b++ ) client->cert_private_key[b] = fd_rng_uchar( rng );
+  fd_memcpy( client->cert_public_key, client_sign_ctx.public_key, 32UL );
 
   fd_x25519_public( server->kex_public_key, server->kex_private_key );
   fd_x25519_public( client->kex_public_key, client->kex_private_key );
-
-  fd_ed25519_public_from_private( server->cert_public_key, server->cert_private_key, sha );
-  fd_ed25519_public_from_private( client->cert_public_key, client->cert_private_key, sha );
 
   /* Create handshake objects */
 

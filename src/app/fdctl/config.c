@@ -488,6 +488,8 @@ topo_initialize( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_STAKE_OUT    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC_IN    }; wksp_cnt++;
 
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_QUIC_SIGN    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_QUIC    }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SHRED_SIGN   }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_SHRED   }; wksp_cnt++;
 
@@ -539,6 +541,8 @@ topo_initialize( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_SIGN,    FD_TOPO_WKSP_KIND_QUIC_SIGN,    128UL,                                    130UL,                  1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_SIGN_TO_QUIC,    FD_TOPO_WKSP_KIND_SIGN_QUIC,    128UL,                                    64UL,                   1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   FD_TOPO_WKSP_KIND_SHRED_SIGN,   128UL,                                    32UL,                   1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   FD_TOPO_WKSP_KIND_SIGN_SHRED,   128UL,                                    64UL,                   1UL );
 
@@ -632,6 +636,13 @@ topo_initialize( config_t * config ) {
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by the mux, instead the tiles will
      read the sign responses out of band in a dedicated spin loop. */
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    /**/                                                    TILE_IN(  FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_QUIC_TO_SIGN,      i, 0, 1 );
+    /**/                                                    TILE_OUT( FD_TOPO_TILE_KIND_QUIC,     i, FD_TOPO_LINK_KIND_QUIC_TO_SIGN,      i    );
+    /**/                                                    TILE_IN(  FD_TOPO_TILE_KIND_QUIC,     i, FD_TOPO_LINK_KIND_SIGN_TO_QUIC,      i, 0, 0 );
+    /**/                                                    TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_QUIC,      i    );
+  }
+
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL, 0, 1 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL, 0, 0 );
@@ -997,6 +1008,7 @@ config_parse( int *      pargc,
         tile->quic.quic_transaction_listen_port = config->tiles.quic.quic_transaction_listen_port;
         tile->quic.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
         tile->quic.idle_timeout_millis = config->tiles.quic.idle_timeout_millis;
+        strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_VERIFY:
         break;

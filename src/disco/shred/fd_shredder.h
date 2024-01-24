@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_disco_shred_fd_shredder_h
 #define HEADER_fd_src_disco_shred_fd_shredder_h
 
-#include "../keyguard/fd_remote_signer.h"
+#include "../keyguard/fd_keyguard_client.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/pack/fd_microblock.h"
 #include "../../ballet/chacha20/fd_chacha20rng.h"

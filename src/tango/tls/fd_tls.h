@@ -160,6 +160,36 @@ fd_tls_rand( fd_tls_rand_t const * rand,
   return rand->rand_fn( rand->ctx, buf, bufsz );
 }
 
+/* fd_tls_sign_fn_t is called by by fd_tls to request signing of a
+   TLS 1.3 certificate verify payload.
+   
+   ctx is an arbitrary pointer that is provided as a callback argument.
+   sig points to a 64 byte buffer where the implementor should store the
+   ed25519 signature of the payload.  Payload will point to a 130 byte
+   buffer containing the TLS 1.3 CertificateVerify payload.
+   
+   This function must not fail.  Lifetime of the payload buffer ends at
+   return. */
+
+typedef void
+(* fd_tls_sign_fn_t)( void *        ctx,
+                      uchar         sig[ static 64 ],
+                      uchar const   payload[ static 130 ] );
+
+struct fd_tls_sign_vt {
+  void *           ctx;
+  fd_tls_sign_fn_t sign_fn;
+};
+
+typedef struct fd_tls_sign_vt fd_tls_sign_t;
+
+static inline void
+fd_tls_sign( fd_tls_sign_t const * sign,
+             uchar                 sig[ static 64 ],
+             uchar const           payload[ static 130 ] ) {
+  sign->sign_fn( sign->ctx, sig, payload );
+}
+
 /* Public API *********************************************************/
 
 /* Handshake state identifiers */
@@ -217,25 +247,24 @@ struct fd_tls {
      curve point derived via fd_x25519_public.
 
      Security notes:
-     - May not be changed while conns are active.
-     - Using a public key that is not derived from the private key may
-       reveal the private key (!!!) */
+     - May not be changed while conns are active. */
   uchar kex_private_key[ 32 ];
   uchar kex_public_key [ 32 ];
 
-  /* cert_{private,public}_key is the Ed25519 key pair that identifies
-     the server. During TLS handshakes, used to sign a transcript of the
-     handshake to prove to the peer that we are in possession of this
-     key. cert_private_key is an arbitrary 32 byte vector.  (Currently,
-     equal to the Solana node identity key.)  cert_public_key is the
-     corresponding public key curve point derived via
-     fd_ed25519_public_from_private.
+   /* Signing function holding the Ed25519 key pair that identifies the
+      server.  During TLS handshakes, used to sign a transcript of the
+      handshake to prove to the peer that we are in possession of this
+      key.  This function should sign with the Solana node identity key.
 
      Security notes:
      - May not be changed while conns are active.
      - Using a public key that is not derived from the private key may
        reveal the private key (!!!) */
-  uchar cert_private_key[ 32 ];
+  fd_tls_sign_t sign;
+
+  /* cert_public_key is the Ed25519 public key that identifies the
+     server.  Must be the public key corresponding to the Solana node
+     identity key used by the signer function above. */
   uchar cert_public_key [ 32 ];
 
   /* X.509 certificate to present to peer (optional).

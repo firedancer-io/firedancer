@@ -95,8 +95,12 @@ struct fd_quic_tls_cfg {
 
   ulong          max_concur_handshakes;
 
-  /* Ed25519 private key */
-  uchar const * cert_private_key;
+  /* Signing callback for TLS 1.3 CertificateVerify. Context of the
+     signer must outlive the tls object. */
+  fd_tls_sign_t signer;
+
+  /* Ed25519 public key */
+  uchar const * cert_public_key;
 };
 
 /* structure for organising handshake data */

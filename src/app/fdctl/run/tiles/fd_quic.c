@@ -46,6 +46,8 @@ typedef struct {
 
   ushort legacy_transaction_port; /* port for receiving non-QUIC (raw UDP) transactions on*/
 
+  fd_keyguard_client_t keyguard_client[1];
+
   uchar buffer[ FD_NET_MTU ];
 
   ulong conn_seq; /* current quic connection sequence number */
@@ -544,7 +546,6 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
   (void)topo;
-  (void)tile;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
@@ -554,8 +555,8 @@ privileged_init( fd_topo_t *      topo,
   fd_quic_limits_t limits = quic_limits( tile );
   void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
   fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits, ctx->ip ) );
-  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_key, 32UL, 0 ) ) )
-    FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
+  uchar const * public_key = load_key_into_protected_memory( tile->quic.identity_key_path, 1 /* public key only */ );
+  fd_memcpy( quic->config.identity_public_key, public_key, 32UL );
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
@@ -563,9 +564,28 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
+fd_quic_tls_cv_signer( void *        signer_ctx,
+                       uchar         signature[ static 64 ],
+                       uchar const   payload[ static 130] ) {
+  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL );
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+                   topo->links[ tile->in_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT ||
+                   topo->links[ tile->in_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_QUIC ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %lu %lu",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   topo->links[ tile->out_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX  ||
+                   topo->links[ tile->out_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_SIGN ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %lu %lu",
+                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
 
   ulong depth = tile->quic.depth;
@@ -581,6 +601,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* End privileged allocs */
 
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ 1UL ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ 1UL ] ];
+  FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) ) );
+
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
@@ -595,6 +623,9 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
   quic->config.initial_rx_max_stream_data = 1<<15;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
+
+  quic->config.sign         = fd_quic_tls_cv_signer;
+  quic->config.sign_ctx     = ctx->keyguard_client;
 
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;
@@ -617,6 +648,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=1; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
 
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
     if( FD_UNLIKELY( link0->wksp_id != link->wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
     if( FD_UNLIKELY( link0->mtu != link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
   }
@@ -624,9 +657,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_mem    = topo->workspaces[ link0->wksp_id ].wksp;
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
-
-  if( FD_UNLIKELY( tile->out_cnt != 1 || topo->links[ tile->out_link_id[ 0 ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected netmux output link %lu %lu", tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 0 ] ];
 

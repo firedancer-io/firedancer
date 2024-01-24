@@ -162,7 +162,7 @@ txn_cmd_fn( args_t *         args,
   fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits, ip ) );
   FD_TEST( quic );
 
-  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_key, 32UL, 0 ) ) )
+  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_public_key, 32UL, 0 ) ) )
     FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
 
   fd_quic_udpsock_t _udpsock;

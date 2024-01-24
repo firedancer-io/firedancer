@@ -123,7 +123,7 @@ typedef struct {
   fd_fec_resolver_t  * resolver;
   fd_pubkey_t          identity_key[1]; /* Just the public key */
 
-  fd_remote_signer_t   remote_signer_ctx[1];
+  fd_keyguard_client_t keyguard_client[1];
 
   uint                 src_ip_addr;
   uchar                src_mac_addr[ 6 ];
@@ -686,9 +686,9 @@ privileged_init( fd_topo_t *      topo,
 
 void
 fd_shred_signer( void *        signer_ctx,
-                 uchar *       signature,
-                 uchar const * merkle_root ) {
-  fd_remote_signer_sign_leader( signer_ctx, signature, merkle_root );
+                 uchar         signature[ static 64 ],
+                 uchar const   merkle_root[ static 32 ] ) {
+  fd_keyguard_client_sign( signer_ctx, signature, merkle_root, 32UL );
 }
 
 static void
@@ -790,14 +790,14 @@ unprivileged_init( fd_topo_t *      topo,
   /* populate ctx */
   fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
-  NONNULL( fd_remote_signer_join( fd_remote_signer_new( ctx->remote_signer_ctx,
-                                                        sign_out->mcache,
-                                                        sign_out->dcache,
-                                                        sign_in->mcache,
-                                                        sign_in->dcache ) ) );
+  NONNULL( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) ) );
 
   fd_fec_set_t * resolver_sets = fec_sets + (shred_store_mcache_depth+1UL)/2UL + 1UL;
-  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->remote_signer_ctx, (ushort)expected_shred_version ) ) );
+  ctx->shredder = NONNULL( fd_shredder_join     ( fd_shredder_new     ( _shredder, fd_shred_signer, ctx->keyguard_client, (ushort)expected_shred_version ) ) );
   ctx->resolver = NONNULL( fd_fec_resolver_join ( fd_fec_resolver_new ( _resolver, tile->shred.fec_resolver_depth, 1UL,
                                                                          (shred_store_mcache_depth+3UL)/2UL,
                                                                          128UL * tile->shred.fec_resolver_depth, resolver_sets ) )         );

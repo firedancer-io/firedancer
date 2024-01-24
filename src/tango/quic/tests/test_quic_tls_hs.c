@@ -3,6 +3,7 @@
 
 #include <signal.h>
 
+#include "../../tls/test_tls_helper.h"
 #include "../tls/fd_quic_tls.h"
 #include "../templ/fd_quic_transport_params.h"
 #include "../../../util/net/fd_ip4.h"
@@ -71,8 +72,7 @@ main( int     argc,
   fd_rng_t  _rng[1];   fd_rng_t * rng    = fd_rng_join   ( fd_rng_new   ( _rng, 0U, 0UL ) );
 
   /* Generate certificate key */
-  uchar cert_private_key[ 32 ];
-  for( ulong b=0; b<32UL; b++ ) cert_private_key[b] = fd_rng_uchar( rng );
+  fd_tls_test_sign_ctx_t sign_ctx = fd_tls_test_sign_ctx( rng );
 
   // config parameters
   fd_quic_tls_cfg_t cfg = {
@@ -81,7 +81,8 @@ main( int     argc,
     .handshake_complete_cb = my_hs_complete,
 
     .max_concur_handshakes = 16,
-    .cert_private_key      = cert_private_key
+    .cert_public_key       = sign_ctx.public_key,
+    .signer                = fd_tls_test_sign( &sign_ctx ),
   };
 
   /* dump transport params */

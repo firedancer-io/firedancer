@@ -171,8 +171,6 @@ metric introduced.
 
     <counter name="ReassemblyNotifyClobbered" summary="Reassembly slot was clobbered before it was notified." />
 
-    <counter name="CryptoMallocFailure" summary="Number of tiles crypto_malloc failed to allocate bytes for OpenSSL." />
-
     <counter name="QuicPacketTooSmall" summary="Count of packets received on the QUIC port that were too small to be a valid IP packet." />
 
     <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />

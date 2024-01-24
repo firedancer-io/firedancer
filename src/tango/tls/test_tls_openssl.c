@@ -246,6 +246,7 @@ test_server( SSL_CTX * ctx ) {
 
   fd_tls_t _server[1];
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
+  fd_tls_test_sign_ctx_t server_sign_ctx = fd_tls_test_sign_ctx( rng );
   *server = (fd_tls_t) {
     .rand       = fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
@@ -254,6 +255,8 @@ test_server( SSL_CTX * ctx ) {
     .quic = 1,
     .quic_tp_peer_fn = _fdtls_quic_tp_peer,
     .quic_tp_self_fn = _fdtls_quic_tp_self,
+
+    .sign = fd_tls_test_sign( &server_sign_ctx ),
 
     .alpn    = "\xasolana-tpu",
     .alpn_sz = 11UL,
@@ -269,8 +272,7 @@ test_server( SSL_CTX * ctx ) {
 
   /* Set up Ed25519 key */
 
-  for( ulong b=0; b<32UL; b++ ) server->cert_private_key[b] = fd_rng_uchar( rng );
-  fd_ed25519_public_from_private( server->cert_public_key, server->cert_private_key, sha );
+  fd_memcpy( server->cert_public_key, server_sign_ctx.public_key, 32UL );
 
   /* Set up server cert */
 
@@ -381,6 +383,7 @@ test_client( SSL_CTX * ctx ) {
 
   fd_tls_t  _client[1];
   fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
+  fd_tls_test_sign_ctx_t client_sign_ctx = fd_tls_test_sign_ctx( rng );
   *client = (fd_tls_t) {
     .rand       =  fd_tls_test_rand( rng ),
     .secrets_fn = _fdtls_secrets,
@@ -389,6 +392,8 @@ test_client( SSL_CTX * ctx ) {
     .quic = 1,
     .quic_tp_peer_fn = _fdtls_quic_tp_peer,
     .quic_tp_self_fn = _fdtls_quic_tp_self,
+
+    .sign = fd_tls_test_sign( &client_sign_ctx ),
 
     .alpn    = "\xasolana-tpu",
     .alpn_sz = 11UL,
@@ -405,8 +410,7 @@ test_client( SSL_CTX * ctx ) {
 
   /* Set up Ed25519 key */
 
-  for( ulong b=0; b<32UL; b++ ) client->cert_private_key[b] = fd_rng_uchar( rng );
-  fd_ed25519_public_from_private( client->cert_public_key, client->cert_private_key, sha );
+  fd_memcpy( client->cert_public_key, client_sign_ctx.public_key, 32UL );
 
   /* Set up client cert */
 

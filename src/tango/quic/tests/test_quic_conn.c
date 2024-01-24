@@ -353,11 +353,6 @@ main( int argc, char ** argv ) {
   server_quic->config.initial_rx_max_stream_data = 1<<14;
   client_quic->config.initial_rx_max_stream_data = 1<<14;
 
-  for( ulong j=0UL; j<32UL; j++ )
-    server_quic->config.identity_key[ j ] = (uchar)fd_rng_uchar( rng );
-  for( ulong j=0UL; j<32UL; j++ )
-    client_quic->config.identity_key[ j ] = (uchar)fd_rng_uchar( rng );
-
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );

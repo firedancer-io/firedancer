@@ -8,6 +8,7 @@
 
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
+#include "../../tls/test_tls_helper.h"
 
 #include "../../xdp/fd_xsk.h"
 #include "../../xdp/fd_xsk_aio.h"
@@ -90,7 +91,10 @@ main( int argc, char ** argv ) {
                             50, 51,  102, 25, 63, 110, 36,  28, 51, 11, 174, 179, 110, 8,  25,  152 };
   FD_LOG_HEXDUMP_NOTICE(( "Solana private key", pkey, 32 ));  /* TODO use base-58 format specifier */
   FD_LOG_HEXDUMP_NOTICE(( "Solana public key", pubkey, 32 ));  /* TODO use base-58 format specifier */
-  fd_memcpy( quic_config->identity_key, pkey, 32UL );
+
+  fd_tls_test_sign_ctx_t * ctx = quic_config->sign_ctx;
+  fd_memcpy( ctx->private_key, pkey, 32UL );
+  fd_memcpy( ctx->public_key, pubkey, 32UL );
 
   FD_LOG_NOTICE(( "Initializing QUIC" ));
   FD_TEST( fd_quic_init( quic ) );
