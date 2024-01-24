@@ -497,6 +497,11 @@ MAP_(query)( MAP_T *           join,
              MAP_KEY_T const * key,
              MAP_T *           null );
 
+FD_FN_PURE MAP_T *
+MAP_(query2)( MAP_T *           join,
+             MAP_KEY_T const * key,
+             MAP_T *           null );
+
 FD_FN_PURE MAP_T const *
 MAP_(query_const)( MAP_T const *     join,
                    MAP_KEY_T const * key,
@@ -504,6 +509,13 @@ MAP_(query_const)( MAP_T const *     join,
 
 FD_FN_PURE int
 MAP_(verify)( MAP_T const * join );
+
+MAP_T *
+MAP_(pop_free_ele)( MAP_T * join );
+
+MAP_T *
+MAP_(push_free_ele)( MAP_T * join,
+                     MAP_T * ele );
 
 FD_PROTOTYPES_END
 
@@ -689,6 +701,51 @@ MAP_(insert)( MAP_T *           join,
 }
 
 MAP_IMPL_STATIC MAP_T *
+MAP_(pop_free_ele)( MAP_T * join ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  /* Pop the free stack to allocate an element (this is guaranteed to
+     succeed as per contract) */
+
+  ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
+  MAP_T * ele = join + ele_idx;
+  map->free_stack = ele->MAP_NEXT; /* already tagged free */
+
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(push_free_ele)( MAP_T * join,
+                     MAP_T * ele ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  ulong ele_idx = (ulong)(ele - join);
+
+  ele->MAP_NEXT = map->free_stack; /* already tagged free */
+  map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
+
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(insert_free_ele)( MAP_T *           join,
+                       MAP_T *           ele,
+                       MAP_KEY_T const * key ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+  /* Map the allocated element to key (this is also
+     guaranteed to not have collisions as per contract). */
+
+  ulong ele_idx = (ulong)(ele - join);
+
+  ulong * head = MAP_(private_list)( map ) + MAP_(private_list_idx)( key, map->seed, map->list_cnt );
+  MAP_(key_copy)( &ele->MAP_KEY, key );
+  ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
+  *head = MAP_(private_box_next)( ele_idx, 0 );
+
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
 MAP_(remove)( MAP_T *           join,
               MAP_KEY_T const * key ) {
   MAP_(private_t) * map = MAP_(private)( join );
@@ -746,6 +803,32 @@ MAP_(query)( MAP_T *           join,
       }
       return ele;
     }
+    cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
+  }
+
+  /* Not found */
+
+  return sentinel;
+}
+
+FD_FN_PURE MAP_IMPL_STATIC MAP_T *
+MAP_(query2)( MAP_T *           join,
+             MAP_KEY_T const * key,
+             MAP_T *           sentinel ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  ulong   list_cnt = map->list_cnt;
+  ulong * list     = MAP_(private_list)( map );
+
+  /* Find the key */
+
+  ulong * head = list + MAP_(private_list_idx)( key, map->seed, list_cnt );
+  ulong * cur  = head;
+  for(;;) {
+    ulong ele_idx = MAP_(private_unbox_idx)( *cur );
+    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
+    MAP_T * ele = join + ele_idx;
+    if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
     cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
   }
 

@@ -96,6 +96,10 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 
 FD_PROTOTYPES_BEGIN
 
+FD_FN_PURE ulong fd_funk_rec_map_list_idx( fd_funk_rec_t const * join, fd_funk_xid_key_pair_t const * key );
+
+void fd_funk_rec_map_set_key_cnt( fd_funk_rec_t * join, ulong key_cnt );
+
 /* fd_funk_rec_idx_is_null returns 1 if idx is FD_FUNK_REC_IDX_NULL and
    0 otherwise. */
 
@@ -487,6 +491,22 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,         /* Funky data
                            fd_funk_rec_t const *     irec,         /* Prior result of fd_funk_rec_query_global if known */
                            int *                     opt_err );    /* Optional error code return */
 
+fd_funk_rec_t *
+fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
+                                    fd_funk_txn_t *           txn,
+                                    fd_funk_rec_key_t const * key,                                    
+                                    ulong                     min_val_size,
+                                    int                       do_create,
+                                    fd_funk_rec_t *           prealloc_rec,
+                                    fd_funk_rec_t const     * irec,
+                                    int *                     opt_err );
+
+
+fd_funk_rec_t const *
+fd_funk_rec_fixup_links( fd_funk_t *               funk,
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_t *           rec,
+                         int *                     opt_err );
 /* Misc */
 
 /* fd_funk_rec_verify verifies the record map.  Returns FD_FUNK_SUCCESS
