@@ -262,7 +262,7 @@ fd_calculate_stake_weighted_timestamp(
     }
   }
 
-  FD_LOG_WARNING(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
+  FD_LOG_DEBUG(( "stake weighted timestamp: %lu total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
   fd_epoch_schedule_t schedule;
@@ -280,7 +280,7 @@ fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
-  FD_LOG_WARNING(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
+  FD_LOG_DEBUG(( "corrected stake weighted timestamp: %lu", *result_timestamp ));
 
   if (*result_timestamp < clock.unix_timestamp) {
     FD_LOG_DEBUG(( "updated timestamp to ancestor" ));
@@ -341,7 +341,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   ulong epoch_old = clock.epoch;
   ulong epoch_new = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, clock.slot, NULL );
-  FD_LOG_WARNING(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock.slot));
+  FD_LOG_DEBUG(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock.slot));
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
     long timestamp_estimate = 0L;

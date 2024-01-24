@@ -1,11 +1,8 @@
-// /home/asiegel/solana/test-ledger
-
-/* This is an attempt to wire together all the components of runtime...
-
-   Start with a non-consensus participating, non-fork tracking tile that can
-     1. receive shreds from Repair
+/* This represents a non-consensus node that validates block and serves them via RPC.
+     1. receive shreds from Turbine / Repair
      2. put them in the Blockstore
      3. validate and execute them
+     4. track and prune forks once they are finalized
 
    ./build/native/gcc/unit-test/test_tvu \
       --rpc-port 8124 \
@@ -67,23 +64,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static int gossip_sockfd = -1;
-
-static fd_pubkey_t pubkey_null = { 0 };
-
-#define MAP_NAME                fd_repair_peer
-#define MAP_T                   fd_repair_peer_t
-#define MAP_LG_SLOT_CNT         12 /* 4kb peers */
-#define MAP_KEY                 id
-#define MAP_KEY_T               fd_pubkey_t
-#define MAP_KEY_NULL            pubkey_null
-#define MAP_KEY_INVAL( k )      !( memcmp( &k, &pubkey_null, sizeof( fd_pubkey_t ) ) )
-#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( &k0 ), ( &k1 ), sizeof( fd_pubkey_t ) ) )
-#define MAP_KEY_EQUAL_IS_SLOW   1
-#define MAP_KEY_HASH( key )     ( (uint)( fd_hash( 0UL, &key, sizeof( fd_pubkey_t ) ) ) )
-#include "../../util/tmpl/fd_map.c"
-
-static bool has_peer = 0;
+static int  gossip_sockfd = -1;
+static bool has_peer      = 0;
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
@@ -119,52 +101,23 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   fd_slot_meta_t const * slot_meta =
       fd_blockstore_slot_meta_query( repair_ctx->blockstore, shred->slot );
 
-  /* Slot complete, so replay. */
-  if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index)) {
-    FD_LOG_WARNING(("replaying %lu", slot_meta->slot));
-    ulong parent_slot = fd_blockstore_slot_parent_query( repair_ctx->blockstore, shred->slot );
-    fd_blockstore_block_t * parent_block = fd_blockstore_block_query(repair_ctx->blockstore, parent_slot);
-    fd_replay_t * replay = repair_ctx->replay;
-
-    /* If the parent block is missing, we're missing shreds and need to repair before
-     * replaying. */
-    if( FD_UNLIKELY( !parent_block ) ) {
-      /* FIXME add peers to ctx */
-      fd_repair_need_highest_window_index( repair_ctx->repair, id, shred->slot, shred->idx );
-      fd_blockstore_end_read( repair_ctx->blockstore );
-      return;
-    };
-
-    /* Find the parent in the frontier. */
-    fd_replay_slot_t * parent =
-        fd_replay_frontier_ele_query( replay->frontier, &parent_slot, NULL, replay->pool );
-
-    /* If the parent isn't in the frontier, that means this is starting a new fork and the parent
-     * needs to be added to the frontier. This requires rolling back to that parent in funk, and
-     * then saving it into the frontier. */
-    if( FD_UNLIKELY( !parent ) ) {
-
-      /* Alloc a new slot_ctx */
-      parent       = fd_replay_pool_ele_acquire( replay->pool );
-      parent->slot = parent_slot;
-      fd_exec_slot_ctx_t * parent_slot_ctx =
-          fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &parent->slot_ctx ) );
-
-      /* Restore and decode w/ funk */
-      fd_replay_slot_restore( replay, parent->slot, parent_slot_ctx );
-
-      /* Zero out for the next slot execution */
-      parent_slot_ctx->slot_bank.collected_fees = 0;
-      parent_slot_ctx->slot_bank.collected_rent = 0;
-
-      /* Add to frontier */
-      fd_replay_frontier_ele_insert( replay->frontier, parent, replay->pool );
-    }
-
-    fd_replay_slot_execute( replay, shred->slot, parent );
+  if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
+    fd_replay_queue_push_tail( repair_ctx->replay->pending, shred->slot );
   }
-  // TODO shorten this lock
+
   fd_blockstore_end_read( repair_ctx->blockstore );
+
+  /* FIXME remove after turbine */
+  for( fd_replay_frontier_iter_t iter =
+           fd_replay_frontier_iter_init( repair_ctx->replay->frontier, repair_ctx->replay->pool );
+       !fd_replay_frontier_iter_done(
+           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
+       iter = fd_replay_frontier_iter_next(
+           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool ) ) {
+    fd_replay_slot_t * slot =
+        fd_replay_frontier_iter_ele( iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
+    fd_replay_queue_push_tail( repair_ctx->replay->missing, slot->slot + 1 );
+  }
 }
 
 static void
@@ -182,13 +135,12 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
            iter, repair_ctx->replay->frontier, repair_ctx->replay->pool ) ) {
     fd_replay_slot_t * slot =
         fd_replay_frontier_iter_ele( iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
-    
+
     min_frontier_slot = fd_ulong_min( min_frontier_slot, slot->slot );
   }
   fd_blockstore_start_read( repair_ctx->blockstore );
   for( ulong slot = min_frontier_slot + 1;
-       slot - min_frontier_slot < LOOK_AHEAD_HIGHEST &&
-       !fd_repair_is_full( repair_ctx->repair );
+       slot - min_frontier_slot < LOOK_AHEAD_HIGHEST && !fd_repair_is_full( repair_ctx->repair );
        ++slot ) {
     if( fd_blockstore_block_query( repair_ctx->blockstore, slot ) != NULL ) continue;
 
@@ -582,6 +534,8 @@ fd_tvu_main( fd_gossip_t *         gossip,
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !*stopflag ) {
+    fd_replay_pending_execute( repair_ctx->replay );
+
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( has_peer && ( now - last_call ) > (long)100e6 ) ) {
       repair_missing_shreds( repair_ctx );
@@ -827,6 +781,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   FD_TEST( replay );
   FD_TEST( replay->frontier );
   FD_TEST( replay->pool );
+  runtime_ctx->replay = replay;
 
   /**********************************************************************/
   /* slot_ctx                                                           */
@@ -844,8 +799,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   epoch_ctx->valloc = valloc;
   slot_ctx->valloc  = valloc;
 
-  slot_ctx->acc_mgr = fd_acc_mgr_new( runtime_ctx->_acc_mgr, funk );
-  slot_ctx->blockstore = blockstore;
+  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( runtime_ctx->_acc_mgr, funk );
+  slot_ctx->acc_mgr      = acc_mgr;
+  slot_ctx->blockstore   = blockstore;
 
   /**********************************************************************/
   /* snapshots                                                          */
@@ -1002,28 +958,37 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* Prepare                                                             */
     /***********************************************************************/
 
-    replay->epoch_stakes = NULL; // TODO
-    replay->blockstore   = blockstore;
-    replay->funk         = funk;
-    replay->tpool        = tpool;
-    replay->max_workers  = args->tcnt;
-    replay->repair       = repair;
-    replay->gossip       = gossip;
+    replay->blockstore  = blockstore;
+    replay->funk        = funk;
+    replay->acc_mgr     = acc_mgr;
+    replay->epoch_ctx   = epoch_ctx;
+    replay->tpool       = tpool;
+    replay->max_workers = args->tcnt;
+    replay->repair      = repair;
+    replay->gossip      = gossip;
 
+    /* bootstrap replay with the snapshot slot */
     replay_slot->slot = slot_ctx->slot_bank.slot;
-    FD_LOG_NOTICE( ( "inserting replay slot %lu", replay_slot->slot ) );
+
+    /* add it to the frontier */
     fd_replay_frontier_ele_insert( replay->frontier, replay_slot, replay->pool );
 
-    /* this is needed to bootstrap replay (it has to find the parent, which is the snapshot slot in this case) */
-    fd_blockstore_block_map_t * fake_block = fd_blockstore_block_map_insert( fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr ), replay_slot->slot );
-    fake_block->slot = replay_slot->slot;
+    /* kick off repair for the next slot */
+    /* FIXME what if it's nothet next slot? */
+    fd_replay_queue_push_tail( replay->missing, replay_slot->slot + 1 );
+
+    /* this is needed to bootstrap replay (it has to find the parent block, which is the snapshot
+     * slot in this case) */
+    fd_blockstore_block_map_t * fake_parent_block = fd_blockstore_block_map_insert(
+        fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr ), replay_slot->slot );
+    fake_parent_block->slot = replay_slot->slot;
 
     repair_ctx->replay = replay;
   } // if (runtime_ctx->live)
 
-  replay_slot->slot             = slot_ctx->slot_bank.slot;
+  replay_slot->slot = slot_ctx->slot_bank.slot;
 
-  /* FIXME where does this go / when does it happen / epoch ctx stuff? */
+  /* FIXME epoch boundary stuff when replaying */
   fd_features_restore( slot_ctx );
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
@@ -1090,8 +1055,18 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args ) {
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_stop_service( tvu_args->rpc_ctx );
 #endif
-  fd_exec_slot_ctx_t * slot_ctx = tvu_args->slot_ctx;
-  if (NULL != slot_ctx->epoch_ctx->leaders)
-    fd_valloc_free(slot_ctx->valloc, slot_ctx->epoch_ctx->leaders);
-  fd_runtime_delete_banks( slot_ctx );
+  fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
+
+  fd_replay_t * replay = tvu_args->replay;
+  for( fd_replay_frontier_iter_t iter =
+           fd_replay_frontier_iter_init( replay->frontier, replay->pool );
+       !fd_replay_frontier_iter_done( iter, replay->frontier, replay->pool );
+       iter = fd_replay_frontier_iter_next( iter, replay->frontier, replay->pool ) ) {
+    fd_replay_slot_t * slot = fd_replay_frontier_iter_ele( iter, replay->frontier, replay->pool );
+    fd_exec_slot_ctx_free( &slot->slot_ctx );
+  }
+
+  /* ensure it's no longer valid to join */
+  fd_replay_frontier_delete( fd_replay_frontier_leave( replay->frontier ) );
+  fd_replay_pool_delete( fd_replay_pool_leave( replay->pool ) );
 }

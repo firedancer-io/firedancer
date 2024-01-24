@@ -22,6 +22,20 @@ struct fd_repair_peer {
 };
 typedef struct fd_repair_peer fd_repair_peer_t;
 
+static fd_pubkey_t pubkey_null = { 0 };
+
+#define MAP_NAME                fd_repair_peer
+#define MAP_T                   fd_repair_peer_t
+#define MAP_LG_SLOT_CNT         12 /* 4kb peers */
+#define MAP_KEY                 id
+#define MAP_KEY_T               fd_pubkey_t
+#define MAP_KEY_NULL            pubkey_null
+#define MAP_KEY_INVAL( k )      !( memcmp( &k, &pubkey_null, sizeof( fd_pubkey_t ) ) )
+#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( &k0 ), ( &k1 ), sizeof( fd_pubkey_t ) ) )
+#define MAP_KEY_EQUAL_IS_SLOW   1
+#define MAP_KEY_HASH( key )     ( (uint)( fd_hash( 0UL, &key, sizeof( fd_pubkey_t ) ) ) )
+#include "../../util/tmpl/fd_map.c"
+
 typedef struct {
   fd_repair_t *        repair;
   fd_repair_peer_t *   repair_peers;

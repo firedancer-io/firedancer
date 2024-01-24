@@ -37,6 +37,10 @@ fd_exec_epoch_ctx_leave( fd_exec_epoch_ctx_t * ctx );
 void *
 fd_exec_epoch_ctx_delete( void * mem );
 
+/* Free all allocated memory within a epoch ctx */
+void
+fd_exec_epoch_ctx_free( fd_exec_epoch_ctx_t * ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h */

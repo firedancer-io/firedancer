@@ -1309,21 +1309,8 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx ) {
   }
 
   /* Load sysvars into cache */
-  fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );
-  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache.slot_hashes, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
-    return result;
-  }
-
-  fd_rent_new( slot_ctx->sysvar_cache.rent );
-  if( FD_UNLIKELY( !fd_sysvar_rent_read( slot_ctx->sysvar_cache.rent, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
-    return result;
-  }
-
-  fd_sol_sysvar_clock_new( slot_ctx->sysvar_cache.clock );
-  if( FD_UNLIKELY( !fd_sysvar_clock_read( slot_ctx->sysvar_cache.clock, slot_ctx ) ) ) {
-    FD_LOG_WARNING(("reading sysvars failed"));
+  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx ) ) ) {
+    /* non-zero error */
     return result;
   }
 
@@ -1866,7 +1853,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     if (++depth == 31U) {
-      FD_LOG_NOTICE(("publishing %32J", &txn->xid));
+      FD_LOG_DEBUG(("publishing %32J", &txn->xid));
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));
@@ -2552,7 +2539,7 @@ fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burned_portion );
   ulong rent_to_be_distributed = total_rent_collected - burned_portion;
 
-  FD_LOG_WARNING(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
+  FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
   if( rent_to_be_distributed == 0 ) {
     return;
   }
@@ -3290,6 +3277,56 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 }
 
+ulong
+fd_runtime_ctx_align( void ) {
+  return alignof( fd_runtime_ctx_t );
+}
+
+ulong
+fd_runtime_ctx_footprint( void ) {
+  return sizeof( fd_runtime_ctx_t );
+}
+
+void *
+fd_runtime_ctx_new( void * shmem ) {
+  fd_runtime_ctx_t * replay_state = (fd_runtime_ctx_t *)shmem;
+
+  if( FD_UNLIKELY( !replay_state ) ) {
+    FD_LOG_WARNING( ( "NULL replay_state" ) );
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_runtime_ctx_align() ) ) ) {
+    FD_LOG_WARNING( ( "misaligned replay_state" ) );
+    return NULL;
+  }
+
+  return (void *)replay_state;
+}
+
+/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
+   The lifetime of the returned pointer is at least as long as the
+   lifetime of the local join.  Assumes funk is a current local join. */
+
+fd_runtime_ctx_t *
+fd_runtime_ctx_join( void * state ) {
+  return (fd_runtime_ctx_t *)state;
+}
+
+/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
+   shfunk on success and NULL on failure.  (logs details). */
+
+void *
+fd_runtime_ctx_leave( fd_runtime_ctx_t * state ) {
+  return state;
+}
+
+/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
+void *
+fd_runtime_ctx_delete( void * state ) {
+  return state;
+}
+
 int
 fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   ulong r = fd_funk_txn_cancel_all( state->slot_ctx->acc_mgr->funk, 1 );
@@ -3411,52 +3448,29 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   return 0;
 }
 
-ulong
-fd_runtime_ctx_align( void ) {
-  return alignof( fd_runtime_ctx_t );
-}
-
-ulong
-fd_runtime_ctx_footprint( void ) {
-  return sizeof( fd_runtime_ctx_t );
-}
-
-void *
-fd_runtime_ctx_new( void * shmem ) {
-  fd_runtime_ctx_t * replay_state = (fd_runtime_ctx_t *)shmem;
-
-  if( FD_UNLIKELY( !replay_state ) ) {
-    FD_LOG_WARNING( ( "NULL replay_state" ) );
-    return NULL;
+/* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
+int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) { 
+  if (FD_UNLIKELY(!slot_ctx->acc_mgr)) return -1;
+  if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
+  /* TODO check valloc */
+  
+  fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );
+  if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache.slot_hashes, slot_ctx ) ) ) {
+    FD_LOG_WARNING(("reading sysvars failed"));
+    return -1;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)replay_state, fd_runtime_ctx_align() ) ) ) {
-    FD_LOG_WARNING( ( "misaligned replay_state" ) );
-    return NULL;
+  fd_rent_new( slot_ctx->sysvar_cache.rent );
+  if( FD_UNLIKELY( !fd_sysvar_rent_read( slot_ctx->sysvar_cache.rent, slot_ctx ) ) ) {
+    FD_LOG_WARNING(("reading sysvars failed"));
+    return -1;
   }
 
-  return (void *)replay_state;
-}
+  fd_sol_sysvar_clock_new( slot_ctx->sysvar_cache.clock );
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( slot_ctx->sysvar_cache.clock, slot_ctx ) ) ) {
+    FD_LOG_WARNING(("reading sysvars failed"));
+    return -1;
+  }
 
-/* fd_runtime_ctx_join returns the local join to the wksp backing the funk.
-   The lifetime of the returned pointer is at least as long as the
-   lifetime of the local join.  Assumes funk is a current local join. */
-
-fd_runtime_ctx_t *
-fd_runtime_ctx_join( void * state ) {
-  return (fd_runtime_ctx_t *)state;
-}
-
-/* fd_runtime_ctx_leave leaves an existing join.  Returns the underlying
-   shfunk on success and NULL on failure.  (logs details). */
-
-void *
-fd_runtime_ctx_leave( fd_runtime_ctx_t * state ) {
-  return state;
-}
-
-/* fd_runtime_ctx_delete unformats a wksp allocation used as a replay_state */
-void *
-fd_runtime_ctx_delete( void * state ) {
-  return state;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }

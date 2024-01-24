@@ -616,7 +616,7 @@ fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot 
 /* Deshred and construct a block once we've received all shreds for a slot. */
 static int
 fd_blockstore_deshred( fd_blockstore_t * blockstore, ulong slot ) {
-  FD_LOG_WARNING(("deshredding %lu", slot));
+  FD_LOG_DEBUG(("deshredding %lu", slot));
   fd_blockstore_block_map_t * block_map = fd_blockstore_block_map( blockstore );
   if( FD_UNLIKELY( fd_blockstore_block_map_query( block_map, slot, NULL ) ) ) {
     FD_LOG_ERR( ( "duplicate blocks not supported" ) );

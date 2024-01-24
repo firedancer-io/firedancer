@@ -87,3 +87,10 @@ fd_exec_epoch_ctx_delete( void * mem ) {
 
   return mem;
 }
+
+void
+fd_exec_epoch_ctx_free( fd_exec_epoch_ctx_t * epoch_ctx ) {
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.valloc = epoch_ctx->valloc;
+  fd_epoch_bank_destroy( &epoch_ctx->epoch_bank, &ctx );
+}

@@ -293,3 +293,20 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
 
   return res;
 }
+
+void
+fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.valloc = slot_ctx->valloc;
+  fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
+
+  /* only the slot hashes needs freeing in sysvar cache */
+  fd_slot_hashes_destroy( slot_ctx->sysvar_cache.slot_hashes, &ctx );
+
+  /* leader points to a caller-allocated leader schedule */
+
+  /* free vec in stake rewards*/
+  fd_stake_rewards_vector_destroy( slot_ctx->epoch_reward_status.stake_rewards_by_partition );
+
+  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
+}

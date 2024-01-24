@@ -23,14 +23,17 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_blockstore_t *        blockstore;
   fd_valloc_t              valloc;
 
+  fd_slot_bank_t           slot_bank;
+  fd_sysvar_cache_t        sysvar_cache; // TODO make const
+  fd_pubkey_t const *      leader; /* Current leader */
+
+  /* TODO figure out what to do with this */
   fd_epoch_reward_status_t epoch_reward_status;
+
+  /* TODO remove this stuff */
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
-
-  fd_pubkey_t const *      leader; /* Current leader */
-  fd_slot_bank_t           slot_bank;
-  fd_sysvar_cache_t        sysvar_cache; // TODO make const
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -70,6 +73,11 @@ fd_exec_slot_ctx_delete( void * mem );
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
                           fd_solana_manifest_t * manifest );
+
+
+/* Free all allocated memory within a slot ctx */
+void
+fd_exec_slot_ctx_free(fd_exec_slot_ctx_t * ctx);
 
 FD_PROTOTYPES_END
 

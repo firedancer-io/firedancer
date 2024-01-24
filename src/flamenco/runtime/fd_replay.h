@@ -22,10 +22,10 @@
 #include "fd_blockstore.h"
 
 struct fd_replay_slot {
-  ulong                slot;
-  ulong                next;
-  fd_exec_slot_ctx_t  slot_ctx;
-  ulong                stake; /* how much stake has voted on this slot */
+  ulong              slot;
+  ulong              next;
+  fd_exec_slot_ctx_t slot_ctx;
+  ulong              stake; /* how much stake has voted on this slot */
 };
 typedef struct fd_replay_slot fd_replay_slot_t;
 
@@ -38,18 +38,26 @@ typedef struct fd_replay_slot fd_replay_slot_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_replay {
-  fd_replay_frontier_t *    frontier; /* map of slots to slot_ctxs, representing the fork heads */
-  fd_replay_slot_t *        pool;
-  fd_epoch_stakes_t const * epoch_stakes;
+#define DEQUE_NAME fd_replay_queue
+#define DEQUE_T    ulong
+#define DEQUE_MAX  FD_DEFAULT_SLOTS_PER_EPOCH
+#include "../../util/tmpl/fd_deque.c"
 
-  /* Services */
-  fd_blockstore_t * blockstore;
-  fd_funk_t *       funk;
-  fd_tpool_t *      tpool;
-  ulong             max_workers;
-  fd_repair_t *     repair;
-  fd_gossip_t *     gossip;
+struct fd_replay {
+  fd_replay_slot_t *     pool;     /* memory pool of slot_ctxs */
+  fd_replay_frontier_t * frontier; /* map of slots to slot_ctxs, representing the fork heads */
+  ulong *                pending;  /* backlog of pending slots that need replay */
+  ulong *                missing;  /* backlog of missing slots that need repair */
+
+  fd_blockstore_t *     blockstore;
+  fd_funk_t *           funk;
+  fd_acc_mgr_t *        acc_mgr;
+  fd_exec_epoch_ctx_t * epoch_ctx;
+  fd_repair_t *         repair;
+  fd_gossip_t *         gossip;
+  fd_tpool_t *          tpool;
+  ulong                 max_workers;
+  fd_valloc_t *         valloc;
 };
 typedef struct fd_replay fd_replay_t;
 
@@ -119,11 +127,21 @@ fd_replay_leave( fd_replay_t const * replay );
 void *
 fd_replay_delete( void * replay );
 
+/* fd_replay_slot_parent queries the parent of slot in the replay frontier, updating the frontier if
+   it can't find it (which indicates a new fork). */
 void
-fd_replay_slot_execute( fd_replay_t * replay, ulong slot, fd_replay_slot_t * parent );
+fd_replay_slot_parent_query( fd_replay_t * replay, ulong slot );
 
+/* fd_replay_run attempts to execute all the current slots in pending, updating the frontier as it
+   goes. It re-queues the slots it can't currently execute due to a gap in the ancestry chain, ie.
+   blocks must be connected. It queues those missing parents that need to be repaired. */
 void
-fd_replay_slot_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx );
+fd_replay_pending_execute( fd_replay_t * replay );
+
+/* fd_replay_slot_ctx_restore restores slot_ctx to its state as of slot. Assumes the blockhash
+ * corresponding to slot is in funk. */
+void
+fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

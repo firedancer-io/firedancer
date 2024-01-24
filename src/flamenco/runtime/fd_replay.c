@@ -1,6 +1,8 @@
 #include "fd_replay.h"
 #include "../fd_flamenco.h"
+#include "context/fd_exec_slot_ctx.h"
 #include "fd_account.h"
+#include "fd_runtime.h"
 
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
@@ -31,6 +33,11 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   laddr =
       fd_ulong_align_up( laddr + fd_replay_pool_footprint( slot_max ), fd_replay_frontier_align() );
   replay->frontier = fd_replay_frontier_new( (void *)laddr, slot_max, seed );
+  laddr            = fd_ulong_align_up( laddr + fd_replay_frontier_footprint( slot_max ),
+                             fd_replay_queue_align() );
+  replay->pending  = fd_replay_queue_new( (void *)laddr );
+  laddr = fd_ulong_align_up( laddr + fd_replay_queue_footprint(), fd_replay_queue_align() );
+  replay->missing = fd_replay_queue_new( (void *)laddr );
 
   return mem;
 }
@@ -52,6 +59,8 @@ fd_replay_join( void * replay ) {
   fd_replay_t * replay_ = (fd_replay_t *)replay;
   replay_->pool         = fd_replay_pool_join( replay_->pool );
   replay_->frontier     = fd_replay_frontier_join( replay_->frontier );
+  replay_->pending      = fd_replay_queue_join( replay_->pending );
+  replay_->missing      = fd_replay_queue_join( replay_->missing );
 
   return replay_;
 }
@@ -83,42 +92,87 @@ fd_replay_delete( void * replay ) {
   return replay;
 }
 
-// TODO lock inside here vs. caller
 void
-fd_replay_slot_execute( fd_replay_t * replay, ulong slot, fd_replay_slot_t * parent ) {
-  FD_LOG_NOTICE( ( "executing replay" ) );
-  fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
-  if( block == NULL ) { /* we have the metadata but not the actual block */
-    FD_LOG_ERR( ( "programming error: calling fd_replay_slot_execute when block isn't there." ) );
+fd_replay_pending_execute( fd_replay_t * replay ) {
+  /* we might push items back into the queue, so process at most current queue_cnt items */
+  for( ulong i = 0; i < fd_replay_queue_cnt( replay->pending ); i++ ) {
+    ulong slot = fd_replay_queue_pop_head( replay->pending );
+    fd_blockstore_start_read( replay->blockstore );
+    ulong parent_slot = fd_blockstore_slot_parent_query( replay->blockstore, slot );
+    fd_blockstore_block_t * parent_block =
+        fd_blockstore_block_query( replay->blockstore, parent_slot );
+
+    /* If the parent block is missing, we need to repair before we can replay the child. */
+    if( FD_UNLIKELY( !parent_block ) ) {
+      fd_blockstore_end_read( replay->blockstore );
+      fd_replay_queue_push_tail( replay->missing, parent_slot );
+      fd_replay_queue_push_tail( replay->pending, slot );
+      continue;
+    };
+
+    /* Find the parent in the frontier. */
+    fd_replay_slot_t * parent =
+        fd_replay_frontier_ele_query( replay->frontier, &parent_slot, NULL, replay->pool );
+
+    /* If the parent isn't in the frontier, that means this is starting a new fork and the parent
+     * needs to be added to the frontier. This requires rolling back to that parent in funk, and
+     * then saving it into the frontier. */
+    if( FD_UNLIKELY( !parent ) ) {
+
+      /* Alloc a new slot_ctx */
+      parent       = fd_replay_pool_ele_acquire( replay->pool );
+      parent->slot = parent_slot;
+      fd_exec_slot_ctx_t * parent_slot_ctx =
+          fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &parent->slot_ctx ) );
+
+      /* Restore and decode w/ funk */
+      fd_replay_slot_ctx_restore( replay, parent->slot, parent_slot_ctx );
+
+      /* Add to frontier */
+      fd_replay_frontier_ele_insert( replay->frontier, parent, replay->pool );
+    }
+
+    fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
+    if( block == NULL ) { /* we have the metadata but not the actual block */
+      FD_LOG_ERR( ( "programming error: calling fd_replay_slot_execute when block isn't there." ) );
+    }
+    uchar const * block_data = fd_blockstore_block_data_laddr( replay->blockstore, block );
+
+    /* block data ptr remains valid outside of the rw lock for the lifetime of the block alloc */
+    fd_blockstore_end_read( replay->blockstore );
+
+    ulong txn_cnt                             = 0;
+
+    /* Prepare block for next execution */
+    parent->slot_ctx.slot_bank.prev_slot      = parent->slot;
+    parent->slot_ctx.slot_bank.slot           = slot;
+
+    /* Next execution expects these to be zeroed out*/
+    parent->slot_ctx.slot_bank.collected_fees = 0;
+    parent->slot_ctx.slot_bank.collected_rent = 0;
+
+    FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
+                                          NULL,
+                                          block_data,
+                                          block->sz,
+                                          replay->tpool,
+                                          replay->max_workers,
+                                          &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+    (void)txn_cnt;
+
+    /* parent->slot_ctx is now child->slot_ctx, so re-insert into the map keyed by child slot */
+    fd_replay_slot_t * child =
+        fd_replay_frontier_ele_remove( replay->frontier, &parent->slot, NULL, replay->pool );
+    child->slot =
+        child->slot_ctx.slot_bank.prev_slot; /* this is a hack to fix the fact eval is setting +1 */
+    fd_replay_frontier_ele_insert( replay->frontier, child, replay->pool );
+    FD_LOG_NOTICE( ( "slot: %lu", child->slot ) );
+    FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
   }
-  uchar const * block_data = fd_blockstore_block_data_laddr( replay->blockstore, block );
-
-  ulong txn_cnt = 0;
-  parent->slot_ctx.slot_bank.prev_slot = parent->slot;
-  parent->slot_ctx.slot_bank.slot = slot;
-  parent->slot_ctx.slot_bank.collected_fees = 0;
-  parent->slot_ctx.slot_bank.collected_rent = 0;
-
-  FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
-                                        NULL,
-                                        block_data,
-                                        block->sz,
-                                        replay->tpool,
-                                        replay->max_workers,
-                                        &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
-  (void)txn_cnt;
-
-  /* parent->slot_ctx is now child->slot_ctx, so re-insert into the map keyed by child slot */
-  fd_replay_slot_t * child =
-      fd_replay_frontier_ele_remove( replay->frontier, &parent->slot, NULL, replay->pool );
-  child->slot = child->slot_ctx.slot_bank.prev_slot; /* this is a hack to fix the fact eval is setting +1 */
-  fd_replay_frontier_ele_insert( replay->frontier, child, replay->pool );
-  FD_LOG_NOTICE(
-      ( "bank hash for slot %lu: %32J", child->slot, child->slot_ctx.slot_bank.banks_hash.hash ) );
 }
 
 void
-fd_replay_slot_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
+fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
@@ -127,20 +181,45 @@ fd_replay_slot_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * s
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) FD_LOG_ERR( ( "missing txn" ) );
-  slot_ctx->funk_txn        = txn;
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( replay->funk, slot_ctx->funk_txn, &id );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( replay->funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void *                  val = fd_funk_val( rec, fd_funk_wksp( replay->funk ) );
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = val;
   ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  ctx.valloc  = slot_ctx->valloc;
-  FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
+  ctx.valloc  = *replay->valloc;
 
-  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J",
-                   (long)slot_ctx->slot_bank.slot,
+  FD_TEST( slot_ctx->magic == FD_EXEC_SLOT_CTX_MAGIC );
+
+  slot_ctx->epoch_ctx = replay->epoch_ctx;
+
+  slot_ctx->funk_txn   = txn;
+  slot_ctx->acc_mgr    = replay->acc_mgr;
+  slot_ctx->blockstore = replay->blockstore;
+  slot_ctx->valloc     = *replay->valloc;
+
+  FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
+  FD_TEST( fd_runtime_sysvar_cache_load( slot_ctx ) );
+  slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
+
+  // TODO how do i get this info, ignoring rewards for now
+  // slot_ctx->epoch_reward_status = ???
+
+  // signature_cnt, account_delta_hash, prev_banks_hash are used for the banks hash calculation and
+  // not needed when restoring parent
+
+  FD_LOG_NOTICE( ( "recovered slot_bank for slot=%lu banks_hash=%32J poh_hash %32J",
+                   slot_ctx->slot_bank.slot,
                    slot_ctx->slot_bank.banks_hash.hash,
                    slot_ctx->slot_bank.poh.hash ) );
+
+  /* Prepare bank for next slot */
+  slot_ctx->slot_bank.slot           = slot;
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
+
+  /* FIXME epoch boundary stuff when replaying */
+  // fd_features_restore( slot_ctx );
+  // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
+  // fd_calculate_epoch_accounts_hash_values( slot_ctx );
 }

@@ -2019,6 +2019,7 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   }
 }
 
+/*  */
 uint vote_state_versions_is_correct_and_initialized( fd_vote_state_versioned_t * vote_state, fd_borrowed_account_t * vote_account ) {
   // TODO: replace magic numbers
   switch ( vote_state->discriminant ) {
