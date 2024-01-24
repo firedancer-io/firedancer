@@ -16,7 +16,7 @@
                                  ulong    cnt );
 
      // Return 1 if cnt is a sensible value for the stable sorting APIs
-     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow).  
+     // (i.e. cnt*sizeof(double)+alignof(double)-1 will not overflow).
 
      int sort_double_descend_stable_cnt_valid( ulong cnt );
 
@@ -64,6 +64,21 @@
      sort_double_select( double * key,
                          ulong    cnt,
                          ulong    rnk );
+
+     // Binary search for element equal-or-greater than key in a sorted
+     // list.  Return value is an index into sorted in [0,cnt].  If
+     // return value > 0 then it is the largest index where
+     // SORT_BEFORE(sorted[index-1],query)==1.   Returns 0 if
+     // SORT_BEFORE(query,elem)==1 for all elements in sorted.  Assumes
+     // SORT_BEFORE defines a total order over sorted, and each element
+     // in sorted is less-or-equal than its successor.  (Returns
+     // incorrect result otherwise!)   Robust if cnt==0 (in that case,
+     // returns 0 and ignores pointer to sorted).
+
+     ulong
+     sort_double_search_geq( double const * sorted,
+                             ulong          cnt,
+                             double         query );
 
    It is fine to include this template multiple times in a compilation
    unit.  Just provide the specification before each inclusion.  Various
@@ -196,7 +211,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
   /* If below threshold, use insertion sort */
 
   if( cnt<=((SORT_IDX_T)(SORT_MERGE_THRESH)) ) return SORT_(insert)( key, cnt );
-  
+
   /* Otherwise, break input in half and sort the halves */
 
   SORT_KEY_T * key_left  = key;
@@ -579,7 +594,7 @@ FD_FN_CONST static inline int SORT_(stable_cnt_valid)( SORT_IDX_T cnt ) {
   return (!cnt) | ((((SORT_IDX_T)0)<cnt) & (cnt<max)) | (cnt==max);
 }
 
-FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); } 
+FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); }
 FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
 
 static inline SORT_KEY_T *
@@ -610,6 +625,23 @@ SORT_(select)( SORT_KEY_T * key,
                SORT_IDX_T   cnt,
                SORT_IDX_T   rnk ) {
   return SORT_(private_select)( key, cnt, rnk );
+}
+
+static inline SORT_IDX_T
+SORT_(search_geq)( SORT_KEY_T const * sorted,
+                   SORT_IDX_T         cnt,
+                   SORT_KEY_T         query ) {
+  SORT_IDX_T j = (SORT_IDX_T)0;
+  SORT_IDX_T n = (SORT_IDX_T)cnt;
+  while( n>((SORT_IDX_T)1) ) {
+    /* At this point the j corresponding to k is in [j,j+n) */
+    SORT_IDX_T j_left  = j;          SORT_IDX_T n_left  = n >> 1;
+    SORT_IDX_T j_right = j + n_left; SORT_IDX_T n_right = n - n_left;
+    int  go_left = SORT_BEFORE( query, sorted[ j_right ] );
+    j = go_left ? j_left : j_right; /* branchless */
+    n = go_left ? n_left : n_right; /* branchless */
+  }
+  return j;
 }
 
 #endif

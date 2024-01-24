@@ -1,4 +1,5 @@
 #include "../fd_util.h"
+#include <math.h>
 
 /* FIXME: USE PYTH SORT TEST METHODOLOGY INSTEAD? */
 
@@ -41,7 +42,7 @@ main( int     argc,
   TYPE ref[ MAX ];
   TYPE tst[ MAX ];
   TYPE tmp[ MAX ];
-  
+
   for( ulong cnt=0UL; cnt<32UL; cnt++ ) {
     for( ulong i=0UL; i<cnt; i++ ) ref[i] = (TYPE)i;
     for( ulong i=0UL; i<cnt; i++ ) tst[i] = (TYPE)i;
@@ -197,6 +198,18 @@ main( int     argc,
 
     FD_LOG_NOTICE(( "%lu: pass (cnt %lu)", trial, cnt ));
   }
+
+  do {
+    FD_TEST( sort_up_search_geq( NULL, 0UL, 3.0f )==0UL );
+    float sorted[1024];
+    for( ulong j=0UL; j<1024UL; j++ ) sorted[j] = (float)j;
+    FD_TEST( sort_up_search_geq( sorted, 1024UL, -INFINITY )==0UL );
+    for( ulong j=0UL; j<2048UL; j++ ) {
+      float query = sorted[j/2] + (((float)(j&1UL))/2.0f);
+      FD_TEST( sort_up_search_geq( sorted, 1024UL, query )==j/2 );
+    }
+    FD_TEST( sort_up_search_geq( sorted, 1024UL, INFINITY )==1023UL );
+  } while(0);
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
