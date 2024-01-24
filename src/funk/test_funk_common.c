@@ -248,6 +248,7 @@ txn_merge( funk_t * funk,
     } else { /* Record in dst and not erasing, update record in dst */
 
       dst_rec->val = rec->val;
+      dst_rec->erase = 0;
 
       rec_unmap( funk, rec ); /* Unmap the record (don't bother leaving b/c we are unmapping everything) */
 

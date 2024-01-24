@@ -413,18 +413,27 @@ fd_funk_txn_publish( fd_funk_t *     funk,
                      fd_funk_txn_t * txn,
                      int             verbose );
 
-/* fd_funk_txn_merge merges a child transaction into its parent. The
-   intention is to support gathering small, short-term transactions
-   into a large transaction. Strictly speaking, this API isn't
-   required, but a long chain of small children can be more
-   efficiently and conveniently managed as a single large transaction
-   if the intention is to publish all of them at once. Recall that
-   child transactions can be cancelled due to an error without
-   affecting the parent transaction, which allows robust, incremental
-   assembly of a very big transaction.
+/* This version of publish just combines the transaction with its
+   immediate parent. Ancestors will remain unpublished. Any competing
+   histories (siblings of the given transaction) are still cancelled.
 
-   The given transaction must have no children and must be the sole
-   child of its parent.
+   Returns FD_FUNK_SUCCESS on success or an error code on failure. */
+int
+fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
+                                 fd_funk_txn_t * txn,
+                                 int             verbose );
+
+/* fd_funk_txn_merge merges all the children into their parent
+   transaction. The intention is to support gathering small,
+   short-term transactions into a large transaction. Strictly
+   speaking, this API isn't required, but a list of small children can
+   be more efficiently and conveniently managed as a single large
+   transaction if the intention is to publish all of them at
+   once. Recall that child transactions can be cancelled due to an
+   error without affecting the parent transaction, which allows
+   robust, incremental assembly of a very big transaction.
+
+   The children must not have grandchildren.
 
    Returns FD_FUNK_SUCCESS on success or an error code on failure.
 
@@ -434,9 +443,9 @@ fd_funk_txn_publish( fd_funk_t *     funk,
    details about the reason for failure. */
 
 int
-fd_funk_txn_merge( fd_funk_t *     funk,
-                   fd_funk_txn_t * txn,
-                   int             verbose );
+fd_funk_txn_merge_all_children( fd_funk_t *     funk,
+                                fd_funk_txn_t * parent_txn,
+                                int             verbose );
 
 /* Misc */
 
