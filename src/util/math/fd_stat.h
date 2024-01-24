@@ -14,10 +14,10 @@ FD_PROTOTYPES_BEGIN
 
 static inline schar   fd_stat_avg2_schar  ( schar   x, schar   y ) { return (schar )(((long )x + (long )y) >> 1);   }
 static inline short   fd_stat_avg2_short  ( short   x, short   y ) { return (short )(((long )x + (long )y) >> 1);   }
-static inline int     fd_stat_avg2_int    ( int     x, int     y ) { return (int   ) ((long )x + (long )y) >> 1;    }
+static inline int     fd_stat_avg2_int    ( int     x, int     y ) { return (int   )((long )x + (long )y) >> 1;     }
 static inline uchar   fd_stat_avg2_uchar  ( uchar   x, uchar   y ) { return (uchar )(((ulong)x + (ulong)y) >> 1);   }
 static inline ushort  fd_stat_avg2_ushort ( ushort  x, ushort  y ) { return (ushort)(((ulong)x + (ulong)y) >> 1);   }
-static inline uint    fd_stat_avg2_uint   ( uint    x, uint    y ) { return (uint  ) ((ulong)x + (ulong)y) >> 1;    }
+static inline uint    fd_stat_avg2_uint   ( uint    x, uint    y ) { return (uint  )((ulong)x + (ulong)y) >> 1;     }
 static inline long    fd_stat_avg2_long   ( long    x, long    y ) { return (x>>1) + (y>>1) + (x & y & 1L );        }
 static inline ulong   fd_stat_avg2_ulong  ( ulong   x, ulong   y ) { return (x>>1) + (y>>1) + (x & y & 1UL);        }
 #if FD_HAS_INT128
@@ -282,4 +282,3 @@ fd_stat_robust_exp_fit_double( double *       opt_x0,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_math_fd_stat_h */
-

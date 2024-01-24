@@ -540,7 +540,7 @@ fd_funk_rec_fixup_links( fd_funk_t *               funk,
     _rec_head_idx = &txn->rec_head_idx;
     _rec_tail_idx = &txn->rec_tail_idx;
   }
-   
+
   ulong           rec_idx = (ulong)(rec - rec_map);
   if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
 
@@ -808,7 +808,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
 fd_funk_rec_t *
 fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
                                     fd_funk_txn_t *           txn,
-                                    fd_funk_rec_key_t const * key,                                    
+                                    fd_funk_rec_key_t const * key,
                                     ulong                     min_val_size,
                                     int                       do_create,
                                     fd_funk_rec_t *           prealloc_rec,
@@ -837,7 +837,7 @@ fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
     } else {
       /* Copy the record into the transaction */
       rec = fd_funk_rec_modify( funk, fd_funk_rec_insert_prealloc( funk, txn, key, prealloc_rec, opt_err ) );
-      
+
       if ( !rec )
         return NULL;
 
@@ -861,6 +861,7 @@ fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
   }
 
   /* Grow the record to the right size */
+  rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
   if ( fd_funk_val_sz( rec ) < min_val_size )
     rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
 
