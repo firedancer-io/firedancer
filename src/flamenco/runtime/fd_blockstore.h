@@ -6,8 +6,8 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "stdbool.h"
 #include "fd_readwrite_lock.h"
+#include "stdbool.h"
 
 /* FD_BLOCKSTORE_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a blockstore.  ALIGN should be a positive integer power of 2.
@@ -19,12 +19,12 @@
 
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
-#define FD_SLOT_NULL                 ( ULONG_MAX )
-#define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
-#define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
-#define FD_BLOCKSTORE_DUP_SHREDS_MAX ( 32UL ) /* TODO think more about this */
-#define FD_DEFAULT_SLOT_HISTORY_MAX  ( 1024UL )
-#define FD_BLOCKSTORE_BLOCK_SZ_MAX   ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
+#define FD_SLOT_NULL                  ( ULONG_MAX )
+#define FD_DEFAULT_SLOTS_PER_EPOCH    ( 432000UL )
+#define FD_DEFAULT_SHREDS_PER_EPOCH   ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
+#define FD_DEFAULT_SLOT_HISTORY_MAX   ( 1024UL )
+#define FD_BLOCKSTORE_DUP_SHREDS_MAX  ( 32UL ) /* TODO think more about this */
+#define FD_BLOCKSTORE_BLOCK_SZ_MAX    ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -113,6 +113,8 @@ struct fd_blockstore_txn_ref {
   ulong sz;
 };
 typedef struct fd_blockstore_txn_ref fd_blockstore_txn_ref_t;
+
+#define FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED 0
 
 struct fd_blockstore_block {
   ulong     shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */

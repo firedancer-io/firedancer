@@ -771,11 +771,11 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
     slot_meta_entry      = fd_blockstore_slot_meta_map_insert( slot_meta_map, shred->slot );
     if (slot_meta_opt) {
       slot_meta_entry->slot_meta = *slot_meta_opt;
-      slot_meta_entry->slot_meta.consumed = (ulong)-1L;
-      slot_meta_entry->slot_meta.received = 0;
+      slot_meta_entry->slot_meta.consumed = 0;
+      slot_meta_entry->slot_meta.received = 1;
     } else {
       fd_memset(&slot_meta_entry->slot_meta, 0, sizeof(slot_meta_entry->slot_meta));
-      slot_meta_entry->slot_meta.consumed = (ulong)-1L;
+      slot_meta_entry->slot_meta.consumed = 0;
       ulong reference_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
       ulong ms             = reference_tick * FD_MS_PER_TICK;
       // the "reference tick" is the tick at the point the entry batch is being prepared
@@ -786,7 +786,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_slot_meta_t * slot_
   }
   fd_slot_meta_t * slot_meta = &slot_meta_entry->slot_meta;
   slot_meta->last_index      = fd_ulong_max( slot_meta->last_index, shred->idx );
-  slot_meta->received        = fd_ulong_max( slot_meta->received, shred->idx );
+  slot_meta->received        = fd_ulong_max( slot_meta->received, shred->idx + 1 );
   slot_meta->parent_slot     = shred->slot - shred->data.parent_off;
   if( FD_UNLIKELY( shred->idx == slot_meta->consumed + 1U ) ) slot_meta->consumed++;
   while( fd_blockstore_shred_query( blockstore, shred->slot, (uint)slot_meta->consumed + 1U ) ) {

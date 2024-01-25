@@ -1,3 +1,5 @@
+#define _GNU_SOURCE /* See feature_test_macros(7) */
+
 /* This represents a non-consensus node that validates block and serves them via RPC.
      1. receive shreds from Turbine / Repair
      2. put them in the Blockstore
@@ -33,10 +35,6 @@
 
 */
 
-#define _GNU_SOURCE /* See feature_test_macros(7) */
-
-#define FD_TVU_TILE_SLOT_DELAY 32
-
 #include "fd_tvu.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
@@ -47,11 +45,12 @@
 #include "fd_hashes.h"
 // #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
-#include "../rpc/fd_rpc_service.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
+#include "fd_blockstore.h"
 #include "fd_replay.h"
 #ifdef FD_HAS_LIBMICROHTTP
+#include "../rpc/fd_rpc_service.h"
 #endif
 #include <arpa/inet.h>
 #include <errno.h>
@@ -64,6 +63,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define FD_TVU_TILE_SLOT_DELAY 32
+
 static int  gossip_sockfd = -1;
 static bool has_peer      = 0;
 
@@ -71,9 +72,9 @@ static void
 repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED ulong                         shred_sz,
                     FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
-                    fd_pubkey_t const *                           id,
+                    FD_PARAM_UNUSED fd_pubkey_t const *           id,
                     void *                                        arg ) {
-  FD_LOG_DEBUG( ( "received shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
+  FD_LOG_WARNING( ( "received shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
 
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
   fd_repair_peer_t *    peer       = fd_repair_peer_query( repair_ctx->repair_peers, *id, NULL );
@@ -88,107 +89,75 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   }
   fd_blockstore_end_read( repair_ctx->blockstore );
 
-  fd_blockstore_start_write( repair_ctx->blockstore );
+  // fd_blockstore_start_write( repair_ctx->blockstore );
   int rc;
   if( FD_UNLIKELY( rc = fd_blockstore_shred_insert( repair_ctx->blockstore, NULL, shred ) !=
                         FD_BLOCKSTORE_OK ) ) {
     FD_LOG_WARNING(
         ( "fd_blockstore_upsert_shred error: slot %lu, reason: %02x", shred->slot, rc ) );
   };
-  fd_blockstore_end_write( repair_ctx->blockstore );
+  // fd_blockstore_end_write( repair_ctx->blockstore );
 
   fd_blockstore_start_read( repair_ctx->blockstore );
   fd_slot_meta_t const * slot_meta =
       fd_blockstore_slot_meta_query( repair_ctx->blockstore, shred->slot );
 
   if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
-    fd_replay_queue_push_tail( repair_ctx->replay->pending, shred->slot );
+    fd_replay_set_insert( repair_ctx->replay->pending, shred->slot );
   }
 
   fd_blockstore_end_read( repair_ctx->blockstore );
-
-  /* FIXME remove after turbine */
-  for( fd_replay_frontier_iter_t iter =
-           fd_replay_frontier_iter_init( repair_ctx->replay->frontier, repair_ctx->replay->pool );
-       !fd_replay_frontier_iter_done(
-           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
-       iter = fd_replay_frontier_iter_next(
-           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool ) ) {
-    fd_replay_slot_t * slot =
-        fd_replay_frontier_iter_ele( iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
-    fd_replay_queue_push_tail( repair_ctx->replay->missing, slot->slot + 1 );
-  }
 }
 
 static void
 repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
-
-#define LOOK_AHEAD_HIGHEST 20
-#define LOOK_AHEAD_SHREDS  2
-
-  ulong min_frontier_slot = ULONG_MAX;
-  for( fd_replay_frontier_iter_t iter =
-           fd_replay_frontier_iter_init( repair_ctx->replay->frontier, repair_ctx->replay->pool );
-       !fd_replay_frontier_iter_done(
-           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
-       iter = fd_replay_frontier_iter_next(
-           iter, repair_ctx->replay->frontier, repair_ctx->replay->pool ) ) {
-    fd_replay_slot_t * slot =
-        fd_replay_frontier_iter_ele( iter, repair_ctx->replay->frontier, repair_ctx->replay->pool );
-
-    min_frontier_slot = fd_ulong_min( min_frontier_slot, slot->slot );
-  }
   fd_blockstore_start_read( repair_ctx->blockstore );
-  for( ulong slot = min_frontier_slot + 1;
-       slot - min_frontier_slot < LOOK_AHEAD_HIGHEST && !fd_repair_is_full( repair_ctx->repair );
-       ++slot ) {
+
+  FD_LOG_NOTICE( ( "missing cnt: %lu", fd_replay_set_cnt( repair_ctx->replay->missing ) ) );
+
+  for( ulong slot = fd_replay_set_iter_init( repair_ctx->replay->missing );
+       !fd_replay_set_iter_done( slot );
+       slot = fd_replay_set_iter_next( repair_ctx->replay->missing, slot ) ) {
+    FD_LOG_NOTICE( ( "missing slot: %lu", slot ) );
     if( fd_blockstore_block_query( repair_ctx->blockstore, slot ) != NULL ) continue;
 
-    /* Find up to 32 possible targets for the request */
     fd_repair_peer_t * peers[32];
-    ulong              npeers = 0;
-    for( ulong i = 0; npeers < 32U && i < fd_repair_peer_slot_cnt(); i++ ) {
+    ulong              peer_cnt = 0;
+    /* TODO rate limit in-flight requests per peer as well */
+    for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
       fd_repair_peer_t * peer = &repair_ctx->repair_peers[i];
-      if( memcmp( &peer->id, &pubkey_null, sizeof( fd_pubkey_t ) ) == 0 ) continue;
+      if( fd_repair_peer_key_inval( peer->id ) ) continue;
       if( !( slot >= peer->first_slot && slot <= peer->last_slot ) ) continue;
-      if( peer->request_cnt > 100U && peer->reply_cnt * 3U < peer->request_cnt ) /* 2/3 fails */
-        continue;
-      peers[npeers++] = peer;
+      // if( peer->request_cnt > 100U && peer->reply_cnt * 3U < peer->request_cnt ) {
+      //   continue; /* 2/3 fails */
+      // }
+      peers[peer_cnt++] = peer;
     }
-    if( FD_UNLIKELY( !npeers ) ) {
-      FD_LOG_DEBUG( ( "unable to find any peers shreds in range of requested slot %lu", slot ) );
-      break;
+    if( FD_UNLIKELY( !peer_cnt ) ) {
+      FD_LOG_WARNING( ( "unable to find a repair peer for slot %lu", slot ) );
+      continue;
     }
 
-#define GET_PEER                                                                                   \
-  fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % npeers];                                 \
-  repair_ctx->peer_iter += 17077
+#define GET_PEER fd_repair_peer_t * peer = peers[0];
 
     fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( repair_ctx->blockstore, slot );
     if( FD_UNLIKELY( !slot_meta ) ) {
-      /* Spread out the requests */
       GET_PEER;
-      FD_LOG_DEBUG( ( "requesting highest shred from %32J - slot: %lu", peer, slot ) );
       peer->request_cnt++;
+      FD_LOG_NOTICE( ( "requesting orphan from %32J for slot: %lu", &peer->id, slot ) );
       if( FD_UNLIKELY(
-              fd_repair_need_highest_window_index( repair_ctx->repair, &peer->id, slot, 0 ) ) ) {
-        FD_LOG_ERR( ( "error requesting highest window idx shred for slot %lu", slot ) );
+              fd_repair_need_orphan( repair_ctx->repair, &peer->id, slot ) ) ) {
+        FD_LOG_ERR( ( "error requesting orphan shred slot %lu", slot ) );
       };
-    } else if( slot - min_frontier_slot < LOOK_AHEAD_SHREDS ) {
-      FD_LOG_DEBUG( ( "requesting all shreds from %lu peers - slot: %lu last: %lu",
-                      npeers,
-                      slot,
-                      slot_meta->last_index ) );
-      for( ulong shred_idx = slot_meta->consumed + 1UL;
-           shred_idx <= slot_meta->last_index && !fd_repair_is_full( repair_ctx->repair );
-           shred_idx++ ) {
-        if( fd_blockstore_shred_query( repair_ctx->blockstore, slot, (uint)shred_idx ) ) continue;
-        /* Spread out the requests */
+    } else {
+      for( ulong shred_idx = slot_meta->consumed; shred_idx < slot_meta->received; shred_idx++ ) {
         GET_PEER;
         peer->request_cnt++;
+        FD_LOG_NOTICE(
+            ( "requesting shred %lu from %32J for slot: %lu", shred_idx, &peer->id, slot ) );
         if( FD_UNLIKELY( fd_repair_need_window_index(
                 repair_ctx->repair, &peer->id, slot, (uint)shred_idx ) ) ) {
-          FD_LOG_ERR( ( "error requesting shreds" ) );
+          FD_LOG_ERR( ( "error requesting shred %lu slot %lu", shred_idx, slot ) );
         };
       }
     }
@@ -524,7 +493,6 @@ fd_tvu_main( fd_gossip_t *         gossip,
   // char const * skip_gossip =
   //     fd_env_strip_cmdline_char( &argc, &argv, "--skip-gossip", NULL, 0 );
 
-#define VLEN 32U
   struct mmsghdr repair_msgs[VLEN];
   struct iovec   repair_iovecs[VLEN];
   uchar          repair_bufs[VLEN][FD_ETH_PAYLOAD_MAX];
@@ -534,11 +502,11 @@ fd_tvu_main( fd_gossip_t *         gossip,
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !*stopflag ) {
-    fd_replay_pending_execute( repair_ctx->replay );
 
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( has_peer && ( now - last_call ) > (long)100e6 ) ) {
       repair_missing_shreds( repair_ctx );
+      fd_replay_pending_execute( repair_ctx->replay );
       last_call = now;
     }
     if( FD_UNLIKELY( ( now - last_stats ) > (long)30e9 ) ) {
@@ -591,6 +559,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
     /* Read more packets */
     int repair_rc = recvmmsg( repair_fd, repair_msgs, VLEN, MSG_DONTWAIT, NULL );
+    // FD_LOG_NOTICE( ( "repair rc %d", repair_rc ) );
     if( repair_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -598,6 +567,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
     }
 
     for( uint i = 0; i < (uint)repair_rc; ++i ) {
+      // FD_LOG_NOTICE( ( "processing %u", i ) );
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, repair_msgs[i].msg_hdr.msg_name );
       // FD_LOG_HEXDUMP_NOTICE( ( "recv: ", repair_bufs[i], repair_msgs[i].msg_len ) );
@@ -968,20 +938,32 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     replay->gossip      = gossip;
 
     /* bootstrap replay with the snapshot slot */
-    replay_slot->slot = slot_ctx->slot_bank.slot;
+    ulong snapshot_slot = slot_ctx->slot_bank.slot;
+    replay_slot->slot   = snapshot_slot;
 
     /* add it to the frontier */
     fd_replay_frontier_ele_insert( replay->frontier, replay_slot, replay->pool );
 
-    /* kick off repair for the next slot */
-    /* FIXME what if it's nothet next slot? */
-    fd_replay_queue_push_tail( replay->missing, replay_slot->slot + 1 );
+    ulong turbine_slot = snapshot_slot + 100; /* FIXME use first turbine shred */
 
-    /* this is needed to bootstrap replay (it has to find the parent block, which is the snapshot
-     * slot in this case) */
-    fd_blockstore_block_map_t * fake_parent_block = fd_blockstore_block_map_insert(
-        fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr ), replay_slot->slot );
-    fake_parent_block->slot = replay_slot->slot;
+    FD_TEST( !fd_replay_set_cnt( fd_replay_set_null( replay->missing ) ) );
+    FD_TEST( !fd_replay_set_cnt( fd_replay_set_null( replay->pending ) ) );
+
+    /* start off by repairing backwards from the turbine slot */
+    fd_replay_set_insert( replay->missing, turbine_slot );
+
+    /* FIXME remove this special case - first complete turbine block should go into pending */
+    fd_replay_set_insert( replay->pending, turbine_slot );
+
+    for( ulong slot = fd_replay_set_iter_init( replay->missing ); !fd_replay_set_iter_done( slot );
+         slot       = fd_replay_set_iter_next( replay->missing, slot ) ) {
+      FD_LOG_NOTICE( ( "missing %lu", slot ) );
+    }
+
+    /* fake the snapshot slot's block and mark it as executed */
+    fd_blockstore_block_map_t * block = fd_blockstore_block_map_insert(
+        fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr ), snapshot_slot );
+    block->block.flags = fd_uint_mask_bit( FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED );
 
     repair_ctx->replay = replay;
   } // if (runtime_ctx->live)

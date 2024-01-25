@@ -38,16 +38,15 @@ typedef struct fd_replay_slot fd_replay_slot_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define DEQUE_NAME fd_replay_queue
-#define DEQUE_T    ulong
-#define DEQUE_MAX  FD_DEFAULT_SLOTS_PER_EPOCH
-#include "../../util/tmpl/fd_deque.c"
+#define SET_NAME fd_replay_set
+#define SET_MAX  FD_DEFAULT_SLOTS_PER_EPOCH
+#include "../../util/tmpl/fd_set.c"
 
 struct fd_replay {
   fd_replay_slot_t *     pool;     /* memory pool of slot_ctxs */
   fd_replay_frontier_t * frontier; /* map of slots to slot_ctxs, representing the fork heads */
-  ulong *                pending;  /* backlog of pending slots that need replay */
-  ulong *                missing;  /* backlog of missing slots that need repair */
+  fd_replay_set_t *      pending;  /* backlog of pending slots that need replay */
+  fd_replay_set_t *      missing;  /* backlog of missing slots that need repair */
 
   fd_blockstore_t *     blockstore;
   fd_funk_t *           funk;
@@ -92,7 +91,7 @@ fd_replay_align( void ) {
 FD_FN_CONST static inline ulong
 fd_replay_footprint( ulong node_max ) {
   return sizeof( fd_replay_t ) + fd_replay_frontier_footprint( node_max ) +
-         fd_replay_pool_footprint( node_max ) + fd_replay_frontier_footprint( node_max );
+         fd_replay_pool_footprint( node_max ) + fd_replay_frontier_footprint( node_max ) + fd_replay_set_footprint() + fd_replay_set_footprint();
 }
 
 /* fd_replay_new formats an unused memory region for use as a replay. mem is a non-NULL pointer to

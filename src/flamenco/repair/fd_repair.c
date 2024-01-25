@@ -17,7 +17,7 @@
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<11)
 /* Max number of pending shred requests */
-#define FD_NEEDED_KEY_MAX (1<<12)
+#define FD_NEEDED_KEY_MAX (1<<16)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 
@@ -322,7 +322,7 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
   }
 
   /* Garbage collect old requests */
-  long expire = glob->now - (long)2e9; /* 2 seconds */
+  long expire = glob->now - (long)5e9; /* 5 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -500,7 +500,6 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   else
     (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
 
-  fd_needed_table_remove(glob->needed, &key);
   return 0;
 }
 

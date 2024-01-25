@@ -2,6 +2,7 @@
 #include "../fd_flamenco.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_account.h"
+#include "fd_blockstore.h"
 #include "fd_runtime.h"
 
 void *
@@ -33,11 +34,13 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   laddr =
       fd_ulong_align_up( laddr + fd_replay_pool_footprint( slot_max ), fd_replay_frontier_align() );
   replay->frontier = fd_replay_frontier_new( (void *)laddr, slot_max, seed );
-  laddr            = fd_ulong_align_up( laddr + fd_replay_frontier_footprint( slot_max ),
-                             fd_replay_queue_align() );
-  replay->pending  = fd_replay_queue_new( (void *)laddr );
-  laddr = fd_ulong_align_up( laddr + fd_replay_queue_footprint(), fd_replay_queue_align() );
-  replay->missing = fd_replay_queue_new( (void *)laddr );
+  laddr =
+      fd_ulong_align_up( laddr + fd_replay_frontier_footprint( slot_max ), fd_replay_set_align() );
+  FD_LOG_NOTICE( ( "laddr %lu fp %lu", laddr, fd_replay_frontier_footprint( slot_max ) ) );
+  replay->pending = fd_replay_set_new( (void *)laddr );
+  laddr           = fd_ulong_align_up( laddr + fd_replay_set_footprint(), fd_replay_set_align() );
+  FD_LOG_NOTICE( ( "laddr %lu", laddr ) );
+  replay->missing = fd_replay_set_new( (void *)laddr );
 
   return mem;
 }
@@ -59,8 +62,8 @@ fd_replay_join( void * replay ) {
   fd_replay_t * replay_ = (fd_replay_t *)replay;
   replay_->pool         = fd_replay_pool_join( replay_->pool );
   replay_->frontier     = fd_replay_frontier_join( replay_->frontier );
-  replay_->pending      = fd_replay_queue_join( replay_->pending );
-  replay_->missing      = fd_replay_queue_join( replay_->missing );
+  replay_->pending      = fd_replay_set_join( replay_->pending );
+  replay_->missing      = fd_replay_set_join( replay_->missing );
 
   return replay_;
 }
@@ -92,23 +95,56 @@ fd_replay_delete( void * replay ) {
   return replay;
 }
 
+#include <unistd.h>
+
 void
 fd_replay_pending_execute( fd_replay_t * replay ) {
+  fd_replay_set_t new_pending[FD_DEFAULT_SLOTS_PER_EPOCH / ( sizeof( size_t ) * 8 )] = { 0 };
+
   /* we might push items back into the queue, so process at most current queue_cnt items */
-  for( ulong i = 0; i < fd_replay_queue_cnt( replay->pending ); i++ ) {
-    ulong slot = fd_replay_queue_pop_head( replay->pending );
+  FD_LOG_NOTICE( ( "pending cnt: %lu", fd_replay_set_cnt( replay->pending ) ) );
+
+  for( ulong slot = fd_replay_set_iter_init( replay->pending ); !fd_replay_set_iter_done( slot );
+       slot       = fd_replay_set_iter_next( replay->pending, slot ) ) {
     fd_blockstore_start_read( replay->blockstore );
-    ulong parent_slot = fd_blockstore_slot_parent_query( replay->blockstore, slot );
+
+    fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
+    ulong parent_slot            = fd_blockstore_slot_parent_query( replay->blockstore, slot );
+
+    /* This can happen when bootstrapping from snapshot to turbine or the block is evicted. */
+    if( block == NULL || parent_slot == FD_SLOT_NULL ) {
+      fd_replay_set_insert( replay->missing, slot );
+      fd_replay_set_insert( new_pending, slot );
+      fd_blockstore_end_read( replay->blockstore );
+      continue;
+    }
+
+    /* We've already executed this block. */
+    if( FD_UNLIKELY( fd_uint_extract_bit( block->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED ) ) ) {
+      fd_blockstore_end_read( replay->blockstore );
+      continue;
+    }
+
     fd_blockstore_block_t * parent_block =
         fd_blockstore_block_query( replay->blockstore, parent_slot );
 
     /* If the parent block is missing, we need to repair before we can replay the child. */
     if( FD_UNLIKELY( !parent_block ) ) {
+      FD_LOG_NOTICE( ( "pushing missing %lu", parent_slot ) );
+      fd_replay_set_insert( replay->missing, parent_slot );
+      fd_replay_set_insert( new_pending, slot );
       fd_blockstore_end_read( replay->blockstore );
-      fd_replay_queue_push_tail( replay->missing, parent_slot );
-      fd_replay_queue_push_tail( replay->pending, slot );
       continue;
     };
+
+    /* We haven't executed the parent block yet, so add both back to the queue. */
+    if( FD_UNLIKELY(
+            !fd_uint_extract_bit( parent_block->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED ) ) ) {
+      fd_replay_set_insert( new_pending, parent_slot );
+      fd_replay_set_insert( new_pending, slot );
+      fd_blockstore_end_read( replay->blockstore );
+      continue;
+    }
 
     /* Find the parent in the frontier. */
     fd_replay_slot_t * parent =
@@ -132,25 +168,19 @@ fd_replay_pending_execute( fd_replay_t * replay ) {
       fd_replay_frontier_ele_insert( replay->frontier, parent, replay->pool );
     }
 
-    fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
-    if( block == NULL ) { /* we have the metadata but not the actual block */
-      FD_LOG_ERR( ( "programming error: calling fd_replay_slot_execute when block isn't there." ) );
-    }
-    uchar const * block_data = fd_blockstore_block_data_laddr( replay->blockstore, block );
-
     /* block data ptr remains valid outside of the rw lock for the lifetime of the block alloc */
+    uchar const * block_data = fd_blockstore_block_data_laddr( replay->blockstore, block );
     fd_blockstore_end_read( replay->blockstore );
 
-    ulong txn_cnt                             = 0;
-
     /* Prepare block for next execution */
-    parent->slot_ctx.slot_bank.prev_slot      = parent->slot;
-    parent->slot_ctx.slot_bank.slot           = slot;
+    parent->slot_ctx.slot_bank.prev_slot = parent->slot;
+    parent->slot_ctx.slot_bank.slot      = slot;
 
     /* Next execution expects these to be zeroed out*/
     parent->slot_ctx.slot_bank.collected_fees = 0;
     parent->slot_ctx.slot_bank.collected_rent = 0;
 
+    ulong txn_cnt = 0;
     FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
                                           NULL,
                                           block_data,
@@ -159,6 +189,15 @@ fd_replay_pending_execute( fd_replay_t * replay ) {
                                           replay->max_workers,
                                           &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
     (void)txn_cnt;
+
+    fd_blockstore_start_write( replay->blockstore );
+    block = fd_blockstore_block_query( replay->blockstore, slot );
+    if( block == NULL ) {
+      FD_LOG_WARNING( ( "block was evicted after execution, before setting flags." ) );
+    } else {
+      block->flags = fd_uint_set_bit( block->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED );
+    }
+    fd_blockstore_end_write( replay->blockstore );
 
     /* parent->slot_ctx is now child->slot_ctx, so re-insert into the map keyed by child slot */
     fd_replay_slot_t * child =
@@ -169,6 +208,7 @@ fd_replay_pending_execute( fd_replay_t * replay ) {
     FD_LOG_NOTICE( ( "slot: %lu", child->slot ) );
     FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
   }
+  fd_replay_set_union( replay->pending, replay->pending, new_pending );
 }
 
 void
