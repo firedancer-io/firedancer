@@ -95,8 +95,6 @@ fd_replay_delete( void * replay ) {
   return replay;
 }
 
-#include <unistd.h>
-
 void
 fd_replay_pending_execute( fd_replay_t * replay ) {
   fd_replay_set_t new_pending[FD_DEFAULT_SLOTS_PER_EPOCH / ( sizeof( size_t ) * 8 )] = { 0 };

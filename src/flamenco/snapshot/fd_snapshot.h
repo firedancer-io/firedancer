@@ -96,7 +96,7 @@ typedef struct fd_snapshot_restore fd_snapshot_restore_t;
 /* FD_SNAPSHOT_RESTORE_SCRATCH_SZ is the size of the scratch memory
    required during fd_snapshot_restore. */
 
-#define FD_SNAPSHOT_RESTORE_SCRATCH_SZ (1UL<<29)  /* 512 MiB */
+#define FD_SNAPSHOT_RESTORE_SCRATCH_SZ (1UL<<30)  /* 512 MiB */
 
 FD_PROTOTYPES_BEGIN
 

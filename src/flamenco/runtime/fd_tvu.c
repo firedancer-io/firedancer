@@ -16,10 +16,24 @@
       --log-level-logfile 0 \
       --log-level-stderr 0
 
+    ./build/native/gcc/unit-test/test_tvu \
+      --rpc-port 8124 \
+      --gossip-peer-addr entrypoint.testnet.solana.com:8001 \
+      --snapshot snapshot-24* \
+      --incremental-snapshot incremental-snapshot-24* \
+      --log-level-logfile 0 \
+      --log-level-stderr 0
+
     More sample commands:
 
     rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget
    --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
+
+    wget --trust-server-names http://86.109.3.165:8899/snapshot.tar.bz2 && wget --trust-server-names
+   http://86.109.3.165:8899/incremental-snapshot.tar.bz2
+
+    wget --trust-server-names http://entrypoint.testnet.solana.com:8899/snapshot.tar.bz2 && wget
+   --trust-server-names http://entrypoint.testnet.solana.com:8899/incremental-snapshot.tar.bz2
 
     build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental
    incremental-snapshot-24* --rocksdb /data/testnet/ledger/rocksdb --genesis
@@ -72,7 +86,7 @@ static void
 repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED ulong                         shred_sz,
                     FD_PARAM_UNUSED fd_repair_peer_addr_t const * from,
-                    FD_PARAM_UNUSED fd_pubkey_t const *           id,
+                    fd_pubkey_t const *                           id,
                     void *                                        arg ) {
   FD_LOG_WARNING( ( "received shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
 
@@ -145,8 +159,7 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
       GET_PEER;
       peer->request_cnt++;
       FD_LOG_NOTICE( ( "requesting orphan from %32J for slot: %lu", &peer->id, slot ) );
-      if( FD_UNLIKELY(
-              fd_repair_need_orphan( repair_ctx->repair, &peer->id, slot ) ) ) {
+      if( FD_UNLIKELY( fd_repair_need_orphan( repair_ctx->repair, &peer->id, slot ) ) ) {
         FD_LOG_ERR( ( "error requesting orphan shred slot %lu", slot ) );
       };
     } else {
@@ -732,8 +745,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /* Scratch                                                            */
   /**********************************************************************/
 
-  ulong  smax   = 1 << 30UL; /* 1 GiB scratch memory */
-  ulong  sdepth = 1024;      /* 1024 scratch frames, 1 MiB each */
+  ulong  smax   = 1UL << 31UL; /* 2 GiB scratch memory */
+  ulong  sdepth = 1UL << 11UL; /* 2048 scratch frames, 1 MiB each */
   void * smem =
       fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
   void * fmem =

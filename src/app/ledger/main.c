@@ -178,7 +178,7 @@ main( int     argc,
   }
 
   /* Create scratch region */
-  ulong  smax   = 1024 /*MiB*/ << 20;
+  ulong  smax   = 1024UL /*MiB*/ << 21;
   ulong  sdepth = 128;      /* 128 scratch frames */
   void * smem   = fd_wksp_alloc_laddr( wksp, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax   ), 421UL );
   void * fmem   = fd_wksp_alloc_laddr( wksp, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( sdepth ), 421UL );
