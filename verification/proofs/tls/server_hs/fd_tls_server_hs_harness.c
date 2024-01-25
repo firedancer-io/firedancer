@@ -68,6 +68,14 @@ tls_quic_tp_peer( void  *       handshake,
   __CPROVER_r_ok( quic_tp, quic_tp_sz );
 }
 
+/* From stubs/fd_tls_sign.c */
+
+extern void * fd_tls_sign_ctx_stub;
+extern void
+fd_tls_sign_fn_stub( void *        ctx,
+                     uchar *       sig,
+                     uchar const * payload );
+
 void
 harness( void ) {
   fd_tls_t * tls = fd_tls_join( fd_tls_new( malloc( fd_tls_footprint() ) ) );
@@ -79,6 +87,10 @@ harness( void ) {
   };
   tls->secrets_fn = tls_secrets;
   tls->sendmsg_fn = tls_sendmsg;
+  tls->sign = (fd_tls_sign_t) {
+    .ctx     = fd_tls_sign_ctx_stub,
+    .sign_fn = fd_tls_sign_fn_stub
+  };
   if( tls->quic ) {
     tls->quic_tp_self_fn = tls_quic_tp_self;
     tls->quic_tp_peer_fn = tls_quic_tp_peer;
