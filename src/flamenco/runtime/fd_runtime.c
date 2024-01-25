@@ -3224,7 +3224,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
     fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
     if ( rec == NULL )
-      FD_LOG_ERR(("failed to read banks record"));
+      __asm__("int $3");
+      // FD_LOG_ERR(("failed to read banks record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
     fd_bincode_decode_ctx_t ctx;
     ctx.data = val;

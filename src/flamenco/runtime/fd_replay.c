@@ -97,22 +97,23 @@ fd_replay_delete( void * replay ) {
 
 void
 fd_replay_pending_execute( fd_replay_t * replay ) {
-  fd_replay_set_t new_pending[FD_DEFAULT_SLOTS_PER_EPOCH / ( sizeof( size_t ) * 8 )] = { 0 };
+  fd_replay_set_t new_pending[FD_REPLAY_SET_MAX / ( sizeof( size_t ) * 8 )] = { 0 };
 
   /* we might push items back into the queue, so process at most current queue_cnt items */
-  FD_LOG_NOTICE( ( "pending cnt: %lu", fd_replay_set_cnt( replay->pending ) ) );
+  FD_LOG_DEBUG( ( "pending cnt: %lu", fd_replay_set_cnt( replay->pending ) ) );
 
-  for( ulong slot = fd_replay_set_iter_init( replay->pending ); !fd_replay_set_iter_done( slot );
-       slot       = fd_replay_set_iter_next( replay->pending, slot ) ) {
+  for( ulong idx = fd_replay_set_iter_init( replay->pending ); !fd_replay_set_iter_done( idx );
+       idx       = fd_replay_set_iter_next( replay->pending, idx ) ) {
+    ulong slot = idx + replay->smr;
     fd_blockstore_start_read( replay->blockstore );
 
     fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
-    ulong parent_slot            = fd_blockstore_slot_parent_query( replay->blockstore, slot );
+    ulong parent_slot             = fd_blockstore_slot_parent_query( replay->blockstore, slot );
 
     /* This can happen when bootstrapping from snapshot to turbine or the block is evicted. */
     if( block == NULL || parent_slot == FD_SLOT_NULL ) {
-      fd_replay_set_insert( replay->missing, slot );
-      fd_replay_set_insert( new_pending, slot );
+      fd_replay_missing_insert( replay, slot );
+      fd_replay_set_insert( new_pending, slot - replay->smr );
       fd_blockstore_end_read( replay->blockstore );
       continue;
     }
@@ -128,9 +129,8 @@ fd_replay_pending_execute( fd_replay_t * replay ) {
 
     /* If the parent block is missing, we need to repair before we can replay the child. */
     if( FD_UNLIKELY( !parent_block ) ) {
-      FD_LOG_NOTICE( ( "pushing missing %lu", parent_slot ) );
-      fd_replay_set_insert( replay->missing, parent_slot );
-      fd_replay_set_insert( new_pending, slot );
+      fd_replay_missing_insert( replay, parent_slot );
+      fd_replay_set_insert( new_pending, slot - replay->smr );
       fd_blockstore_end_read( replay->blockstore );
       continue;
     };
@@ -138,8 +138,8 @@ fd_replay_pending_execute( fd_replay_t * replay ) {
     /* We haven't executed the parent block yet, so add both back to the queue. */
     if( FD_UNLIKELY(
             !fd_uint_extract_bit( parent_block->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED ) ) ) {
-      fd_replay_set_insert( new_pending, parent_slot );
-      fd_replay_set_insert( new_pending, slot );
+      fd_replay_set_insert( new_pending, parent_slot - replay->smr );
+      fd_replay_set_insert( new_pending, slot - replay->smr );
       fd_blockstore_end_read( replay->blockstore );
       continue;
     }
@@ -260,4 +260,22 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   // fd_features_restore( slot_ctx );
   // fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
   // fd_calculate_epoch_accounts_hash_values( slot_ctx );
+}
+
+void
+fd_replay_pending_insert( fd_replay_t * replay, ulong slot ) {
+  if( FD_UNLIKELY( ( slot - replay->smr ) > FD_REPLAY_SET_MAX ) ) {
+    /* FIXME once this tvu becomes more stable */
+    FD_LOG_ERR( ( "too many pending slots. likely programming error." ) );
+  }
+  fd_replay_set_insert( replay->pending, slot - replay->smr );
+}
+
+void
+fd_replay_missing_insert( fd_replay_t * replay, ulong slot ) {
+  if( FD_UNLIKELY( ( slot - replay->smr ) > FD_REPLAY_SET_MAX ) ) {
+    /* FIXME once this tvu becomes more stable */
+    FD_LOG_ERR( ( "too many missing slots. likely programming error." ) );
+  }
+  fd_replay_set_insert( replay->missing, slot - replay->smr );
 }
