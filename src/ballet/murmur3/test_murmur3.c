@@ -64,49 +64,98 @@ main( int     argc,
                    "\n\t\t", sz, hash, expected ));
   }
 
+  for( uint i=0U; i<10U<<17; i++ ) {
+    ulong pc = i;
+    uint  hash = fd_murmur3_32( &pc, 8UL, 0U );
+    FD_TEST( fd_pchash( i )==hash );
+    FD_TEST( fd_pchash_inverse( hash )==i );
+  }
+
   FD_LOG_NOTICE(( "Benchmarking small inputs" ));
 
-  /* warmup */
-  uint hash = 42U;
-  for( ulong i=0UL; i<100000UL; i++ ) {
-    uint x[2] = { (uint)i, hash };
-    hash = fd_murmur3_32( &x, 8UL, 0 );
-  }
+  do {
+    /* warmup */
+    uint hash = 42U;
+    for( ulong i=0UL; i<100000UL; i++ ) {
+      uint x[2] = { (uint)i, hash };
+      hash = fd_murmur3_32( &x, 8UL, 0 );
+    }
 
-  /* for real */
-  ulong bench_cnt = 100000000UL;
-  long dt = -fd_log_wallclock();
-  for( ulong i=0UL; i<bench_cnt; i++ ) {
-    uint x[2] = { (uint)i, hash };
-    hash = fd_murmur3_32( &x, 8UL, 0 );
-  }
-  FD_COMPILER_FORGET( hash );
-  dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "%.3f ns/hash (sz 8)", (double)((float)dt / (float)bench_cnt) ));
+    /* for real */
+    ulong bench_cnt = 100000000UL;
+    long dt = -fd_log_wallclock();
+    for( ulong i=0UL; i<bench_cnt; i++ ) {
+      uint x[2] = { (uint)i, hash };
+      hash = fd_murmur3_32( &x, 8UL, 0 );
+    }
+   FD_COMPILER_UNPREDICTABLE( hash );
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%.3f ns/hash (sz 8)", (double)((float)dt / (float)bench_cnt) ));
+  } while(0);
 
-  FD_LOG_NOTICE(( "Benchmarking hashrate" ));
+  FD_LOG_NOTICE(( "Benchmarking hashrate (generic)" ));
 
-  uchar msg[ 1024UL ];
-  ulong sz = 1024UL;
-  for( ulong i=0UL; i<sz; i+=8UL )
-    FD_STORE( ulong, msg+i, fd_rng_ulong( rng ) );
+  do {
+    uchar msg[ 1024UL ];
+    ulong sz = 1024UL;
+    for( ulong i=0UL; i<sz; i+=8UL )
+      FD_STORE( ulong, msg+i, fd_rng_ulong( rng ) );
 
-  /* warmup */
-  for( ulong i=0UL; i<10000UL; i++ ) {
-    uint hash = fd_murmur3_32( &msg, sz, 0U );
-    FD_COMPILER_FORGET( hash );
-  }
+    /* warmup */
+    for( ulong i=0UL; i<10000UL; i++ ) {
+      uint hash = fd_murmur3_32( &msg, sz, 0U );
+      FD_COMPILER_FORGET( hash );
+    }
 
-  /* for real */
-  bench_cnt = 1000000UL;
-  dt = -fd_log_wallclock();
-  for( ulong i=0UL; i<bench_cnt; i++ ) {
-    uint hash = fd_murmur3_32( &msg, sz, 0U );
-    __asm__( "" : "=m" (*msg) : "r" (hash) : "cc" );
-  }
-  dt += fd_log_wallclock();
-  double gbps = ((double)(8*bench_cnt*sz)) / ((double)dt);
-  FD_LOG_NOTICE(( "~%6.3f GiB/s (sz %4lu)", gbps, sz ));
+    /* for real */
+    ulong bench_cnt = 1000000UL;
+    long dt = -fd_log_wallclock();
+    for( ulong i=0UL; i<bench_cnt; i++ ) {
+      uint hash = fd_murmur3_32( &msg, sz, 0U );
+      __asm__( "" : "=m" (*msg) : "r" (hash) : "cc" );
+    }
+    dt += fd_log_wallclock();
+    double gbps = ((double)(8*bench_cnt*sz)) / ((double)dt);
+    FD_LOG_NOTICE(( "~%6.3f GiB/s (sz %4lu)", gbps, sz ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking hashrate (pchash)" ));
+
+  do {
+    /* warmup */
+    uint hash = 42U;
+    for( ulong i=0UL; i<100000UL; i++ )
+      hash = fd_pchash( hash );
+
+    /* for real */
+    ulong bench_cnt = 100000000UL;
+    long dt = -fd_log_wallclock();
+    for( ulong i=0UL; i<bench_cnt; i++ )
+      hash = fd_pchash( hash );
+    FD_COMPILER_UNPREDICTABLE( hash );
+
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%.3f ns/pchash", (double)((float)dt / (float)bench_cnt) ));
+  } while(0);
+
+  FD_LOG_NOTICE(( "Benchmarking hashrate (pchash_inverse)" ));
+
+  do {
+    /* warmup */
+    uint hash = 42U;
+    for( ulong i=0UL; i<100000UL; i++ )
+      hash = fd_pchash_inverse( hash );
+
+    /* for real */
+    ulong bench_cnt = 100000000UL;
+    long dt = -fd_log_wallclock();
+    for( ulong i=0UL; i<bench_cnt; i++ )
+      hash = fd_pchash_inverse( hash );
+    FD_COMPILER_UNPREDICTABLE( hash );
+
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%.3f ns/pchash", (double)((float)dt / (float)bench_cnt) ));
+  } while(0);
 
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));

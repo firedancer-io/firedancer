@@ -1,9 +1,9 @@
 #include "fd_murmur3.h"
 
-uint
-fd_murmur3_32( void const * _data,
-               ulong        sz,
-               uint         seed ) {
+static uint
+fd_murmur3_32_( void const * _data,
+                ulong        sz,
+                uint         seed ) {
 
   uchar const * data   = _data;
   uint          sz_tag = (uint)sz;
@@ -51,4 +51,11 @@ fd_murmur3_32( void const * _data,
   hash ^= hash>>16U;
 
   return hash;
+}
+
+uint
+fd_murmur3_32( void const * _data,
+               ulong        sz,
+               uint         seed ) {
+  return fd_murmur3_32_( _data, sz, seed );
 }
