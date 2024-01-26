@@ -18,6 +18,26 @@ typedef struct fd_txn_return_data fd_txn_return_data_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
+/* Cache of deserialized vote accounts to support iteration after replaying a slot (required for fork choice) */
+struct fd_vote_account_cache_entry {
+  fd_pubkey_t pubkey;
+  ulong next;
+  fd_vote_state_t vote_account;
+};
+typedef struct fd_vote_account_cache_entry fd_vote_account_cache_entry_t;
+
+#define POOL_NAME fd_vote_account_pool
+#define POOL_T fd_vote_account_cache_entry_t
+#include "../../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME          fd_vote_account_cache
+#define MAP_ELE_T         fd_vote_account_cache_entry_t
+#define MAP_KEY           pubkey
+#define MAP_KEY_T         fd_pubkey_t
+#define MAP_KEY_EQ(k0,k1) (!(memcmp((k0)->key,(k1)->key,sizeof(fd_hash_t))))
+#define MAP_KEY_HASH(key,seed) ( ((key)->ui[0]) ^ (seed) )
+#include "../../../util/tmpl/fd_map_chain.c"
+
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
@@ -47,6 +67,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
   uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
+  fd_vote_account_cache_t * vote_accounts_map;           /* Cache of bank's deserialized vote accounts to support fork choice */
+  fd_vote_account_cache_entry_t * vote_accounts_pool;    /* Memory pool for deserialized vote account cache */
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

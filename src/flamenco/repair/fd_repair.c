@@ -17,7 +17,7 @@
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<11)
 /* Max number of pending shred requests */
-#define FD_NEEDED_KEY_MAX (1<<16)
+#define FD_NEEDED_KEY_MAX (1<<20)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 
@@ -511,6 +511,7 @@ fd_repair_is_full( fd_repair_t * glob ) {
 int
 fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index ) {
   if (fd_needed_table_is_full(glob->needed)) {
+    FD_LOG_NOTICE(("table full"));
     ( *glob->deliver_fail_fun )(id, slot, shred_index, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }

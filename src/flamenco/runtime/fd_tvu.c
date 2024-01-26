@@ -140,10 +140,14 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
        !fd_replay_set_iter_done( idx );
        idx = fd_replay_set_iter_next( repair_ctx->replay->missing, idx ) ) {
     ulong slot = idx + repair_ctx->replay->smr;
-    FD_LOG_DEBUG( ( "missing slot: %lu", slot ) );
     if( fd_blockstore_block_query( repair_ctx->blockstore, slot ) != NULL ) continue;
+    if( FD_UNLIKELY(
+            fd_replay_set_test( repair_ctx->replay->dedup, slot - repair_ctx->replay->smr ) ) ) {
+      continue;
+    }
+    fd_replay_set_insert( repair_ctx->replay->dedup, slot - repair_ctx->replay->smr );
 
-    fd_repair_peer_t * peers[32];
+    fd_repair_peer_t * peers[128];
     ulong              peer_cnt = 0;
     /* TODO rate limit in-flight requests per peer as well */
     for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
@@ -160,22 +164,24 @@ repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
       continue;
     }
 
-#define GET_PEER fd_repair_peer_t * peer = peers[0];
+#define GET_PEER                                                                                   \
+  fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % peer_cnt];                               \
+  repair_ctx->peer_iter += 17077
 
     fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( repair_ctx->blockstore, slot );
     if( FD_UNLIKELY( !slot_meta ) ) {
       GET_PEER;
       peer->request_cnt++;
-      FD_LOG_DEBUG( ( "requesting orphan from %32J for slot: %lu", &peer->id, slot ) );
-      if( FD_UNLIKELY( fd_repair_need_orphan( repair_ctx->repair, &peer->id, slot ) ) ) {
+      FD_LOG_DEBUG( ( "requesting orphan slot: %lu from %32J", slot, &peer->id ) );
+      if( FD_UNLIKELY( fd_repair_need_highest_window_index( repair_ctx->repair, &peer->id, slot, 0 ) ) ) {
         FD_LOG_ERR( ( "error requesting orphan shred slot %lu", slot ) );
       };
     } else {
-      for( ulong shred_idx = slot_meta->consumed; shred_idx < slot_meta->received; shred_idx++ ) {
+      for( ulong shred_idx = slot_meta->consumed; shred_idx < slot_meta->last_index + 1;
+           shred_idx++ ) {
         GET_PEER;
         peer->request_cnt++;
-        FD_LOG_DEBUG(
-            ( "requesting shred %lu from %32J for slot: %lu", shred_idx, &peer->id, slot ) );
+        FD_LOG_DEBUG( ( "requesting slot: %lu idx: %lu from %32J", slot, shred_idx, &peer->id ) );
         if( FD_UNLIKELY( fd_repair_need_window_index(
                 repair_ctx->repair, &peer->id, slot, (uint)shred_idx ) ) ) {
           FD_LOG_ERR( ( "error requesting shred %lu slot %lu", shred_idx, slot ) );
@@ -213,7 +219,6 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       }
     }
   } else if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
-    FD_LOG_NOTICE( ( "Found peer" ) );
     if( FD_LIKELY( fd_repair_peer_query(
             gossip_ctx->repair_peers, data->inner.contact_info_v1.id, NULL ) ) ) {
       return;
@@ -523,6 +528,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
+  long last_clear = last_call;
   while( !*stopflag ) {
 
     long now = fd_log_wallclock();
@@ -534,6 +540,10 @@ fd_tvu_main( fd_gossip_t *         gossip,
     if( FD_UNLIKELY( ( now - last_stats ) > (long)30e9 ) ) {
       print_stats( repair_ctx );
       last_stats = now;
+    }
+    if( FD_UNLIKELY( ( now - last_clear ) > (long)5e9 ) ) {
+      fd_replay_set_null( repair_ctx->replay->dedup );
+      last_clear = now;
     }
 
     /* Loop gossip */
@@ -967,20 +977,12 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* add it to the frontier */
     fd_replay_frontier_ele_insert( replay->frontier, replay_slot, replay->pool );
 
-    ulong turbine_slot = snapshot_slot + 100; /* FIXME use first turbine shred */
-
-    FD_TEST( !fd_replay_set_cnt( fd_replay_set_null( replay->missing ) ) );
-    FD_TEST( !fd_replay_set_cnt( fd_replay_set_null( replay->pending ) ) );
+    // ulong turbine_slot = snapshot_slot + 10; /* FIXME use first turbine shred */
 
     /* start off by repairing backwards from the turbine slot */
-    fd_replay_missing_insert( replay, turbine_slot );
-
-    /* FIXME remove this special case - first complete turbine block should go into pending */
-    fd_replay_pending_insert( replay, turbine_slot );
-
-    for( ulong slot = fd_replay_set_iter_init( replay->missing ); !fd_replay_set_iter_done( slot );
-         slot       = fd_replay_set_iter_next( replay->missing, slot ) ) {
-      FD_LOG_NOTICE( ( "missing %lu", slot ) );
+    for( ulong i = 0; i < 100; ++i ) {
+      fd_replay_missing_insert( replay, snapshot_slot + 1 + i );
+      fd_replay_pending_insert( replay, snapshot_slot + 1 + i );
     }
 
     /* fake the snapshot slot's block and mark it as executed */

@@ -20,6 +20,7 @@ union __attribute__((packed)) fd_hash {
 
   // Generic type specific accessors
   ulong ul  [ FD_HASH_FOOTPRINT / sizeof(ulong) ];
+  uint  ui  [ FD_HASH_FOOTPRINT / sizeof(uint)  ];
   uchar uc  [ FD_HASH_FOOTPRINT ];
 };
 

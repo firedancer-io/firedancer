@@ -21,13 +21,12 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_blockstore.h"
 
-#define FD_REPLAY_SET_MAX 1024
+#define FD_REPLAY_SET_MAX (1UL << 10)
 
 struct fd_replay_slot {
   ulong              slot;
   ulong              next;
   fd_exec_slot_ctx_t slot_ctx;
-  ulong              stake; /* how much stake has voted on this slot */
 };
 typedef struct fd_replay_slot fd_replay_slot_t;
 
@@ -40,16 +39,32 @@ typedef struct fd_replay_slot fd_replay_slot_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
+struct fd_replay_commitment {
+  ulong slot;
+  uint  hash;
+  ulong confirmed_stake[32]; /* how much stake has voted on this slot */
+  ulong finalized_stake;     /* how much stake has rooted this slot */
+};
+typedef struct fd_replay_commitment fd_replay_commitment_t;
+
+#define MAP_NAME        fd_replay_commitment
+#define MAP_T           fd_replay_commitment_t
+#define MAP_KEY         slot
+#define MAP_LG_SLOT_CNT 19 /* slots per epoch */
+#include "../../util/tmpl/fd_map.c"
+
 #define SET_NAME fd_replay_set
 #define SET_MAX  FD_REPLAY_SET_MAX
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_replay {
-  fd_replay_slot_t *     pool;     /* memory pool of slot_ctxs */
-  fd_replay_frontier_t * frontier; /* map of slots to slot_ctxs, representing the fork heads */
-  fd_replay_set_t *      pending;  /* backlog of pending slots that need replay */
-  fd_replay_set_t *      missing;  /* backlog of missing slots that need repair */
-  ulong                  smr;      /* super-majority root */
+  fd_replay_slot_t *       pool;       /* memory pool of slot_ctxs */
+  fd_replay_frontier_t *   frontier;   /* map of slots to slot_ctxs, representing the fork heads */
+  fd_replay_commitment_t * commitment; /* map of slots to stakes per commitment level */
+  fd_replay_set_t *        pending;    /* backlog of pending slots that need replay */
+  fd_replay_set_t *        missing;    /* backlog of missing slots that need repair */
+  fd_replay_set_t *        dedup;      /* dedup repair requests */
+  ulong                    smr;        /* super-majority root */
 
   fd_blockstore_t *     blockstore;
   fd_funk_t *           funk;
@@ -147,10 +162,10 @@ void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx );
 
 void
-fd_replay_pending_insert(fd_replay_t * replay, ulong slot );
+fd_replay_pending_insert( fd_replay_t * replay, ulong slot );
 
 void
-fd_replay_missing_insert(fd_replay_t * replay, ulong slot );
+fd_replay_missing_insert( fd_replay_t * replay, ulong slot );
 
 FD_PROTOTYPES_END
 
