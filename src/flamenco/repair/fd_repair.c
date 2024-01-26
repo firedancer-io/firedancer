@@ -141,8 +141,9 @@ struct fd_repair {
     /* My public/private key */
     fd_pubkey_t * public_key;
     uchar * private_key;
-    /* My repair port address */
-    fd_repair_peer_addr_t my_addr;
+    /* My repair addresses */
+    fd_repair_peer_addr_t service_addr;
+    fd_repair_peer_addr_t intake_addr;
     /* Function used to deliver repair messages to the application */
     fd_repair_shred_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
@@ -222,11 +223,12 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
-  FD_LOG_NOTICE(("configuring address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), &config->my_addr), keystr));
+  FD_LOG_NOTICE(("configuring address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), &config->intake_addr), keystr));
 
   glob->public_key = config->public_key;
   glob->private_key = config->private_key;
-  fd_repair_peer_addr_copy(&glob->my_addr, &config->my_addr);
+  fd_repair_peer_addr_copy(&glob->intake_addr, &config->intake_addr);
+  fd_repair_peer_addr_copy(&glob->service_addr, &config->service_addr);
   glob->deliver_fun = config->deliver_fun;
   glob->send_fun = config->send_fun;
   glob->fun_arg = config->fun_arg;
@@ -235,11 +237,12 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
 }
 
 int
-fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * my_addr ) {
+fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_addr, const fd_repair_peer_addr_t * service_addr ) {
   char tmp[100];
-  FD_LOG_NOTICE(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), my_addr)));
+  FD_LOG_NOTICE(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), intake_addr)));
 
-  fd_repair_peer_addr_copy(&glob->my_addr, my_addr);
+  fd_repair_peer_addr_copy(&glob->intake_addr, intake_addr);
+  fd_repair_peer_addr_copy(&glob->service_addr, service_addr);
   return 0;
 }
 

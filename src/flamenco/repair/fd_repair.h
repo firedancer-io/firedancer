@@ -32,7 +32,8 @@ typedef void (*fd_repair_shred_deliver_fail_fun)( fd_pubkey_t const * id, ulong 
 struct fd_repair_config {
     fd_pubkey_t * public_key;
     uchar * private_key;
-    fd_repair_peer_addr_t my_addr;
+    fd_repair_peer_addr_t service_addr;
+    fd_repair_peer_addr_t intake_addr;
     fd_repair_shred_deliver_fun deliver_fun;
     fd_repair_send_packet_fun send_fun;
     fd_repair_shred_deliver_fail_fun deliver_fail_fun;
@@ -44,7 +45,7 @@ typedef struct fd_repair_config fd_repair_config_t;
 int fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config );
 
 /* Update the binding addr */
-int fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * addr );
+int fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_addr, const fd_repair_peer_addr_t * service_addr );
 
 /* Add a peer to talk to */
 int fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id );

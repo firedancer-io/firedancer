@@ -52,15 +52,18 @@ int fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config 
 
 /* Update the binding addr */
 int fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * addr );
+
+/* Update the repair addr */
+int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * repair, const fd_gossip_peer_addr_t * serve );
+
 /* Set the shred version (after receiving a contact info msg) */
-void
-fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
+void fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
 
 /* Add a peer to talk to */
 int fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t * addr );
 
-/* Publish an outgoing value. The source id and wallclock are set by this function */
-int fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t* data );
+/* Publish an outgoing value. The source id and wallclock are set by this function. The gossip key for the value is optionally returned. */
+int fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t* data, fd_hash_t * key_opt );
 
 /* Set the current protocol time in nanosecs. Call this as often as feasible. */
 void fd_gossip_settime( fd_gossip_t * glob, long ts );

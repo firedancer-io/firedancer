@@ -237,6 +237,9 @@ struct fd_gossip {
 #define INACTIVES_MAX 1024U
     /* Table of crds values that we have received in the last 5 minutes, keys by hash */
     fd_value_elem_t * values;
+    /* The last timestamp hash that we pushed our own contact info */
+    long last_contact_time;
+    fd_hash_t last_contact_key;
     /* Array of push destinations currently in use */
     fd_push_state_t * push_states[FD_PUSH_LIST_MAX];
     ulong push_states_cnt;
@@ -285,6 +288,7 @@ fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->need_push = (fd_hash_t*)fd_valloc_malloc(valloc, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t));
   shm = fd_valloc_malloc(valloc, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX));
   glob->values = fd_value_table_join(fd_value_table_new(shm, FD_VALUE_KEY_MAX, seed));
+  glob->last_contact_time = 0;
   shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
   glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
   shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
@@ -381,6 +385,17 @@ fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr
 
   fd_gossip_peer_addr_copy(&glob->my_addr, my_addr);
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, my_addr);
+  return 0;
+}
+
+int
+fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * repair, const fd_gossip_peer_addr_t * serve ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating repair address %s", fd_gossip_addr_str(tmp, sizeof(tmp), repair)));
+  FD_LOG_NOTICE(("updating repair service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), serve)));
+
+  fd_gossip_to_soladdr(&glob->my_contact_info.repair, repair);
+  fd_gossip_to_soladdr(&glob->my_contact_info.serve_repair, serve);
   return 0;
 }
 
@@ -1071,6 +1086,32 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   }
 }
 
+/* Push an updated version of my contact info into values */
+static void
+fd_gossip_push_updated_contact(fd_gossip_t * glob) {
+  /* Update every 10 secs */
+  if (glob->now - glob->last_contact_time < (long)10e9)
+    return;
+
+  if (glob->last_contact_time != 0) {
+    /* Remove the old value */
+    fd_value_elem_t * ele = fd_value_table_query(glob->values, &glob->last_contact_key, NULL);
+    if (ele != NULL) {
+      fd_valloc_free( glob->valloc, ele->data );
+      fd_value_table_remove( glob->values, &glob->last_contact_key );
+    }
+  }
+  
+  glob->last_contact_time = glob->now;
+
+  fd_crds_data_t crd;
+  fd_crds_data_new_disc(&crd, fd_crds_data_enum_contact_info_v1);
+  fd_gossip_contact_info_v1_t * ci = &crd.inner.contact_info_v1;
+  fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_v1_t));
+
+  fd_gossip_push_value(glob, &crd, &glob->last_contact_key);
+}
+
 /* Respond to a pull request */
 void
 fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_pull_req_t * msg) {
@@ -1102,6 +1143,9 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   /* Reach into buffer to get the number of values */
   uchar * newend = (uchar *)ctx.data;
   ulong * crds_len = (ulong *)(newend - sizeof(ulong));
+
+  /* Push an updated version of my contact info into values */
+  fd_gossip_push_updated_contact(glob);
 
   /* Apply the bloom filter to my table of values */
   fd_crds_filter_t * filter = &msg->filter;
@@ -1312,6 +1356,9 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ev->fun = fd_gossip_push;
   }
 
+  /* Push an updated version of my contact info into values */
+  fd_gossip_push_updated_contact(glob);
+
   /* Iterate across recent values */
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_PULL_TIMEOUT;
   while (glob->need_push_cnt > 0) {
@@ -1380,7 +1427,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
 /* Publish an outgoing value. The source id and wallclock are set by this function */
 int
-fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t * data ) {
+fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_t * key_opt ) {
   /* Wrap the data in a value stub. Sign it. */
   fd_crds_value_t crd;
   fd_memcpy(&crd.data, data, sizeof(fd_crds_data_t));
@@ -1401,6 +1448,8 @@ fd_gossip_push_value( fd_gossip_t * glob, fd_crds_data_t * data ) {
   fd_sha256_append( sha2, buf, datalen );
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
+  if ( key_opt != NULL )
+    fd_hash_copy( key_opt, &key );
 
   /* Store the value for later pushing/duplicate detection */
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);

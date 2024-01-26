@@ -480,7 +480,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
     return -1;
   }
   uchar repair_saddr[sizeof( struct sockaddr_in6 )];
-  int   repair_saddrlen = repair_to_sockaddr( repair_saddr, &repair_config->my_addr );
+  int   repair_saddrlen = repair_to_sockaddr( repair_saddr, &repair_config->intake_addr );
   if( repair_saddrlen < 0 ||
       bind( repair_fd, (struct sockaddr *)repair_saddr, (uint)repair_saddrlen ) < 0 ) {
     FD_LOG_ERR( ( "bind failed: %s", strerror( errno ) ) );
@@ -491,8 +491,12 @@ fd_tvu_main( fd_gossip_t *         gossip,
     return -1;
   }
 
-  gossip_from_sockaddr( &repair_config->my_addr, repair_saddr );
-  fd_repair_update_addr( repair_ctx->repair, &repair_config->my_addr );
+  gossip_from_sockaddr( &repair_config->intake_addr, repair_saddr );
+  // TODO: bind the repair service port and update it here
+  fd_repair_update_addr( repair_ctx->repair, &repair_config->intake_addr, &repair_config->service_addr );
+
+  if( fd_gossip_update_repair_addr( gossip, &repair_config->intake_addr, &repair_config->service_addr ) )
+    FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_repair_settime( repair_ctx->repair, fd_log_wallclock() );
   fd_repair_start( repair_ctx->repair );
@@ -903,7 +907,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.private_key = runtime_ctx->private_key;
     runtime_ctx->repair_config.public_key  = &runtime_ctx->public_key;
 
-    FD_TEST( resolve_hostport( args->my_repair_addr, &runtime_ctx->repair_config.my_addr ) );
+    FD_TEST( resolve_hostport( args->my_repair_addr, &runtime_ctx->repair_config.intake_addr ) );
+    runtime_ctx->repair_config.service_addr = runtime_ctx->repair_config.intake_addr;
+    runtime_ctx->repair_config.service_addr.port = 0; /* pick a port */
 
     runtime_ctx->repair_config.deliver_fun      = repair_deliver_fun;
     runtime_ctx->repair_config.send_fun         = send_packet;

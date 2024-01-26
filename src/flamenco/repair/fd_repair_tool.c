@@ -126,7 +126,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
     return -1;
   }
   uchar saddr[sizeof(struct sockaddr_in6)];
-  int saddrlen = repair_to_sockaddr(saddr, &config->my_addr);
+  int saddrlen = repair_to_sockaddr(saddr, &config->intake_addr);
   if (saddrlen < 0 || bind(fd, (struct sockaddr*)saddr, (uint)saddrlen) < 0) {
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
   gethostname(hostname, sizeof(hostname));
 
   char const * my_addr = fd_env_strip_cmdline_cstr ( &argc, &argv, "--my_addr", NULL, ":1125");
-  FD_TEST( resolve_hostport(my_addr, &config.my_addr) );
+  FD_TEST( resolve_hostport(my_addr, &config.intake_addr) );
 
   config.deliver_fun = recv_shred;
   config.deliver_fail_fun = deliver_fail_fun;
