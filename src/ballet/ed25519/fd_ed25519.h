@@ -100,6 +100,35 @@ fd_ed25519_verify( void const *  msg,
                    void const *  public_key,
                    fd_sha512_t * sha );
 
+/* fd_ed25519_verify_batch_single_msg verifies a batch of signatures
+   over a single message, according to the ED25519 standard.
+
+   msg is assumed to point to the first byte of a msg_sz byte memory region
+   which holds the message to verify (msg_sz==0 fine, msg==NULL fine if
+   msg_sz==0).
+
+   signatures is assumed to point to the first byte of a memory region
+   which holds the signatures of the message. Each signature is 64-byte long.
+
+   pubkeys is assumed to point to first byte of a memory region
+   that holds the public keys to use to verify these signatures.
+   Each public key is 64-byte long.
+
+   shas is an array of handles of a local join to sha512 calculators.
+
+   batch_sz is the size of signatures, pubkeys and shas.
+   batch_sz must be greater than zero.
+
+   See fd_ed25519_verify for more details. */
+
+int
+fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
+                                    ulong const   msg_sz,
+                                    uchar const   signatures[ static 64 ], /* 64 * batch_sz */
+                                    uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
+                                    fd_sha512_t * shas[ 1 ],               /* batch_sz */
+                                    uchar const   batch_sz );
+
 /* fd_ed25519_strerror converts an FD_ED25519_SUCCESS / FD_ED25519_ERR_*
    code into a human readable cstr.  The lifetime of the returned
    pointer is infinite.  The returned pointer is always to a non-NULL

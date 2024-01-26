@@ -274,6 +274,27 @@ fd_ed25519_sc_muladd( uchar *       s,
   return s;
 }
 
+int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
+                                        ulong const   msg_sz,
+                                        uchar const   signatures[ static 64 ], /* 64 * batch_sz */
+                                        uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
+                                        fd_sha512_t * shas[ 1 ],               /* batch_sz */
+                                        uchar const   batch_sz ) {
+  if( FD_UNLIKELY( batch_sz == 0 ) ) {
+    return FD_ED25519_ERR_SIG;
+  }
+
+  /* native */
+  for( uchar i=0; i<batch_sz; i++ ) {
+    int res = fd_ed25519_verify( msg, msg_sz, &signatures[ i*64 ], &pubkeys[ i*32 ], shas[i] );
+    if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
+      return res;
+    }
+  }
+
+  return FD_ED25519_SUCCESS;
+}
+
 /**********************************************************************/
 
 #if !FD_HAS_AVX512
