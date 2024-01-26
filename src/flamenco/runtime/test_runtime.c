@@ -107,20 +107,12 @@ main( int     argc,
   }
 #endif
 
-  fd_runtime_recover_banks( state.slot_ctx, 0 );
-
   if (strcmp(args.cmd, "replay") == 0) {
     int err = fd_runtime_replay(&state, &args);
     if( err!=0 ) return err;
   }
 
-  // fd_alloc_free( alloc, fd_solcap_writer_delete( fd_solcap_writer_fini( state.capture_ctx->capture ) ) );
-  //if( state.capture_file  ) fclose( state.capture_file );
-  // if( state.capture_ctx->trace_dirfd>0 ) close( state.capture_ctx->trace_dirfd );
-
-  fd_valloc_free(state.slot_ctx->valloc, state.epoch_ctx->leaders);
-  fd_exec_slot_ctx_delete(fd_exec_slot_ctx_leave(state.slot_ctx));
-  fd_exec_epoch_ctx_delete(fd_exec_epoch_ctx_leave(state.epoch_ctx));
+  fd_tvu_main_teardown(&state);
 
   FD_LOG_NOTICE(( "pass" ));
 

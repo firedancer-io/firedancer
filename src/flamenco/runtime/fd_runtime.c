@@ -3159,6 +3159,7 @@ void fd_process_new_epoch(
 {
   ulong slot;
   ulong epoch = fd_slot_to_epoch(&slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot);
+  (void)epoch;
 
   // activate feature flags
   fd_features_restore(slot_ctx);
@@ -3178,7 +3179,9 @@ void fd_process_new_epoch(
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
   // snapshot of stakes in epoch stakes
+#if 0 /* This function has a leak and doesn't do much anyway */
   fd_stakes_activate_epoch(slot_ctx, epoch);
+#endif
 
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking
@@ -3204,6 +3207,9 @@ void fd_process_new_epoch(
   fd_stake_history_t history;
   fd_sysvar_stake_history_read( &history, slot_ctx );
   refresh_vote_accounts( slot_ctx, &history );
+  fd_bincode_destroy_ctx_t ctx;
+  ctx.valloc  = slot_ctx->valloc;
+  fd_stake_history_destroy( &history, &ctx );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
   FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot)));

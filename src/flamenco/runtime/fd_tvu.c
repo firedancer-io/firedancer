@@ -1066,7 +1066,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
 void
 fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args ) {
 #ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_stop_service( tvu_args->rpc_ctx );
+  if (tvu_args->rpc_ctx) fd_rpc_stop_service( tvu_args->rpc_ctx );
 #endif
   fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
 
@@ -1077,7 +1077,13 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args ) {
        iter = fd_replay_frontier_iter_next( iter, replay->frontier, replay->pool ) ) {
     fd_replay_slot_t * slot = fd_replay_frontier_iter_ele( iter, replay->frontier, replay->pool );
     fd_exec_slot_ctx_free( &slot->slot_ctx );
+    if( &slot->slot_ctx == tvu_args->slot_ctx )
+      tvu_args->slot_ctx = NULL;
   }
+
+  /* Some replay paths don't use frontiers */
+  if( tvu_args->slot_ctx )
+    fd_exec_slot_ctx_free( tvu_args->slot_ctx );
 
   /* ensure it's no longer valid to join */
   fd_replay_frontier_delete( fd_replay_frontier_leave( replay->frontier ) );

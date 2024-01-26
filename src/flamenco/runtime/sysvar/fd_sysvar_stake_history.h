@@ -16,6 +16,10 @@ fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_stake_history_t * result,
                               fd_exec_slot_ctx_t * slot_ctx );
 
+void
+fd_sysvar_stake_history_destroy( fd_stake_history_t * result,
+                                 fd_exec_slot_ctx_t * slot_ctx );
+
 /* Update the stake history sysvar account - called during epoch boundary*/
 void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_entry_t * entry);
 
