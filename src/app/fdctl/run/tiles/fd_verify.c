@@ -1,4 +1,5 @@
 #include "tiles.h"
+#include "fd_verify.h"
 
 #include "generated/verify_seccomp.h"
 
@@ -9,35 +10,6 @@
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
    Non-matching transactions are filtered out of the frag stream. */
-
-#define VERIFY_TCACHE_DEPTH   16UL
-#define VERIFY_TCACHE_MAP_CNT 64UL
-
-/* fd_verify_in_ctx_t is a context object for each in (producer) mcache
-   connected to the verify tile. */
-
-typedef struct {
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-} fd_verify_in_ctx_t;
-
-typedef struct {
-  fd_sha512_t * sha;
-
-  ulong   tcache_depth;
-  ulong   tcache_map_cnt;
-  ulong * tcache_sync;
-  ulong * tcache_ring;
-  ulong * tcache_map;
-
-  fd_verify_in_ctx_t in[ 32 ];
-
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
-} fd_verify_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -50,7 +22,9 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
-  l = FD_LAYOUT_APPEND( l, fd_sha512_align(),          fd_sha512_footprint() );
+  for( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+    l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -123,51 +97,21 @@ after_frag( void *             _ctx,
      validation */
   fd_txn_t * txn = (fd_txn_t*) fd_ulong_align_up( (ulong)(udp_payload) + payload_sz, 2UL );
 
-  /* We do not want to deref any non-data field from the txn struct more than once */
-  ushort message_off    = txn->message_off;
-  ushort acct_addr_off  = txn->acct_addr_off;
-  ushort signature_off  = txn->signature_off;
-
-  if( FD_UNLIKELY( message_off >= payload_sz  || acct_addr_off + FD_TXN_ACCT_ADDR_SZ > payload_sz || signature_off + FD_TXN_SIGNATURE_SZ > payload_sz ) ) {
-    FD_LOG_ERR( ("txn is invalid: payload_sz = %x, message_off = %x, acct_addr_off = %x, signature_off = %x", payload_sz, message_off, acct_addr_off, signature_off ) );
+  /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
+     We assert that the payload_sz includes all signatures and account pubkeys we need. */
+  ushort recent_blockhash_off = txn->recent_blockhash_off;
+  if( FD_UNLIKELY( recent_blockhash_off >= payload_sz ) ) {
+    FD_LOG_ERR( ("txn is invalid: payload_sz = %x, recent_blockhash_off = %x", payload_sz, recent_blockhash_off ) );
   }
 
-  uchar local_sig[FD_TXN_SIGNATURE_SZ]  __attribute__((aligned(8)));
-  ulong const * public_key = (ulong const *)(udp_payload + acct_addr_off);
-  uchar const * msg        = (uchar const *)(udp_payload + message_off);
-  ulong msg_sz             = (ulong)payload_sz - message_off;
-  fd_memcpy( local_sig, udp_payload + signature_off, FD_TXN_SIGNATURE_SZ );
-
-  /* Sig is already effectively a cryptographically secure hash of
-     public_key/private_key and message and sz.  So use this to do a
-     quick dedup of ha traffic. */
-
-  int ha_dup;
-  FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
-  FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
-  if( FD_UNLIKELY( ha_dup ) ) {
+  int res = fd_txn_verify( ctx, udp_payload, payload_sz, txn, opt_sig );
+  if( FD_UNLIKELY( res != FD_TXN_VERIFY_SUCCESS ) ) {
     *opt_filter = 1;
     return;
   }
 
-  /* We appear to have a message to verify.  So verify it. */
-
-  int verify_failed = FD_ED25519_SUCCESS != fd_ed25519_verify( msg, msg_sz, local_sig, public_key, ctx->sha );
-  *opt_filter = verify_failed;
-  if( FD_UNLIKELY( verify_failed ) ) {
-    return;
-  }
-
-  /* Insert into the tcache to dedup ha traffic.
-     The dedup check is repeated to guard against duped txs verifying signatures at the same time */
-  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *(ulong *)local_sig );
-  if( FD_UNLIKELY( ha_dup ) ) {
-    *opt_filter = 1;
-    return;
-  }
-
+  *opt_filter = 0;
   *opt_chunk = ctx->out_chunk;
-  *opt_sig = *(ulong *)local_sig;
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -179,16 +123,18 @@ unprivileged_init( fd_topo_t *      topo,
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
-  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
-  if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
+
+  for ( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
+    if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
+    ctx->sha[i] = sha;
+  }
 
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
   ctx->tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
   ctx->tcache_sync    = fd_tcache_oldest_laddr( tcache );
   ctx->tcache_ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
-
-  ctx->sha = sha;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
