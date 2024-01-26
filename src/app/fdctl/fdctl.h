@@ -71,9 +71,10 @@ typedef struct {
 #define ACTIONS_CNT (10UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
-config_t fdctl_boot( int *        pargc,
-                     char ***     pargv,
-                     char const * log_path);
+void fdctl_boot( int *        pargc,
+                 char ***     pargv,
+                 config_t   * config,
+                 char const * log_path);
 
 int
 main1( int     argc,
