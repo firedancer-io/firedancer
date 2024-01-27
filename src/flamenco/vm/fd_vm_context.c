@@ -2,6 +2,14 @@
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../runtime/fd_runtime.h"
+
+ulong
+fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
+  ulong exceeded = ctx->compute_meter < cost;
+  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
+  return exceeded;
+}
 
 // Opcode validation success/error codes.
 #define FD_VALID        (0) /* Valid opcode */
@@ -146,54 +154,48 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
 }
 
 ulong
-fd_vm_translate_vm_to_host( fd_vm_exec_context_t *  ctx,
-                            uint                    write,
-                            ulong                   vm_addr,
-                            ulong                   sz,
-                            void * *                host_addr ) {
+fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
+                                    ulong                   vm_addr,
+                                    ulong                   sz,
+                                    int                     write ) {
   ulong mem_region = vm_addr & FD_VM_MEM_MAP_REGION_MASK;
   ulong start_addr = vm_addr & FD_VM_MEM_MAP_REGION_SZ;
   ulong end_addr = start_addr + sz;
 
+  ulong host_addr = 0UL;
   switch( mem_region ) {
     case FD_VM_MEM_MAP_PROGRAM_REGION_START:
       /* Read-only program binary blob memory region */
-      if( write ) {
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
-      }
-      if( end_addr >= ctx->read_only_sz ) {
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
-      }
-      *host_addr = &ctx->read_only[start_addr];
+      if( FD_UNLIKELY( ( write                        )
+                     | ( end_addr > ctx->read_only_sz ) ) )
+        return 0UL;
+
+      host_addr = (ulong)ctx->read_only + start_addr;
       break;
     case FD_VM_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( end_addr >= (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ) ) {
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) ) {
+        return 0UL;
       }
-
-      *host_addr = &ctx->stack.data[start_addr];
-
+      host_addr = (ulong)ctx->stack.data + start_addr;
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-      if( end_addr >= FD_VM_HEAP_SZ ) {
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
-      }
-      *host_addr = &ctx->heap[start_addr];
+      if( FD_UNLIKELY( end_addr > ctx->heap_sz ) )
+        return 0UL;
+      host_addr = (ulong)ctx->heap + start_addr;
       break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
-      if( end_addr >= ctx->input_sz ) {
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
-      }
-      *host_addr = &ctx->input[start_addr];
+      if( FD_UNLIKELY( end_addr > ctx->input_sz ) )
+        return 0UL;
+      host_addr = (ulong)ctx->input + start_addr;
       break;
     default:
-      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+      return 0UL;
   }
 
-  return FD_VM_MEM_MAP_SUCCESS;
+  return host_addr;
 }
