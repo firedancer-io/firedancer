@@ -6,12 +6,14 @@
 #include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 # define OUT_PRINTF(...) \
-  do { if( FD_UNLIKELY( fprintf(out, __VA_ARGS__)<0 ) ) return 0; } while(0)
+  *out_len = fd_ulong_sat_add(*out_len, (ulong)snprintf(out + (*out_len), MAX_BUFFER_LEN - *out_len, __VA_ARGS__)); \
+  do { if( FD_UNLIKELY( *out_len > MAX_BUFFER_LEN ) ) return 0; } while(0)
 
 static int
 fd_vm_disassemble_instr_alu( fd_sbpf_instr_t  instr,
                              char const *     suffix,
-                             FILE *           out ) {
+                             char *           out,
+                             ulong *          out_len ) {
 
   char * op_name;
   switch (instr.opcode.normal.op_mode) {
@@ -84,7 +86,8 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
                              char const *           suffix,
                              fd_sbpf_syscalls_t *   syscalls,
                              fd_sbpf_calldests_t *  calldests,
-                             FILE *                 out ) {
+                             char *                 out,
+                             ulong *                out_len ) {
 
   char * op_name;
   switch(instr.opcode.normal.op_mode) {
@@ -141,14 +144,15 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
         fd_sbpf_calldests_t * calldest = fd_sbpf_calldests_query( calldests, instr.imm, NULL );
         if( syscall ) {
           char const * name = syscall->name;
-          if( name )
+          if( name ) {
             OUT_PRINTF( "syscall%s %s",     suffix, name ? name : "???" );
-          else
+          } else {
             OUT_PRINTF( "syscall%s 0x%08x", suffix, instr.imm );
+          }
         } else if ( calldest ) {
-          OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)calldest->pc) );
+          OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)calldest->pc));
         } else {
-          OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)pc+(int)instr.imm+1L) );
+          OUT_PRINTF( "%s%s function_%ld %d", op_name, suffix, (long)((long)pc+(int)instr.imm+1L), (int)instr.imm);
         }
         break;
       }
@@ -183,7 +187,8 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
 
 static int
 fd_vm_disassemble_instr_ldx( fd_sbpf_instr_t instr,
-                             FILE *          out ) {
+                             char *          out,
+                             ulong *         out_len ) {
 
 
   char * op_name;
@@ -213,7 +218,8 @@ fd_vm_disassemble_instr_ldx( fd_sbpf_instr_t instr,
 
 static int
 fd_vm_disassemble_instr_stx( fd_sbpf_instr_t instr,
-                             FILE *          out ) {
+                             char *          out,
+                             ulong *          out_len ) {
 
   char * op_name;
   switch (instr.opcode.mem.op_size) {
@@ -245,27 +251,28 @@ fd_vm_disassemble_instr( fd_sbpf_instr_t const * instr,
                          ulong                   pc,
                          fd_sbpf_syscalls_t *    syscalls,
                          fd_sbpf_calldests_t *   calldests,
-                         void *                  _out ) {
-  FILE * out = (FILE *)_out;
+                         void *                  _out,
+                         ulong *                 out_len ) {
+  char * out = (char *)_out;
 
   switch( instr->opcode.any.op_class ) {
     case FD_SBPF_OPCODE_CLASS_LD:
       OUT_PRINTF( "lddw r%d, 0x%lx", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)) );
       break;
     case FD_SBPF_OPCODE_CLASS_LDX:
-      return fd_vm_disassemble_instr_ldx( *instr, out );
+      return fd_vm_disassemble_instr_ldx( *instr, out, out_len);
     case FD_SBPF_OPCODE_CLASS_ST:
       break;
     case FD_SBPF_OPCODE_CLASS_STX:
-      return fd_vm_disassemble_instr_stx( *instr, out );
+      return fd_vm_disassemble_instr_stx( *instr, out, out_len );
     case FD_SBPF_OPCODE_CLASS_ALU:
-      return fd_vm_disassemble_instr_alu( *instr, "", out );
+      return fd_vm_disassemble_instr_alu( *instr, "", out, out_len );
     case FD_SBPF_OPCODE_CLASS_JMP:
-      return fd_vm_disassemble_instr_jmp( *instr, pc, "", syscalls, calldests, out );
+      return fd_vm_disassemble_instr_jmp( *instr, pc, "", syscalls, calldests, out, out_len );
     case FD_SBPF_OPCODE_CLASS_JMP32:
-      return fd_vm_disassemble_instr_jmp( *instr, pc, "32", syscalls, calldests, out );
+      return fd_vm_disassemble_instr_jmp( *instr, pc, "32", syscalls, calldests, out, out_len );
     case FD_SBPF_OPCODE_CLASS_ALU64:
-      return fd_vm_disassemble_instr_alu( *instr, "64", out );
+      return fd_vm_disassemble_instr_alu( *instr, "64", out, out_len );
   }
   return 1;
 }
@@ -276,7 +283,10 @@ fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
                            fd_sbpf_syscalls_t *       syscalls,
                            fd_sbpf_calldests_t *      calldests,
                            void *                     _out ) {
-  FILE * out = (FILE *)_out;
+  char * out = (char *)_out;
+  ulong len = 0;
+  ulong * out_len = &len;
+
   OUT_PRINTF( "function_0:\n" );
 
   ulong label_pcs[65536];
@@ -306,6 +316,9 @@ fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
   }
 
   for( ulong i = 0; i < instrs_cnt; i++ ) {
+    out += *out_len;
+    *out_len = 0;
+
     uint label_found = 0;
     for( ulong j = 0; j < num_label_pcs; j++ ) {
       if( label_pcs[j] == i ) {
@@ -328,7 +341,7 @@ fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
 
     fd_sbpf_instr_t const * instr = &instrs[i];
 
-    if( FD_UNLIKELY( !fd_vm_disassemble_instr( instr, i, syscalls, calldests, out ) ) )
+    if( FD_UNLIKELY( !fd_vm_disassemble_instr( instr, i, syscalls, calldests, out, out_len ) ) )
       return 0;
 
     OUT_PRINTF( "\n" );

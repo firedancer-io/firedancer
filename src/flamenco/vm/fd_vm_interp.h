@@ -3,17 +3,17 @@
 
 #include "fd_vm_context.h"
 
-
 FD_PROTOTYPES_BEGIN
 
-/* Runs the sBPF program from the context until completion or a fault occurs. Returns success
-   or an error/fault code. */
-ulong fd_vm_interp_instrs( fd_vm_exec_context_t * ctx );
+/* fd_vm_interp_instrs runs the sBPF program from the context until
+   completion or a fault occurs.  Returns 0UL success or an error/fault
+   code. */
 
-/* Runs the sBPF program in trace mode from the context until completion or a fault occurs. Returns success
-   or an error/fault code. */
-ulong fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx, fd_vm_trace_entry_t * trace, ulong trace_sz, ulong * trace_used );
+ulong
+fd_vm_interp_instrs( fd_vm_exec_context_t * ctx );
 
+ulong
+fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx );
 
 FD_PROTOTYPES_END
 
