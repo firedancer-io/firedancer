@@ -240,6 +240,25 @@ fd_vm_consume_compute_meter( fd_vm_exec_context_t * ctx, ulong cost );
 FD_FN_PURE ulong
 fd_vm_context_validate( fd_vm_exec_context_t const * ctx );
 
+/* fd_vm_translate_vm_to_host{_const} translates a virtual memory area
+   into the local address space.  ctx is the current execution context.
+   vm_addr points to the region's first byte in VM address space.  sz is
+   the number of bytes in the requested access.  align is the required
+   alignment for vm_addr (2^n where n in [1,63) and may not be zero).
+   Returns pointer to same memory region in local address space on
+   success.  On failure, returns NULL.  Reasons for failure include
+   access violation (out-of-bounds access, write requested on read-only
+   region).
+
+   fd_vm_translate_vm_to_host checks whether the target area is writable
+   and returns a pointer to a mutable data region.
+
+   fd_vm_translate_vm_to_host_const is the read-only equivalent and
+   checks for a read-only or writable data region.
+
+   Security note: Watch out for pointer aliasing when translating
+                  multiple user-specified data types. */
+
 ulong
 fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t * ctx,
                                     ulong                  vm_addr,
