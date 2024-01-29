@@ -5,13 +5,13 @@
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/errno.h>
 #include <netinet/ip.h>
 
 #define MAX_REQUEST_LEN (1024UL)
