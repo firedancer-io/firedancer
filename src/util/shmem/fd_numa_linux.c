@@ -161,13 +161,13 @@ fd_numa_node_idx( ulong cpu_idx ) {
 int
 fd_numa_mlock( void const * addr,
                ulong        len ) {
-  return (int)syscall( __NR_mlock, addr, len );
+  return (int)syscall( SYS_mlock, addr, len );
 }
 
 int
 fd_numa_munlock( void const * addr,
                  ulong        len ) {
-  return (int)syscall( __NR_mlock, addr, len );
+  return (int)syscall( SYS_mlock, addr, len );
 }
 
 long

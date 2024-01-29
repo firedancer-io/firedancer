@@ -32,17 +32,17 @@ static void populate_sock_filter_policy_metric( ulong out_cnt, struct sock_filte
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow fsync based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_fsync, /* check_fsync */ 6, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 6, 0 ),
     /* allow accept based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_accept, /* check_accept */ 7, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_accept, /* check_accept */ 7, 0 ),
     /* simply allow read */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_read, /* RET_ALLOW */ 13, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* RET_ALLOW */ 13, 0 ),
     /* simply allow write */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_write, /* RET_ALLOW */ 12, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* RET_ALLOW */ 12, 0 ),
     /* simply allow close */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_close, /* RET_ALLOW */ 11, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* RET_ALLOW */ 11, 0 ),
     /* simply allow poll */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, __NR_poll, /* RET_ALLOW */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_poll, /* RET_ALLOW */ 10, 0 ),
     /* none of the syscalls matched */
     { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 8 },
 //  check_fsync:
