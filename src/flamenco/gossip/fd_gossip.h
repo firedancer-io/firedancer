@@ -53,8 +53,8 @@ int fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config 
 /* Update the binding addr */
 int fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * addr );
 
-/* Update the repair addr */
-int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * repair, const fd_gossip_peer_addr_t * serve );
+/* Update the repair service addr */
+int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve );
 
 /* Set the shred version (after receiving a contact info msg) */
 void fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );

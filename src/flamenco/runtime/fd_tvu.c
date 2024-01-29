@@ -224,7 +224,6 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       return;
     }
 
-    fd_gossip_set_shred_version( gossip_ctx->gossip, data->inner.contact_info_v1.shred_version );
     fd_repair_peer_addr_t repair_peer_addr = { 0 };
     fd_gossip_from_soladdr( &repair_peer_addr, &data->inner.contact_info_v1.serve_repair );
     if( FD_UNLIKELY( fd_repair_add_active_peer(
@@ -359,7 +358,7 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
     }
     buf[i] = str[i];
   }
-  if( i == 0 ) /* :port means $HOST:port */
+  if( i == 0 || strcmp( buf, "localhost" ) == 0 || strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
     gethostname( buf, sizeof( buf ) );
 
   struct hostent * host = gethostbyname( buf );
@@ -495,7 +494,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
   // TODO: bind the repair service port and update it here
   fd_repair_update_addr( repair_ctx->repair, &repair_config->intake_addr, &repair_config->service_addr );
 
-  if( fd_gossip_update_repair_addr( gossip, &repair_config->intake_addr, &repair_config->service_addr ) )
+  if( fd_gossip_update_repair_addr( gossip, &repair_config->service_addr ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_repair_settime( repair_ctx->repair, fd_log_wallclock() );

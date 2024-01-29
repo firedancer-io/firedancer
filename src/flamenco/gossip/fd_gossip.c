@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <arpa/inet.h>
+#include <sys/random.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
@@ -222,6 +223,9 @@ struct fd_gossip {
     fd_gossip_peer_addr_t my_addr;
     /* My official contact info in the gossip protocol */
     fd_gossip_contact_info_v1_t my_contact_info;
+    /* Temporary contact info used while retrieving the shred version */
+    fd_gossip_contact_info_v1_t tmp_contact_info;
+    uchar tmp_private_key[32U];
     /* Function used to deliver gossip messages to the application */
     fd_gossip_data_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
@@ -364,7 +368,7 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
-  FD_LOG_NOTICE(("configuring address %s key %s", fd_gossip_addr_str(tmp, sizeof(tmp), &config->my_addr), keystr));
+  FD_LOG_NOTICE(("configuring address %s id %s", fd_gossip_addr_str(tmp, sizeof(tmp), &config->my_addr), keystr));
 
   glob->public_key = config->public_key;
   glob->private_key = config->private_key;
@@ -375,6 +379,18 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   glob->deliver_fun = config->deliver_fun;
   glob->send_fun = config->send_fun;
   glob->fun_arg = config->fun_arg;
+
+  if (config->shred_version == 0U) {
+    /* Configure temp identity needed to retrieve shred version */
+    FD_TEST( 32UL == getrandom( glob->tmp_private_key, 32UL, 0 ) );
+    fd_sha512_t sha[1];
+    fd_ed25519_public_from_private(&glob->tmp_contact_info.id, glob->tmp_private_key, sha);
+    fd_gossip_to_soladdr(&glob->tmp_contact_info.gossip, &config->my_addr);
+
+    fd_base58_encode_32( glob->tmp_contact_info.id.uc, NULL, keystr );
+    FD_LOG_NOTICE(("configuring temporary id %s", keystr));
+  }
+  
   return 0;
 }
 
@@ -385,16 +401,15 @@ fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr
 
   fd_gossip_peer_addr_copy(&glob->my_addr, my_addr);
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, my_addr);
+  fd_gossip_to_soladdr(&glob->tmp_contact_info.gossip, my_addr);
   return 0;
 }
 
 int
-fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * repair, const fd_gossip_peer_addr_t * serve ) {
+fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve ) {
   char tmp[100];
-  FD_LOG_NOTICE(("updating repair address %s", fd_gossip_addr_str(tmp, sizeof(tmp), repair)));
   FD_LOG_NOTICE(("updating repair service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), serve)));
 
-  fd_gossip_to_soladdr(&glob->my_contact_info.repair, repair);
   fd_gossip_to_soladdr(&glob->my_contact_info.serve_repair, serve);
   return 0;
 }
@@ -459,7 +474,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (val->pongtime != 0)
       /* Success */
       return;
-    if (val->pingcount++ == 5U) {
+    if (val->pingcount++ == 20U) {
       /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
@@ -480,11 +495,14 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_gossip_peer_addr_copy(&ev->fun_arg.key, key);
   }
 
+  fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
+  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
+
   /* Build a ping message */
   fd_gossip_msg_t gmsg;
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_ping);
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
-  fd_hash_copy( &ping->from, glob->public_key );
+  fd_hash_copy( &ping->from, public_key );
   fd_hash_copy( &ping->token, &val->pingtoken );
 
   /* Sign it */
@@ -492,8 +510,8 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_ed25519_sign( /* sig */ ping->signature.uc,
                    /* msg */ ping->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* public_key  */ public_key,
+                   /* private_key */ private_key,
                    sha );
 
   fd_gossip_send( glob, key, &gmsg );
@@ -518,7 +536,10 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_gossip_msg_new_disc(&gmsg, fd_gossip_msg_enum_pong);
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
-  fd_hash_copy( &pong->from, glob->public_key );
+  fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
+  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
+
+  fd_hash_copy( &pong->from, public_key );
 
   /* Generate response hash token */
   fd_sha256_t sha[1];
@@ -531,8 +552,8 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* public_key  */ public_key,
+                   /* private_key */ private_key,
                    sha2 );
 
   fd_gossip_send(glob, from, &gmsg);
@@ -592,7 +613,9 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   default:
     return;
   }
-  fd_hash_copy(pubkey, glob->public_key);
+  fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
+  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
+  fd_hash_copy(pubkey, public_key);
   *wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
 
   /* Sign it */
@@ -608,8 +631,8 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   fd_ed25519_sign( /* sig */ crd->signature.uc,
                    /* msg */ buf,
                    /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                   /* public_key  */ glob->public_key->uc,
-                   /* private_key */ glob->private_key,
+                   /* public_key  */ public_key,
+                   /* private_key */ private_key,
                    sha );
 }
 
@@ -748,7 +771,10 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_crds_value_t * value = &req->value;
   fd_crds_data_new_disc(&value->data, fd_crds_data_enum_contact_info_v1);
   fd_gossip_contact_info_v1_t * ci = &value->data.inner.contact_info_v1;
-  fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_v1_t));
+  if (glob->my_contact_info.shred_version == 0U)
+    fd_memcpy(ci, &glob->tmp_contact_info, sizeof(fd_gossip_contact_info_v1_t));
+  else
+    fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_v1_t));
   fd_gossip_sign_crds_value(glob, value);
 
   for (uint i = 0; i < npackets; ++i) {
@@ -909,7 +935,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
     break;
   }
-  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
+  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0 ||
+      memcmp(pubkey->uc, glob->tmp_contact_info.id.uc, 32U) == 0)
     /* Ignore my own messages */
     return;
   uchar buf[FD_ETH_PAYLOAD_MAX];
@@ -1021,6 +1048,10 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         fd_hash_copy(&val->id, &info->id);
       }
     }
+    if (glob->my_contact_info.shred_version == 0U) {
+      FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
+      glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
+    }
   }
 
   /* Deliver the data upstream */
@@ -1089,6 +1120,9 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
 /* Push an updated version of my contact info into values */
 static void
 fd_gossip_push_updated_contact(fd_gossip_t * glob) {
+  /* See if we have a shred version yet */
+  if (glob->my_contact_info.shred_version == 0U)
+    return;
   /* Update every 10 secs */
   if (glob->now - glob->last_contact_time < (long)10e9)
     return;
