@@ -4,6 +4,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../tango/quic/fd_quic.h"
 #include "../../tango/quic/tests/fd_quic_test_helpers.h"
+#include "../../tango/tls/test_tls_helper.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
@@ -164,6 +165,15 @@ txn_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_public_key, 32UL, 0 ) ) )
     FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
+
+  /* Signer */
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
+  *sign_ctx = fd_tls_test_sign_ctx( rng );
+
+  fd_memcpy( quic->config.identity_public_key, sign_ctx->public_key, 32UL );
+  quic->config.sign_ctx = sign_ctx;
+  quic->config.sign     = fd_tls_test_sign_sign;
 
   fd_quic_udpsock_t _udpsock;
   fd_quic_udpsock_t * udpsock = fd_quic_client_create_udpsock( &_udpsock, wksp, fd_quic_get_aio_net_rx( quic ), 0 );
