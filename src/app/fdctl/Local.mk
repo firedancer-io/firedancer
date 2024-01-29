@@ -1,6 +1,5 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_X86
 ifdef FD_HAS_DOUBLE
 
 .PHONY: fdctl cargo rust solana
@@ -60,7 +59,6 @@ rust: $(OBJDIR)/bin/solana
 
 solana: $(OBJDIR)/bin/solana
 
-endif
 endif
 endif
 endif

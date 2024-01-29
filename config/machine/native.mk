@@ -78,19 +78,18 @@ else ifdef FD_USING_CLANG
 $(call map-define,FD_HAS_AVX512, __AVX512IFMA__)
 endif
 
-$(info Using FD_HAS_SSE=$(FD_HAS_SSE))
-$(info Using FD_HAS_AVX=$(FD_HAS_AVX))
-$(info Using FD_HAS_AVX512=$(FD_HAS_AVX512) $(FD_HAS_AVX512_MESSAGE))
-$(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
-$(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
-$(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
-
 ifdef FD_HAS_THREADS
 include config/extra/with-threads.mk
 endif
 
 ifdef FD_IS_X86_64
 include config/extra/with-x86-64.mk
+$(info Using FD_HAS_SSE=$(FD_HAS_SSE))
+$(info Using FD_HAS_AVX=$(FD_HAS_AVX))
+$(info Using FD_HAS_AVX512=$(FD_HAS_AVX512) $(FD_HAS_AVX512_MESSAGE))
+$(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
+$(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
+$(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
 endif
 
 ifdef FD_HAS_OPENSSL
