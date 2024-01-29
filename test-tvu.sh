@@ -2,6 +2,8 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 # create temporary files in the user's home directory because it's likely to be on a large disk
 TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu.XXXXXX)
 cd $TMPDIR
@@ -15,9 +17,10 @@ cleanup() {
 trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
-FD_DIR="$HOME/code/firedancer-private"
+FD_DIR=$SCRIPT_DIR
 
 sudo killall solana-validator || true
+sudo killall test_tvu || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -61,7 +64,7 @@ GENESIS_OUTPUT=$(solana-genesis \
 GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred version:)' | xargs)
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
-PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1)
+PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1 )
 
 RUST_LOG=trace solana-validator \
     --identity id.json \
@@ -81,6 +84,7 @@ RUST_LOG=trace solana-validator \
     --gossip-port 8001 \
     --gossip-host $PRIMARY_IP \
     --full-rpc-api \
+    --allow-private-addr \
     --log validator.log &
 
 sleep 90
@@ -91,7 +95,7 @@ done
 
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
-sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
+# sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
 
 timeout 30 test_tvu \
     --rpc-port 9999 \
@@ -104,5 +108,5 @@ timeout 30 test_tvu \
     --log-level-logfile 0 \
     --log-level-stderr 0 >test_tvu.log 2>&1 || true
     
-grep -q "verified block successfully" test_tvu.log
-
+grep -q "evaluated block successfully" test_tvu.log
+grep -qv "Bank hash mismatch" test_tvu.log

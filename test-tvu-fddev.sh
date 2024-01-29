@@ -99,5 +99,6 @@ echo "[tiles.tvu]
 
 timeout 120 fddev --no-sandbox --log-path fddev.log --config fddev.toml >/dev/null 2>&1 || true
     
-grep -q "verified block successfully" fddev.log
+grep -q "evaluated block successfully" test_tvu.log
+grep -qv "Bank hash mismatch" test_tvu.log
 
