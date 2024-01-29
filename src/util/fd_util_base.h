@@ -386,6 +386,16 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_PROTOTYPES_END
 #endif
 
+/* FD_ASM_LG_ALIGN(lg_n) expands to an alignment assembler directive
+   appropriate for the current architecture/ABI.  The resulting align
+   is 2^(lg_n) bytes, i.e. FD_ASM_LG_ALIGN(3) aligns by 8 bytes. */
+
+#if defined(__aarch64__)
+#define FD_ASM_LG_ALIGN(lg_n) ".align " #lg_n "\n"
+#elif defined(__x86_64__)
+#define FD_ASM_LG_ALIGN(lg_n) ".p2align " #lg_n "\n"
+#endif
+
 /* FD_IMPORT declares a variable name and initializes with the contents
    of the file at path (with potentially some assembly directives for
    additional footer info).  It is equivalent to:
@@ -402,8 +412,8 @@ __extension__ typedef unsigned __int128 uint128;
 
    More precisely, this creates a symbol "name" in the object file that
    points to a read-only copy of the raw data in the file at "path" as
-   it was at compile time.  "align" is an unsuffixed power-of-two that
-   specifies the minimum alignment required for the copy's first byte.
+   it was at compile time.  2^lg_align specifies the minimum alignment
+   required for the copy's first byte as an unsuffixed decimal integer.
    footer are assembly commands to permit additional data to be appended
    to the copy (use "" for footer if no footer is necessary).
 
@@ -456,11 +466,11 @@ __extension__ typedef unsigned __int128 uint128;
    "pseudo-include".)  Another reminder that make clean and fast builds
    are our friend. */
 
-#define FD_IMPORT( name, path, type, align, footer )         \
+#define FD_IMPORT( name, path, type, lg_align, footer )      \
   __asm__( ".section .rodata,\"a\",@progbits\n"              \
            ".type " #name ",@object\n"                       \
            ".globl " #name "\n"                              \
-           ".align " #align "\n"                             \
+           FD_ASM_LG_ALIGN(lg_align)                         \
            #name ":\n"                                       \
            ".incbin \"" path "\"\n"                          \
            footer "\n"                                       \
@@ -468,12 +478,12 @@ __extension__ typedef unsigned __int128 uint128;
            "_fd_import_" #name "_sz = . - " #name "\n"       \
            ".type " #name "_sz,@object\n"                    \
            ".globl " #name "_sz\n"                           \
-           ".align 8\n"                                      \
+           FD_ASM_LG_ALIGN(3)                                \
            #name "_sz:\n"                                    \
            ".quad _fd_import_" #name "_sz\n"                 \
            ".size " #name "_sz,8\n"                          \
            ".previous\n" );                                  \
-  extern type  const name[] __attribute__((aligned(align))); \
+  extern type  const name[] __attribute__((aligned(1<<(lg_align)))); \
   extern ulong const name##_sz
 
 /* FD_IMPORT_{BINARY,CSTR} are common cases for FD_IMPORT.
@@ -489,8 +499,8 @@ __extension__ typedef unsigned __int128 uint128;
    number of bytes in the file and name_sz will be strlen(name)+1.  name
    can have arbitrary alignment. */
 
-#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 128, ""        )
-#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char,   1, ".byte 0" )
+#define FD_IMPORT_BINARY(name, path) FD_IMPORT( name, path, uchar, 7, ""        )
+#define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char, 1, ".byte 0" )
 
 /* Optimizer tricks ***************************************************/
 
