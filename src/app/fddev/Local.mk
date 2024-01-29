@@ -1,6 +1,5 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_X86
 ifdef FD_HAS_DOUBLE
 
 .PHONY: fddev run monitor
@@ -35,7 +34,6 @@ endif
 monitor: bin
 	$(OBJDIR)/bin/fddev monitor $(MONITOR_ARGS)
 
-endif
 endif
 endif
 endif
