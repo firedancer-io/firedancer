@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include "../../../util/tile/fd_cpuset.h"
 #include <sched.h>
 #include <sys/wait.h>
 
@@ -89,7 +90,7 @@ tile_main( void * _args ) {
     allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
                                                   (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
                                                   allow_fds+allow_fds_offset );
-  } 
+  }
 
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -204,15 +205,10 @@ run1_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  cpu_set_t affinity[1];
-  if( FD_UNLIKELY( -1==sched_getaffinity( 0, sizeof( affinity ), affinity ) ) ) FD_LOG_ERR(( "sched_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  ulong cpu_idx = ULONG_MAX;
-  for( ulong i=0; i<CPU_SETSIZE; i++ ) {
-    if( FD_LIKELY( CPU_ISSET( i, affinity ) ) ) {
-      cpu_idx = i;
-      break;
-    }
-  }
+  FD_CPUSET_DECL( affinity );
+  if( FD_UNLIKELY( -1==fd_sched_getaffinity( 0, affinity ) ) ) FD_LOG_ERR(( "sched_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ulong cpu_idx = fd_cpuset_first( affinity );
+        cpu_idx = fd_ulong_if( cpu_idx<FD_CPUSET_MAX, cpu_idx, ULONG_MAX );
 
   if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "unable to find a CPU to run on, using CPU 0" ));

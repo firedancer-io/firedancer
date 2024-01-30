@@ -17,6 +17,8 @@
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
+#include "../../../util/tile/fd_cpuset.h"
+
 #define NAME "run"
 
 void
@@ -58,7 +60,7 @@ extern int * fd_log_private_shared_lock;
 static void
 parent_signal( int sig ) {
   if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
-  
+
   /* A pretty gross hack.  For the local process, clear the lock so that
      we can always print the messages without waiting on another process,
      particularly if one of those processes might have just died.  The
@@ -95,7 +97,7 @@ execve_solana_labs( int config_memfd,
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
-    
+
     char config_fd[ 32 ];
     snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
     char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
@@ -110,24 +112,24 @@ execve_solana_labs( int config_memfd,
 static pid_t
 execve_tile( fd_topo_tile_t * tile,
              ushort           cpu_idx,
-             cpu_set_t *      floating_cpu_set,
+             fd_cpuset_t *    floating_cpu_set,
              int              floating_priority,
              int              config_memfd,
              int              pipefd ) {
-  cpu_set_t cpu_set[1];
+  FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( cpu_idx<65535UL ) ) {
       /* set the thread affinity before we clone the new process to ensure
          kernel first touch happens on the desired thread. */
-      CPU_ZERO( cpu_set );
-      CPU_SET( cpu_idx, cpu_set );
+      fd_cpuset_zero( cpu_set );
+      fd_cpuset_insert( cpu_set, cpu_idx );
       if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
-      fd_memcpy( cpu_set, floating_cpu_set, sizeof(cpu_set_t) );
+      fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
       if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) {
-    FD_LOG_WARNING(( "unable to pin tile to cpu with sched_setaffinity (%i-%s). "
+  if( FD_UNLIKELY( fd_sched_setaffinity( 0, cpu_set ) ) ) {
+    FD_LOG_WARNING(( "unable to pin tile to cpu with fd_sched_setaffinity (%i-%s). "
                      "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
                      "continue without explicitly specifying this cpu's thread affinity but it "
                      "is likely this thread group's performance and stability are compromised "
@@ -144,7 +146,7 @@ execve_tile( fd_topo_tile_t * tile,
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
-    
+
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
     snprintf1( kind_id, sizeof( kind_id ), "%lu", tile->kind_id );
     snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
@@ -196,8 +198,8 @@ main_pid_namespace( void * _args ) {
                                                                                  config->topo.tile_cnt, affinity_tile_cnt ));
 
   /* Save the current affinity, it will be restored after creating any child tiles */
-  cpu_set_t floating_cpu_set[1];
-  if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
+  FD_CPUSET_DECL( floating_cpu_set );
+  if( FD_UNLIKELY( fd_sched_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
@@ -244,7 +246,7 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, save_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
+  if( FD_UNLIKELY( fd_sched_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
