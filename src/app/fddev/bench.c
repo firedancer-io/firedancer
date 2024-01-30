@@ -16,7 +16,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#include "../../util/tile/fd_cpuset.h"
+#include "../../util/tile/fd_tile_private.h"
 
 void
 bench_cmd_perm( args_t *         args,
@@ -138,9 +138,9 @@ main_bencher( void * _args ) {
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_CPUSET_DECL( cpu_set );
-  fd_cpuset_zero( cpu_set );
   fd_cpuset_insert( cpu_set, bench_cpu_idx( config ) );
-  if( FD_UNLIKELY( -1==fd_sched_setaffinity( 0, cpu_set ) ) ) FD_LOG_ERR(( "sched_setaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fd_cpuset_setaffinity( 0, cpu_set ) ) )
+    FD_LOG_ERR(( "fd_cpuset_setaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int conn = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( -1==conn ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

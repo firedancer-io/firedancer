@@ -158,7 +158,7 @@ FD_FN_PURE char **        fd_tile_exec_argv( fd_tile_exec_t const * exec );
 
 int fd_tile_exec_done( fd_tile_exec_t const * exec );
 
-/* These functions are for fd_tile internal use only. */
+/* These functions are for fd_util internal use only. */
 
 void
 fd_tile_private_boot( int *    pargc,
@@ -166,14 +166,6 @@ fd_tile_private_boot( int *    pargc,
 
 void
 fd_tile_private_halt( void );
-
-void *
-fd_tile_private_stack_new( int   optimize,
-                           ulong cpu_idx );
-
-ulong
-fd_tile_private_cpus_parse( char const * cstr,
-                            ushort *     tile_to_cpu );
 
 FD_PROTOTYPES_END
 

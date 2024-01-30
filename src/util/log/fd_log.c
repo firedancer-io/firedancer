@@ -39,7 +39,7 @@
 #include <execinfo.h>
 #endif
 
-#include "../tile/fd_cpuset.h"
+#include "../tile/fd_tile_private.h"
 
 #ifdef FD_BUILD_INFO
 FD_IMPORT_CSTR( fd_log_build_info, FD_BUILD_INFO );
@@ -174,9 +174,9 @@ fd_log_private_host_set( char const * host ) {
 ulong
 fd_log_private_cpu_id_default( void ) {
   FD_CPUSET_DECL( cpu_set );
-  if( FD_UNLIKELY( fd_sched_getaffinity( (pid_t)0, cpu_set ) ) ) return ULONG_MAX;
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( (pid_t)0, cpu_set ) ) ) return ULONG_MAX;
   ulong idx = fd_cpuset_first( cpu_set );
-        idx = fd_ulong_if( idx<FD_CPUSET_MAX, idx, ULONG_MAX );
+        idx = fd_ulong_if( idx<FD_TILE_MAX, idx, ULONG_MAX );
   return idx;
 }
 
@@ -204,11 +204,11 @@ static void
 fd_log_private_cpu_default( char * name ) { /* FD_LOG_NAME_MAX bytes */
   FD_CPUSET_DECL( set );
 
-  int err = fd_sched_getaffinity( (pid_t)0, set );
+  int err = fd_cpuset_getaffinity( (pid_t)0, set );
   if( FD_UNLIKELY( err ) ) { sprintf( name, "e%i", err ); return; }
 
   ulong cnt = fd_cpuset_cnt( set );
-  if( FD_UNLIKELY( !((0UL<cnt) & (cnt<=FD_CPUSET_MAX)) ) ) { sprintf( name, "ec" ); return; }
+  if( FD_UNLIKELY( !((0UL<cnt) & (cnt<=FD_TILE_MAX)) ) ) { sprintf( name, "ec" ); return; }
 
   ulong idx = fd_cpuset_first( set );
   sprintf( name, (cnt>1) ? "f%lu" : "%lu", idx );

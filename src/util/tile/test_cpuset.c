@@ -1,18 +1,18 @@
 #define _GNU_SOURCE
 #include "../fd_util.h"
-#include "fd_cpuset.h"
+#include "fd_tile_private.h"
 #include <sched.h>
 
 /* Test fd_cpuset_t replacements for the cpu_set_t API.
    This test ensures that inputs to POSIX functions expecting a
    cpu_set_t will behave as intended when given a fd_cpuset_t. */
 
-FD_STATIC_ASSERT( FD_CPUSET_MAX>=CPU_SETSIZE, compat );
+FD_STATIC_ASSERT( FD_TILE_MAX>=CPU_SETSIZE, compat );
 
 static fd_cpuset_t *
 fd_cpuset_from_libc( fd_cpuset_t *     out,
                      cpu_set_t const * pun ) {
-  fd_cpuset_zero( out );
+  fd_cpuset_null( out );
   fd_memcpy( out, pun, sizeof(cpu_set_t) );
   return out;
 }
@@ -28,11 +28,10 @@ fd_cpuset_to_libc( cpu_set_t *         out,
 static void
 test_cpu_zero( void ) {
 
-  /* fd_cpuset_zero */
+  /* Zero initialization */
 
   do {
     FD_CPUSET_DECL( foo );
-    fd_cpuset_zero( foo );
 
     cpu_set_t pun[1]; fd_cpuset_to_libc( pun, foo );
     FD_TEST( CPU_COUNT( pun )==0 );
@@ -60,7 +59,6 @@ test_cpu_insert( fd_rng_t * rng ) {
 
   do {
     FD_CPUSET_DECL( foo );
-    fd_cpuset_zero( foo );
     for( ulong j=0UL; j<load_cnt; j++ ) {
       ulong idx = fd_rng_ulong_roll( rng, CPU_SETSIZE );
       fd_cpuset_insert( foo, idx );
@@ -100,7 +98,6 @@ test_cpu_remove( fd_rng_t * rng ) {
 
   do {
     FD_CPUSET_DECL( foo );
-    fd_cpuset_zero( foo );
     fd_memset( foo, 0xFF, sizeof(cpu_set_t) );
     for( ulong j=0UL; j<load_cnt; j++ ) {
       ulong idx = fd_rng_ulong_roll( rng, CPU_SETSIZE );
@@ -139,8 +136,8 @@ test_cpu_set( fd_rng_t * rng ) {
   ulong load_cnt = 8 + fd_rng_ulong_roll( rng, CPU_SETSIZE/3 );
   FD_TEST( load_cnt > 0 && load_cnt < (CPU_SETSIZE/2) );
 
-  FD_CPUSET_DECL( foo0 );  fd_cpuset_zero( foo0 );
-  FD_CPUSET_DECL( foo1 );  fd_cpuset_zero( foo1 );
+  FD_CPUSET_DECL( foo0 );
+  FD_CPUSET_DECL( foo1 );
   for( ulong j=0UL; j<load_cnt; j++ ) {
     ulong idx0 = fd_rng_ulong_roll( rng, CPU_SETSIZE );
     ulong idx1 = fd_rng_ulong_roll( rng, CPU_SETSIZE );
