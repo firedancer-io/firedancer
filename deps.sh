@@ -105,7 +105,7 @@ fetch () {
   #checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   #checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo openssl   https://github.com/quictls/openssl        "openssl-3.1.2-quic1"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.2.1"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
@@ -319,7 +319,6 @@ install_openssl () {
     -fPIC \
     --prefix="$PREFIX" \
     --libdir=lib \
-    enable-quic \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
@@ -338,6 +337,7 @@ install_openssl () {
     no-sctp \
     no-ssl3 \
     no-aria \
+    no-argon2 \
     no-bf \
     no-blake2 \
     no-camellia \
