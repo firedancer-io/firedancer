@@ -32,7 +32,7 @@ jobs:
 
       - run: sudo apt update && sudo apt install -y zip
 
-      - uses: firedancer-io/fuzzbot-builder@main
+      - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build fuzz tests
         with:
           command: make -j -Otarget fuzz-test
@@ -41,7 +41,7 @@ jobs:
         run: |
           ls ${{ matrix.artifact_dir }}/fuzz-test
 
-      - uses: firedancer-io/clusterfuzz-action@main
+      - uses: asymmetric-research/firedancer-clusterfuzz-action@main
         name: Upload fuzz targets to ClusterFuzz
         with:
           bucket-name: firedancer-builds.isol-clusterfuzz.appspot.com
