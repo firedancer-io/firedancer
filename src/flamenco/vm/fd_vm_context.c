@@ -1,7 +1,7 @@
 #include "fd_vm_context.h"
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../runtime/fd_runtime.h"
 
 ulong
@@ -132,8 +132,8 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
       case FD_CHECK_CALL:
         // TODO: Check to make sure we are really doing this right!
         if( instr.imm >= ctx->instrs_sz
-            && fd_sbpf_syscalls_query ( ctx->syscall_map,    instr.imm, NULL ) == NULL
-            && fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL ) == NULL ) {
+            && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
+            && !fd_sbpf_calldests_test( ctx->calldests,  instr.imm ) ) {
               return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;
@@ -196,6 +196,5 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
     default:
       return 0UL;
   }
-
   return host_addr;
 }

@@ -9,8 +9,6 @@
 #include <errno.h>
 #include <sys/stat.h>
 
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
-
 struct fd_vm_tool_prog {
   void *               bin_buf;
   fd_sbpf_program_t *  prog;
@@ -107,7 +105,7 @@ cmd_disasm( char const * bin_path ) {
     .instrs_sz           = tool_prog.prog->text_cnt,
   };
   char out[MAX_BUFFER_LEN*10];
-  int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, tool_prog.prog->calldests, out );
+  int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, out );
   puts( out );
 
   fd_vm_tool_prog_free( &tool_prog );
@@ -172,7 +170,7 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
     .instrs_sz           = tool_prog.prog->text_cnt,
     .instrs_offset       = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
     .syscall_map         = tool_prog.syscalls,
-    .local_call_map      = tool_prog.prog->calldests,
+    .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
     .read_only           = (uchar *)fd_type_pun_const(tool_prog.prog->rodata),
@@ -210,7 +208,7 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
         trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
       );
     char out[100];
-    fd_vm_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, ctx.local_call_map, out, 0);
+    fd_vm_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, out, 0);
     puts( out );
   }
 
@@ -241,7 +239,7 @@ int cmd_run( char const * bin_path, char const * input_path ) {
     .instrs_sz           = tool_prog.prog->text_cnt,
     .instrs_offset       = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
     .syscall_map         = tool_prog.syscalls,
-    .local_call_map      = tool_prog.prog->calldests,
+    .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
     .read_only           = (uchar *)fd_type_pun_const(tool_prog.prog->rodata),

@@ -191,7 +191,7 @@ struct fd_vm_exec_context {
   /* Read-only VM parameters: */
   long                        entrypoint;     /* The initial program counter to start at */
   fd_sbpf_syscalls_t *        syscall_map;    /* The map of syscalls that can be called into */
-  fd_sbpf_calldests_t *       local_call_map; /* The map of local functions that can be called into */
+  ulong *                     calldests;      /* The bit vector of local functions that can be called into */
   fd_sbpf_instr_t const *     instrs;         /* The program instructions */
   ulong                       instrs_sz;      /* The number of program instructions FIXME this should be _cnt, not _sz */
   ulong                       instrs_offset;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */

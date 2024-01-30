@@ -1,7 +1,6 @@
 #include "fd_vm_interp.h"
 
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
 #include "../../util/bits/fd_sat.h"
 
 #include "fd_vm_context.h"

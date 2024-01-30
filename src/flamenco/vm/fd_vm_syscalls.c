@@ -6,7 +6,6 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
 
 #include <stdio.h>
 
@@ -20,9 +19,9 @@ fd_vm_mem_op_consume( fd_vm_exec_context_t * ctx,
 }
 
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
-                        char const *             name,
-                        fd_sbpf_syscall_fn_ptr_t fn_ptr) {
+fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls,
+                        char const *         name,
+                        fd_sbpf_syscall_fn_t fn_ptr) {
 
   ulong name_len     = strlen(name);
   uint  syscall_hash = fd_murmur3_32( name, name_len, 0U );
