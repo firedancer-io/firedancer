@@ -4,6 +4,8 @@
 #include "../fd_flamenco_base.h"
 #include "fd_vm_context.h"
 
+/* TODO These syscall errors do not map exactly to Labs SyscallError */
+
 #define FD_VM_SYSCALL_SUCCESS           (0UL)
 #define FD_VM_SYSCALL_ERR_ABORT         (1UL)
 #define FD_VM_SYSCALL_ERR_PANIC         (2UL)
@@ -164,5 +166,7 @@ fd_vm_prepare_instruction(
 );
 
 FD_PROTOTYPES_END
+
+#include "syscall/fd_vm_poseidon.h"
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h */

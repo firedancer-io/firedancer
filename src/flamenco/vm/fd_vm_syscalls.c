@@ -241,6 +241,11 @@ fd_vm_syscall_register_curve25519( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_curve_multiscalar_mul", fd_vm_syscall_sol_curve_multiscalar_mul );
 }
 
+static void
+fd_vm_syscall_register_poseidon( fd_sbpf_syscalls_t * syscalls ) {
+  fd_vm_register_syscall( syscalls, "sol_poseidon", fd_vm_syscall_sol_poseidon );
+}
+
 void
 fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
                             fd_exec_slot_ctx_t const * slot_ctx ) {
@@ -253,6 +258,8 @@ fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
     fd_vm_syscall_register_blake3( syscalls );
   if( FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled ) )
     fd_vm_syscall_register_curve25519( syscalls );
+  if( FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall ) )
+    fd_vm_syscall_register_poseidon( syscalls );
 }
 
 void
@@ -262,6 +269,7 @@ fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_syscall_register_blake3     ( syscalls );
   fd_vm_syscall_register_secp256k1  ( syscalls );
   fd_vm_syscall_register_curve25519 ( syscalls );
+  fd_vm_syscall_register_poseidon   ( syscalls );
 }
 
 ulong
