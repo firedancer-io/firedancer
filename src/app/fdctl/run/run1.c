@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 
-#include "../../../util/tile/fd_cpuset.h"
+#include "../../../util/tile/fd_tile_private.h"
 #include <sched.h>
 #include <sys/wait.h>
 
@@ -206,9 +206,10 @@ run1_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   FD_CPUSET_DECL( affinity );
-  if( FD_UNLIKELY( -1==fd_sched_getaffinity( 0, affinity ) ) ) FD_LOG_ERR(( "sched_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fd_cpuset_getaffinity( 0, affinity ) ) )
+    FD_LOG_ERR(( "fd_cpuset_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   ulong cpu_idx = fd_cpuset_first( affinity );
-        cpu_idx = fd_ulong_if( cpu_idx<FD_CPUSET_MAX, cpu_idx, ULONG_MAX );
+        cpu_idx = fd_ulong_if( cpu_idx<FD_TILE_MAX, cpu_idx, ULONG_MAX );
 
   if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "unable to find a CPU to run on, using CPU 0" ));

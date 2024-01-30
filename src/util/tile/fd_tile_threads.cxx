@@ -12,8 +12,7 @@
 #include <sys/mman.h>
 
 #include "../sanitize/fd_sanitize.h"
-#include "fd_tile.h"
-#include "fd_cpuset.h"
+#include "fd_tile_private.h"
 
 /* Operating system shims ********************************************/
 
@@ -250,11 +249,10 @@ fd_tile_private_manager( void * _args ) {
 # if !__GLIBC__
   if( args->cpu_idx<65535UL ) {
     FD_CPUSET_DECL( cpu_set );
-    fd_cpuset_zero( cpu_set );
     fd_cpuset_insert( cpu_set, args->cpu_idx );
-    int err = fd_sched_setaffinity( (pid_t)0, cpu_set );
+    int err = fd_cpuset_setaffinity( (pid_t)0, cpu_set );
     if( FD_UNLIKELY( err ) )
-      FD_LOG_WARNING(( "fd_tile: fd_sched_setaffinity_failed (%i-%s)\n\t"
+      FD_LOG_WARNING(( "fd_tile: fd_cpuset_setaffinity_failed (%i-%s)\n\t"
                        "Unable to set the thread affinity for tile %lu to cpu %lu.  Attempting to\n\t"
                        "continue without explicitly specifying this tile's cpu affinity but it\n\t"
                        "is likely this thread group's performance and stability are compromised\n\t"
@@ -441,7 +439,7 @@ fd_tile_exec_done( fd_tile_exec_t const * exec ) {
 
 /* Parse a list of cpu tiles */
 
-FD_STATIC_ASSERT( FD_CPUSET_MAX<65535, update_tile_to_cpu_type );
+FD_STATIC_ASSERT( FD_TILE_MAX<65535, update_tile_to_cpu_type );
 
 ulong
 fd_tile_private_cpus_parse( char const * cstr,
@@ -450,7 +448,6 @@ fd_tile_private_cpus_parse( char const * cstr,
   ulong cnt = 0UL;
 
   FD_CPUSET_DECL( assigned_set );
-  fd_cpuset_zero( assigned_set );
 
   char const * p = cstr;
   for(;;) {
@@ -516,9 +513,8 @@ fd_tile_private_cpus_parse( char const * cstr,
     if( FD_UNLIKELY( !stride    ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid stride)" ));
 
     for( ulong cpu=cpu0; cpu<cpu1; cpu+=stride ) {
-      if( FD_UNLIKELY( cpu>=FD_CPUSET_MAX                  ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (invalid cpu index)" ));
-      if( FD_UNLIKELY( fd_cpuset_test( assigned_set, cpu ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       if( FD_UNLIKELY( cnt>=FD_TILE_MAX                    ) ) FD_LOG_ERR(( "fd_tile: too many --tile-cpus" ));
+      if( FD_UNLIKELY( fd_cpuset_test( assigned_set, cpu ) ) ) FD_LOG_ERR(( "fd_tile: malformed --tile-cpus (repeated cpu)" ));
       tile_to_cpu[ cnt++ ] = (ushort)cpu;
       fd_cpuset_insert( assigned_set, cpu );
     }
@@ -580,7 +576,6 @@ fd_tile_private_boot( int *    pargc,
 #   if __GLIBC__
     if( fixed ) {
       FD_CPUSET_DECL( cpu_set );
-      fd_cpuset_zero( cpu_set );
       fd_cpuset_insert( cpu_set, cpu_idx );
       err = pthread_attr_setaffinity_np( attr, fd_cpuset_footprint(), (cpu_set_t const *)fd_type_pun_const( cpu_set ) );
       if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_tile: pthread_attr_setaffinity_failed (%i-%s)\n\t"
@@ -690,8 +685,8 @@ fd_tile_private_boot( int *    pargc,
 
     int good_taskset;
     FD_CPUSET_DECL( cpu_set );
-    if( FD_UNLIKELY( fd_sched_getaffinity( (pid_t)0, cpu_set ) ) ) {
-      FD_LOG_WARNING(( "fd_tile: fd_sched_getaffinity failed (%i-%s) for tile 0 on cpu %lu",
+    if( FD_UNLIKELY( fd_cpuset_getaffinity( (pid_t)0, cpu_set ) ) ) {
+      FD_LOG_WARNING(( "fd_tile: fd_cpuset_getaffinity failed (%i-%s) for tile 0 on cpu %lu",
                        errno, fd_io_strerror( errno ), cpu_idx ));
       good_taskset = 0;
     } else {
@@ -706,10 +701,10 @@ fd_tile_private_boot( int *    pargc,
                        "Overriding fd_log_cpu_id(), fd_log_cpu(), fd_log_thread() on tile 0 to\n\t"
                        "match --tile-cpus and attempting to continue.  Launch this thread\n\t"
                        "group via 'taskset -c %lu' or equivalent to eliminate this warning.", cpu_idx ));
-      fd_cpuset_zero( cpu_set );
+      fd_cpuset_null( cpu_set );
       fd_cpuset_insert( cpu_set, cpu_idx );
-      if( FD_UNLIKELY( fd_sched_setaffinity( (pid_t)0, cpu_set ) ) )
-        FD_LOG_WARNING(( "fd_tile: fd_sched_setaffinity_failed (%i-%s)\n\t"
+      if( FD_UNLIKELY( fd_cpuset_setaffinity( (pid_t)0, cpu_set ) ) )
+        FD_LOG_WARNING(( "fd_tile: fd_cpuset_setaffinity_failed (%i-%s)\n\t"
                          "Unable to set the thread affinity for tile 0 on cpu %lu.  Attempting to\n\t"
                          "continue without explicitly specifying this cpu's thread affinity but it\n\t"
                          "is likely this thread group's performance and stability are compromised\n\t"
