@@ -3259,10 +3259,11 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first ) {
     ctx.valloc  = slot_ctx->valloc;
     FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
 
-    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J",
+    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J lthash %32J",
                     (long)slot_ctx->slot_bank.slot,
                     slot_ctx->slot_bank.banks_hash.hash,
-                    slot_ctx->slot_bank.poh.hash ));
+                    slot_ctx->slot_bank.poh.hash,
+                    slot_ctx->slot_bank.lthash ));
 
     slot_ctx->slot_bank.collected_fees = 0;
     slot_ctx->slot_bank.collected_rent = 0;

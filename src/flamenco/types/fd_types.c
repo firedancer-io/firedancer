@@ -10227,8 +10227,6 @@ int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_decode_preflight(128, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_decode_preflight(ctx);
@@ -10255,6 +10253,8 @@ int fd_slot_bank_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_bytes_decode_preflight(2048, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -10264,7 +10264,6 @@ void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * 
   fd_bincode_uint64_decode_unsafe(&self->prev_slot, ctx);
   fd_hash_decode_unsafe(&self->poh, ctx);
   fd_hash_decode_unsafe(&self->banks_hash, ctx);
-  fd_bincode_bytes_decode_unsafe(&self->rhash[0], sizeof(self->rhash), ctx);
   fd_hash_decode_unsafe(&self->epoch_account_hash, ctx);
   fd_fee_rate_governor_decode_unsafe(&self->fee_rate_governor, ctx);
   fd_bincode_uint64_decode_unsafe(&self->capitalization, ctx);
@@ -10278,6 +10277,7 @@ void fd_slot_bank_decode_unsafe(fd_slot_bank_t* self, fd_bincode_decode_ctx_t * 
   fd_vote_accounts_decode_unsafe(&self->vote_account_keys, ctx);
   fd_bincode_uint64_decode_unsafe(&self->lamports_per_signature, ctx);
   fd_bincode_uint64_decode_unsafe(&self->transaction_count, ctx);
+  fd_bincode_bytes_decode_unsafe(&self->lthash[0], sizeof(self->lthash), ctx);
 }
 int fd_slot_bank_decode_offsets(fd_slot_bank_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -10299,9 +10299,6 @@ int fd_slot_bank_decode_offsets(fd_slot_bank_off_t* self, fd_bincode_decode_ctx_
   if ( FD_UNLIKELY(err) ) return err;
   self->banks_hash_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_hash_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  self->rhash_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_bytes_decode_preflight(128, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->epoch_account_hash_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_hash_decode_preflight(ctx);
@@ -10342,6 +10339,9 @@ int fd_slot_bank_decode_offsets(fd_slot_bank_off_t* self, fd_bincode_decode_ctx_
   self->transaction_count_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->lthash_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_bytes_decode_preflight(2048, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_slot_bank_new(fd_slot_bank_t* self) {
@@ -10381,7 +10381,6 @@ void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t
   fun( w, &self->prev_slot, "prev_slot", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_hash_walk(w, &self->poh, fun, "poh", level);
   fd_hash_walk(w, &self->banks_hash, fun, "banks_hash", level);
-  fun( w,  self->rhash, "rhash", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );
   fd_hash_walk(w, &self->epoch_account_hash, fun, "epoch_account_hash", level);
   fd_fee_rate_governor_walk(w, &self->fee_rate_governor, fun, "fee_rate_governor", level);
   fun( w, &self->capitalization, "capitalization", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
@@ -10395,6 +10394,7 @@ void fd_slot_bank_walk(void * w, fd_slot_bank_t const * self, fd_types_walk_fn_t
   fd_vote_accounts_walk(w, &self->vote_account_keys, fun, "vote_account_keys", level);
   fun( w, &self->lamports_per_signature, "lamports_per_signature", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  fun( w,  self->lthash, "lthash", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_slot_bank", level--);
 }
 ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
@@ -10405,7 +10405,6 @@ ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
   size += sizeof(ulong);
   size += fd_hash_size(&self->poh);
   size += fd_hash_size(&self->banks_hash);
-  size += sizeof(char) * 128;
   size += fd_hash_size(&self->epoch_account_hash);
   size += fd_fee_rate_governor_size(&self->fee_rate_governor);
   size += sizeof(ulong);
@@ -10419,6 +10418,7 @@ ulong fd_slot_bank_size(fd_slot_bank_t const * self) {
   size += fd_vote_accounts_size(&self->vote_account_keys);
   size += sizeof(ulong);
   size += sizeof(ulong);
+  size += sizeof(char) * 2048;
   return size;
 }
 
@@ -10435,8 +10435,6 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   err = fd_hash_encode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->banks_hash, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode(&self->rhash[0], sizeof(self->rhash), ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->epoch_account_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10463,6 +10461,8 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->transaction_count, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bytes_encode(&self->lthash[0], sizeof(self->lthash), ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }

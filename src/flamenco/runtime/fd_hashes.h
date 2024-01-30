@@ -44,7 +44,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
 void const *
 fd_hash_account_v0( uchar                     hash[ static 32 ],
-                    uchar                    *rhash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data,
@@ -58,7 +57,6 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
 
 void const *
 fd_hash_account_v1( uchar                     hash  [ static 32 ],
-                    uchar                    *rhash,
                     fd_account_meta_t const * account,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data );
@@ -68,7 +66,6 @@ fd_hash_account_v1( uchar                     hash  [ static 32 ],
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
-                         uchar                     *rhash,
                          fd_account_meta_t const *  account,
                          uchar const                pubkey[ static 32 ],
                          uchar const *              data,
@@ -87,10 +84,10 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_funk_txn_t * child_txn );
 
 int
-fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx );
+fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );
 
 void
-fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx );
+fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx );
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);

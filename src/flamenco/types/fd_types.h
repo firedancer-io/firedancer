@@ -442,7 +442,6 @@ struct __attribute__((packed)) fd_account_meta {
   ushort hlen;
   ulong dlen;
   uchar hash[32];
-  uchar rhash[32];
   ulong slot;
   fd_solana_account_meta_t info;
 };
@@ -455,7 +454,6 @@ struct __attribute__((packed)) fd_account_meta_off {
   uint hlen_off;
   uint dlen_off;
   uint hash_off;
-  uint rhash_off;
   uint slot_off;
   uint info_off;
 };
@@ -2243,7 +2241,6 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong prev_slot;
   fd_hash_t poh;
   fd_hash_t banks_hash;
-  uchar rhash[128];
   fd_hash_t epoch_account_hash;
   fd_fee_rate_governor_t fee_rate_governor;
   ulong capitalization;
@@ -2257,6 +2254,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   fd_vote_accounts_t vote_account_keys;
   ulong lamports_per_signature;
   ulong transaction_count;
+  uchar lthash[2048];
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2269,7 +2267,6 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint prev_slot_off;
   uint poh_off;
   uint banks_hash_off;
-  uint rhash_off;
   uint epoch_account_hash_off;
   uint fee_rate_governor_off;
   uint capitalization_off;
@@ -2283,6 +2280,7 @@ struct __attribute__((aligned(16UL))) fd_slot_bank_off {
   uint vote_account_keys_off;
   uint lamports_per_signature_off;
   uint transaction_count_off;
+  uint lthash_off;
 };
 typedef struct fd_slot_bank_off fd_slot_bank_off_t;
 #define FD_SLOT_BANK_OFF_FOOTPRINT sizeof(fd_slot_bank_off_t)

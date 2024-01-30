@@ -3,6 +3,7 @@
 #include "../../ballet/sha256/fd_sha256.h"
 #include <assert.h>
 #include <stdio.h>
+#include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/ed25519/fd_ristretto255_ge.h"
 #include "fd_acc_mgr.h"
@@ -237,6 +238,31 @@ fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
   return 1;
 }
 
+void
+fd_account_lthash( fd_lthash_value_t *       lthash_value,
+                   fd_exec_slot_ctx_t const * slot_ctx,
+                   fd_account_meta_t const *        acc_meta,
+                   fd_pubkey_t const *       acc_key,
+                   uchar const *             acc_data
+ ) {
+  fd_lthash_zero( lthash_value );
+
+  // If the account has no lamports, we treat it as deleted, and do not include it in the hash
+  if ( acc_meta->info.lamports == 0 ) {
+    return;
+  }
+
+  uchar hash[32];
+  fd_hash_account_current( (uchar *)&hash, acc_meta, acc_key->key, acc_data, slot_ctx );
+
+  fd_lthash_t lthash;
+  fd_lthash_init( &lthash );
+  fd_lthash_append( &lthash, &hash, 32 );
+
+  fd_lthash_fini( &lthash, lthash_value );
+  return;
+}
+
 // slot_ctx should be const.
 static void
 fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_pair_t * dirty_keys, ulong dirty_key_cnt ) {
@@ -314,7 +340,7 @@ fd_account_hash_task( void *tpool,
   } else {
     // Maybe instead of going through the whole hash mechanism, we
     // can find the parent funky record and just compare the data?
-    fd_hash_account_current( task_info->acc_hash->hash, NULL, acc_meta, acc_key->key, acc_data, slot_ctx );
+    fd_hash_account_current( task_info->acc_hash->hash, acc_meta, acc_key->key, acc_data, slot_ctx );
   }
 
   /* If hash didn't change, nothing to do */
@@ -413,6 +439,26 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(( "failed to modify account during bank hash" ));
     }
 
+#ifdef _ENABLE_LTHASH
+  // Subtract the previous hash from the running total
+  fd_lthash_t lthash;
+
+  fd_lthash_init( &lthash );
+  fd_lthash_append( &lthash, acc_rec->meta->hash, 32 );
+  fd_lthash_value_t old_lthash_value;
+  fd_lthash_fini( &lthash, &old_lthash_value );
+
+  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash);
+
+  fd_lthash_sub( acc, &old_lthash_value );
+
+  // Add the new hash
+  fd_lthash_value_t new_lthash_value;
+  fd_account_lthash( &new_lthash_value, slot_ctx, acc_rec->meta, acc_key, acc_rec->const_data );
+
+  fd_lthash_add( acc, &new_lthash_value );
+#endif
+
     /* Update hash */
 
     memcpy( acc_rec->meta->hash, task_info->acc_hash->hash, sizeof(fd_hash_t) );
@@ -434,6 +480,11 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, hash, dirty_keys, dirty_key_cnt );
+
+#ifdef _ENABLE_LTHASH
+  // Sanity-check LT Hash
+  fd_accounts_check_lthash( slot_ctx );
+#endif
 
   if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
@@ -485,12 +536,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   }
   /* Iterate over accounts that have been changed in the current
      database transaction. */
-
-#ifdef _ENABLE_RHASH
-  fd_ristretto255_point_t rhash;
-  fd_ristretto255_extended_frombytes( &rhash, slot_ctx->slot_bank.rhash );
-#endif
-
   fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, rec_cnt * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
   fd_funk_rec_t const * * erase_recs = fd_valloc_malloc( slot_ctx->valloc, 8UL, rec_cnt * sizeof(fd_funk_rec_t *) );
 
@@ -520,10 +565,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Hash account */
 
     fd_hash_t acc_hash[1];
-    uchar acc_rhash[128];
-#ifdef _ENABLE_RHASH
-    uchar deleted = 0;
-#endif
     // TODO: talk to jsiegel about this
     if (FD_UNLIKELY(acc_meta->info.lamports == 0)) { //!fd_acc_exists(_raw))) {
       fd_memset( acc_hash->hash, 0, FD_HASH_FOOTPRINT );
@@ -532,13 +573,10 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
          iterator.  Instead, we will store away the record and erase
          it later where appropriate.  */
       erase_recs[erase_rec_cnt++] = rec;
-#ifdef _ENABLE_RHASH
-      deleted = 1;
-#endif
     } else {
       // Maybe instead of going through the whole hash mechanism, we
       // can find the parent funky record and just compare the data?
-      fd_hash_account_current( acc_hash->hash, acc_rhash, acc_meta, acc_key->key, acc_data, slot_ctx );
+      fd_hash_account_current( acc_hash->hash, acc_meta, acc_key->key, acc_data, slot_ctx );
     }
 
     /* If hash didn't change, nothing to do */
@@ -557,19 +595,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Upgrade to writable record */
 
     // How the heck do we deal with new accounts?  test that
-
-#ifdef _ENABLE_RHASH
-    // Lets remove the effect of this account on the rhash...
-    fd_ristretto255_point_t p2;
-    fd_ristretto255_extended_frombytes( &p2, acc_meta->rhash );
-    fd_ristretto255_point_sub( &rhash, &rhash, &p2 );
-
-    if (!deleted) {
-      fd_ristretto255_extended_frombytes( &p2, acc_rhash );
-      fd_ristretto255_point_add( &rhash, &rhash, &p2 );
-    }
-#endif
-
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = rec;
 
@@ -581,9 +606,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     /* Update hash */
 
     memcpy( acc_rec->meta->hash, acc_hash->hash, sizeof(fd_hash_t) );
-#ifdef _ENABLE_RHASH
-    memcpy( acc_rec->meta->rhash, acc_rhash, sizeof(acc_rhash) );
-#endif
     acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
     // /* Logging ... */
@@ -623,20 +645,21 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     FD_TEST( err==0 );
   }
 
-#ifdef _ENABLE_RHASH
-  // We have a new ristretto hash
-  fd_ristretto255_extended_tobytes( slot_ctx->slot_bank.rhash, &rhash );
-
-  // Lets make sure everything lines up...
-  fd_accounts_check_rhash( slot_ctx );
-#endif
-
   /* Sort and hash "dirty keys" to the accounts delta hash. */
 
   // FD_LOG_DEBUG(("slot %ld, dirty %ld", slot_ctx->slot_bank.slot, dirty_key_cnt));
 
   slot_ctx->signature_cnt = signature_cnt;
   fd_hash_bank( slot_ctx, hash, dirty_keys, dirty_key_cnt );
+
+#ifdef _ENABLE_LTHASH
+  // Sanity-check LT Hash
+  fd_accounts_check_lthash( slot_ctx );
+
+  // Check that the old account_delta_hash is the same as the lthash
+  FD_TEST( 0==memcmp( slot_ctx->slot_bank.lthash, slot_ctx->account_delta_hash.hash, sizeof(fd_hash_t) ) );
+#endif
+
 
   if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
@@ -658,7 +681,6 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
 void const *
 fd_hash_account_v0( uchar                     hash[ static 32 ],
-                    uchar                    *rhash,
                     fd_account_meta_t const  *m,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data,
@@ -680,22 +702,11 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
 
-#ifdef _ENABLE_RHASH
-  if (NULL != rhash) {
-    fd_ristretto255_point_t p;
-    fd_ristretto255_map_to_curve( &p, hash );
-    fd_ristretto255_extended_tobytes( rhash, &p );
-  }
-#else
-  (void) rhash;
-#endif
-
   return hash;
 }
 
 void const *
 fd_hash_account_v1( uchar                     hash[ static 32 ],
-                    uchar                    *rhash,
                     fd_account_meta_t const * m,
                     uchar const               pubkey[ static 32 ],
                     uchar const             * data ) {
@@ -715,30 +726,19 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   fd_blake3_append( b3, pubkey,      32UL            );
   fd_blake3_fini  ( b3, hash );
 
-#ifdef _ENABLE_RHASH
-  if (NULL != rhash) {
-    fd_ristretto255_point_t p;
-    fd_ristretto255_map_to_curve( &p, hash );
-    fd_ristretto255_extended_tobytes( rhash, &p );
-  }
-#else
-  (void) rhash;
-#endif
-
   return hash;
 }
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
-                         uchar                     *rhash,
                          fd_account_meta_t const *  account,
                          uchar const                pubkey[ static 32 ],
                          uchar const              * data,
                          fd_exec_slot_ctx_t const * slot_ctx ) {
   if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot ) )
-    return fd_hash_account_v1( hash, rhash, account, pubkey, data );
+    return fd_hash_account_v1( hash, account, pubkey, data );
   else
-    return fd_hash_account_v0( hash, rhash, account, pubkey, data, slot_ctx->slot_bank.slot );
+    return fd_hash_account_v0( hash, account, pubkey, data, slot_ctx->slot_bank.slot );
 }
 
 struct accounts_hash {
@@ -882,18 +882,15 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
     return fd_accounts_hash(slot_ctx, accounts_hash, child_txn);
 }
 
-
-#ifdef _ENABLE_RHASH
-// This is bad.. everything I am doing here is a violation of data
-// boundries...  such is the life of POC code...
+#ifdef _ENABLE_LTHASH
 int
-fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
-  ulong oldslot = slot_ctx->slot_bank.slot;
+fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
+  // Initialize the lhash value to zero
+  fd_lthash_value_t * acc_lthash = (fd_lthash_value_t *)fd_type_pun_const( slot_ctx->slot_bank.lthash );
+  fd_lthash_zero( acc_lthash );
 
-  // Lets initialize this to zero
-  fd_ristretto255_point_t rhash;
-  fd_ristretto255_point_0(&rhash);
+  // Iterate over all accounts in the database
+  fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
 
   for (
     fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, NULL); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec))
@@ -903,45 +900,25 @@ fd_accounts_init_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
         fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
         FD_TEST ( metadata->magic == FD_ACCOUNT_META_MAGIC );
 
-        uchar                      hash[32];
-        void const * d   = (void const *)( (ulong)data + metadata->hlen );
-        slot_ctx->slot_bank.slot = metadata->slot;
+        // Create the lthash for this account, by hashing the account hash
+        fd_lthash_t lthash;
+        fd_lthash_init( &lthash );
+        fd_lthash_append( &lthash, metadata->hash, 32 );
 
-        // I really should do a funk_view here.. to get a writable metadata object but this is POC code...
-        fd_hash_account_current(hash, (uchar *) metadata->rhash, metadata, (uchar *) rec->pair.key, d, slot_ctx);
-        FD_TEST(memcmp(hash, metadata->hash, 32) == 0);
+        fd_lthash_value_t lthash_val;
+        fd_lthash_fini( &lthash, &lthash_val );
 
-        // We maybe should refactor fd_hash_account_current to save
-        // away the point so that we can use it.. but that will be
-        // done after the POC
-        fd_ristretto255_point_t p2;
-        fd_ristretto255_extended_frombytes( &p2, metadata->rhash );
-
-        fd_ristretto255_point_add( &rhash, &rhash, &p2 );
+        // Add this to the accumulator
+        fd_lthash_add( acc_lthash, &lthash_val );
       } // if ( fd_funk_key_is_acc( rec->pair.key ) )
     } // fd_funk_rec_t const *rec = fd_f
 
-  // I kinda wish we could just put the point itself into the slot
-  // context.  Problem is, the point is a opaque handle.. we could use
-  // a "sizeof" against it to save the raw bytes but I don't know how
-  // stable it is.  It just feels performance stupid to be doing this
-  // conversion but maybe on the grand scale of things, it doesn't
-  // really matter?
-  fd_ristretto255_extended_tobytes( slot_ctx->slot_bank.rhash, &rhash );
+    return 0;
+}
 
-  slot_ctx->slot_bank.slot = oldslot;
-  return 0;
-} // fd_accounts_init_
-
-/*
- Confirms we can recreate the ristretto hash at any time and things
- still match
- */
-
+/* Re-computes the lthash from the current slot */
 void
-fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
-  ulong oldslot = slot_ctx->slot_bank.slot;
-
+fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
@@ -998,52 +975,30 @@ fd_accounts_check_rhash( fd_exec_slot_ctx_t * slot_ctx ) {
     }
   }
 
-  // Lets initialize this to zero
-  fd_ristretto255_point_t rhash;
-  fd_ristretto255_point_0(&rhash);
+  // Initialize the accumulator to zero
+  fd_lthash_value_t acc_lthash;
+  fd_lthash_zero( &acc_lthash );
 
   ulong slot_cnt = accounts_hash_slot_cnt(hash_map);;
   for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
     accounts_hash_t *slot = &hash_map[slot_idx];
     if (FD_UNLIKELY (NULL != slot->key)) {
-//      FD_LOG_WARNING(( "newcase: %32J ", (uchar *) slot->key->pair.key));
-
       void const * data = fd_funk_val_const( slot->key, wksp );
       fd_account_meta_t const * metadata = (fd_account_meta_t const *)fd_type_pun_const( data );
 
-      uchar                      hash[32];
-      uchar                      account_rhash[128];
-
-      void const * d   = (void const *)( (ulong)data + metadata->hlen );
-
-      // This goes away... soon... but not soon enough as far as I
-      // am concerned...  It is gone on testnet and I think it might
-      // also be gone on mainnet.. if so, maybe I should create a
-      // new test ledger...
-      slot_ctx->slot_bank.slot = metadata->slot;
-
-      fd_hash_account_current(hash, account_rhash, metadata, (uchar *) slot->key->pair.key, d, slot_ctx);
-
-      FD_TEST(memcmp(hash, metadata->hash, 32) == 0);
-      FD_TEST(memcmp(account_rhash, metadata->rhash, 128) == 0);
-
-      fd_ristretto255_point_t p2;
-      fd_ristretto255_extended_frombytes( &p2, metadata->rhash );
-
-      fd_ristretto255_point_add( &rhash, &rhash, &p2 );
+      // Add the hash to the accumulator
+      fd_lthash_t lthash;
+      fd_lthash_init( &lthash );
+      fd_lthash_append( &lthash, metadata->hash, 32 );
+      fd_lthash_value_t lthash_val;
+      fd_lthash_fini( &lthash, &lthash_val );
+      fd_lthash_add( &acc_lthash, &lthash_val );
     }
   }
 
-  uchar                      v1[32];
-  fd_ristretto255_point_compress(v1, &rhash);
-
-  fd_ristretto255_point_t p2;
-  fd_ristretto255_extended_frombytes( &p2, slot_ctx->slot_bank.rhash );
-  uchar                      v2[32];
-  fd_ristretto255_point_compress(v2, &p2);
-
-  FD_TEST(memcmp(v1, v2, 32) == 0);
-
-  slot_ctx->slot_bank.slot = oldslot;
-} // fd_accounts_check_rhash
+  // Compare the accumulator to the slot
+  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun_const( slot_ctx->slot_bank.lthash );
+  FD_TEST( memcmp( acc, &acc_lthash, sizeof( fd_lthash_value_t ) ) == 0 );
+}
 #endif
+

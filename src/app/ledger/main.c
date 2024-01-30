@@ -152,8 +152,8 @@ main( int     argc,
   char const * verifyacchash   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash",   NULL, NULL      );
   char const * backup       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",       NULL, NULL      );
   char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",      NULL, NULL      );
-#ifdef _ENABLE_RHASH
-  char const * rhash        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rhash",        NULL, "false"   );
+#ifdef _ENABLE_LTHASH
+  char const * lthash       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",       NULL, "false"   );
 #endif
 
   fd_wksp_t* wksp;
@@ -272,12 +272,6 @@ main( int     argc,
     // Do nothing
 
   } else if (strcmp(cmd, "ingest") == 0) {
-#ifdef _ENABLE_RHASH
-    if ((NULL != rhash) && (strcmp(rhash, "true") == 0)) {
-      fd_accounts_init_rhash(slot_ctx);
-      fd_accounts_check_rhash(slot_ctx);
-    }
-#endif
 
     if( snapshotfile ) {
       const char * snapshotfiles[3];
@@ -425,6 +419,13 @@ main( int     argc,
       FD_LOG_ERR(( "verification failed" ));
   }
 
+#ifdef _ENABLE_LTHASH
+    if ((NULL != lthash) && (strcmp(lthash, "true") == 0)) {
+      fd_accounts_init_lthash(slot_ctx);
+      fd_accounts_check_lthash(slot_ctx);
+    }
+#endif
+
   if (verifyhash) {
     fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
     ulong num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
@@ -456,7 +457,7 @@ main( int     argc,
       }
 
       fd_hash_t acc_hash;
-      if( fd_hash_account_v0(acc_hash.uc, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot)==NULL )
+      if( fd_hash_account_v0(acc_hash.uc, metadata, rec->pair.key->uc, fd_account_get_data(metadata), metadata->slot)==NULL )
         FD_LOG_ERR(("error processing account hash"));
 
       if( memcmp(acc_hash.uc, metadata->hash, 32) != 0 ) {
@@ -493,6 +494,7 @@ main( int     argc,
 
   if (backup) {
     /* Copy the entire workspace into a file in the most naive way */
+    FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
     FD_LOG_NOTICE(("writing %s", backup));
     unlink(backup);
     int err = fd_wksp_checkpt(wksp, backup, 0666, 0, NULL);

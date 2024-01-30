@@ -240,7 +240,6 @@
         { "name": "hlen",  "type": "ushort" },
         { "name": "dlen",  "type": "ulong" },
         { "name": "hash",  "type": "uchar[32]" },
-        { "name": "rhash", "type": "uchar[32]" },
         { "name": "slot",  "type": "ulong" },
         { "name": "info",  "type": "solana_account_meta" }
       ]
@@ -1020,7 +1019,6 @@
         { "name": "prev_slot",             "type": "ulong" },
         { "name": "poh",                   "type": "hash" },
         { "name": "banks_hash",            "type": "hash" },
-        { "name": "rhash",                 "type": "uchar[128]" },
         { "name": "epoch_account_hash",    "type": "hash" },
         { "name": "fee_rate_governor",     "type": "fee_rate_governor" },
         { "name": "capitalization",        "type": "ulong" },
@@ -1033,7 +1031,8 @@
         { "name": "stake_account_keys",    "type": "stake_accounts"},
         { "name": "vote_account_keys",     "type": "vote_accounts" },
         { "name": "lamports_per_signature","type": "ulong" },
-        { "name": "transaction_count",     "type": "ulong" }
+        { "name": "transaction_count",     "type": "ulong" },
+        { "name": "lthash",                "type": "uchar[2048]" }
       ]
     },
     {
