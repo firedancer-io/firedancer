@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h
 
 #include "fd_vm_context.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 #define FD_VM_SYSCALL_SUCCESS           (0UL)
 #define FD_VM_SYSCALL_ERR_ABORT         (1UL)
@@ -30,9 +31,9 @@ FD_PROTOTYPES_BEGIN
 /* Registers a syscall by name to an execution context. */
 
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
-                        char const *             name,
-                        fd_sbpf_syscall_fn_ptr_t fn_ptr );
+fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls,
+                        char const *         name,
+                        fd_sbpf_syscall_fn_t fn_ptr );
 
 /* fd_vm_syscall_register all reigsters all syscalls implemented.
    May change between Firedancer versions without warning. */

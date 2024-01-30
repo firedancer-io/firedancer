@@ -3,11 +3,14 @@
 #include "fd_vm_disasm.h"
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 
 # define OUT_PRINTF(...) \
-  *out_len = fd_ulong_sat_add(*out_len, (ulong)snprintf(out + (*out_len), MAX_BUFFER_LEN - *out_len, __VA_ARGS__)); \
-  do { if( FD_UNLIKELY( *out_len > MAX_BUFFER_LEN ) ) return 0; } while(0)
+  do { \
+    *out_len = fd_ulong_sat_add(*out_len, (ulong)snprintf(out + (*out_len), MAX_BUFFER_LEN - *out_len, __VA_ARGS__)); \
+    if( FD_UNLIKELY( *out_len > MAX_BUFFER_LEN ) ) return 0; \
+  } while(0)
 
 static int
 fd_vm_disassemble_instr_alu( fd_sbpf_instr_t  instr,
@@ -85,7 +88,6 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
                              ulong                  pc,
                              char const *           suffix,
                              fd_sbpf_syscalls_t *   syscalls,
-                             fd_sbpf_calldests_t *  calldests,
                              char *                 out,
                              ulong *                out_len ) {
 
@@ -141,7 +143,6 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
     switch ( instr.opcode.normal.op_src ) {
       case FD_SBPF_OPCODE_SOURCE_MODE_IMM: {
         fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, instr.imm, NULL );
-        fd_sbpf_calldests_t * calldest = fd_sbpf_calldests_query( calldests, instr.imm, NULL );
         if( syscall ) {
           char const * name = syscall->name;
           if( name ) {
@@ -149,10 +150,12 @@ fd_vm_disassemble_instr_jmp( fd_sbpf_instr_t        instr,
           } else {
             OUT_PRINTF( "syscall%s 0x%08x", suffix, instr.imm );
           }
-        } else if ( calldest ) {
-          OUT_PRINTF( "%s%s function_%ld", op_name, suffix, (long)((long)calldest->pc));
         } else {
-          OUT_PRINTF( "%s%s function_%ld %d", op_name, suffix, (long)((long)pc+(int)instr.imm+1L), (int)instr.imm);
+          uint pc = fd_pchash_inverse( instr.imm );
+          if( pc<(10<<17) )  /* TODO hardcoded constant */
+            OUT_PRINTF( "%s%s function_%u", op_name, suffix, pc );
+          else
+            OUT_PRINTF( "%s%s function_%#x", op_name, suffix, instr.imm );
         }
         break;
       }
@@ -250,7 +253,6 @@ int
 fd_vm_disassemble_instr( fd_sbpf_instr_t const * instr,
                          ulong                   pc,
                          fd_sbpf_syscalls_t *    syscalls,
-                         fd_sbpf_calldests_t *   calldests,
                          void *                  _out,
                          ulong *                 out_len ) {
   char * out = (char *)_out;
@@ -268,9 +270,9 @@ fd_vm_disassemble_instr( fd_sbpf_instr_t const * instr,
     case FD_SBPF_OPCODE_CLASS_ALU:
       return fd_vm_disassemble_instr_alu( *instr, "", out, out_len );
     case FD_SBPF_OPCODE_CLASS_JMP:
-      return fd_vm_disassemble_instr_jmp( *instr, pc, "", syscalls, calldests, out, out_len );
+      return fd_vm_disassemble_instr_jmp( *instr, pc, "", syscalls, out, out_len );
     case FD_SBPF_OPCODE_CLASS_JMP32:
-      return fd_vm_disassemble_instr_jmp( *instr, pc, "32", syscalls, calldests, out, out_len );
+      return fd_vm_disassemble_instr_jmp( *instr, pc, "32", syscalls, out, out_len );
     case FD_SBPF_OPCODE_CLASS_ALU64:
       return fd_vm_disassemble_instr_alu( *instr, "64", out, out_len );
   }
@@ -279,10 +281,9 @@ fd_vm_disassemble_instr( fd_sbpf_instr_t const * instr,
 
 int
 fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
-                           ulong                      instrs_cnt,
-                           fd_sbpf_syscalls_t *       syscalls,
-                           fd_sbpf_calldests_t *      calldests,
-                           void *                     _out ) {
+                           ulong                   instrs_cnt,
+                           fd_sbpf_syscalls_t *    syscalls,
+                           void *                  _out ) {
   char * out = (char *)_out;
   ulong len = 0;
   ulong * out_len = &len;
@@ -341,7 +342,7 @@ fd_vm_disassemble_program( fd_sbpf_instr_t const * instrs,
 
     fd_sbpf_instr_t const * instr = &instrs[i];
 
-    if( FD_UNLIKELY( !fd_vm_disassemble_instr( instr, i, syscalls, calldests, out, out_len ) ) )
+    if( FD_UNLIKELY( !fd_vm_disassemble_instr( instr, i, syscalls, out, out_len ) ) )
       return 0;
 
     OUT_PRINTF( "\n" );
