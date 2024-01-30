@@ -2,6 +2,7 @@
 #include "run.h"
 
 #include "../../../util/net/fd_ip4.h"
+#include "../../../util/tile/fd_cpuset.h"
 
 #include <sched.h>
 #include <pthread.h>
@@ -21,8 +22,8 @@ tile_main1( void * args ) {
 static void
 clone_labs_memory_space_tiles( config_t * const config ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
-  cpu_set_t floating_cpu_set[1];
-  if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
+  FD_CPUSET_DECL( floating_cpu_set );
+  if( FD_UNLIKELY( fd_sched_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   errno = 0;
@@ -64,19 +65,19 @@ clone_labs_memory_space_tiles( config_t * const config ) {
 
     ushort cpu_idx = tile_to_cpu[ i ];
 
-    cpu_set_t cpu_set[1];
+    FD_CPUSET_DECL( cpu_set );
     if( FD_LIKELY( cpu_idx<65535UL ) ) {
         /* set the thread affinity before we clone the new process to ensure
            kernel first touch happens on the desired thread. */
-        CPU_ZERO( cpu_set );
-        CPU_SET( cpu_idx, cpu_set );
+        fd_cpuset_zero( cpu_set );
+        fd_cpuset_insert( cpu_set, cpu_idx );
         if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     } else {
-        fd_memcpy( cpu_set, floating_cpu_set, sizeof(cpu_set_t) );
+        fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
         if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
-    if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) {
+    if( FD_UNLIKELY( fd_sched_setaffinity( 0, cpu_set ) ) ) {
       FD_LOG_WARNING(( "unable to pin tile to cpu with sched_setaffinity (%i-%s). "
                       "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
                       "continue without explicitly specifying this cpu's thread affinity but it "
@@ -89,11 +90,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
 
     /* We have to use pthread_create here to get a new thread-local
        storage area, otherwise it would be nice to use clone(3).
-       
+
        The args we pass must outlive the local stack creating the
        thread, so keep a local static buffer here. */
     static tile_main_args_t args[ FD_TILE_MAX ];
-    
+
     void * stack = fd_tile_private_stack_new( 1, cpu_idx );
     args[ i ] = (tile_main_args_t){
       .config      = config,
@@ -116,10 +117,10 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   }
 
   /* Restore the original affinity */
-  if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
-    FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fd_sched_setaffinity( 0, floating_cpu_set ) ) )
+    FD_LOG_ERR(( "fd_sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) )
-    FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "fd_setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 int

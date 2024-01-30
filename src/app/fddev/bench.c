@@ -16,6 +16,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+#include "../../util/tile/fd_cpuset.h"
+
 void
 bench_cmd_perm( args_t *         args,
                 fd_caps_ctx_t *  caps,
@@ -135,10 +137,10 @@ main_bencher( void * _args ) {
 
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  cpu_set_t cpu_set[1];
-  CPU_ZERO( cpu_set );
-  CPU_SET( bench_cpu_idx( config ), cpu_set );
-  if( FD_UNLIKELY( -1==sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) FD_LOG_ERR(( "sched_setaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_CPUSET_DECL( cpu_set );
+  fd_cpuset_zero( cpu_set );
+  fd_cpuset_insert( cpu_set, bench_cpu_idx( config ) );
+  if( FD_UNLIKELY( -1==fd_sched_setaffinity( 0, cpu_set ) ) ) FD_LOG_ERR(( "sched_setaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int conn = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( -1==conn ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -331,7 +333,7 @@ bench_cmd_fn( args_t *         args,
 
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
-  
+
   fd_topo_t * topo = &config->topo;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
