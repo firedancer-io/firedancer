@@ -5,8 +5,8 @@
 #include "../../hula/fd_hula_base.h"
 
 /* This header defines several methods for building and validating FEC
-   sets from received shreds.  It's designed just for use by the shred
-   tile, which is why it's in hula/shred.
+   sets from received shreds.  It's designed for use by components that
+   need to receive turbine shreds, which is why it's in hula/shred.
 
    The primary complication in the interface comes from lifetimes.
    Buffers returned by the networking layer are typically ephemeral, we
