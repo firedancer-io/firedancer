@@ -3,7 +3,7 @@
 #include "generated/shred_seccomp.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/shred/fd_shred_dest.h"
-#include "../../../../disco/shred/fd_fec_resolver.h"
+#include "../../../../hula/shred/fd_fec_resolver.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../tango/ip/fd_ip.h"

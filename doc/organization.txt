@@ -42,6 +42,9 @@ Firedancer source tree
   │   ├── funk/        Database optimized for storing Solana ledger and
   │   │                accounts
   │   │
+  │   ├── hulu/        Shared Solana types and components, also exposed as SDK
+  │   │                (FEC resolver, fd_txn, fd_pubkey, ...)
+  │   │
   │   ├── tango/       IPC messaging layer and networking
   │   │
   │   └── util/        C language environment, system runtime, common data

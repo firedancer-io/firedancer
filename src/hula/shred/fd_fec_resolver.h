@@ -1,10 +1,12 @@
-#ifndef HEADER_fd_src_disco_shred_fd_fec_resolver_h
-#define HEADER_fd_src_disco_shred_fd_fec_resolver_h
+#ifndef HEADER_fd_src_hula_shred_fd_fec_resolver_h
+#define HEADER_fd_src_hula_shred_fd_fec_resolver_h
+
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../hula/fd_hula_base.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
-   tile, which is why it's in disco/shred.
+   tile, which is why it's in hula/shred.
 
    The primary complication in the interface comes from lifetimes.
    Buffers returned by the networking layer are typically ephemeral, we
@@ -165,4 +167,4 @@ void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
 
 FD_PROTOTYPES_END
-#endif /* HEADER_fd_src_disco_shred_fd_fec_resolver_h */
+#endif /* HEADER_fd_src_hula_shred_fd_fec_resolver_h */
