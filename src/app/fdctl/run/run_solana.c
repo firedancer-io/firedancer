@@ -193,6 +193,9 @@ solana_labs_boot( config_t * config ) {
     snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
     ADD( "--gossip-host", ip_addr );
   }
+  if( config->development.gossip.allow_private_addr ) {
+    ADD1( "--allow-private-addr" );
+  }
 
   /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );

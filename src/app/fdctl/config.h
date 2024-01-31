@@ -142,6 +142,9 @@ typedef struct {
       char interface1_mac [ 32 ];
       char interface1_addr[ 32 ];
     } netns;
+    struct {
+      int allow_private_addr;
+    } gossip;
   } development;
 
   struct {

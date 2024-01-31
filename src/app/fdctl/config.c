@@ -249,6 +249,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
+  ENTRY_BOOL  ( ., development.gossip, allow_private_addr                                         );
+  
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
 }
