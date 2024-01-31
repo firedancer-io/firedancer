@@ -30,6 +30,17 @@
     --log-level-logfile 0 \
     --log-level-stderr 2
 
+    ./build/native/gcc/unit-test/test_tvu \
+      --rpc-port 8124 \
+      --gossip-peer-addr 127.0.0.1:1024 \
+      --repair-peer-addr 127.0.0.1:1032 \
+      --repair-peer-id DR4i5ZzAoEPxai8QiQ15wFvQSG7UbKDidBn5SLoyZ1p \
+      --snapshot snapshot-* \
+      --indexmax 16384 \
+      --page-cnt 16
+      --log-level-logfile 0 \
+      --log-level-stderr 2
+
     More sample commands:
 
     rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget
@@ -85,8 +96,10 @@
 
 #define FD_TVU_TILE_SLOT_DELAY 32
 
-static int  gossip_sockfd = -1;
-static bool has_peer      = 0;
+static int gossip_sockfd = -1;
+static int repair_sockfd = -1;
+
+static bool has_peer = 0;
 
 static void
 repair_deliver_fun( fd_shred_t const *                            shred,
@@ -97,7 +110,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   FD_LOG_DEBUG( ( "received shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
 
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
-  fd_repair_peer_t *    peer       = fd_repair_peer_query( repair_ctx->repair_peers, *id, NULL );
+  fd_repair_peer_t *    peer = fd_repair_peer_query( repair_ctx->replay->repair_peers, *id, NULL );
   if( FD_LIKELY( peer ) ) peer->reply_cnt++;
 
   fd_blockstore_start_read( repair_ctx->blockstore );
@@ -123,72 +136,10 @@ repair_deliver_fun( fd_shred_t const *                            shred,
       fd_blockstore_slot_meta_query( repair_ctx->blockstore, shred->slot );
 
   if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
-    FD_LOG_NOTICE( ( "completed block: %lu", shred->slot ) );
-    fd_replay_pending_insert( repair_ctx->replay, shred->slot );
+    // FD_LOG_NOTICE( ( "completed block: %lu", shred->slot ) );
+    fd_replay_pending_push_tail( repair_ctx->replay->pending, shred->slot );
   }
 
-  fd_blockstore_end_read( repair_ctx->blockstore );
-}
-
-static void
-repair_missing_shreds( fd_tvu_repair_ctx_t * repair_ctx ) {
-  fd_blockstore_start_read( repair_ctx->blockstore );
-
-  FD_LOG_DEBUG( ( "missing cnt: %lu", fd_replay_set_cnt( repair_ctx->replay->missing ) ) );
-
-  for( ulong idx = fd_replay_set_iter_init( repair_ctx->replay->missing );
-       !fd_replay_set_iter_done( idx );
-       idx = fd_replay_set_iter_next( repair_ctx->replay->missing, idx ) ) {
-    ulong slot = idx + repair_ctx->replay->smr;
-    if( fd_blockstore_block_query( repair_ctx->blockstore, slot ) != NULL ) continue;
-    if( FD_UNLIKELY(
-            fd_replay_set_test( repair_ctx->replay->dedup, slot - repair_ctx->replay->smr ) ) ) {
-      continue;
-    }
-    fd_replay_set_insert( repair_ctx->replay->dedup, slot - repair_ctx->replay->smr );
-
-    fd_repair_peer_t * peers[128];
-    ulong              peer_cnt = 0;
-    /* TODO rate limit in-flight requests per peer as well */
-    for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
-      fd_repair_peer_t * peer = &repair_ctx->repair_peers[i];
-      if( fd_repair_peer_key_inval( peer->id ) ) continue;
-      if( !( slot >= peer->first_slot && slot <= peer->last_slot ) ) continue;
-      // if( peer->request_cnt > 100U && peer->reply_cnt * 3U < peer->request_cnt ) {
-      //   continue; /* 2/3 fails */
-      // }
-      peers[peer_cnt++] = peer;
-    }
-    if( FD_UNLIKELY( !peer_cnt ) ) {
-      FD_LOG_WARNING( ( "unable to find a repair peer for slot %lu", slot ) );
-      continue;
-    }
-
-#define GET_PEER                                                                                   \
-  fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % peer_cnt];                               \
-  repair_ctx->peer_iter += 17077
-
-    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( repair_ctx->blockstore, slot );
-    if( FD_UNLIKELY( !slot_meta ) ) {
-      GET_PEER;
-      peer->request_cnt++;
-      FD_LOG_DEBUG( ( "requesting orphan slot: %lu from %32J", slot, &peer->id ) );
-      if( FD_UNLIKELY( fd_repair_need_highest_window_index( repair_ctx->repair, &peer->id, slot, 0 ) ) ) {
-        FD_LOG_ERR( ( "error requesting orphan shred slot %lu", slot ) );
-      };
-    } else {
-      for( ulong shred_idx = slot_meta->consumed; shred_idx < slot_meta->last_index + 1;
-           shred_idx++ ) {
-        GET_PEER;
-        peer->request_cnt++;
-        FD_LOG_DEBUG( ( "requesting slot: %lu idx: %lu from %32J", slot, shred_idx, &peer->id ) );
-        if( FD_UNLIKELY( fd_repair_need_window_index(
-                repair_ctx->repair, &peer->id, slot, (uint)shred_idx ) ) ) {
-          FD_LOG_ERR( ( "error requesting shred %lu slot %lu", shred_idx, slot ) );
-        };
-      }
-    }
-  }
   fd_blockstore_end_read( repair_ctx->blockstore );
 }
 
@@ -204,7 +155,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     if( epoch_slots->slots->discriminant == fd_gossip_slots_enum_enum_uncompressed ) {
       fd_gossip_slots_t  slots = epoch_slots->slots->inner.uncompressed;
       fd_repair_peer_t * peer =
-          fd_repair_peer_query( gossip_ctx->repair_peers, epoch_slots->from, NULL );
+          fd_repair_peer_query( gossip_ctx->replay->repair_peers, epoch_slots->from, NULL );
       if( FD_UNLIKELY( peer ) ) {
         peer->first_slot = slots.first_slot;
         peer->last_slot  = slots.first_slot + slots.num;
@@ -212,7 +163,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     } else if( epoch_slots->slots->discriminant == fd_gossip_slots_enum_enum_flate2 ) {
       fd_gossip_flate2_slots_t slots = epoch_slots->slots->inner.flate2;
       fd_repair_peer_t *       peer =
-          fd_repair_peer_query( gossip_ctx->repair_peers, epoch_slots->from, NULL );
+          fd_repair_peer_query( gossip_ctx->replay->repair_peers, epoch_slots->from, NULL );
       if( FD_UNLIKELY( peer ) ) {
         peer->first_slot = slots.first_slot;
         peer->last_slot  = slots.first_slot + slots.num;
@@ -220,7 +171,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     }
   } else if( data->discriminant == fd_crds_data_enum_contact_info_v1 ) {
     if( FD_LIKELY( fd_repair_peer_query(
-            gossip_ctx->repair_peers, data->inner.contact_info_v1.id, NULL ) ) ) {
+            gossip_ctx->replay->repair_peers, data->inner.contact_info_v1.id, NULL ) ) ) {
       return;
     }
 
@@ -233,7 +184,7 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
     };
 
     fd_repair_peer_t * peer =
-        fd_repair_peer_insert( gossip_ctx->repair_peers, data->inner.contact_info_v1.id );
+        fd_repair_peer_insert( gossip_ctx->replay->repair_peers, data->inner.contact_info_v1.id );
     peer->first_slot  = 0;
     peer->last_slot   = 0;
     peer->request_cnt = 0;
@@ -288,6 +239,8 @@ gossip_send_packet( uchar const *                 data,
   (void)arg;
   uchar saddr[sizeof( struct sockaddr_in )];
   int   saddrlen = gossip_to_sockaddr( saddr, addr );
+  char  s[1000]  = { 0 };
+  fd_gossip_addr_str( s, sizeof( s ), addr );
   if( sendto( gossip_sockfd,
               data,
               sz,
@@ -297,8 +250,6 @@ gossip_send_packet( uchar const *                 data,
     FD_LOG_WARNING( ( "sendto failed: %s", strerror( errno ) ) );
   }
 }
-
-static int repair_sockfd = -1;
 
 /* Convert my style of address to UNIX style */
 static int
@@ -358,7 +309,8 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
     }
     buf[i] = str[i];
   }
-  if( i == 0 || strcmp( buf, "localhost" ) == 0 || strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
+  if( i == 0 || strcmp( buf, "localhost" ) == 0 ||
+      strcmp( buf, "127.0.0.1" ) == 0 ) /* :port means $HOST:port */
     gethostname( buf, sizeof( buf ) );
 
   struct hostent * host = gethostbyname( buf );
@@ -385,7 +337,7 @@ print_stats( fd_tvu_repair_ctx_t * repair_ctx ) {
   ulong peer_cnt      = 0;
   ulong good_peer_cnt = 0;
   for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
-    fd_repair_peer_t * peer = &repair_ctx->repair_peers[i];
+    fd_repair_peer_t * peer = &repair_ctx->replay->repair_peers[i];
     if( memcmp( &peer->id, &pubkey_null, sizeof( fd_pubkey_t ) ) == 0 ) continue;
     ++peer_cnt;
     if( slot >= peer->first_slot && slot <= peer->last_slot &&
@@ -411,6 +363,41 @@ print_stats( fd_tvu_repair_ctx_t * repair_ctx ) {
                    good_peer_cnt ) );
 }
 
+static int
+fd_tvu_create_socket(fd_gossip_peer_addr_t * addr) {
+  int fd;
+  if( ( fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
+    FD_LOG_ERR( ( "socket failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+  int optval = 1 << 20;
+  if( setsockopt( fd, SOL_SOCKET, SO_RCVBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
+    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+
+  if( setsockopt( fd, SOL_SOCKET, SO_SNDBUF, (char *)&optval, sizeof( int ) ) < 0 ) {
+    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+
+  uchar saddr[sizeof( struct sockaddr_in6 )];
+  int   addrlen = gossip_to_sockaddr( saddr, addr );
+  if( addrlen < 0 ||
+      bind( fd, (struct sockaddr *)saddr, (uint)addrlen ) < 0 ) {
+    char tmp[100];
+    FD_LOG_ERR( ( "bind failed: %s for %s", strerror( errno ), fd_gossip_addr_str(tmp, sizeof(tmp), addr) ) );
+    return -1;
+  }
+  if( getsockname( fd, (struct sockaddr *)saddr, (uint *)&addrlen ) < 0 ) {
+    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+  gossip_from_sockaddr( addr, saddr );
+
+  return fd;
+}
+
 int
 fd_tvu_main( fd_gossip_t *         gossip,
              fd_gossip_config_t *  gossip_config,
@@ -418,82 +405,23 @@ fd_tvu_main( fd_gossip_t *         gossip,
              fd_repair_config_t *  repair_config,
              volatile int *        stopflag,
              char const *          repair_peer_id_,
-             char const *          repair_peer_addr_ ) {
+             char const *          repair_peer_addr_,
+             char const *          tvu_addr_,
+             char const *          tvu_fwd_addr_ ) {
 
   /* initialize gossip */
-  int gossip_fd;
-  if( ( gossip_fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
-    FD_LOG_ERR( ( "socket failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  gossip_sockfd     = gossip_fd;
-  int gossip_optval = 1 << 20;
-  if( setsockopt( gossip_fd, SOL_SOCKET, SO_RCVBUF, (char *)&gossip_optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-
-  if( setsockopt( gossip_fd, SOL_SOCKET, SO_SNDBUF, (char *)&gossip_optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-
-  uchar gossip_saddr[sizeof( struct sockaddr_in6 )];
-  int   gossip_addrlen = gossip_to_sockaddr( gossip_saddr, &gossip_config->my_addr );
-  if( gossip_addrlen < 0 ||
-      bind( gossip_fd, (struct sockaddr *)gossip_saddr, (uint)gossip_addrlen ) < 0 ) {
-    FD_LOG_ERR( ( "bind failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  if( getsockname( gossip_fd, (struct sockaddr *)gossip_saddr, (uint *)&gossip_addrlen ) < 0 ) {
-    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  gossip_from_sockaddr( &gossip_config->my_addr, gossip_saddr );
+  int gossip_fd = fd_tvu_create_socket(&gossip_config->my_addr);
+  gossip_sockfd = gossip_fd;
   fd_gossip_update_addr( gossip, &gossip_config->my_addr );
 
   fd_gossip_settime( gossip, fd_log_wallclock() );
   fd_gossip_start( gossip );
 
-#define VLEN 32U
-  struct mmsghdr gossip_msgs[VLEN];
-  struct iovec   gossip_iovecs[VLEN];
-  uchar          gossip_bufs[VLEN][FD_ETH_PAYLOAD_MAX];
-  uchar          gossip_sockaddrs[VLEN]
-                        [sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
-
   /* initialize repair */
-  int repair_fd;
-  if( ( repair_fd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 ) {
-    FD_LOG_ERR( ( "socket failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  repair_sockfd     = repair_fd;
-  int repair_optval = 1 << 20;
-  if( setsockopt( repair_fd, SOL_SOCKET, SO_RCVBUF, (char *)&repair_optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  if( setsockopt( repair_fd, SOL_SOCKET, SO_SNDBUF, (char *)&repair_optval, sizeof( int ) ) < 0 ) {
-    FD_LOG_ERR( ( "setsocketopt failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  uchar repair_saddr[sizeof( struct sockaddr_in6 )];
-  int   repair_saddrlen = repair_to_sockaddr( repair_saddr, &repair_config->intake_addr );
-  if( repair_saddrlen < 0 ||
-      bind( repair_fd, (struct sockaddr *)repair_saddr, (uint)repair_saddrlen ) < 0 ) {
-    FD_LOG_ERR( ( "bind failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-  if( getsockname( repair_fd, (struct sockaddr *)repair_saddr, (uint *)&repair_saddrlen ) < 0 ) {
-    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
-    return -1;
-  }
-
-  gossip_from_sockaddr( &repair_config->intake_addr, repair_saddr );
-  // TODO: bind the repair service port and update it here
-  fd_repair_update_addr( repair_ctx->repair, &repair_config->intake_addr, &repair_config->service_addr );
-
+  int repair_fd = fd_tvu_create_socket(&repair_config->intake_addr);
+  repair_sockfd = repair_fd;
+  fd_repair_update_addr(
+      repair_ctx->repair, &repair_config->intake_addr, &repair_config->service_addr );
   if( fd_gossip_update_repair_addr( gossip, &repair_config->service_addr ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
@@ -511,7 +439,8 @@ fd_tvu_main( fd_gossip_t *         gossip,
                                        &repair_peer_id ) ) ) {
       FD_LOG_ERR( ( "error adding repair active peer" ) );
     }
-    fd_repair_peer_t * peer = fd_repair_peer_insert( repair_ctx->repair_peers, repair_peer_id );
+    fd_repair_peer_t * peer =
+        fd_repair_peer_insert( repair_ctx->replay->repair_peers, repair_peer_id );
     // FIXME hack to be able to immediately send a msg for the CLI-specified peer
     peer->first_slot  = repair_ctx->blockstore->root;
     peer->last_slot   = ULONG_MAX;
@@ -520,51 +449,85 @@ fd_tvu_main( fd_gossip_t *         gossip,
     has_peer          = 1;
   }
 
-  // char const * skip_gossip =
-  //     fd_env_strip_cmdline_char( &argc, &argv, "--skip-gossip", NULL, 0 );
+  fd_repair_peer_addr_t tvu_addr[1]     = { 0 };
+  resolve_hostport( tvu_addr_, tvu_addr );
+  fd_repair_peer_addr_t tvu_fwd_addr[1] = { 0 };
+  resolve_hostport( tvu_fwd_addr_, tvu_fwd_addr );
 
-  struct mmsghdr repair_msgs[VLEN];
-  struct iovec   repair_iovecs[VLEN];
-  uchar          repair_bufs[VLEN][FD_ETH_PAYLOAD_MAX];
-  uchar          repair_sockaddrs[VLEN]
-                        [sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+  /* initialize tvu */
+  int tvu_fd = fd_tvu_create_socket(tvu_addr);
+  if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
+    FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
+#define VLEN 32U
+  struct mmsghdr msgs[VLEN];
+  struct iovec   iovecs[VLEN];
+  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  uchar          sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+#define CLEAR_MSGS                                               \
+  fd_memset( msgs, 0, sizeof( msgs ) );                          \
+  for( uint i = 0; i < VLEN; i++ ) {                             \
+    iovecs[i].iov_base          = bufs[i];                       \
+    iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;            \
+    msgs[i].msg_hdr.msg_iov     = &iovecs[i];                    \
+    msgs[i].msg_hdr.msg_iovlen  = 1;                             \
+    msgs[i].msg_hdr.msg_name    = sockaddrs[i];                  \
+    msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 ); \
+  }
+  
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
-  long last_clear = last_call;
   while( !*stopflag ) {
 
+    /* Housekeeping */
     long now = fd_log_wallclock();
-    if( FD_UNLIKELY( has_peer && ( now - last_call ) > (long)100e6 ) ) {
-      repair_missing_shreds( repair_ctx );
-      fd_replay_pending_execute( repair_ctx->replay );
-      last_call = now;
-    }
     if( FD_UNLIKELY( ( now - last_stats ) > (long)30e9 ) ) {
       print_stats( repair_ctx );
       last_stats = now;
     }
-    if( FD_UNLIKELY( ( now - last_clear ) > (long)5e9 ) ) {
-      fd_replay_set_null( repair_ctx->replay->dedup );
-      last_clear = now;
+
+    /* Try to progress replay */
+    fd_replay_t * replay = repair_ctx->replay;
+    if( FD_LIKELY( fd_replay_pending_cnt( replay->pending ) ) ) {
+      ulong slot = fd_replay_pending_pop_head( replay->pending );
+      if( FD_LIKELY( slot > replay->smr ) ) {
+        uchar const * block;
+        ulong         block_sz = 0;
+        fd_replay_slot_ctx_t * parent_slot_ctx =
+            fd_replay_slot_prepare( replay, slot, &block, &block_sz );
+        if( FD_LIKELY( parent_slot_ctx ) ) {
+          fd_replay_slot_execute( replay, slot, parent_slot_ctx, block, block_sz );
+        } else {
+          fd_replay_pending_push_tail( replay->pending, slot );
+        }
+      }
     }
 
+    /* Loop TVU (ie. Turbine) */
+    CLEAR_MSGS;
+    int tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    if( tvu_rc < 0 ) {
+      if( errno == EINTR || errno == EWOULDBLOCK ) goto gossip_loop;
+      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
+      return -1;
+    }
+
+    for( uint i = 0; i < (uint)tvu_rc; ++i ) {
+      fd_gossip_peer_addr_t from;
+      gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      // fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
+      FD_LOG_HEXDUMP_NOTICE(( "recv: ", bufs[i], msgs[i].msg_len ) );
+      // fd_replay_turbine_rx( repair_ctx->replay, shred );
+    }
+
+  gossip_loop:
     /* Loop gossip */
     fd_gossip_settime( gossip, fd_log_wallclock() );
     fd_gossip_continue( gossip );
 
-    fd_memset( gossip_msgs, 0, sizeof( gossip_msgs ) );
-    for( uint i = 0; i < VLEN; i++ ) {
-      gossip_iovecs[i].iov_base          = gossip_bufs[i];
-      gossip_iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;
-      gossip_msgs[i].msg_hdr.msg_iov     = &gossip_iovecs[i];
-      gossip_msgs[i].msg_hdr.msg_iovlen  = 1;
-      gossip_msgs[i].msg_hdr.msg_name    = gossip_sockaddrs[i];
-      gossip_msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );
-    }
-
     /* Read more packets */
-    int gossip_rc = recvmmsg( gossip_fd, gossip_msgs, VLEN, MSG_DONTWAIT, NULL );
+    CLEAR_MSGS;
+    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     if( gossip_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) goto repair_loop;
       FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
@@ -573,8 +536,8 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
     for( uint i = 0; i < (uint)gossip_rc; ++i ) {
       fd_gossip_peer_addr_t from;
-      gossip_from_sockaddr( &from, gossip_msgs[i].msg_hdr.msg_name );
-      fd_gossip_recv_packet( gossip, gossip_bufs[i], gossip_msgs[i].msg_len, &from );
+      gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
     }
 
   repair_loop:
@@ -582,18 +545,9 @@ fd_tvu_main( fd_gossip_t *         gossip,
     fd_repair_settime( repair_ctx->repair, fd_log_wallclock() );
     fd_repair_continue( repair_ctx->repair );
 
-    fd_memset( repair_msgs, 0, sizeof( repair_msgs ) );
-    for( uint i = 0; i < VLEN; i++ ) {
-      repair_iovecs[i].iov_base          = repair_bufs[i];
-      repair_iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;
-      repair_msgs[i].msg_hdr.msg_iov     = &repair_iovecs[i];
-      repair_msgs[i].msg_hdr.msg_iovlen  = 1;
-      repair_msgs[i].msg_hdr.msg_name    = repair_sockaddrs[i];
-      repair_msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );
-    }
-
     /* Read more packets */
-    int repair_rc = recvmmsg( repair_fd, repair_msgs, VLEN, MSG_DONTWAIT, NULL );
+    CLEAR_MSGS;
+    int repair_rc = recvmmsg( repair_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     // FD_LOG_NOTICE( ( "repair rc %d", repair_rc ) );
     if( repair_rc < 0 ) {
       if( errno == EINTR || errno == EWOULDBLOCK ) continue;
@@ -604,9 +558,9 @@ fd_tvu_main( fd_gossip_t *         gossip,
     for( uint i = 0; i < (uint)repair_rc; ++i ) {
       // FD_LOG_NOTICE( ( "processing %u", i ) );
       fd_repair_peer_addr_t from;
-      repair_from_sockaddr( &from, repair_msgs[i].msg_hdr.msg_name );
-      // FD_LOG_HEXDUMP_NOTICE( ( "recv: ", repair_bufs[i], repair_msgs[i].msg_len ) );
-      fd_repair_recv_packet( repair_ctx->repair, repair_bufs[i], repair_msgs[i].msg_len, &from );
+      repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      // FD_LOG_HEXDUMP_NOTICE( ( "recv: ", bufs[i], msgs[i].msg_len ) );
+      fd_repair_recv_packet( repair_ctx->repair, bufs[i], msgs[i].msg_len, &from );
     }
   }
 
@@ -786,7 +740,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   FD_TEST( replay );
   FD_TEST( replay->frontier );
   FD_TEST( replay->pool );
-  runtime_ctx->replay = replay;
 
   /**********************************************************************/
   /* slot_ctx                                                           */
@@ -794,8 +747,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
   fd_exec_epoch_ctx_t * epoch_ctx =
       fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( runtime_ctx->epoch_ctx_mem ) );
-  fd_replay_slot_t *   replay_slot = fd_replay_pool_ele_acquire( replay->pool );
-  fd_exec_slot_ctx_t * slot_ctx =
+  fd_replay_slot_ctx_t * replay_slot = fd_replay_pool_ele_acquire( replay->pool );
+  fd_exec_slot_ctx_t *   slot_ctx =
       fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &replay_slot->slot_ctx ) );
   FD_TEST( slot_ctx );
   slot_ctx->epoch_ctx = runtime_ctx->epoch_ctx = epoch_ctx;
@@ -892,14 +845,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 #endif
 
     /**********************************************************************/
-    /* Peers                                                           */
-    /**********************************************************************/
-
-    void * repair_peers_mem =
-        (uchar *)fd_valloc_malloc( valloc, fd_repair_peer_align(), fd_repair_peer_footprint() );
-    fd_repair_peer_t * repair_peers = fd_repair_peer_join( fd_repair_peer_new( repair_peers_mem ) );
-
-    /**********************************************************************/
     /* Repair                                                             */
     /**********************************************************************/
 
@@ -907,7 +852,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.public_key  = &runtime_ctx->public_key;
 
     FD_TEST( resolve_hostport( args->my_repair_addr, &runtime_ctx->repair_config.intake_addr ) );
-    runtime_ctx->repair_config.service_addr = runtime_ctx->repair_config.intake_addr;
+    runtime_ctx->repair_config.service_addr      = runtime_ctx->repair_config.intake_addr;
     runtime_ctx->repair_config.service_addr.port = 0; /* pick a port */
 
     runtime_ctx->repair_config.deliver_fun      = repair_deliver_fun;
@@ -918,11 +863,10 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
     runtime_ctx->repair      = repair;
 
-    repair_ctx->repair       = repair;
-    repair_ctx->repair_peers = repair_peers;
-    repair_ctx->blockstore   = blockstore;
-    repair_ctx->slot_ctx     = slot_ctx;
-    repair_ctx->peer_iter    = 0;
+    repair_ctx->repair     = repair;
+    repair_ctx->blockstore = blockstore;
+    repair_ctx->slot_ctx   = slot_ctx;
+    repair_ctx->peer_iter  = 0;
 
     runtime_ctx->repair_config.fun_arg = repair_ctx;
 
@@ -948,7 +892,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->gossip      = gossip;
 
     gossip_ctx->gossip                 = gossip;
-    gossip_ctx->repair_peers           = repair_peers;
     gossip_ctx->repair                 = repair;
     runtime_ctx->gossip_config.fun_arg = gossip_ctx;
     if( fd_gossip_set_config( gossip, &runtime_ctx->gossip_config ) )
@@ -980,15 +923,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     replay_slot->slot   = snapshot_slot;
 
     /* add it to the frontier */
+    FD_LOG_NOTICE( ( "adding %lu replay_slot->slot", replay_slot->slot ) );
     fd_replay_frontier_ele_insert( replay->frontier, replay_slot, replay->pool );
-
-    // ulong turbine_slot = snapshot_slot + 10; /* FIXME use first turbine shred */
-
-    /* start off by repairing backwards from the turbine slot */
-    for( ulong i = 0; i < 100; ++i ) {
-      fd_replay_missing_insert( replay, snapshot_slot + 1 + i );
-      fd_replay_pending_insert( replay, snapshot_slot + 1 + i );
-    }
 
     /* fake the snapshot slot's block and mark it as executed */
     fd_blockstore_block_map_t * block = fd_blockstore_block_map_insert(
@@ -996,9 +932,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     block->block.flags = fd_uint_mask_bit( FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED );
 
     repair_ctx->replay = replay;
+    gossip_ctx->replay = replay;
+
+    fd_replay_pending_push_tail( replay->pending, snapshot_slot + 1 );
   } // if (runtime_ctx->live)
 
-  replay_slot->slot = slot_ctx->slot_bank.slot;
+  replay_slot->slot    = slot_ctx->slot_bank.slot;
+  replay->turbine_slot = snapshot_slot + 100;
 
   /* FIXME epoch boundary stuff when replaying */
   fd_features_restore( slot_ctx );
@@ -1037,8 +977,10 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->my_gossip_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
   args->my_repair_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
   args->repair_peer_addr =
-      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, "127.0.0.1:1032" );
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, ":1032" );
   args->repair_peer_id = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
+  args->tvu_addr       = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu", NULL, ":0" );
+  args->tvu_fwd_addr   = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu_fwd", NULL, ":0" );
   args->snapshot       = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
   args->index_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
   args->page_cnt       = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
@@ -1063,28 +1005,29 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
 }
 
 void
-fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args ) {
+fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_tvu_repair_ctx_t * repair_ctx ) {
 #ifdef FD_HAS_LIBMICROHTTP
-  if (tvu_args->rpc_ctx) fd_rpc_stop_service( tvu_args->rpc_ctx );
+  if( tvu_args->rpc_ctx ) fd_rpc_stop_service( tvu_args->rpc_ctx );
 #endif
   fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
 
-  fd_replay_t * replay = tvu_args->replay;
-  for( fd_replay_frontier_iter_t iter =
+  fd_replay_t * replay = repair_ctx->replay;
+  if( NULL != replay ) {
+    for( fd_replay_frontier_iter_t iter =
            fd_replay_frontier_iter_init( replay->frontier, replay->pool );
-       !fd_replay_frontier_iter_done( iter, replay->frontier, replay->pool );
-       iter = fd_replay_frontier_iter_next( iter, replay->frontier, replay->pool ) ) {
-    fd_replay_slot_t * slot = fd_replay_frontier_iter_ele( iter, replay->frontier, replay->pool );
-    fd_exec_slot_ctx_free( &slot->slot_ctx );
-    if( &slot->slot_ctx == tvu_args->slot_ctx )
-      tvu_args->slot_ctx = NULL;
+         !fd_replay_frontier_iter_done( iter, replay->frontier, replay->pool );
+         iter = fd_replay_frontier_iter_next( iter, replay->frontier, replay->pool ) ) {
+      fd_replay_slot_ctx_t * slot =
+        fd_replay_frontier_iter_ele( iter, replay->frontier, replay->pool );
+      fd_exec_slot_ctx_free( &slot->slot_ctx );
+      if( &slot->slot_ctx == tvu_args->slot_ctx ) tvu_args->slot_ctx = NULL;
+    }
+
+    /* ensure it's no longer valid to join */
+    fd_replay_frontier_delete( fd_replay_frontier_leave( replay->frontier ) );
+    fd_replay_pool_delete( fd_replay_pool_leave( replay->pool ) );
   }
 
   /* Some replay paths don't use frontiers */
-  if( tvu_args->slot_ctx )
-    fd_exec_slot_ctx_free( tvu_args->slot_ctx );
-
-  /* ensure it's no longer valid to join */
-  fd_replay_frontier_delete( fd_replay_frontier_leave( replay->frontier ) );
-  fd_replay_pool_delete( fd_replay_pool_leave( replay->pool ) );
+  if( tvu_args->slot_ctx ) fd_exec_slot_ctx_free( tvu_args->slot_ctx );
 }

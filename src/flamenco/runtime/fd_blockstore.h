@@ -19,12 +19,13 @@
 
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
-#define FD_SLOT_NULL                  ( ULONG_MAX )
-#define FD_DEFAULT_SLOTS_PER_EPOCH    ( 432000UL )
-#define FD_DEFAULT_SHREDS_PER_EPOCH   ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
-#define FD_DEFAULT_SLOT_HISTORY_MAX   ( 1024UL )
-#define FD_BLOCKSTORE_DUP_SHREDS_MAX  ( 32UL ) /* TODO think more about this */
-#define FD_BLOCKSTORE_BLOCK_SZ_MAX    ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
+#define FD_SLOT_NULL                 ( ULONG_MAX )
+#define FD_SHRED_IDX_NULL            ( UINT_MAX )
+#define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
+#define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
+#define FD_DEFAULT_SLOT_HISTORY_MAX  ( 1024UL )
+#define FD_BLOCKSTORE_DUP_SHREDS_MAX ( 32UL ) /* TODO think more about this */
+#define FD_BLOCKSTORE_BLOCK_SZ_MAX   ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -33,29 +34,38 @@
 // https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
 #define FD_REPAIR_TIMEOUT ( 200 / FD_MS_PER_TICK )
 
-#define FD_BLOCKSTORE_OK                  0x00
-#define FD_BLOCKSTORE_ERR_SHRED_FULL      0x10 /* no space left for shreds */
-#define FD_BLOCKSTORE_ERR_SLOT_FULL       0x11 /* no space left for slots */
-#define FD_BLOCKSTORE_ERR_TXN_FULL        0x12 /* no space left for txns */
-#define FD_BLOCKSTORE_ERR_SHRED_MISSING   0x20
-#define FD_BLOCKSTORE_ERR_SLOT_MISSING    0x21
-#define FD_BLOCKSTORE_ERR_TXN_MISSING     0x22
-#define FD_BLOCKSTORE_ERR_INVALID_SHRED   0x30 /* shred was invalid */
-#define FD_BLOCKSTORE_ERR_INVALID_DESHRED 0x31 /* deshredded block was invalid */
-#define FD_BLOCKSTORE_ERR_NO_MEM          0x40 /* no mem */
-#define FD_BLOCKSTORE_ERR_UNKNOWN         0xFF
+#define FD_BLOCKSTORE_OK                  0
+#define FD_BLOCKSTORE_OK_SLOT_COMPLETE    1
+#define FD_BLOCKSTORE_ERR_SHRED_FULL      -1 /* no space left for shreds */
+#define FD_BLOCKSTORE_ERR_SLOT_FULL       -2 /* no space left for slots */
+#define FD_BLOCKSTORE_ERR_TXN_FULL        -3 /* no space left for txns */
+#define FD_BLOCKSTORE_ERR_SHRED_MISSING   -4
+#define FD_BLOCKSTORE_ERR_SLOT_MISSING    -5
+#define FD_BLOCKSTORE_ERR_TXN_MISSING     -6
+#define FD_BLOCKSTORE_ERR_SHRED_INVALID   -7 /* shred was invalid */
+#define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
+#define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
+#define FD_BLOCKSTORE_ERR_UNKNOWN         -10
 
-struct fd_blockstore_tmp_shred_key {
+struct fd_shred_key {
   ulong slot;
   uint  idx;
 };
-typedef struct fd_blockstore_tmp_shred_key fd_blockstore_tmp_shred_key_t;
+typedef struct fd_shred_key fd_shred_key_t;
+
+/* clang-format off */
+static const fd_shred_key_t     fd_shred_key_null = { 0 };
+#define FD_SHRED_KEY_NULL       fd_shred_key_null
+#define FD_SHRED_KEY_INVAL(key) (!((key).slot) & !((key).idx))
+#define FD_SHRED_KEY_EQ(k0,k1)  (!(((k0).slot) ^ ((k1).slot))) & !(((k0).idx) ^ (((k1).idx)))
+#define FD_SHRED_KEY_HASH(key)  ((uint)(((key).slot)<<15UL) | (((key).idx))) /* current max shred idx is 32KB = 2 << 15*/
+/* clang-format on */
 
 /* A map for temporarily holding shreds that have not yet been assembled into a block ("temporary
  * shreds"). This is useful, for example, for receiving shreds out-of-order. */
 struct fd_blockstore_tmp_shred {
-  fd_blockstore_tmp_shred_key_t key;
-  ulong                         next;
+  fd_shred_key_t key;
+  ulong          next;
   union {
     fd_shred_t hdr;             /* data shred header */
     uchar raw[FD_SHRED_MAX_SZ]; /* the shred as raw bytes, including both header and payload. */
@@ -70,9 +80,9 @@ typedef struct fd_blockstore_tmp_shred fd_blockstore_tmp_shred_t;
 /* clang-format off */
 #define MAP_NAME               fd_blockstore_tmp_shred_map
 #define MAP_ELE_T              fd_blockstore_tmp_shred_t
-#define MAP_KEY_T              fd_blockstore_tmp_shred_key_t
-#define MAP_KEY_EQ(k0,k1)      (!(((k0)->slot) ^ ((k1)->slot))) & !(((k0)->idx)^(((k1)->idx)))
-#define MAP_KEY_HASH(key,seed) ((((key)->slot)<<15UL) | (((key)->idx)^seed)) /* current max shred idx is 32KB = 2 << 15*/
+#define MAP_KEY_T              fd_shred_key_t
+#define MAP_KEY_EQ(k0,k1)      FD_SHRED_KEY_EQ(*k0,*k1)
+#define MAP_KEY_HASH(key,seed) (FD_SHRED_KEY_HASH(*key) ^ seed)
 #define MAP_MULTI 1
 #include "../../util/tmpl/fd_map_chain.c"
 /* clang-format on */
@@ -114,7 +124,13 @@ struct fd_blockstore_txn_ref {
 };
 typedef struct fd_blockstore_txn_ref fd_blockstore_txn_ref_t;
 
-#define FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED 0
+/* A flag of 0x1 indicates the block is prepared to be executed. It is not safe to remove the block.
+   A flag of 0x2 indicates the block is executed.
+   A flag of 0x3 indicates the block is prepared and executed, and the prepared flag has not been
+   cleared yet. A reader may observe 0x3 because the blockstore lock is not held during a block
+   execution. */
+#define FD_BLOCKSTORE_BLOCK_FLAG_PREPARED 0 /* xxxxxxx1 */
+#define FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED 1 /* xxxxxx1x */
 
 struct fd_blockstore_block {
   ulong     shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */

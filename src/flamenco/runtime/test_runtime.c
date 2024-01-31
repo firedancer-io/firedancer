@@ -112,7 +112,7 @@ main( int     argc,
     if( err!=0 ) return err;
   }
 
-  fd_tvu_main_teardown(&state);
+  fd_tvu_main_teardown(&state, &repair_ctx);
 
   FD_LOG_NOTICE(( "pass" ));
 

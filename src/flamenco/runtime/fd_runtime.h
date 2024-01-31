@@ -18,7 +18,6 @@
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
 #include "../rpc/fd_rpc_service.h"
-#include "fd_replay.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -70,7 +69,6 @@ struct fd_runtime_ctx {
   int                   live;
   fd_gossip_t *         gossip;
   fd_repair_t *         repair;
-  fd_replay_t * replay;
   volatile int          stopflag;
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_ctx_t *        rpc_ctx;
@@ -94,6 +92,8 @@ struct fd_runtime_args {
   char const * my_repair_addr;
   char const * repair_peer_addr;
   char const * repair_peer_id;
+  char const * tvu_addr;
+  char const * tvu_fwd_addr;
   char const * snapshot;
   char const * cmd;
   char const * reset;

@@ -56,6 +56,10 @@ int fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * add
 /* Update the repair service addr */
 int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve );
 
+/* Update the tvu rx addr */
+int
+fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu, const fd_gossip_peer_addr_t * tvu_fwd );
+
 /* Set the shred version (after receiving a contact info msg) */
 void fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
 
@@ -80,5 +84,7 @@ int fd_gossip_continue( fd_gossip_t * glob );
 
 /* Pass a raw gossip packet into the protocol. addr is the address of the sender */
 int fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * addr );
+
+const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_peer_addr_t const * src );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

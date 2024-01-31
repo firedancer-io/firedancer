@@ -80,7 +80,9 @@ main( int argc, char ** argv ) {
                    &runtime_ctx.repair_config,
                    &runtime_ctx.stopflag,
                    args.repair_peer_id,
-                   args.repair_peer_addr ) ) {
+                   args.repair_peer_addr,
+                   args.tvu_addr,
+                   args.tvu_fwd_addr ) ) {
        return 1;
   }
 
@@ -88,7 +90,7 @@ main( int argc, char ** argv ) {
   /* Cleanup                                                             */
   /***********************************************************************/
 
-  fd_tvu_main_teardown( &runtime_ctx );
+  fd_tvu_main_teardown( &runtime_ctx, &repair_ctx );
   fd_halt();
   return 0;
 }

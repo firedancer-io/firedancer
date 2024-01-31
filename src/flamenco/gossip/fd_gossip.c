@@ -414,6 +414,18 @@ fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * 
   return 0;
 }
 
+int
+fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu, const fd_gossip_peer_addr_t * tvu_fwd ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating tvu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tvu)));
+  // FIXME
+  FD_LOG_NOTICE(("updating tvu_fwd service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tvu_fwd)));
+
+  fd_gossip_to_soladdr(&glob->my_contact_info.tvu, tvu);
+  fd_gossip_to_soladdr(&glob->my_contact_info.tvu_fwd, tvu_fwd);
+  return 0;
+}
+
 void
 fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
   glob->my_contact_info.shred_version = shred_version;

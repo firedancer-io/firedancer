@@ -1015,8 +1015,6 @@ struct fd_pubkey_map_node {
 };
 typedef struct fd_pubkey_map_node fd_pubkey_map_node_t;
 
-static fd_pubkey_t pubkey_null = { 0 };
-
 #define MAP_NAME                fd_pubkey_map
 #define MAP_T                   fd_pubkey_map_node_t
 #define MAP_LG_SLOT_CNT         14
