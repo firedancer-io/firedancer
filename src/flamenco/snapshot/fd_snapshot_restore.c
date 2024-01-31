@@ -175,6 +175,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   restore->state    = STATE_READ_ACCOUNT_DATA;
   restore->buf_ctr  = 0UL;
   restore->buf_sz   = 0UL;
+  restore->acc_data = NULL;
 
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
 
@@ -193,16 +194,14 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     return 0;
   }
 
+  int is_dupe = 0;
+
   /* Check if account exists */
   int read_result = fd_acc_mgr_view( acc_mgr, funk_txn, key, rec );
   switch( read_result ) {
   case FD_ACC_MGR_SUCCESS:
-    if( rec->const_meta->slot > restore->accv_slot ) {
-      /* Already restored newer version of account */
-      restore->state  = STATE_IGNORE;
-      restore->buf_sz = fd_ulong_align_up( hdr->meta.data_len, FD_SNAPSHOT_ACC_ALIGN );
-      return 1;
-    }
+    if( rec->const_meta->slot > restore->accv_slot )
+      is_dupe = 1;
     break;
   case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
     break;
@@ -212,16 +211,18 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   }
 
   /* Write account */
-  int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
-  if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
-    return 0;
+  if( !is_dupe ) {
+    int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
+    if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
+      return 0;
+    }
+    rec->meta->dlen = hdr->meta.data_len;
+    rec->meta->slot = restore->accv_slot;
+    memcpy( &rec->meta->hash, hdr->hash.value, 32UL );
+    memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+    restore->acc_data = rec->data;
   }
-  rec->meta->dlen = hdr->meta.data_len;
-  rec->meta->slot = restore->accv_slot;
-  memcpy( &rec->meta->hash, hdr->hash.value, 32UL );
-  memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-  restore->acc_data = rec->data;
   restore->acc_sz   = hdr->meta.data_len;
   restore->acc_pad  = fd_ulong_align_up( restore->acc_sz, FD_SNAPSHOT_ACC_ALIGN ) - restore->acc_sz;
 
@@ -490,9 +491,11 @@ fd_snapshot_read_account_chunk( fd_snapshot_restore_t * restore,
                                 ulong                   bufsz ) {
 
   ulong data_sz = fd_ulong_min( restore->acc_sz, bufsz );
-  fd_memcpy( restore->acc_data, buf, data_sz );
+  if( FD_LIKELY( restore->acc_data ) ) {
+    fd_memcpy( restore->acc_data, buf, data_sz );
+    restore->acc_data += data_sz;
+  }
 
-  restore->acc_data += data_sz;
   restore->acc_sz   -= data_sz;
   restore->accv_sz  -= data_sz;
   buf               += data_sz;
