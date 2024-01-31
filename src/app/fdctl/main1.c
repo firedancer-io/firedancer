@@ -78,65 +78,67 @@ should_colorize( void ) {
   return 0;
 }
 
-config_t
+void
 fdctl_boot( int *        pargc,
             char ***     pargv,
+            config_t   * config,
             char const * log_path ) {
   fd_log_level_core_set( 5 ); /* Don't dump core for FD_LOG_ERR during boot */
   fd_log_colorize_set( should_colorize() ); /* Colorize during boot until we can determine from config */
 
   int config_fd = fd_env_strip_cmdline_int( pargc, pargv, "--config-fd", NULL, -1 );
 
-  config_t config = {0};
+  fd_memset( config, 0, sizeof( config_t ) );
   char * thread = "";
   if( FD_UNLIKELY( config_fd >= 0 ) ) {
-    copy_config_from_fd( config_fd, &config );
+    copy_config_from_fd( config_fd, config );
     /* tick_per_ns needs to be synchronized across procesess so that they
        can coordinate on metrics measurement. */
-    fd_tempo_set_tick_per_ns( config.tick_per_ns_mu, config.tick_per_ns_sigma );
+    fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
-    config_parse( pargc, pargv, &config );
-    config.tick_per_ns_mu = fd_tempo_tick_per_ns( &config.tick_per_ns_sigma );
-    config.log.lock_fd = init_log_memfd();
-    config.log.log_fd  = -1;
+    config_parse( pargc, pargv, config );
+    config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+    config->log.lock_fd = init_log_memfd();
+    config->log.log_fd  = -1;
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
-      strncpy( config.log.path, log_path, sizeof( config.log.path ) - 1 );
+      strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
   }
 
-  int * log_lock = map_log_memfd( config.log.lock_fd );
+  int * log_lock = map_log_memfd( config->log.lock_fd );
   int pid = getpid1(); /* Need to read /proc since we might be in a PID namespace now */;
 
-  log_path = config.log.path;
-  if( FD_LIKELY( config.log.path[ 0 ]=='\0' ) ) log_path = NULL;
+  log_path = config->log.path;
+  if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;
 
   fd_log_private_boot_custom( log_lock,
                               0UL,
-                              config.name,
+                              config->name,
                               0UL,    /* Thread ID will be initialized later */
                               thread, /* Thread will be initialized later */
                               0UL,
-                              config.hostname,
+                              config->hostname,
                               fd_log_private_cpu_id_default(),
                               NULL,
                               (ulong)pid,
                               NULL,
                               (ulong)pid,
-                              config.uid,
-                              config.user,
+                              config->uid,
+                              config->user,
                               1,
-                              config.log.colorize1,
-                              config.log.level_logfile1,
-                              config.log.level_stderr1,
-                              config.log.level_flush1,
+                              config->log.colorize1,
+                              config->log.level_logfile1,
+                              config->log.level_stderr1,
+                              config->log.level_flush1,
                               5,
-                              config.log.log_fd,
+                              config->log.log_fd,
                               log_path );
-  config.log.log_fd = fd_log_private_logfile_fd();
+  config->log.log_fd = fd_log_private_logfile_fd();
   fd_shmem_private_boot( pargc, pargv );;
   fd_tile_private_boot( 0, NULL );
-  return config;
 }
+
+static config_t config;
 
 int
 main1( int     argc,
@@ -144,7 +146,7 @@ main1( int     argc,
   char ** argv = _argv;
   argc--; argv++;
 
-  config_t config = fdctl_boot( &argc, &argv, NULL );
+  fdctl_boot( &argc, &argv, &config, NULL );
 
   if( FD_UNLIKELY( !argc ) ) {
     help_cmd_fn( NULL, &config );
