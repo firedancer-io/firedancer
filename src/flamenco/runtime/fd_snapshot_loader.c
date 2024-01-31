@@ -72,21 +72,25 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 
     do {
       uchar   out_buf[ 16384 ];
-      uchar * out     = out_buf;
+      uchar * out;
       uchar * out_end = out_buf + sizeof(out_buf);
 
-      int zstd_err = fd_zstd_dstream_read( dstream, (uchar const **)&in, in_end, &out, out_end, NULL );
-      if( FD_UNLIKELY( zstd_err>0 ) ) {
-        FD_LOG_ERR(( "fd_zstd_dstream_read failed" ));
-        return 0;
-      }
+      do {
+        out = out_buf;
 
-      ulong out_sz = (ulong)( out-out_buf );
-      int tar_err = fd_tar_read( reader, out_buf, out_sz );
-      if( FD_UNLIKELY( tar_err>0 ) ) {
-        FD_LOG_ERR(( "fd_tar_read failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
-        return 0;
-      }
+        int zstd_err = fd_zstd_dstream_read( dstream, (uchar const **)&in, in_end, &out, out_end, NULL );
+        if( FD_UNLIKELY( zstd_err>0 ) ) {
+          FD_LOG_ERR(( "fd_zstd_dstream_read failed" ));
+          return 0;
+        }
+
+        ulong out_sz = (ulong)( out-out_buf );
+        int tar_err = fd_tar_read( reader, out_buf, out_sz );
+        if( FD_UNLIKELY( tar_err>0 ) ) {
+          FD_LOG_ERR(( "fd_tar_read failed (%d-%s)", tar_err, fd_io_strerror( tar_err ) ));
+          return 0;
+        }
+      } while( out==out_end );
     } while( in<in_end );
   }
 
