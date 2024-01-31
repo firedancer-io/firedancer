@@ -1,3 +1,4 @@
+#include "fd_exec_test.pb.h"
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
@@ -7,6 +8,36 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../../funk/fd_funk.h"
 #include <assert.h>
+
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
+/* LOGFMT_REPORT is the log prefix for instruction processing tests */
+
+#define LOGFMT_REPORT "%s"
+static FD_TL char _report_prefix[65] = {0};
+
+#define REPORTV( level, fmt, ... ) \
+  FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix, __VA_ARGS__ ))
+
+#define REPORT( level, fmt ) REPORTV( level, fmt, 0 )
+
+#define REPORT_ACCTV( level, addr, fmt, ... )                                  \
+  do {                                                                         \
+    char         _acct_log_private_addr[ FD_BASE58_ENCODED_32_SZ ];            \
+    void const * _acct_log_private_addr_ptr = (addr);                          \
+    fd_acct_addr_cstr( _acct_log_private_addr, _acct_log_private_addr_ptr );        \
+    REPORTV( level, "account %-44s: " fmt, _acct_log_private_addr, __VA_ARGS__ ); \
+  } while(0);
+
+#define REPORT_ACCT( level, addr, fmt ) REPORT_ACCTV( level, addr, fmt, 0 )
+
+/* Define routine to sort accounts to support query-by-pubkey via
+   binary search. */
+
+#define SORT_NAME sort_pubkey_p
+#define SORT_KEY_T void const *
+#define SORT_BEFORE(a,b) ( memcmp( (a), (b), sizeof(fd_pubkey_t) )<0 )
+#include "../../../util/tmpl/fd_sort.c"
 
 struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
   fd_funk_t * funk;
@@ -132,7 +163,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     ulong                   prefix = test_ctx->feature_set.features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      FD_LOG_WARNING(( "Unsupported feature ID 0x%16lx", prefix ));
+      REPORTV( NOTICE, "unsupported feature ID 0x%16lx", prefix );
       return 0;
     }
     /* Enabled since genesis */
@@ -174,9 +205,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
-  fd_borrowed_account_t * borrowed_accts =
-      fd_scratch_alloc( alignof(fd_borrowed_account_t), test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
+  fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
+  txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
   /* Load accounts into database */
 
@@ -187,13 +218,13 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > 128 ) ) {
     /* TODO remove this hardcoded constant */
-    FD_LOG_WARNING(( "Too many instruction accounts" ));
+    REPORT( NOTICE, "too many instruction accounts" );
     return 0;
   }
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
-      FD_LOG_WARNING(( "Instruction account index out of range" ));
+      REPORTV( NOTICE, "instruction account index out of range (%u > %u)", index, test_ctx->instr_accounts_count );
       return 0;
     }
 
@@ -234,34 +265,214 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 }
 
+/* fd_exec_instr_fixture_diff_t compares a test fixture against the
+   actual execution results. */
+
+struct fd_exec_instr_fixture_diff {
+  fd_exec_instr_ctx_t *                ctx;
+  fd_exec_test_instr_context_t const * input;
+  fd_exec_test_instr_effects_t const * expected;
+  int                                  exec_result;
+
+  int has_diff;
+};
+
+typedef struct fd_exec_instr_fixture_diff fd_exec_instr_fixture_diff_t;
+
 static int
-_diff_effects( fd_exec_instr_ctx_t *                ctx,
-               fd_exec_test_instr_effects_t const * expected,
-               int                                  exec_result ) {
+_diff_acct( fd_exec_test_acct_state_t const * want,
+            fd_borrowed_account_t const *     have ) {
+
+  int diff = 0;
+
+  assert( 0==memcmp( want->address, have->pubkey->uc, sizeof(fd_pubkey_t) ) );
+
+  if( want->lamports != have->meta->info.lamports ) {
+    REPORT_ACCTV( NOTICE, want->address, "expected %lu lamports, got %lu",
+                  want->lamports, have->meta->info.lamports );
+    diff = 1;
+  }
+
+  if( want->data->size != have->meta->dlen ) {
+    REPORT_ACCTV( NOTICE, want->address, "expected data sz %u, got %lu",
+                  want->data->size, have->meta->dlen );
+    diff = 1;
+  }
+
+  if( want->executable != have->meta->info.executable ) {
+    REPORT_ACCTV( NOTICE, want->address, "expected account to be %s, but is %s",
+                  (want->executable           ) ? "executable" : "not executable",
+                  (have->meta->info.executable) ? "executable" : "not executable" );
+    diff = 1;
+  }
+
+  if( want->rent_epoch != have->meta->info.rent_epoch ) {
+    REPORT_ACCTV( NOTICE, want->address, "expected rent epoch %lu, got %lu",
+                  want->rent_epoch, have->meta->info.rent_epoch );
+    diff = 1;
+  }
+
+  if( 0!=memcmp( want->owner, have->meta->info.owner, sizeof(fd_pubkey_t) ) ) {
+    char a[ FD_BASE58_ENCODED_32_SZ ];
+    char b[ FD_BASE58_ENCODED_32_SZ ];
+    REPORT_ACCTV( NOTICE, want->address, "expected owner %s, got %s",
+                  fd_acct_addr_cstr( a, want->owner            ),
+                  fd_acct_addr_cstr( b, have->meta->info.owner ) );
+    diff = 1;
+  }
+
+  if( 0!=memcmp( want->data->bytes, have->data, want->data->size ) ) {
+    REPORT_ACCT( NOTICE, want->address, "data mismatch" );
+    diff = 1;
+  }
+
+  return diff;
+}
+
+static void
+_unexpected_acct_modify_in_fixture( fd_exec_instr_fixture_diff_t * check,
+                                    void const *                   pubkey ) {
+
+  /* At this point, an account was reported as modified in the test
+     fixture, but no changes were seen locally. */
+
+  check->has_diff = 1;
+
+  REPORT_ACCT( NOTICE, pubkey, "expected changes, but none found" );
+}
+
+static void
+_unexpected_acct_modify_locally( fd_exec_instr_fixture_diff_t * check,
+                                 fd_borrowed_account_t const *  have ) {
+
+  /* At this point, an account was reported as modified locally, but no
+     changes contained in fixture.  Thus, diff against the original
+     state in the fixture. */
+
+  /* Find matching test input */
+
+  fd_exec_test_instr_context_t const * input = check->input;
+
+  fd_exec_test_acct_state_t * want = NULL;
+  for( ulong i=0UL; i < input->accounts_count; i++ ) {
+    fd_exec_test_acct_state_t * acct_state = &input->accounts[i];
+    if( 0==memcmp( acct_state->address, have->pubkey, sizeof(fd_pubkey_t) ) ) {
+      want = acct_state;
+      break;
+    }
+  }
+  if( FD_UNLIKELY( !want ) ) {
+    check->has_diff = 1;
+
+    REPORT_ACCT( NOTICE, have->pubkey, "found unexpected changes" );
+    /* TODO: dump the account that changed unexpectedly */
+    return;
+  }
+
+  /* Compare against original state */
+
+  check->has_diff |= _diff_acct( want, have );
+}
+
+static void
+_diff_effects( fd_exec_instr_fixture_diff_t * check ) {
+
+  fd_exec_instr_ctx_t *                ctx         = check->ctx;
+  fd_exec_test_instr_effects_t const * expected    = check->expected;
+  int                                  exec_result = check->exec_result;
 
   if( expected->result != exec_result ) {
-    FD_LOG_WARNING(( "Expected result (%d-%s), got (%d-%s)",
-                     expected->result, fd_executor_instr_strerror( expected->result ),
-                     exec_result,      fd_executor_instr_strerror( exec_result      ) ));
-    return 0;
+    check->has_diff = 1;
+    REPORTV( NOTICE, "expected result (%d-%s), got (%d-%s)",
+             expected->result, fd_executor_instr_strerror( expected->result ),
+             exec_result,      fd_executor_instr_strerror( exec_result      ) );
+
+    if( ( expected->result == FD_EXECUTOR_INSTR_SUCCESS ) |
+        ( exec_result      == FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      /* If one (and only one) of the results is success, stop diffing
+         for sake of brevity. */
+      return;
+    }
+  }
+  else if( ( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR    ) &
+           ( expected->custom_err != ctx->txn_ctx->custom_err ) ) {
+    check->has_diff = 1;
+    REPORTV( NOTICE, "expected custom error %d, got %d",
+             expected->custom_err, ctx->txn_ctx->custom_err );
+    return;
   }
 
-  if( ( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR    ) &
-      ( expected->custom_err != ctx->txn_ctx->custom_err ) ) {
-    FD_LOG_WARNING(( "Expected custom error %d, got %d",
-                     expected->custom_err, ctx->txn_ctx->custom_err ));
-    return 0;
+  /* Sort the transaction's write-locked accounts */
+
+  void const ** modified_pubkeys =
+      fd_scratch_alloc( alignof(void *), ctx->txn_ctx->accounts_cnt * sizeof(void *) );
+  ulong modified_acct_cnt = 0UL;
+
+  for( ulong i=0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
+    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[i];
+    if( acc->meta )  /* instruction took a writable handle? */
+      modified_pubkeys[ modified_acct_cnt++ ] = &acc->pubkey->uc;
   }
 
+  sort_pubkey_p_inplace( modified_pubkeys, modified_acct_cnt );
 
-  /* TODO detect accounts that were modified locally but not in fixture */
+  /* Bitmask of which transaction accounts we've visited */
 
-  return 1;
+  ulong   visited_sz = fd_ulong_align_up( modified_acct_cnt, 64UL )>>3;
+  ulong * visited    = fd_scratch_alloc( alignof(ulong), visited_sz );
+  fd_memset( visited, 0, visited_sz );
+
+  /* Verify each of the expected accounts */
+
+  for( ulong i=0UL; i < expected->modified_accounts_count; i++ ) {
+    fd_exec_test_acct_state_t const * want = &expected->modified_accounts[i];
+
+    if( FD_UNLIKELY( !want->has_address ) ) {
+      REPORTV( WARNING, "modified account #%lu missing an address", i );
+      check->has_diff = 1;
+      continue;
+    }
+    void const * query = want->address;
+    ulong idx = sort_pubkey_p_search_geq( modified_pubkeys, modified_acct_cnt, query );
+    if( FD_UNLIKELY( idx >= modified_acct_cnt ) ) {
+      _unexpected_acct_modify_in_fixture( check, query );
+      continue;
+    }
+
+    if( FD_UNLIKELY( 0!=memcmp( modified_pubkeys[idx], query, sizeof(fd_pubkey_t) ) ) ) {
+      _unexpected_acct_modify_in_fixture( check, query );
+      continue;
+    }
+
+    visited[ idx>>6 ] |= fd_ulong_mask_bit( idx&63UL );
+
+    ulong acct_laddr = ( (ulong)modified_pubkeys[idx] - offsetof( fd_borrowed_account_t, pubkey ) );
+    fd_borrowed_account_t const * acct = (fd_borrowed_account_t const *)acct_laddr;
+
+    check->has_diff |= _diff_acct( want, acct );
+  }
+
+  /* Visit accounts that were write-locked locally, but are not in
+     expected list */
+
+  for( ulong i=0UL; i < modified_acct_cnt; i++ ) {
+    ulong acct_laddr = ( (ulong)modified_pubkeys[i] - offsetof( fd_borrowed_account_t, pubkey ) );
+    fd_borrowed_account_t const * acct = (fd_borrowed_account_t const *)acct_laddr;
+
+    int was_visited = !!( visited[ i>>6 ] & fd_ulong_mask_bit( i&63UL ) );
+    if( FD_UNLIKELY( !was_visited ) )
+      _unexpected_acct_modify_locally( check, acct );
+  }
+
+  /* TODO: Capture account side effects outside of the access list by
+           looking at the funk record delta (technically a scheduling
+           violation) */
 }
 
 int
 fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
-                           fd_exec_test_instr_fixture_t const * test ) {
+                           fd_exec_test_instr_fixture_t const * test,
+                           char const *                         log_name ) {
 
   fd_exec_instr_ctx_t ctx[1];
   if( FD_UNLIKELY( !_context_create( runner, ctx, &test->input ) ) )
@@ -271,17 +482,35 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
   fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
 
   if( FD_UNLIKELY( !native_prog_fn ) ) {
-    FD_LOG_WARNING(( "TODO: User deployed programs not yet supported" ));
+    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
+    REPORTV( NOTICE, "execution failed (program %s not found)",
+             fd_acct_addr_cstr( program_id_cstr, test->input.program_id ) );
     _context_destroy( runner, ctx );
     return 0;
   }
 
   int exec_result = native_prog_fn( *ctx );
 
-  int ok = _diff_effects( ctx, &test->output, exec_result );
+  int has_diff;
+  do {
+    /* Compare local execution results against fixture */
+
+    fd_cstr_printf( _report_prefix, sizeof(_report_prefix), NULL, "%s: ", log_name );
+
+    fd_exec_instr_fixture_diff_t diff =
+      { .ctx         = ctx,
+        .input       = &test->input,
+        .expected    = &test->output,
+        .exec_result = exec_result };
+    _diff_effects( &diff );
+
+    _report_prefix[0] = '\0';
+
+    has_diff = diff.has_diff;
+  } while(0);
 
   _context_destroy( runner, ctx );
-  return ok;
+  return !has_diff;
 }
 
 ulong

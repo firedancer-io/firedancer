@@ -19,13 +19,13 @@ typedef struct fd_rawtxn_b fd_rawtxn_b_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_addr_cstr converts the given Solana address into a base58-
+/* fd_acct_addr_cstr converts the given Solana address into a base58-
    encoded cstr.  Returns cstr.  On return cstr contains a string with
    length in [32,44] (excluding NULL terminator). */
 
 static inline char *
-fd_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
-              uchar const addr[ static 32 ] ) {
+fd_acct_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
+                   uchar const addr[ static 32 ] ) {
   return fd_base58_encode_32( addr, NULL, cstr );
 }
 

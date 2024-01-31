@@ -188,7 +188,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   /* Sanity checks */
   if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
     FD_LOG_WARNING(( "account %s too large: data_len=%lu",
-                     fd_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
+                     fd_acct_addr_cstr( key_cstr, key->uc ), hdr->meta.data_len ));
     FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
     return 0;
   }
@@ -207,14 +207,14 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
     break;
   default:
-    FD_LOG_WARNING(( "fd_acc_mgr_view(%s) failed (%d)", fd_addr_cstr( key_cstr, key->uc ), read_result ));
+    FD_LOG_WARNING(( "fd_acc_mgr_view(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
     return 0;
   }
 
   /* Write account */
   int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
   if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_addr_cstr( key_cstr, key->uc ), read_result ));
+    FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
     return 0;
   }
   rec->meta->dlen = hdr->meta.data_len;
@@ -228,7 +228,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   /* Fail if account data is cut off */
   if( restore->accv_sz < restore->acc_sz ) {
     FD_LOG_WARNING(( "account %s data past end of account vec (acc_sz=%lu accv_sz=%lu)",
-                     fd_addr_cstr( key_cstr, key->uc ), restore->acc_sz, restore->accv_sz ));
+                     fd_acct_addr_cstr( key_cstr, key->uc ), restore->acc_sz, restore->accv_sz ));
     FD_LOG_HEXDUMP_WARNING(( "account header", hdr, sizeof(fd_solana_account_hdr_t) ));
     return 0;
   }
