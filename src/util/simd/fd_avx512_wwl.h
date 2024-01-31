@@ -81,22 +81,21 @@ static inline void  wwl_stu( void * m, wwl_t x ) { _mm512_storeu_epi64( m, x ); 
 #define wwl_or(x,y)          _mm512_or_epi64    ( (x), (y)       ) /* wwl( x0|y0,  x1|y1,  ... x7|y7  ) */
 #define wwl_xor(x,y)         _mm512_xor_epi64   ( (x), (y)       ) /* wwl( x0^y0,  x1^y1,  ... x7^y7  ) */
 
-/* wwl_rol(x,n)        returns wwl( rotate_left (x0,n ), rotate_left (x1,n ), ... )
-   wwl_ror(x,n)        returns wwl( rotate_right(x0,n ), rotate_right(x1,n ), ... )
-   wwl_rol_vector(x,y) returns wwl( rotate_left (x0,y0), rotate_left (x1,y1), ... )
-   wwl_ror_vector(x,y) returns wwl( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
+/* wwl_rol(x,n)          returns wwl( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwl_ror(x,n)          returns wwl( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwl_rol_variable(x,n) returns wwl( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwl_ror_variable(x,n) returns wwl( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwl_rol_vector(x,y)   returns wwl( rotate_left (x0,y0), rotate_left (x1,y1), ... )
+   wwl_ror_vector(x,y)   returns wwl( rotate_right(x0,y0), rotate_right(x1,y1), ... )
 
-static inline wwl_t wwl_rol( wwl_t a, long n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_rol_epi64( (a), (n)&63 ) :
-         wwl_or( wwl_shl ( a, n & 63L ), wwl_shru( a, (-n) & 63L ) );
-}
+   The variable variants are slower but do not require the shift amount
+   to be known at compile time. */
 
-static inline wwl_t wwl_ror( wwl_t a, long n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_ror_epi64( (a), (n)&63 ) :
-         wwl_or( wwl_shru( a, n & 63L ), wwl_shl ( a, (-n) & 63L ) );
-}
+#define wwl_rol(a,imm)       _mm512_rol_epi64( (a), (imm)&63L )
+#define wwl_ror(a,imm)       _mm512_ror_epi64( (a), (imm)&63L )
+
+static inline wwl_t wwl_rol_variable( wwl_t a, long n ) { return wwl_or( wwl_shl ( a, n & 63L ), wwl_shru( a, (-n) & 63L ) ); }
+static inline wwl_t wwl_ror_variable( wwl_t a, long n ) { return wwl_or( wwl_shru( a, n & 63L ), wwl_shl ( a, (-n) & 63L ) ); }
 
 static inline wwl_t wwl_rol_vector( wwl_t a, wwl_t b ) {
   wwl_t m = wwl_bcast( 63L );

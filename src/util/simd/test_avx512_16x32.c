@@ -146,22 +146,28 @@ main( int     argc,
 
 #   define ROL(x,y) fd_int_rotate_left ( (x), (y) )
 #   define ROR(x,y) fd_int_rotate_right( (x), (y) )
-    WWI_TEST( wwi_rol( x, y0 ),       ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
-                                      ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ),
-                                      ROL( x8, y0 ), ROL( x9, y0 ), ROL( xa, y0 ), ROL( xb, y0 ),
-                                      ROL( xc, y0 ), ROL( xd, y0 ), ROL( xe, y0 ), ROL( xf, y0 ) );
-    WWI_TEST( wwi_ror( x, y0 ),       ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
-                                      ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ),
-                                      ROR( x8, y0 ), ROR( x9, y0 ), ROR( xa, y0 ), ROR( xb, y0 ),
-                                      ROR( xc, y0 ), ROR( xd, y0 ), ROR( xe, y0 ), ROR( xf, y0 ) );
-    WWI_TEST( wwi_rol_vector( x, y ), ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
-                                      ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ),
-                                      ROL( x8, y8 ), ROL( x9, y9 ), ROL( xa, ya ), ROL( xb, yb ),
-                                      ROL( xc, yc ), ROL( xd, yd ), ROL( xe, ye ), ROL( xf, yf ) );
-    WWI_TEST( wwi_ror_vector( x, y ), ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
-                                      ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ),
-                                      ROR( x8, y8 ), ROR( x9, y9 ), ROR( xa, ya ), ROR( xb, yb ),
-                                      ROR( xc, yc ), ROR( xd, yd ), ROR( xe, ye ), ROR( xf, yf ) );
+    WWI_TEST( wwi_rol_variable( x, y0 ), ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
+                                         ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ),
+                                         ROL( x8, y0 ), ROL( x9, y0 ), ROL( xa, y0 ), ROL( xb, y0 ),
+                                         ROL( xc, y0 ), ROL( xd, y0 ), ROL( xe, y0 ), ROL( xf, y0 ) );
+    WWI_TEST( wwi_ror_variable( x, y0 ), ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
+                                         ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ),
+                                         ROR( x8, y0 ), ROR( x9, y0 ), ROR( xa, y0 ), ROR( xb, y0 ),
+                                         ROR( xc, y0 ), ROR( xd, y0 ), ROR( xe, y0 ), ROR( xf, y0 ) );
+    WWI_TEST( wwi_rol_vector( x, y ),    ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
+                                         ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ),
+                                         ROL( x8, y8 ), ROL( x9, y9 ), ROL( xa, ya ), ROL( xb, yb ),
+                                         ROL( xc, yc ), ROL( xd, yd ), ROL( xe, ye ), ROL( xf, yf ) );
+    WWI_TEST( wwi_ror_vector( x, y ),    ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
+                                         ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ),
+                                         ROR( x8, y8 ), ROR( x9, y9 ), ROR( xa, ya ), ROR( xb, yb ),
+                                         ROR( xc, yc ), ROR( xd, yd ), ROR( xe, ye ), ROR( xf, yf ) );
+#   define COMPARE_WWI_ROL( j ) COMPARE16( WWI_TEST, x, wwi_rol, ROL, j );
+#   define COMPARE_WWI_ROR( j ) COMPARE16( WWI_TEST, x, wwi_ror, ROR, j );
+    EXPAND_32(COMPARE_WWI_ROL, 0)
+    EXPAND_32(COMPARE_WWI_ROR, 0)
+#   undef COMPARE_WWI_ROR
+#   undef COMPARE_WWI_ROL
 #   undef ROR
 #   undef ROL
 
@@ -397,22 +403,28 @@ main( int     argc,
 
 #   define ROL(x,y) fd_uint_rotate_left ( (x), (int)(uint)(y) )
 #   define ROR(x,y) fd_uint_rotate_right( (x), (int)(uint)(y) )
-    WWU_TEST( wwu_rol( x, y0 ),       ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
-                                      ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ),
-                                      ROL( x8, y0 ), ROL( x9, y0 ), ROL( xa, y0 ), ROL( xb, y0 ),
-                                      ROL( xc, y0 ), ROL( xd, y0 ), ROL( xe, y0 ), ROL( xf, y0 ) );
-    WWU_TEST( wwu_ror( x, y0 ),       ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
-                                      ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ),
-                                      ROR( x8, y0 ), ROR( x9, y0 ), ROR( xa, y0 ), ROR( xb, y0 ),
-                                      ROR( xc, y0 ), ROR( xd, y0 ), ROR( xe, y0 ), ROR( xf, y0 ) );
-    WWU_TEST( wwu_rol_vector( x, y ), ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
-                                      ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ),
-                                      ROL( x8, y8 ), ROL( x9, y9 ), ROL( xa, ya ), ROL( xb, yb ),
-                                      ROL( xc, yc ), ROL( xd, yd ), ROL( xe, ye ), ROL( xf, yf ) );
-    WWU_TEST( wwu_ror_vector( x, y ), ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
-                                      ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ),
-                                      ROR( x8, y8 ), ROR( x9, y9 ), ROR( xa, ya ), ROR( xb, yb ),
-                                      ROR( xc, yc ), ROR( xd, yd ), ROR( xe, ye ), ROR( xf, yf ) );
+    WWU_TEST( wwu_rol_variable( x, y0 ), ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
+                                         ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ),
+                                         ROL( x8, y0 ), ROL( x9, y0 ), ROL( xa, y0 ), ROL( xb, y0 ),
+                                         ROL( xc, y0 ), ROL( xd, y0 ), ROL( xe, y0 ), ROL( xf, y0 ) );
+    WWU_TEST( wwu_ror_variable( x, y0 ), ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
+                                         ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ),
+                                         ROR( x8, y0 ), ROR( x9, y0 ), ROR( xa, y0 ), ROR( xb, y0 ),
+                                         ROR( xc, y0 ), ROR( xd, y0 ), ROR( xe, y0 ), ROR( xf, y0 ) );
+    WWU_TEST( wwu_rol_vector( x, y ),    ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
+                                         ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ),
+                                         ROL( x8, y8 ), ROL( x9, y9 ), ROL( xa, ya ), ROL( xb, yb ),
+                                         ROL( xc, yc ), ROL( xd, yd ), ROL( xe, ye ), ROL( xf, yf ) );
+    WWU_TEST( wwu_ror_vector( x, y ),    ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
+                                         ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ),
+                                         ROR( x8, y8 ), ROR( x9, y9 ), ROR( xa, ya ), ROR( xb, yb ),
+                                         ROR( xc, yc ), ROR( xd, yd ), ROR( xe, ye ), ROR( xf, yf ) );
+#   define COMPARE_WWU_ROL( j ) COMPARE16( WWU_TEST, x, wwu_rol, ROL, j );
+#   define COMPARE_WWU_ROR( j ) COMPARE16( WWU_TEST, x, wwu_ror, ROR, j );
+    EXPAND_32(COMPARE_WWU_ROL, 0)
+    EXPAND_32(COMPARE_WWU_ROR, 0)
+#   undef COMPARE_WWU_ROR
+#   undef COMPARE_WWU_ROL
 #   undef ROR
 #   undef ROL
 
