@@ -910,4 +910,5 @@ dynamic_port_range = "8900-9000"
     [development.gossip]
         # Under normal operating conditions, a validator should always reach out to a host located on the public internet.
         # This configuration item allows Firedancer to gossip with nodes located on a private internet (rfc1918).
-        allow_private_addr = false
+        # This option is passed to the Solana Labs client with the `--allow-private-addr` flag.
+        allow_private_address = false
