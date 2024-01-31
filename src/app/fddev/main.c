@@ -76,6 +76,8 @@ execve_as_root( int     argc,
   FD_LOG_ERR(( "execve(sudo) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
+static config_t config;
+
 int
 main( int     argc,
       char ** _argv ) {
@@ -92,7 +94,7 @@ main( int     argc,
 
   char const * log_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--log-path", NULL, NULL );
 
-  config_t config = fdctl_boot( &argc, &argv, log_path );
+  fdctl_boot( &argc, &argv, &config, log_path );
 
   /* load configuration and command line parsing */
   if( FD_UNLIKELY( config.is_live_cluster ) )
@@ -125,7 +127,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
 
-  args_t args;
+  args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
 
