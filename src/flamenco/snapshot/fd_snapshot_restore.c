@@ -200,7 +200,6 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int read_result = fd_acc_mgr_view( acc_mgr, funk_txn, key, rec );
   switch( read_result ) {
   case FD_ACC_MGR_SUCCESS:
-    FD_LOG_NOTICE(( "account %32J dupe at %lu %lu", rec->pubkey->uc, rec->const_meta->slot, restore->accv_slot ));
     if( rec->const_meta->slot > restore->accv_slot )
       is_dupe = 1;
     break;
