@@ -4,6 +4,7 @@
 #include "fd_system_ids.h"
 #include "program/fd_bpf_loader_v1_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
+#include "program/fd_config_program.h"
 
 #include <assert.h>
 
@@ -16,6 +17,8 @@ fd_executor_lookup_native_program( fd_pubkey_t const * program_id ) {
     return fd_bpf_loader_v1_program_execute;
   if( 0==memcmp( program_id, &fd_solana_bpf_loader_v4_program_id, sizeof(fd_pubkey_t) ) )
     return fd_bpf_loader_v4_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_config_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_config_program_execute;
 
   return NULL;
 
