@@ -1853,12 +1853,20 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     if (++depth == 31U) {
-      FD_LOG_DEBUG(("publishing %32J", &txn->xid));
+      FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));
         return -1;
       }
+
+      if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
+        if (txn->xid.ul[0] >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
+          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL );
+          slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
+        }
+      }
+
       break;
     }
   }
@@ -1879,6 +1887,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     FD_LOG_WARNING(("missing blockhash for %lu", slot));
   } else {
     fd_memcpy(xid.uc, hash->uc, sizeof(fd_funk_txn_xid_t));
+    xid.ul[0] = slot_ctx->slot_bank.slot;
     /* push a new transaction on the stack */
     slot_ctx->funk_txn = fd_funk_txn_prepare(funk, slot_ctx->funk_txn, &xid, 1);
   }
@@ -1936,6 +1945,7 @@ fd_runtime_rollback_to( fd_exec_slot_ctx_t * slot_ctx, ulong slot ) {
   }
   fd_funk_txn_xid_t xid;
   fd_memcpy(xid.uc, hash, sizeof(fd_funk_txn_xid_t));
+  xid.ul[0] = slot;
   fd_blockstore_end_read(blockstore);
   /* Switch to the funk transaction */
   fd_funk_txn_t * txn = fd_funk_txn_query(&xid, txnmap);
@@ -3426,15 +3436,6 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       }
     }
 #endif
-    if( 0 == memcmp( state->slot_ctx->slot_bank.banks_hash.hash, expected, 32UL ) ) {
-      ulong publish_err =
-          fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->funk_txn, 1 );
-      if( publish_err == 0 ) {
-        FD_LOG_ERR( ( "publish err - %lu", publish_err ) );
-        return -1;
-      }
-      state->slot_ctx->funk_txn = NULL;
-    }
 
     prev_slot = slot;
   }
@@ -3457,11 +3458,11 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 }
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
-int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) { 
+int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(!slot_ctx->acc_mgr)) return -1;
   if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
   /* TODO check valloc */
-  
+
   fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );
   if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache.slot_hashes, slot_ctx ) ) ) {
     FD_LOG_WARNING(("reading sysvars failed"));

@@ -300,6 +300,7 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
+  xid.ul[0] = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) FD_LOG_ERR( ( "missing txn" ) );

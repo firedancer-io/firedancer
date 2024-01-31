@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
        shift
        ;;
     -s|--snapshot)
-       SNAPSHOT="--snapshotfile dump/$LEDGER/$2"
+       SNAPSHOT=" --verifyacchash true --snapshotfile dump/$LEDGER/$2"
        shift
        shift
        ;;

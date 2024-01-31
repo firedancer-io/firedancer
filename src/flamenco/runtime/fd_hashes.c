@@ -486,13 +486,6 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_accounts_check_lthash( slot_ctx );
 #endif
 
-  if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
-    if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
-      fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL );
-      slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
-    }
-  }
-
   for( ulong i = 0; i < task_infos_sz; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_infos[i];
     /* Upgrade to writable record */
@@ -768,94 +761,31 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
   fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-  fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
-
-  // How many txns are we dealing with?
-  ulong txn_cnt = 1;
-  fd_funk_txn_t ** txns = NULL;
-
-  if (NULL == child_txn) {
-    fd_funk_txn_t * txn = slot_ctx->funk_txn;
-    while (NULL != txn) {
-      txn_cnt++;
-      txn = fd_funk_txn_parent( txn, txn_map );
-    }
-
-    txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
-    if ( FD_UNLIKELY(NULL == txns))
-      FD_LOG_ERR(("Out of scratch space?"));
-
-    // Lay it flat to make it easier to walk backwards up the chain from
-    // the root
-    txn = slot_ctx->funk_txn;
-    ulong txn_idx = txn_cnt;
-    while (1) {
-      txns[--txn_idx] = txn;
-      if (NULL == txn)
-        break;
-      txn = fd_funk_txn_parent( txn, txn_map );
-    }
-  } else {
-    txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
-    txns[0] = child_txn;
-  }
 
   // How many total records are we dealing with?
-  ulong           num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
-
-  int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
-
-  FD_LOG_DEBUG(("allocating memory for hash.  num_iter_accounts: %lu   slots: %lu", num_iter_accounts, accounts_hash_slots));
-  void * hashmem = fd_valloc_malloc( slot_ctx->valloc, accounts_hash_align(), accounts_hash_footprint(accounts_hash_slots));
-  FD_LOG_DEBUG(("initializing memory for hash"));
-  accounts_hash_t * hash_map = accounts_hash_join(accounts_hash_new(hashmem, accounts_hash_slots));
-
-  FD_LOG_WARNING(("copying in accounts"));
-
-  // walk up the transactions...
-  for (ulong idx = 0; idx < txn_cnt; idx++) {
-    FD_LOG_DEBUG(("txn idx %d", idx));
-    for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
-         NULL != rec;
-         rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_funk_key_is_acc( rec->pair.key ) ) {
-        accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
-        if (NULL != q)
-          accounts_hash_remove(hash_map, q);
-        if (!(rec->flags & FD_FUNK_REC_FLAG_ERASE))
-          accounts_hash_insert(hash_map, (fd_funk_rec_t *) rec);
-      }
-    }
-  }
-
-  FD_LOG_DEBUG(("creating flat array that account_deltas expects"));
-
-  ulong slot_cnt = accounts_hash_slot_cnt(hash_map);;
-
+  ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
   ulong                   num_pairs = 0;
   fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
   FD_TEST(NULL != pairs);
-  for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
-    accounts_hash_t *slot = &hash_map[slot_idx];
-    if (FD_UNLIKELY (NULL != slot->key)) {
-      fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( slot->key, wksp );
-      if (FD_UNLIKELY (metadata->magic != FD_ACCOUNT_META_MAGIC) )
-        FD_LOG_ERR(("invalid magic on metadata"));
 
-      // Should this just be the dead check?!
-      if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
-        continue;
+  for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
+    if ( !fd_funk_key_is_acc( rec->pair.key ) )
+      continue;
 
-      pairs[num_pairs].pubkey = (const fd_pubkey_t *)slot->key->pair.key->uc;
-      pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
-      num_pairs++;
-    }
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+
+    // Should this just be the dead check?!
+    if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
+      continue;
+
+    pairs[num_pairs].pubkey = (const fd_pubkey_t *)rec->pair.key->uc;
+    pairs[num_pairs].hash = (const fd_hash_t *)metadata->hash;
+    num_pairs++;
   }
 
   fd_hash_account_deltas( pairs, num_pairs, accounts_hash, slot_ctx );
 
   fd_valloc_free( slot_ctx->valloc, pairs );
-  fd_valloc_free( slot_ctx->valloc, hashmem );
 
   FD_LOG_WARNING(("accounts_hash %32J", accounts_hash->hash));
 
@@ -1001,4 +931,3 @@ fd_accounts_check_lthash( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( memcmp( acc, &acc_lthash, sizeof( fd_lthash_value_t ) ) == 0 );
 }
 #endif
-
