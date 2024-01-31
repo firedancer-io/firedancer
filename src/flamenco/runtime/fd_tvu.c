@@ -974,13 +974,13 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->incremental_snapshot =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--incremental-snapshot", NULL, NULL );
   args->load           = fd_env_strip_cmdline_cstr( &argc, &argv, "--load", NULL, NULL );
-  args->my_gossip_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":0" );
-  args->my_repair_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":0" );
+  args->my_gossip_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my_gossip_addr", NULL, ":9001" );
+  args->my_repair_addr = fd_env_strip_cmdline_cstr( &argc, &argv, "--my-repair-addr", NULL, ":9002" );
   args->repair_peer_addr =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-addr", NULL, ":1032" );
   args->repair_peer_id = fd_env_strip_cmdline_cstr( &argc, &argv, "--repair-peer-id", NULL, NULL );
-  args->tvu_addr       = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu", NULL, ":0" );
-  args->tvu_fwd_addr   = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu_fwd", NULL, ":0" );
+  args->tvu_addr       = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu", NULL, ":9003" );
+  args->tvu_fwd_addr   = fd_env_strip_cmdline_cstr( &argc, &argv, "--tvu_fwd", NULL, ":9004" );
   args->snapshot       = fd_env_strip_cmdline_cstr( &argc, &argv, "--snapshot", NULL, NULL );
   args->index_max      = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax", NULL, ULONG_MAX );
   args->page_cnt       = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 128UL );
