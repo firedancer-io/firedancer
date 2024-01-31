@@ -86,4 +86,29 @@ FD_STATIC_ASSERT( WW_LG_ALIGN    == 6, unit_test );
                      _u[0], _u[1], _u[2], _u[3], _u[4], _u[5], _u[6], _u[7] ));                                          \
   } while(0)
 
+
+/* Some utility macros for testing functions that need compile time
+   values.
+   EXPAND_n( F, j ) expands F n times with j, j+1, ..., j+n-1 as the
+   argument (not a literal, but a compile time constant).
+
+   COMPARE_n( C, p, fn1, fn2, j ) uses comparator function C to test the
+   result of fn1(p, j) against fn2(p0, j), fn2(p1, j), ... fn3(p{n-1},
+   j), where the counters for p, the prefix, are in hex.  C must take
+   n+1 arguments. */
+
+#define EXPAND_4( F, j) F(j)              F((j)+1)             F((j)+2)             F((j)+3)
+#define EXPAND_16(F, j) EXPAND_4( F, (j)) EXPAND_4( F, (j)+ 4) EXPAND_4( F, (j)+ 8) EXPAND_4( F, (j)+12)
+#define EXPAND_32(F, j) EXPAND_16(F, (j))                      EXPAND_16(F, (j)+16)
+#define EXPAND_64(F, j) EXPAND_32(F, (j))                      EXPAND_32(F, (j)+32)
+
+#define COMPARE8( C, p, fn1, fn2, j)  C( fn1(p, j), fn2( p##0, j ), fn2( p##1, j ), fn2( p##2, j ), fn2( p##3, j ), \
+                                                    fn2( p##4, j ), fn2( p##5, j ), fn2( p##6, j ), fn2( p##7, j ) )
+
+#define COMPARE16(C, p, fn1, fn2, j)  C( fn1(p, j), fn2( p##0, j ), fn2( p##1, j ), fn2( p##2, j ), fn2( p##3, j ), \
+                                                    fn2( p##4, j ), fn2( p##5, j ), fn2( p##6, j ), fn2( p##7, j ), \
+                                                    fn2( p##8, j ), fn2( p##9, j ), fn2( p##a, j ), fn2( p##b, j ), \
+                                                    fn2( p##c, j ), fn2( p##d, j ), fn2( p##e, j ), fn2( p##f, j ) )
+
+
 #endif /* HEADER_fd_src_util_simd_test_avx512_h */

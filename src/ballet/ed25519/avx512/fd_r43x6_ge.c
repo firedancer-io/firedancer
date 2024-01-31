@@ -303,7 +303,7 @@ fd_r43x6_ge_smul_base_ref( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
   FD_R43X6_QUAD_MOV( *_R, R );                    /* return R,          in u44|u44|u44|u44 */
 }
 
-FD_IMPORT( fd_r43x6_ge_smul_base_large_table, "src/ballet/ed25519/table/fd_r43x6_ge_smul_base_large_table", wwl_t, 128, "" );
+FD_IMPORT( fd_r43x6_ge_smul_base_large_table, "src/ballet/ed25519/table/fd_r43x6_ge_smul_base_large_table", wwl_t, 7, "" );
 /* 384 KiB */
 
 void
@@ -506,7 +506,7 @@ fd_r43x6_ge_smul_base_large( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
   FD_R43X6_QUAD_MOV( *_R, R );                                        /* return R, in u44|u44|u44|u44 */
 }
 
-FD_IMPORT( fd_r43x6_ge_smul_base_small_table, "src/ballet/ed25519/table/fd_r43x6_ge_smul_base_small_table", wwl_t, 128, "" );
+FD_IMPORT( fd_r43x6_ge_smul_base_small_table, "src/ballet/ed25519/table/fd_r43x6_ge_smul_base_small_table", wwl_t, 7, "" );
 /* 48 KiB */
 
 void
@@ -850,7 +850,7 @@ fd_r43x6_ge_dmul_ref( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,
   FD_R43X6_QUAD_MOV( *_R, R );                                 /* return R,                  in u44|u44|u44|u44 */
 }
 
-FD_IMPORT( fd_r43x6_ge_dmul_sparse_table, "src/ballet/ed25519/table/fd_r43x6_ge_dmul_sparse_table", wwl_t, 128, "" ); /* 384 KiB */
+FD_IMPORT( fd_r43x6_ge_dmul_sparse_table, "src/ballet/ed25519/table/fd_r43x6_ge_dmul_sparse_table", wwl_t, 7, "" ); /* 384 KiB */
 
 void
 fd_r43x6_ge_dmul_sparse( wwl_t * _R03, wwl_t * _R14, wwl_t * _R25,

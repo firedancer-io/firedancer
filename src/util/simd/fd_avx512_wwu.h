@@ -83,22 +83,21 @@ static inline void  wwu_stu( void * m, wwu_t x ) { _mm512_storeu_epi32( m, x ); 
 #define wwu_or(x,y)          _mm512_or_epi32    ( (x), (y)       ) /* wwu( x0|y0,  x1|y1,  ... xf|yf  ) */
 #define wwu_xor(x,y)         _mm512_xor_epi32   ( (x), (y)       ) /* wwu( x0^y0,  x1^y1,  ... xf^yf  ) */
 
-/* wwu_rol(x,n)        returns wwu( rotate_left (x0,n ), rotate_left (x1,n ), ... )
-   wwu_ror(x,n)        returns wwu( rotate_right(x0,n ), rotate_right(x1,n ), ... )
-   wwu_rol_vector(x,y) returns wwu( rotate_left (x0,y0), rotate_left (x1,y1), ... )
-   wwu_ror_vector(x,y) returns wwu( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
+/* wwu_rol(x,n)          returns wwu( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwu_ror(x,n)          returns wwu( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwu_rol_variable(x,n) returns wwu( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwu_ror_variable(x,n) returns wwu( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwu_rol_vector(x,y)   returns wwu( rotate_left (x0,y0), rotate_left (x1,y1), ... )
+   wwu_ror_vector(x,y)   returns wwu( rotate_right(x0,y0), rotate_right(x1,y1), ... )
 
-static inline wwu_t wwu_rol( wwu_t a, uint n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_rol_epi32( (a), (n)&31U ) :
-         wwu_or( wwu_shl( a, n & 31U ), wwu_shr( a, (-n) & 31U ) );
-}
+   The variable variants are slower but do not require the shift amount
+   to be known at compile time. */
 
-static inline wwu_t wwu_ror( wwu_t a, uint n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_ror_epi32( (a), (n)&31U ) :
-         wwu_or( wwu_shr( a, n & 31U ), wwu_shl( a, (-n) & 31U ) );
-}
+#define wwu_rol(a,imm)       _mm512_rol_epi32( (a), (imm)&31U )
+#define wwu_ror(a,imm)       _mm512_ror_epi32( (a), (imm)&31U )
+
+static inline wwu_t wwu_rol_variable( wwu_t a, uint n ) { return wwu_or( wwu_shl( a, n & 31U ), wwu_shr( a, (-n) & 31U ) ); }
+static inline wwu_t wwu_ror_variable( wwu_t a, uint n ) { return wwu_or( wwu_shr( a, n & 31U ), wwu_shl( a, (-n) & 31U ) ); }
 
 static inline wwu_t wwu_rol_vector( wwu_t a, wwu_t b ) {
   wwu_t m = wwu_bcast( 31U );
