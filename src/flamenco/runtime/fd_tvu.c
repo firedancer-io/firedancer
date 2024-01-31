@@ -516,7 +516,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       // fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
-      FD_LOG_HEXDUMP_NOTICE(( "recv: ", bufs[i], msgs[i].msg_len ) );
+      FD_LOG_HEXDUMP_DEBUG(( "recv: ", bufs[i], msgs[i].msg_len ) );
       // fd_replay_turbine_rx( repair_ctx->replay, shred );
     }
 
