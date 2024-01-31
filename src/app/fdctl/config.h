@@ -143,7 +143,7 @@ typedef struct {
       char interface1_addr[ 32 ];
     } netns;
     struct {
-      int allow_private_addr;
+      int allow_private_address;
     } gossip;
   } development;
 
