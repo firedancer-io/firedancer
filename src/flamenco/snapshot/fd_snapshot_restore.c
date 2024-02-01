@@ -92,7 +92,16 @@ struct fd_snapshot_restore {
   ulong   acc_sz;    /* acc bytes pending write */
   uchar * acc_data;  /* pointer into funk acc data pending write */
   ulong   acc_pad;   /* padding size at end of account */
+
+  /* Debug callbacks */
+
+  void (* cb_manifest)( void * ctx, fd_solana_manifest_t * manifest );
+  void  * cb_manifest_ctx;
 };
+
+/* Placeholder values for callbacks */
+
+static void cb_manifest_default( void * ctx, fd_solana_manifest_t * manifest ) { (void)ctx; (void)manifest; }
 
 /* STATE_{...} are the state IDs that control file processing in the
    snapshot streaming state machine. */
@@ -147,10 +156,11 @@ fd_snapshot_restore_new( void *               mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_restore_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_restore_t), sizeof(fd_snapshot_restore_t) );
   fd_memset( self, 0, sizeof(fd_snapshot_restore_t) );
-  self->slot_ctx = slot_ctx;
-  self->state    = STATE_DONE;
-  self->buf      = scratch;
-  self->buf_end  = self->buf + scratch_sz;
+  self->slot_ctx    = slot_ctx;
+  self->state       = STATE_DONE;
+  self->buf         = scratch;
+  self->buf_end     = self->buf + scratch_sz;
+  self->cb_manifest = cb_manifest_default;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
@@ -167,6 +177,14 @@ fd_snapshot_restore_delete( fd_snapshot_restore_t * self ) {
   fd_snapshot_accv_map_delete( fd_snapshot_accv_map_leave( self->accv_map ) );
 
   return (void *)self;
+}
+
+void
+fd_snapshot_restore_set_cb_manifest( fd_snapshot_restore_t *              restore,
+                                     fd_snapshot_restore_cb_manifest_fn_t cb,
+                                     void *                               ctx ) {
+  restore->cb_manifest     = cb;
+  restore->cb_manifest_ctx = ctx;
 }
 
 /* fd_snapshot_restore_account_hdr deserializes an account header and
@@ -282,12 +300,10 @@ fd_snapshot_accv_index( fd_snapshot_accv_map_t *               map,
    existing bank structure. */
 
 static int
-fd_snapshot_restore_manifest( fd_exec_slot_ctx_t *     slot_ctx,
-                              fd_snapshot_accv_map_t * accv_map,
-                              uchar const *            manifest_buf,
-                              ulong                    manifest_bufsz ) {
+fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
-  fd_valloc_t slot_valloc = slot_ctx->valloc;
+  fd_exec_slot_ctx_t * slot_ctx    = restore->slot_ctx;
+  fd_valloc_t          slot_valloc = slot_ctx->valloc;
 
   /* Decode manifest placing dynamic data structures onto slot context
      heap.  Once the epoch context heap is separated out, we need to
@@ -295,14 +311,16 @@ fd_snapshot_restore_manifest( fd_exec_slot_ctx_t *     slot_ctx,
 
   fd_solana_manifest_t manifest[1];
   fd_bincode_decode_ctx_t decode =
-      { .data    = manifest_buf,
-        .dataend = manifest_buf + manifest_bufsz,
+      { .data    = restore->buf,
+        .dataend = restore->buf + restore->buf_sz,
         .valloc  = slot_valloc /* expected by fd_exec_slot_ctx_recover */ };
   int decode_err = fd_solana_manifest_decode( manifest, &decode );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_solana_manifest_decode failed (%d)", decode_err ));
     return 0;
   }
+
+  restore->cb_manifest( restore->cb_manifest_ctx, manifest );
 
   /* Move over accounts DB fields */
 
@@ -317,7 +335,7 @@ fd_snapshot_restore_manifest( fd_exec_slot_ctx_t *     slot_ctx,
   /* Read AccountVec map */
 
   if( FD_LIKELY( ok ) )
-    ok = fd_snapshot_accv_index( accv_map, &accounts_db );
+    ok = fd_snapshot_accv_index( restore->accv_map, &accounts_db );
 
   fd_bincode_destroy_ctx_t destroy = { .valloc = slot_valloc };
   fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
@@ -524,7 +542,7 @@ fd_snapshot_read_manifest_chunk( fd_snapshot_restore_t * restore,
                                  ulong                   bufsz ) {
   uchar const * end = fd_snapshot_read_buffered( restore, buf, bufsz );
   if( fd_snapshot_read_is_complete( restore ) ) {
-    int ok = fd_snapshot_restore_manifest( restore->slot_ctx, restore->accv_map, restore->buf, restore->buf_ctr );
+    int ok = fd_snapshot_restore_manifest( restore );
     if( FD_UNLIKELY( !ok ) ) {
       FD_LOG_WARNING(( "fd_snapshot_restore_manifest failed" ));
       return NULL;
