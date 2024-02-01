@@ -237,6 +237,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
+  ENTRY_BOOL  ( ., development,         no_clone                                                  );
   ENTRY_BOOL  ( ., development,         no_solana_labs                                            );
   ENTRY_BOOL  ( ., development,         bootstrap                                                 );
 
@@ -950,6 +951,8 @@ config_parse( int *      pargc,
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
+    if( FD_UNLIKELY( config->development.no_clone ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
   }

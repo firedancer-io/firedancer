@@ -279,8 +279,8 @@ typedef struct fd_topo_t {
 FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE static inline ulong
-fd_topo_tile_kind_cnt( fd_topo_t * topo,
-                       ulong       kind ) {
+fd_topo_tile_kind_cnt( fd_topo_t const * topo,
+                       ulong             kind ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     if( topo->tiles[ i ].kind == kind ) cnt++;
@@ -292,8 +292,8 @@ fd_topo_tile_kind_cnt( fd_topo_t * topo,
    ULONG_MAX if there is no such workspace.  There can be at most one
    workspace of a given kind.  kind should be one of FD_TOPO_WKSP_KIND_* */
 FD_FN_PURE static inline ulong
-fd_topo_find_wksp( fd_topo_t * topo,
-                   ulong       kind ) {
+fd_topo_find_wksp( fd_topo_t const * topo,
+                   ulong             kind ) {
   for( ulong i=0; i<topo->wksp_cnt; i++ ) {
     if( topo->workspaces[i].kind == kind ) {
       return i;
@@ -307,9 +307,9 @@ fd_topo_find_wksp( fd_topo_t * topo,
    kind should be one of FD_TOPO_TILE_KIND_*.  Returns ULONG_MAX if
    there is no such tile. */
 FD_FN_PURE static inline ulong
-fd_topo_find_tile( fd_topo_t * topo,
-                   ulong       kind,
-                   ulong       kind_id ) {
+fd_topo_find_tile( fd_topo_t const * topo,
+                   ulong             kind,
+                   ulong             kind_id ) {
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     if( topo->tiles[i].kind == kind && topo->tiles[i].kind_id == kind_id ) {
       return i;
@@ -323,9 +323,9 @@ fd_topo_find_tile( fd_topo_t * topo,
    kind should be one of FD_TOPO_LINK_KIND_*.  Returns ULONG_MAX if
    there is no such link. */
 FD_FN_PURE static inline ulong
-fd_topo_find_link( fd_topo_t * topo,
-                   ulong       kind,
-                   ulong       kind_id ) {
+fd_topo_find_link( fd_topo_t const * topo,
+                   ulong             kind,
+                   ulong             kind_id ) {
   for( ulong i=0; i<topo->link_cnt; i++ ) {
     if( topo->links[i].kind == kind && topo->links[i].kind_id == kind_id ) {
       return i;
@@ -338,10 +338,10 @@ fd_topo_find_link( fd_topo_t * topo,
    no tile is a producer for the link, returns ULONG_MAX.  This should
    not be possible for a well formed and validated topology.  */
 FD_FN_PURE static inline ulong
-fd_topo_find_link_producer( fd_topo_t *      topo,
-                            fd_topo_link_t * link ) {
+fd_topo_find_link_producer( fd_topo_t const *      topo,
+                            fd_topo_link_t const * link ) {
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
 
     if( FD_UNLIKELY( tile->out_link_id_primary == link->id ) ) return i;
     for( ulong j=0; j<tile->out_cnt; j++ ) {
@@ -455,7 +455,7 @@ fd_topo_tile_kind_str( ulong kind ) {
 /* Given a tile name produced by fd_topo_tile_kind_str, return the tile
    kind ID.  Returns ULONG_MAX if there is no such tile. */
 FD_FN_CONST static inline ulong
-fd_topo_tile_kind_from_cstr( char * name ) {
+fd_topo_tile_kind_from_cstr( char const * name ) {
   for( ulong i=0; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
     if( !strcmp( name, fd_topo_tile_kind_str( i ) ) ) return i;
   }
@@ -465,11 +465,11 @@ fd_topo_tile_kind_from_cstr( char * name ) {
 /* Given a link, count the number of consumers of that link among all
    the tiles in the topology. */
 FD_FN_PURE static inline ulong
-fd_topo_link_consumer_cnt( fd_topo_t *      topo,
-                           fd_topo_link_t * link ) {
+fd_topo_link_consumer_cnt( fd_topo_t const *      topo,
+                           fd_topo_link_t const * link ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id ) ) cnt++;
     }
@@ -481,11 +481,11 @@ fd_topo_link_consumer_cnt( fd_topo_t *      topo,
 /* Given a link, count the number of reliable consumers of that link
    among all the tiles in the topology. */
 FD_FN_PURE static inline ulong
-fd_topo_link_reliable_consumer_cnt( fd_topo_t *      topo,
-                                    fd_topo_link_t * link ) {
+fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
+                                    fd_topo_link_t const * link ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id && tile->in_link_reliable[ j ] ) ) cnt++;
     }
@@ -633,7 +633,7 @@ fd_topo_huge_page_cnt( fd_topo_t * topo );
    An invalid topology will cause the program to abort with an error
    message. */
 void
-fd_topo_validate( fd_topo_t * topo );
+fd_topo_validate( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written

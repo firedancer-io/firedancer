@@ -829,6 +829,18 @@ dynamic_port_range = "8900-9000"
     # debugging with the `--no-sandbox` argument to `fddev`.
     sandbox = true
 
+    # As part of the security sandboxing, Firedancer will run every tile
+    # in a separate process.  This can be annoying for debugging where
+    # you want control of all the tiles under one inferior, so we also
+    # support a development mode where tiles are run as threads instead
+    # and the system operates inside a single process.  This does not
+    # impact performance and threads still get pinned.
+    #
+    # This option cannot be enabled in production.  In development, you
+    # can also launch Firedancer as a single process for with the
+    # `--no-clone` argument to `fddev`.
+    no_clone = false
+
     # Firedancer currently hosts a Solana Labs client as a child process when
     # it starts up, to provide functionality that has not yet been implemented.
     # For development sometimes it is desirable to not launch this subprocess,
