@@ -1,4 +1,4 @@
-#include "fd_snapshot.h"
+#include "fd_snapshot_restore.h"
 #include "../../util/archive/fd_tar.h"
 #include "../types/fd_types.h"
 #include "../runtime/fd_acc_mgr.h"
@@ -8,11 +8,6 @@
 #include <stdio.h>       /* sscanf */
 #include <string.h>      /* strncmp */
 #include <sys/random.h>  /* getrandom */
-
-fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt =
-  { .file = fd_snapshot_restore_file,
-    .read = fd_snapshot_restore_chunk };
-
 
 /* Accounts are loaded from a snapshot via "account vec" files, each
    containing multiple accounts.  However, external information is
@@ -236,8 +231,8 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
     restore->acc_data = rec->data;
   }
-  restore->acc_sz   = hdr->meta.data_len;
-  restore->acc_pad  = fd_ulong_align_up( restore->acc_sz, FD_SNAPSHOT_ACC_ALIGN ) - restore->acc_sz;
+  restore->acc_sz  = hdr->meta.data_len;
+  restore->acc_pad = fd_ulong_align_up( restore->acc_sz, FD_SNAPSHOT_ACC_ALIGN ) - restore->acc_sz;
 
   /* Fail if account data is cut off */
   if( restore->accv_sz < restore->acc_sz ) {
@@ -591,3 +586,10 @@ fd_snapshot_restore_chunk( void *       restore_,
 
   return 0;
 }
+
+/* fd_snapshot_restore_t implements the consumer interface of a TAR
+   reader. */
+
+fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt =
+  { .file = fd_snapshot_restore_file,
+    .read = fd_snapshot_restore_chunk };
