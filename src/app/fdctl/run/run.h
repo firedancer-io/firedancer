@@ -11,7 +11,6 @@ typedef struct {
   fd_topo_tile_t * tile;
   int              pipefd;
   int              no_shmem;
-  volatile int *   signal_privileged_init_done;
 } tile_main_args_t;
 
 void

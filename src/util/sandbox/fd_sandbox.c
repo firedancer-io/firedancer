@@ -175,25 +175,55 @@ deny_setgroups( void ) {
 
 static void
 switch_user( uint uid, uint gid ) {
-  /* calling setresgid/setresuid sets the dumpable bit to 0
-     which prevents debugging and stops us from setting our
-     uid/gid maps in the user namespace, so set it back for
-     now */
+  /* We know that we are single threaded because immediately after
+     this function returns we unshare the user namespace, which will
+     fail in a multithreaded process.
+
+     This lets us do a small hack: in development environments we
+     sometimes want to run all tiles in a single process.  In that case,
+     the sandbox doesn't get created except that we still switch to the
+     desired uid and gid.
+
+     There's a problem with this: POSIX states that all threads in a
+     process must have the same uid and gid, so glibc does some wacky
+     stuff... from man 2 setresgid
+     
+        C library/kernel differences
+            At the kernel level, user IDs and group IDs are a per-thread
+            attribute.  However, POSIX requires that all threads in a
+            process share the same credentials.  The NPTL threading
+            implementation handles the POSIX requirements by providing
+            wrapper functions for the various system calls that change
+            process UIDs and GIDs.  These  wrap‐ per functions
+            (including those for setresuid() and setresgid()) employ a
+            signal-based technique to ensure that when one thread
+            changes credentials, all of the other threads in the process
+            also change their credentials.  For details, see nptl(7).
+
+      We know all of our threads in this development case are going to
+      switch to the target uid/gid at their own leisure (they need to
+      so they can do privileged steps before dropping root), so to
+      align this behavior between production and development, we invoke
+      the syscall directly and do not let glibc switch uid/gid on the
+      other threads in the process. */
   int undumpable = 0;
   gid_t curgid, curegid, cursgid;
   FD_TESTV( !getresgid( &curgid, &curegid, &cursgid ) );
   if( FD_LIKELY( gid != curgid || gid != curegid || gid != cursgid )) {
-    FD_TESTV( !setresgid( gid, gid, gid ) );
+    FD_TESTV( !syscall( __NR_setresgid, gid, gid, gid ) );
     undumpable = 1;
   }
   uid_t curuid, cureuid, cursuid;
   FD_TESTV( !getresuid( &curuid, &cureuid, &cursuid ) );
   if( FD_LIKELY( uid != curuid || uid != cureuid || uid != cursuid )) {
-    FD_TESTV( !setresuid( uid, uid, uid ) );
+    FD_TESTV( !syscall( __NR_setresuid, uid, uid, uid ) );
     undumpable = 1;
   }
-  if( FD_LIKELY( undumpable ) )
-    FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
+
+  /* Calling setresgid/setresuid sets the dumpable bit to 0 which
+     prevents debugging and stops us from setting our uid/gid maps in
+     the user namespace, so set it back for now. */
+  if( FD_LIKELY( undumpable ) ) FD_TESTV( !prctl( PR_SET_DUMPABLE, 1, 0, 0, 0 ) );
 }
 
 static void

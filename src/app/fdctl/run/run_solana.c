@@ -101,7 +101,6 @@ clone_labs_memory_space_tiles( config_t * const config ) {
       .tile        = tile,
       .pipefd      = -1,
       .no_shmem    = 1,
-      .signal_privileged_init_done = NULL,
     };
     config->development.sandbox = 0; /* Disable sandbox in Solana Labs threads */
 
