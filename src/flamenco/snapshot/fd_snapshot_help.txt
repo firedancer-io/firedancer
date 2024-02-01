@@ -1,0 +1,32 @@
+fd_snapshot manages Solana state snapshots
+
+Usage
+
+  fd_snapshot [command] [flags...]
+
+Available Commands
+
+  help
+
+    Prints this message
+
+  dump --snapshot snapshot.tar.zst [flags...]
+
+    Work in progress command to parse a snapshot.
+    Exit code is 0 on success, 1 on parse failure.
+
+    --snapshot          Local path to a .tar.zst snapshot file (REQUIRED)
+    --manifest-max      Snapshot manifest file size limit (default 1 GiB)
+    --zstd-window-sz    Zstandard compression window size (default 32 MiB)
+
+Global Flags
+
+    --page-sz     Workspace page size (default "gigantic")
+    --page-cnt    Workspace page count (default depends on command)
+    --near-cpu    Allocate workspace on same NUMA as given CPU index
+
+Known Bugs
+
+  - Currently, this tool is hard coded to allocate an anonymous workspace of
+    multiple gigantic pages.  This will get fixed once the appropriate APIs
+    for dynamic task dispatching become available.
