@@ -9,7 +9,6 @@
 #include <string.h>      /* strncmp */
 #include <sys/random.h>  /* getrandom */
 
-
 fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt =
   { .file = fd_snapshot_restore_file,
     .read = fd_snapshot_restore_chunk };
@@ -197,24 +196,16 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int is_dupe = 0;
 
   /* Check if account exists */
-  int read_result = fd_acc_mgr_view( acc_mgr, funk_txn, key, rec );
-  switch( read_result ) {
-  case FD_ACC_MGR_SUCCESS:
+  rec->const_meta = fd_acc_mgr_view_raw( acc_mgr, funk_txn, key, &rec->const_rec, NULL );
+  if( rec->const_meta )
     if( rec->const_meta->slot > restore->accv_slot )
       is_dupe = 1;
-    break;
-  case FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT:
-    break;
-  default:
-    FD_LOG_WARNING(( "fd_acc_mgr_view(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
-    return 0;
-  }
 
   /* Write account */
   if( !is_dupe ) {
     int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
     if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), read_result ));
+      FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
       return 0;
     }
     rec->meta->dlen = hdr->meta.data_len;
