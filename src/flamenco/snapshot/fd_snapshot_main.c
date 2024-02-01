@@ -1,14 +1,16 @@
-#include <complex.h>
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_snapshot.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../../ballet/zstd/fd_zstd.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_types_yaml.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -263,11 +265,15 @@ struct fd_snapshot_dumper {
 
   fd_snapshot_restore_t * restore;
 
-  fd_io_buffered_ostream_t yaml_out;
-  uchar                    yaml_buf[ OSTREAM_BUFSZ ];
+  int                      yaml_fd;
 
+  int                      csv_fd;
   fd_io_buffered_ostream_t csv_out;
   uchar                    csv_buf[ OSTREAM_BUFSZ ];
+
+  int want_manifest;
+  int want_accounts;
+  int has_fail;
 };
 
 typedef struct fd_snapshot_dumper fd_snapshot_dumper_t;
@@ -276,7 +282,9 @@ static fd_snapshot_dumper_t *
 fd_snapshot_dumper_new( void * mem ) {
   fd_snapshot_dumper_t * dumper = mem;
   *dumper = (fd_snapshot_dumper_t) {
-    .snapshot_fd = -1
+    .snapshot_fd = -1,
+    .yaml_fd     = -1,
+    .csv_fd      = -1
   };
   return dumper;
 }
@@ -345,8 +353,58 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
     dumper->alloc = NULL;
   }
 
+  if( dumper->yaml_fd>=0 ) {
+    if( FD_UNLIKELY( 0!=close( dumper->yaml_fd ) ) )
+      FD_LOG_WARNING(( "close(%d) failed (%d-%s)", dumper->yaml_fd, errno, fd_io_strerror( errno ) ));
+    dumper->yaml_fd = -1;
+  }
+
+  if( dumper->csv_fd>=0 ) {
+    fd_io_buffered_ostream_fini( &dumper->csv_out );
+    if( FD_UNLIKELY( 0!=close( dumper->csv_fd ) ) )
+      FD_LOG_WARNING(( "close(%d) failed (%d-%s)", dumper->csv_fd, errno, fd_io_strerror( errno ) ));
+    dumper->csv_fd = -1;
+  }
+
   fd_memset( dumper, 0, sizeof(fd_snapshot_dumper_t) );
   return dumper;
+}
+
+/* fd_snapshot_dumper_on_manifest gets called when the snapshot manifest
+   becomes available. */
+
+static void
+fd_snapshot_dumper_on_manifest( void *                 _d,
+                                fd_solana_manifest_t * manifest ) {
+
+  fd_snapshot_dumper_t * d = _d;
+  if( d->yaml_fd<0 ) return;
+  d->want_manifest = 0;
+
+  FILE * file = fdopen( d->yaml_fd, "w" );
+  if( FD_UNLIKELY( !file ) ) {
+    FD_LOG_WARNING(( "fdopen(%d) failed (%d-%s)", d->yaml_fd, errno, fd_io_strerror( errno ) ));
+    close( d->yaml_fd );
+    d->yaml_fd  = -1;
+    d->has_fail = 1;
+    return;
+  }
+
+  fd_scratch_push();
+  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ), file );
+  fd_solana_manifest_walk( yaml, manifest, fd_flamenco_yaml_walk, NULL, 0U );
+  fd_flamenco_yaml_delete( yaml );
+  fd_scratch_pop();
+
+  int err = 0;
+  if( FD_UNLIKELY( (err = ferror( file )) ) ) {
+    FD_LOG_WARNING(( "Error occurred while writing manifest (%d-%s)", err, fd_io_strerror( err ) ));
+    d->has_fail = 1;
+  }
+
+  fclose( file );
+  close( d->yaml_fd );
+  d->yaml_fd = -1;
 }
 
 /* fd_snapshot_dumper_prepare creates a new funk transaction ready to
@@ -366,6 +424,68 @@ fd_snapshot_dumper_prepare( fd_snapshot_dumper_t * d ) {
   slot_ctx->funk_txn = funk_txn;
 }
 
+/* fd_snapshot_dumper_record processes a newly encountered account
+   record. */
+
+union fd_snapshot_csv_rec {
+  char line[ 180 ];
+  struct __attribute__((packed)) {
+    char acct_addr[ FD_BASE58_ENCODED_32_LEN ];
+    char comma1;
+    char owner_addr[ FD_BASE58_ENCODED_32_LEN ];
+    char comma2;
+    char hash[ FD_BASE58_ENCODED_32_LEN ];
+    char comma3;
+    char slot[ 14 ];  /* enough for 10000 years at 400ms slot time */
+    char comma4;
+    char size[ 8 ];  /* can represent [0,10<<20) */
+    char comma5;
+    char lamports[ 20 ];  /* can represent [0,1<<64) */
+    char newline;
+  };
+};
+
+typedef union fd_snapshot_csv_rec fd_snapshot_csv_rec_t;
+
+static void
+fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
+                           fd_funk_rec_t const *  rec,
+                           fd_wksp_t *            wksp ) {
+
+  uchar const *             rec_val = fd_funk_val_const( rec, wksp );
+  fd_account_meta_t const * meta    = (fd_account_meta_t const *)rec_val;
+  //uchar const *             data    = rec_val + meta->hlen;
+
+  if( d->csv_fd>=0 ) {
+    fd_snapshot_csv_rec_t csv_rec;
+    fd_memset( &csv_rec, ' ', sizeof(csv_rec) );
+
+    ulong b58sz;
+    fd_base58_encode_32( fd_funk_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
+    csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,acct_addr)+b58sz ] = ' ';
+    csv_rec.comma1 = ',';
+
+    fd_base58_encode_32( meta->info.owner, &b58sz, csv_rec.owner_addr );
+    csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,owner_addr)+b58sz ] = ' ';
+    csv_rec.comma2 = ',';
+
+    fd_base58_encode_32( meta->hash, &b58sz, csv_rec.hash );
+    csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,hash)+b58sz ] = ' ';
+    csv_rec.comma3 = ',';
+
+    fd_cstr_append_ulong_as_text( csv_rec.slot, ' ', '\0', meta->dlen, 15 );
+    csv_rec.comma4 = ',';
+
+    fd_cstr_append_ulong_as_text( csv_rec.size, ' ', '\0', meta->dlen, 8 );
+    csv_rec.comma5 = ',';
+
+    fd_cstr_append_ulong_as_text( csv_rec.lamports, ' ', '\0', meta->info.lamports, 20 );
+    csv_rec.newline = '\n';
+
+    fd_io_buffered_ostream_write( &d->csv_out, csv_rec.line, sizeof(csv_rec.line) );
+  }
+}
+
 /* fd_snapshot_dumper_release visits any newly appeared accounts and
    removes their records from the database. */
 
@@ -382,9 +502,7 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
                              rec;
                              rec = fd_funk_rec_next( rec, rec_map ) ) {
     if( FD_UNLIKELY( !fd_funk_key_is_acc( rec->pair.key ) ) ) continue;
-    /* TODO process the record ... */
-    char addr_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    FD_LOG_INFO(( "%s", fd_acct_addr_cstr( addr_cstr, fd_funk_key_to_acc( rec->pair.key )->uc ) ));
+    fd_snapshot_dumper_record( d, rec, wksp );
   }
 
   if( FD_UNLIKELY( fd_funk_txn_cancel( funk, funk_txn, 1 )!=1UL ) )
@@ -402,22 +520,20 @@ fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   fd_tar_io_reader_t * vtar = dumper->vtar;
 
-  for(;;) {
-    fd_snapshot_dumper_prepare( dumper );
+  fd_snapshot_dumper_prepare( dumper );
 
-    int untar_err = fd_tar_io_reader_advance( vtar );
-    if( untar_err==0 ) { /* ok */ }
-    else if( untar_err<0 ) { /* EOF */ break; }
-    else {
-      FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
-      return untar_err;
-    }
-
-    int collect_err = fd_snapshot_dumper_release( dumper );
-    if( FD_UNLIKELY( collect_err ) ) return collect_err;
+  int untar_err = fd_tar_io_reader_advance( vtar );
+  if( untar_err==0 ) { /* ok */ }
+  else if( untar_err<0 ) { /* EOF */ return -1; }
+  else {
+    FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
+    return untar_err;
   }
 
-  return -1;
+  int collect_err = fd_snapshot_dumper_release( dumper );
+  if( FD_UNLIKELY( collect_err ) ) return collect_err;
+
+  return 0;
 }
 
 /* fd_snapshot_dump_args_t contains the command-line arguments for the
@@ -432,6 +548,7 @@ struct fd_snapshot_dump_args {
   char const * snapshot;
   char const * manifest_path;
   char const * csv_path;
+  int          csv_hdr;
 };
 
 typedef struct fd_snapshot_dump_args fd_snapshot_dump_args_t;
@@ -452,6 +569,17 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   int snapshot_fd = open( args->snapshot, O_RDONLY );
   if( FD_UNLIKELY( snapshot_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->snapshot, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
+
+  if( args->csv_path ) {
+    d->csv_fd = open( args->csv_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+    if( FD_UNLIKELY( d->csv_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->csv_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
+    fd_io_buffered_ostream_init( &d->csv_out, d->csv_fd, d->csv_buf, OSTREAM_BUFSZ );
+  }
+
+  if( args->manifest_path ) {
+    d->yaml_fd = open( args->manifest_path, O_WRONLY|O_CREAT|O_TRUNC, 0644 );
+    if( FD_UNLIKELY( d->yaml_fd<0 ) ) { FD_LOG_WARNING(( "open(%s) failed (%d-%s)", args->manifest_path, errno, fd_io_strerror( errno ) )); return EXIT_FAILURE; }
+  }
 
   /* Create a high-quality hash seed for fd_funk */
 
@@ -492,6 +620,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   uchar * file_buf = fd_scratch_alloc( 1UL, args->manifest_max );
   d->restore = fd_snapshot_restore_new( restore_mem, d->slot_ctx, file_buf, args->manifest_max );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
+  fd_snapshot_restore_set_cb_manifest( d->restore, fd_snapshot_dumper_on_manifest, d );
 
   d->tar = fd_tar_reader_new( fd_scratch_alloc( alignof(fd_tar_reader_t), sizeof(fd_tar_reader_t) ), &fd_snapshot_restore_tar_vt, d->restore );
   if( FD_UNLIKELY( !d->tar ) ) { FD_LOG_WARNING(( "Failed to create fd_tar_reader_t" )); return EXIT_FAILURE; }
@@ -509,6 +638,38 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->vtar = fd_tar_io_reader_new( fd_scratch_alloc( alignof(fd_tar_io_reader_t), sizeof(fd_tar_io_reader_t) ), d->tar, fd_io_istream_zstd_virtual( d->vzstd ) );
   if( FD_UNLIKELY( !d->vtar ) ) { FD_LOG_WARNING(( "Failed to create fd_tar_io_reader_t" )); return EXIT_FAILURE; }
 
+  d->want_manifest = (!!args->manifest_path);
+  d->want_accounts = (!!args->csv_path);
+
+  if( FD_UNLIKELY( (!d->want_manifest) & (!d->want_accounts) ) ) {
+    FD_LOG_NOTICE(( "Nothing to do, exiting." ));
+    return EXIT_SUCCESS;
+  }
+
+  if( (d->csv_fd>=0) & (args->csv_hdr) ) {
+    fd_snapshot_csv_rec_t csv_rec;
+    memset( &csv_rec, ' ', sizeof(fd_snapshot_csv_rec_t) );
+    memcpy( csv_rec.acct_addr,  "address",  strlen( "address"  ) );
+    memcpy( csv_rec.owner_addr, "owner",    strlen( "owner"    ) );
+    memcpy( csv_rec.hash,       "hash",     strlen( "hash"     ) );
+    memcpy( csv_rec.slot,       "slot",     strlen( "slot"     ) );
+    memcpy( csv_rec.size,       "size",     strlen( "size"     ) );
+    memcpy( csv_rec.lamports,   "lamports", strlen( "lamports" ) );
+    csv_rec.comma1  = ',';
+    csv_rec.comma2  = ',';
+    csv_rec.comma3  = ',';
+    csv_rec.comma4  = ',';
+    csv_rec.comma5  = ',';
+    csv_rec.newline = '\n';
+
+    if( FD_UNLIKELY( write( d->csv_fd, csv_rec.line, sizeof(fd_snapshot_csv_rec_t) )
+                     != sizeof(fd_snapshot_csv_rec_t) ) ) {
+      FD_LOG_WARNING(( "Failed to write CSV header (%d-%s)", errno, fd_io_strerror( errno ) ));
+      d->has_fail = 1;
+      return EXIT_FAILURE;
+    }
+  }
+
   for(;;) {
     int err = fd_snapshot_dumper_advance( d );
     if( err==0 ) { /* ok */ }
@@ -517,9 +678,12 @@ do_dump( fd_snapshot_dumper_t *    d,
       FD_LOG_WARNING(( "Failed to load snapshot" ));
       return EXIT_FAILURE;
     }
+
+    if( FD_UNLIKELY( (!d->want_accounts) & (!d->want_manifest) ) )
+      break;
   }
 
-  return EXIT_SUCCESS;
+  return d->has_fail ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 
 int
@@ -535,6 +699,7 @@ cmd_dump( int     argc,
   args->snapshot       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshot",       NULL,            NULL );
   args->manifest_path  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--manifest",       NULL,            NULL );
   args->csv_path       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--csv",            NULL,            NULL );
+  args->csv_hdr        = fd_env_strip_cmdline_int  ( &argc, &argv, "--csv-hdr",        NULL,               1 );
 
   if( FD_UNLIKELY( argc!=1 ) )
     FD_LOG_ERR(( "Unexpected command-line arguments" ));

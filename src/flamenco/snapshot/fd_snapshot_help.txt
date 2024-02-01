@@ -16,8 +16,13 @@ Available Commands
     Exit code is 0 on success, 1 on parse failure.
 
     --snapshot          Local path to a .tar.zst snapshot file (REQUIRED)
+    --zstd-window-sz    Zstandard decompression window size (default 32 MiB)
+
+    --csv               Write CSV table of account metadata to file
+    --csv-hdr           Write CSV header? (default 1)
+
+    --manifest          Write YAML serialization of snapshot manifest to file
     --manifest-max      Snapshot manifest file size limit (default 1 GiB)
-    --zstd-window-sz    Zstandard compression window size (default 32 MiB)
 
 Global Flags
 
