@@ -110,11 +110,6 @@ tile_main( void * _args ) {
               seccomp_filter_cnt,
               seccomp_filter );
 
-  if( FD_UNLIKELY( args->signal_privileged_init_done ) ) {
-    FD_COMPILER_MFENCE();
-    *args->signal_privileged_init_done = 1;
-  }
-
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
 
@@ -229,7 +224,6 @@ run1_cmd_fn( args_t *         args,
     .tile        = tile,
     .pipefd      = args->run1.pipe_fd,
     .no_shmem    = 0,
-    .signal_privileged_init_done = NULL,
   };
 
   /* Also clone tiles into PID namespaces so they cannot signal each

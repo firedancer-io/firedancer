@@ -190,20 +190,12 @@ run_firedancer_threaded( config_t * config ) {
     fd_log_private_shared_lock[ 1 ] = 1;
   }
 
-  /* Prevent any of the tile sandbox calls from changing the user,
-     since it would prevent privileged_init of other tiles.  Just
-     wait till all tiles are booted and we will switch to the
-     desired user later in this function. */
-  uint uid = config->uid;
-  uint gid = config->gid;
-  config->uid = getuid();
-  config->gid = getgid();
-
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   pthread_t threads[ FD_TOPO_MAX_TILES+1UL ];
+  tile_main_args_t args[ FD_TOPO_MAX_TILES ];
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
@@ -237,27 +229,21 @@ run_firedancer_threaded( config_t * config ) {
                        errno, fd_io_strerror( errno ), tile->id, cpu_idx ));
     }
 
-    volatile int wait = 0;
-    tile_main_args_t args = {
+    args[ i ] = (tile_main_args_t){
       .config   = config,
       .tile     = tile,
       .no_shmem = 1,
       .pipefd   = -1,
-      .signal_privileged_init_done = &wait,
     };
 
-    if( FD_UNLIKELY( pthread_create( &threads[ i ], attr, tile_main1, &args ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( pthread_create( &threads[ i ], attr, tile_main1, &args[ i ] ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     char thread_name[ FD_LOG_NAME_MAX ] = {0};
     snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "fd%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
     if( FD_UNLIKELY( pthread_setname_np( threads[ i ], thread_name ) ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-    FD_COMPILER_MFENCE();
-    while( !wait ) ;
-    FD_COMPILER_MFENCE();
   }
 
-  fd_sandbox( 0, uid, gid, 0, 0, NULL, 0, NULL );
+  fd_sandbox( 0, config->uid, config->gid, 0, 0, NULL, 0, NULL );
 
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, save_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
