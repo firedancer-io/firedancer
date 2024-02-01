@@ -116,6 +116,10 @@ fd_snapshot_restore_footprint( void ) {
   return FD_LAYOUT_FINI( l, fd_snapshot_restore_align() );
 }
 
+/* TODO: Snapshot restore should allocate buffers on-demand from
+         fd_alloc.  This allows unpacking snapshots with a tight
+         memory budget. */
+
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *               mem,
                          fd_exec_slot_ctx_t * slot_ctx,
