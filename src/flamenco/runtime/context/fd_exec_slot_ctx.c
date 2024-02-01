@@ -2,6 +2,7 @@
 #include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 
+#include <assert.h>
 #include <time.h>
 
 void *
@@ -250,17 +251,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_epoch_stakes_t *            stakes0 = NULL;  /* current */
     fd_epoch_stakes_t *            stakes1 = NULL;  /* next */
     for( ulong i=0UL; i < manifest->bank.epoch_stakes_len; i++ ) {
-      if( epochs[i].key == epoch ){
+      if( epochs[i].key == epoch )
         stakes0 = &epochs[i].value;
-        break;
-      }
-      if( epochs[i].key == epoch+1UL ) {
+      if( epochs[i].key == epoch+1UL )
         stakes1 = &epochs[i].value;
-        break;
-      }
     }
     if( FD_UNLIKELY( (!stakes0) | (!stakes1) ) ) {
-      FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu,%lu", epoch, epoch+1UL ));
+      FD_LOG_WARNING(( "snapshot missing EpochStakes for epochs %lu and/or %lu", epoch, epoch+1UL ));
       return 0;
     }
 
