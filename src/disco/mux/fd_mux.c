@@ -564,6 +564,18 @@ fd_mux_tile( fd_cnc_t *              cnc,
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
+#if FD_USING_CLANG
+    /* TODO: Clang optimizes extremely aggressively which breaks the
+       atomicity expected by seq_sig_query.  In particular, it replaces
+       the sequence query with a second load (immediately following
+       vector load).  The signature query a few lines down is still an
+       extract from the vector which then means that effectively the
+       signature is loaded before the sequence number.
+       Adding this clobbers of the vector prevents this optimization by
+       forcing the seq query to be an extract, but we probably want a
+       better long term solution. */
+    __asm__( "" : "+x"(seq_sig) );
+#endif
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
 
     long diff = fd_seq_diff( this_in_seq, seq_found );

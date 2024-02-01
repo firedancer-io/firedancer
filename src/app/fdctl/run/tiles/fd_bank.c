@@ -139,10 +139,12 @@ during_frag( void * _ctx,
   fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
+    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark || sz!=sizeof(fd_became_leader_t) ) ) {
+      FD_LOG_WARNING(( "seq=%lu sig=%lx. pkt_type=%lu", seq, sig, fd_disco_poh_sig_pkt_type( sig ) ));
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->poh_in_chunk0, ctx->poh_in_wmark ));
+    }
 
-    fd_memcpy( &ctx->leader_frag, fd_chunk_to_laddr( ctx->poh_in_mem, chunk ), 16UL );
+    fd_memcpy( &ctx->leader_frag, fd_chunk_to_laddr( ctx->poh_in_mem, chunk ), sizeof(fd_became_leader_t) );
   } else {
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
     uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

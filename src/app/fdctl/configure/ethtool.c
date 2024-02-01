@@ -119,7 +119,7 @@ check_device( const char * device,
   struct ethtool_channels channels = {0};
   channels.cmd = ETHTOOL_GCHANNELS;
 
-  struct ifreq ifr;
+  struct ifreq ifr = {0};
   strncpy( ifr.ifr_name, device, IF_NAMESIZE );
   ifr.ifr_name[ IF_NAMESIZE - 1 ] = '\0'; // silence linter, not needed for correctness
   ifr.ifr_data = (void *)&channels;
