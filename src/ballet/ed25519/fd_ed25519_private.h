@@ -206,6 +206,56 @@ fd_ed25519_sc_neg   ( uchar *       s,
   return fd_ed25519_sc_muladd( s, fd_ed25519_scalar_minus_one, a, fd_ed25519_scalar_zero );
 }
 
+static inline uchar *
+fd_ed25519_sc_inv( uchar *       s,
+                   uchar const * a ) {
+  uchar t[ 32 ];
+  // TODO: use mul chain to save ~12% https://briansmith.org/ecc-inversion-addition-chains-01#curve25519_scalar_inversion
+  /* the bits of -2 are the same as -1, except the first few (that we skip):
+     -1 = 0xEC ... = b 1110 1100 ...
+     -2 = 0xEB ... = b 1110 1011 ...
+                       ^ bit 7 ^ bit 0
+   */
+  /* bit 0 == 1 */
+  fd_memcpy( t, a, 32 );
+  fd_memcpy( s, a, 32 );
+  /* bit 1 == 1 */
+  fd_ed25519_sc_mul( t, t, t );
+  fd_ed25519_sc_mul( s, s, t );
+  /* bit 2 == 0 */
+  fd_ed25519_sc_mul( t, t, t );
+  /* from bit 3 on, use -1 bits */
+  for( ulong i=3; i<=252; i++ ) {
+    fd_ed25519_sc_mul( t, t, t );
+    if( (fd_ed25519_scalar_minus_one[ i/8 ] & (1 << (i % 8))) ) {
+      fd_ed25519_sc_mul( s, s, t );
+    }
+  }
+  return s;
+}
+
+static inline void
+fd_ed25519_sc_batch_inv( uchar       s     [ static 32 ], /* sz scalars */
+                         uchar       allinv[ static 32 ], /* 1 scalar */
+                         uchar const a     [ static 32 ], /* sz scalars */
+                         ulong       sz ) {
+  uchar acc[ 32 ];
+  fd_memcpy( acc, fd_ed25519_scalar_one, 32 );
+  for( ulong i=0; i<sz; i++ ) {
+    fd_memcpy( &s[ i*32 ], acc, 32 );
+    fd_ed25519_sc_mul( acc, acc, &a[ i*32 ] );
+  }
+
+  fd_ed25519_sc_inv( acc, acc );
+  fd_memcpy( allinv, acc, 32 );
+
+  for( int i=(int)sz-1; i>=0; i-- ) {
+    fd_ed25519_sc_mul( &s[ i*32 ], &s[ i*32 ], acc );
+    fd_ed25519_sc_mul( acc, acc, &a[ i*32 ] );
+  }
+}
+
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_ed25519_private_h */

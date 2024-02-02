@@ -3,6 +3,7 @@
 
 #include "fd_zktpp.h"
 #include "transcript/fd_zktpp_transcript.h"
+#include "bulletproofs/fd_bulletproofs.h"
 #include "../fd_zk_token_proof_program.h"
 #include "../../fd_executor.h"
 
@@ -23,6 +24,11 @@
 /* Internal error for ZKP verify_proof instructions, to distinguish
    from the external error which is FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA. */
 #define FD_ZKTPP_VERIFY_PROOF_ERROR FD_EXECUTOR_INSTR_ERR_GENERIC_ERR
+
+/* Basepoints for Pedersen commitments.
+   They're the same as bulletproofs, but some ZKP don't use bulletproofs. */
+#define fd_zktpp_basepoint_G fd_bulletproofs_basepoint_G
+#define fd_zktpp_basepoint_H fd_bulletproofs_basepoint_H
 
 /* Size of the context struct for each verify_proof instruction. */
 static const ulong fd_zktpp_context_sz[] = {

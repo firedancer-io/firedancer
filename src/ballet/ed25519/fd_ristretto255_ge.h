@@ -31,6 +31,14 @@ typedef fd_ed25519_point_t fd_ristretto255_point_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* fd_ristretto255_point_copy copies a point using memcpy. */
+
+static inline void
+fd_ristretto255_point_copy( fd_ristretto255_point_t *  h,
+                            fd_ed25519_ge_p3_t const * p ) {
+  fd_memcpy( h, p, sizeof(fd_ed25519_ge_p3_t) );
+}
+
 /* fd_ristretto255_point_compress compresses the ristretto element f
    to a 32-byte canonical representation and stores the result in s.
    It returns s. */
@@ -98,7 +106,7 @@ fd_ristretto255_extended_frombytes( fd_ristretto255_point_t * h_,
   return h_;
 }
 
-/* fd_ristretto255_point_eq checks if two elements of the ristretto group 
+/* fd_ristretto255_point_eq checks if two elements of the ristretto group
    p and q are equal.
    It returns 1 on success, 0 on failure. */
 
@@ -120,6 +128,32 @@ fd_ristretto255_point_eq( fd_ristretto255_point_t * const p_,
 
   return x | y;
 }
+
+/* fd_ristretto255_point_eq_neg checks if two elements of the ristretto group
+   p and q are such that -p == q. This uses just 1 extra neg.
+   It returns 1 on success, 0 on failure. */
+
+static inline int
+fd_ristretto255_point_eq_neg( fd_ristretto255_point_t * const p_,
+                              fd_ristretto255_point_t * const q_ ) {
+  // https://ristretto.group/details/equality.html
+  fd_ed25519_ge_p3_t const * p = fd_type_pun_const( p_ );
+  fd_ed25519_ge_p3_t const * q = fd_type_pun_const( q_ );
+  fd_ed25519_fe_t neg[1];
+  fd_ed25519_fe_t cmp[2];
+
+  fd_ed25519_fe_neg( neg, p->X );
+  fd_ed25519_fe_mul( &cmp[ 0 ], neg, q->Y );
+  fd_ed25519_fe_mul( &cmp[ 1 ], q->X, p->Y );
+  int x = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  fd_ed25519_fe_mul( &cmp[ 0 ], neg, q->X );
+  fd_ed25519_fe_mul( &cmp[ 1 ], p->Y, q->Y );
+  int y = fd_ed25519_fe_eq( &cmp[ 0 ], &cmp[ 1 ] );
+
+  return x | y;
+}
+
 
 /* fd_ristretto255_hash_to_curve computes an element h of the ristretto group
    given an array s of 64-byte of uniformly random input (e.g., the output of a

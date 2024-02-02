@@ -1,7 +1,6 @@
 #include "../fd_zktpp_private.h"
-#include "../encryption/fd_zktpp_encryption.h"
 
-static void
+static inline void
 pubkey_validity_transcript_init( fd_zktpp_transcript_t *                    transcript,
                                  fd_zktpp_pubkey_validity_context_t const * context ) {
   fd_zktpp_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("PubkeyProof") );
@@ -13,7 +12,6 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_zktpp_pubkey_validity_proof_t const * proof,
   uchar const                              pubkey         [ static 32 ],
   fd_zktpp_transcript_t *                  transcript ) {
-  FD_LOG_DEBUG(( "fd_zktpp_verify_proof_pubkey_validity" ));
   /*
     We need to verify the following equivalence:
         z H =?= c P + Y
@@ -25,7 +23,7 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_ristretto255_point_t points[2];
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
-  fd_memcpy( &points[0], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
+  fd_ristretto255_point_copy( &points[0], fd_zktpp_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], pubkey )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -55,11 +53,11 @@ fd_zktpp_verify_proof_pubkey_validity(
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 2 );
-  if( FD_UNLIKELY( fd_ristretto255_point_eq( res, y )==0 ) ) {
-    return FD_ZKTPP_VERIFY_PROOF_ERROR;
-  }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }
 
 int
@@ -67,6 +65,8 @@ fd_zktpp_instr_verify_proof_pubkey_validity( void const * _context, void const *
   fd_zktpp_transcript_t transcript[1];
   fd_zktpp_pubkey_validity_context_t const * context = _context;
   fd_zktpp_pubkey_validity_proof_t const *   proof   = _proof;
+
+  FD_LOG_DEBUG(( "fd_zktpp_instr_verify_proof_pubkey_validity" ));
 
   pubkey_validity_transcript_init( transcript, context );
   return fd_zktpp_verify_proof_pubkey_validity(

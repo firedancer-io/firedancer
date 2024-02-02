@@ -5,7 +5,7 @@
 #define FD_ZKTPP_TRANSFER_AMOUNT_LO_NEGATED_BITS 16
 #define FD_ZKTPP_TRANSFER_AMOUNT_HI_BITS         16
 
-static void
+static inline void
 transfer_transcript_init( fd_zktpp_transcript_t *             transcript,
                           fd_zktpp_transfer_context_t const * context ) {
   fd_zktpp_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("transfer-proof") );
@@ -22,6 +22,8 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
   fd_zktpp_transfer_proof_t const *   proof = _proof;
   int zkp_res = 0;
 
+  FD_LOG_DEBUG(( "fd_zktpp_instr_verify_proof_transfer_without_fee" ));
+
   transfer_transcript_init( transcript, context );
   fd_zktpp_transcript_append_commitment( transcript, FD_TRANSCRIPT_LITERAL("commitment-new-source"), proof->new_source_commitment );
 
@@ -33,6 +35,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    /* early return */
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
@@ -50,6 +53,7 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     transcript
   );
   if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    /* early return */
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
@@ -77,9 +81,9 @@ fd_zktpp_instr_verify_proof_transfer_without_fee( void const * _context, void co
     4,
     transcript
   );
-  if( FD_UNLIKELY( zkp_res!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    return FD_ZKTPP_VERIFY_PROOF_ERROR;
-  }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LIKELY( zkp_res==FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }

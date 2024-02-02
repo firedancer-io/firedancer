@@ -1,7 +1,6 @@
 #include "../fd_zktpp_private.h"
-#include "../encryption/fd_zktpp_encryption.h"
 
-static void
+static inline void
 grouped_ciphertext_validity_transcript_init(
   fd_zktpp_transcript_t *                 transcript,
   fd_zktpp_grp_ciph_val_context_t const * context ) {
@@ -16,6 +15,8 @@ fd_zktpp_instr_verify_proof_grouped_ciphertext_validity( void const * _context, 
   fd_zktpp_transcript_t transcript[1];
   fd_zktpp_grp_ciph_val_context_t const * context = _context;
   fd_zktpp_grp_ciph_val_proof_t const *   proof   = _proof;
+
+  FD_LOG_DEBUG(( "fd_zktpp_instr_verify_proof_grouped_ciphertext_validity" ));
 
   grouped_ciphertext_validity_transcript_init( transcript, context );
   return fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(

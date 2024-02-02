@@ -4,14 +4,15 @@
 #
 # Dependencies: spl-token, solana.
 # https://github.com/solana-labs/solana-program-library/tree/token-2022-v1.0.0
-# https://github.com/solana-labs/solana/tree/v1.17.6
+# https://github.com/solana-labs/solana/tree/v1.17.13
 #
 # In another shell, run:
 # solana-test-validator --reset
 
 SOLANA=solana
+SOLANA=../solana/target/debug/solana
 TOKEN=spl-token
-#TOKEN=../solana-program-library/target/release/spl-token
+TOKEN=../solana-program-library/target/debug/spl-token
 
 CONF=~/.config/solana/cli/config.yml
 ALICE_CONF=~/.config/solana/cli/alice.yml

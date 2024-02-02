@@ -1,7 +1,6 @@
 #include "../fd_zktpp_private.h"
-#include "../encryption/fd_zktpp_encryption.h"
 
-static void
+static inline void
 batched_grouped_ciphertext_validity_transcript_init(
   fd_zktpp_transcript_t *                         transcript,
   fd_zktpp_batched_grp_ciph_val_context_t const * context ) {
@@ -77,11 +76,12 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   }
 
   /* Validate all inputs */
+  uchar scalars[ 12 * 32 ];
   fd_ristretto255_point_t points[12];
   fd_ristretto255_point_t y0[1];
   fd_ristretto255_point_t res[1];
-  fd_memcpy( &points[0], fd_zktpp_basepoint_G, sizeof(fd_ristretto255_point_t) );
-  fd_memcpy( &points[1], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
+  fd_ristretto255_point_copy( &points[0], fd_zktpp_basepoint_G );
+  fd_ristretto255_point_copy( &points[1], fd_zktpp_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y0, proof->y0 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -109,7 +109,6 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], dst_handle_hi )==NULL ) ) {
       return FD_ZKTPP_VERIFY_PROOF_ERROR;
     }
-    idx += 2;
   } else {
     if( FD_UNLIKELY( comm_hi!=NULL ) ) {
       return FD_ZKTPP_VERIFY_PROOF_ERROR;
@@ -136,8 +135,6 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
       return FD_ZKTPP_VERIFY_PROOF_ERROR;
     }
   }
-
-  uchar scalars[ 12 * 32 ];
 
   /* Finalize transcript and extract challenges */
   uchar t[ 32 ];
@@ -185,11 +182,11 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, idx );
-  if( FD_UNLIKELY( fd_ristretto255_point_eq( res, y0 )==0 ) ) {
-    return FD_ZKTPP_VERIFY_PROOF_ERROR;
-  }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }
 
 int

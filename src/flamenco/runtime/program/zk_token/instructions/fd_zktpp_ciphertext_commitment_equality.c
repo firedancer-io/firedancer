@@ -1,7 +1,6 @@
 #include "../fd_zktpp_private.h"
-#include "../encryption/fd_zktpp_encryption.h"
 
-static void
+static inline void
 ciph_comm_eq_transcript_init( fd_zktpp_transcript_t *        transcript,
                      fd_zktpp_ciph_comm_eq_context_t const * context ) {
   fd_zktpp_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("CtxtCommEqualityProof") );
@@ -17,7 +16,6 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   uchar const                           source_ciphertext     [ static 64 ],
   uchar const                           destination_commitment[ static 32 ],
   fd_zktpp_transcript_t *               transcript ) {
-  FD_LOG_DEBUG(( "fd_zktpp_verify_proof_ciphertext_commitment_equality" ));
   /*
     We need to verify the 3 following equivalences.
     Instead of verifying them one by one, it's more efficient to pack
@@ -43,11 +41,12 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
   */
 
   /* Validate all inputs */
+  uchar scalars[ 8 * 32 ];
   fd_ristretto255_point_t points[8];
   fd_ristretto255_point_t y2[1];
   fd_ristretto255_point_t res[1];
-  fd_memcpy( &points[0], fd_zktpp_basepoint_G, sizeof(fd_ristretto255_point_t) );
-  fd_memcpy( &points[1], fd_zktpp_basepoint_H, sizeof(fd_ristretto255_point_t) );
+  fd_ristretto255_point_copy( &points[0], fd_zktpp_basepoint_G );
+  fd_ristretto255_point_copy( &points[1], fd_zktpp_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[2], proof->y0 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -70,7 +69,6 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
-  uchar scalars[ 8 * 32 ];
   if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->zs )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -108,11 +106,11 @@ fd_zktpp_verify_proof_ciphertext_commitment_equality(
 
   /* Compute the final MSM */
   fd_ristretto255_multiscalar_mul( res, scalars, points, 8 );
-  if( FD_UNLIKELY( fd_ristretto255_point_eq( res, y2 )==0 ) ) {
-    return FD_ZKTPP_VERIFY_PROOF_ERROR;
-  }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LIKELY( fd_ristretto255_point_eq( res, y2 ) ) ) {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+  return FD_ZKTPP_VERIFY_PROOF_ERROR;
 }
 
 int
@@ -120,6 +118,8 @@ fd_zktpp_instr_verify_proof_ciphertext_commitment_equality( void const * _contex
   fd_zktpp_transcript_t transcript[1];
   fd_zktpp_ciph_comm_eq_context_t const * context = _context;
   fd_zktpp_ciph_comm_eq_proof_t const *   proof   = _proof;
+
+  FD_LOG_DEBUG(( "fd_zktpp_instr_verify_proof_ciphertext_commitment_equality" ));
 
   ciph_comm_eq_transcript_init( transcript, context );
   return fd_zktpp_verify_proof_ciphertext_commitment_equality(
