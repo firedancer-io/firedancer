@@ -16,6 +16,7 @@ RM:=rm -fv
 PATCH:=patch
 MKDIR:=mkdir -pv
 RMDIR:=rm -rfv
+TOUCH:=touch
 SED:=sed
 FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)

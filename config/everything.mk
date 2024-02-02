@@ -39,6 +39,7 @@ help:
 	# RM              = $(RM)
 	# MKDIR           = $(MKDIR)
 	# RMDIR           = $(RMDIR)
+	# TOUCH           = $(TOUCH)
 	# SED             = $(SED)
 	# FIND            = $(FIND)
 	# SCRUB           = $(SCRUB)
@@ -162,7 +163,8 @@ $(OBJDIR)/$(1)/$(2): $(MKPATH)$(2)
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
 $(CP) $$< $$@ && \
-chmod 755 $$@
+chmod 755 $$@ && \
+$(TOUCH) $$@
 
 $(1): $(OBJDIR)/$(1)/$(2)
 
@@ -343,14 +345,16 @@ $(OBJDIR)/include/% : src/%
 	# Copying header $^ to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CP) $^ $@
+$(CP) $^ $@ && \
+$(TOUCH) $@
 
 $(OBJDIR)/example/% : src/%
 	#######################################################################
 	# Copying example $^ to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
-$(CP) $^ $@
+$(CP) $^ $@ && \
+$(TOUCH) $@
 
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES)),)
 # If we are not in an auxiliary rule (aka we need to actually build something/need dep tree)

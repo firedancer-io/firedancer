@@ -1,28 +1,19 @@
 #ifndef HEADER_fd_src_tango_quic_tls_fd_quic_tls_h
 #define HEADER_fd_src_tango_quic_tls_fd_quic_tls_h
 
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/ossl_typ.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 #include "../fd_quic_common.h"
+#include "../../tls/fd_tls.h"
 
 /* QUIC-TLS
 
    This defines an API for QUIC-TLS
 
-   Currently, this uses a fork of openssl found here:
-     https://github.com/quictls/openssl.git
-
    General operation:
      // set up a quic-tls config object
      fd_quic_tls_cfg_t quic_tls_cfg = {
-       .client_hello_cb       = my_client_hello_cb,  // client_hello receives a callback
-                                                     // to determine whether a handshake
-                                                     // should be accepted
-
        .alert_cb              = my_alert_cb,         // callback for quic-tls to alert of
                                                      // handshake errors
 
@@ -32,9 +23,6 @@
 
        .max_concur_handshakes = 1234,                // number of handshakes this object can
                                                      // manage concurrently
-
-       .alpns                 = "\x02solana-tpu",    // ALPN
-       .alpns_sz              = 11                   // number of bytes of ALPN - see spec
        };
 
      // create a quic-tls object to manage handshakes:
@@ -76,9 +64,6 @@
 #define FD_QUIC_TLS_HS_DATA_SZ  (1u<<14u)
 
 /* callback function prototypes */
-typedef int
-(* fd_quic_tls_cb_client_hello_t)( fd_quic_tls_hs_t * hs,
-                                   void *             context );
 
 typedef void
 (* fd_quic_tls_cb_alert_t)( fd_quic_tls_hs_t * hs,
@@ -94,61 +79,47 @@ typedef void
 (* fd_quic_tls_cb_handshake_complete_t)( fd_quic_tls_hs_t * hs,
                                          void *             context  );
 
-typedef void
-(* fd_quic_tls_cb_keylog_t)( fd_quic_tls_hs_t * hs,
-                             char const *       line );
-
 struct fd_quic_tls_secret {
-  OSSL_ENCRYPTION_LEVEL enc_level;
-  uchar const *         read_secret;
-  uchar const *         write_secret;
-  uint                  suite_id;
-  ulong                 secret_len;
+  uint  suite_id;
+  uint  enc_level;
+  uchar read_secret [ 64 ];
+  uchar write_secret[ 64 ];
+  uchar secret_len;
 };
 
 struct fd_quic_tls_cfg {
   // callbacks ../crypto/fd_quic_crypto_suites
-  fd_quic_tls_cb_client_hello_t        client_hello_cb;
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
-  fd_quic_tls_cb_keylog_t              keylog_cb;
 
   ulong          max_concur_handshakes;
 
-  /* Certificate and key */
-  EVP_PKEY * cert_key;
-  X509 *     cert;
+  /* Signing callback for TLS 1.3 CertificateVerify. Context of the
+     signer must outlive the tls object. */
+  fd_tls_sign_t signer;
 
-  /* keylog_fd == 0 indicates no keylogger file */
-  int            keylog_fd;             /* keylogger file */
-
-  uchar const *  alpns;                 /* ALPNs */
-  uint           alpns_sz;              /* number of bytes... see ALPN spec */
+  /* Ed25519 public key */
+  uchar const * cert_public_key;
 };
 
 /* structure for organising handshake data */
 struct fd_quic_tls_hs_data {
-  uchar const *            data;
-  uint                     data_sz;
-  uint                     free_data_sz; /* internal use */
-  uint                     offset;
-  OSSL_ENCRYPTION_LEVEL    enc_level;
+  uchar const * data;
+  uint          data_sz;
+  uint          free_data_sz; /* internal use */
+  uint          offset;
+  uint          enc_level;
 
   /* internal use */
   ushort      next_idx; /* next in linked list, ~0 for end */
 };
 
-struct fd_quic_tls {
-  uchar const *                        transport_params;
-  ulong                                transport_params_sz;
-
+struct __attribute__((aligned(128))) fd_quic_tls {
   /* callbacks */
-  fd_quic_tls_cb_client_hello_t        client_hello_cb;
   fd_quic_tls_cb_alert_t               alert_cb;
   fd_quic_tls_cb_secret_t              secret_cb;
   fd_quic_tls_cb_handshake_complete_t  handshake_complete_cb;
-  fd_quic_tls_cb_keylog_t              keylog_cb;
 
   ulong                                max_concur_handshakes;
 
@@ -157,23 +128,19 @@ struct fd_quic_tls {
   uchar *                              used_handshakes;
 
   /* ssl related */
-  SSL_CTX *                            ssl_ctx;
-
-  /* Regular file descriptor for key logging.
-     Owned by fd_quic. */
-  int keylog_fd;
-
-  /* ALPNs in OpenSSL length-prefixed list format */
-  uchar const * alpns;
-  uint          alpns_sz;
+  fd_tls_t tls;
 };
 
 #define FD_QUIC_TLS_HS_DATA_UNUSED ((ushort)~0u)
 
 struct fd_quic_tls_hs {
-  fd_quic_tls_t * quic_tls;
+  /* TLS handshake handles are deliberately placed at the start.
+     Allows for type punning between fd_quic_tls_hs_t and
+     fd_tls_estate_{srv,cli}_t.  DO NOT MOVE.
+     Type of handshake object depends on is_server. */
+  fd_tls_estate_t hs;
 
-  SSL *           ssl;
+  fd_quic_tls_t * quic_tls;
 
   int             is_server;
   int             is_flush;
@@ -223,10 +190,20 @@ struct fd_quic_tls_hs {
   /* TLS alert code */
   uint  alert;
 
-  /* error condition */
-  int   err_ssl_rc;
-  int   err_ssl_err;
-  int   err_line;
+  /* buffer peer's QUIC transport params.  TODO This is annoying and a
+     remnant from OpenSSL times.  fd_quic_conn already has a transport
+     params buffer.  Instead, we should callback chain as such when the
+     peer sends transport params:
+
+       fd_tls => fd_quic_tls => fd_quic
+
+     And have fd_quic decode the transport params on the spot. */
+  uchar peer_transport_params_sz;
+  uchar peer_transport_params[ 255 ];
+
+  /* buffer our own QUIC transport params.  This is even more annoying. */
+  uchar self_transport_params_sz;
+  uchar self_transport_params[ 255 ];
 };
 
 ulong
@@ -244,7 +221,7 @@ fd_quic_tls_new( void *              mem,
 
 /* fd_quic_delete unformats a memory region used as an fd_quic_tls_t.
    Returns the given pointer on success and NULL if used obviously in error.
-   Frees any OpenSSL resources. */
+   Deletes any fd_tls resources. */
 
 void *
 fd_quic_tls_delete( fd_quic_tls_t * self );
@@ -263,9 +240,9 @@ fd_quic_tls_hs_new( fd_quic_tls_t * quic_tls,
 void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self );
 
-/* provide data
-   called when the user gets data from the peer to forward it
-   to this management object
+/* fd_quic_tls_provide_data forwards an incoming QUIC CRYPTO frame
+   containing TLS handshake message data to the underlying TLS
+   implementation.
 
    In the case of a failure, errors will be stored in the fd_quic_tls_t object
 
@@ -280,10 +257,10 @@ fd_quic_tls_hs_delete( fd_quic_tls_hs_t * self );
      FD_QUIC_TLS_FAILED
    */
 int
-fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
-                          OSSL_ENCRYPTION_LEVEL enc_level,
-                          uchar const *         data,
-                          ulong                 data_sz );
+fd_quic_tls_provide_data( fd_quic_tls_hs_t * self,
+                          uint               enc_level,
+                          uchar const *      data,
+                          ulong              data_sz );
 
 
 /* fd_quic_tls_get_hs_data
@@ -305,7 +282,7 @@ fd_quic_tls_provide_data( fd_quic_tls_hs_t *    self,
      data        a pointer for receiving the pointer to the data buffer
      data_sz     a pointer for receiving the data size */
 fd_quic_tls_hs_data_t *
-fd_quic_tls_get_hs_data( fd_quic_tls_hs_t *  self, int enc_level );
+fd_quic_tls_get_hs_data( fd_quic_tls_hs_t *  self, uint enc_level );
 
 
 /* fd_quic_tls_get_next_hs_data
@@ -321,14 +298,13 @@ fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * h
 
    remove handshake data from head of queue and free associated resources */
 void
-fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, int enc_level );
+fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
 
 
 /* process a handshake
    parses and handles incoming data (delivered via fd_quic_tls_provide_data)
    generates new data to send to peer
    makes callbacks for notification of the following:
-       client_hello_cb        initial handshake. May be used to accept or reject
        alert_cb               a tls alert has occurred and the handshake has failed
        secret_cb              a secret is available
        handshake_complete_cb  the handshake is complete - stream handling can begin */

@@ -3,14 +3,14 @@
 #include <stdlib.h>
 
 void *
-fd_vm_trace_context_new( void * shmem, ulong FD_PARAM_UNUSED max_trace_entries ) {
+fd_vm_trace_context_new( void * shmem, ulong __attribute__((unused)) max_trace_entries ) {
   return shmem;
 }
 
 fd_vm_trace_context_t *
 fd_vm_trace_context_join( void * shctx );
 
-void * 
+void *
 fd_vm_trace_context_leave( fd_vm_trace_context_t * ctx );
 
 void *
@@ -18,7 +18,7 @@ fd_vm_trace_context_delete( void * shctx );
 
 /* Other functions */
 void
-fd_vm_trace_context_add_entry( fd_vm_trace_context_t * ctx, 
+fd_vm_trace_context_add_entry( fd_vm_trace_context_t * ctx,
                                ulong pc,
                                ulong ic,
                                ulong cus,
@@ -32,7 +32,7 @@ fd_vm_trace_context_add_entry( fd_vm_trace_context_t * ctx,
   current_trace_entry->mem_entries_tail = NULL;
   memcpy( current_trace_entry->register_file, register_file, 11*sizeof(ulong) );
 
-  ctx->trace_entries_used++;                 
+  ctx->trace_entries_used++;
 }
 
 void
@@ -43,7 +43,6 @@ fd_vm_trace_context_add_mem_entry( fd_vm_trace_context_t * ctx,
                                    int write ) {
   fd_vm_trace_entry_t * current_trace_entry = &ctx->trace_entries[ctx->trace_entries_used-1];
   fd_vm_trace_mem_entry_t * current_mem_entry = fd_valloc_malloc(ctx->valloc, 1, sizeof(fd_vm_trace_mem_entry_t));
-  
   current_mem_entry->next = NULL;
   uchar * data = (uchar *)host_addr;
 

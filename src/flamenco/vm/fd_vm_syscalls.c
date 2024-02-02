@@ -1,12 +1,12 @@
 #include "fd_vm_syscalls.h"
 
+#include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/keccak256/fd_keccak256.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
 #include "../../ballet/secp256k1/fd_secp256k1.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
@@ -22,6 +22,15 @@
 #pragma GCC diagnostic ignored "-Wsuggest-attribute=const"
 #endif
 
+/* Consume compute units for mem ops*/
+static ulong
+fd_vm_mem_op_consume( fd_vm_exec_context_t * ctx,
+                      ulong                  n ) {
+  ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost,
+                             n / vm_compute_budget.cpi_bytes_per_unit );
+  return fd_vm_consume_compute_meter( ctx, cost );
+}
+
 /* Representation of a caller account, used to
   update callee accounts. */
 struct fd_caller_account {
@@ -34,20 +43,10 @@ struct fd_caller_account {
 };
 typedef struct fd_caller_account fd_caller_account_t;
 
-#if !FD_HAS_SECP256K1
-#error "This file requires secp256k1"
-#endif
-
-/* Consume compute units for mem ops*/
-static ulong fd_vm_mem_op_consume(fd_vm_exec_context_t * ctx, ulong n) {
-  ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, n / vm_compute_budget.cpi_bytes_per_unit);
-  return fd_vm_consume_compute_meter(ctx, cost);
-}
-
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t *     syscalls,
-                        char const *             name,
-                        fd_sbpf_syscall_fn_ptr_t fn_ptr) {
+fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls,
+                        char const *         name,
+                        fd_sbpf_syscall_fn_t fn_ptr) {
 
   ulong name_len     = strlen(name);
   uint  syscall_hash = fd_murmur3_32( name, name_len, 0U );
@@ -184,6 +183,10 @@ fd_vm_prepare_instruction(
   return 0;
 }
 
+#if !FD_HAS_SECP256K1
+#error "This file requires secp256k1"
+#endif
+
 static void
 fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "abort",                  fd_vm_syscall_abort     );
@@ -218,7 +221,7 @@ fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
   fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address            );
   fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address          );
   fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
-  
+
   fd_vm_register_syscall( syscalls, "sol_alt_bn128_group_op", NULL ); /* TODO: unimplemented */
   fd_vm_register_syscall( syscalls, "sol_ristretto_mul", NULL ); /* TODO: unimplemented */
 }
@@ -295,10 +298,10 @@ fd_vm_syscall_sol_panic(
     void *  _ctx,
     ulong   msg_vaddr,
     ulong   msg_len,
-    ulong   r3  FD_PARAM_UNUSED,
-    ulong   r4  FD_PARAM_UNUSED,
-    ulong   r5  FD_PARAM_UNUSED,
-    ulong * pr0 FD_PARAM_UNUSED) {
+    ulong   r3  __attribute__((unused)),
+    ulong   r4  __attribute__((unused)),
+    ulong   r5  __attribute__((unused)),
+    ulong * pr0 __attribute__((unused))) {
 
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
   ulong err = fd_vm_consume_compute_meter(ctx, msg_len);
@@ -332,8 +335,8 @@ fd_vm_syscall_sol_sha256(
     ulong   slices_vaddr,
     ulong   slices_cnt,
     ulong   res_vaddr,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
 
@@ -378,8 +381,8 @@ fd_vm_syscall_sol_keccak256(
     ulong   slices_vaddr,
     ulong   slices_cnt,
     ulong   res_vaddr,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
 
@@ -439,8 +442,8 @@ fd_vm_syscall_sol_blake3(
     ulong   slices_vaddr,
     ulong   slices_cnt,
     ulong   res_vaddr,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -538,9 +541,9 @@ fd_vm_syscall_sol_log(
     void *  _ctx,
     ulong   msg_vm_addr,
     ulong   msg_len,
-    ulong   r3 FD_PARAM_UNUSED,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -584,10 +587,10 @@ ulong
 fd_vm_syscall_sol_log_pubkey(
     void *  _ctx,
     ulong   pubkey_vm_addr,
-    ulong   r2 FD_PARAM_UNUSED,
-    ulong   r3 FD_PARAM_UNUSED,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r2 __attribute__((unused)),
+    ulong   r3 __attribute__((unused)),
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -614,11 +617,11 @@ fd_vm_syscall_sol_log_pubkey(
 ulong
 fd_vm_syscall_sol_log_compute_units(
     void * _ctx,
-    ulong arg0 FD_PARAM_UNUSED,
-    ulong arg1 FD_PARAM_UNUSED,
-    ulong arg2 FD_PARAM_UNUSED,
-    ulong arg3 FD_PARAM_UNUSED,
-    ulong arg4 FD_PARAM_UNUSED,
+    ulong arg0 __attribute__((unused)),
+    ulong arg1 __attribute__((unused)),
+    ulong arg2 __attribute__((unused)),
+    ulong arg3 __attribute__((unused)),
+    ulong arg4 __attribute__((unused)),
     FD_FN_UNUSED ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -645,9 +648,9 @@ fd_vm_syscall_sol_log_data(
     void * _ctx,
     ulong vm_addr,
     ulong len,
-    ulong r3 FD_PARAM_UNUSED,
-    ulong r4 FD_PARAM_UNUSED,
-    ulong r5 FD_PARAM_UNUSED,
+    ulong r3 __attribute__((unused)),
+    ulong r4 __attribute__((unused)),
+    ulong r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -737,7 +740,7 @@ fd_vm_syscall_sol_memcmp(
     ulong   vm_addr2,
     ulong   n,
     ulong   cmp_result_vm_addr,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -780,10 +783,11 @@ fd_vm_syscall_sol_memset(
     ulong   dst_vm_addr,
     ulong   c,
     ulong   n,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * ret
 ) {
+
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   ulong err = fd_vm_mem_op_consume(ctx, n);
@@ -804,8 +808,8 @@ fd_vm_syscall_sol_memmove(
     ulong   dst_vm_addr,
     ulong   src_vm_addr,
     ulong   n,
-    ulong   r4 FD_PARAM_UNUSED,
-    ulong   r5 FD_PARAM_UNUSED,
+    ulong   r4 __attribute__((unused)),
+    ulong   r5 __attribute__((unused)),
     ulong * ret
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
@@ -943,7 +947,7 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
         instr->acct_txn_idxs[i] = (uchar)j;
         instr->acct_flags[i] = 0;
         instr->borrowed_accounts[i] = &ctx->instr_ctx->txn_ctx->borrowed_accounts[j];
-         
+
         instr->is_duplicate[i] = acc_idx_seen[j];
         if( FD_LIKELY( !acc_idx_seen[j] ) ) {
           /* This is the first time seeing this account */
@@ -1003,13 +1007,13 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
       break;
     }
   }
-  
+
   ulong starting_lamports = 0;
   uchar acc_idx_seen[256];
   memset(acc_idx_seen, 0, 256);
   // FD_LOG_DEBUG(("Accounts cnt %lu %lu", ctx->instr_ctx->txn_ctx->accounts_cnt, ctx->instr_ctx->txn_ctx->txn_descriptor->acct_addr_cnt));
   for( ulong i = 0; i < cpi_instr->accounts.len; i++ ) {
-    fd_vm_rust_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];     
+    fd_vm_rust_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
 
     for( ulong j = 0; j < ctx->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
       if( memcmp( &cpi_acct_meta->pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) )==0 ) {
@@ -1027,7 +1031,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
             starting_lamports += instr->borrowed_accounts[i]->const_meta->info.lamports;
           }
         }
-        
+
         // TODO: should check the parent has writable flag set
         if( cpi_acct_meta->is_writable && fd_instr_acc_is_writable( ctx->instr_ctx->instr, (fd_pubkey_t*)cpi_acct_meta->pubkey) ) {
           instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
@@ -1629,11 +1633,11 @@ translate_and_update_accounts(
           fd_caller_account_t caller_account;
           ulong err;
           switch (account_info->discriminant) {
-            case fd_vm_cpi_rust: {
+            case FD_VM_ACCOUNT_INFO_RUST: {
               err = from_account_info_rust(ctx, &account_info->inner.rust_acct_infos[j], &caller_account);
               break;
             }
-            case fd_vm_cpi_c: {
+            case FD_VM_ACCOUNT_INFO_C: {
               err = from_account_info_c(ctx, &account_info->inner.c_acct_infos[j], &caller_account);
               break;
             }
@@ -1801,7 +1805,7 @@ fd_vm_syscall_cpi_c(
     res = fd_vm_cpi_update_caller_account_c(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   }
-  
+
   caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
   if( caller_lamports != ctx->instr_ctx->instr->starting_lamports ) {
     return FD_VM_SYSCALL_ERR_INSTR_ERR;
@@ -2502,5 +2506,3 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 ) {
   return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
 }
-
-/* FIXME: SEE ABOVE PUSH */

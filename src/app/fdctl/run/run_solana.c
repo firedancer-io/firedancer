@@ -2,6 +2,7 @@
 #include "run.h"
 
 #include "../../../util/net/fd_ip4.h"
+#include "../../../util/tile/fd_tile_private.h"
 
 #include <sched.h>
 #include <pthread.h>
@@ -21,9 +22,9 @@ tile_main1( void * args ) {
 static void
 clone_labs_memory_space_tiles( config_t * const config ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
-  cpu_set_t floating_cpu_set[1];
-  if( FD_UNLIKELY( sched_getaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
-    FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  FD_CPUSET_DECL( floating_cpu_set );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
+    FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   errno = 0;
   int floating_priority = getpriority( PRIO_PROCESS, 0 );
@@ -64,20 +65,20 @@ clone_labs_memory_space_tiles( config_t * const config ) {
 
     ushort cpu_idx = tile_to_cpu[ i ];
 
-    cpu_set_t cpu_set[1];
+    FD_CPUSET_DECL( cpu_set );
     if( FD_LIKELY( cpu_idx<65535UL ) ) {
-        /* set the thread affinity before we clone the new process to ensure
-           kernel first touch happens on the desired thread. */
-        CPU_ZERO( cpu_set );
-        CPU_SET( cpu_idx, cpu_set );
-        if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      /* set the thread affinity before we clone the new process to ensure
+          kernel first touch happens on the desired thread. */
+      fd_cpuset_null( cpu_set );
+      fd_cpuset_insert( cpu_set, cpu_idx );
+      if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     } else {
-        fd_memcpy( cpu_set, floating_cpu_set, sizeof(cpu_set_t) );
-        if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
+      if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
-    if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), cpu_set ) ) ) {
-      FD_LOG_WARNING(( "unable to pin tile to cpu with sched_setaffinity (%i-%s). "
+    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+      FD_LOG_WARNING(( "unable to pin tile to cpu with fd_cpuset_setaffinity (%i-%s). "
                       "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
                       "continue without explicitly specifying this cpu's thread affinity but it "
                       "is likely this thread group's performance and stability are compromised "
@@ -89,11 +90,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
 
     /* We have to use pthread_create here to get a new thread-local
        storage area, otherwise it would be nice to use clone(3).
-       
+
        The args we pass must outlive the local stack creating the
        thread, so keep a local static buffer here. */
     static tile_main_args_t args[ FD_TILE_MAX ];
-    
+
     void * stack = fd_tile_private_stack_new( 1, cpu_idx );
     args[ i ] = (tile_main_args_t){
       .config      = config,
@@ -116,37 +117,14 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   }
 
   /* Restore the original affinity */
-  if( FD_UNLIKELY( sched_setaffinity( 0, sizeof(cpu_set_t), floating_cpu_set ) ) )
-    FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
+    FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) )
-    FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "fd_setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-int
-solana_labs_main( void * args ) {
-  config_t * const config = args;
-
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%d", getpid1() ));
-      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
-        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      fd_log_private_shared_lock[1] = 0;
-    } else {
-      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
-    }
-  }
-
-  clone_labs_memory_space_tiles( config );
-
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
-  fd_log_private_tid_set( pid );
-  fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
-                                 &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_NOTICE(( "booting solana pid:%lu", fd_log_group_id() ));
-
-  fd_sandbox( 0, config->uid, config->gid, 0UL, 0, NULL, 0, NULL );
-
+void
+solana_labs_boot( config_t * config ) {
   uint idx = 0;
   char * argv[ 128 ];
   uint bufidx = 0;
@@ -215,6 +193,9 @@ solana_labs_main( void * args ) {
     snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
     ADD( "--gossip-host", ip_addr );
   }
+  if( config->development.gossip.allow_private_address ) {
+    ADD1( "--allow-private-addr" );
+  }
 
   /* rpc */
   if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
@@ -247,6 +228,34 @@ solana_labs_main( void * args ) {
 
   /* solana labs main will exit(1) if it fails, so no return code */
   fd_ext_validator_main( (const char **)argv );
+}
+
+int
+solana_labs_main( void * args ) {
+  config_t * const config = args;
+
+  if( FD_UNLIKELY( config->development.debug_tile ) ) {
+    if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%d", getpid1() ));
+      if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
+        FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_log_private_shared_lock[1] = 0;
+    } else {
+      while( FD_LIKELY( fd_log_private_shared_lock[1] ) ) FD_SPIN_PAUSE();
+    }
+  }
+
+  clone_labs_memory_space_tiles( config );
+
+  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  fd_log_private_tid_set( pid );
+  fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
+                                 &fd_tile_private_stack0, &fd_tile_private_stack1 );
+  FD_LOG_NOTICE(( "booting solana pid:%lu", fd_log_group_id() ));
+
+  fd_sandbox( 0, config->uid, config->gid, 0UL, 0, NULL, 0, NULL );
+
+  solana_labs_boot( config );
   return 0;
 }
 

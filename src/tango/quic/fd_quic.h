@@ -22,10 +22,9 @@
 
    ### Memory Management
 
-   fd_quic is almost entirely pre-allocated (with the exception of
-   OpenSSL objects).  Currently, a QUIC object reserves space for a
-   number of connection slots, with uniform stream, reassembly, and ACK
-   buffers.
+   fd_quic is entirely pre-allocated.  Currently, a QUIC object reserves
+   space for a number of connection slots, with uniform stream,
+   reassembly, and ACK buffers.
 
    ### Memory Layout
 
@@ -83,7 +82,7 @@
 /* TODO provide fd_quic on non-hosted targets */
 
 #include "../aio/fd_aio.h"
-#include "../ip/fd_ip.h"
+#include "../tls/fd_tls.h"
 #include "../../util/fd_util.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
@@ -236,15 +235,16 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
 
   /* TLS config ********************************************/
 
-# define FD_QUIC_CERT_PATH_LEN 1023UL
-  char keylog_file[ FD_QUIC_CERT_PATH_LEN+1UL ];
+  /* identity_key: Ed25519 public key of node identity
+     (Can be random bytes) */
+  uchar identity_public_key[ 32 ];
 
-  /* alpns: List of supported ALPN IDs in OpenSSL format.
-     Contains packed list of uchar length prefixed strings
-     with total buffer size alpns_sz.
-       e.g.: <0x0a> "solana-tpu" <0x02> "h2" */
-  char alpns[ 256 ];
-  uint alpns_sz;
+  /* Callback for signing TLS 1.3 certificate verify payload */
+  fd_tls_sign_fn_t sign;
+  void *           sign_ctx;
+
+# define FD_QUIC_PATH_LEN 1023UL
+  char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
   /* Server name indication (client only)
      FIXME: Extend server to validate SNI */
@@ -440,15 +440,6 @@ struct fd_quic {
   fd_aio_t aio_rx; /* local AIO */
   fd_aio_t aio_tx; /* remote AIO */
 
-  fd_ip_t * ip;    /* ownership transferred to fd_quic */
-
-  /* Opaque handles for OpenSSL objects.
-     Owned by fd_quic object (freed on fini).
-     TODO: Instead, provide SSL_CTX object here. */
-
-  void * cert_object;      /* X509 * object */
-  void * cert_key_object;  /* EVP_PKEY * object */
-
   /* ... private variable-length structures follow ... */
 };
 typedef struct fd_quic fd_quic_t;
@@ -480,16 +471,11 @@ fd_quic_footprint( fd_quic_limits_t const * limits );
    or server.  mem is a non-NULL pointer to this region in the local
    address with the required footprint and alignment.  limits is a
    temporary reference, identical to the one given to fd_quic_footprint
-   used to figure out the required footprint.
-
-   The QUIC takes a local join to a fd_ip_t and it will use this for
-   the lifetime of the IP.  The caller should make sure the IP stays
-   joined until the fd_quic_leave is called. */
+   used to figure out the required footprint. */
 
 FD_QUIC_API void *
 fd_quic_new( void *                   mem,
-             fd_quic_limits_t const * limits,
-             fd_ip_t *                ip );
+             fd_quic_limits_t const * limits );
 
 /* fd_quic_join joins the caller to the fd_quic.  shquic points to the
    first byte of the memory region backing the QUIC in the caller's
@@ -509,7 +495,7 @@ fd_quic_join( void * shquic );
 /* fd_quic_leave leaves a current local join and frees all dynamically
    managed resources (heap allocs, OS handles).  Returns the given quic
    on success and NULL on failure (logs details).  Reasons for failure
-   include quic is NULL, no active join, or OpenSSL error. */
+   include quic is NULL or no active join */
 
 FD_QUIC_API void *
 fd_quic_leave( fd_quic_t * quic );
@@ -568,7 +554,7 @@ fd_quic_set_aio_net_tx( fd_quic_t *      quic,
    Returns given quic on success and NULL on failure (logs details).
    Performs various heap allocations and file system accesses such
    reading certs.  Reasons for failure include invalid config or
-   OpenSSL error. */
+   fd_tls error. */
 
 FD_QUIC_API fd_quic_t *
 fd_quic_init( fd_quic_t * quic );
@@ -687,7 +673,7 @@ uint fd_quic_tx_buffered_raw( fd_quic_t      * quic,
                               ulong *          tx_sz,
                               uchar *          crypt_scratch,
                               ulong            crypt_scratch_sz,
-                              uchar *          dst_mac_addr,
+                              uchar const      dst_mac_addr[ static 6 ],
                               ushort *         ipv4_id,
                               uint             dst_ipv4_addr,
                               ushort           src_udp_port,

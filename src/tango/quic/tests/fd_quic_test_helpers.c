@@ -1,4 +1,5 @@
 #include "fd_quic_test_helpers.h"
+#include "../../tls/test_tls_helper.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -6,6 +7,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 
@@ -107,9 +109,9 @@ fd_quic_test_halt( void ) {
 fd_quic_t *
 fd_quic_new_anonymous( fd_wksp_t *              wksp,
                        fd_quic_limits_t const * limits,
-                       int                      role ) {
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
-  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits, ip );
+                       int                      role,
+                       fd_rng_t *               rng ) {
+  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits );
   FD_TEST( shquic );
 
   fd_quic_t * quic = fd_quic_join( shquic );
@@ -136,9 +138,17 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
-  config->idle_timeout     = (ulong)100e6; /* 10ms */
-  config->service_interval = (ulong) 10e6; /* 10ms */
+  config->idle_timeout     = (ulong)200e6; /* 200ms */
+  config->service_interval = (ulong) 10e6; /*  10ms */
   strcpy( config->sni, "local" );
+
+  /* Signer */
+  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
+  *sign_ctx = fd_tls_test_sign_ctx( rng );
+
+  fd_memcpy( config->identity_public_key, sign_ctx->public_key, 32UL );
+  config->sign_ctx = sign_ctx;
+  config->sign     = fd_tls_test_sign_sign;
 
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;

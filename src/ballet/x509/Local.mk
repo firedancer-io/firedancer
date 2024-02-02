@@ -8,8 +8,3 @@ $(call add-hdrs,fd_x509_mock.h)
 $(call add-objs,fd_x509_mock,fd_ballet)
 $(call make-unit-test,test_x509_mock,test_x509_mock,fd_ballet fd_util)
 $(call run-unit-test,test_x509_mock)
-
-ifdef FD_HAS_OPENSSL
-$(call add-hdrs,fd_x509_openssl.h)
-$(call add-objs,fd_x509_openssl,fd_ballet)
-endif

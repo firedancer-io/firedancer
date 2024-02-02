@@ -141,7 +141,7 @@ struct fd_quic_conn {
   fd_quic_crypto_secrets_t secrets;
   fd_quic_crypto_keys_t    keys[4][2];  /* a set of keys for each of the encoding levels, and for client/server */
   fd_quic_crypto_keys_t    new_keys[2]; /* a set of keys for use during key update */
-  fd_quic_crypto_suite_t * suites[4];
+  fd_quic_crypto_suite_t const * suites[4];
   uint                     key_phase;   /* current key phase - represents the current phase of the
                                            value of keys */
   uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */

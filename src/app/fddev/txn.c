@@ -4,9 +4,11 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../tango/quic/fd_quic.h"
 #include "../../tango/quic/tests/fd_quic_test_helpers.h"
+#include "../../tango/tls/test_tls_helper.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
+#include <sys/random.h>
 
 FD_IMPORT_BINARY(sample_transaction, "src/tango/quic/tests/quic_txn.bin");
 
@@ -156,10 +158,21 @@ txn_cmd_fn( args_t *         args,
                                             "wksp",
                                             0UL );
   FD_TEST( wksp );
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_quic_t * quic = fd_quic_new( mem, &quic_limits, ip );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( mem, &quic_limits ) );
   FD_TEST( quic );
+
+  if( FD_UNLIKELY( 32UL!=getrandom( quic->config.identity_public_key, 32UL, 0 ) ) )
+    FD_LOG_ERR(( "failed to generate identity key: getrandom(32,0) failed" ));
+
+  /* Signer */
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
+  *sign_ctx = fd_tls_test_sign_ctx( rng );
+
+  fd_memcpy( quic->config.identity_public_key, sign_ctx->public_key, 32UL );
+  quic->config.sign_ctx = sign_ctx;
+  quic->config.sign     = fd_tls_test_sign_sign;
 
   fd_quic_udpsock_t _udpsock;
   fd_quic_udpsock_t * udpsock = fd_quic_client_create_udpsock( &_udpsock, wksp, fd_quic_get_aio_net_rx( quic ), 0 );
@@ -167,8 +180,6 @@ txn_cmd_fn( args_t *         args,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
-  client_cfg->alpns_sz = 11U;
   memcpy( client_cfg->link.dst_mac_addr, config->tiles.net.mac_addr, 6UL );
   client_cfg->net.ip_addr           = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;

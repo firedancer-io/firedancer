@@ -29,12 +29,6 @@ deps-bundle.tar.zst
 *.swp
 *.swo
 
-# Certificates
-*.csr
-*.crt
-*.key
-*.pem
-
 # Packet Captures
 *.pcap
 *.pcapng

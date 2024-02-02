@@ -103,7 +103,9 @@ main( int     argc,
                  "production environment" ));
 
   int no_sandbox = fd_env_strip_cmdline_contains( &argc, &argv, "--no-sandbox" );
-  config.development.sandbox = config.development.sandbox && !no_sandbox;
+  int no_clone = fd_env_strip_cmdline_contains( &argc, &argv, "--no-clone" );
+  config.development.no_clone = config.development.no_clone || no_clone;
+  config.development.sandbox = config.development.sandbox && !no_sandbox && !no_clone;
 
   const char * action_name = "dev";
   if( FD_UNLIKELY( argc > 0 && argv[ 0 ][ 0 ] != '-' ) ) {
@@ -127,7 +129,7 @@ main( int     argc,
 
   if( FD_UNLIKELY( !action ) ) FD_LOG_ERR(( "unknown subcommand `%s`", action_name ));
 
-  args_t args;
+  args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
 

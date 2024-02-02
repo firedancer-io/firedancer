@@ -3,6 +3,8 @@
 
 #include "fd_tls.h"
 #include "fd_tls_proto.h"
+#include "../../ballet/sha512/fd_sha512.h"
+#include "../../ballet/ed25519/fd_ed25519.h"
 
 /* Common routines for fd_tls unit tests */
 
@@ -28,6 +30,41 @@ fd_tls_test_rand( fd_rng_t * rng ) {
   return (fd_tls_rand_t) {
     .ctx     = rng,
     .rand_fn = fd_tls_test_rand_read
+  };
+}
+
+struct fd_tls_test_sign_ctx {
+  fd_sha512_t sha512[ 1 ];
+
+  uchar public_key[ 32UL ];
+  uchar private_key[ 32UL ];
+};
+typedef struct fd_tls_test_sign_ctx fd_tls_test_sign_ctx_t;
+
+static void
+fd_tls_test_sign_sign( void *        _ctx,
+                       uchar *       signature,
+                       uchar const * payload ) {
+  fd_tls_test_sign_ctx_t * ctx = (fd_tls_test_sign_ctx_t *)_ctx;
+  fd_ed25519_sign( signature, payload, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+}
+
+static FD_FN_UNUSED fd_tls_test_sign_ctx_t
+fd_tls_test_sign_ctx( fd_rng_t * rng ) {
+  fd_tls_test_sign_ctx_t ctx[1];
+  FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
+  for( ulong b=0; b<32UL; b++ ) ctx->private_key[b] = fd_rng_uchar( rng );
+  fd_ed25519_public_from_private( ctx->public_key, ctx->private_key, ctx->sha512 );
+
+  return *ctx;
+}
+
+
+static FD_FN_UNUSED fd_tls_sign_t
+fd_tls_test_sign( void * ctx ) {
+  return (fd_tls_sign_t) {
+    .ctx     = ctx,
+    .sign_fn = fd_tls_test_sign_sign
   };
 }
 

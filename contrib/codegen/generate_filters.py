@@ -101,10 +101,10 @@ def codegen(policy_lines, filt):
 
         if len(lineparts) == 1:
             syscall = lineparts[0]
-            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+syscall), 'RET_ALLOW', 0, pre_comment="simply allow %s" % syscall))
+            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+syscall), 'RET_ALLOW', 0, pre_comment="simply allow %s" % syscall))
         elif len(lineparts) == 2:
             syscall = lineparts[0]
-            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+syscall), f'check_{syscall}', 0, pre_comment=f"allow {syscall} based on expression"))
+            filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+syscall), f'check_{syscall}', 0, pre_comment=f"allow {syscall} based on expression"))
             syscall_to_expression[lineparts[0]] = lineparts[1]
         else:
             print("malformed line @ %s" % (line_number+1), file=sys.stderr)
@@ -146,7 +146,7 @@ def expression(name, expr, filt):
 
     elif type(expr) == edn_format.Symbol:
         # Treat the symbol as the desired effect
-        filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('__NR_'+name), str(expr), 0))
+        filt.append(ReloCondJump("BPF_JMP | BPF_JEQ | BPF_K, %s" % ('SYS_'+name), str(expr), 0))
 
 
 # eval_ walks through the expression tree and lays instructions down

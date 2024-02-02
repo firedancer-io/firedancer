@@ -12,9 +12,9 @@
 #include "../fd_quic_private.h"
 #include "../fd_quic_proto.h"
 #include "fd_quic_test_helpers.h"
+#include "../../tls/test_tls_helper.h"
 
-#include "../../../ballet/ed25519/fd_ed25519_openssl.h"
-#include "../../../ballet/x509/fd_x509_openssl.h"
+#include "../../../ballet/x509/fd_x509_mock.h"
 
 fd_quic_t *server_quic = NULL;
 
@@ -22,6 +22,7 @@ uchar scratch[0x4000];
 size_t scratch_sz = 0x4000;
 
 fd_aio_t _aio[1];
+
 
 ulong test_clock(void *ctx) {
   (void)ctx;
@@ -37,27 +38,6 @@ int test_aio_send_func(void *ctx, fd_aio_pkt_info_t const *batch,
   (void)ctx;
   return 0;
 }
-
-struct fd_quic_pkt {
-  fd_eth_hdr_t eth[1];
-  fd_ip4_hdr_t ip4[1];
-  fd_udp_hdr_t udp[1];
-
-  /* the following are the "current" values only. There may be more QUIC packets
-     in a UDP datagram */
-  fd_quic_long_hdr_t long_hdr[1];
-  ulong pkt_number; /* quic packet number currently being decoded/parsed */
-  ulong rcv_time;   /* time packet was received */
-  uint enc_level;   /* encryption level */
-  uint datagram_sz; /* length of the original datagram */
-  uint ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
-  uint ping;
-#define ACK_FLAG_NOT_RQD 0
-#define ACK_FLAG_RQD 1
-#define ACK_FLAG_CANCEL 2
-};
-
-typedef struct fd_quic_pkt fd_quic_pkt_t;
 
 uint send_packet(uchar const *payload, size_t payload_sz) {
 
@@ -133,24 +113,22 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
 }
 
 void init_quic(void) {
-  server_quic->cb.now = test_clock;
-  server_quic->cb.now_ctx = NULL;
-
   void *ctx = (void *)0x1234UL;
   void *shaio = fd_aio_new(_aio, ctx, test_aio_send_func);
   FD_TEST(shaio);
   fd_aio_t *aio = fd_aio_join(shaio);
   FD_TEST(aio);
 
+  server_quic->cb.now     = test_clock;
+  server_quic->cb.now_ctx = NULL;
+
   fd_quic_set_aio_net_tx(server_quic, aio);
-  uchar pkey[32] = {
-      137, 115, 254, 55,  116, 55,  118, 19,  151, 66,  229,
-      24,  188, 62,  99,  209, 162, 16,  6,   7,   24,  81,
-      152, 128, 139, 234, 170, 93,  88,  204, 245, 205,
-  };
-  server_quic->cert_key_object = fd_ed25519_pkey_from_private(pkey);
-  server_quic->cert_object =
-      fd_x509_gen_solana_cert(server_quic->cert_key_object);
+  fd_quic_init( server_quic );
+}
+
+void
+destroy_quic( void ) {
+  fd_quic_fini( server_quic );
 }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
@@ -189,8 +167,10 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   ulong quic_footprint = fd_quic_footprint(&quic_limits);
   FD_TEST(quic_footprint);
 
-  server_quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER);
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  server_quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng);
   FD_TEST(server_quic);
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   fd_quic_config_t *server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
@@ -201,6 +181,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 
   server_quic->config.initial_rx_max_stream_data = 1 << 14;
   // server_quic->config.retry = 1;
+
   return 0;
 }
 
@@ -209,7 +190,6 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   uchar const *ptr = data;
 
   init_quic();
-  fd_quic_init(server_quic);
 
   while (s > 2) {
     FD_FUZZ_MUST_BE_COVERED;

@@ -1,8 +1,9 @@
 #include "fd_bpf_program_util.h"
-
 #include "fd_bpf_loader_program.h"
 #include "fd_bpf_upgradeable_loader_program.h"
 #include "../../vm/fd_vm_syscalls.h"
+
+#include <assert.h>
 
 fd_sbpf_validated_program_t *
 fd_sbpf_validated_program_new( void * mem ) {
@@ -17,7 +18,13 @@ fd_sbpf_validated_program_align( void ) {
 
 ulong
 fd_sbpf_validated_program_footprint( ulong rodata_sz ) {
-  return sizeof(fd_sbpf_validated_program_t)+(4096*sizeof(fd_sbpf_calldests_t))+rodata_sz;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
+  assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(),            fd_sbpf_calldests_footprint(rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, 8UL,                                  rodata_sz );
+  l = FD_LAYOUT_FINI( l, 128UL );
+  return l;
 }
 
 uchar *
@@ -26,7 +33,7 @@ fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog ) {
 }
 
 int
-fd_bpf_get_executable_program_content_for_loader_v2( fd_exec_slot_ctx_t * slot_ctx, 
+fd_bpf_get_executable_program_content_for_loader_v2( fd_exec_slot_ctx_t * slot_ctx,
                                                      fd_pubkey_t const * program_pubkey,
                                                      uchar const ** program_data,
                                                      ulong * program_data_len ) {
@@ -103,7 +110,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
 
 int
 fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                       fd_pubkey_t const * program_pubkey ) {
+                                       fd_pubkey_t const *  program_pubkey ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_funk_t *       funk = slot_ctx->acc_mgr->funk;
     fd_funk_txn_t *       funk_txn = slot_ctx->funk_txn;
@@ -119,7 +126,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       if( fd_bpf_get_executable_program_content_for_loader_v2( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
         return -1;
       }
-    } else { 
+    } else {
       return -1;
     }
 
@@ -128,7 +135,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_WARNING(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
-    
+
     int funk_err = FD_FUNK_SUCCESS;
     fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( program_data_len ), 1, NULL, &funk_err );
     if( funk_err != FD_FUNK_SUCCESS ) {
@@ -145,7 +152,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     FD_TEST( prog );
 
     /* Allocate syscalls */
-  
+
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
     FD_TEST( syscalls );
 
@@ -158,7 +165,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       return -1;
     }
 
-    fd_memcpy( validated_prog->calldests, prog->calldests, fd_sbpf_calldests_footprint() );
+    fd_memcpy( validated_prog->calldests, prog->calldests, fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
 
     validated_prog->entry_pc = prog->entry_pc;
     validated_prog->last_updated_slot = slot_ctx->slot_bank.slot;
@@ -171,7 +178,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx, 
+fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_funk_txn_t * funk_txn ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cnt = 0;
@@ -199,7 +206,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
         FD_LOG_WARNING(( "failed to load program %32J", program_pubkey->key ));
         continue;
       }
-    } else { 
+    } else {
       continue;
     }
 

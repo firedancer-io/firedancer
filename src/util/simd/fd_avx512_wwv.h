@@ -82,22 +82,21 @@ static inline void  wwv_stu( void * m, wwv_t x ) { _mm512_storeu_epi64( m, x ); 
 #define wwv_or(x,y)          _mm512_or_epi64    ( (x), (y)       ) /* wwv( x0|y0,  x1|y1,  ... x7|y7  ) */
 #define wwv_xor(x,y)         _mm512_xor_epi64   ( (x), (y)       ) /* wwv( x0^y0,  x1^y1,  ... x7^y7  ) */
 
-/* wwv_rol(x,n)        returns wwv( rotate_left (x0,n ), rotate_left (x1,n ), ... )
-   wwv_ror(x,n)        returns wwv( rotate_right(x0,n ), rotate_right(x1,n ), ... )
-   wwv_rol_vector(x,y) returns wwv( rotate_left (x0,y0), rotate_left (x1,y1), ... )
-   wwv_ror_vector(x,y) returns wwv( rotate_right(x0,y0), rotate_right(x1,y1), ... ) */
+/* wwv_rol(x,n)          returns wwv( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwv_ror(x,n)          returns wwv( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwv_rol_variable(x,n) returns wwv( rotate_left (x0,n ), rotate_left (x1,n ), ... )
+   wwv_ror_variable(x,n) returns wwv( rotate_right(x0,n ), rotate_right(x1,n ), ... )
+   wwv_rol_vector(x,y)   returns wwv( rotate_left (x0,y0), rotate_left (x1,y1), ... )
+   wwv_ror_vector(x,y)   returns wwv( rotate_right(x0,y0), rotate_right(x1,y1), ... )
 
-static inline wwv_t wwv_rol( wwv_t a, ulong n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_rol_epi64( (a), (n)&63 ) :
-         wwv_or( wwv_shl( a, n & 63UL ), wwv_shr( a, (-n) & 63UL ) );
-}
+   The variable variants are slower but do not require the shift amount
+   to be known at compile time. */
 
-static inline wwv_t wwv_ror( wwv_t a, ulong n ) {
-  return __builtin_constant_p(n) ?
-         _mm512_ror_epi64( (a), (n)&63 ) :
-         wwv_or( wwv_shr( a, n & 63UL ), wwv_shl( a, (-n) & 63UL ) );
-}
+#define wwv_rol(a,imm)  _mm512_rol_epi64( (a), (imm)&63 )
+#define wwv_ror(a,imm)  _mm512_ror_epi64( (a), (imm)&63 )
+
+static inline wwv_t wwv_rol_variable( wwv_t a, ulong n ) { return wwv_or( wwv_shl( a, n & 63UL ), wwv_shr( a, (-n) & 63UL ) ); }
+static inline wwv_t wwv_ror_variable( wwv_t a, ulong n ) { return wwv_or( wwv_shr( a, n & 63UL ), wwv_shl( a, (-n) & 63UL ) ); }
 
 static inline wwv_t wwv_rol_vector( wwv_t a, wwv_t b ) {
   wwv_t m = wwv_bcast( 63UL );

@@ -20,28 +20,48 @@
 
 /* Program struct *****************************************************/
 
-/* fd_sbpf_calldests_t is a map type used to resolve sBPF call targets.
-   This is required because loaded sBPF bytecode does not directly call
-   relative addresses, but instead calls the Murmur3 hash of the
-   destination program counter.  This hash is not trivially reversible
-   thus we store all Murmur3(PC) => PC mappings in this map. */
+/* fd_sbpf_calldests is a bit vector of valid call destinations.
+   Should be configured to fit any possible program counter.  The max
+   program counter is <size of ELF binary> divided by 8. */
 
-struct __attribute__((packed)) fd_sbpf_calldests {
-  uint key;  /* hash of PC */
-  uint hash;
-  /* FIXME salt map key with an add-rotate-xor */
-  ulong pc;
-};
-typedef struct fd_sbpf_calldests fd_sbpf_calldests_t;
+#define SET_NAME fd_sbpf_calldests
+#include "../../util/tmpl/fd_set_dynamic.c"
+
+/* fd_sbpf_syscall_fn_t is a callback implementing an sBPF syscall.
+   ctx is the executor context. */
+
+typedef ulong
+(* fd_sbpf_syscall_fn_t)( void *  ctx,
+                          ulong   r1,
+                          ulong   r2,
+                          ulong   r3,
+                          ulong   r4,
+                          ulong   r5,
+                          ulong * r0 );
 
 /* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
-typedef ulong (*fd_sbpf_syscall_fn_ptr_t)(void * ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret);
+
 struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
-  uint                     key;       /* Murmur3-32 hash of function name */
-  fd_sbpf_syscall_fn_ptr_t func_ptr;  /* Function pointer */
-  char const *             name;
+  uint                 key;       /* Murmur3-32 hash of function name */
+  fd_sbpf_syscall_fn_t func_ptr;  /* Function pointer */
+  char const *         name;
 };
+
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
+
+/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
+
+#define MAP_NAME              fd_sbpf_syscalls
+#define MAP_T                 fd_sbpf_syscalls_t
+#define MAP_KEY_T             uint
+#define MAP_KEY_NULL          0U
+#define MAP_KEY_INVAL(k)      !(k)
+#define MAP_KEY_EQUAL(k0,k1)  (k0)==(k1)
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_KEY_HASH(k)       (k)
+#define MAP_MEMOIZE           0
+#define MAP_LG_SLOT_CNT       12
+#include "../../util/tmpl/fd_map.c"
 
 /* fd_sbpf_elf_info_t contains basic information extracted from an ELF
    binary. Indicates how much scratch memory and buffer size is required
@@ -98,7 +118,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) */
 
-  /* Map of valid call destinations */
+  /* Bit vector of valid call destinations (bit count is rodata_sz) */
   fd_sbpf_calldests_t * calldests;
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;

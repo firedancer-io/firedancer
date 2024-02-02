@@ -1,12 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 
-#include "../../../ballet/sbpf/fd_sbpf_maps.h"
+#include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 
-struct __attribute__((packed)) fd_sbpf_validated_program {
+struct fd_sbpf_validated_program {
   ulong magic;
 
   ulong last_updated_slot;
@@ -37,7 +37,7 @@ uchar *
 fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog );
 
 ulong
-fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const * prog, 
+fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const * prog,
                                              fd_sbpf_validated_program_t * valid_prog );
 
 int

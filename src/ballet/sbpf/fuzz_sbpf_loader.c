@@ -4,7 +4,6 @@
 
 #include "../../util/sanitize/fd_fuzz.h"
 #include "fd_sbpf_loader.h"
-#include "fd_sbpf_maps.c"
 
 #include <stdlib.h>
 

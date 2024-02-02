@@ -4,17 +4,14 @@
  * See `fd_vm_interp.c` for usage.
  */
 
-#ifdef __GNUC__
-#ifndef __clang__
-#pragma GCC diagnostic push
+#if defined(__GNUC__) && !defined(__clang__)
+/* Suppress false positives */
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
 #endif
 
 #define BRANCH_PRE_CODE \
-{ \
+do { \
   long insns = pc-start_pc + 1; \
-  // FD_LOG_WARNING(("Q %ld %ld %ld", pc, start_pc, insns));
 
 #define BRANCH_POST_CODE \
   instr = ctx->instrs[++pc]; \
@@ -26,7 +23,7 @@
     goto interp_fault; \
   } \
   goto *(locs[instr.opcode.raw]); \
-}
+} while(0);
 
 #define INSTR_POST_CODE \
   instr = ctx->instrs[++pc]; \
@@ -129,7 +126,7 @@ BRANCH_PRE_CODE
 BRANCH_POST_CODE
 JT_CASE_END
 /* 0x37 */ JT_CASE(0x37) // FD_BPF_OP_DIV64_IMM
-  // TODO: pretty sure that this instr is checked to be non-zero imm at valiation-time. 
+  // TODO: pretty sure that this instr is checked to be non-zero imm at valiation-time.
   register_file[instr.dst_reg] = instr.imm == 0 ? 0UL : (ulong)((ulong)register_file[instr.dst_reg] / (ulong)instr.imm);
 INSTR_POST_CODE
 JT_CASE_END
@@ -342,7 +339,6 @@ BRANCH_PRE_CODE
     register_file[10] += 0x2000;
     cond_fault = 0;
     fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-    // printf("QQQ: %lu\n", instr.imm);
     pc += (int)instr.imm;
   } else {
     compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
@@ -351,13 +347,15 @@ BRANCH_PRE_CODE
     ctx->due_insn_cnt = 0;
     fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
     if( syscall_entry_imm==NULL ) {
-      fd_sbpf_calldests_t * calldest_entry_imm = fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL );
-      if( calldest_entry_imm!=NULL ) {
-        // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
-        register_file[10] += 0x2000;
-        // FIXME: stack overflow fault.
-        fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-        pc = (long)(calldest_entry_imm->pc-1);
+      // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
+      register_file[10] += 0x2000;
+      // FIXME: stack overflow fault.
+      fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
+      if( fd_sbpf_calldests_test( ctx->calldests, instr.imm ) ) {
+        uint target_pc = fd_pchash_inverse( instr.imm );
+        pc = (long)(target_pc-1);
+      } else if( instr.imm==0x71e3cf81 ) {
+        pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
       } else {
         // TODO: real error for nonexistent func
         cond_fault = 1;
@@ -383,36 +381,17 @@ BRANCH_PRE_CODE
 {
   /* Check if we are in the read only region */
   ulong call_addr = register_file[instr.imm];
-  ulong mem_region = call_addr & FD_VM_MEM_MAP_REGION_MASK;
-  if( mem_region==FD_VM_MEM_MAP_PROGRAM_REGION_START ) {
-    // FIXME: check alignment
-    // FIXME: check for run into other region.
-    ulong start_addr = call_addr & FD_VM_MEM_MAP_REGION_SZ;
-    // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
-    register_file[10] += 0x2000;
-    // FIXME: stack overflow fault.
-    cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-    pc = (long)((start_addr / 8UL)-1);
-    pc -= (long)ctx->instrs_offset;
-  } else {
-    fd_sbpf_syscalls_t * syscall_entry_reg = fd_sbpf_syscalls_query( ctx->syscall_map, (uint)register_file[instr.imm], NULL );
-    if( syscall_entry_reg==NULL ) {
-      fd_sbpf_calldests_t * calldest_entry_reg = fd_sbpf_calldests_query( ctx->local_call_map, (uint)register_file[instr.imm], NULL );
-      if( calldest_entry_reg!=NULL ) {
-        // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
-        register_file[10] += 0x2000;
-        // FIXME: stack overflow fault.
-        cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-        pc = (long)(calldest_entry_reg->pc-1);
-      } else {
-        // TODO: real error for nonexistent func
-        cond_fault = 1;
-      }
-    } else {
-      due_insn_cnt = fd_ulong_sat_add(due_insn_cnt, 1UL);
-      cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_reg->func_ptr ))(ctx, register_file[2], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
-    }
-  }
+  // FIXME: check alignment
+  // FIXME: check for run into other region.
+  ulong start_addr = call_addr & FD_VM_MEM_MAP_REGION_SZ;
+  // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
+  register_file[10] += 0x2000;
+  // FIXME: stack overflow fault.
+  cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
+  pc = (long)((start_addr / 8UL)-1);
+  pc -= (long)ctx->instrs_offset;
+  /* TODO verify that program counter is within bounds */
+  /* TODO when static_syscalls are enabled, check that the call destination is valid */
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
 }
 fallthrough_0x8d:
@@ -569,7 +548,6 @@ BRANCH_PRE_CODE
   pc += ((long)register_file[instr.dst_reg] <= (long)register_file[instr.src_reg]) ? instr.offset : 0;
 BRANCH_POST_CODE
 JT_CASE_END
- 
 #ifdef __GNUC__
 #ifndef __clang__
 #pragma GCC diagnostic pop

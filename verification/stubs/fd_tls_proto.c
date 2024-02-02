@@ -166,3 +166,11 @@ fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
                            ulong                       wire_sz ) {
   return generic_encode( in, sizeof(fd_tls_cert_verify_t), wire, wire_sz );
 }
+
+long
+fd_tls_encode_cert_x509( uchar const * x509,
+                         ulong         x509_sz,
+                         uchar *       wire,
+                         ulong         wire_sz ) {
+  return generic_encode( x509, x509_sz, wire, wire_sz );
+}

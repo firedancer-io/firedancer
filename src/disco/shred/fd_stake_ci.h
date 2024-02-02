@@ -17,11 +17,12 @@
 
 #define MAX_SHRED_DESTS              40200UL
 #define MAX_SLOTS_PER_EPOCH         432000UL
-/* MAX_SHRED_DEST_FOOTPRINT==fd_shred_dest_footprint( MAX_SHRED_DESTS ),
-   runtime asserted in the tests.  The size of fd_shred_dest_t, varies
+/* staked+unstaked <= MAX_SHRED_DESTS implies
+   MAX_SHRED_DEST_FOOTPRINT>=fd_shred_dest_footprint( staked, unstaked )
+   This is asserted in the tests.  The size of fd_shred_dest_t, varies
    based on FD_SHA256_BATCH_FOOTPRINT, which depends on the compiler
    settings. */
-#define MAX_SHRED_DEST_FOOTPRINT (10067072UL + sizeof(fd_shred_dest_t))
+#define MAX_SHRED_DEST_FOOTPRINT (8708224UL + sizeof(fd_shred_dest_t))
 
 #define FD_STAKE_CI_STAKE_MSG_SZ (32UL + MAX_SHRED_DESTS * 40UL)
 

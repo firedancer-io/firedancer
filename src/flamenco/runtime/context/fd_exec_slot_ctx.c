@@ -3,6 +3,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_vote_program.h"
 
+#include <assert.h>
 #include <time.h>
 
 void *

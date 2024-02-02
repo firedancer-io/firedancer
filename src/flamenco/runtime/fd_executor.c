@@ -8,8 +8,9 @@
 #include "../../util/rng/fd_rng.h"
 #include "../nanopb/pb_encode.h"
 #include "fd_system_ids.h"
+#include "fd_account.h"
 #include "program/fd_address_lookup_table_program.h"
-#include "program/fd_bpf_deprecated_loader_program.h"
+#include "program/fd_bpf_loader_v1_program.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_bpf_upgradeable_loader_program.h"
@@ -43,11 +44,11 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_system_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_config_program_execute_instruction;
+    return fd_config_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_stake_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_ed25519_program_execute_instruction;
+    return fd_ed25519_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_secp256k1_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -55,11 +56,11 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_bpf_loader_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_bpf_deprecated_loader_program_execute_instruction;
+    return fd_bpf_loader_v1_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_compute_budget_program_execute_instruction_nop;
   } else if( !memcmp( pubkey, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_bpf_loader_v4_program_execute_instruction;
+    return fd_bpf_loader_v4_program_execute;
   } else if( !memcmp( pubkey, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_executor_address_lookup_table_program_execute_instruction;
   } else if( !memcmp( pubkey, fd_solana_zk_token_proof_program_id.key, sizeof(fd_pubkey_t) ) ) {

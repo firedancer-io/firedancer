@@ -37,18 +37,26 @@
 #define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 8UL)
 #define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 9UL)
 #define FD_TOPO_WKSP_KIND_METRIC_IN    (10UL)
-#define FD_TOPO_WKSP_KIND_NET          (11UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (12UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (13UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (14UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (15UL)
-#define FD_TOPO_WKSP_KIND_PACK         (16UL)
-#define FD_TOPO_WKSP_KIND_BANK         (17UL)
-#define FD_TOPO_WKSP_KIND_POH          (18UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (19UL)
-#define FD_TOPO_WKSP_KIND_STORE        (20UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (21UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
+
+#define FD_TOPO_WKSP_KIND_QUIC_SIGN    (11UL)
+#define FD_TOPO_WKSP_KIND_SIGN_QUIC    (12UL)
+#define FD_TOPO_WKSP_KIND_SHRED_SIGN   (13UL)
+#define FD_TOPO_WKSP_KIND_SIGN_SHRED   (14UL)
+
+#define FD_TOPO_WKSP_KIND_NET          (15UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (16UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (17UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (18UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (19UL)
+#define FD_TOPO_WKSP_KIND_PACK         (20UL)
+#define FD_TOPO_WKSP_KIND_BANK         (21UL)
+#define FD_TOPO_WKSP_KIND_POH          (22UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (23UL)
+#define FD_TOPO_WKSP_KIND_STORE        (24UL)
+#define FD_TOPO_WKSP_KIND_SIGN         (25UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (26UL)
+#define FD_TOPO_WKSP_KIND_TVU          (27UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_TVU+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -76,6 +84,10 @@
 #define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (11UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (12UL)
 #define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (13UL)
+#define FD_TOPO_LINK_KIND_QUIC_TO_SIGN    (14UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_QUIC    (15UL)
+#define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (16UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (17UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -90,8 +102,10 @@
 #define FD_TOPO_TILE_KIND_POH    ( 7UL)
 #define FD_TOPO_TILE_KIND_SHRED  ( 8UL)
 #define FD_TOPO_TILE_KIND_STORE  ( 9UL)
-#define FD_TOPO_TILE_KIND_METRIC (10UL)
-#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_SIGN   (10UL)
+#define FD_TOPO_TILE_KIND_METRIC (11UL)
+#define FD_TOPO_TILE_KIND_TVU    (12UL)
+#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_TVU+1 ) /* Keep updated with maximum tile IDX */
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -164,6 +178,9 @@ typedef struct {
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
   int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
+  int   in_link_poll[ 16 ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
+                                   If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
+                                   reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
   ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
 
@@ -187,67 +204,75 @@ typedef struct {
 
   /* Configuration fields.  These are required to be known by the topology so it can determine the
      total size of Firedancer in memory. */
-  struct {
-    char   app_name[ 256 ];
-    char   interface[ 16 ];
-    ulong  xdp_rx_queue_size;
-    ulong  xdp_tx_queue_size;
-    ulong  xdp_aio_depth;
-    uint   src_ip_addr;
-    ushort allow_ports[ 3 ];
-  } net;
+  union {
+    struct {
+      char   app_name[ 256 ];
+      char   interface[ 16 ];
+      ulong  xdp_rx_queue_size;
+      ulong  xdp_tx_queue_size;
+      ulong  xdp_aio_depth;
+      uint   src_ip_addr;
+      uchar  src_mac_addr[6];
+      ushort allow_ports[ 3 ];
+    } net;
 
-  struct {
-    ulong  depth;
-    uint   reasm_cnt;
-    ulong  max_concurrent_connections;
-    ulong  max_concurrent_handshakes;
-    ulong  max_inflight_quic_packets;
-    ulong  tx_buf_size;
-    ulong  max_concurrent_streams_per_connection;
-    uint   ip_addr;
-    uchar  src_mac_addr[ 6 ];
-    ushort quic_transaction_listen_port;
-    ushort legacy_transaction_listen_port;
-    ulong  idle_timeout_millis;
-  } quic;
+    struct {
+      ulong  depth;
+      uint   reasm_cnt;
+      ulong  max_concurrent_connections;
+      ulong  max_concurrent_handshakes;
+      ulong  max_inflight_quic_packets;
+      ulong  tx_buf_size;
+      ulong  max_concurrent_streams_per_connection;
+      uint   ip_addr;
+      uchar  src_mac_addr[ 6 ];
+      ushort quic_transaction_listen_port;
+      ushort legacy_transaction_listen_port;
+      ulong  idle_timeout_millis;
+      char  identity_key_path[ PATH_MAX ];
+    } quic;
 
-  struct {
-    ulong tcache_depth;
-  } dedup;
+    struct {
+      ulong tcache_depth;
+    } dedup;
 
-  struct {
-    ulong max_pending_transactions;
-    ulong bank_tile_count;
-    char  identity_key_path[ PATH_MAX ];
-  } pack;
+    struct {
+      ulong max_pending_transactions;
+      ulong bank_tile_count;
+      char  identity_key_path[ PATH_MAX ];
+    } pack;
 
-  struct {
-    ulong bank_cnt;
-    char   identity_key_path[ PATH_MAX ];
-  } poh;
+    struct {
+      ulong bank_cnt;
+      char   identity_key_path[ PATH_MAX ];
+    } poh;
 
-  struct {
-    ulong  depth;
-    uint   ip_addr;
-    uchar  src_mac_addr[ 6 ];
-    ulong  fec_resolver_depth;
-    char   identity_key_path[ PATH_MAX ];
-    ushort shred_listen_port;
-    ulong  expected_shred_version;
-  } shred;
+    struct {
+      ulong  depth;
+      uint   ip_addr;
+      uchar  src_mac_addr[ 6 ];
+      ulong  fec_resolver_depth;
+      char   identity_key_path[ PATH_MAX ];
+      ushort shred_listen_port;
+      ulong  expected_shred_version;
+    } shred;
 
-  struct {
-    ushort prometheus_listen_port;
-  } metric;
+    struct {
+      char   identity_key_path[ PATH_MAX ];
+    } sign;
 
-  struct {
-    char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
-    char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-    char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-    char snapshot[ PATH_MAX ];
-    uint page_cnt;
-  } tvu;
+    struct {
+      ushort prometheus_listen_port;
+    } metric;
+
+    struct {
+      char repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
+      char repair_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+      char snapshot[ PATH_MAX ];
+      uint page_cnt;
+    } tvu;
+  };
 } fd_topo_tile_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -266,8 +291,8 @@ typedef struct fd_topo_t {
 FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE static inline ulong
-fd_topo_tile_kind_cnt( fd_topo_t * topo,
-                       ulong       kind ) {
+fd_topo_tile_kind_cnt( fd_topo_t const * topo,
+                       ulong             kind ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     if( topo->tiles[ i ].kind == kind ) cnt++;
@@ -279,8 +304,8 @@ fd_topo_tile_kind_cnt( fd_topo_t * topo,
    ULONG_MAX if there is no such workspace.  There can be at most one
    workspace of a given kind.  kind should be one of FD_TOPO_WKSP_KIND_* */
 FD_FN_PURE static inline ulong
-fd_topo_find_wksp( fd_topo_t * topo,
-                   ulong       kind ) {
+fd_topo_find_wksp( fd_topo_t const * topo,
+                   ulong             kind ) {
   for( ulong i=0; i<topo->wksp_cnt; i++ ) {
     if( topo->workspaces[i].kind == kind ) {
       return i;
@@ -294,9 +319,9 @@ fd_topo_find_wksp( fd_topo_t * topo,
    kind should be one of FD_TOPO_TILE_KIND_*.  Returns ULONG_MAX if
    there is no such tile. */
 FD_FN_PURE static inline ulong
-fd_topo_find_tile( fd_topo_t * topo,
-                   ulong       kind,
-                   ulong       kind_id ) {
+fd_topo_find_tile( fd_topo_t const * topo,
+                   ulong             kind,
+                   ulong             kind_id ) {
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     if( topo->tiles[i].kind == kind && topo->tiles[i].kind_id == kind_id ) {
       return i;
@@ -310,9 +335,9 @@ fd_topo_find_tile( fd_topo_t * topo,
    kind should be one of FD_TOPO_LINK_KIND_*.  Returns ULONG_MAX if
    there is no such link. */
 FD_FN_PURE static inline ulong
-fd_topo_find_link( fd_topo_t * topo,
-                   ulong       kind,
-                   ulong       kind_id ) {
+fd_topo_find_link( fd_topo_t const * topo,
+                   ulong             kind,
+                   ulong             kind_id ) {
   for( ulong i=0; i<topo->link_cnt; i++ ) {
     if( topo->links[i].kind == kind && topo->links[i].kind_id == kind_id ) {
       return i;
@@ -325,10 +350,10 @@ fd_topo_find_link( fd_topo_t * topo,
    no tile is a producer for the link, returns ULONG_MAX.  This should
    not be possible for a well formed and validated topology.  */
 FD_FN_PURE static inline ulong
-fd_topo_find_link_producer( fd_topo_t *      topo,
-                            fd_topo_link_t * link ) {
+fd_topo_find_link_producer( fd_topo_t const *      topo,
+                            fd_topo_link_t const * link ) {
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
 
     if( FD_UNLIKELY( tile->out_link_id_primary == link->id ) ) return i;
     for( ulong j=0; j<tile->out_cnt; j++ ) {
@@ -356,6 +381,10 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
     case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
     case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
+    case FD_TOPO_WKSP_KIND_QUIC_SIGN:    return "quic_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_QUIC:    return "sign_quic";
+    case FD_TOPO_WKSP_KIND_SHRED_SIGN:   return "shred_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_SHRED:   return "sign_shred";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
     case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
     case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
@@ -366,6 +395,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_POH:          return "poh";
     case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
+    case FD_TOPO_WKSP_KIND_SIGN:         return "sign";
     case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
     case FD_TOPO_WKSP_KIND_TVU:          return "tvu";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
@@ -393,6 +423,10 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
     case FD_TOPO_LINK_KIND_CRDS_TO_SHRED:   return "crds_shred";
+    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:    return "quic_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_QUIC:    return "sign_quic";
+    case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:   return "shred_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_SHRED:   return "sign_shred";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -425,6 +459,7 @@ fd_topo_tile_kind_str( ulong kind ) {
      case FD_TOPO_TILE_KIND_POH:    return "poh";
      case FD_TOPO_TILE_KIND_SHRED:  return "shred";
      case FD_TOPO_TILE_KIND_STORE:  return "store";
+     case FD_TOPO_TILE_KIND_SIGN:   return "sign";
      case FD_TOPO_TILE_KIND_METRIC: return "metric";
      case FD_TOPO_TILE_KIND_TVU:    return "tvu";
      default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
@@ -434,7 +469,7 @@ fd_topo_tile_kind_str( ulong kind ) {
 /* Given a tile name produced by fd_topo_tile_kind_str, return the tile
    kind ID.  Returns ULONG_MAX if there is no such tile. */
 FD_FN_CONST static inline ulong
-fd_topo_tile_kind_from_cstr( char * name ) {
+fd_topo_tile_kind_from_cstr( char const * name ) {
   for( ulong i=0; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
     if( !strcmp( name, fd_topo_tile_kind_str( i ) ) ) return i;
   }
@@ -444,11 +479,11 @@ fd_topo_tile_kind_from_cstr( char * name ) {
 /* Given a link, count the number of consumers of that link among all
    the tiles in the topology. */
 FD_FN_PURE static inline ulong
-fd_topo_link_consumer_cnt( fd_topo_t *      topo,
-                           fd_topo_link_t * link ) {
+fd_topo_link_consumer_cnt( fd_topo_t const *      topo,
+                           fd_topo_link_t const * link ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id ) ) cnt++;
     }
@@ -460,11 +495,11 @@ fd_topo_link_consumer_cnt( fd_topo_t *      topo,
 /* Given a link, count the number of reliable consumers of that link
    among all the tiles in the topology. */
 FD_FN_PURE static inline ulong
-fd_topo_link_reliable_consumer_cnt( fd_topo_t *      topo,
-                                    fd_topo_link_t * link ) {
+fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
+                                    fd_topo_link_t const * link ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
     for( ulong j=0; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( tile->in_link_id[ j ] == link->id && tile->in_link_reliable[ j ] ) ) cnt++;
     }
@@ -612,7 +647,7 @@ fd_topo_huge_page_cnt( fd_topo_t * topo );
    An invalid topology will cause the program to abort with an error
    message. */
 void
-fd_topo_validate( fd_topo_t * topo );
+fd_topo_validate( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written

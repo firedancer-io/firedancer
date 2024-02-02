@@ -1097,15 +1097,9 @@ after_frag( void *             _ctx,
   }
 
   ulong txn_cnt = (*opt_sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
+  fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
   ulong sanitized_txn_cnt = 0UL;
-  ulong executed_txn_cnt = 0UL;
-  for( ulong i=0; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = (fd_txn_p_t *)(ctx->_txns + i*sizeof(fd_txn_p_t));
-    if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
-    sanitized_txn_cnt++;
-    if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
-    executed_txn_cnt++;
-  }
+  for( ulong i=0; i<txn_cnt; i++ ) { sanitized_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS); }
 
   uchar data[ 64 ];
   fd_memcpy( data, ctx->hash, 32UL );

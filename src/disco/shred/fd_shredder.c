@@ -2,7 +2,10 @@
 #include "../../ballet/shred/fd_shred.h"
 
 void *
-fd_shredder_new( void * mem, void const * pubkey, ushort shred_version ) {
+fd_shredder_new( void *                mem,
+                 fd_shredder_sign_fn * signer,
+                 void *                signer_ctx,
+                 ushort                shred_version ) {
   fd_shredder_t * shredder = (fd_shredder_t *)mem;
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -20,14 +23,13 @@ fd_shredder_new( void * mem, void const * pubkey, ushort shred_version ) {
   shredder->sz            = 0UL;
   shredder->offset        = 0UL;
 
-  if( FD_UNLIKELY( !fd_sha512_new( shredder->sha512 ) ) ) return NULL;
-
-  memcpy( shredder->leader_pubkey, pubkey, 32UL );
-
   fd_memset( &(shredder->meta), 0, sizeof(fd_entry_batch_meta_t) );
   shredder->slot              = ULONG_MAX;
   shredder->data_idx_offset   = 0UL;
   shredder->parity_idx_offset = 0UL;
+
+  shredder->signer     = signer;
+  shredder->signer_ctx = signer_ctx;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shredder->magic ) = FD_SHREDDER_MAGIC;
@@ -55,15 +57,11 @@ fd_shredder_join( void * mem ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_sha512_join( shredder->sha512 ) ) ) return NULL;
-
   return shredder;
 }
 
 void *
 fd_shredder_leave(  fd_shredder_t * shredder ) {
-  fd_sha512_leave( shredder->sha512 );
-
   return (void *)shredder;
 }
 
@@ -111,7 +109,6 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
 
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
-                          void const * signing_private_key,
                           fd_fec_set_t * result ) {
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
@@ -217,7 +214,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   uchar * root = fd_bmtree_commit_fini( bmtree );
 
   /* Sign Merkle Root */
-  fd_ed25519_sign( root_signature, root, 32UL, shredder->leader_pubkey, signing_private_key, shredder->sha512 );
+  shredder->signer( shredder->signer_ctx, root_signature, root );
 
   /* Write signature and Merkle proof */
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {

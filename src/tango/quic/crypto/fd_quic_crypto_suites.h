@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h
 #define HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h
 
-#include <openssl/ssl.h>
 #include "../fd_quic_common.h"
 #include "../fd_quic_conn_id.h"
 #include "../../../ballet/hmac/fd_hmac.h"
@@ -34,17 +33,14 @@
 
     id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz */
 #define FD_QUIC_CRYPTO_SUITE_LIST( X, ... ) \
-  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
-  X( 1, TLS_AES_256_GCM_SHA384,        0x13,  0x02,  AES_256_GCM,       AES_256_ECB, sha384, 32,     12, __VA_ARGS__ ) \
-  X( 2, TLS_AES_128_CCM_SHA256,        0x13,  0x04,  AES_128_CCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ ) \
-  X( 3, TLS_CHACHA20_POLY1305_SHA256,  0x13,  0x03,  CHACHA20_POLY1305, CHACHA20,    sha256, 32,     12, __VA_ARGS__ ) \
+  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ )
 
 
 #define FD_QUIC_ENC_LEVEL_LIST( X, ... ) \
-  X( 0, initial,    ssl_encryption_initial,     __VA_ARGS__ ) \
-  X( 1, early_data, ssl_encryption_early_data,  __VA_ARGS__ ) \
-  X( 2, handshake,  ssl_encryption_handshake,   __VA_ARGS__ ) \
-  X( 3, appdata,    ssl_encryption_application, __VA_ARGS__ )
+  X( 0, initial,    FD_TLS_LEVEL_INITIAL,     __VA_ARGS__ ) \
+  X( 1, early_data, FD_TLS_LEVEL_EARLY,       __VA_ARGS__ ) \
+  X( 2, handshake,  FD_TLS_LEVEL_HANDSHAKE,   __VA_ARGS__ ) \
+  X( 3, appdata,    FD_TLS_LEVEL_APPLICATION, __VA_ARGS__ )
 
 #define FD_QUIC_NUM_ENC_LEVELS 4
 
@@ -70,8 +66,6 @@ struct fd_quic_crypto_suite {
   ulong key_sz;
   ulong iv_sz;
 
-  EVP_CIPHER const * pkt_cipher;  /* not owned */
-  EVP_CIPHER const * hp_cipher;   /* not owned */
   fd_hmac_fn_t       hmac_fn;     /* not owned */
   ulong              hash_sz;
 };
@@ -87,24 +81,10 @@ struct fd_quic_crypto_keys {
   /* header protection */
   uchar hp_key[FD_QUIC_KEY_MAX_SZ];
   ulong hp_key_sz;
-
-  EVP_CIPHER_CTX * pkt_cipher_ctx;
-  EVP_CIPHER_CTX * hp_cipher_ctx;
 };
 
 /* crypto context */
 struct fd_quic_crypto_ctx {
-  /* for packet protection */
-  EVP_CIPHER const * CIPHER_AES_128_GCM;
-  EVP_CIPHER const * CIPHER_AES_256_GCM;
-  EVP_CIPHER const * CIPHER_AES_128_CCM;
-  EVP_CIPHER const * CIPHER_CHACHA20_POLY1305;
-
-  /* for header protection */
-  EVP_CIPHER const * CIPHER_AES_128_ECB;
-  EVP_CIPHER const * CIPHER_AES_256_ECB;
-  EVP_CIPHER const * CIPHER_CHACHA20;
-
   /* hash functions */
   fd_hmac_fn_t hmac_fn;
   ulong        hmac_out_sz;
@@ -218,7 +198,7 @@ struct fd_quic_crypto_secrets {
 /* fd_quic_crypto_rand retrieves cryptographic quality random bytes
    into given memory region.  buf points to first byte of buffer in
    local address space.  buf_sz is the number of bytes to fill.  Current
-   backend is OpenSSL RAND_bytes (>=256-bit security level on Linux).
+   backend is getrandom(2) (>=256-bit security level on Linux).
    Return value in FD_QUIC_{SUCCESS,FAILURE}.  Reasons for failure
    include lack of entropy, in which case caller should wait and retry.
    buf_sz in [1,INT_MAX] but should be reasonably small (max KiB-ish) */
@@ -324,7 +304,7 @@ fd_quic_gen_initial_secret(
 int
 fd_quic_gen_secrets(
     fd_quic_crypto_secrets_t * secrets,
-    int                        enc_level,
+    uint                       enc_level,
     fd_hmac_fn_t               hmac_fn,
     ulong                      hash_sz );
 
@@ -340,16 +320,6 @@ fd_quic_gen_new_secrets(
     fd_quic_crypto_secrets_t * secrets,
     fd_hmac_fn_t               hmac_fn,
     ulong                      hash_sz );
-
-
-/* free the cipher ctx for the pkt keys and the hp keys */
-void
-fd_quic_free_keys( fd_quic_crypto_keys_t * keys );
-
-
-/* free the cipher ctx for only the pkt keys */
-void
-fd_quic_free_pkt_keys( fd_quic_crypto_keys_t * keys );
 
 
 /* fd_quic_gen_keys
@@ -369,7 +339,7 @@ fd_quic_free_pkt_keys( fd_quic_crypto_keys_t * keys );
 int
 fd_quic_gen_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz );
 
@@ -381,7 +351,7 @@ fd_quic_gen_keys(
 int
 fd_quic_gen_new_keys(
     fd_quic_crypto_keys_t *  keys,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     uchar const *            secret,
     ulong                    secret_sz,
     fd_hmac_fn_t             hmac_fn,
@@ -391,7 +361,7 @@ fd_quic_gen_new_keys(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
 
    returns
      FD_QUIC_SUCCESS   if the operation succeeded
@@ -415,7 +385,7 @@ fd_quic_crypto_encrypt(
     ulong                    hdr_sz,
     uchar const *            pkt,
     ulong                    pkt_sz,
-    fd_quic_crypto_suite_t * suite,
+    fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t *  pkt_keys,
     fd_quic_crypto_keys_t *  hp_keys );
 
@@ -424,7 +394,7 @@ fd_quic_crypto_encrypt(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
      the decrypted data is corrupt
 
    returns
@@ -451,8 +421,8 @@ fd_quic_crypto_decrypt(
     ulong                    cipher_text_sz,
     ulong                    pkt_number_off,
     ulong                    pkt_number,
-    fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys );
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys );
 
 
 /* decrypt a quic protected packet header
@@ -461,7 +431,7 @@ fd_quic_crypto_decrypt(
 
    may fail in the following scenarios:
      the receiving buffer is too small
-     the decryption functions report failure (openssl)
+     the decryption functions report failure (fd_tls)
      the decrypted data is corrupt
 
    returns
@@ -470,9 +440,7 @@ fd_quic_crypto_decrypt(
 
    args
      plain_text         the resulting decrypted data
-     plain_text_sz      a pointer to the size of the decrypted data in bytes
-                          this is used on input as the capacity of the buffer and
-                            in output as the resulting output size
+     plain_text_cap     the capacity of the plain text buffer
      cipher_text        the input cypher text
      cipher_text_sz     the input size in bytes of the cipher text
      pkt_number_off     the offset of the packet number within the cipher text
@@ -483,12 +451,12 @@ fd_quic_crypto_decrypt(
 int
 fd_quic_crypto_decrypt_hdr(
     uchar *                  plain_text,
-    ulong *                  plain_text_sz,
+    ulong                    plain_text_cap,
     uchar const *            cipher_text,
     ulong                    cipher_text_sz,
     ulong                    pkt_number_off,
-    fd_quic_crypto_suite_t * suite,
-    fd_quic_crypto_keys_t *  keys );
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys );
 
 
 /* look up crypto suite by major/minor
@@ -542,10 +510,10 @@ fd_quic_crypto_lookup_suite( uchar major,
     to AEAD as plaintext vs. as associated data. */
 int fd_quic_retry_token_encrypt(
     /* plaintext (timestamp calculated in function) */
-    fd_quic_conn_id_t * orig_dst_conn_id,
+    fd_quic_conn_id_t const * orig_dst_conn_id,
     ulong               now,
     /* aad */
-    fd_quic_conn_id_t * retry_src_conn_id,
+    fd_quic_conn_id_t const * retry_src_conn_id,
     uint                ip_addr,
     ushort              udp_port,
     /* ciphertext */
@@ -575,30 +543,6 @@ int fd_quic_retry_integrity_tag_decrypt(
     uchar * retry_pseudo_pkt,
     int     retry_pseudo_pkt_len,
     uchar   retry_integrity_tag[static FD_QUIC_RETRY_INTEGRITY_TAG_SZ]
-);
-
-int gcm_encrypt(
-   EVP_CIPHER const * cipher,
-    uchar *            plaintext,
-    int                plaintext_len,
-    uchar *            aad,
-    int                aad_len,
-    uchar *            key,
-    uchar *            iv,
-    uchar *            ciphertext,
-    uchar *            tag
-);
-
-int gcm_decrypt(
-    const EVP_CIPHER * cipher,
-    uchar *            ciphertext,
-    int                ciphertext_len,
-    uchar *            aad,
-    int                aad_len,
-    uchar *            tag,
-    uchar *            key,
-    uchar *            iv,
-    uchar *            plaintext
 );
 
 #endif /* HEADER_fd_src_tango_quic_crypto_fd_quic_crypto_suites_h */

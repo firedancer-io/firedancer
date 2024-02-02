@@ -6,12 +6,12 @@
 #include "../../../../tango/xdp/fd_xsk_aio.h"
 #include "../../../../tango/xdp/fd_xsk.h"
 #include "../../../../tango/ip/fd_netlink.h"
-#include "../../../../tango/ip/fd_ip.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <linux/unistd.h>
+#include <sys/random.h>
 
 /* fd_quic provides a QUIC server tile.
 
@@ -39,11 +39,12 @@ typedef struct {
 
   fd_mux_context_t * mux;
 
-  fd_ip_t *        ip;
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
 
   ushort legacy_transaction_port; /* port for receiving non-QUIC (raw UDP) transactions on*/
+
+  fd_keyguard_client_t keyguard_client[1];
 
   uchar buffer[ FD_NET_MTU ];
 
@@ -113,91 +114,18 @@ quic_limits( fd_topo_tile_t * tile ) {
 }
 
 FD_FN_CONST static inline ulong
-loose_footprint( fd_topo_tile_t * tile ) {
-  (void)tile;
-
-  /* Ensure there is 64 MiB leftover for OpenSSL allocations out of the
-     workspace */
-  return 1UL << 24UL;
-}
-
-FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 4096UL;
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t * tile ) {
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_aio_align(), fd_aio_footprint() );
   fd_quic_limits_t limits = quic_limits( tile );
-  l = FD_LAYOUT_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  ulong            l      = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )      );
+  l = FD_LAYOUT_APPEND( l, fd_aio_align(),           fd_aio_footprint()           );
+  l = FD_LAYOUT_APPEND( l, fd_quic_align(),          fd_quic_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-/* OpenSSL allows us to specify custom memory allocation functions, which we
-   want to point to an fd_alloc_t, but it does not let us use a context
-   object.  Instead we stash it in this thread local, which is OK because the
-   parent workspace exists for the duration of the SSL context, and the
-   process only has one thread.
-
-   Currently fd_alloc doesn't support realloc, so it's implemented on top of
-   malloc and free, and then also it doesn't support getting the size of an
-   allocation from the pointer, which we need for realloc, so we pad each
-   alloc by 8 bytes and stuff the size into the first 8 bytes. */
-static FD_TL fd_alloc_t * fd_quic_ssl_mem_function_ctx = NULL;
-
-static void *
-crypto_malloc( ulong        num,
-               char const * file,
-               int          line ) {
-  (void)file;
-  (void)line;
-  void * result = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 8UL, num + 8UL );
-  if( FD_UNLIKELY( !result ) ) {
-    FD_MCNT_INC( QUIC_TILE, CRYPTO_MALLOC_FAILURE, 1UL );
-    return NULL;
-  }
-  *(ulong*)result = num;
-  return (uchar*)result + 8UL;
-}
-
-static void
-crypto_free( void *       addr,
-             char const * file,
-             int          line ) {
-  (void)file;
-  (void)line;
-
-  if( FD_UNLIKELY( !addr ) ) return;
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar*)addr - 8UL );
-}
-
-static void *
-crypto_realloc( void *       addr,
-                ulong        num,
-                char const * file,
-                int          line ) {
-  (void)file;
-  (void)line;
-
-  if( FD_UNLIKELY( !addr ) ) return crypto_malloc( num, file, line );
-  if( FD_UNLIKELY( !num ) ) {
-    crypto_free( addr, file, line );
-    return NULL;
-  }
-
-  void * new = fd_alloc_malloc( fd_quic_ssl_mem_function_ctx, 8UL, num + 8UL );
-  if( FD_UNLIKELY( !new ) ) return NULL;
-
-  ulong old_num = *(ulong*)( (uchar*)addr - 8UL );
-  fd_memcpy( (uchar*)new + 8, (uchar*)addr, fd_ulong_min( old_num, num ) );
-  fd_alloc_free( fd_quic_ssl_mem_function_ctx, (uchar*)addr - 8UL );
-  *(ulong*)new = num;
-  return (uchar*)new + 8UL;
 }
 
 FD_FN_CONST static inline void *
@@ -615,36 +543,48 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
   (void)topo;
-  (void)tile;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) ), 256UL, 256UL ) );
-  if( FD_UNLIKELY( !ctx->ip ) ) FD_LOG_ERR(( "fd_ip_join failed" ));
+  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() );
+
+  fd_quic_limits_t limits = quic_limits( tile );
+  void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
+  uchar const * public_key = load_key_into_protected_memory( tile->quic.identity_key_path, 1 /* public key only */ );
+  fd_memcpy( quic->config.identity_public_key, public_key, 32UL );
+
+  /* needed so unprivileged can finish initializing quic */
+  ctx->quic = quic;
 
   /* call wallclock so glibc loads VDSO, which requires calling mmap while
      privileged */
   fd_log_wallclock();
+}
 
-  /* OpenSSL goes and tries to read files and allocate memory and
-     other dumb things on a thread local basis, so we need a special
-     initializer to do it before seccomp happens in the process. */
-  fd_quic_ssl_mem_function_ctx = fd_alloc_join( fd_alloc_new( FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() ), 1UL ), tile->kind_id );
-  if( FD_UNLIKELY( !fd_quic_ssl_mem_function_ctx ) )
-    FD_LOG_ERR(( "fd_alloc_join failed" ));
-  if( FD_UNLIKELY( !CRYPTO_set_mem_functions( crypto_malloc, crypto_realloc, crypto_free ) ) )
-    FD_LOG_ERR(( "CRYPTO_set_mem_functions failed" ));
-
-  if( FD_UNLIKELY( !OPENSSL_init_ssl( OPENSSL_INIT_LOAD_SSL_STRINGS , NULL ) ) )
-    FD_LOG_ERR(( "OPENSSL_init_ssl failed" ));
-  if( FD_UNLIKELY( !OPENSSL_init_crypto( OPENSSL_INIT_LOAD_CRYPTO_STRINGS | OPENSSL_INIT_NO_LOAD_CONFIG , NULL ) ) )
-    FD_LOG_ERR(( "OPENSSL_init_crypto failed" ));
+static void
+fd_quic_tls_cv_signer( void *        signer_ctx,
+                       uchar         signature[ static 64 ],
+                       uchar const   payload[ static 130] ) {
+  fd_keyguard_client_sign( signer_ctx, signature, payload, 130UL );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
+  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+                   topo->links[ tile->in_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT ||
+                   topo->links[ tile->in_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_QUIC ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %lu %lu",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   topo->links[ tile->out_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX  ||
+                   topo->links[ tile->out_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_SIGN ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %lu %lu",
+                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
 
   ulong depth = tile->quic.depth;
@@ -653,19 +593,22 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
   /* End privileged allocs */
+
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ 1UL ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ 1UL ] ];
+  FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) ) );
 
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  fd_ip_arp_fetch( ctx->ip );
-  fd_ip_route_fetch( ctx->ip );
-  fd_quic_limits_t limits = quic_limits( tile );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) ), &limits, ctx->ip ) );
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
+  fd_quic_t * quic = ctx->quic;
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "quic is NULL" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.net.ip_addr                = tile->quic.ip_addr;
@@ -673,6 +616,9 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * 1000000UL;
   quic->config.initial_rx_max_stream_data = 1<<15;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
+
+  quic->config.sign         = fd_quic_tls_cv_signer;
+  quic->config.sign_ctx     = ctx->keyguard_client;
 
   quic->cb.conn_new         = quic_conn_new;
   quic->cb.conn_hs_complete = NULL;
@@ -695,6 +641,8 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=1; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
 
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
     if( FD_UNLIKELY( link0->wksp_id != link->wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
     if( FD_UNLIKELY( link0->mtu != link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
   }
@@ -702,9 +650,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_mem    = topo->workspaces[ link0->wksp_id ].wksp;
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
-
-  if( FD_UNLIKELY( tile->out_cnt != 1 || topo->links[ tile->out_link_id[ 0 ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected netmux output link %lu %lu", tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
@@ -747,12 +692,8 @@ static ulong
 populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-
-  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
-  FD_TEST( netlink_fd >= 0 );
-  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)netlink_fd );
+  (void)scratch;
+  populate_sock_filter_policy_quic( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_quic_instr_cnt;
 }
 
@@ -760,16 +701,14 @@ static ulong
 populate_allowed_fds( void * scratch,
                       ulong  out_fds_cnt,
                       int *  out_fds ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
+  (void)scratch;
 
-  if( FD_UNLIKELY( out_fds_cnt < 3 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd; /* netlink socket */
   return out_cnt;
 }
 
@@ -785,7 +724,6 @@ fd_tile_config_t fd_tile_quic = {
   .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
-  .loose_footprint          = loose_footprint,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

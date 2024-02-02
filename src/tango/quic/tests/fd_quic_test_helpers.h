@@ -47,7 +47,8 @@ fd_quic_test_halt( void );
 fd_quic_t *
 fd_quic_new_anonymous( fd_wksp_t *              wksp,
                        fd_quic_limits_t const * limits,
-                       int                      role );
+                       int                      role,
+                       fd_rng_t *               rng );
 
 /* fd_quic_virtual_pair_init sets up an aio loop between the two given QUIC
    objects.  That is, an fd_aio_send() call by quicA will trigger

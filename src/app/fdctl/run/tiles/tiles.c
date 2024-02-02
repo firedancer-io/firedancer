@@ -16,6 +16,7 @@ fd_topo_tile_to_config( fd_topo_tile_t * tile ) {
     case FD_TOPO_TILE_KIND_POH:    return &fd_tile_poh;
     case FD_TOPO_TILE_KIND_SHRED:  return &fd_tile_shred;
     case FD_TOPO_TILE_KIND_STORE:  return &fd_tile_store;
+    case FD_TOPO_TILE_KIND_SIGN:   return &fd_tile_sign;
     case FD_TOPO_TILE_KIND_METRIC: return &fd_tile_metric;
     case FD_TOPO_TILE_KIND_TVU:    return &fd_tile_tvu;
     default: FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

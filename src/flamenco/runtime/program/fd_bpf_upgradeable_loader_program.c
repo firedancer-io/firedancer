@@ -4,7 +4,6 @@
 #include "../../../ballet/base58/fd_base58.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../../ballet/sbpf/fd_sbpf_maps.h"
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_interp.h"
 #include "../../vm/fd_vm_disasm.h"
@@ -178,7 +177,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
     .instrs_sz           = prog->text_cnt,
     .instrs_offset       = prog->text_off,
     .syscall_map         = syscalls,
-    .local_call_map      = prog->calldests,
+    .calldests           = prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
     .read_only           = fd_sbpf_validated_program_rodata( prog ),
@@ -395,7 +394,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
     .instrs_sz           = prog->text_cnt,
     .instrs_offset       = prog->text_off,
     .syscall_map         = syscalls,
-    .local_call_map      = prog->calldests,
+    .calldests           = prog->calldests,
     .input               = NULL,
     .input_sz            = 0,
     .read_only           = (uchar *)fd_type_pun_const(prog->rodata),

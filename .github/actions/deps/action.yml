@@ -32,7 +32,7 @@ runs:
       run: cat /etc/os-release '${{ inputs.deps-script-path }}' | sha256sum | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
 
     - id: deps-sh-cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: deps-bundle.tar.zst
         key: ${{ runner.os }}-${{ runner.arch }}-deps-sh-${{ steps.deps-sh-hash.outputs.HASH }}

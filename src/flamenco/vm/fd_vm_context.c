@@ -1,7 +1,7 @@
 #include "fd_vm_context.h"
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/sbpf/fd_sbpf_maps.c"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../runtime/fd_runtime.h"
 
 ulong
@@ -131,12 +131,12 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         ++i;
         break;
       case FD_CHECK_CALL:
-        // TODO: Check required for sbpf v2
-        // if( instr.imm >= ctx->instrs_sz
-        //     && fd_sbpf_syscalls_query ( ctx->syscall_map,    instr.imm, NULL ) == NULL
-        //     && fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL ) == NULL ) {
-        //       return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
-        // }
+        // TODO: Check to make sure we are really doing this right! (required for sbpf2?)
+        if( instr.imm >= ctx->instrs_sz
+            && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
+            && !fd_sbpf_calldests_test( ctx->calldests,  instr.imm ) ) {
+              return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
+        }
         break;
       case FD_INVALID:
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;
@@ -202,7 +202,7 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
 uchar * signature = (uchar*)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
 fd_base58_decode_64("mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig);
-if (memcmp(signature, sig, 64) == 0) { 
+if (memcmp(signature, sig, 64) == 0) {
     fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
 }
 #endif

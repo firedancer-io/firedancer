@@ -1,6 +1,8 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
+/* test_quic_conn repeatedly opens and closes QUIC connections. */
+
 #include <stdlib.h>
 
 int state           = 0;
@@ -242,7 +244,7 @@ my_cb_conn_final( fd_quic_conn_t * conn,
 
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
-    FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
+    FD_LOG_INFO(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
   } else {
     FD_LOG_WARNING(( "my_cb_conn_final FAIL" ));
@@ -254,7 +256,7 @@ my_connection_new( fd_quic_conn_t * conn,
                    void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "server handshake complete" ));
+  FD_LOG_INFO(( "server handshake complete" ));
 
   server_complete = 1;
   server_conn = conn;
@@ -267,7 +269,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
                        void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "client handshake complete" ));
+  FD_LOG_INFO(( "client handshake complete" ));
 
   client_complete = 1;
 
@@ -287,6 +289,8 @@ main( int argc, char ** argv ) {
 
   fd_boot          ( &argc, &argv );
   fd_quic_test_boot( &argc, &argv );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -317,11 +321,11 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER );
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
   fd_quic_config_t * client_config = &client_quic->config;
@@ -494,6 +498,7 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );
+  fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_quic_test_halt();

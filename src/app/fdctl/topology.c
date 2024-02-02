@@ -31,20 +31,20 @@ fd_topo_join_workspace( char * const     app_name,
 }
 
 FD_FN_PURE static int
-tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
+tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
   /* Tile needs read/write access to its own workspace for scratch space. */
-  fd_topo_wksp_t * tile_wksp = &topo->workspaces[ tile->wksp_id ];
+  fd_topo_wksp_t const * tile_wksp = &topo->workspaces[ tile->wksp_id ];
   if( FD_UNLIKELY( tile_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
 
   /* Tile needs read/write access workspaces where it has an outgoing
      link to write fragments. */
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id[ i ] ].wksp_id ];
     if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
   }
 
   if( FD_LIKELY( tile->out_link_id_primary!=ULONG_MAX ) ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ];
     if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
   }
 
@@ -62,7 +62,7 @@ tile_needs_wksp( fd_topo_t * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
   /* Tiles only need readonly access to workspaces they consume links
      from. */
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->links[ tile->in_link_id[ i ] ].wksp_id ];
     if( FD_UNLIKELY( link_wksp->id==wksp_id ) ) return FD_SHMEM_JOIN_MODE_READ_ONLY;
   }
 
@@ -406,7 +406,7 @@ fd_topo_fill( fd_topo_t * topo,
 }
 
 FD_FN_CONST static ulong
-fd_topo_tile_extra_huge_pages( fd_topo_tile_t * tile ) {
+fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   /* Every tile maps an additional set of pages for the stack. */
@@ -414,7 +414,7 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t * tile ) {
 }
 
 FD_FN_PURE static ulong
-fd_topo_tile_extra_normal_pages( fd_topo_tile_t * tile ) {
+fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
   if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ||
                    tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
@@ -427,8 +427,8 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t * tile ) {
 }
 
 FD_FN_PURE static ulong
-fd_topo_mlock_max_tile1( fd_topo_t *      topo,
-                         fd_topo_tile_t * tile ) {
+fd_topo_mlock_max_tile1( fd_topo_t const * topo,
+                         fd_topo_tile_t *  tile ) {
   ulong tile_mem = 0UL;
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -508,11 +508,11 @@ fd_topo_mlock( fd_topo_t * topo ) {
 }
 
 void
-fd_topo_validate( fd_topo_t * topo ) {
+fd_topo_validate( fd_topo_t const * topo ) {
   /* Tiles have valid wksp_ids */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( FD_UNLIKELY( topo->tiles[ i ].wksp_id >= topo->wksp_cnt ) )
-      FD_LOG_ERR(( "invalid workspace id %lu", topo->tiles[ i ].wksp_id ));
+      FD_LOG_ERR(( "tile %lu of kind %lu has invalid workspace id %lu", i, topo->tiles[ i ].kind, topo->tiles[ i ].wksp_id ));
   }
 
   /* Links have valid wksp_ids */
@@ -585,7 +585,7 @@ fd_topo_validate( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
       if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] >= topo->link_cnt ) )
-        FD_LOG_ERR(( "tile %lu has invalid in link %lu", i, topo->tiles[ i ].in_link_id[ j ] ));
+        FD_LOG_ERR(( "tile %lu (%s) has invalid in link %lu", i, fd_topo_tile_kind_str( topo->tiles[ i ].kind ), topo->tiles[ i ].in_link_id[ j ] ));
     }
   }
 
@@ -638,6 +638,14 @@ fd_topo_validate( fd_topo_t * topo ) {
         if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] == topo->tiles[ i ].out_link_id_primary ) )
           FD_LOG_ERR(( "tile %lu has in link %lu same as primary out", i, topo->tiles[ i ].in_link_id[ j ] ));
       }
+    }
+  }
+
+  /* Non polling tile ins are also not reliable */
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
+      if( FD_UNLIKELY( !topo->tiles[ i ].in_link_poll[ j ] && topo->tiles[ i ].in_link_reliable[ j ] ) )
+        FD_LOG_ERR(( "tile %lu has in link %lu which is not polled but reliable", i, topo->tiles[ i ].in_link_id[ j ] ));
     }
   }
 

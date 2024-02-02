@@ -1,6 +1,8 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 
+/* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
+
 #include <stdlib.h>
 
 #include "../../xdp/fd_xdp.h"
@@ -284,11 +286,9 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
 
   FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
   fd_quic_t * quic = fd_quic_new(
       fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( &quic_limits ), 1UL ),
-      &quic_limits,
-      ip );
+      &quic_limits );
   FD_TEST( quic );
 
   fd_quic_udpsock_t _udpsock[1];
@@ -297,8 +297,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
-  client_cfg->alpns_sz = 11U;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
   memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
   client_cfg->net.ip_addr         = udpsock->listen_ip;

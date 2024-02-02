@@ -111,14 +111,20 @@ main( int     argc,
 
 #   define ROL(x,y) (long)fd_ulong_rotate_left ( (ulong)(x), (int)(uint)(y) )
 #   define ROR(x,y) (long)fd_ulong_rotate_right( (ulong)(x), (int)(uint)(y) )
-    WWL_TEST( wwl_rol( x, y0 ),       ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
-                                      ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ) );
-    WWL_TEST( wwl_ror( x, y0 ),       ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
-                                      ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ) );
-    WWL_TEST( wwl_rol_vector( x, y ), ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
-                                      ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ) );
-    WWL_TEST( wwl_ror_vector( x, y ), ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
-                                      ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ) );
+    WWL_TEST( wwl_rol_variable( x, y0 ), ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
+                                         ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ) );
+    WWL_TEST( wwl_ror_variable( x, y0 ), ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
+                                         ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ) );
+    WWL_TEST( wwl_rol_vector( x, y ),    ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
+                                         ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ) );
+    WWL_TEST( wwl_ror_vector( x, y ),    ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
+                                         ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ) );
+#   define COMPARE_WWL_ROL( j ) COMPARE8( WWL_TEST, x, wwl_rol, ROL, j );
+#   define COMPARE_WWL_ROR( j ) COMPARE8( WWL_TEST, x, wwl_ror, ROR, j );
+    EXPAND_64(COMPARE_WWL_ROL, 0)
+    EXPAND_64(COMPARE_WWL_ROR, 0)
+#   undef COMPARE_WWL_ROR
+#   undef COMPARE_WWL_ROL
 #   undef ROR
 #   undef ROL
 
@@ -310,14 +316,20 @@ main( int     argc,
 
 #   define ROL(x,y) fd_ulong_rotate_left ( (x), (int)(uint)(y) )
 #   define ROR(x,y) fd_ulong_rotate_right( (x), (int)(uint)(y) )
-    WWV_TEST( wwv_rol( x, y0 ),       ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
-                                      ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ) );
-    WWV_TEST( wwv_ror( x, y0 ),       ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
-                                      ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ) );
-    WWV_TEST( wwv_rol_vector( x, y ), ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
-                                      ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ) );
-    WWV_TEST( wwv_ror_vector( x, y ), ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
-                                      ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ) );
+    WWV_TEST( wwv_rol_variable( x, y0 ), ROL( x0, y0 ), ROL( x1, y0 ), ROL( x2, y0 ), ROL( x3, y0 ),
+                                         ROL( x4, y0 ), ROL( x5, y0 ), ROL( x6, y0 ), ROL( x7, y0 ) );
+    WWV_TEST( wwv_ror_variable( x, y0 ), ROR( x0, y0 ), ROR( x1, y0 ), ROR( x2, y0 ), ROR( x3, y0 ),
+                                         ROR( x4, y0 ), ROR( x5, y0 ), ROR( x6, y0 ), ROR( x7, y0 ) );
+    WWV_TEST( wwv_rol_vector( x, y ),    ROL( x0, y0 ), ROL( x1, y1 ), ROL( x2, y2 ), ROL( x3, y3 ),
+                                         ROL( x4, y4 ), ROL( x5, y5 ), ROL( x6, y6 ), ROL( x7, y7 ) );
+    WWV_TEST( wwv_ror_vector( x, y ),    ROR( x0, y0 ), ROR( x1, y1 ), ROR( x2, y2 ), ROR( x3, y3 ),
+                                         ROR( x4, y4 ), ROR( x5, y5 ), ROR( x6, y6 ), ROR( x7, y7 ) );
+#   define COMPARE_WWV_ROL( j ) COMPARE8( WWV_TEST, x, wwv_rol, ROL, j );
+#   define COMPARE_WWV_ROR( j ) COMPARE8( WWV_TEST, x, wwv_ror, ROR, j );
+    EXPAND_64(COMPARE_WWV_ROL, 0)
+    EXPAND_64(COMPARE_WWV_ROR, 0)
+#   undef COMPARE_WWV_ROR
+#   undef COMPARE_WWV_ROL
 #   undef ROR
 #   undef ROL
 

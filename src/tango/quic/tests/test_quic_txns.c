@@ -1,7 +1,7 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
-#include "../../../util/net/fd_ip4.h"
 #include "../../../ballet/base64/fd_base64.h"
+#include "../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -277,8 +277,7 @@ main( int argc,
   FD_TEST( quic_footprint );
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_quic_align(), quic_footprint, 1UL );
-  fd_ip_t * ip = fd_ip_join( fd_ip_new( fd_wksp_alloc_laddr( wksp, fd_ip_align(), fd_ip_footprint( 256UL, 256UL ), 1UL ), 256UL, 256UL ) );
-  fd_quic_t * quic = fd_quic_new( mem, &quic_limits, ip );
+  fd_quic_t * quic = fd_quic_new( mem, &quic_limits );
   FD_TEST( quic );
 
   fd_quic_udpsock_t _udpsock;
@@ -292,8 +291,6 @@ main( int argc,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  memcpy( client_cfg->alpns, "\xasolana-tpu", 11UL );
-  client_cfg->alpns_sz = 11U;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
   memcpy(client_cfg->link.dst_mac_addr, "\x52\xF1\x7E\xDA\x2C\xE0", 6UL);
   client_cfg->net.ip_addr         = udpsock->listen_ip;

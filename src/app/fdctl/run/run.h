@@ -13,6 +13,9 @@ typedef struct {
   int              no_shmem;
 } tile_main_args_t;
 
+void
+solana_labs_boot( config_t * config );
+
 int
 solana_labs_main( void * args );
 

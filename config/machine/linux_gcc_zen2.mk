@@ -8,6 +8,7 @@ include config/extra/with-debug.mk
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk
 include config/extra/with-threads.mk
+include config/extra/with-ucontext.mk
 include config/extra/with-openssl.mk
 include config/extra/with-zstd.mk
 include config/extra/with-secp256k1.mk

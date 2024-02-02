@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "run.h"
 
+#include "../../../util/tile/fd_tile_private.h"
 #include <sched.h>
 #include <sys/wait.h>
 
@@ -89,7 +90,7 @@ tile_main( void * _args ) {
     allow_fds_cnt = config->populate_allowed_fds( scratch_mem,
                                                   (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
                                                   allow_fds+allow_fds_offset );
-  } 
+  }
 
 
   struct sock_filter seccomp_filter[ 128UL ];
@@ -124,7 +125,11 @@ tile_main( void * _args ) {
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
+  ulong polled_in_cnt = 0UL;
   for( ulong i=0; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
+    polled_in_cnt += 1;
     in_mcache[ i ] = args->config->topo.links[ tile->in_link_id[ i ] ].mcache;
     FD_TEST( in_mcache[ i ] );
     in_fseq[ i ]   = tile->in_link_fseq[ i ];
@@ -136,7 +141,7 @@ tile_main( void * _args ) {
   for( ulong i=0; i<args->config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &args->config->topo.tiles[ i ];
     for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
         out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
         FD_TEST( out_fseq[ out_cnt_reliable ] );
         out_cnt_reliable++;
@@ -219,15 +224,11 @@ run1_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  cpu_set_t affinity[1];
-  if( FD_UNLIKELY( -1==sched_getaffinity( 0, sizeof( affinity ), affinity ) ) ) FD_LOG_ERR(( "sched_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  ulong cpu_idx = ULONG_MAX;
-  for( ulong i=0; i<CPU_SETSIZE; i++ ) {
-    if( FD_LIKELY( CPU_ISSET( i, affinity ) ) ) {
-      cpu_idx = i;
-      break;
-    }
-  }
+  FD_CPUSET_DECL( affinity );
+  if( FD_UNLIKELY( -1==fd_cpuset_getaffinity( 0, affinity ) ) )
+    FD_LOG_ERR(( "fd_cpuset_getaffinity() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ulong cpu_idx = fd_cpuset_first( affinity );
+        cpu_idx = fd_ulong_if( cpu_idx<FD_TILE_MAX, cpu_idx, ULONG_MAX );
 
   if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "unable to find a CPU to run on, using CPU 0" ));

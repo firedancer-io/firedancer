@@ -25,9 +25,37 @@ FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  
 
 fd_shredder_t _shredder[ 1 ];
 
+struct signer_ctx {
+  fd_sha512_t sha512[ 1 ];
+
+  uchar const * public_key;
+  uchar const * private_key;
+};
+typedef struct signer_ctx signer_ctx_t;
+
+void
+signer_ctx_init( signer_ctx_t * ctx,
+                 uchar const *  private_key ) {
+  FD_TEST( fd_sha512_init( fd_sha512_new( ctx->sha512 ) ) );
+  ctx->public_key  = private_key + 32UL;
+  ctx->private_key = private_key;
+}
+
+static void
+test_signer( void *        _ctx,
+             uchar *       signature,
+             uchar const * merkle_root ) {
+  signer_ctx_t * ctx = (signer_ctx_t *)_ctx;
+
+  fd_ed25519_sign( signature, merkle_root, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
+}
+
 static void
 test_shredder_pcap( void ) {
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   /* Manually counted values from the pcap */
@@ -54,7 +82,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
     FD_TEST( set );
 
     FD_TEST( set->data_shred_cnt  ==(i<6UL ? 32UL : 48UL) );
@@ -85,7 +113,7 @@ test_shredder_pcap( void ) {
     for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
     for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
 
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, test_private_key, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
     FD_TEST( set );
 
     FD_TEST( set->parity_shred_cnt==(i<6UL ? 32UL : 48UL) );
@@ -161,7 +189,10 @@ perf_test( void ) {
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -175,7 +206,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, _set );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -195,7 +226,10 @@ perf_test2( void ) {
   fd_entry_batch_meta_t meta[1];
   fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
 
-  FD_TEST( _shredder==fd_shredder_new( _shredder, test_private_key+32UL, (ushort)0 ) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
   fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
 
   fd_fec_set_t _set[ 1 ];
@@ -210,7 +244,7 @@ perf_test2( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST2_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, test_private_key, _set );
+      fd_shredder_next_fec_set( shredder, _set );
       bytes_produced += _set->data_shred_cnt * FD_SHRED_MIN_SZ + _set->parity_shred_cnt * FD_SHRED_MAX_SZ;
     }
     fd_shredder_fini_batch( shredder );

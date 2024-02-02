@@ -57,12 +57,15 @@
    valid transaction can have is 12 signatures. The most I've seen in practice
    is about 7.
 
+   FD_TXN_ACTUAL_SIG_MAX: used to allocate arrays of signatures, pubkeys, etc.
+
    From the spec: "The Solana runtime verifies that the number of signatures
    [stored as a compact-u16] matches the number in the first 8 bits of the
    message header."
    Thus this value must live in the range where compact-u16 and uint8
    representations are identical, hence a max of 127. */
 #define FD_TXN_SIG_MAX               (127UL)
+#define FD_TXN_ACTUAL_SIG_MAX        (12UL)
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
    that a transaction can have.  The spec only guarantees <= 256, but the

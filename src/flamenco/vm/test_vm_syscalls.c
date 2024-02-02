@@ -31,7 +31,7 @@ test_vm_syscall_sol_memset(
     ulong                  dst_vm_addr,
     ulong                  dst_host_addr,
     ulong                  val,
-    ulong                  sz, 
+    ulong                  sz,
     ulong                  expected_ret_code,
     ulong                  expected_syscall_ret
 ) {
@@ -216,7 +216,7 @@ main( int     argc,
         .instrs_sz           = 0,
         .instrs_offset       = 0,
         .syscall_map         = NULL,
-        .local_call_map      = NULL,
+        .calldests           = NULL,
         .input               = NULL,
         .input_sz            = 0,
         .read_only           = read_only_prog,

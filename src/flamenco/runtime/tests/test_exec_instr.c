@@ -1,6 +1,7 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fd_flamenco_base.h"
 #include "fd_exec_instr_test.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -17,7 +18,10 @@ run_test( fd_exec_instr_test_runner_t * runner,
 
   int file = open( path, O_RDONLY );
   struct stat st;
-  FD_TEST( 0==fstat( file, &st ) );
+  if( FD_UNLIKELY( 0!=fstat( file, &st ) ) ) {
+    FD_LOG_WARNING(( "fstat(%s): %s", path, fd_io_strerror( errno ) ));
+    return 0;
+  }
   ulong file_sz = (ulong)st.st_size;
   uchar * buf = fd_scratch_alloc( 1, file_sz );
   FD_TEST( 0==fd_io_read( file, buf, file_sz, file_sz, &file_sz ) );
@@ -36,8 +40,12 @@ run_test( fd_exec_instr_test_runner_t * runner,
 
   /* Run test */
 
-  FD_LOG_NOTICE(( "Running test %s", path ));
-  int ok = fd_exec_instr_fixture_run( runner, fixture );
+  char program_id_str[ FD_BASE58_ENCODED_32_SZ ];
+  FD_LOG_DEBUG(( "Running test %s (%s)", path, fd_acct_addr_cstr( program_id_str, fixture->input.program_id ) ));
+  int ok = fd_exec_instr_fixture_run( runner, fixture, path );
+  if( ok ) FD_LOG_INFO   (( "OK   %s", path ));
+  else     FD_LOG_WARNING(( "FAIL %s", path ));
+
   pb_release( &fd_exec_test_instr_fixture_t_msg, fixture );
   return ok;
 }

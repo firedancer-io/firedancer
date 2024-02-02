@@ -22,7 +22,7 @@
 
 #define FD_VM_VEC_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_vec {
+struct __attribute__((packed)) fd_vm_vec {
   ulong addr;
   ulong len;
 };
@@ -31,7 +31,7 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 
 #define FD_VM_RC_REFCELL_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_rc_refcell_vec {
+struct __attribute__((packed)) fd_vm_rc_refcell_vec {
   ulong strong;
   ulong weak;
   ulong borrow;
@@ -40,7 +40,7 @@ struct FD_TYPE_PACKED fd_vm_rc_refcell_vec {
 };
 typedef struct fd_vm_rc_refcell_vec fd_vm_rc_refcell_vec_t;
 
-struct FD_TYPE_PACKED fd_vm_rc_refcell {
+struct __attribute__((packed)) fd_vm_rc_refcell {
   ulong strong;
   ulong weak;
   ulong borrow;
@@ -53,7 +53,7 @@ typedef struct fd_vm_rc_refcell fd_vm_rc_refcell_t;
 
 #define FD_VM_C_INSTRUCTION_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_c_instruction {
+struct __attribute__((packed)) fd_vm_c_instruction {
   ulong  program_id_addr;
   ulong  accounts_addr;
   ulong  accounts_len;
@@ -96,7 +96,7 @@ typedef struct fd_vm_c_account_info fd_vm_c_account_info_t;
 
 #define FD_VM_RUST_VEC_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_rust_vec {
+struct __attribute__((packed)) fd_vm_rust_vec {
   ulong addr;
   ulong cap;
   ulong len;
@@ -108,7 +108,7 @@ typedef struct fd_vm_rust_vec fd_vm_rust_vec_t;
 
 #define FD_VM_RUST_INSTRUCTION_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_rust_instruction {
+struct __attribute__((packed)) fd_vm_rust_instruction {
   fd_vm_rust_vec_t accounts;    /* points to fd_vm_rust_account_meta_t */
   fd_vm_rust_vec_t data;        /* points to bytes */
   uchar            pubkey[32];
@@ -118,7 +118,7 @@ typedef struct fd_vm_rust_instruction fd_vm_rust_instruction_t;
 
 #define FD_VM_RUST_ACCOUNT_META_ALIGN (1UL)
 
-struct FD_TYPE_PACKED fd_vm_rust_account_meta {
+struct __attribute__((packed)) fd_vm_rust_account_meta {
   uchar pubkey[32];
   uchar is_signer;
   uchar is_writable;
@@ -128,7 +128,7 @@ typedef struct fd_vm_rust_account_meta fd_vm_rust_account_meta_t;
 
 #define FD_VM_RUST_ACCOUNT_INFO_ALIGN (8UL)
 
-struct FD_TYPE_PACKED fd_vm_rust_account_info {
+struct __attribute__((packed)) fd_vm_rust_account_info {
   ulong pubkey_addr;          /* points to uchar[32] */
   ulong lamports_box_addr;    /* points to Rc with embedded RefCell which points to u64 */
   ulong data_box_addr;        /* points to Rc with embedded RefCell which contains slice which points to bytes */
@@ -144,21 +144,19 @@ typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
 
 union fd_vm_account_info_inner {
   fd_vm_rust_account_info_t const * rust_acct_infos;
-  fd_vm_c_account_info_t const * c_acct_infos;
+  fd_vm_c_account_info_t    const *    c_acct_infos;
 };
 
 typedef union fd_vm_account_info_inner fd_vm_account_info_inner_t;
 
-struct FD_TYPE_PACKED fd_vm_account_info {
+struct __attribute__((packed)) fd_vm_account_info {
   uint discriminant;
+# define FD_VM_ACCOUNT_INFO_RUST (0U)
+# define FD_VM_ACCOUNT_INFO_C    (1U)
+
   fd_vm_account_info_inner_t inner;
 };
 
 typedef struct fd_vm_account_info fd_vm_account_info_t;
-
-enum {
-fd_vm_cpi_rust = 0,
-fd_vm_cpi_c = 1,
-};
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_cpi_h */

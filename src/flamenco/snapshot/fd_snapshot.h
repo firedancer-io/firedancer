@@ -22,7 +22,7 @@ typedef struct fd_snapshot_create_private fd_snapshot_create_t;
 
 #define FD_SNAPSHOT_ACC_ALIGN (8UL)
 
-// FD_PROTOTYPES_BEGIN
+FD_PROTOTYPES_BEGIN
 
 /* fd_snapshot_create_{align,footprint} return required memory region
    parameters for the fd_snapshot_create_t object.
@@ -93,6 +93,15 @@ FD_PROTOTYPES_END
 struct fd_snapshot_restore;
 typedef struct fd_snapshot_restore fd_snapshot_restore_t;
 
+/* fd_snapshot_restore_cb_manifest_fn_t is a callback that provides the
+   user of snapshot restore with the deserialized manifest.  The
+   manifest is borrowed to the callee until it returns.  ctx is the
+   pointer provided to fd_snapshot_restore_set_cb_manifest. */
+
+typedef void
+(* fd_snapshot_restore_cb_manifest_fn_t)( void *                 ctx,
+                                          fd_solana_manifest_t * manifest );
+
 /* FD_SNAPSHOT_RESTORE_SCRATCH_SZ is the size of the scratch memory
    required during fd_snapshot_restore. */
 
@@ -128,6 +137,14 @@ fd_snapshot_restore_new( void *               mem,
 
 void *
 fd_snapshot_restore_delete( fd_snapshot_restore_t * self );
+
+/* fd_snapshot_restore_set_cb_manifest sets the manifest callback.
+   Gets invoked up to once in the lifetime of a snapshot restore. */
+
+void
+fd_snapshot_restore_set_cb_manifest( fd_snapshot_restore_t *              restore,
+                                     fd_snapshot_restore_cb_manifest_fn_t cb,
+                                     void *                               ctx );
 
 /* fd_snapshot_restore_file provides a file to fd_snapshot_restore_t.
    restore is a fd_snapshot_restore_t pointer.  meta is the TAR file

@@ -1,5 +1,4 @@
 #include "fd_sbpf_loader.h"
-#include "fd_sbpf_maps.c"
 #include "fd_sbpf_opcodes.h"
 #include "../../util/fd_util.h"
 #include "../../util/bits/fd_sat.h"
@@ -7,22 +6,7 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 
-#define FD_PROGRAM_COUNTER_MAX (10 * 1024 * 1024 / 8)
-uint * fd_murmur_lookup_table;
-void __attribute__ ((constructor))
-fd_murmur3_generate_default( void ) {
-  fd_murmur_lookup_table = malloc(sizeof(uint) * FD_PROGRAM_COUNTER_MAX);
-  for (ulong pc = 0; pc < FD_PROGRAM_COUNTER_MAX; ++pc) {
-    fd_murmur_lookup_table[pc] = fd_murmur3_32(&pc, 8UL, 0U);
-  }
-}
-
-void __attribute__ ((destructor))
-fd_murmur3_destroy_default( void ) {
-  free(fd_murmur_lookup_table);
-}
 /* Error handling *****************************************************/
 
 /* Thread local storage last error value */
@@ -479,19 +463,16 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) ) {
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) )
     return err;
-  }
 
   /* Program headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) ) {
+  if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) )
     return err;
-  }
 
   /* Section headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz ))!=0 ) ) {
+  if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz ))!=0 ) )
     return err;
-  }
 
   return 0;
 }
@@ -530,7 +511,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(),  fd_sbpf_calldests_footprint() ),
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->rodata_sz / 8UL ) ),  /* calldests bitmap */
     alignof(fd_sbpf_program_t) );
 }
 
@@ -556,25 +537,26 @@ fd_sbpf_program_new( void *                     prog_mem,
 
   /* Initialize program struct */
 
-  ulong laddr = (ulong)prog_mem;
-  laddr+=FD_LAYOUT_INIT;
-  memset( (void *)laddr, 0, sizeof(fd_sbpf_program_t) );
-  fd_sbpf_program_t * prog = (fd_sbpf_program_t *)fd_type_pun( (void *)laddr );
+  FD_SCRATCH_ALLOC_INIT( laddr, prog_mem );
+  fd_sbpf_program_t * prog = FD_SCRATCH_ALLOC_APPEND( laddr, alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) );
 
-  memcpy( &prog->info, elf_info, sizeof(fd_sbpf_elf_info_t) );
-  prog->rodata    = rodata;
-  prog->rodata_sz = elf_info->rodata_sz;
-  prog->text      = (ulong *)((ulong)rodata + elf_info->text_off);
-  prog->text_off  = elf_info->text_off / 8;
-  prog->text_cnt  = elf_info->text_cnt;
-  prog->entry_pc  = elf_info->entry_pc;
+  *prog = (fd_sbpf_program_t) {
+    .info      = *elf_info,
+    .rodata    = rodata,
+    .rodata_sz = elf_info->rodata_sz,
+    .text      = (ulong *)((ulong)rodata + elf_info->text_off),
+    .text_cnt  = elf_info->text_cnt,
+    .entry_pc  = elf_info->entry_pc
+  };
 
   /* Initialize calldests map */
 
-  laddr=FD_LAYOUT_APPEND( laddr, alignof( fd_sbpf_program_t ),
-                                 sizeof ( fd_sbpf_program_t ) );
-  /* fd_sbpf_calldests_align() < alignof( fd_sbpf_program_t ) */
-  prog->calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( (void *)laddr ) );
+  ulong pc_max = elf_info->rodata_sz / 8UL;
+  prog->calldests =
+    fd_sbpf_calldests_join( fd_sbpf_calldests_new(
+        FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
+                                        fd_sbpf_calldests_footprint( pc_max ) ),
+        pc_max ) );
 
   return prog;
 }
@@ -582,11 +564,8 @@ fd_sbpf_program_new( void *                     prog_mem,
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
-  ulong laddr = (ulong)fd_type_pun( mem );
-  laddr+=FD_LAYOUT_INIT;
-  memset( (void *)laddr, 0, sizeof(fd_sbpf_program_t) );
-
   fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( mem->calldests ) );
+  fd_memset( mem, 0, sizeof(fd_sbpf_program_t) );
 
   return (void *)mem;
 }
@@ -595,8 +574,8 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
 struct fd_sbpf_loader {
   /* External objects */
-  fd_sbpf_calldests_t * calldests;  /* owned by program */
-  fd_sbpf_syscalls_t  * syscalls;   /* owned by caller */
+  ulong *              calldests;  /* owned by program */
+  fd_sbpf_syscalls_t * syscalls;   /* owned by caller */
 
   /* Dynamic table */
   uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
@@ -711,6 +690,7 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
 
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
+        /* TODO: verify this ... */
         uint sh_type = shdrs[ i ].sh_type;
         if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
           continue;
@@ -953,20 +933,22 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     /* Register function call */
     ulong target_pc = (S-sh_addr) / 8UL;
 
+    /* TODO bounds check the target? */
+
     /* Check for collision with syscall ID */
     REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (uint)target_pc, NULL ) );
 
     /* Register new entry */
     uint hash;
     if( name_len >= 10UL && 0==strncmp( name, "entrypoint", name_len ) ) {
+      /* TODO register entrypoint */
       hash = 0x71e3cf81;
     } else {
       hash = fd_murmur3_32( &target_pc, 8UL, 0U );
     }
-    REQUIRE( fd_sbpf_calldests_upsert( loader->calldests, hash, target_pc ) );
+    fd_sbpf_calldests_insert( loader->calldests, target_pc );
 
     V = (uint)hash;
-    //V = (uint)target_pc; // (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
              If max ELF size is 10MB, can fit about 640k relocs.
@@ -1017,7 +999,7 @@ fd_sbpf_apply_reloc( fd_sbpf_loader_t   const * loader,
    does not overlap with the ELF file header, program header table, or
    section header table. */
 
-static FD_FN_UNUSED int
+static int
 fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
                     fd_sbpf_program_t *   prog,
                     fd_sbpf_elf_t const * elf ) {
@@ -1049,12 +1031,10 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     REQUIRE( target_pc<insn_cnt );  /* bounds check target */
 
     /* Derive hash and insert */
-    /* FIXME encrypt target_pc before insert */
-    uint hash = (target_pc < FD_PROGRAM_COUNTER_MAX) ? fd_murmur_lookup_table[target_pc] : fd_murmur3_32( &target_pc, 8UL, 0U );
-    REQUIRE( fd_sbpf_calldests_upsert( calldests, hash, target_pc ) );
+    fd_sbpf_calldests_insert( calldests, target_pc );
 
     /* Replace immediate with hash */
-    FD_STORE( uint, ptr+4UL, hash );
+    FD_STORE( uint, ptr+4UL, fd_pchash( (uint)target_pc ) );
   }
 
   return 0;
@@ -1218,21 +1198,12 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
   fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
 
   /* Convert calls with PC relative immediate to hashes */
-  // if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
-  //   return err;
+  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
+    return err;
 
   /* Apply relocations */
   if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
     return err;
-
-  /* Override entrypoint */
-  do {
-    fd_sbpf_calldests_t * entry = fd_sbpf_calldests_query( prog->calldests, 0x71e3cf81, NULL );
-    if( !entry )
-      entry = fd_sbpf_calldests_insert( prog->calldests, 0x71e3cf81 );
-    REQUIRE( entry );
-    entry->pc = prog->entry_pc;
-  } while(0);
 
   /* Create read-only segment */
   if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )

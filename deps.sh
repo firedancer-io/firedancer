@@ -115,7 +115,7 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo openssl   https://github.com/quictls/openssl.git    "openssl-3.1.4-quic1"
+  checkout_repo openssl   https://github.com/quictls/openssl.git    "openssl-3.2.1"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
@@ -174,7 +174,7 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev patch )
+  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev patch libucontext-dev )
 
   echo "[~] Checking for required APK packages"
 
@@ -335,8 +335,6 @@ install_openssl () {
     --prefix="$PREFIX" \
     --libdir=lib \
     -march=native \
-    enable-quic \
-    enable-pic \
     no-engine \
     no-static-engine \
     no-weak-ssl-ciphers \
@@ -355,6 +353,7 @@ install_openssl () {
     no-sctp \
     no-ssl3 \
     no-aria \
+    no-argon2 \
     no-bf \
     no-blake2 \
     no-camellia \
