@@ -44,6 +44,10 @@ fd_io_istream_zstd_read( void *  _this,
     }
     this->in_cur = this->in_buf;
     this->in_end = this->in_buf + in_sz;
+    if( FD_UNLIKELY( in_sz==0 ) ) {
+      *dst_sz = 0UL;
+      return 0;
+    }
   }
 
   uchar * out     = dst;
