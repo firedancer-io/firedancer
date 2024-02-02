@@ -140,8 +140,6 @@ fd_io_istream_file_virtual( fd_io_istream_file_t * this ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_load_h */
-
 
 /* fd_tar_io_reader_t reads a tar from an fd_io_istream_obj_t source. */
 
@@ -166,3 +164,5 @@ int
 fd_tar_io_reader_advance( fd_tar_io_reader_t * this );
 
 FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_flamenco_snapshot_fd_snapshot_load_h */
