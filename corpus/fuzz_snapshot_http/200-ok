@@ -1,0 +1,6 @@
+HTTP/1.1 200 OK
+Date: Mon, 27 Jul 2009 12:28:53 GMT
+Server: Apache
+Content-Length: 51
+
+Hello World! My content includes a trailing CRLF.
