@@ -26,6 +26,18 @@
 <         headers[*num_headers].value_len = value_end - value;
 ---
 >         headers[*num_headers].value_len = (size_t)(value_end - value);
+406c406
+<     int r;
+---
+>     int r = 0;
+479c479
+<     int r;
+---
+>     int r = 0;
+504c504
+<     int r;
+---
+>     int r = 0;
 566c566
 <                 decoder->bytes_left_in_chunk = decoder->bytes_left_in_chunk * 16 + v;
 ---
