@@ -1,5 +1,6 @@
 #include "fd_alloc.h"
 #include "fd_alloc_cfg.h"
+#include "../tile/fd_tile.h"
 #include "../sanitize/fd_asan.h"
 /* Note: this will still compile on platforms without FD_HAS_ATOMIC.  It
    should only be used single threaded in those use cases.  (The code
@@ -1489,13 +1490,13 @@ static void *
 fd_alloc_malloc_virtual( void * self,
                          ulong  align,
                          ulong  sz ) {
-  return fd_alloc_malloc( (fd_alloc_t *)self, align, sz );
+  return fd_alloc_malloc( fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)self, fd_tile_idx() ), align, sz );
 }
 
 static void
 fd_alloc_free_virtual( void * self,
                        void * addr ) {
-  fd_alloc_free( (fd_alloc_t *)self, addr );
+  fd_alloc_free( fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)self, fd_tile_idx() ), addr );
 }
 
 const fd_valloc_vtable_t

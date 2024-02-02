@@ -204,6 +204,7 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->txn_descriptor = txn_descriptor;
   txn_ctx->_txn_raw = txn_raw;
 
+  txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len = 0;
 }
@@ -221,4 +222,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
   txn_ctx->valloc = slot_ctx->valloc;
   txn_ctx->funk_txn = NULL;
   txn_ctx->acc_mgr = slot_ctx->acc_mgr;
+}
+
+void
+fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->return_data.len = 0;
 }

@@ -22,6 +22,7 @@ foundation( fd_inflation_t const * inflation, double year ) {
 static double
 validator( fd_inflation_t const * inflation, double year) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/src/inflation.rs#L96-L99 */
+    FD_LOG_DEBUG(("Validator Rate: %.16f %.16f %.16f %.16f %.16f", year, total( inflation, year ), foundation( inflation, year ), inflation->taper, inflation->initial));
     return total( inflation, year ) - foundation( inflation, year );
 }
 
@@ -49,11 +50,11 @@ get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
                          fd_epoch_schedule_t const * epoch_schedule,
                          ulong slot ) {
     /* https://github.com/firedancer-io/solana/blob/de02601d73d626edf98ef63efd772824746f2f33/runtime/src/bank.rs#L2333-L2342 */
-    ulong inflaction_activation_slot = get_inflation_start_slot( slot_ctx );
+    ulong inflation_activation_slot = get_inflation_start_slot( slot_ctx );
     ulong inflation_start_slot = fd_epoch_slot0(
         epoch_schedule,
         fd_ulong_sat_sub(
-            fd_slot_to_epoch( epoch_schedule, inflaction_activation_slot, NULL ),
+            fd_slot_to_epoch( epoch_schedule, inflation_activation_slot, NULL ), 
             1 )
         );
 
@@ -89,11 +90,14 @@ calculate_stake_points_and_credits (
             __builtin_unreachable();
     }
   ulong credits_in_stake = stake_state->inner.stake.stake.credits_observed;
-  ulong credits_in_vote = deq_fd_vote_epoch_credits_t_empty( epoch_credits) ? 0 : deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->credits;
+  ulong credits_in_vote = deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ? 0 : deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->credits;
+//   FD_LOG_WARNING(("Vote credits: %lu %32J %lu %lu %lu", credits_in_stake, stake_state->inner.stake.stake.delegation.voter_pubkey.key, credits_in_vote, deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->epoch, deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->prev_credits ));
 
   result->points = 0;
   result->force_credits_update_with_skipped_reward = credits_in_vote < credits_in_stake;
   if (credits_in_vote < credits_in_stake) {
+    // FD_LOG_WARNING(("Vote credits 2: %lu %32J %lu %lu %lu", credits_in_stake, stake_state->inner.stake.stake.delegation.voter_pubkey.key, credits_in_vote, deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->epoch, deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->prev_credits ));
+
     result->new_credits_observed = credits_in_vote;
     return;
   }
@@ -124,6 +128,8 @@ calculate_stake_points_and_credits (
   }
   result->points = points;
   result->new_credits_observed = new_credits_observed;
+//   FD_LOG_WARNING(("Vote credits 3: %lu", new_credits_observed ));
+
 }
 
 
@@ -148,6 +154,7 @@ calculate_stake_rewards(
     fd_calculate_stake_points_t stake_points_result;
     // TODO
     calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
+    // FD_LOG_WARNING(("CSR: %lu", stake_points_result.new_credits_observed ));
 
     // Drive credits_observed forward unconditionally when rewards are disabled
     // or when this is the stake's activation epoch
@@ -214,6 +221,7 @@ stake_state_redeem_rewards( fd_exec_slot_ctx_t *            slot_ctx,
     // }
 
     rc = calculate_stake_rewards(stake_history, &stake_state, vote_state, rewarded_epoch, point_value, result);
+    // FD_LOG_WARNING(("SSRR: %32J RES->NCO: %lu, SS->NCO: %lu %lu", stake_acc->key, result->new_credits_observed, stake_state.discriminant, stake_state.inner.stake.stake.credits_observed));
     if (rc != 0) {
         // ctx->txn_ctx->custom_err = 0; /* Err(StakeError::NoCreditsToRedeem.into()) */
         return rc;
@@ -274,7 +282,7 @@ calculate_previous_epoch_inflation_rewards(
     rewards->foundation_rate = foundation(&epoch_bank->inflation, slot_in_year);
     rewards->prev_epoch_duration_in_years = epoch_duration_in_years(epoch_bank, prev_epoch);
     rewards->validator_rewards = (ulong)(rewards->validator_rate * (double)prev_epoch_capitalization * rewards->prev_epoch_duration_in_years);
-    FD_LOG_WARNING(("Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year));
+    FD_LOG_DEBUG(("Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year));
 }
 
 
@@ -392,8 +400,26 @@ static void calculate_reward_points_account(
     if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( vote_state, &decode ) ) )
         FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
 
+    // fd_vote_epoch_credits_t * epoch_credits;
+    // switch (vote_state->discriminant) {
+    // case fd_vote_state_versioned_enum_current:
+    //     epoch_credits = vote_state->inner.current.epoch_credits;
+    //     break;
+    // case fd_vote_state_versioned_enum_v0_23_5:
+    //     epoch_credits = vote_state->inner.v0_23_5.epoch_credits;
+    //     break;
+    // case fd_vote_state_versioned_enum_v1_14_11:
+    //     epoch_credits = vote_state->inner.v1_14_11.epoch_credits;
+    //     break;
+    // default:
+    //     __builtin_unreachable();
+    // }
+
+    // FD_LOG_WARNING(("VOTE ACCOUNT: %32J, %lu", voter_acc->key, deq_fd_vote_epoch_credits_t_peek_tail_const( epoch_credits )->credits));
+
     uint128 result;
     *points += (calculate_points(&stake_state, vote_state, stake_history, &result) == FD_EXECUTOR_INSTR_SUCCESS ? result : 0);
+    // FD_LOG_WARNING(("PER_ACC_POINTS: Acc: %32J, Points: %K", stake_acc->key, &result ));
     fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
     fd_stake_state_v2_destroy( &stake_state, &destroy );
     fd_vote_state_versioned_destroy( vote_state, &destroy );
@@ -410,21 +436,25 @@ calculate_reward_points_partitioned(
     uint128 points = 0;
     ulong actual_len = 0;
     fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
-    FD_LOG_WARNING(("Delegations len %lu, slot del len %lu", fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ), fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root )));
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
-         n;
+    FD_LOG_DEBUG(("Delegations len %lu, slot del len %lu", fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ), fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root )));
+    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ); 
+         n; 
          n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
     ) {
         fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t const * stake_acc = &n->elem.account;
-
+        // FD_LOG_WARNING(("STAKE ACC1: %32J, %32J", stake_acc->key, voter_acc->key));
         calculate_reward_points_account( slot_ctx, stake_history, voter_acc, stake_acc, &points, &actual_len );
     }
+    // FD_LOG_HEXDUMP_WARNING(( "POINTS 1", &points, 16 ));
+
     for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
           n;
           n = fd_stake_accounts_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
         (void) n;
         fd_pubkey_t const * stake_acc = &n->elem.key;
+
+        // FD_LOG_WARNING(("STAKE ACC2: %32J", stake_acc->key));
         FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
         if( 0!=fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) ) {
             FD_LOG_DEBUG(("Stake acc not found %32J", stake_acc->uc));
@@ -445,7 +475,9 @@ calculate_reward_points_partitioned(
         fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
         fd_stake_state_v2_destroy( &stake_state, &destroy );
     }
-
+    
+    // FD_LOG_HEXDUMP_WARNING(( "POINTS", &points, 16 ));
+    // FD_LOG_WARNING(("REWARDS 2: %lu TOT POINTS: %llu",rewards, points ));
     if (points > 0) {
         result->points = points;
         result->rewards = rewards;
@@ -512,6 +544,7 @@ calculate_stake_vote_rewards_account(
         /* TODO: Make this a instruction-scoped allocator */
         .valloc  = slot_ctx->valloc,
     };
+    fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
     fd_vote_state_versioned_t vote_state_versioned[1] = {0};
     if( fd_vote_state_versioned_decode( vote_state_versioned, &decode ) != 0 ) {
         return;
@@ -544,6 +577,7 @@ calculate_stake_vote_rewards_account(
     fd_calculated_stake_rewards_t redeemed[1] = {0};
     rc = stake_state_redeem_rewards(slot_ctx, stake_history, stake_acc, vote_state_versioned, rewarded_epoch, point_value, redeemed);
     if ( rc != 0) {
+        fd_vote_state_versioned_destroy( vote_state_versioned, &destroy );
         FD_LOG_DEBUG(("stake_state::stake_state_redeem_rewards() failed for %32J with error %d", stake_acc->key, rc ));
         return;
     }
@@ -565,13 +599,14 @@ calculate_stake_vote_rewards_account(
         .staker_rewards = redeemed->staker_rewards,
         .post_balance = post_lamports
     };
+
+    // FD_LOG_WARNING(("STAKE REWARD: %32J %lu", stake_acc->key, redeemed->staker_rewards));
     deq_fd_stake_reward_t_push_tail( stake_reward_deq, stake_reward );
 
     // track voter rewards
     node->vote_rewards = fd_ulong_sat_add(node->vote_rewards, redeemed->voter_rewards);
     node->needs_store = 1;
 
-    fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
     fd_stake_state_v2_destroy( &stake_state, &destroy );
     fd_vote_state_versioned_destroy( vote_state_versioned, &destroy );
 }
@@ -607,10 +642,25 @@ calculate_stake_vote_rewards(
          n;
          n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
     ) {
-        fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
+        // fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
         fd_pubkey_t const * stake_acc = &n->elem.account;
+
+        FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
+        if( 0!=fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) ) {
+            FD_LOG_DEBUG(("Stake acc not found %32J", stake_acc->uc));
+            continue;
+        }
+
+        fd_stake_state_v2_t stake_state = {0};
+        int rc = fd_stake_get_state(stake_acc_rec, &slot_ctx->valloc, &stake_state);
+        if ( rc != 0 ) {
+            FD_LOG_WARNING(("Failed to read stake state from stake account %32J", stake_acc));
+            continue;
+        }
+        fd_pubkey_t const * voter_acc = &stake_state.inner.stake.stake.delegation.voter_pubkey;
+
         calculate_stake_vote_rewards_account( slot_ctx, stake_history, rewarded_epoch, point_value, voter_acc, stake_acc, stake_reward_deq, vote_reward_map, &total_stake_rewards );
-    } // end of for
+    }
 
     for ( fd_stake_accounts_pair_t_mapnode_t const * n = fd_stake_accounts_pair_t_map_minimum_const( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
          n;
@@ -618,7 +668,7 @@ calculate_stake_vote_rewards(
         fd_pubkey_t const * stake_acc = &n->elem.key;
         FD_BORROWED_ACCOUNT_DECL(stake_acc_rec);
         if( 0!=fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_acc, stake_acc_rec) ) {
-            FD_LOG_WARNING(("Stake acc not found %32J", stake_acc->uc));
+            FD_LOG_DEBUG(("Stake acc not found %32J", stake_acc->uc));
             continue;
         }
 
@@ -636,6 +686,8 @@ calculate_stake_vote_rewards(
         fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
         fd_stake_state_v2_destroy( &stake_state, &destroy );
     }
+
+    // FD_LOG_WARNING(( "TSRL: %lu", total_stake_rewards ));
 
     *result = (fd_validator_reward_calculation_t) {
         .total_stake_rewards_lamports = total_stake_rewards,
@@ -883,7 +935,7 @@ pay_validator_rewards(
         if (ref[i].vote_rewards == 0 && !ref[i].needs_store) {
             continue;
         }
-        FD_LOG_DEBUG(("Vote reward for %32J", vote_pubkey->uc));
+        FD_LOG_DEBUG(("Vote reward for %32J %lu", vote_pubkey->uc, ref[i].vote_rewards));
         ulong min_data_sz = 0UL;
         FD_BORROWED_ACCOUNT_DECL(vote_rec);
         int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, 1, min_data_sz, vote_rec);
@@ -934,6 +986,7 @@ pay_validator_rewards(
         FD_TEST( err == 0 );
     }
 
+    // FD_LOG_WARNING(("REWARDS PAID: %lu POST_CAP: %lu", validator_rewards_paid, slot_ctx->slot_bank.capitalization ));
     slot_ctx->slot_bank.capitalization = fd_ulong_sat_add(slot_ctx->slot_bank.capitalization, validator_rewards_paid);
 
     /* free stake_reward_deq and vote_reward_map */

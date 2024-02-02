@@ -25,15 +25,14 @@ static void __attribute__((destructor)) free_buf(void) {
 int
 fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx,
                                                               fd_pubkey_t const *  pubkey ) {
-
   FD_BORROWED_ACCOUNT_DECL(rec);
   int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
-  if (read_result != FD_ACC_MGR_SUCCESS) {
+  if( read_result != FD_ACC_MGR_SUCCESS ) {
     return -1;
   }
 
-  if( memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) &&
-      memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t)) ) {
+  if( memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
+      memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
     return -1;
   }
 
@@ -52,7 +51,7 @@ setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_dat
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_valloc_malloc( ctx->valloc, 1UL,  elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx->valloc, 32UL, elf_info.rodata_footprint );
   if (!rodata) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -91,7 +90,7 @@ setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_dat
     .read_only_sz        = prog->rodata_sz,
     /* TODO configure heap allocator */
     .instr_ctx           = ctx,
-    .heap_sz = FD_VM_DEFAULT_HEAP_SZ,
+    .heap_sz = ctx->txn_ctx->heap_size,
   };
 
   ulong validate_result = fd_vm_context_validate( &vm_ctx );
@@ -126,7 +125,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
 
   /* Allocate rodata segment */
 
-  void * rodata = fd_valloc_malloc( ctx.valloc, 1UL,  elf_info.rodata_footprint );
+  void * rodata = fd_valloc_malloc( ctx.valloc, 32UL,  elf_info.rodata_footprint );
   FD_TEST( rodata );
 
   /* Allocate program buffer */
@@ -322,7 +321,7 @@ if (memcmp(signature, sig, 64) == 0) {
   fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
   fd_valloc_free( ctx.valloc, rodata);
 
-  FD_LOG_DEBUG(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
+  // FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
   // FD_LOG_WARNING(( "log coll: %s", vm_ctx.log_collector.buf ));
 
   if( vm_ctx.register_file[0]!=0 ) {
@@ -391,6 +390,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
   }
   fd_account_meta_t const * program_acc_metadata = acc->const_meta;
   if ( memcmp(program_acc_metadata->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
+    FD_LOG_WARNING(("A"));
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
   }
 

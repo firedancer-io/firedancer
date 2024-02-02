@@ -144,6 +144,11 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
       break;
     }
   }
+
+  ulong starting_lamports = 0;
+  uchar acc_idx_seen[256];
+  memset(acc_idx_seen, 0, 256);
+
   instr_info->program_id_pubkey = fd_solana_system_program_id;
   instr_info->acct_cnt = (ushort)acct_metas_len;
   for (ulong j = 0; j < acct_metas_len; j++) {
@@ -155,6 +160,15 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
         instr_info->acct_txn_idxs[j] = (uchar)k;
         instr_info->acct_flags[j] = 0;
         instr_info->borrowed_accounts[j] = &ctx->txn_ctx->borrowed_accounts[k];
+
+        instr_info->is_duplicate[j] = acc_idx_seen[k];
+        if( FD_LIKELY( !acc_idx_seen[k] ) ) {
+          /* This is the first time seeing this account */
+          acc_idx_seen[k] = 1;
+          if( instr_info->borrowed_accounts[j]->const_meta != NULL ) {
+            starting_lamports += instr_info->borrowed_accounts[j]->const_meta->info.lamports;
+          }
+        }
 
         if( acct_meta->is_writable ) {
           instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
@@ -173,6 +187,8 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
         break;
       }
     }
+
+    instr_info->starting_lamports = starting_lamports;
   }
 
   fd_bincode_encode_ctx_t ctx2;

@@ -123,6 +123,10 @@ ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err );
 
+ulong
+fd_rocksdb_find_last_slot( fd_rocksdb_t * db, 
+                           char **        err );
+
 /* fd_rocksdb_get_meta
 
    Retrieves the meta structure associated with the supplied slot.  If

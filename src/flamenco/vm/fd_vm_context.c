@@ -131,12 +131,12 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         ++i;
         break;
       case FD_CHECK_CALL:
-        // TODO: Check to make sure we are really doing this right!
-        if( instr.imm >= ctx->instrs_sz
-            && fd_sbpf_syscalls_query ( ctx->syscall_map,    instr.imm, NULL ) == NULL
-            && fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL ) == NULL ) {
-              return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
-        }
+        // TODO: Check required for sbpf v2
+        // if( instr.imm >= ctx->instrs_sz
+        //     && fd_sbpf_syscalls_query ( ctx->syscall_map,    instr.imm, NULL ) == NULL
+        //     && fd_sbpf_calldests_query( ctx->local_call_map, instr.imm, NULL ) == NULL ) {
+        //       return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
+        // }
         break;
       case FD_INVALID:
         return FD_VM_SBPF_VALIDATE_ERR_INVALID_OPCODE;

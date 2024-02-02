@@ -17,6 +17,7 @@ extern const fd_pubkey_t fd_sysvar_stake_history_id;
 extern const fd_pubkey_t fd_sysvar_owner_id;
 extern const fd_pubkey_t fd_sysvar_last_restart_slot_id;
 extern const fd_pubkey_t fd_sysvar_instructions_id;
+extern const fd_pubkey_t fd_sysvar_incinerator_id;
 
 extern const fd_pubkey_t fd_solana_native_loader_id;
 extern const fd_pubkey_t fd_solana_feature_program_id;

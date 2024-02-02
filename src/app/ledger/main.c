@@ -1,5 +1,3 @@
-#define OLD_TAR
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -96,6 +94,9 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
     int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore, txnstatus);
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
 
+    // if( blk_cnt % 1000 == 0 ) {
+    //   FD_LOG_WARNING(("imported %lu blocks", blk_cnt));
+    // }
     ++blk_cnt;
 
     fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
@@ -103,10 +104,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
     ret = fd_rocksdb_root_iter_next( &iter, &m, slot_ctx->valloc );
     if (ret < 0) {
-      FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
-      if (slot + 1 == 223344000) {
-        slot += 8;
-      }
+      // FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
       ret = fd_rocksdb_get_meta(&rocks_db, slot + 1, &m, slot_ctx->valloc);
       if (ret < 0) {
         break;
@@ -279,6 +277,9 @@ main( int     argc,
       snapshotfiles[1] = incremental;
       snapshotfiles[2] = NULL;
       fd_snapshot_load(snapshotfiles, slot_ctx, (verifyacchash != NULL));
+
+      FD_LOG_NOTICE(("imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map ( funk, wksp ))));
+
     }
 
     if( genesis ) {

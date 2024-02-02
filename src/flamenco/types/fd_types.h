@@ -308,7 +308,7 @@ fd_stake_history_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_NAME fd_stake_history_treap
 #define TREAP_T fd_stake_history_entry_t
 #define TREAP_QUERY_T ulong
-#define TREAP_CMP(q,e) (memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))
+#define TREAP_CMP(q,e) ((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_stake_history_treap_t *
@@ -1610,7 +1610,7 @@ fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_NAME fd_vote_authorized_voters_treap
 #define TREAP_T fd_vote_authorized_voter_t
 #define TREAP_QUERY_T ulong
-#define TREAP_CMP(q,e) (memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))
+#define TREAP_CMP(q,e) ( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_vote_authorized_voters_treap_t *
@@ -2521,7 +2521,8 @@ typedef struct fd_system_program_instruction_create_account_off fd_system_progra
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   ulong lamports;
   ulong space;
   fd_pubkey_t owner;
@@ -2545,7 +2546,8 @@ typedef struct fd_system_program_instruction_create_account_with_seed_off fd_sys
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   ulong space;
   fd_pubkey_t owner;
 };
@@ -2567,7 +2569,8 @@ typedef struct fd_system_program_instruction_allocate_with_seed_off fd_system_pr
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_instruction_assign_with_seed_t;
@@ -2587,7 +2590,8 @@ typedef struct fd_system_program_instruction_assign_with_seed_off fd_system_prog
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with_seed {
   ulong lamports;
-  char* from_seed;
+  ulong from_seed_len;
+  uchar* from_seed;
   fd_pubkey_t from_owner;
 };
 typedef struct fd_system_program_instruction_transfer_with_seed fd_system_program_instruction_transfer_with_seed_t;

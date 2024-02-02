@@ -1,4 +1,3 @@
-#define OLD_TAR
 #define _GNU_SOURCE
 
 #include <stdio.h>

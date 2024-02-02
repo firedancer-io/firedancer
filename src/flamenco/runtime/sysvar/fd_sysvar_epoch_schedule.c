@@ -34,8 +34,8 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 static void
 write_epoch_schedule( fd_exec_slot_ctx_t  * slot_ctx,
                       fd_epoch_schedule_t * epoch_schedule ) {
-  ulong sz = fd_epoch_schedule_size( epoch_schedule );
-  FD_LOG_WARNING(("Writing epoch schedule size %lu", sz));
+  ulong sz  = fd_epoch_schedule_size( epoch_schedule );
+  FD_LOG_INFO(("Writing epoch schedule size %lu", sz));
   /* TODO remove alloca */
   uchar enc[ sz ];
   memset( enc, 0, sz );

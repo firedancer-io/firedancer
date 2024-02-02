@@ -13,6 +13,7 @@ const fd_pubkey_t fd_sysvar_stake_history_id       = { .uc = { SYSVAR_STAKE_HIST
 const fd_pubkey_t fd_sysvar_owner_id               = { .uc = { SYSVAR_PROG_ID           } };
 const fd_pubkey_t fd_sysvar_last_restart_slot_id   = { .uc = { SYSVAR_LAST_RESTART_ID   } };
 const fd_pubkey_t fd_sysvar_instructions_id        = { .uc = { SYSVAR_INSTRUCTIONS_ID   } };
+const fd_pubkey_t fd_sysvar_incinerator_id         = { .uc = { SYSVAR_INCINERATOR_ID    } };
 
 const fd_pubkey_t fd_solana_native_loader_id                  = { .uc = { NATIVE_LOADER_ID         } };
 const fd_pubkey_t fd_solana_feature_program_id                = { .uc = { FEATURE_ID               } };
@@ -127,16 +128,17 @@ const fd_pubkey_t fd_solana_spl_token_id                      = { .uc = { TOKEN_
 #define MAP_PERFECT_9   ( SYSVAR_PROG_ID           ),
 #define MAP_PERFECT_10  ( SYSVAR_LAST_RESTART_ID   ),
 #define MAP_PERFECT_11  ( SYSVAR_INSTRUCTIONS_ID   ),
+#define MAP_PERFECT_12  ( SYSVAR_INCINERATOR_ID   ),
 
-#define MAP_PERFECT_12  ( NATIVE_LOADER_ID        ),
-#define MAP_PERFECT_13  ( FEATURE_ID              ),
-#define MAP_PERFECT_14  ( CONFIG_PROG_ID          ),
-#define MAP_PERFECT_15  ( STAKE_CONFIG_PROG_ID    ),
-#define MAP_PERFECT_16  ( SYS_PROG_ID             ),
-#define MAP_PERFECT_17  ( VOTE_PROG_ID            ),
-#define MAP_PERFECT_18  ( BPF_LOADER_1_PROG_ID    ),
-#define MAP_PERFECT_19  ( BPF_LOADER_2_PROG_ID    ),
-#define MAP_PERFECT_20  ( BPF_UPGRADEABLE_PROG_ID ),
+#define MAP_PERFECT_13  ( NATIVE_LOADER_ID        ),
+#define MAP_PERFECT_14  ( FEATURE_ID              ),
+#define MAP_PERFECT_15  ( CONFIG_PROG_ID          ),
+#define MAP_PERFECT_16  ( STAKE_CONFIG_PROG_ID    ),
+#define MAP_PERFECT_17  ( SYS_PROG_ID             ),
+#define MAP_PERFECT_18  ( VOTE_PROG_ID            ),
+#define MAP_PERFECT_19  ( BPF_LOADER_1_PROG_ID    ),
+#define MAP_PERFECT_20  ( BPF_LOADER_2_PROG_ID    ),
+#define MAP_PERFECT_21  ( BPF_UPGRADEABLE_PROG_ID ),
 #include "../../util/tmpl/fd_map_perfect.c"
 
 int fd_pubkey_is_sysvar_id        ( fd_pubkey_t const * acct ) { return fd_pubkey_sysvar_tbl_contains( acct );              }

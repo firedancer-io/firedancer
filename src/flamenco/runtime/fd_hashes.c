@@ -47,7 +47,7 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   // FD_LOG_DEBUG(("fancy bmtree started"));
   for( ulong j = 0; j < FD_ACCOUNT_DELTAS_MAX_MERKLE_HEIGHT; ++j ) {
     fd_sha256_init( &shas[j] );
-  }
+}
 
   if( pairs_len == 0 ) {
     fd_sha256_fini( &shas[0], hash->hash );
@@ -55,7 +55,8 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
   }
 
   for( ulong i = 0; i < pairs_len; ++i ) {
-    if (0) {
+    if(0) {
+    // if ( slot_ctx->slot_bank.slot == 240182076 ) {
       FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, pairs[i].pubkey->key, pairs[i].hash->hash));
 
       /*
@@ -158,7 +159,6 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_t * pairs, ulong pairs_len, fd_hash_
 
     // check, have we filled this level and ones above it.
     for( ulong j = i+1; j < height; ++j ) {
-      FD_LOG_DEBUG(("P %lu", j));
       // if the level is full, finalize and push into next level.
       if (num_hashes[j] == FD_ACCOUNT_DELTAS_MERKLE_FANOUT) {
         num_hashes[j] = 0;
@@ -296,7 +296,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * hash, fd_pubkey_hash_pa
   //     &slot_ctx->slot_bank.poh.hash,
   //     slot_ctx->signature_cnt );
 
-  FD_LOG_DEBUG(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
+  FD_LOG_NOTICE(( "bank_hash slot: %lu,  hash: %32J,  parent_hash: %32J,  accounts_delta: %32J,  signature_count: %ld,  last_blockhash: %32J",
                  slot_ctx->slot_bank.slot, hash->hash, slot_ctx->prev_banks_hash.hash, slot_ctx->account_delta_hash.hash, slot_ctx->signature_cnt, slot_ctx->slot_bank.poh.hash ));
 }
 
@@ -323,7 +323,8 @@ fd_account_hash_task( void *tpool,
   int err = 0;
   fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "failed to view account during bank hash" ));
+    FD_LOG_WARNING(( "failed to view account during bank hash" ));
+    return;
   }
 
   uchar const *       acc_data = (uchar *)acc_meta + acc_meta->hlen;
@@ -395,6 +396,8 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
     task_info->slot_ctx = slot_ctx;
     task_info->hash_changed = 0;
     task_info->should_erase = 0;
+
+    // FD_LOG_WARNING(("X: %32J", acc_key->key));
   }
 
   *out_task_infos = task_infos;
@@ -500,6 +503,112 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_valloc_free( slot_ctx->valloc, dirty_keys );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+int
+fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_tpool_t *         tpool,
+                         ulong                max_workers ) {
+
+  // fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
+  // fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+
+  /* Collect list of changed accounts to be added to bank hash */
+  fd_accounts_hash_task_info_t * task_infos = NULL;
+  ulong task_infos_sz = 0;
+
+  fd_collect_modified_accounts( slot_ctx, &task_infos, &task_infos_sz );
+
+  fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, task_infos_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
+  ulong dirty_key_cnt = 0;
+
+  /* Find accounts which have changed */
+  fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_account_hash_task, task_infos, NULL, NULL, 1, 0, task_infos_sz );
+
+  for( ulong i = 0; i < task_infos_sz; i++ ) {
+    fd_accounts_hash_task_info_t * task_info = &task_infos[i];
+    /* Upgrade to writable record */
+    if( !task_info->hash_changed ) {
+      continue;
+    }
+
+    FD_BORROWED_ACCOUNT_DECL(acc_rec);
+    acc_rec->const_rec = task_info->rec;
+    
+    fd_pubkey_t const * acc_key = fd_type_pun_const( task_info->rec->pair.key[0].uc );
+    // int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
+    // if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    //   FD_LOG_ERR(( "failed to modify account during bank hash" ));
+    // }
+
+    /* Update hash */
+
+    // memcpy( acc_rec->meta->hash, task_info->acc_hash->hash, sizeof(fd_hash_t) );
+    // acc_rec->meta->slot = slot_ctx->slot_bank.slot;
+
+    /* Add account to "dirty keys" list, which will be added to the
+       bank hash. */
+
+    fd_pubkey_hash_pair_t * dirty_entry = &dirty_keys[dirty_key_cnt++];
+    dirty_entry->pubkey = acc_key;
+    dirty_entry->hash = (fd_hash_t const *)task_info->acc_hash->hash;
+
+    // FD_TEST( err==0 );
+  }
+
+  /* Sort and hash "dirty keys" to the accounts delta hash. */
+
+  for( ulong i = 0; i < dirty_key_cnt; ++i ) {
+    // if(0) {
+    if ( 1 ) {
+      FD_LOG_NOTICE(( "account delta hash X { \"key\":%ld, \"pubkey\":\"%32J\", \"hash\":\"%32J\" },", i, dirty_keys[i].pubkey->key, dirty_keys[i].hash->hash));
+
+      /*
+      pubkey
+      slot
+      lamports
+      owner
+      executable
+      rent_epoch
+      data_len
+      data
+      hash
+      */
+      // fd_pubkey_t current_owner;
+      // fd_acc_mgr_get_owner( global->acc_mgr, global->funk_txn, &pairs[i].pubkey, &current_owner );
+      // char encoded_owner[50];
+      // fd_base58_encode_32((uchar *) &current_owner, 0, encoded_owner);
+      int err = FD_ACC_MGR_SUCCESS;
+      uchar * raw_acc_data = (uchar*) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, dirty_keys[i].pubkey, NULL, &err);
+      if (NULL != raw_acc_data) {
+
+        fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
+        uchar *             acc_data = fd_account_get_data(metadata);
+        char *              acc_data_str = fd_valloc_malloc(slot_ctx->valloc, 8, 5*metadata->dlen + 1);
+
+        char * acc_data_str_cursor = acc_data_str;
+        if (metadata->dlen > 0) {
+          for( ulong j = 0; j < (metadata->dlen - 1); j++ ) {
+            int x = sprintf(acc_data_str_cursor, "%u, ", acc_data[j]);
+            acc_data_str_cursor += x;
+          }
+          sprintf(acc_data_str_cursor, "%u", acc_data[metadata->dlen - 1]);
+        } else {
+          *acc_data_str_cursor = 0;
+        }
+
+        FD_LOG_NOTICE(( "account_delta_hash_compare pubkey: (%32J) slot: (%lu) lamports: (%lu), owner: (%32J), executable: (%d), rent_epoch: (%lu), data_len: (%ld), hash: (%32J) ",  dirty_keys[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, dirty_keys[i].hash->hash ));
+        fprintf(stderr, "account_delta_hash pubkey: %32J, slot: (%lu), lamports: %lu, owner: %32J, executable: %d, rent_epoch: %lu, data_len: %ld, data: [%s] = %32J\n",  dirty_keys[i].pubkey->uc, slot_ctx->slot_bank.slot, metadata->info.lamports, metadata->info.owner, metadata->info.executable, metadata->info.rent_epoch, metadata->dlen, acc_data_str, dirty_keys[i].hash->hash );
+
+        fd_valloc_free(slot_ctx->valloc, acc_data_str);
+      }
+    }
+  }
+
+  fd_valloc_free( slot_ctx->valloc, task_infos );
+  fd_valloc_free( slot_ctx->valloc, dirty_keys );
+
+  return 0;
 }
 
 int
@@ -787,7 +896,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
 
   fd_valloc_free( slot_ctx->valloc, pairs );
 
-  FD_LOG_WARNING(("accounts_hash %32J", accounts_hash->hash));
+  FD_LOG_INFO(("accounts_hash %32J", accounts_hash->hash));
 
   return 0;
 }

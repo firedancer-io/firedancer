@@ -257,7 +257,14 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_SCRATCH_SCOPE_BEGIN {
+    ulong max_num_instructions = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, limit_max_instruction_trace_length ) ? 64 : ULONG_MAX;
+    if (txn_ctx->num_instructions >= max_num_instructions ) {
+      return -1;
+    }
+    txn_ctx->num_instructions++;
     fd_pubkey_t const * txn_accs = txn_ctx->accounts;
+    ulong starting_lamports = fd_instr_info_sum_account_lamports( instr );
+    instr->starting_lamports = starting_lamports;
 
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz++ ];
     *ctx = (fd_exec_instr_ctx_t) {
@@ -276,7 +283,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       int exec_result = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       txn_ctx->instr_stack_sz--;
 
-      //FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d", exec_result ));
       return exec_result;
     }
 
@@ -284,30 +291,43 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
     fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
+    fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if (exec_instr_func != NULL) {
       exec_result = exec_instr_func( *ctx );
 
     } else {
       if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        // FD_LOG_DEBUG(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
+        // FD_LOG_WARNING(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
 
         exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
 
       } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        // FD_LOG_DEBUG(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
+        // FD_LOG_WARNING(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
 
         exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
 
       } else {
-        FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
-
+        // FD_LOG_DEBUG(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
+        FD_LOG_WARNING(("B"));
         exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      }
+    }
+
+    if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
+      ulong ending_lamports = fd_instr_info_sum_account_lamports( instr );
+      // FD_LOG_WARNING(("check lamports %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
+
+      if( starting_lamports != ending_lamports ) {
+        FD_LOG_WARNING(("starting lamports mismatched %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
+        exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
     }
 
   //  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
   //    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+  //  } else {
+  //    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
   //  }
 
     txn_ctx->instr_stack_sz--;
@@ -331,6 +351,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
+
     fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[i] );
     int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc, borrowed_account );
 
@@ -477,6 +498,7 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
 
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     txn_ctx->unknown_accounts[i] = 0;
+    txn_ctx->nonce_accounts[i] = 0;
     if (fd_txn_is_writable(txn_ctx->txn_descriptor, (int)i)) {
       FD_BORROWED_ACCOUNT_DECL(writable_new);
       int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[i], writable_new);
@@ -583,7 +605,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
           // FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
         } else {
-          // FD_LOG_WARNING(( "fd_execute_instr failed (%d) for %64J", exec_result, sig ));
+          // FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
         }
         if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
@@ -629,6 +651,8 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
+
+
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }
@@ -652,19 +676,21 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
       // Lets prevent creating non-rent-exempt accounts...
       uchar after_exempt = fd_rent_exempt_minimum_balance2( rent, b->meta->dlen) <= b->meta->info.lamports;
 
-      if (after_exempt || b->meta->info.lamports == 0) {
-        // no-op
-      } else {
-        uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
-          (fd_rent_exempt_minimum_balance2( rent, b->starting_dlen) <= b->starting_lamports) : 1;
-        if (before_exempt || b->starting_lamports == 0) {
-          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
-          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
-        } else if (!before_exempt && (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports) {
+      if( memcmp( b->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) )!=0) {
+        if (after_exempt || b->meta->info.lamports == 0) {
           // no-op
         } else {
-          FD_LOG_WARNING(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
-          return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+          uchar before_exempt = (b->starting_dlen != ULONG_MAX) ?
+            (fd_rent_exempt_minimum_balance2( rent, b->starting_dlen) <= b->starting_lamports) : 1;
+          if (before_exempt || b->starting_lamports == 0) {
+            FD_LOG_DEBUG(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
+            return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+          } else if (!before_exempt && (b->meta->dlen == b->starting_dlen) && b->meta->info.lamports <= b->starting_lamports) {
+            // no-op
+          } else {
+            FD_LOG_DEBUG(("Rent exempt error for %32J Curr len %lu Starting len %lu Curr lamports %lu Starting lamports %lu Curr exempt %lu Starting exempt %lu", b->pubkey->uc, b->meta->dlen, b->starting_dlen, b->meta->info.lamports, b->starting_lamports, fd_rent_exempt_minimum_balance2( rent, b->meta->dlen), fd_rent_exempt_minimum_balance2( rent, b->starting_dlen)));
+            return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+          }
         }
       }
 
@@ -688,7 +714,8 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
   // Should these just kill the client?  They are impossible yet solana just throws an error
   if (ending_lamports != starting_lamports) {
-    // FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
+    FD_LOG_DEBUG(("Lamport sum mismatch: starting %lu ending %lu", starting_lamports, ending_lamports));
+    return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
   }
 #if 0
   // cap_accounts_data_allocations_per_transaction

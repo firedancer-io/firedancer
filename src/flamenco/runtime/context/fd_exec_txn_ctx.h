@@ -66,6 +66,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
   uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
+  uchar                 nonce_accounts[128];             /* Nonce accounts in the txn to be saved */
+  uint                  num_instructions;                /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t * vote_accounts_map;           /* Cache of bank's deserialized vote accounts to support fork choice */
   fd_vote_account_cache_entry_t * vote_accounts_pool;    /* Memory pool for deserialized vote account cache */
@@ -125,6 +127,8 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_pubkey_t const * pubkey,
                                 ulong min_data_sz,
                                 fd_borrowed_account_t * * account );
+void
+fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
 
 FD_PROTOTYPES_END
 

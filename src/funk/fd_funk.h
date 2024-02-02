@@ -458,7 +458,7 @@ fd_funk_last_publish_rec_tail( fd_funk_t const *     funk,       /* Assumes curr
 FD_FN_PURE static inline fd_alloc_t *  /* Lifetime is that of the local join */
 fd_funk_alloc( fd_funk_t * funk,       /* Assumes current local join */
                fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  return (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+  return fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), fd_tile_idx() );
 }
 
 /* Operations */

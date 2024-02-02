@@ -258,6 +258,7 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                                         block_sz,
                                         replay->tpool,
                                         replay->max_workers,
+                                        1,
                                         &txn_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
   (void)txn_cnt;
 

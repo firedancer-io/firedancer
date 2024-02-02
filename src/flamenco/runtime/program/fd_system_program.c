@@ -49,8 +49,8 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     fd_pubkey_t      address_with_seed;
     fd_pubkey_create_with_seed(
       sender_base->uc,
-      instruction->inner.transfer_with_seed.from_seed,
-      strlen( instruction->inner.transfer_with_seed.from_seed ),
+      (char *)instruction->inner.transfer_with_seed.from_seed,
+      instruction->inner.transfer_with_seed.from_seed_len,
       instruction->inner.transfer_with_seed.from_owner.uc,
       address_with_seed.uc );
     if (memcmp(address_with_seed.hash, sender->hash, sizeof(sender->hash))) {
@@ -157,7 +157,7 @@ static int fd_system_allocate(
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     fd_pubkey_t      address_with_seed;
-    fd_pubkey_create_with_seed( t->base.uc, t->seed, strlen( t->seed ), t->owner.uc, address_with_seed.uc );
+    fd_pubkey_create_with_seed( t->base.uc, (char *)t->seed, t->seed_len, t->owner.uc, address_with_seed.uc );
     if (memcmp(address_with_seed.hash, account->hash, sizeof(account->hash))) {
       ctx.txn_ctx->custom_err = 5;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -217,7 +217,7 @@ static int fd_system_assign_with_seed(
   fd_pubkey_t const * account     = &txn_accs[instr_acc_idxs[0]];
 
   fd_pubkey_t      address_with_seed;
-  fd_pubkey_create_with_seed( t->base.uc, t->seed, strlen( t->seed ), t->owner.uc, address_with_seed.uc );
+  fd_pubkey_create_with_seed( t->base.uc, (char *)t->seed, t->seed_len, t->owner.uc, address_with_seed.uc );
   if (memcmp(address_with_seed.hash, account->hash, sizeof(account->hash))) {
     ctx.txn_ctx->custom_err = 5;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -272,7 +272,7 @@ static int create_account(
   ulong             lamports = 0;
   ulong             space = 0;
   fd_pubkey_t*      owner = NULL;
-  char*             seed = NULL;
+  uchar*             seed = NULL;
 
   if (instruction->discriminant == fd_system_program_instruction_enum_create_account) {
     // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L277
@@ -295,8 +295,7 @@ static int create_account(
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
     fd_pubkey_t      address_with_seed;
-
-    fd_pubkey_create_with_seed( params->base.uc, seed, strlen( seed ), owner->uc, address_with_seed.uc );
+    fd_pubkey_create_with_seed( params->base.uc, (char*)seed, params->seed_len, owner->uc, address_with_seed.uc );
     if (memcmp(address_with_seed.hash, to->hash, sizeof(to->hash)))
       return fd_system_error_enum_address_with_seed_mismatch;
   }
@@ -417,6 +416,7 @@ int fd_executor_system_program_execute_instruction(
 
   switch (instruction.discriminant) {
   case fd_system_program_instruction_enum_transfer: {
+    // FD_LOG_WARNING(("Transfer"));
     result = transfer( ctx, &instruction );
     break;
   }
@@ -425,7 +425,9 @@ int fd_executor_system_program_execute_instruction(
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
+    // FD_LOG_WARNING(("Create account w seed"));
     result = create_account( ctx, &instruction );
+    // FD_LOG_WARNING(("Create account result %d", result));
     break;
   }
   case fd_system_program_instruction_enum_assign: {

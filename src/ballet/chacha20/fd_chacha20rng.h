@@ -32,7 +32,7 @@
 #define FD_CHACHA20RNG_BUFSZ (256UL)
 #endif
 
-struct __attribute__((aligned(32UL))) fd_chacha20rng_private {
+struct __attribute__((aligned(64UL))) fd_chacha20rng_private {
   /* ChaCha20 encryption key */
   uchar key[ 32UL ] __attribute__((aligned(32UL)));
 

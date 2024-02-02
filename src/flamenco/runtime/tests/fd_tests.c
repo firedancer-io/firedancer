@@ -11,6 +11,7 @@
 #include "../../types/fd_types_yaml.h"
 #include "../fd_system_ids.h"
 #include "../fd_blockstore.h"
+#include "../program/fd_bpf_program_util.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;
@@ -216,6 +217,8 @@ int fd_executor_run_test(
   fd_executor_test_t*       test,
   fd_executor_test_suite_t* suite) {
 
+  FD_LOG_INFO(("Running test %d: %s", test->test_number, test->test_name));
+
   /* Create a new slot_ctx context to execute this test in */
 
   uchar * epoch_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT );
@@ -342,6 +345,8 @@ int fd_executor_run_test(
         *slot_ctx->sysvar_cache.rent = *rent;
       }
     } while(0);
+
+    fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn);
 
     /* Restore slot hashes sysvar */
     do {

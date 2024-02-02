@@ -37,8 +37,6 @@
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
-#define FD_ACC_MGR_KEY_TYPE ((uchar)0)
-
 /* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
 #define FD_BLOCK_BANKS_TYPE ((uchar)3)
 
@@ -168,6 +166,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong blocklen,
                              fd_tpool_t * tpool,
                              ulong max_workers,
+                             ulong scheduler,
                              ulong * txn_cnt );
 
 ulong

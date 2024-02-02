@@ -7,6 +7,7 @@
 #include "types/fd_types_custom.h"
 
 #define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
+#define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
 /* Forward declarations */
 

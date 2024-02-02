@@ -1,6 +1,7 @@
 #include "fd_exec_slot_ctx.h"
 #include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../program/fd_vote_program.h"
 
 #include <time.h>
 
@@ -93,17 +94,16 @@ fd_exec_slot_ctx_delete( void * mem ) {
    accounts in current epoch stakes. */
 
 static int
-recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
-               fd_solana_manifest_t * manifest ) {
+recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_vote_accounts_t const * vote_accounts = &manifest->bank.stakes.vote_accounts;
+  fd_vote_accounts_t const * vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
+  
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = vote_accounts->vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = vote_accounts->vote_accounts_root;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(vote_accounts_pool, vote_accounts_root);
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
-
     /* Extract vote timestamp of account */
 
     fd_vote_block_timestamp_t vote_state_timestamp;
@@ -134,18 +134,12 @@ recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
       default:
         __builtin_unreachable();
       }
-    }
-    FD_SCRATCH_SCOPE_END;
 
-    /* Record timestamp */
-
-    (void)slot_ctx;
-    (void)vote_state_timestamp;
-    // TODO
-    //if (vote_state_timestamp.slot != 0 || n->elem.stake != 0)
-    //{
-    //  fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
-    //}
+      /* Record timestamp */
+      if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
+        fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
+      }
+    } FD_SCRATCH_SCOPE_END;
   }
 
   return 1;
@@ -181,8 +175,6 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Index vote accounts */
 
-  recover_clock( slot_ctx, manifest );
-
   /* Copy over fields */
 
   if( oldbank->blockhash_queue.last_hash )
@@ -214,6 +206,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
 
+  recover_clock( slot_ctx );
+
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
 
@@ -228,8 +222,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       break;
     }
 
-    fd_slot_pair_t const *head = oldbank->hard_forks.hard_forks;
-    fd_slot_pair_t const *tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
+    fd_slot_pair_t const * head = oldbank->hard_forks.hard_forks;
+    fd_slot_pair_t const * tail = head + oldbank->hard_forks.hard_forks_len - 1UL;
 
     for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
       if( pair->slot <= slot_bank->slot ) {

@@ -85,6 +85,32 @@ ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
   return slot;
 }
 
+ulong fd_rocksdb_find_last_slot(fd_rocksdb_t *db, char **err) {
+  ulong max_slot = 0;
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
+  rocksdb_iter_seek_to_first(iter);
+  if (!rocksdb_iter_valid(iter)) {
+    rocksdb_iter_destroy(iter);
+    *err = "db column for root is empty";
+    return 0;
+  }
+
+  for( ; rocksdb_iter_valid(iter); rocksdb_iter_next(iter) ) {
+    size_t klen = 0;
+    const char *key = rocksdb_iter_key(iter, &klen); // There is no need to free key
+    unsigned long slot = fd_ulong_bswap(*((unsigned long *) key));
+
+    if( slot > max_slot ) {
+      max_slot = slot;
+      FD_LOG_WARNING(("new max_slot: %lu", max_slot));
+    }
+  }
+
+  rocksdb_iter_destroy(iter);
+  return max_slot;
+}
+
+
 ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err ) {

@@ -177,7 +177,6 @@ int fd_executor_config_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   }
 
   fd_memcpy( config_acc_rec->data, data, ctx.instr->data_sz);
-  config_acc_rec->meta->info.rent_epoch = 0;
   config_acc_rec->meta->info.executable = 0;
   config_acc_rec->meta->dlen = new_data_size;
   err = fd_acc_mgr_commit( ctx.acc_mgr, config_acc_rec, ctx.slot_ctx );

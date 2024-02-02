@@ -189,8 +189,8 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   if ( acc_mgr->slots_per_epoch != 0 )
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
-  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
-
+  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
 
@@ -538,7 +538,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     };
 
     /* Save accounts in a thread pool */
-    fd_tpool_exec_all_rrobin( tpool, 0, max_workers, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+    fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
     /* Check results */
     for( ulong i = 0; i < batch_cnt; i++ ) {

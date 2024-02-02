@@ -477,7 +477,8 @@ int fd_account_set_executable( fd_exec_instr_ctx_t * ctx,
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
     }
 
-    if (0 != memcmp(metadata->info.owner, fd_solana_bpf_loader_program_id.uc, sizeof(fd_pubkey_t))) {
+    if (0 != memcmp(metadata->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t)) &&
+        0 != memcmp(metadata->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t))) {
       return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
     }
 

@@ -17,11 +17,14 @@ struct fd_instr_info {
   uchar *               data;
   fd_pubkey_t           program_id_pubkey;
 
-  uchar                 acct_txn_idxs[128];
-  uchar                 acct_flags[128];
-  fd_pubkey_t           acct_pubkeys[128];
+  uchar                 acct_txn_idxs[256];
+  uchar                 acct_flags[256];
+  fd_pubkey_t           acct_pubkeys[256];
+  uchar                 is_duplicate[256];
 
-  fd_borrowed_account_t * borrowed_accounts[128];
+  fd_borrowed_account_t * borrowed_accounts[256];
+
+  ulong starting_lamports;
 };
 
 typedef struct fd_instr_info fd_instr_info_t;
@@ -35,6 +38,9 @@ fd_convert_txn_instr_to_instr( fd_txn_t const *        txn_descriptor,
                                fd_pubkey_t const *     accounts,
                                fd_borrowed_account_t * borrowed_accounts,
                                fd_instr_info_t *       instr );
+
+ulong
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
 FD_FN_PURE static inline uint
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,

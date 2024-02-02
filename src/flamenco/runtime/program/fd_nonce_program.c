@@ -37,7 +37,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
 
   fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[0];
   fd_instr_info_t instr;
-  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instr);
+  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, NULL, &instr);
 
   // A little defense in depth?
   int err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, instr.program_id + 1);
@@ -227,6 +227,7 @@ int fd_advance_nonce_account( fd_exec_instr_ctx_t ctx ) {
     me_rec->meta->dlen = sz;
   }
   fd_memcpy(me_rec->data, enc, sz);
+  ctx.txn_ctx->nonce_accounts[instr_acc_idxs[me_idx]] = 1;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

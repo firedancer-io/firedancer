@@ -152,6 +152,8 @@ fd_calculate_stake_weighted_timestamp(
   ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
 
+  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
+  fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
   fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
   for (
@@ -159,69 +161,86 @@ fd_calculate_stake_weighted_timestamp(
     n;
     n = fd_vote_accounts_pair_t_map_successor(vote_acc_pool, n)
   ) {
+
+ 
+  // for (
+  //   fd_clock_timestamp_vote_t_mapnode_t * n = fd_clock_timestamp_vote_t_map_minimum(timestamp_votes_pool, timestamp_votes_root);
+  //   n;
+  //   n = fd_clock_timestamp_vote_t_map_successor(timestamp_votes_pool, n)
+  // ) {
     /* get timestamp */
     fd_pubkey_t const * vote_pubkey = &n->elem.key;
-    FD_BORROWED_ACCOUNT_DECL(acc);
-    int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, acc);
-    FD_TEST( err == 0 );
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = fd_scratch_virtual(),
-    };
-    ulong vote_timestamp = 0UL;
-    ulong vote_slot = 0UL;
-
-    uint discriminant = 0;
-    err = fd_bincode_uint32_decode(&discriminant, &decode_ctx);
-    if ( FD_UNLIKELY(err) ) {
-      FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
+    query_vote_acc_node.elem.pubkey = *vote_pubkey;
+    fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
+    if( vote_acc_node == NULL ) {
+      // FD_LOG_WARNING(("no vote acc: %32J", vote_pubkey->key));
+      continue;
     }
-    void const * enum_inner_start = decode_ctx.data;
-    ulong last_timestamp_off = 0;
+    // FD_BORROWED_ACCOUNT_DECL(acc);
+    // int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, acc);
+    // FD_TEST( err == 0 );
+    // fd_bincode_decode_ctx_t decode_ctx = {
+    //   .data    = acc->const_data,
+    //   .dataend = acc->const_data + acc->const_meta->dlen,
+    //   .valloc  = fd_scratch_virtual(),
+    // };
+    // ulong vote_timestamp = 0UL;
+    // ulong vote_slot = 0UL;  
+
+    // uint discriminant = 0;
+    // err = fd_bincode_uint32_decode(&discriminant, &decode_ctx);
+    // if ( FD_UNLIKELY(err) ) {
+    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    // }
+    // void const * enum_inner_start = decode_ctx.data;
+    // ulong last_timestamp_off = 0;
     // if( FD_UNLIKELY( 0!=fd_vote_state_versioned_decode( &vote_state, &decode ) ) )
     //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    switch (discriminant) {
-      case fd_vote_state_versioned_enum_current: {
-        fd_vote_state_off_t off;
-        int err = fd_vote_state_decode_offsets( &off, &decode_ctx );
-        if( FD_UNLIKELY(err) ) {
-          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-        }
-        last_timestamp_off = off.last_timestamp_off;
-        break;
-      }
-      case fd_vote_state_versioned_enum_v1_14_11: {
-        fd_vote_state_1_14_11_off_t off;
-        int err = fd_vote_state_1_14_11_decode_offsets( &off, &decode_ctx );
-        if( FD_UNLIKELY(err) ) {
-          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-        }
-        last_timestamp_off = off.last_timestamp_off;
-        break;
-      }
-      case fd_vote_state_versioned_enum_v0_23_5: {
-         fd_vote_state_0_23_5_off_t off;
-        int err = fd_vote_state_0_23_5_decode_offsets( &off, &decode_ctx );
-        if( FD_UNLIKELY(err) ) {
-          FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-        }
-        last_timestamp_off = off.last_timestamp_off;
-        break;
-      }
-      default:
-        __builtin_unreachable();
-    }
+    // switch (discriminant) {
+    //   case fd_vote_state_versioned_enum_current: {
+    //     fd_vote_state_off_t off;
+    //     int err = fd_vote_state_decode_offsets( &off, &decode_ctx );
+    //     if( FD_UNLIKELY(err) ) {
+    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    //     }
+    //     last_timestamp_off = off.last_timestamp_off;
+    //     break;
+    //   }
+    //   case fd_vote_state_versioned_enum_v1_14_11: {
+    //     fd_vote_state_1_14_11_off_t off;
+    //     int err = fd_vote_state_1_14_11_decode_offsets( &off, &decode_ctx );
+    //     if( FD_UNLIKELY(err) ) {
+    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    //     }
+    //     last_timestamp_off = off.last_timestamp_off;
+    //     break;
+    //   }
+    //   case fd_vote_state_versioned_enum_v0_23_5: {
+    //      fd_vote_state_0_23_5_off_t off;
+    //     int err = fd_vote_state_0_23_5_decode_offsets( &off, &decode_ctx );
+    //     if( FD_UNLIKELY(err) ) {
+    //       FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    //     }
+    //     last_timestamp_off = off.last_timestamp_off;
+    //     break;
+    //   }
+    //   default:
+    //     __builtin_unreachable();
+    // }
 
-    fd_vote_block_timestamp_t last_timestamp;
-    decode_ctx.data = (uchar const *)enum_inner_start + last_timestamp_off;
-    err = fd_vote_block_timestamp_decode( &last_timestamp, &decode_ctx );
-    if( FD_UNLIKELY(err) ) {
-      FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
-    }
+    // fd_vote_block_timestamp_t last_timestamp;
+    // decode_ctx.data = (uchar const *)enum_inner_start + last_timestamp_off;
+    // err = fd_vote_block_timestamp_decode( &last_timestamp, &decode_ctx );
+    // if( FD_UNLIKELY(err) ) {
+    //   FD_LOG_ERR(( "vote_state_versioned_decode failed" ));
+    // }
 
-    vote_timestamp = last_timestamp.timestamp;
-    vote_slot = last_timestamp.slot;
+    ulong vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
+    ulong vote_slot = vote_acc_node->elem.slot;
+    // if( last_timestamp.slot != vote_slot || last_timestamp.timestamp != vote_timestamp ) {
+    //   FD_LOG_WARNING(("clock %32J %lu %lu, %lu %lu", vote_pubkey, vote_slot, last_timestamp.slot, vote_timestamp, last_timestamp.timestamp));
+    // }
 
     ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
     if (slot_delta > slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch) {

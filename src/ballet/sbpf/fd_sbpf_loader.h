@@ -17,6 +17,7 @@
 /* FIXME make error types more specific */
 #define FD_SBPF_ERR_INVALID_ELF (1)
 
+
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests_t is a map type used to resolve sBPF call targets.
@@ -25,7 +26,7 @@
    destination program counter.  This hash is not trivially reversible
    thus we store all Murmur3(PC) => PC mappings in this map. */
 
-struct __attribute__((aligned(16UL))) fd_sbpf_calldests {
+struct __attribute__((packed)) fd_sbpf_calldests {
   uint key;  /* hash of PC */
   uint hash;
   /* FIXME salt map key with an add-rotate-xor */

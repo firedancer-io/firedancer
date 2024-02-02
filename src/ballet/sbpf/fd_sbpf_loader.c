@@ -332,10 +332,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 15UL, NULL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 63UL, NULL );
     REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ 16UL ] = {0};
-    strncpy( name, name_ptr, 15UL );
+    char __attribute__((aligned(16UL))) name[ 65UL ] = {0};
+    strncpy( name, name_ptr, 64UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -479,16 +479,19 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) ) {
     return err;
+  }
 
   /* Program headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) ) {
     return err;
+  }
 
   /* Section headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz ))!=0 ) )
+  if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz ))!=0 ) ) {
     return err;
+  }
 
   return 0;
 }
@@ -708,6 +711,11 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
 
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
+        uint sh_type = shdrs[ i ].sh_type;
+        if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
+          continue;
+        }
+
         shdr_dynsym = &shdrs[ i ];
         break;
       }

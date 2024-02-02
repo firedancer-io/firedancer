@@ -16,6 +16,7 @@ $(call add-hdrs, \
 	fd_zk_token_proof_program.h \
 	fd_bpf_loader_serialization.h \
 	fd_program_util.h \
+	fd_bpf_program_util.h \
 )
 
 $(call add-objs,fd_system_program,fd_flamenco)
@@ -34,4 +35,5 @@ $(call add-objs,fd_secp256k1_program,fd_flamenco)
 $(call add-objs,fd_address_lookup_table_program,fd_flamenco)
 $(call add-objs,fd_zk_token_proof_program,fd_flamenco)
 $(call add-objs,fd_bpf_loader_serialization,fd_flamenco)
+$(call add-objs,fd_bpf_program_util,fd_flamenco)
 endif

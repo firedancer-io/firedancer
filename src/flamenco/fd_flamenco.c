@@ -45,6 +45,35 @@ fd_printf_specifier_base58_arginfo( struct printf_info const * info __attribute_
   return 1;
 }
 
+# if FD_HAS_INT128
+
+static int
+fd_printf_specifier_uint128( FILE *                     stream,
+                            struct printf_info const * info FD_PARAM_UNUSED,
+                            void const * const *       args ) {
+
+  uint128 const * num = *((uint128 const * const *)args[0]);
+  char out[40];
+
+  fd_cstr_append_uint128_as_text( out, ' ', '\0', *num, 40 );
+
+  return fprintf( stream, "%s", out );
+}
+
+static int
+fd_printf_specifier_uint128_arginfo( struct printf_info const * info __attribute__((unused)),
+                                    ulong                      n,
+                                    int *                      argtypes,
+                                    int *                      size ) {
+  if( FD_LIKELY( n>=1UL ) ) {
+    argtypes[ 0 ] = PA_POINTER;
+    size    [ 0 ] = sizeof(void *);
+  }
+  return 1;
+}
+
+#endif
+
 #endif
 
 void
@@ -52,6 +81,9 @@ fd_flamenco_boot( int *    pargc __attribute__((unused)),
                   char *** pargv __attribute__((unused)) ) {
   #if defined(__GLIBC__)
   FD_TEST( 0==register_printf_specifier( 'J', fd_printf_specifier_base58, fd_printf_specifier_base58_arginfo ) );
+  # if FD_HAS_INT128
+  FD_TEST( 0==register_printf_specifier( 'K', fd_printf_specifier_uint128, fd_printf_specifier_uint128_arginfo ) );
+  #endif
   #endif
   /* TODO implement printf specifiers for non-glibc */
 }
