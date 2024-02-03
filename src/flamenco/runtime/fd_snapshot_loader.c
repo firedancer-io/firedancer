@@ -151,7 +151,7 @@ fd_snapshot_load( const char **        snapshotfiles,
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
         else
-          FD_LOG_WARNING(("snapshot accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+          FD_LOG_INFO(("snapshot accounts_hash %32J verified successfully", accounts_hash.hash));
       } else if (1 == i) {
         fd_hash_t accounts_hash;
 
@@ -163,7 +163,7 @@ fd_snapshot_load( const char **        snapshotfiles,
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
         else
-          FD_LOG_WARNING(("incremental accounts_hash %32J == %32J", accounts_hash.hash, fhash.uc));
+          FD_LOG_INFO(("incremental accounts_hash %32J verified successfully", accounts_hash.hash));
       }
     }
 

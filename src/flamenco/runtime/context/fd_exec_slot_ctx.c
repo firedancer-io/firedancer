@@ -98,7 +98,7 @@ static int
 recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_vote_accounts_t const * vote_accounts = &slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts;
-  
+
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = vote_accounts->vote_accounts_pool;
   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = vote_accounts->vote_accounts_root;
 
@@ -219,7 +219,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   do {
     slot_bank->last_restart_slot.slot = 0UL;
     if( FD_UNLIKELY( oldbank->hard_forks.hard_forks_len == 0 ) ) {
-      FD_LOG_WARNING(("Snapshot missing hard forks. What is the correct 'last restart slot' value?"));
+      /* SIMD-0047: The first restart slot should be `0` */
       break;
     }
 
