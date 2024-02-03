@@ -860,7 +860,7 @@ MAP_(ele_remove)( MAP_(t) *         join,
                   MAP_ELE_T *       sentinel,
                   MAP_ELE_T *       pool ) {
   ulong ele_idx = MAP_(idx_remove)( join, key, MAP_(private_idx_null)(), pool );
-  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), pool + ele_idx, sentinel );
+  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), (MAP_ELE_T       *)( (ulong)pool + (ele_idx * sizeof(MAP_ELE_T)) ), sentinel );
 }
 
 FD_FN_PURE static inline MAP_ELE_T *
@@ -869,7 +869,7 @@ MAP_(ele_query)( MAP_(t) *         join,
                  MAP_ELE_T *       sentinel,
                  MAP_ELE_T *       pool ) {
   ulong ele_idx = MAP_(idx_query)( join, key, MAP_(private_idx_null)(), pool );
-  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), pool + ele_idx, sentinel );
+  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), (MAP_ELE_T       *)( (ulong)pool + (ele_idx * sizeof(MAP_ELE_T)) ), sentinel );
 }
 
 FD_FN_PURE static inline MAP_ELE_T const *
@@ -878,7 +878,7 @@ MAP_(ele_query_const)( MAP_(t) const *   join,
                        MAP_ELE_T const * sentinel,
                        MAP_ELE_T const * pool ) {
   ulong ele_idx = MAP_(idx_query_const)( join, key, MAP_(private_idx_null)(), pool );
-  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), pool + ele_idx, sentinel );
+  return fd_ptr_if( !MAP_(private_idx_is_null)( ele_idx ), (MAP_ELE_T const *)( (ulong)pool + (ele_idx * sizeof(MAP_ELE_T)) ), sentinel );
 }
 
 FD_PROTOTYPES_END

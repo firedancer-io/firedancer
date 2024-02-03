@@ -334,7 +334,7 @@ POOL_(ele_test)( POOL_T const * join,
   ulong max = POOL_(private_meta_const)( join )->max;
   ulong idx = (ulong)(ele - join);
   FD_COMPILER_FORGET( idx ); /* prevent compiler from optimizing out alignment test */
-  return (!ele) | ((idx<max) & (ele==(join+idx))); /* last test checks alignment */
+  return (!ele) | ((idx<max) & ((ulong)ele==((ulong)join+(idx*sizeof(POOL_T))))); /* last test checks alignment */
 }
 
 FD_FN_CONST static inline ulong
