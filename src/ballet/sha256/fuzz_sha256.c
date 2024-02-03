@@ -12,26 +12,14 @@
 
 #define BATCH_CNT 32UL /* must be at least 1UL */
 
-uchar * hash1, * hash2, *ref_hash;
-fd_sha256_batch_t * batch_sha;
-uchar * hash_mem;
-uchar **      hashes;
-const char ** messages;
-ulong *       msg_sizes;
-
-static void
-fuzz_exit( void ) {
-    free( ref_hash  );
-    free( msg_sizes );
-    free( messages  );
-    free( hashes    );
-    free( batch_sha );
-    free( hash1 );
-    free( hash2 );
-    free( hash_mem  );
-
-    fd_halt();
-}
+static fd_sha256_batch_t batch_sha[1];
+static uchar             hash1    [ FD_SHA256_HASH_SZ ];
+static uchar             hash2    [ FD_SHA256_HASH_SZ ];
+static uchar             ref_hash [ FD_SHA256_HASH_SZ ];
+static uchar             hash_mem [ FD_SHA256_HASH_SZ * BATCH_CNT ];
+static uchar *           hashes   [ BATCH_CNT ];
+static char const *      messages [ BATCH_CNT ];
+static ulong             msg_sizes[ BATCH_CNT ];
 
 int
 LLVMFuzzerInitialize( int  *   argc,
@@ -39,19 +27,7 @@ LLVMFuzzerInitialize( int  *   argc,
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
-
-  assert( !posix_memalign( (void**) &batch_sha, FD_SHA256_BATCH_ALIGN, sizeof(fd_sha256_batch_t) ) );
-  assert( !posix_memalign( (void **) &hash1, FD_SHA256_ALIGN, FD_SHA256_HASH_SZ ) );
-  assert( !posix_memalign( (void **) &hash2, FD_SHA256_ALIGN, FD_SHA256_HASH_SZ ) );
-  assert( !posix_memalign( (void **) &ref_hash, FD_SHA256_ALIGN, FD_SHA256_HASH_SZ ) );
-
-  hash_mem  = malloc( FD_SHA256_HASH_SZ * BATCH_CNT );
-  hashes    = malloc( BATCH_CNT * sizeof(uchar *) );
-  messages  = malloc( BATCH_CNT * sizeof(const char *) );
-  msg_sizes = malloc( BATCH_CNT * sizeof(ulong) );
-  ref_hash  = malloc( FD_SHA256_HASH_SZ );
-
-  atexit( fuzz_exit );
+  atexit( fd_halt );
   return 0;
 }
 

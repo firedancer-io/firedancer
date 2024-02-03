@@ -142,13 +142,13 @@ LLVMFuzzerTestOneInput( uchar const * input,
 
   fd_tls_t tls[1]; fd_memcpy( tls, tls_tmpl, sizeof(fd_tls_t) );
   tls->rand = fd_tls_test_rand( rng );
-  tls->quic = is_quic&1;
+  tls->quic = (uchar)(is_quic&1);
   if( !has_alpn ) tls->alpn_sz      = 0UL;
   if( !has_x509 ) tls->cert_x509_sz = 0UL;
 
   fd_tls_estate_base_t base = {
     .state  = hs_state,
-    .server = is_server&1,
+    .server = (uchar)( is_server&1 ),
   };
   for( ulong b=0; b<32UL; b++ ) base.client_random[b] = fd_rng_uchar( rng );
 
@@ -156,18 +156,18 @@ LLVMFuzzerTestOneInput( uchar const * input,
     if( !_tls_valid_srv_hs_state[ hs_state ] ) return -1;
     fd_tls_estate_srv_t hs[1] = {{
       .base            = base,
-      .server_cert_rpk = srv_rpk &1,
-      .client_cert     = cli_cert&1,
-      .client_cert_rpk = cli_rpk &1,
+      .server_cert_rpk = (uchar)(srv_rpk &1),
+      .client_cert     = (uchar)(cli_cert&1),
+      .client_cert_rpk = (uchar)(cli_rpk &1),
     }};
     fd_tls_server_handshake( tls, hs, payload, payload_sz, enc_lvl );
   } else {
     if( !_tls_valid_cli_hs_state[ hs_state ] ) return -1;
     fd_tls_estate_cli_t hs[1] = {{
       .base            = base,
-      .server_cert_rpk = srv_rpk &1,
-      .client_cert     = cli_cert&1,
-      .client_cert_rpk = cli_rpk &1,
+      .server_cert_rpk = (uchar)(srv_rpk &1),
+      .client_cert     = (uchar)(cli_cert&1),
+      .client_cert_rpk = (uchar)(cli_rpk &1),
     }};
     fd_tls_client_handshake( tls, hs, payload, payload_sz, enc_lvl );
   }
