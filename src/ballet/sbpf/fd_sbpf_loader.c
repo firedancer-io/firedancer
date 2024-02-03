@@ -941,7 +941,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     } else {
       hash = fd_murmur3_32( &target_pc, 8UL, 0U );
     }
-    fd_sbpf_calldests_insert( loader->calldests, target_pc );
+
+    if( FD_LIKELY( target_pc < (info->rodata_sz / 8UL ) ) )
+      fd_sbpf_calldests_insert( loader->calldests, target_pc );
 
     V = (uint)hash;
   } else {
