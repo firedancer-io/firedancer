@@ -8,9 +8,11 @@
 
 #include "../../../util/sanitize/fd_fuzz.h"
 
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "../fd_quic.h"
 #include "../fd_quic_private.h"
 #include "../fd_quic_proto.h"
+
 #include "fd_quic_test_helpers.h"
 #include "../../tls/test_tls_helper.h"
 

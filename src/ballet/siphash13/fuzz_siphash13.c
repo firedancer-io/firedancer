@@ -10,26 +10,16 @@
 #include "../../util/sanitize/fd_fuzz.h"
 #include "fd_siphash13.h"
 
-fd_siphash13_t * sip;
-fd_siphash13_t * sip_fast;
-
-void fuzz_exit( void ) {
-  free( sip_fast );
-  free( sip );
-  fd_halt();
-}
+static fd_siphash13_t sip[1];
+static fd_siphash13_t sip_fast[1];
 
 int
-LLVMFuzzerInitialize( int  *   argc,
-                      char *** argv ) {
+LLVMFuzzerInitialize( int  *   pargc,
+                      char *** pargv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
-  fd_boot( argc, argv );
-
-  assert( !posix_memalign( (void **) &sip,      alignof(fd_siphash13_t), sizeof(fd_siphash13_t) ) );
-  assert( !posix_memalign( (void **) &sip_fast, alignof(fd_siphash13_t), sizeof(fd_siphash13_t) ) );
-
-  atexit( fuzz_exit );
+  fd_boot( pargc, pargv );
+  atexit( fd_halt );
   return 0;
 }
 
@@ -58,7 +48,7 @@ LLVMFuzzerTestOneInput( uchar const * fuzz_data,
 
   struct fuzz_siphash13 * testcase = (struct fuzz_siphash13 *)(fuzz_data);
   ulong flex_sz = fuzz_data_sz - sizeof(struct fuzz_siphash13);
-  
+
   assert( sip == fd_siphash13_init  ( sip, testcase->k0, testcase->k1 ) );
   assert( sip == fd_siphash13_append( sip, testcase->flex, flex_sz ) );
 
@@ -77,6 +67,6 @@ LLVMFuzzerTestOneInput( uchar const * fuzz_data,
   ulong hash_fast = fd_siphash13_fini( sip_fast );
   assert( hash == hash_fast );
 
-  FD_FUZZ_MUST_BE_COVERED;  
+  FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }
