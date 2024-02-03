@@ -922,7 +922,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC)
+#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_MSAN
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -956,7 +956,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC)
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_MSAN
 
 static inline void *
 fd_memset( void  * d,
