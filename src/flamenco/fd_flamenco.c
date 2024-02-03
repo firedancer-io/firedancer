@@ -9,7 +9,7 @@
 #include <printf.h>
 #include "../ballet/base58/fd_base58.h"
 
-static int
+FD_FN_NO_MSAN static int
 fd_printf_specifier_base58( FILE *                     stream,
                             struct printf_info const * info,
                             void const * const *       args ) {

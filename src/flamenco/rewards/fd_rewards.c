@@ -54,7 +54,7 @@ get_inflation_num_slots( fd_exec_slot_ctx_t * slot_ctx,
     ulong inflation_start_slot = fd_epoch_slot0(
         epoch_schedule,
         fd_ulong_sat_sub(
-            fd_slot_to_epoch( epoch_schedule, inflation_activation_slot, NULL ), 
+            fd_slot_to_epoch( epoch_schedule, inflation_activation_slot, NULL ),
             1 )
         );
 
@@ -151,7 +151,7 @@ calculate_stake_rewards(
     * voter_rewards to be distributed
     * new value for credits_observed in the stake
     returns None if there's no payout or if any deserved payout is < 1 lamport */
-    fd_calculate_stake_points_t stake_points_result;
+    fd_calculate_stake_points_t stake_points_result = {0};
     // TODO
     calculate_stake_points_and_credits( stake_history, stake_state, vote_state_versioned, &stake_points_result);
     // FD_LOG_WARNING(("CSR: %lu", stake_points_result.new_credits_observed ));
@@ -437,8 +437,8 @@ calculate_reward_points_partitioned(
     ulong actual_len = 0;
     fd_epoch_bank_t const * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
     FD_LOG_DEBUG(("Delegations len %lu, slot del len %lu", fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ), fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root )));
-    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root ); 
-         n; 
+    for( fd_delegation_pair_t_mapnode_t const * n = fd_delegation_pair_t_map_minimum_const( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
+         n;
          n = fd_delegation_pair_t_map_successor_const( epoch_bank->stakes.stake_delegations_pool, n )
     ) {
         fd_pubkey_t const * voter_acc = &n->elem.delegation.voter_pubkey;
@@ -475,7 +475,7 @@ calculate_reward_points_partitioned(
         fd_bincode_destroy_ctx_t destroy = {.valloc = slot_ctx->valloc};
         fd_stake_state_v2_destroy( &stake_state, &destroy );
     }
-    
+
     // FD_LOG_HEXDUMP_WARNING(( "POINTS", &points, 16 ));
     // FD_LOG_WARNING(("REWARDS 2: %lu TOT POINTS: %llu",rewards, points ));
     if (points > 0) {
@@ -916,7 +916,7 @@ pay_validator_rewards(
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2789-L2839 */
     fd_stake_history_t stake_history;
     fd_sysvar_stake_history_read( &stake_history, slot_ctx );
-    fd_point_value_t point_value_result[1];
+    fd_point_value_t point_value_result[1] = {{0}};
     calculate_reward_points(slot_ctx, &stake_history, rewards, point_value_result);
     fd_validator_reward_calculation_t rewards_calc_result[1] = {0};
     bank_redeem_rewards( slot_ctx, rewarded_epoch, point_value_result, &stake_history, rewards_calc_result );
