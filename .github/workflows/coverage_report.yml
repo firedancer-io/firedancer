@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           MACHINES="linux_clang_x86_64 linux_clang_haswell linux_clang_icelake" \
-          EXTRAS="llvm-cov fuzz" \
+          EXTRAS="llvm-cov" \
           COV_REPORT=1 \
           contrib/test/ci_tests.sh
 

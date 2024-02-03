@@ -211,9 +211,15 @@ $(OBJDIR)/unit-test/automatic.txt:
 	$(MKDIR) "$(OBJDIR)/unit-test"
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
+ifndef FD_HAS_FUZZ
+FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a
+endif
+
 define _fuzz-test
 
-$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ)))
+$(eval $(call _make-exe,$(1)/$(1),$(2),$(3),fuzz-test,fuzz-test,$(LDFLAGS_FUZZ) $(FUZZ_EXTRA)))
+
+$(OBJDIR)/fuzz-test/$(1)/$(1): $(FUZZ_EXTRA)
 
 .PHONY: $(1)_unit
 $(1)_unit:
@@ -239,9 +245,7 @@ make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
 make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
-ifdef FD_HAS_FUZZ
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
-endif
 
 ##############################
 ## GENERIC RULES
