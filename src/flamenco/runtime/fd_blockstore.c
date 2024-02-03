@@ -441,7 +441,7 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
   ulong blockoff = 0;
   while( blockoff < sz ) {
     if( blockoff + sizeof( ulong ) > sz ) FD_LOG_ERR( ( "premature end of block" ) );
-    ulong mcount = *(const ulong *)( (const uchar *)data + blockoff );
+    ulong mcount = FD_LOAD( ulong, (const uchar *)data + blockoff );
     blockoff += sizeof( ulong );
 
     /* Loop across microblocks */
