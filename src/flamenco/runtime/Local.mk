@@ -24,7 +24,6 @@ $(call add-objs,fd_fork_mgr,fd_flamenco)
 $(call add-objs,fd_blockstore,fd_flamenco)
 $(call add-objs,fd_snapshot_loader,fd_flamenco)
 $(call add-objs,fd_tvu,fd_flamenco)
-$(call add-objs,tests/fd_tests,fd_flamenco)
 
 $(call make-unit-test,test_runtime,test_runtime,fd_ballet fd_funk fd_util fd_flamenco)
 $(call make-unit-test,test_bpf_loader_v4_program,program/test_bpf_loader_v4_program,fd_flamenco fd_funk fd_ballet fd_util)
