@@ -17,13 +17,9 @@ ARG RELEASE_BASE_IMAGE=alpine:3.18.4
 
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
-# Install Rustup
-RUN curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | bash -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-
 # Fetch and build source dependencies
 
-RUN apk add bash
+RUN apk add bash git libstdc++
 WORKDIR /firedancer
 COPY deps.sh ./
 RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
@@ -31,7 +27,7 @@ RUN FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install
 # Build source tree
 
 COPY . ./
-RUN make -j all rust --output-sync=target
+RUN make EXTRAS=static -j all --output-sync=target
 
 # Set up release container
 
