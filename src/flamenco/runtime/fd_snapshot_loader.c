@@ -10,7 +10,7 @@
 #include "fd_system_ids.h"
 #include "../../util/fd_util.h"
 #include "fd_snapshot_loader.h"
-#include "../snapshot/fd_snapshot.h"
+#include "../snapshot/fd_snapshot_restore.h"
 #include "../../ballet/zstd/fd_zstd.h"
 #include <assert.h>
 
