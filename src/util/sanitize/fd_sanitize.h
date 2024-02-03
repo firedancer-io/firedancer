@@ -12,5 +12,6 @@
    other undefined behavior. */
 
 #include "fd_asan.h"
+#include "fd_msan.h"
 
 #endif /* HEADER_fd_src_util_sanitize_fd_sanitize_h */
