@@ -14,27 +14,17 @@
 #define MAX_DEPTH (9UL)
 #define MEMORY_SZ (70UL*1024UL*1024UL)
 
-uchar * memory1;
-uchar * memory2;
-uchar *inc_proof;
-
-void fuzz_exit( void ) {
-  free( inc_proof ); 
-  free( memory2 );
-  free( memory1 );
-  fd_halt();
-}
+static uchar memory1[ MEMORY_SZ ];
+static uchar memory2[ MEMORY_SZ ];
+static uchar inc_proof[ 32UL * ( MAX_DEPTH - 1UL ) ];
 
 int
-LLVMFuzzerInitialize( int  *   argc,
-                      char *** argv ) {
+LLVMFuzzerInitialize( int  *   pargc,
+                      char *** pargv ) {
   /* Set up shell without signal handlers */
   putenv( "FD_LOG_BACKTRACE=0" );
-  fd_boot( argc, argv );
-  assert( !posix_memalign( (void **) &memory1, FD_BMTREE_COMMIT_ALIGN, MEMORY_SZ ) );
-  assert( !posix_memalign( (void **) &memory2, FD_BMTREE_COMMIT_ALIGN, MEMORY_SZ ) );
-  assert( inc_proof = malloc( 32UL * ( MAX_DEPTH - 1UL ) ));
-  atexit( fuzz_exit );
+  fd_boot( pargc, pargv );
+  atexit( fd_halt );
   return 0;
 }
 
@@ -62,7 +52,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
     printf("FD_UNLIKELY( second_tree_start<first_tree_end )\n");
     return -1;
   }
-  
+
   uchar * memory_end = second_tree_start+footprint;
   if( FD_UNLIKELY( memory_end<second_tree_start || (ulong)memory_end<footprint ) ) {
     printf("FD_UNLIKELY( memory_end<second_tree_start || memory_end<footprint )\n");
@@ -111,7 +101,7 @@ fuzz_bmtree( fd_bmtree_node_t const * leafs,
       FD_FUZZ_MUST_BE_COVERED;
       return 0;
     }
- 
+
     assert( proof_root_1 == fd_bmtree_from_proof( leaf, i, proof_root_1, inc_proof, depth-1UL, hash_sz, prefix_sz ) );
 
     assert( fd_memeq( root_1, proof_root_1, hash_sz ) );

@@ -16,8 +16,6 @@ fi
 for extra in $EXTRAS; do
   if [[ $extra == "llvm-cov" ]]; then
     HAS_LLVM_COV=1
-  elif [[ $extra == "fuzz" ]]; then
-    HAS_FUZZ=1
   fi
 done
 export EXTRAS
@@ -34,9 +32,7 @@ for MACHINE in ${MACHINES[*]}; do
   contrib/make-j
   if [[ -z "$NOTEST" ]]; then
     make run-unit-test
-    if [[ "$HAS_FUZZ" == 1 ]]; then
-      make run-fuzz-test
-    fi
+    make run-fuzz-test
     make run-script-test
     if [[ "$HAS_LLVM_COV" == 1 ]]; then
       make "${OBJDIR}/cov/cov.profdata"

@@ -25,12 +25,10 @@ jobs:
           - machine: linux_gcc_icelake
             group: rhel85-icelake
           - machine: linux_clang_x86_64
-            extras: fuzz
           - machine: linux_clang_haswell
-            extras: fuzz
           - machine: linux_clang_icelake
             group: rhel85-icelake
-            extras: fuzz asan ubsan
+            extras: asan ubsan
             runtime_test: true
     runs-on:
       group: ${{ matrix.group || 'github-v1' }}
