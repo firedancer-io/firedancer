@@ -25,10 +25,10 @@ typedef struct fd_ebpf_link_opts fd_ebpf_link_opts_t;
 
 fd_ebpf_link_opts_t *
 fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
-                     void * elf,
-                     ulong  elf_sz );
+                     void *                elf,
+                     ulong                 elf_sz );
 
-#if defined(__linux__)
+#if defined(__linux__) && defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
 
 #include <sys/syscall.h>
 #include <unistd.h>
