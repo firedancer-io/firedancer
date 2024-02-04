@@ -6,14 +6,11 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  if ( FD_UNLIKELY( argc > 1 ) ) FD_LOG_ERR( ( "unrecognized argument: %s", argv[1] ) );
+  static uchar list_mem[ 16384 ] __attribute__((aligned(FD_LIST_ALIGN)));
+  FD_TEST( FD_LIST_ALIGN == fd_list_align() );
+  FD_TEST( fd_list_footprint( 4 ) <= sizeof(list_mem) );
 
-  fd_wksp_t * wksp = fd_wksp_new_anonymous(
-      FD_SHMEM_HUGE_PAGE_SZ, 1, fd_shmem_cpu_idx( fd_shmem_numa_idx( 0 ) ), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  void *      mem  = fd_wksp_alloc_laddr( wksp, fd_list_align(), fd_list_footprint( 2 ), 42UL );
-  fd_list_t * list = fd_list_join( fd_list_new( mem, 4 ) );
+  fd_list_t * list = fd_list_join( fd_list_new( list_mem, MAX ) );
   fd_list_t * sentinel = fd_list_sentinel( list );
 
   fd_list_t * curr = fd_list_head( list );
@@ -62,7 +59,7 @@ main( int argc, char ** argv ) {
     FD_TEST( curr->tag == i );
     i++;
   }
-  FD_TEST( i == MAX );
+  FD_TEST( i == MAX+1 );
 
   FD_LOG_NOTICE( ( "pass" ) );
   fd_halt();

@@ -418,7 +418,9 @@ fd_lru_upsert( fd_lru_t * lru, ulong tag, int * dup ) {
 
     /* LRU update */
   } else {
-    fd_list_insert( fd_lru_list_tail( lru ), fd_list_remove( map[map_idx] ) );
+    fd_list_t * next = fd_list_remove( map[map_idx] );
+    fd_list_t * tail = fd_lru_list_tail( lru );
+    fd_list_insert( tail, next );
   }
   return evicted;
 }

@@ -1,7 +1,5 @@
 #include "fd_list.h"
 
-#define FD_LIST_ALIGN ( 32UL ) /* 2-nodes per L1 cache line */
-
 ulong
 fd_list_align( void ) {
   return FD_LIST_ALIGN;
