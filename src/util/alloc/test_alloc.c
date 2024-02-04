@@ -1,4 +1,7 @@
+#define _POSIX_C_SOURCE 200809L  /* open_memstream */
 #include "../fd_util.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #if FD_HAS_HOSTED
 
@@ -17,6 +20,13 @@ static ulong  _alloc_cnt;
 static ulong  _align_max;
 static ulong  _sz_max;
 
+/* TODO consider moving declaration of fd_alloc_fprintf into an
+        fd_tile_private.h */
+
+int
+fd_alloc_fprintf( fd_alloc_t * join,
+                  FILE *       stream );
+
 static int
 test_main( int     argc,
            char ** argv ) {
@@ -28,6 +38,9 @@ test_main( int     argc,
   ulong  alloc_cnt = FD_VOLATILE_CONST( _alloc_cnt );
   ulong  align_max = FD_VOLATILE_CONST( _align_max );
   ulong  sz_max    = FD_VOLATILE_CONST( _sz_max    );
+
+  ulong print_interval  = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
+  ulong print_mask      = (print_interval<<1)-1UL;
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
@@ -48,6 +61,19 @@ test_main( int     argc,
   while( !FD_VOLATILE( _go ) ) FD_SPIN_PAUSE();
 
   for( ulong i=0UL; i<2UL*alloc_cnt; i++ ) {
+
+    if( (i & print_mask)==print_interval )  {
+      char * info    = NULL;
+      ulong  info_sz = 0UL;
+      FILE * stream = open_memstream( &info, &info_sz );
+      FD_TEST( stream );
+      int print_sz = fd_alloc_fprintf( alloc, stream );
+      FD_TEST( print_sz>0 );
+      FD_TEST( 0==fclose( stream ) );
+      FD_LOG_INFO(( "fd_alloc_fprintf printed %lu bytes", info_sz ));
+      FD_LOG_DEBUG(( "fd_alloc_fprintf said:\n%*s", (int)(info_sz&INT_MAX), info ));
+      free( info );
+    }
 
     /* Determine if we should alloc or free this iteration.  If j==0,
        there are no outstanding allocs to free so we must alloc.  If
@@ -164,12 +190,23 @@ main( int     argc,
   ulong  footprint = fd_alloc_footprint(); FD_TEST( footprint==FD_ALLOC_FOOTPRINT );
 
   void * shmem = fd_wksp_alloc_laddr( wksp, align, footprint, 1UL ); /* FIXME: allow this tag to be configured too? */
-
   if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "Unable to allocate wksp memory for fd_alloc" ));
+
+  static uchar dummy_mem[ FD_ALLOC_FOOTPRINT ] __attribute__((aligned(FD_ALLOC_ALIGN))) = {0};
+  FD_TEST( !fd_alloc_new( NULL,        tag ) );  /* NULL shmem */
+  FD_TEST( !fd_alloc_new( (void *)1UL, tag ) );  /* misaligned shmem */
+  FD_TEST( !fd_alloc_new( dummy_mem,   tag ) );  /* shmem must be in a workspace */
+  FD_TEST( !fd_alloc_new( shmem,       0UL ) );  /* bad tag */
 
   void * shalloc = fd_alloc_new( shmem, tag ); FD_TEST( shalloc==shmem );
 
+  FD_TEST( !fd_alloc_join( NULL,        0UL ) );  /* NULL shalloc */
+  FD_TEST( !fd_alloc_join( (void *)1UL, 0UL ) );  /* misaligned shalloc */
+  FD_TEST( !fd_alloc_join( dummy_mem,   0UL ) );  /* bad magic */
+
   fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL ); FD_TEST( alloc );
+
+  FD_TEST( !fd_alloc_leave( NULL ) );  /* NULL join */
   FD_TEST( fd_alloc_leave( alloc )==shalloc );
 
   FD_TEST( fd_alloc_wksp( NULL  )==NULL ); FD_TEST( fd_alloc_tag( NULL  )==0UL );
@@ -252,6 +289,10 @@ main( int     argc,
   FD_LOG_NOTICE(( "Waiting for remote tiles to finish" ));
 
   for( ulong tile_idx=1UL; tile_idx<tile_cnt; tile_idx++ ) fd_tile_exec_delete( exec[tile_idx], NULL );
+
+  FD_TEST( !fd_alloc_delete( NULL        ) );  /* NULL shalloc */
+  FD_TEST( !fd_alloc_delete( (void *)1UL ) );  /* misaligned shalloc */
+  FD_TEST( !fd_alloc_delete( dummy_mem   ) );  /* bad magic */
 
   FD_TEST( fd_alloc_delete( shalloc )==shmem );
 
