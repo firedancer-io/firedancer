@@ -15,4 +15,5 @@ runs:
         sudo src/util/shmem/fd_shmem_cfg fini || true
         sudo src/util/shmem/fd_shmem_cfg init 0775 $USER "" || true
         sudo src/util/shmem/fd_shmem_cfg alloc '${{ inputs.count }}' gigantic 0
+        sudo src/util/shmem/fd_shmem_cfg alloc 128 huge 0
         sudo chown -R $USER:$USER /mnt/.fd
