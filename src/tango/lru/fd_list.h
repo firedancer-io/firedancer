@@ -32,6 +32,8 @@ struct fd_list {
   ulong next;
 };
 
+#define FD_LIST_ALIGN ( 32UL ) /* 2-nodes per L1 cache line */
+
 ulong
 fd_list_align( void );
 
