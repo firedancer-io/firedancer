@@ -112,7 +112,7 @@ fd_pcapng_peek_block( FILE *                  stream,
 
   /* Read header */
   fd_pcapng_block_hdr_t hdr;
-  if( FD_UNLIKELY( 1UL!=fread( &hdr, 8UL, 1, stream ) ) ) {
+  if( FD_UNLIKELY( 1UL!=fread( &hdr, sizeof(fd_pcapng_block_hdr_t), 1, stream ) ) ) {
     if( FD_LIKELY( feof( stream ) ) ) return FD_PCAPNG_ITER_EOF;
     else                              return FD_PCAPNG_ITER_ERR_STREAM;
   }
@@ -121,7 +121,7 @@ fd_pcapng_peek_block( FILE *                  stream,
   if( FD_UNLIKELY( (hdr.block_sz <   12U) /* header and footer are mandatory */
                  | (hdr.block_sz >32768U) /* way too large */
                  | (!fd_ulong_is_aligned( hdr.block_sz, 4U )) ) ) {
-    FD_LOG_DEBUG(( "pcapng: block with invalid size at %#lx", pos ));
+    FD_LOG_DEBUG(( "pcapng: block with invalid size %#x at %#lx", hdr.block_sz, pos ));
     return FD_PCAPNG_ITER_ERR_PARSE;
   }
 
