@@ -112,6 +112,7 @@ io_task( int            sock,
       if( FD_LIKELY( data<data_end ) ) {
         long n = send( sock, data, (ulong)(data_end - data), MSG_DONTWAIT|MSG_NOSIGNAL );
         if( n<=0 ) {
+          if( FD_LIKELY( (errno==ECONNRESET) | (errno==EPIPE) ) ) break;
           if( FD_UNLIKELY( errno!=EAGAIN ) ) {  /* TODO use EWOULDBLOCK instead? */
             FD_LOG_CRIT(( "send() to target failed (%d-%s)", errno, fd_io_strerror( errno ) ));
             break;
@@ -133,7 +134,7 @@ io_task( int            sock,
       char buf[1024];
       long n = recv( sock, buf, sizeof(buf), MSG_DONTWAIT );
       if( n<0 ) {
-        if( FD_LIKELY( errno==ECONNRESET ) ) break;
+        if( FD_LIKELY( (errno==ECONNRESET) | (errno==EPIPE) ) ) break;
         if( FD_UNLIKELY( errno!=EAGAIN ) ) {  /* TODO use EWOULDBLOCK instead? */
           FD_LOG_CRIT(( "recv() from target failed (%d-%s)", errno, fd_io_strerror( errno ) ));
           break;
