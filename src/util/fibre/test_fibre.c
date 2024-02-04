@@ -181,6 +181,7 @@ run_pipe_test( void ) {
 
   free( fibre_1_mem );
   free( fibre_2_mem );
+  free( pipe_mem    );
 
   printf( "pipe test complete\n" );
 }
@@ -400,6 +401,11 @@ run_test_pipe_filter( void ) {
   free( filter_fibre_mem );
   free( consumer_1_fibre_mem );
   free( consumer_2_fibre_mem );
+
+  /* free pipe mem */
+  free( pipe_1_mem );
+  free( pipe_2_mem );
+  free( pipe_3_mem );
 }
 
 
