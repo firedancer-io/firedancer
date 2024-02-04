@@ -4,7 +4,7 @@
 #include "../elf/fd_elf.h"
 #include "../../util/fd_util.h"
 
-/* TODO this needs fuzzing + cbmc */
+#define FD_EBPF_MAX_SYM_CNT (128UL)
 
 struct __attribute__((aligned(16UL))) fd_ebpf_known_sym {
   ulong value;
@@ -14,8 +14,8 @@ typedef struct fd_ebpf_known_sym fd_ebpf_known_sym_t;
 
 fd_ebpf_link_opts_t *
 fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
-                     void * elf,
-                     ulong  elf_sz ) {
+                     void *                elf,
+                     ulong                 elf_sz ) {
 
 # define FD_ELF_REQUIRE(c) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return NULL; } } while(0)
 
@@ -34,7 +34,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   /* Check file type */
 
-  FD_ELF_REQUIRE( fd_uint_load_4( eh->e_ident ) == 0x464c457fU     );
+  FD_ELF_REQUIRE( fd_uint_load_4( eh->e_ident ) == 0x464c457fU );
 
   FD_ELF_REQUIRE( eh->e_ident[ FD_ELF_EI_CLASS   ] == FD_ELF_CLASS_64 );
   FD_ELF_REQUIRE( eh->e_ident[ FD_ELF_EI_DATA    ] == FD_ELF_DATA_LE  );
@@ -122,6 +122,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   ulong sym_cnt = symtab->sh_size / sizeof(fd_elf64_sym);
   fd_elf64_sym const * sym = (fd_elf64_sym *)( (ulong)elf + symtab->sh_offset );
+  FD_ELF_REQUIRE( sym_cnt <= FD_EBPF_MAX_SYM_CNT );
 
   /* Load string table */
 
@@ -144,11 +145,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   /* Create symbol mapping table */
 
-  fd_ebpf_known_sym_t * sym_mapping = fd_alloca( alignof(fd_ebpf_known_sym_t), sizeof(fd_ebpf_known_sym_t)*sym_cnt );
-  if( FD_UNLIKELY( !sym_mapping ) ) {
-    FD_LOG_WARNING(( "fd_alloca failed" ));
-    return NULL;
-  }
+  fd_ebpf_known_sym_t sym_mapping[ FD_EBPF_MAX_SYM_CNT ];
 
   /* Walk symbol table */
 

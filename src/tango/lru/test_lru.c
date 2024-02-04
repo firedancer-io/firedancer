@@ -108,6 +108,7 @@ main( int argc, char ** argv ) {
     FD_TEST( map[map_idx] );
     FD_TEST( map[map_idx]->tag == tag );
     FD_TEST( map[map_idx]->curr );
+    FD_TEST( fd_lru_list_tail( lru )->tag == tag );
     FD_TEST( fd_lru_list_head( lru )->tag == tag - depth + 1 );
   }
 
@@ -127,12 +128,12 @@ main( int argc, char ** argv ) {
   } while ( 0 );
 
   /* update every element */
-  for ( ulong tag = depth + 1; tag <= 2 * depth; tag++ ) {
-    int   found;
-    ulong map_idx;
+  for( ulong tag = depth + 1; tag <= 2 * depth; tag++ ) {
+    int   found = 0;
+    ulong map_idx = 0UL;
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( found );
-    int dup;
+    int dup = 0;
     fd_lru_upsert( lru, tag, &dup );
     FD_LRU_QUERY( found, map_idx, map, map_cnt, tag );
     FD_TEST( found );
