@@ -127,9 +127,9 @@ test_pcapng_fwrite_tls_key_log( void ) {
 
 static void
 test_pcapng_dogfood( void ) {
-  static uchar buf[ 2048UL ]={0};
+  static uchar buf[ 0x134 ]={0};
 
-  FILE * pcap = fmemopen( &buf, 2048UL, "wb+" );
+  FILE * pcap = fmemopen( &buf, sizeof(buf), "wb+" );
   FD_TEST( pcap );
 
   FD_LOG_INFO(( "TEST: dogfood" ));
