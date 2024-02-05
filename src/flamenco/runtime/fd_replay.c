@@ -3,6 +3,37 @@
 static int
 upsert_repair_req( fd_replay_t * replay, ulong slot, uint shred_idx );
 
+FD_FN_CONST ulong
+fd_replay_footprint( ulong slot_max ) {
+  ulong laddr = 0;
+
+  laddr  = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
+  laddr += sizeof( fd_replay_t );
+
+  laddr  = fd_ulong_align_up( laddr, fd_replay_pool_align() );
+  laddr += fd_replay_pool_footprint( slot_max );
+
+  laddr  = fd_ulong_align_up( laddr, fd_replay_frontier_align() );
+  laddr += fd_replay_frontier_footprint( slot_max );
+
+  laddr  = fd_ulong_align_up( laddr, fd_replay_commitment_align() );
+  laddr += fd_replay_commitment_footprint();
+
+  laddr  = fd_ulong_align_up( laddr, fd_replay_pending_align() );
+  laddr += fd_replay_pending_footprint();
+
+  //   laddr           = fd_ulong_align_up( laddr, fd_fec_resolver_align() );
+  // laddr += fd_fec_resolver_footprint( 1024, 1024, 1024, 1024 );
+
+  laddr  = fd_ulong_align_up( laddr, fd_repair_peer_align() );
+  laddr += fd_repair_peer_footprint();
+
+  laddr  = fd_ulong_align_up( laddr, fd_repair_req_align() );
+  laddr += fd_repair_req_footprint();
+
+  return laddr;
+}
+
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
 
@@ -61,6 +92,8 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   replay->repair_reqs = fd_repair_req_new( (void *)laddr );
   laddr += fd_repair_req_footprint();
 
+  FD_TEST(laddr <= (ulong)mem + footprint);
+  
   return mem;
 }
 

@@ -161,13 +161,8 @@ fd_replay_align( void ) {
   return alignof( fd_replay_t );
 }
 
-FD_FN_CONST static inline ulong
-fd_replay_footprint( ulong slot_max ) {
-  return sizeof( fd_replay_t ) + 
-         fd_replay_pool_footprint( slot_max ) + fd_replay_frontier_footprint( slot_max ) +
-         fd_replay_commitment_footprint() +
-         fd_replay_pending_footprint() + fd_repair_peer_footprint() + fd_repair_req_footprint();
-}
+FD_FN_CONST ulong
+fd_replay_footprint( ulong slot_max );
 
 /* fd_replay_new formats an unused memory region for use as a replay. mem is a non-NULL pointer to
    this region in the local address space with the required footprint and alignment.*/

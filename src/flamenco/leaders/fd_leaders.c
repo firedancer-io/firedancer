@@ -153,7 +153,7 @@ fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
     memcpy( &leaders->pub[ i ], &stakes[ i ].key, 32UL );
 
   /* Create map of cumulative stake index */
-  ulong * scratch = fd_scratch_alloc( alignof(ulong), pub_cnt+1UL );
+  ulong * scratch = fd_scratch_alloc( alignof(ulong), (pub_cnt+1UL)*sizeof(ulong) );
   ulong accum_stake = 0UL;
   for( ulong i=0UL; i<pub_cnt; i++ ) {
     scratch[ i ] = accum_stake;
