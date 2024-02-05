@@ -703,6 +703,7 @@ fd_r43x6_ge_sparsen( int *        _t,     /* 256-entry */
          2^shift>(2*max), ti +/- 2^shift*tj is _not_ in [-max,max] and
          we can't merge this j and any following into i. */
 
+      if( j-i > 30 ) break; /* make sure delta doesn't overflow */
       int delta = 1 << (j-i); /* even */
       if( delta>(2*max) ) break;
 
