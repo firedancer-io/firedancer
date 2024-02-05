@@ -76,4 +76,13 @@ int fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const *
 
 int fd_repair_need_orphan( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot );
 
+/* Test if a peer is good */
+int fd_repair_is_good_peer( fd_repair_t *       glob,
+                            fd_pubkey_t const * id,
+                            ulong               min_samples,       /* Minimum number of statistical samples */
+                            float               min_response_rate, /* Minimum ratio of responses/requests */
+                            float               max_latency );     /* Maximum average response latency in nanosecs */
+
+void fd_repair_print_stats( fd_repair_t * glob, fd_pubkey_t const * id, ulong stake, int favorite );
+
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */

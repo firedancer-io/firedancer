@@ -1193,8 +1193,6 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     slot_ctx->slot_bank.transaction_count += txn_cnt;
 
-    fd_valloc_free( slot_ctx->valloc, task_infos );
-    fd_valloc_free( slot_ctx->valloc, wave_task_infos );
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }

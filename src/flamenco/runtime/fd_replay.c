@@ -169,11 +169,12 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
       // FIXME
 
       fd_repair_peer_t * peer = fd_replay_repair_peer_sample( replay );
-      if( NULL == peer ) return NULL;
-      for( ulong i = slot_meta->consumed; i <= slot_meta->last_index; i++ ) {
-        if( FD_LIKELY( upsert_repair_req( replay, slot, (uint)i ) ) ) {
-          FD_LOG_DEBUG( ( "requesting shred %lu %lu", slot, i ) );
-          fd_repair_need_window_index( replay->repair, &peer->id, slot, (uint)i );
+      if( NULL != peer ) {
+        for( ulong i = slot_meta->consumed; i <= slot_meta->last_index; i++ ) {
+          if( FD_LIKELY( upsert_repair_req( replay, slot, (uint)i ) ) ) {
+            FD_LOG_DEBUG( ( "requesting shred %lu %lu", slot, i ) );
+            fd_repair_need_window_index( replay->repair, &peer->id, slot, (uint)i );
+          }
         }
       }
     }

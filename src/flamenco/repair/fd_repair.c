@@ -18,8 +18,8 @@
 #define FD_ACTIVE_KEY_MAX (1<<11)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
-/* Max number of pending timed events */
-#define FD_PENDING_MAX (1<<9)
+/* Max number of recent requests that we track per active peer for statistics */
+#define FD_MAX_RECENT_REQS 8
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -58,11 +58,21 @@ void fd_repair_peer_addr_copy( fd_repair_peer_addr_t * keyd, const fd_repair_pee
   keyd->l = keys->l;
 }
 
+typedef uint fd_repair_nonce_t;
+
 /* Active table element. This table is all validators that we are
    asking for repairs. */
 struct fd_active_elem {
     fd_pubkey_t key;  /* Public indentifier */
     fd_repair_peer_addr_t addr;
+    struct recent_reqs {
+        fd_repair_nonce_t nonce;
+        long when;
+    } recents[FD_MAX_RECENT_REQS];
+    ulong num_recent_reqs;
+    ulong avg_reqs; /* Moving average of the number of requests */
+    ulong avg_reps; /* Moving average of the number of requests */
+    long  avg_lat;  /* Moving average of response latency */
     ulong next;
 };
 /* Active table */
@@ -74,8 +84,6 @@ typedef struct fd_active_elem fd_active_elem_t;
 #define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_active_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
-
-typedef uint fd_repair_nonce_t;
 
 int fd_repair_nonce_eq( const fd_repair_nonce_t * key1, const fd_repair_nonce_t * key2 ) {
   return *key1 == *key2;
@@ -111,29 +119,6 @@ typedef struct fd_needed_elem fd_needed_elem_t;
 #define MAP_T        fd_needed_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-/* Queue of pending timed events, stored as a priority heap */
-union fd_pending_event_arg {
-    fd_repair_peer_addr_t key;
-};
-typedef union fd_pending_event_arg fd_pending_event_arg_t;
-typedef void (*fd_pending_event_fun)(struct fd_repair * glob, fd_pending_event_arg_t * arg);
-struct fd_pending_event {
-    ulong left;
-    ulong right;
-    long key;
-    fd_pending_event_fun fun;
-    fd_pending_event_arg_t fun_arg;
-};
-typedef struct fd_pending_event fd_pending_event_t;
-#define POOL_NAME fd_pending_pool
-#define POOL_T    fd_pending_event_t
-#define POOL_NEXT left
-#include "../../util/tmpl/fd_pool.c"
-#define HEAP_NAME      fd_pending_heap
-#define HEAP_T         fd_pending_event_t
-#define HEAP_LT(e0,e1) (e0->key < e1->key)
-#include "../../util/tmpl/fd_heap.c"
-
 /* Global data for repair service */
 struct fd_repair {
     /* Current time in nanosecs */
@@ -158,9 +143,10 @@ struct fd_repair {
     fd_repair_nonce_t oldest_nonce;
     fd_repair_nonce_t current_nonce;
     fd_repair_nonce_t next_nonce;
-    /* Heap/queue of pending timed events */
-    fd_pending_event_t * event_pool;
-    fd_pending_heap_t * event_heap;
+    /* Last batch of sends */
+    long last_sends;
+    /* Last statistics decay */
+    long last_decay;
     /* Random number generator */
     fd_rng_t rng[1];
     /* RNG seed */
@@ -185,11 +171,9 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->actives = fd_active_table_join(fd_active_table_new(shm, FD_ACTIVE_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_needed_table_align(), fd_needed_table_footprint(FD_NEEDED_KEY_MAX));
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
+  glob->last_sends = 0;
+  glob->last_decay = 0;
   glob->oldest_nonce = glob->current_nonce = glob->next_nonce = 0;
-  shm = fd_valloc_malloc(valloc, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
-  glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
-  shm = fd_valloc_malloc(valloc, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
-  glob->event_heap = fd_pending_heap_join(fd_pending_heap_new(shm, FD_PENDING_MAX));
   fd_rng_new(glob->rng, (uint)seed, 0UL);
   return glob;
 }
@@ -205,8 +189,6 @@ fd_repair_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_repair_t * glob = (fd_repair_t *)shmap;
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   fd_valloc_free(valloc, fd_needed_table_delete(fd_needed_table_leave(glob->needed)));
-  fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
-  fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
   return glob;
 }
 
@@ -246,18 +228,6 @@ fd_repair_update_addr( fd_repair_t * glob, const fd_repair_peer_addr_t * intake_
   return 0;
 }
 
-/* Add an event to the queue of pending timed events. The resulting
-   value needs "fun" and "fun_arg" to be set. */
-fd_pending_event_t *
-fd_repair_add_pending( fd_repair_t * glob, long when ) {
-  if (fd_pending_pool_free( glob->event_pool ) == 0)
-    return NULL;
-  fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
-  ev->key = when;
-  fd_pending_heap_ele_insert( glob->event_heap, ev, glob->event_pool );
-  return ev;
-}
-
 /* Initiate connection to a peer */
 int
 fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * addr, fd_pubkey_t const * id ) {
@@ -274,6 +244,10 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
     }
     val = fd_active_table_insert(glob->actives, id);
     fd_repair_peer_addr_copy(&val->addr, addr);
+    val->num_recent_reqs = 0;
+    val->avg_reqs = 0;
+    val->avg_reps = 0;
+    val->avg_lat = 0;
   }
   return 0;
 }
@@ -315,15 +289,7 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
 }
 
 static void
-fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
-  (void)arg;
-
-  /* Try again in 50 msec */
-  fd_pending_event_t * ev = fd_repair_add_pending(glob, glob->now + (long)50e6);
-  if (ev) {
-    ev->fun = fd_repair_send_requests;
-  }
-
+fd_repair_send_requests( fd_repair_t * glob ) {
   /* Garbage collect old requests */
   long expire = glob->now - (long)5e9; /* 5 seconds */
   fd_repair_nonce_t n;
@@ -354,6 +320,23 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
 
     if (++j == 100U)
       break;
+
+    /* Track statistics */
+    if( active->num_recent_reqs == FD_MAX_RECENT_REQS ) {
+      /* Toss oldest */
+      ulong oldest = 0;
+      for( ulong i = 1; i < FD_MAX_RECENT_REQS; ++i )
+        if( active->recents[i].when < active->recents[oldest].when )
+          oldest = i;
+      active->recents[oldest] = active->recents[--(active->num_recent_reqs)];
+      /* Pretend the dropped request never happened */
+      if( active->avg_reqs ) active->avg_reqs--;
+    }
+    ulong i = (active->num_recent_reqs)++;
+    active->recents[i].when = glob->now;
+    active->recents[i].nonce = n;
+    active->avg_reqs++;
+    FD_TEST( active->num_recent_reqs <= FD_MAX_RECENT_REQS );
 
     fd_repair_protocol_t protocol;
     switch (ele->type) {
@@ -398,11 +381,25 @@ fd_repair_send_requests( fd_repair_t * glob, fd_pending_event_arg_t * arg ) {
   glob->current_nonce = n;
 }
 
+static void
+fd_repair_decay_stats( fd_repair_t * glob ) {
+  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
+       !fd_active_table_iter_done( glob->actives, iter );
+       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
+    fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
+#define DECAY(_v_) _v_ = _v_ - ((_v_)>>2U) /* Reduce by 25% */
+    DECAY(ele->avg_reqs);
+    DECAY(ele->avg_reps);
+    DECAY(ele->avg_lat);
+#undef DECAY
+  }
+}
+
 /* Start timed events and other protocol behavior */
 int
 fd_repair_start( fd_repair_t * glob ) {
-  fd_pending_event_t * ev = fd_repair_add_pending(glob, glob->now + (long)100e6);
-  ev->fun = fd_repair_send_requests;
+  glob->last_sends = glob->now;
+   glob->last_decay = glob->now;
   return 0;
 }
 
@@ -410,16 +407,14 @@ fd_repair_start( fd_repair_t * glob ) {
  * called inside the main spin loop. */
 int
 fd_repair_continue( fd_repair_t * glob ) {
-  do {
-    fd_pending_event_t * ev = fd_pending_heap_ele_peek_min( glob->event_heap, glob->event_pool );
-    if (ev == NULL || ev->key > glob->now)
-      break;
-    fd_pending_event_t evcopy;
-    fd_memcpy(&evcopy, ev, sizeof(evcopy));
-    fd_pending_heap_ele_remove_min( glob->event_heap, glob->event_pool );
-    fd_pending_pool_ele_release( glob->event_pool, ev );
-    (*evcopy.fun)(glob, &evcopy.fun_arg);
-  } while (1);
+  if ( glob->now - glob->last_sends > (long)10e6 ) { /* 10 millisecs */
+    fd_repair_send_requests( glob );
+    glob->last_sends = glob->now;
+  }
+  if ( glob->now - glob->last_decay > (long)60e9 ) { /* 1 minute */
+    fd_repair_decay_stats( glob );
+    glob->last_decay = glob->now;
+  }
   return 0;
 }
 
@@ -503,6 +498,19 @@ fd_repair_recv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_go
   else
     (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
 
+  fd_active_elem_t * active = fd_active_table_query( glob->actives, &val->id, NULL );
+  if ( NULL != active ) {
+    /* Update statistics */
+    for( ulong i = 0; i < active->num_recent_reqs; ++i ) {
+      if( active->recents[i].nonce == key ) {
+        active->avg_reps++;
+        active->avg_lat += glob->now - active->recents[i].when;
+        active->recents[i] = active->recents[--(active->num_recent_reqs)];
+        break;
+      }
+    }
+  }
+
   return 0;
 }
 
@@ -559,4 +567,34 @@ fd_repair_need_orphan( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot ) 
   val->shred_index = 0; /* unused */
   val->when = glob->now;
   return 0;
+}
+
+int
+fd_repair_is_good_peer( fd_repair_t *       glob,
+                        fd_pubkey_t const * id,
+                        ulong               min_samples,       /* Minimum number of statistical samples */
+                        float               min_response_rate, /* Minimum ratio of responses/requests */
+                        float               max_latency ) {    /* Maximum average response latency in nanosecs */
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
+  if( FD_UNLIKELY( NULL == val ) ) return 0;
+  if( val->avg_reqs < min_samples ) return 0;
+  if( (float)val->avg_reps < min_response_rate*((float)val->avg_reqs) ) return 0;
+  if( (float)val->avg_lat > max_latency*((float)val->avg_reps) ) return 0;
+  return 1;
+}
+
+void
+fd_repair_print_stats( fd_repair_t * glob, fd_pubkey_t const * id, ulong stake, int favorite ) {
+  fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
+  if( FD_UNLIKELY( NULL == val ) ) return;
+  if( val->avg_reqs == 0 )
+    FD_LOG_NOTICE(( "repair peer %32J:      stake=%lu, no requests sent", id, stake ));
+  else if( val->avg_reps == 0 )
+    FD_LOG_NOTICE(( "repair peer %32J:      stake=%lu, avg_requests=%lu, no responses received", id, stake, val->avg_reqs ));
+  else
+    FD_LOG_NOTICE(( "repair peer %32J: %s stake=%lu, avg_requests=%lu, response_rate=%f, latency=%f",
+                    id, (favorite ? "****" : "    "), stake,
+                    val->avg_reqs,
+                    ((double)val->avg_reps)/((double)val->avg_reqs),
+                    1.0e-9*((double)val->avg_lat)/((double)val->avg_reps) ));
 }
