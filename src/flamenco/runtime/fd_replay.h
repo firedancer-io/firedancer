@@ -83,8 +83,6 @@ struct fd_repair_peer {
   uint        hash;
   ulong       first_slot;
   ulong       last_slot;
-  ulong       request_cnt;
-  ulong       reply_cnt;
 };
 typedef struct fd_repair_peer fd_repair_peer_t;
 

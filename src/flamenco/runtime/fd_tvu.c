@@ -111,7 +111,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
 
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
   fd_repair_peer_t *    peer = fd_repair_peer_query( repair_ctx->replay->repair_peers, *id, NULL );
-  if( FD_LIKELY( peer ) ) peer->reply_cnt++;
+  (void)peer;
 
   fd_blockstore_start_read( repair_ctx->blockstore );
   /* TODO remove this check it's wrong for duplicate shreds */
@@ -187,8 +187,6 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
         fd_repair_peer_insert( gossip_ctx->replay->repair_peers, data->inner.contact_info_v1.id );
     peer->first_slot  = 0;
     peer->last_slot   = 0;
-    peer->request_cnt = 0;
-    peer->reply_cnt   = 0;
     has_peer          = 1;
 
     FD_LOG_DEBUG( ( "adding repair peer %32J", peer->id.uc ) );
@@ -335,32 +333,15 @@ static void
 print_stats( fd_tvu_repair_ctx_t * repair_ctx ) {
   ulong slot          = repair_ctx->slot_ctx->slot_bank.slot;
   ulong peer_cnt      = 0;
-  ulong good_peer_cnt = 0;
   for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
     fd_repair_peer_t * peer = &repair_ctx->replay->repair_peers[i];
     if( memcmp( &peer->id, &pubkey_null, sizeof( fd_pubkey_t ) ) == 0 ) continue;
     ++peer_cnt;
-    if( slot >= peer->first_slot && slot <= peer->last_slot &&
-        !( peer->request_cnt > 100U && peer->reply_cnt * 3U < peer->request_cnt ) ) /* 2/3 fails */
-      ++good_peer_cnt;
-    if( peer->request_cnt )
-      FD_LOG_NOTICE( ( "peer %32J - avg requests: %lu, avg responses: %lu, ratio: %f, first_slot: "
-                       "%lu, last_slot: %lu",
-                       &peer->id,
-                       peer->request_cnt,
-                       peer->reply_cnt,
-                       ( (double)peer->reply_cnt ) / ( (double)peer->request_cnt ),
-                       peer->first_slot,
-                       peer->last_slot ) );
-    /* Do a moving average over several minutes */
-    peer->request_cnt >>= 1;
-    peer->reply_cnt >>= 1;
   }
-  FD_LOG_NOTICE( ( "current slot: %lu, transactions: %lu, peer count: %lu, 'good' peer count: %lu",
+  FD_LOG_NOTICE( ( "current slot: %lu, transactions: %lu, peer count: %lu",
                    slot,
                    repair_ctx->slot_ctx->slot_bank.transaction_count,
-                   peer_cnt,
-                   good_peer_cnt ) );
+                   peer_cnt ) );
 }
 
 static int
@@ -444,8 +425,6 @@ fd_tvu_main( fd_gossip_t *         gossip,
     // FIXME hack to be able to immediately send a msg for the CLI-specified peer
     peer->first_slot  = repair_ctx->blockstore->root;
     peer->last_slot   = ULONG_MAX;
-    peer->request_cnt = 0;
-    peer->reply_cnt   = 0;
     has_peer          = 1;
   }
 

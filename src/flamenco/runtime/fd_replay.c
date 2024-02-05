@@ -451,9 +451,6 @@ fd_replay_repair_peer_sample( fd_replay_t * replay ) {
   for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
     fd_repair_peer_t * peer = &replay->repair_peers[i];
     if( fd_repair_peer_key_inval( peer->id ) ) continue;
-    // if( peer->request_cnt > 100U && peer->reply_cnt * 3U < peer->request_cnt ) {
-    //   continue; /* 2/3 fails */
-    // }
     return peer;
   }
   return NULL;
