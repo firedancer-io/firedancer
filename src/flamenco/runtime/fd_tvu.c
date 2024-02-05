@@ -135,9 +135,11 @@ repair_deliver_fun( fd_shred_t const *                            shred,
   fd_slot_meta_t const * slot_meta =
       fd_blockstore_slot_meta_query( repair_ctx->blockstore, shred->slot );
 
-  if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
-    // FD_LOG_NOTICE( ( "completed block: %lu", shred->slot ) );
-    fd_replay_pending_push_tail( repair_ctx->replay->pending, shred->slot );
+  if (NULL != slot_meta) {
+    if( FD_UNLIKELY( slot_meta->consumed == slot_meta->last_index ) ) {
+      // FD_LOG_NOTICE( ( "completed block: %lu", shred->slot ) );
+      fd_replay_pending_push_tail( repair_ctx->replay->pending, shred->slot );
+    }
   }
 
   fd_blockstore_end_read( repair_ctx->blockstore );
@@ -453,7 +455,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
     msgs[i].msg_hdr.msg_name    = sockaddrs[i];                  \
     msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 ); \
   }
-  
+
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !*stopflag ) {
