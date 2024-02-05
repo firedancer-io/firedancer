@@ -1,18 +1,12 @@
 #include "fd_vm_syscalls.h"
 
 #include "../../ballet/base64/fd_base64.h"
-#include "../../ballet/sha256/fd_sha256.h"
-#include "../../ballet/keccak256/fd_keccak256.h"
-#include "../../ballet/blake3/fd_blake3.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include "../../ballet/secp256k1/fd_secp256k1.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
-#include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/ed25519/fd_ed25519_ge.h"
 
 #include <stdio.h>
@@ -183,100 +177,95 @@ fd_vm_prepare_instruction(
   return 0;
 }
 
-#if !FD_HAS_SECP256K1
-#error "This file requires secp256k1"
-#endif
-
-static void
-fd_vm_syscall_register_base( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "abort",                  fd_vm_syscall_abort     );
-  fd_vm_register_syscall( syscalls, "sol_panic_",             fd_vm_syscall_sol_panic );
-  fd_vm_register_syscall( syscalls, "custom_panic",             fd_vm_syscall_sol_panic ); /* TODO: unsure if this is entirely correct */
-
-  fd_vm_register_syscall( syscalls, "sol_log_",               fd_vm_syscall_sol_log                 );
-  fd_vm_register_syscall( syscalls, "sol_log_64_",            fd_vm_syscall_sol_log_64              );
-  fd_vm_register_syscall( syscalls, "sol_log_pubkey",         fd_vm_syscall_sol_log_pubkey          );
-  fd_vm_register_syscall( syscalls, "sol_log_data",           fd_vm_syscall_sol_log_data            );
-  fd_vm_register_syscall( syscalls, "sol_log_compute_units_", fd_vm_syscall_sol_log_compute_units   );
-
-  fd_vm_register_syscall( syscalls, "sol_sha256",             fd_vm_syscall_sol_sha256            );
-  fd_vm_register_syscall( syscalls, "sol_keccak256",          fd_vm_syscall_sol_keccak256         );
-
-  fd_vm_register_syscall( syscalls, "sol_memcpy_",            fd_vm_syscall_sol_memcpy  );
-  fd_vm_register_syscall( syscalls, "sol_memcmp_",            fd_vm_syscall_sol_memcmp  );
-  fd_vm_register_syscall( syscalls, "sol_memset_",            fd_vm_syscall_sol_memset  );
-  fd_vm_register_syscall( syscalls, "sol_memmove_",           fd_vm_syscall_sol_memmove );
-
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c",           fd_vm_syscall_cpi_c                );
-  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust",        fd_vm_syscall_cpi_rust             );
-  fd_vm_register_syscall( syscalls, "sol_alloc_free_",               fd_vm_syscall_sol_alloc_free       );
-  fd_vm_register_syscall( syscalls, "sol_set_return_data",           fd_vm_syscall_sol_set_return_data  );
-  fd_vm_register_syscall( syscalls, "sol_get_return_data",           fd_vm_syscall_sol_get_return_data  );
-  fd_vm_register_syscall( syscalls, "sol_get_stack_height",          fd_vm_syscall_sol_get_stack_height );
-
-  fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",          fd_vm_syscall_sol_get_clock_sysvar          );
-  fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar", fd_vm_syscall_sol_get_epoch_schedule_sysvar );
-  fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar",           fd_vm_syscall_sol_get_rent_sysvar           );
-
-  fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address            );
-  fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address          );
-  fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
-
-  fd_vm_register_syscall( syscalls, "sol_alt_bn128_group_op", NULL ); /* TODO: unimplemented */
-  fd_vm_register_syscall( syscalls, "sol_ristretto_mul", NULL ); /* TODO: unimplemented */
-}
-
-static void
-fd_vm_syscall_register_fees_sysvar( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar", fd_vm_syscall_sol_get_fees_sysvar );
-}
-
-static void
-fd_vm_syscall_register_secp256k1( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_secp256k1_recover", fd_vm_syscall_sol_secp256k1_recover );
-}
-
-static void
-fd_vm_syscall_register_blake3( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_blake3", fd_vm_syscall_sol_blake3 );
-}
-
-static void
-fd_vm_syscall_register_curve25519( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_curve_validate_point",  fd_vm_syscall_sol_curve_validate_point  );
-  fd_vm_register_syscall( syscalls, "sol_curve_group_op",        fd_vm_syscall_sol_curve_group_op        );
-  fd_vm_register_syscall( syscalls, "sol_curve_multiscalar_mul", fd_vm_syscall_sol_curve_multiscalar_mul );
-}
-
-static void
-fd_vm_syscall_register_poseidon( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_register_syscall( syscalls, "sol_poseidon", fd_vm_syscall_sol_poseidon );
-}
-
 void
 fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
                             fd_exec_slot_ctx_t const * slot_ctx ) {
-  fd_vm_syscall_register_base( syscalls );
-  if( !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ) )
-    fd_vm_syscall_register_fees_sysvar( syscalls );
-  if( FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled ) )
-    fd_vm_syscall_register_secp256k1( syscalls );
-  if( FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled ) )
-    fd_vm_syscall_register_blake3( syscalls );
-  if( FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled ) )
-    fd_vm_syscall_register_curve25519( syscalls );
-  if( FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall ) )
-    fd_vm_syscall_register_poseidon( syscalls );
+  bool secp256k1_recover_syscall_enabled    = false;
+  bool blake3_syscall_enabled               = false;
+  bool curve25519_syscall_enabled           = false;
+  bool enable_poseidon_syscall              = false;
+  bool enable_alt_bn128_compression_syscall = false;
+  /* disable */
+  bool disable_fees_sysvar                  = false;
+
+  if( slot_ctx != NULL ) {
+    secp256k1_recover_syscall_enabled    = FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled );
+    blake3_syscall_enabled               = FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled );
+    curve25519_syscall_enabled           = FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled );
+    enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall );
+    enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_compression_syscall );
+    /* disable */
+    disable_fees_sysvar                  = !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
+  } else {
+    /* enable ALL */
+    secp256k1_recover_syscall_enabled    = true;
+    blake3_syscall_enabled               = true;
+    curve25519_syscall_enabled           = true;
+    enable_poseidon_syscall              = true;
+    enable_alt_bn128_compression_syscall = true;
+  }
+
+  /* Firedancer only */
+  fd_vm_register_syscall( syscalls, "abort",                                 fd_vm_syscall_abort );
+  fd_vm_register_syscall( syscalls, "sol_panic_",                            fd_vm_syscall_sol_panic );
+  fd_vm_register_syscall( syscalls, "custom_panic",                          fd_vm_syscall_sol_panic ); /* TODO: unsure if this is entirely correct */
+  fd_vm_register_syscall( syscalls, "sol_alloc_free_",                       fd_vm_syscall_sol_alloc_free );
+
+  /* https://github.com/solana-labs/solana/blob/v1.18.1/sdk/program/src/syscalls/definitions.rs#L39 */
+  fd_vm_register_syscall( syscalls, "sol_log_",                              fd_vm_syscall_sol_log );
+  fd_vm_register_syscall( syscalls, "sol_log_64_",                           fd_vm_syscall_sol_log_64 );
+  fd_vm_register_syscall( syscalls, "sol_log_compute_units_",                fd_vm_syscall_sol_log_compute_units );
+  fd_vm_register_syscall( syscalls, "sol_log_pubkey",                        fd_vm_syscall_sol_log_pubkey );
+  fd_vm_register_syscall( syscalls, "sol_create_program_address",            fd_vm_syscall_sol_create_program_address );
+  fd_vm_register_syscall( syscalls, "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address );
+  fd_vm_register_syscall( syscalls, "sol_sha256",                            fd_vm_syscall_sol_sha256 );
+  fd_vm_register_syscall( syscalls, "sol_keccak256",                         fd_vm_syscall_sol_keccak256 );
+  if( secp256k1_recover_syscall_enabled ) {
+    fd_vm_register_syscall( syscalls, "sol_secp256k1_recover",               fd_vm_syscall_sol_secp256k1_recover );
+  }
+  if( blake3_syscall_enabled ) {
+    fd_vm_register_syscall( syscalls, "sol_blake3",                          fd_vm_syscall_sol_blake3 );
+  }
+  fd_vm_register_syscall( syscalls, "sol_get_clock_sysvar",                  fd_vm_syscall_sol_get_clock_sysvar );
+  fd_vm_register_syscall( syscalls, "sol_get_epoch_schedule_sysvar",         fd_vm_syscall_sol_get_epoch_schedule_sysvar );
+  if( !disable_fees_sysvar ) {
+    fd_vm_register_syscall( syscalls, "sol_get_fees_sysvar",                 fd_vm_syscall_sol_get_fees_sysvar );
+  }
+  fd_vm_register_syscall( syscalls, "sol_get_rent_sysvar",                   fd_vm_syscall_sol_get_rent_sysvar );
+  // fd_vm_register_syscall( syscalls, "sol_get_last_restart_slot",             fd_vm_syscall_sol_get_last_restart_slot );
+  fd_vm_register_syscall( syscalls, "sol_memcpy_",                           fd_vm_syscall_sol_memcpy );
+  fd_vm_register_syscall( syscalls, "sol_memmove_",                          fd_vm_syscall_sol_memmove );
+  fd_vm_register_syscall( syscalls, "sol_memcmp_",                           fd_vm_syscall_sol_memcmp );
+  fd_vm_register_syscall( syscalls, "sol_memset_",                           fd_vm_syscall_sol_memset );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_c",                   fd_vm_syscall_cpi_c );
+  fd_vm_register_syscall( syscalls, "sol_invoke_signed_rust",                fd_vm_syscall_cpi_rust );
+  fd_vm_register_syscall( syscalls, "sol_set_return_data",                   fd_vm_syscall_sol_set_return_data );
+  fd_vm_register_syscall( syscalls, "sol_get_return_data",                   fd_vm_syscall_sol_get_return_data );
+  fd_vm_register_syscall( syscalls, "sol_log_data",                          fd_vm_syscall_sol_log_data );
+  fd_vm_register_syscall( syscalls, "sol_get_processed_sibling_instruction", fd_vm_syscall_sol_get_processed_sibling_instruction );
+  fd_vm_register_syscall( syscalls, "sol_get_stack_height",                  fd_vm_syscall_sol_get_stack_height );
+  if( curve25519_syscall_enabled ) {
+    fd_vm_register_syscall( syscalls, "sol_curve_validate_point",            fd_vm_syscall_sol_curve_validate_point );
+    fd_vm_register_syscall( syscalls, "sol_curve_group_op",                  fd_vm_syscall_sol_curve_group_op );
+    fd_vm_register_syscall( syscalls, "sol_curve_multiscalar_mul",           fd_vm_syscall_sol_curve_multiscalar_mul );
+  }
+  // NOTE: sol_curve_pairing_map is defined but never implemented / used, we can ignore it for now
+  // fd_vm_register_syscall( syscalls, "sol_curve_pairing_map",                 fd_vm_syscall_sol_curve_pairing_map );
+  fd_vm_register_syscall( syscalls, "sol_alt_bn128_group_op",                fd_vm_syscall_sol_alt_bn128_group_op );
+  // fd_vm_register_syscall( syscalls, "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
+  // fd_vm_register_syscall( syscalls, "sol_get_epoch_rewards_sysvar",          fd_vm_syscall_sol_get_epoch_rewards_sysvar );
+  if( enable_poseidon_syscall ) {
+    fd_vm_register_syscall( syscalls, "sol_poseidon",                        fd_vm_syscall_sol_poseidon );
+  }
+  // fd_vm_register_syscall( syscalls, "sol_remaining_compute_units",           fd_vm_syscall_sol_remaining_compute_units );
+  if( enable_alt_bn128_compression_syscall ) {
+    fd_vm_register_syscall( syscalls, "sol_alt_bn128_compression",           fd_vm_syscall_sol_alt_bn128_compression );
+  }
 }
 
 void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
-  fd_vm_syscall_register_base       ( syscalls );
-  fd_vm_syscall_register_fees_sysvar( syscalls );
-  fd_vm_syscall_register_blake3     ( syscalls );
-  fd_vm_syscall_register_secp256k1  ( syscalls );
-  fd_vm_syscall_register_curve25519 ( syscalls );
-  fd_vm_syscall_register_poseidon   ( syscalls );
+  fd_vm_syscall_register_ctx( syscalls, NULL );
 }
 
 ulong
@@ -327,214 +316,6 @@ fd_vm_syscall_sol_panic(
 
   return FD_VM_SYSCALL_ERR_PANIC;
 }
-
-
-ulong
-fd_vm_syscall_sol_sha256(
-    void *  _ctx,
-    ulong   slices_vaddr,
-    ulong   slices_cnt,
-    ulong   res_vaddr,
-    ulong   r4 __attribute__((unused)),
-    ulong   r5 __attribute__((unused)),
-    ulong * pr0
-) {
-
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) )
-    return FD_VM_SYSCALL_ERR_INVAL;
-
-  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.sha256_base_cost);
-  if ( FD_UNLIKELY( err ) ) return err;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
-
-  fd_vm_vec_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
-  void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
-
-  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  fd_sha256_t sha;
-  fd_sha256_init( &sha );
-
-  for( ulong i = 0; i < slices_cnt; i++ ) {
-    uchar const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-    ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len) / 2);
-    ulong err = fd_vm_consume_compute_meter(ctx, cost);
-    if ( FD_UNLIKELY( err ) ) return err;
-
-    fd_sha256_append( &sha, slice, slices[i].len );
-  }
-
-  fd_sha256_fini( &sha, hash );
-  *pr0 = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
-}
-
-ulong
-fd_vm_syscall_sol_keccak256(
-    void *  _ctx,
-    ulong   slices_vaddr,
-    ulong   slices_cnt,
-    ulong   res_vaddr,
-    ulong   r4 __attribute__((unused)),
-    ulong   r5 __attribute__((unused)),
-    ulong * pr0
-) {
-
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) )
-    return FD_VM_SYSCALL_ERR_INVAL;
-
-  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.sha256_base_cost);
-  if ( FD_UNLIKELY( err ) ) {
-    return err;
-  }
-
-  void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
-
-  if( FD_UNLIKELY( (!hash) ) ) {
-    return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  }
-
-  fd_keccak256_t sha;
-  fd_keccak256_init(&sha);
-
-  if ( FD_LIKELY( slices_cnt > 0 ) ) {
-    ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
-
-    fd_vm_vec_t const * slices =
-        fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
-
-    if( FD_UNLIKELY( (!slices) ) ) {
-      return FD_VM_MEM_MAP_ERR_ACC_VIO;
-    }
-
-    for (ulong i = 0; i < slices_cnt; i++) {
-      void const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-      if( FD_UNLIKELY( !slice ) ) {
-        FD_LOG_DEBUG(("Translate slice failed %lu %lu %lu", i, slices[i].addr, slices[i].len));
-        return FD_VM_MEM_MAP_ERR_ACC_VIO;
-      }
-
-      ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len / 2));
-      ulong err = fd_vm_consume_compute_meter(ctx, cost);
-      if ( FD_UNLIKELY( err ) ) return err;
-
-      fd_keccak256_append( &sha, slice, slices[i].len );
-    }
-  }
-
-  fd_keccak256_fini(&sha, hash);
-  *pr0 = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
-}
-
-ulong
-fd_vm_syscall_sol_blake3(
-    void *  _ctx,
-    ulong   slices_vaddr,
-    ulong   slices_cnt,
-    ulong   res_vaddr,
-    ulong   r4 __attribute__((unused)),
-    ulong   r5 __attribute__((unused)),
-    ulong * pr0
-) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  /* TODO don't hardcode limit */
-  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) )
-    return FD_VM_SYSCALL_ERR_INVAL;
-
-  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.sha256_base_cost);
-  if ( FD_UNLIKELY( err ) ) return err;
-  ulong slices_sz = slices_cnt * sizeof(fd_vm_vec_t);
-
-  fd_vm_vec_t const * slices =
-      fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
-  void * hash =
-      fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
-
-  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  fd_blake3_t b3;
-  fd_blake3_init(&b3);
-
-  for (ulong i = 0; i < slices_cnt; i++) {
-    void const * slice = fd_vm_translate_vm_to_host( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-    ulong cost = fd_ulong_max(vm_compute_budget.mem_op_base_cost, fd_ulong_sat_mul(vm_compute_budget.sha256_byte_cost, slices[i].len) / 2);
-    ulong err = fd_vm_consume_compute_meter(ctx, cost);
-    if ( FD_UNLIKELY( err ) ) return err;
-
-    fd_blake3_append( &b3, slice, slices[i].len );
-  }
-
-  fd_blake3_fini( &b3, hash );
-  *pr0 = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
-}
-
-ulong
-fd_vm_syscall_sol_secp256k1_recover(
-    void * _ctx,
-    ulong hash_vaddr,
-    ulong recovery_id_val,
-    ulong signature_vaddr,
-    ulong result_vaddr,
-    ulong arg4 FD_PARAM_UNUSED,
-    ulong * pr0
-) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-
-  ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.secp256k1_recover_cost);
-  if ( FD_UNLIKELY( err ) ) return err;
-
-  void const * hash = fd_vm_translate_vm_to_host_const(
-    ctx,
-    hash_vaddr,
-    sizeof(fd_hash_t),
-    alignof(uchar) );
-  if( FD_UNLIKELY( !hash ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  void const * signature = fd_vm_translate_vm_to_host_const(
-    ctx,
-    signature_vaddr,
-    64,
-    alignof(uchar) );
-  if( FD_UNLIKELY( !hash ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  void * pubkey_result = fd_vm_translate_vm_to_host(
-    ctx,
-    result_vaddr,
-    64,
-    alignof(uchar) );
-  if( FD_UNLIKELY( !pubkey_result ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  if( recovery_id_val > 4 ) {
-    *pr0 = 1; // Secp256k1RecoverError::InvalidRecoveryId
-    return FD_VM_SYSCALL_SUCCESS;
-  }
-
-  uchar secp256k1_pubkey[64];
-  if( !fd_secp256k1_recover(secp256k1_pubkey, hash, signature, (int)recovery_id_val) ) {
-    *pr0 = 2; // Secp256k1RecoverError::InvalidSignature
-    return FD_VM_SYSCALL_SUCCESS;
-  }
-
-  fd_memcpy(pubkey_result, secp256k1_pubkey, 64);
-  *pr0 = 0;
-
-  return FD_VM_SYSCALL_SUCCESS;
-}
-
 
 ulong
 fd_vm_syscall_sol_log(

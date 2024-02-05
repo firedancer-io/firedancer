@@ -110,17 +110,6 @@ FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
 FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
 
-/* Crypto syscalls */
-FD_VM_SYSCALL_DECL(sol_sha256);
-FD_VM_SYSCALL_DECL(sol_keccak256);
-FD_VM_SYSCALL_DECL(sol_blake3);
-FD_VM_SYSCALL_DECL(sol_secp256k1_recover);
-FD_VM_SYSCALL_DECL(sol_curve_validate_point);
-FD_VM_SYSCALL_DECL(sol_curve_group_op);
-FD_VM_SYSCALL_DECL(sol_curve_multiscalar_mul);
-FD_VM_SYSCALL_DECL(sol_curve_pairing_map);
-FD_VM_SYSCALL_DECL(sol_alt_bn128_group_op);
-
 /* Memory syscalls */
 FD_VM_SYSCALL_DECL(sol_memcpy);
 FD_VM_SYSCALL_DECL(sol_memcmp);
@@ -175,6 +164,11 @@ fd_vm_prepare_instruction(
 
 FD_PROTOTYPES_END
 
+/* Crypto syscalls */
+#include "syscall/fd_vm_alt_bn128.h"
+#include "syscall/fd_vm_curve25519.h"
+#include "syscall/fd_vm_hashes.h"
 #include "syscall/fd_vm_poseidon.h"
+#include "syscall/fd_vm_secp256k1.h"
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_syscalls_h */

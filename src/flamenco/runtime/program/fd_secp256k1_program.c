@@ -4,8 +4,11 @@
 #include "fd_secp256k1_program.h"
 
 #if !FD_HAS_SECP256K1
-#error "secp256k1 program requires libsecp256k1"
-#endif
+int
+fd_executor_secp256k1_program_execute_instruction( FD_PARAM_UNUSED fd_exec_instr_ctx_t ctx ) {
+  return FD_EXECUTOR_INSTR_ERR_FATAL;
+}
+#else
 
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
@@ -127,3 +130,5 @@ int fd_executor_secp256k1_program_execute_instruction( fd_exec_instr_ctx_t ctx )
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+#endif
