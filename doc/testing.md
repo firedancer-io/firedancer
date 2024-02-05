@@ -30,7 +30,9 @@ make run-unit-test
 
 For large page and NUMA configuration, refer to `./test.sh --help`.
 
-## Test Types
+## Test Configuration
+
+### Unit Tests
 
 **Unit tests** are C programs that contain test logic for Firedancer's
 modules.  They can be found adjacent to source code in the `/src` dir
@@ -51,15 +53,86 @@ Example `Local.mk` configuration:
 $(call run-unit-test,test_mymodule)
 ```
 
-**Fuzz tests** are C routines that accept arbitrary byte sequences.
-They can be compiled into test programs using a fuzzing engine.
-Refer to [libFuzzer](https://llvm.org/docs/LibFuzzer.html) docs for more
-information.
+### Fuzz Tests
+
+**Fuzz tests** verify the behavior of a component given a large number
+of arbitrary byte sequences.  Fuzzing is typically effective at finding
+bugs in parsers.  Differential fuzz tests can detect diverging behavior
+when comparing a module to a reference implementation (for example, the
+virtual machine).
+
+Fuzz tests are typically combined with sanitizers for improved error
+detection.
+
 Example `Local.mk` configuration:
 ```make
 # call make-fuzz-test,name,         object list,  dependencies
 $(call make-fuzz-test,fuzz_mymodule,fuzz_mymodule,fd_ballet fd_util)
 ```
+
+In order to find new test inputs, a fuzz engine is required.
+
+| Engine    | Compile command                                         |
+|-----------|---------------------------------------------------------|
+| libFuzzer | `make CC=clang EXTRAS=fuzz`                             |
+| AFL++     | `make CC=clang EXTRAS=afl++ AFL_LIB=/usr/local/lib/afl` |
+| Honggfuzz | `make MACHINE=linux_clang_haswell EXTRAS=honggfuzz`     |
+
+The **[libFuzzer]** engine is part of recent versions of LLVM, making
+it the most convenient way to get started. It requires Clang.
+
+To use the **[AFL++]** engine the build is provided with the path to
+the AFL++ library install dir.  This is usually `/usr/local/lib/afl`.
+Look for the following output when installing AFL++.
+```
+$ git clone https://github.com/AFLplusplus/AFLplusplus
+$ make all
+...
+Build Summary:
+[+] afl-fuzz and supporting tools successfully built
+[+] LLVM basic mode successfully built
+[+] LLVM mode successfully built
+[+] LLVM LTO mode successfully built
+$ sudo make install
+...
+```
+
+To use the **[Honggfuzz]** engine (persistent fuzzing mode with
+sanitizer-coverage instrumentation), install `hfuzz-clang`.
+Note that building with Honggfuzz is only supported via
+`make MACHINE=linux_clang_{...} EXTRAS=honggfuzz`, but not via `make CC=hfuzz-clang`.
+
+  [libFuzzer](https://llvm.org/docs/LibFuzzer.html)
+  [AFL++](https://aflplus.plus/)
+  [Honggfuzz](https://honggfuzz.dev/)
+
+If no fuzzing engine is provided, the fuzz tests are still built with a
+stub engine.  The stub engine cannot find any new inputs, but can still
+regression test against old inputs like so:
+```
+$ build/native/gcc/fuzz-test/fuzz_bla/fuzz_bla <input1> <input2> ...
+```
+
+### Sanitizers
+
+The codebase supports a number of **sanitizers** that bake in various
+runtime checks.  Using sanitizers is not recommended for production.
+
+Sanitizers can be combined with fuzzers.  (You can specify multiple
+extras like `make EXTRAS="fuzz asan"`)
+
+| Sanitizer                  | Compile command     |
+|----------------------------|---------------------|
+| AddressSanitizer           | `make EXTRAS=asan`  |
+| UndefinedBehaviorSanitizer | `make EXTRAS=ubsan` |
+
+**[AddressSanitizer]** helps detect invalid memory accesses.
+
+**[UndefinedBehaviorSanitizer]** detects various kinds of hardware and
+linguistic U.B.
+
+  [AddressSanitizer](https://github.com/google/sanitizers/wiki/AddressSanitizer)
+  [UndefinedBehaviorSanitizer](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html)
 
 ## Best Practices
 
