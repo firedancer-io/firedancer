@@ -11,11 +11,11 @@ cd $TMPDIR
 cleanup() {
   sudo killall solana-validator || true
   sudo killall fddev || true
-  fddev configure fini all >/dev/null 2>&1 
-  rm -rf "$TMPDIR"
+  fddev configure fini all >/dev/null 2>&1 || true
+  #rm -rf "$TMPDIR"
 }
 
-#trap cleanup EXIT SIGINT SIGTERM
+trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR=$SCRIPT_DIR
@@ -102,6 +102,5 @@ echo "[tiles.tvu]
 " > fddev.toml
 
 timeout 120 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
-sleep 10
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 grep -qv "Bank hash mismatch" $(readlink -f fddev.log)
