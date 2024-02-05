@@ -15,7 +15,7 @@ eval set -- "$GETOPT"
 
 usage () {
 echo -e "\nUsage: $0 [ -t|--tag release|tag|branchname ] [ -m|--machine machinetype ] [ -p|--platform platform ]
-\nWhere machinetype is one of the targets in ../../config and defaults to \"linux_gcc_x86_64\" if not specified
+\nWhere machinetype is one of the targets in ../../config/machine and defaults to \"linux_gcc_x86_64\" if not specified
 Where platform is \"rhel\" or \"debian\" and defaults to \"rhel\"\n"
 }
 
@@ -24,9 +24,9 @@ while : ; do
     -t | --tag )  TAG="$2" ; shift 2
       ;;
     -m | --machine )
-        if [ -f "../../config/${2}.mk" ]
+        if [ -f "../../config/machine/${2}.mk" ]
           then MACHINE="$2" ; shift 2
-        else echo "$2 does not appear to be a valid machine type, please review types in ../../config"
+        else echo "$2 does not appear to be a valid machine type, please review types in ../../config/machine"
           exit 1
         fi
       ;;
