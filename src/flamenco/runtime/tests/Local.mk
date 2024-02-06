@@ -18,6 +18,7 @@ run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/t
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v11712-test-ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v17-multi -s snapshot-800-3vyLp4DbPnomGAqcxZcBfm58bbZh25EGrkTvF9PvoVc2.tar.zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v18-small
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_native_tests.sh
 #	src/flamenco/runtime/run_bpf_tests.sh
 

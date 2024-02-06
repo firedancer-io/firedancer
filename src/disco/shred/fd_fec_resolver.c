@@ -323,7 +323,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   uchar variant    = shred->variant;
   uchar shred_type = fd_shred_type( variant );
 
-  int is_data_shred = shred_type==FD_SHRED_TYPE_MERKLE_DATA;
+  int is_data_shred = shred_type&FD_SHRED_TYPEMASK_DATA;
 
   if( !is_data_shred ) { /* Roughly 50/50 branch */
     if( FD_UNLIKELY( (shred->code.data_cnt>FD_REEDSOL_DATA_SHREDS_MAX) | (shred->code.code_cnt>FD_REEDSOL_PARITY_SHREDS_MAX) ) )
@@ -429,7 +429,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
 
-  if( FD_UNLIKELY( (ctx->set->data_shred_cnt == SHRED_CNT_NOT_SET) & (shred_type==FD_SHRED_TYPE_MERKLE_CODE) ) ) {
+  ulong is_merkle_code = (shred_type == FD_SHRED_TYPE_MERKLE_CODE) | (shred_type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED);
+  if( FD_UNLIKELY( (ctx->set->data_shred_cnt == SHRED_CNT_NOT_SET) & is_merkle_code ) ) {
     ctx->set->data_shred_cnt   = shred->code.data_cnt;
     ctx->set->parity_shred_cnt = shred->code.code_cnt;
     ctx->parity_idx0           = shred->idx - in_type_idx;

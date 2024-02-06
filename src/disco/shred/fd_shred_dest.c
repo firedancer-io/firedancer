@@ -231,7 +231,7 @@ compute_seeds( fd_shred_dest_t           * sdest,
 
     uchar shred_type = fd_shred_type( shred->variant );
     h_in->slot = slot;
-    h_in->type = fd_uchar_if( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_MERKLE_DATA), 0xA5, 0x5A );
+    h_in->type = fd_uchar_if( (shred_type&FD_SHRED_TYPEMASK_DATA), 0xA5, 0x5A );
     h_in->idx  = shred->idx;
     memcpy( h_in->leader_pubkey, leader, 32UL );
 

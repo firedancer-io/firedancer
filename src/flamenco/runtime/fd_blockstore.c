@@ -467,10 +467,11 @@ fd_blockstore_scan_block( fd_blockstore_t *           blockstore,
                                           &pay_sz,
                                           0 );
         if( txn_sz == 0 || txn_sz > FD_TXN_MTU ) {
-          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu in slot %lu",
+          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu",
                         txn_idx,
                         mblk,
-                        slot ) );
+                        slot,
+                        txn_sz ) );
         }
         fd_txn_t const * txn = (fd_txn_t const *)txn_out;
 
