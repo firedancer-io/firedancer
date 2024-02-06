@@ -77,7 +77,8 @@ RUST_LOG=trace solana-validator \
     --expected-genesis-hash $GENESIS_HASH \
     --no-wait-for-vote-to-start-leader \
     --incremental-snapshots \
-    --full-snapshot-interval-slots 200 \
+    --full-snapshot-interval-slots 100 \
+    --incremental-snapshot-interval-slots 50 \
     --rpc-port 8899 \
     --gossip-port 8001 \
     --gossip-host $PRIMARY_IP \
@@ -85,9 +86,9 @@ RUST_LOG=trace solana-validator \
     --allow-private-addr \
     --log validator.log &
 
-sleep 90
+sleep 55
 
-while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 250 ]; do
+while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
   sleep 1
 done
 
@@ -103,6 +104,6 @@ echo "[tiles.tvu]
   check_hash = \"true\"
 " > fddev.toml
 
-timeout 120 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
+timeout 60 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 grep -qv "Bank hash mismatch" $(readlink -f fddev.log)

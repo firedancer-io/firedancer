@@ -70,7 +70,7 @@ PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -
 RUST_LOG=trace solana-validator \
     --identity id.json \
     --ledger ledger \
-    --limit-ledger-size 100000000 \
+    --limit-ledger-size 50000000 \
     --no-genesis-fetch \
     --no-snapshot-fetch \
     --no-poh-speed-test \
@@ -80,7 +80,8 @@ RUST_LOG=trace solana-validator \
     --expected-genesis-hash $GENESIS_HASH \
     --no-wait-for-vote-to-start-leader \
     --incremental-snapshots \
-    --full-snapshot-interval-slots 200 \
+    --full-snapshot-interval-slots 100 \
+    --incremental-snapshot-interval-slots 50 \
     --rpc-port 8899 \
     --gossip-port 8001 \
     --gossip-host $PRIMARY_IP \
@@ -88,9 +89,9 @@ RUST_LOG=trace solana-validator \
     --allow-private-addr \
     --log validator.log &
 
-sleep 90
+sleep 55
 
-while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 250 ]; do
+while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
   sleep 1
 done
 
@@ -101,8 +102,8 @@ fd_shmem_cfg reset
 
 fd_frank_ledger --cmd ingest \
                 --snapshotfile snapshot* \
-                --pages 50 \
-                --indexmax 100000000 \
+                --pages 10 \
+                --indexmax 10000 \
                 --backup backup
 
 timeout 60 test_tvu \
@@ -111,8 +112,8 @@ timeout 60 test_tvu \
     --repair-peer-addr $PRIMARY_IP:8008 \
     --repair-peer-id $(solana-keygen pubkey id.json) \
     --load backup \
-    --page-cnt 50 \
-    --indexmax 100000000 \
+    --page-cnt 10 \
+    --indexmax 10000 \
     --check_hash true \
     --validate-snapshot true \
     --log-level-logfile 0 \
