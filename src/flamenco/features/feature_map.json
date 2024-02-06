@@ -178,5 +178,7 @@
   {"name":"enable_zk_transfer_with_fee","pubkey":"zkNLP7EQALfC1TYeB3biDU7akDckj8iPkvh9y2Mt2K3"},
   {"name":"drop_legacy_shreds","pubkey":"GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy"},
   {"name":"consume_blockstore_duplicate_proofs","pubkey":"6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ"},
-  {"name":"index_erasure_conflict_duplicate_proofs","pubkey":"dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa"}
+  {"name":"index_erasure_conflict_duplicate_proofs","pubkey":"dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa"},
+  {"name":"curve25519_restrict_msm_length","pubkey":"ca6zf6JJRjQsYYPkBHF3N32MTzur4n2WL4QiiacPCL"},
+  {"name":"disable_bpf_loader_instructions","pubkey":"7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn"}
 ]
