@@ -12,9 +12,9 @@ typedef struct fd_ebpf_sym fd_ebpf_sym_t;
 struct fd_ebpf_link_opts {
   /* In params */
 
-  char const *    section;
-  fd_ebpf_sym_t * sym;
-  ulong           sym_cnt;
+  char const *          section;
+  fd_ebpf_sym_t const * sym;
+  ulong                 sym_cnt;
 
   /* Out params */
 
