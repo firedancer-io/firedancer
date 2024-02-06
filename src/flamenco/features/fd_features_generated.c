@@ -746,9 +746,33 @@ fd_feature_id_t const ids[] = {
     .id     = {"\x28\x38\x50\x19\xf7\x4f\x49\x20\x1a\x80\xc2\xda\x07\x53\xd4\xbb\x4b\x7f\xb5\xf7\x16\xcb\x7b\x19\x72\xff\xa5\xc6\x0c\x4b\x91"}
               /* ca6zf6JJRjQsYYPkBHF3N32MTzur4n2WL4QiiacPCL */ },
 
+  { .index  = offsetof(fd_features_t, allow_commission_decrease_at_any_time)>>3,
+    .id     = {"\x09\x63\x71\x6c\x93\x25\xce\xfb\xac\xdf\x2e\x42\x3f\xdf\x5d\xf2\x5e\xae\xda\x5d\x77\xf7\x49\xa7\xb6\xf8\x67\x27\xf9\x0d\x29\xe4"}
+              /* decoMktMcnmiq6t3u7g5BfgcQu91nKZr6RvMYf9z1Jb */ },
+
+  { .index  = offsetof(fd_features_t, merkle_conflict_duplicate_proofs)>>3,
+    .id     = {"\x0b\x7d\xce\x55\xcc\x31\x6e\x11\x19\x99\x92\x0c\xf7\x52\x85\x76\xfe\xd0\x5c\xed\x1b\xd8\x8e\x84\x1b\xb6\x3c\xd9\x35\xed\x91\x2f"}
+              /* mrkPjRg79B2oK2ZLgd7S3AfEJaX9B6gAF3H9aEykRUS */ },
+
   { .index  = offsetof(fd_features_t, disable_bpf_loader_instructions)>>3,
     .id     = {"\x60\xbe\x49\xea\xb9\xe9\x43\x8c\x58\x9b\x35\x47\xbc\x1b\x1b\x0d\x04\xbc\x74\xd2\x57\xe1\xf2\xa5\x02\x66\x17\xf3\x49\xb5\xe0\xe9"}
               /* 7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn */ },
+
+  { .index  = offsetof(fd_features_t, deprecate_executable_meta_update_in_bpf_loader)>>3,
+    .id     = {"\x0b\x0a\xa6\x6d\xae\x07\x63\x9b\x6d\x90\xe0\xf3\x1d\xba\x64\x52\xba\x3d\xc3\x44\x31\x30\xdf\x7e\xab\xd4\x1e\xd3\xab\x4d\x33\x47"}
+              /* k6uR1J9VtKJnTukBV2Eo15BEy434MBg8bT6hHQgmU8v */ },
+
+  { .index  = offsetof(fd_features_t, enable_zk_proof_from_account)>>3,
+    .id     = {"\x0e\xcb\x88\xd6\xe1\xd4\x23\xf4\x20\x62\xde\xc9\x60\x6c\x5a\x68\xc5\x9e\xcd\x3a\x97\x46\xbd\x14\xc5\x00\x9e\x46\x52\x19\x0c\xd9"}
+              /* zkiTNuzBKxrCLMKehzuQeKZyLtX2yvFcEKMML8nExU8 */ },
+
+  { .index  = offsetof(fd_features_t, cost_model_requested_write_lock_cost)>>3,
+    .id     = {"\x0d\xeb\x8b\x43\x43\x80\x51\xa1\x77\x30\xda\xfa\x17\x13\xc7\x34\x05\xe6\xe3\x35\x39\x8a\x57\x63\x96\x99\xb4\x10\xf0\xd6\x5e\x87"}
+              /* wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn */ },
+
+  { .index  = offsetof(fd_features_t, enable_gossip_duplicate_proof_ingestion)>>3,
+    .id     = {"\xd5\x79\x63\x4a\x6a\xab\x27\xdb\x57\xae\xfb\x1c\x06\x7c\x34\x8d\xaa\xae\x66\x2f\x5f\x62\x2f\x18\xf4\xb5\x83\x95\xe3\x43\xff\xd5"}
+              /* FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG */ },
 
   { .index = ULONG_MAX }
 };
@@ -940,7 +964,13 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0207866b7b2c7452: return &ids[ 178 ];
   case 0x592e701c2ba17409: return &ids[ 179 ];
   case 0x20494ff719503828: return &ids[ 180 ];
-  case 0x8c43e9b9ea49be60: return &ids[ 181 ];
+  case 0xfbce25936c716309: return &ids[ 181 ];
+  case 0x116e31cc55ce7d0b: return &ids[ 182 ];
+  case 0x8c43e9b9ea49be60: return &ids[ 183 ];
+  case 0x9b6307ae6da60a0b: return &ids[ 184 ];
+  case 0xf423d4e1d688cb0e: return &ids[ 185 ];
+  case 0xa1518043438beb0d: return &ids[ 186 ];
+  case 0xdb27ab6a4a6379d5: return &ids[ 187 ];
   default: break;
   }
 
@@ -1130,6 +1160,12 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, drop_legacy_shreds                   
 FD_STATIC_ASSERT( offsetof( fd_features_t, consume_blockstore_duplicate_proofs                     )>>3==178UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, index_erasure_conflict_duplicate_proofs                 )>>3==179UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, curve25519_restrict_msm_length                          )>>3==180UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, disable_bpf_loader_instructions                         )>>3==181UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, allow_commission_decrease_at_any_time                   )>>3==181UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, merkle_conflict_duplicate_proofs                        )>>3==182UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_bpf_loader_instructions                         )>>3==183UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_executable_meta_update_in_bpf_loader          )>>3==184UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_zk_proof_from_account                            )>>3==185UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, cost_model_requested_write_lock_cost                    )>>3==186UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_gossip_duplicate_proof_ingestion                 )>>3==187UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

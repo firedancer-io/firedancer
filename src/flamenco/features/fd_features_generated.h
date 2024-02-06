@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (182UL)
+#define FD_FEATURE_ID_CNT (188UL)
 
 union fd_features {
 
@@ -194,7 +194,13 @@ union fd_features {
     ulong consume_blockstore_duplicate_proofs;
     ulong index_erasure_conflict_duplicate_proofs;
     ulong curve25519_restrict_msm_length;
+    ulong allow_commission_decrease_at_any_time;
+    ulong merkle_conflict_duplicate_proofs;
     ulong disable_bpf_loader_instructions;
+    ulong deprecate_executable_meta_update_in_bpf_loader;
+    ulong enable_zk_proof_from_account;
+    ulong cost_model_requested_write_lock_cost;
+    ulong enable_gossip_duplicate_proof_ingestion;
   };
 
 };

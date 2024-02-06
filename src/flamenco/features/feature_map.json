@@ -180,5 +180,11 @@
   {"name":"consume_blockstore_duplicate_proofs","pubkey":"6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ"},
   {"name":"index_erasure_conflict_duplicate_proofs","pubkey":"dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa"},
   {"name":"curve25519_restrict_msm_length","pubkey":"ca6zf6JJRjQsYYPkBHF3N32MTzur4n2WL4QiiacPCL"},
-  {"name":"disable_bpf_loader_instructions","pubkey":"7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn"}
+  {"name":"allow_commission_decrease_at_any_time","pubkey":"decoMktMcnmiq6t3u7g5BfgcQu91nKZr6RvMYf9z1Jb"},
+  {"name":"merkle_conflict_duplicate_proofs","pubkey":"mrkPjRg79B2oK2ZLgd7S3AfEJaX9B6gAF3H9aEykRUS"},
+  {"name":"disable_bpf_loader_instructions","pubkey":"7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn"},
+  {"name":"deprecate_executable_meta_update_in_bpf_loader","pubkey":"k6uR1J9VtKJnTukBV2Eo15BEy434MBg8bT6hHQgmU8v"},
+  {"name":"enable_zk_proof_from_account","pubkey":"zkiTNuzBKxrCLMKehzuQeKZyLtX2yvFcEKMML8nExU8"},
+  {"name":"cost_model_requested_write_lock_cost","pubkey":"wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn"},
+  {"name":"enable_gossip_duplicate_proof_ingestion","pubkey":"FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG"}
 ]
