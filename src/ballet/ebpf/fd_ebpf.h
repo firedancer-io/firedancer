@@ -1,13 +1,54 @@
 #ifndef HEADER_fd_src_ballet_ebpf_fd_ebpf_h
 #define HEADER_fd_src_ballet_ebpf_fd_ebpf_h
 
+/* fd_ebpf.h provides APIs for loading Linux eBPF programs.  Currently,
+   only XDP programs are supported.
+
+   The scope of this API is *trusted*:  It is assumed that only hardcoded
+   eBPF programs and symbols are provided.
+
+   ### What are eBPF programs?
+
+   Linux eBPF programs are pieces of bytecode that userland programs can
+   deploy into the kernel virtual machine.  The kernel can interact with
+   these programs with very low overhead, which makes them particularly
+   useful for fast packet filtering.
+
+   Userland applications can deploy and interact with eBPF programs via
+   the bpf(2) syscall.  When deploying, the user provides a bytecode blob
+   (see fd_ebpf_base.h) which is produced by the userland on the fly.
+   Typically, userland also shares file descriptors while deploying the
+   program.
+
+   To avoid hardcoding file descriptor numbers into the eBPF programs, eBPF
+   programs are typically stored as ELF static objects.  These are
+   "relocated" just-in-time to actual bytecode.  (The term relocation in
+   this context has not much to do with offsets.  It refers to filling in
+   symbolic names (such as "xsk_fileno") with an actual value (like 3)).
+
+   This relocation step is provided by fd_ebpf_static_link.  Various
+   wrappers for bpf(2) operations are also provided. */
+
 #include "../../util/fd_util_base.h"
 
+/* fd_ebpf_sym_t a key-value pair.  name matches the name of an imported
+   symbol in the ELF object.  value is the 'absolute address' to fill in.
+   (The 'absolute address' is abused as a generic 64-bit value and can
+   also refer to file descriptors, config parameters, etc.) */
+
 struct fd_ebpf_sym {
-  char const * name;
-  ulong        value;
+  char const * name;   /* null-terminated cstr */
+  ulong        value;  /* arbitrary 64-bit value */
 };
 typedef struct fd_ebpf_sym fd_ebpf_sym_t;
+
+/* fd_ebpf_link_opts_t describe parameters to load an eBPF ELF object into
+   a bytecode blob that can be loaded into a kernel.  section is the name
+   of the ELF section carrying the bytecode (not necessarily ".text"),
+   and sym is an array of sym_cnt symbols containing values to fill in.
+   fd_ebpf_static_link will look for a relocation table for this section,
+   which identifies where and how to fill in symbol values in the given
+   section. */
 
 struct fd_ebpf_link_opts {
   /* In params */
@@ -23,10 +64,29 @@ struct fd_ebpf_link_opts {
 };
 typedef struct fd_ebpf_link_opts fd_ebpf_link_opts_t;
 
+/* fd_ebpf_static_link relocates an eBPF ELF object as mentioned above.
+   elf points to a memory region of elf_sz bytes containing the ELF static
+   object.  This memory region will be clobbered during the relocation
+   process.  Returns opts on success, with bpf pointing to the first eBPF
+   instruction (a subrange of the memory region at elf).  bpf_sz is the
+   size of the eBPF bytecode blob (multiple of 8).  On failure, returns
+   NULL.
+
+   ### Caveats
+
+   The static linking process is fairly slow and quite complex.  This
+   function only implements a small subset of the linking logic needed to
+   load simple programs.  Users of this function should expect bugs and
+   therefore independently test whether their programs load.  See
+   test_xdp_ebpf on how to do unit testing of the relocated program with
+   the bpf(2) syscall. */
+
 fd_ebpf_link_opts_t *
 fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
                      void *                elf,
                      ulong                 elf_sz );
+
+/* bpf syscall wrappers **************************************************/
 
 #if defined(__linux__) && defined(_DEFAULT_SOURCE) || defined(_BSD_SOURCE)
 
