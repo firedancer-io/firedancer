@@ -12,7 +12,7 @@ ARG RELEASE_BASE_IMAGE=docker.io/redhat/ubi8@sha256:56c374376a42da40f3aec753c4ea
 # Set up build container
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
-RUN INSTALL_PKGS="git perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov hostname patch bzip2" && \
+RUN INSTALL_PKGS="git hostname patch bzip2" && \
     dnf install -y --setopt=tsflags=nodocs https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm && \
     dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS
 
@@ -32,7 +32,7 @@ ARG MACHINE=linux_gcc_x86_64
 ARG GITTAG
 RUN git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
 	[ -n ${GITTAG} ] && git checkout ${GITTAG} && \
-	./deps.sh install && \
+	FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install && \
 	MACHINE=${MACHINE} make -j all rust --output-sync=target && \
 	cp -a $(find build -type d -name bin) build/out
 

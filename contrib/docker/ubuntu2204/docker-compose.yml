@@ -2,7 +2,7 @@
 version: "3.8"
 services:
   firedancer:
-    image: firedancer_ubuntu2204:latest 
+    image: firedancer_ubuntu2204:latest
 # increment this if building a new version
     image: firedancer_ubuntu2204:0.1
     volumes:
@@ -11,7 +11,7 @@ services:
     ipc: host
     network_mode: "host"
     privileged: true
-    command: fddev --config /opt/firedancer/config/default.toml dev 
+    command: fddev --config /opt/firedancer/config/default.toml dev
     build:
       context: ../ubuntu2004
       args:
