@@ -781,10 +781,11 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     snapshotfiles[0] = args->snapshot;
     snapshotfiles[1] = args->incremental_snapshot;
     snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx, 0 );
+    fd_snapshot_load( snapshotfiles, slot_ctx,
+      ((NULL != args->validate_snapshot) && (strcasecmp( args->validate_snapshot, "true" ) == 0)),
+      ((NULL != args->check_hash) && (strcasecmp( args->check_hash, "true ") == 0))
+      );
     // TODO: LML: segfault because of __strcasecmp_l_avx
-    // fd_snapshot_load( snapshotfiles, slot_ctx, strcasecmp( args->validate_snapshot, "true" ) == 0 );
-
   } else {
     fd_runtime_recover_banks( slot_ctx, 0 );
   }
@@ -978,6 +979,8 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->validate_db = fd_env_strip_cmdline_cstr( &argc, &argv, "--validate", NULL, NULL );
   args->validate_snapshot =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--validate-snapshot", NULL, "false" );
+  args->check_hash =
+      fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   args->retrace       = fd_env_strip_cmdline_int( &argc, &argv, "--retrace", NULL, 0 );

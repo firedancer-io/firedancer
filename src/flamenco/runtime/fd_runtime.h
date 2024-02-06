@@ -101,6 +101,7 @@ struct fd_runtime_args {
   char const * validate_snapshot;
   char const * capture_fpath;
   char const * trace_fpath;
+  char const * check_hash;
   int          retrace;
   int          abort_on_mismatch;
   ulong        end_slot;

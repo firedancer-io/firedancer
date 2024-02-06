@@ -275,6 +275,8 @@ typedef struct {
       char tvu_addr[ 22 ];
       char tvu_fwd_addr[ 22 ];
       char snapshot[ PATH_MAX ];
+      char validate_snapshot[ 22 ];
+      char check_hash[ 22 ];
       uint page_cnt;
       ushort gossip_listen_port;
       ushort repair_listen_port;

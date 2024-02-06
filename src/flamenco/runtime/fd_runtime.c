@@ -1879,7 +1879,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         if (txn->xid.ul[0] >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
-          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL );
+          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0 );
           slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
         }
       }

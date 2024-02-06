@@ -113,6 +113,8 @@ timeout 60 test_tvu \
     --load backup \
     --page-cnt 50 \
     --indexmax 100000000 \
+    --check_hash true \
+    --validate-snapshot true \
     --log-level-logfile 0 \
     --log-level-stderr 0 >test_tvu.log 2>&1 || true
     

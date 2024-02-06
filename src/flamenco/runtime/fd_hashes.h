@@ -79,13 +79,15 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_hash_t * accounts_hash,
-                  fd_funk_txn_t * child_txn);
+                  fd_funk_txn_t * child_txn,
+                  ulong do_hash_verify );
 
 /* Generate a non-incremental hash of the entire account database. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_hash_t * accounts_hash,
-                  fd_funk_txn_t * child_txn );
+                  fd_funk_txn_t * child_txn,
+                  uint check_hash );
 
 int
 fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );

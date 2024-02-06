@@ -15,6 +15,8 @@ char            g_my_repair_addr[ 22 ]; // len('255.255.255.255:65535') == 22
 char            g_tvu_addr[ 22 ]; // len('255.255.255.255:65535') == 22
 char            g_tvu_fwd_addr[ 22 ]; // len('255.255.255.255:65535') == 22
 char            g_snapshot[ PATH_MAX ];
+char            g_validate_snapshot[ 22 ];
+char            g_check_hash[ 22 ];
 uint            g_page_cnt;
 ushort          g_gossip_listen_port;
 ushort          g_repair_listen_port;
@@ -304,6 +306,8 @@ privileged_init( fd_topo_t *      topo,
   strncpy( g_tvu_addr, tile->tvu.tvu_addr, sizeof(g_tvu_addr) );
   strncpy( g_tvu_fwd_addr, tile->tvu.tvu_fwd_addr, sizeof(g_tvu_fwd_addr) );
   strncpy( g_snapshot, tile->tvu.snapshot, sizeof(g_snapshot) );
+  strncpy( g_validate_snapshot, tile->tvu.validate_snapshot, sizeof(g_validate_snapshot) );
+  strncpy( g_check_hash, tile->tvu.check_hash, sizeof(g_check_hash) );
   g_page_cnt = tile->tvu.page_cnt;
   g_gossip_listen_port = tile->tvu.gossip_listen_port;
   g_repair_listen_port = tile->tvu.repair_listen_port;
@@ -414,6 +418,8 @@ doit() {
     .tvu_addr             = g_tvu_addr,
     .tvu_fwd_addr         = g_tvu_fwd_addr,
     .snapshot             = g_snapshot,
+    .validate_snapshot    = g_validate_snapshot,
+    .check_hash           = g_check_hash,
     .allocator            = "libc",
     .index_max            = ULONG_MAX,
     .page_cnt             = g_page_cnt,

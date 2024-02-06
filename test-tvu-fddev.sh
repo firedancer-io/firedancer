@@ -99,6 +99,8 @@ echo "[tiles.tvu]
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
   snapshot = \"$(echo snapshot*)\"
   page_cnt = 25
+  validate_snapshot = \"true\"
+  check_hash = \"true\"
 " > fddev.toml
 
 timeout 120 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true

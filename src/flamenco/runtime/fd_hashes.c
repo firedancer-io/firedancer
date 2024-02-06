@@ -765,7 +765,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   if (slot_ctx->slot_bank.slot >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
     if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
-      fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL);
+      fd_accounts_hash(slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0);
       slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
     }
   }
@@ -864,7 +864,7 @@ typedef struct accounts_hash accounts_hash_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 int
-fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn ) {
+fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn, ulong do_hash_verify ) {
   FD_LOG_DEBUG(("accounts_hash start"));
 
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
@@ -882,6 +882,18 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
       continue;
 
     fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+
+    if ( do_hash_verify ) {
+      uchar hash[32];
+      ulong old_slot = slot_ctx->slot_bank.slot;
+      slot_ctx->slot_bank.slot = metadata->slot;
+      fd_hash_account_current( (uchar *) &hash, metadata, rec->pair.key->uc, fd_account_get_data(metadata), slot_ctx );
+      slot_ctx->slot_bank.slot = old_slot;
+      if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
+        FD_LOG_WARNING(( "snapshot hash (%32J) doesn't match calculated hash (%32J)", metadata->hash, &hash ));
+      }
+    }
+  
 
     // Should this just be the dead check?!
     if ((metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0))
@@ -902,12 +914,12 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
 }
 
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn ) {
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn, uint check_hash ) {
   if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
     if (fd_should_snapshot_include_epoch_accounts_hash (slot_ctx)) {
       fd_sha256_t h;
       fd_hash_t hash;
-      fd_accounts_hash(slot_ctx, &hash, child_txn);
+      fd_accounts_hash(slot_ctx, &hash, child_txn, 1);
 
       fd_sha256_init( &h );
       fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -916,9 +928,9 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
 
       return 0;
     } else
-      return fd_accounts_hash(slot_ctx, accounts_hash, child_txn);
+      return fd_accounts_hash(slot_ctx, accounts_hash, child_txn, check_hash);
   } else
-    return fd_accounts_hash(slot_ctx, accounts_hash, child_txn);
+    return fd_accounts_hash(slot_ctx, accounts_hash, child_txn, check_hash);
 }
 
 #ifdef _ENABLE_LTHASH

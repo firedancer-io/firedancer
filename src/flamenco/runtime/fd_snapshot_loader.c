@@ -106,7 +106,8 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_snapshot_load( const char **        snapshotfiles,
                   fd_exec_slot_ctx_t * slot_ctx,
-                  uint                 verify_hash ) {
+                  uint                 verify_hash,
+                  uint                 check_hash ) {
 
 
   for (uint i = 0; snapshotfiles[i] != NULL; ++i) {
@@ -146,7 +147,7 @@ fd_snapshot_load( const char **        snapshotfiles,
     if( verify_hash ) {
       if (0 == i) {
         fd_hash_t accounts_hash;
-        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
+        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash);
 
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
@@ -156,9 +157,9 @@ fd_snapshot_load( const char **        snapshotfiles,
         fd_hash_t accounts_hash;
 
         if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation))
-          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn);
+          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash);
         else
-          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL);
+          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash);
 
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
