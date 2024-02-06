@@ -227,7 +227,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
   /* Save bytecode slice */
 
   opts->bpf    = (void *)( (ulong)elf + prog->sh_offset );
-  opts->bpf_sz = prog->sh_size;
+  opts->bpf_sz = fd_ulong_align_dn( prog->sh_size, 8UL );
 
   return opts;
 
