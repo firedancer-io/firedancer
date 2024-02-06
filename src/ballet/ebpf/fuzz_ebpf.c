@@ -24,7 +24,7 @@ LLVMFuzzerTestOneInput( uchar const * const data,
   /* TODO: For now hardcode symbol map, as that is the usual way
            programs for programs to interact */
 
-  fd_ebpf_sym_t syms[ 2 ] = {
+  static fd_ebpf_sym_t const syms[ 2 ] = {
     { .name = "fd_xdp_udp_dsts", .value = 10 },
     { .name = "fd_xdp_xsks",     .value = 20 }
   };
