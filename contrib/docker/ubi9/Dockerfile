@@ -13,7 +13,7 @@ ARG RELEASE_BASE_IMAGE=docker.io/redhat/ubi9@sha256:bd30f546dfb78ef0fb7789376afd
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
 # Protobuf compiler appears to be missing from ubi9
-RUN INSTALL_PKGS="git perl autoconf gettext-devel automake flex bison cmake clang llvm-toolset lcov hostname patch bzip2" && \
+RUN INSTALL_PKGS="git hostname patch bzip2" && \
     dnf install -y --setopt=tsflags=nodocs https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
     https://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/protobuf-compiler-3.14.0-13.el9.x86_64.rpm && \
     dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS
@@ -34,7 +34,7 @@ ARG MACHINE=linux_gcc_x86_64
 ARG GITTAG
 RUN git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
 	[ -n ${GITTAG} ] && git checkout ${GITTAG} && \
-	./deps.sh install && \
+	FD_AUTO_INSTALL_PACKAGES=1 ./deps.sh check install && \
 	MACHINE=${MACHINE} make -j all rust --output-sync=target && \
 	cp -a $(find build -type d -name bin) build/out
 

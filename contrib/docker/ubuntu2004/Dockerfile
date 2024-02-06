@@ -12,9 +12,9 @@ ARG RELEASE_BASE_IMAGE=ubuntu@sha256:a4fab1802f08df089c4b2e0a1c8f1a06f573bd17756
 # Set up build container
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
-RUN INSTALL_PKGS="git curl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov clang ca-certificates" && \
+RUN INSTALL_PKGS="git curl clang ca-certificates" && \
     apt update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${INSTALL_PKGS}
+    DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends ${INSTALL_PKGS}
 
 # Install Rust
 ARG RUST_VERSION=1.73.0
@@ -32,7 +32,7 @@ ARG MACHINE=linux_gcc_x86_64
 ARG GITTAG
 RUN git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
 	[ -n ${GITTAG} ] && git checkout ${GITTAG} && \
-	./deps.sh install && \
+	FD_AUTO_INSTALL_PACKAGES=1 DEBIAN_FRONTEND=noninteractive ./deps.sh check install && \
 	MACHINE=${MACHINE} make -j all rust --output-sync=target && \
 	cp -a $(find build -type d -name bin) build/out
 
@@ -41,7 +41,8 @@ FROM ${RELEASE_BASE_IMAGE} AS release
 
 RUN useradd firedancer && \
     apt update && \
-    apt install -y bzip2
+    DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends bzip2
+
 
 COPY --from=builder /firedancer/build/out /opt/firedancer/bin
 COPY --from=builder /firedancer/src/app/fdctl/config /opt/firedancer/config
