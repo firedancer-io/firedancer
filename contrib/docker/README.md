@@ -1,6 +1,6 @@
 # Container configs
 
-Provides dockerfiles and docker-compose configs for various platforms.
+Dockerfiles and docker-compose configs for various platforms.
 
 ## Provides for two methods of use
 
@@ -36,4 +36,4 @@ Can build off a specific release, tag, or branch. Default is *main*. Edit compos
 
 Machine type defaults to *linux_gcc_x86_64*. This can be overridden in the compose file or with `--build-arg=MACHINE=<somevalue>`. See *config/machine* for available machine types.
 
-
+RedHat `ubi8`|`ubi9` will not run on a non-rhel host due to how the subscription-manager (rhsm) in the container piggybacks off the host's subscriptions. If you want to build for RedHat or CentOS, try the rocky8 runner.
