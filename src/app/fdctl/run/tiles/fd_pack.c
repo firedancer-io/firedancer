@@ -235,7 +235,7 @@ during_frag( void * _ctx,
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) {
-      /* Not interested in shreds, only leader updates. */
+      /* Not interested in stamped microblocks, only leader updates. */
       *opt_filter = 1;
       return;
     }

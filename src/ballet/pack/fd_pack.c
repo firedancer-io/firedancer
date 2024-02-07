@@ -59,7 +59,8 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn->payload )==0UL, fd_pack_ord_
 #define FD_ORD_TXN_ROOT_DELAY_END_BLOCK 3
 #define FD_ORD_TXN_ROOT_DELAY_BANK_BASE 4 /* [4, 4+FD_PACK_MAX_BANK_TILES) */
 
-#define FD_PACK_IN_USE_WRITABLE (0x8000000000000000UL)
+#define FD_PACK_IN_USE_WRITABLE    (0x8000000000000000UL)
+#define FD_PACK_IN_USE_BIT_CLEARED (0x4000000000000000UL)
 
 /* fd_pack_addr_use_t: Used for two distinct purposes:
     -  to record that an address is in use and can't be used again until
@@ -725,8 +726,8 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       /* This transaction reads or writes to additional accounts from
          an address lookup table.  We don't yet know what they are
          so we can't check for conflicts and instead just never schedule
-         the transaction. 
-         
+         the transaction.
+
          TODO: We should load the accounts here and check them for
          conflicts properly.  The accounts can change with the bank so
          it's non-trivial. */
@@ -809,6 +810,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
           FD_PACK_BITSET_CLEARN( bitset_rw_in_use, bit );
           FD_PACK_BITSET_CLEARN( bitset_w_in_use,  bit );
 
+          use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
           if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
         }
       }
@@ -830,6 +832,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
           bitset_map_remove( pack->acct_to_bitset, q );
           FD_PACK_BITSET_CLEARN( bitset_rw_in_use, bit );
 
+          use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
           if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
         }
       }
@@ -894,10 +897,41 @@ fd_pack_microblock_complete( fd_pack_t * pack,
     FD_TEST( use );
     use->in_use_by &= clear_mask;
 
-    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, base[i].key, NULL );
-    if( q && (q->bit < FD_PACK_BITSET_MAX) ) {
-      FD_PACK_BITSET_CLEARN( bitset_w_in_use, q->bit );
-      if( !use->in_use_by ) FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
+    /* In order to properly bound the size of bitset_map, we need to
+       release the "reference" to the account when we schedule it.
+       However, that poses a bit of a problem here, because by the time
+       we complete the microblock, that account could have been assigned
+       a different bit in the bitset.  The scheduling step tells us if
+       that is the case, and if so, we know that the bits in
+       bitset_w_in_use and bitset_rw_in_use were already cleared as
+       necessary.
+
+       Note that it's possible for BIT_CLEARED to be set and then unset
+       by later uses, but then the account would be in use on other
+       banks, so we wouldn't try to observe the old value.  For example:
+       Suppose bit 0->account A, bit 1->account B, and we have two
+       transactions that read A, B.  We schedule a microblock to bank 0,
+       taking both transactions, which sets the counts for A, B to 0,
+       and releases the bits, clearing bits 0 and 1, and setting
+       BIT_CLEARED.  Then we get two more transactions that read
+       accounts C, D, A, B, and they get assigned 0->C, 1->D, 2->A,
+       3->B.  We try to schedule a microblock to bank 1 that takes one
+       of those transactions.   This unsets BIT_CLEARED for A, B.
+       Finally, the first microblock completes.  Even though the bitset
+       map has the new bits for A and B which are "wrong" compared to
+       when the transaction was initially scheduled, those bits have
+       already been cleared and reset properly in the bitset as needed.
+       A and B will still be in use by bank 1, so we won't clear any
+       bits.  If, on the other hand, the microblock scheduled to bank 1
+       completes first, bits 0 and 1 will be cleared for accounts C and
+       D, while bits 2 and 3 will remain set, which is correct.  Then
+       when bank 0 completes, bits 2 and 3 will be cleared. */
+    if( FD_LIKELY( !use->in_use_by ) ) { /* if in_use_by==0, doesn't include BIT_CLEARED */
+      fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, base[i].key, NULL );
+      FD_TEST( q );
+      FD_PACK_BITSET_CLEARN( bitset_w_in_use,  q->bit );
+      FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
+      use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
     }
     if( FD_LIKELY( !use->in_use_by ) ) acct_uses_remove( pack->acct_in_use, use );
   }
@@ -992,6 +1026,9 @@ fd_pack_end_block( fd_pack_t * pack ) {
   acct_uses_clear( pack->acct_in_use  );
   acct_uses_clear( pack->writer_costs );
 
+  FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
+  FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
+
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i] = 0UL;
 
   /* If our stake is low and we don't become leader often, end_block
@@ -1067,6 +1104,26 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   fd_txn_t * _txn = TXN( containing->txn );
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( _txn, containing->txn->payload );
   fd_txn_acct_iter_t ctrl[1];
+  for( ulong i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
+      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+    FD_TEST( q ); /* q==NULL not be possible */
+
+    q->ref_cnt--;
+
+    if( FD_UNLIKELY( q->ref_cnt==0UL ) ) {
+      ushort bit = q->bit;
+      bitset_map_remove( pack->acct_to_bitset, q );
+
+      if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
+      fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use,  accts[i], NULL );
+      if( FD_LIKELY( use ) ) {
+          FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, bit );
+          FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  bit );
+          use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
+      }
+    }
+  }
   for( ulong i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
       i=fd_txn_acct_iter_next( i, ctrl ) ) {
     if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
@@ -1081,6 +1138,11 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
       bitset_map_remove( pack->acct_to_bitset, q );
 
       if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
+      fd_pack_addr_use_t * use = acct_uses_query( pack->acct_in_use,  accts[i], NULL );
+      if( FD_LIKELY( use ) ) {
+          FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, bit );
+          use->in_use_by |= FD_PACK_IN_USE_BIT_CLEARED;
+      }
     }
   }
   treap_ele_remove( root, containing, pack->pool );
