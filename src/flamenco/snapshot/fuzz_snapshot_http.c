@@ -99,8 +99,9 @@ io_task( int            sock,
   for(;;) {
     struct pollfd pfd[1] = {{.fd=sock, .events=(short)event_interest}};
     if( FD_UNLIKELY( poll( pfd, 1, 0 )<0 ) ) {
+      if( errno!=EINTR )
       FD_LOG_ERR(( "poll() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      break;
+        break;
     }
 
     if( pfd[0].revents==0 )
@@ -113,7 +114,7 @@ io_task( int            sock,
         long n = send( sock, data, (ulong)(data_end - data), MSG_DONTWAIT|MSG_NOSIGNAL );
         if( n<=0 ) {
           if( FD_LIKELY( (errno==ECONNRESET) | (errno==EPIPE) ) ) break;
-          if( FD_UNLIKELY( errno!=EAGAIN ) ) {  /* TODO use EWOULDBLOCK instead? */
+          if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {  /* TODO use EWOULDBLOCK instead? */
             FD_LOG_CRIT(( "send() to target failed (%d-%s)", errno, fd_io_strerror( errno ) ));
             break;
           }
@@ -135,7 +136,7 @@ io_task( int            sock,
       long n = recv( sock, buf, sizeof(buf), MSG_DONTWAIT );
       if( n<0 ) {
         if( FD_LIKELY( (errno==ECONNRESET) | (errno==EPIPE) ) ) break;
-        if( FD_UNLIKELY( errno!=EAGAIN ) ) {  /* TODO use EWOULDBLOCK instead? */
+        if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {  /* TODO use EWOULDBLOCK instead? */
           FD_LOG_CRIT(( "recv() from target failed (%d-%s)", errno, fd_io_strerror( errno ) ));
           break;
         }
