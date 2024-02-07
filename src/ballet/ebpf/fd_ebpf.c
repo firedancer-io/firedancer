@@ -13,9 +13,9 @@ struct __attribute__((aligned(16UL))) fd_ebpf_known_sym {
 typedef struct fd_ebpf_known_sym fd_ebpf_known_sym_t;
 
 fd_ebpf_link_opts_t *
-fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
-                     void *                elf,
-                     ulong                 elf_sz ) {
+fd_ebpf_static_link( fd_ebpf_link_opts_t * const opts,
+                     void *                const elf,
+                     ulong                 const elf_sz ) {
 
 # define FD_ELF_REQUIRE(c) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return NULL; } } while(0)
 
@@ -28,7 +28,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
   /* Load file header */
 
   FD_ELF_REQUIRE( elf_sz>=sizeof(fd_elf64_ehdr) );
-  fd_elf64_ehdr const * eh = (fd_elf64_ehdr *)elf;
+  fd_elf64_ehdr eh[1];  memcpy( eh, elf, sizeof(fd_elf64_ehdr) );
 
   FD_ELF_REQUIRE( eh->e_type == FD_ELF_ET_REL );
 
@@ -61,12 +61,12 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   /* Walk section header table */
 
-  fd_elf64_shdr const * prog     = NULL; ulong prog_shndx   = ULONG_MAX;
-  fd_elf64_shdr const * rel_prog = NULL;
-  fd_elf64_shdr const * symtab   = NULL; ulong symtab_shndx = ULONG_MAX;
-  fd_elf64_shdr const * strtab   = NULL; ulong strtab_shndx = ULONG_MAX;
+  fd_elf64_shdr prog    [1] = {0}; long prog_shndx     = -1L;
+  fd_elf64_shdr rel_prog[1] = {0}; long rel_prog_shndx = -1L;
+  fd_elf64_shdr symtab  [1] = {0}; long symtab_shndx   = -1L;
+  fd_elf64_shdr strtab  [1] = {0}; long strtab_shndx   = -1L;
 
-  for( ulong i=0; i < eh->e_shnum; i++ ) {
+  for( uint i=0; i < eh->e_shnum; i++ ) {
     ulong sh_name_off = shstrtab->sh_offset + shdr[ i ].sh_name;
     char const * sh_name = fd_elf_read_cstr( elf, elf_sz, sh_name_off, 128UL );
     if( !sh_name ) continue;
@@ -75,24 +75,26 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
     case FD_ELF_SHT_PROGBITS:
       if( 0==strcmp( sh_name, opts->section ) ) {
         prog_shndx = i;
-        prog       = &shdr[ i ];
+        *prog      = shdr[ i ];
       }
       break;
     case FD_ELF_SHT_REL:
       if( 0==strncmp( sh_name, ".rel", 4UL ) &&
-          0== strcmp( sh_name+4, opts->section ) )
-        rel_prog = &shdr[ i ];
+          0== strcmp( sh_name+4, opts->section ) ) {
+        rel_prog_shndx = i;
+        *rel_prog = shdr[ i ];
+      }
       break;
     case FD_ELF_SHT_SYMTAB:
       if( 0==strcmp( sh_name, ".symtab" ) ) {
         symtab_shndx = i;
-        symtab     = &shdr[ i ];
+        *symtab      = shdr[ i ];
       }
       break;
     case FD_ELF_SHT_STRTAB:
       if( 0==strcmp( sh_name, ".strtab" ) ) {
         strtab_shndx = i;
-        strtab     = &shdr[ i ];
+        *strtab      = shdr[ i ];
       }
       break;
     default:
@@ -100,25 +102,25 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
     }
   }
 
-  FD_ELF_REQUIRE( prog     );
-  FD_ELF_REQUIRE( rel_prog );
-  FD_ELF_REQUIRE( symtab   );
-  FD_ELF_REQUIRE( strtab   );
+  FD_ELF_REQUIRE( prog_shndx    >=0 );
+  FD_ELF_REQUIRE( rel_prog_shndx>=0 );
+  FD_ELF_REQUIRE( symtab_shndx  >=0 );
+  FD_ELF_REQUIRE( strtab_shndx  >=0 );
 
   /* Load bytecode */
 
-  FD_ELF_REQUIRE( prog->sh_offset                 < elf_sz );
-  FD_ELF_REQUIRE( prog->sh_size                   < elf_sz );
-  FD_ELF_REQUIRE( prog->sh_offset + prog->sh_size < elf_sz );
+  FD_ELF_REQUIRE( prog->sh_offset                <=elf_sz );
+  FD_ELF_REQUIRE( prog->sh_size                  <=elf_sz );
+  FD_ELF_REQUIRE( prog->sh_offset + prog->sh_size <=elf_sz );
   ulong * code = (ulong *)( (ulong)elf + prog->sh_offset );
   FD_ELF_REQUIRE( fd_ulong_is_aligned( (ulong)code, 8UL ) );
 
   /* Load symbol table */
 
   FD_ELF_REQUIRE( symtab->sh_entsize == sizeof(fd_elf64_sym) );
-  FD_ELF_REQUIRE( symtab->sh_offset                   < elf_sz );
-  FD_ELF_REQUIRE( symtab->sh_size                     < elf_sz );
-  FD_ELF_REQUIRE( symtab->sh_offset + symtab->sh_size < elf_sz );
+  FD_ELF_REQUIRE( symtab->sh_offset                   <=elf_sz );
+  FD_ELF_REQUIRE( symtab->sh_size                     <=elf_sz );
+  FD_ELF_REQUIRE( symtab->sh_offset + symtab->sh_size <=elf_sz );
 
   ulong sym_cnt = symtab->sh_size / sizeof(fd_elf64_sym);
   fd_elf64_sym const * sym = (fd_elf64_sym *)( (ulong)elf + symtab->sh_offset );
@@ -126,17 +128,17 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   /* Load string table */
 
-  FD_ELF_REQUIRE( strtab->sh_offset                   < elf_sz );
-  FD_ELF_REQUIRE( strtab->sh_size                     < elf_sz );
-  FD_ELF_REQUIRE( strtab->sh_offset + strtab->sh_size < elf_sz );
+  FD_ELF_REQUIRE( strtab->sh_offset                   <=elf_sz );
+  FD_ELF_REQUIRE( strtab->sh_size                     <=elf_sz );
+  FD_ELF_REQUIRE( strtab->sh_offset + strtab->sh_size <=elf_sz );
   FD_ELF_REQUIRE( symtab->sh_link == strtab_shndx );
 
   /* Load relocation table */
 
   FD_ELF_REQUIRE( rel_prog->sh_entsize == sizeof(fd_elf64_rel) );
-  FD_ELF_REQUIRE( rel_prog->sh_offset                     < elf_sz );
-  FD_ELF_REQUIRE( rel_prog->sh_size                       < elf_sz );
-  FD_ELF_REQUIRE( rel_prog->sh_offset + rel_prog->sh_size < elf_sz );
+  FD_ELF_REQUIRE( rel_prog->sh_offset                    <=elf_sz );
+  FD_ELF_REQUIRE( rel_prog->sh_size                      <=elf_sz );
+  FD_ELF_REQUIRE( rel_prog->sh_offset + rel_prog->sh_size <=elf_sz );
   FD_ELF_REQUIRE( rel_prog->sh_link == symtab_shndx );
   FD_ELF_REQUIRE( rel_prog->sh_info == prog_shndx   );
 
@@ -169,7 +171,7 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
   for( ulong i=0; i<rel_cnt; i++ ) {
     FD_ELF_REQUIRE( rel[ i ].r_offset     < prog->sh_size );
-    FD_ELF_REQUIRE( rel[ i ].r_offset+8UL < prog->sh_size );
+    FD_ELF_REQUIRE( rel[ i ].r_offset+8UL <=prog->sh_size );
 
     ulong r_sym  = FD_ELF64_R_SYM(  rel[ i ].r_info );
     ulong r_type = FD_ELF64_R_TYPE( rel[ i ].r_info );
@@ -186,11 +188,11 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
 
       FD_ELF_REQUIRE( fd_ulong_is_aligned( r_lo_off, 4UL ) );
       FD_ELF_REQUIRE( fd_ulong_is_aligned( r_hi_off, 4UL ) );
-      FD_ELF_REQUIRE( r_hi_off+4UL < elf_sz );
-      ulong * insn = (ulong *)( (ulong)elf + prog->sh_offset + rel[ i ].r_offset );
+      FD_ELF_REQUIRE( r_hi_off+4UL <= elf_sz );
+      uchar * insn = (uchar *)elf + prog->sh_offset + rel[ i ].r_offset;
 
-      ulong   insn0_pre  = insn[ 0 ];
-      ulong   insn1_pre  = insn[ 1 ];
+      ulong   insn0_pre = FD_LOAD( ulong, insn+0 );
+      ulong   insn1_pre = FD_LOAD( ulong, insn+8 );
 
       ulong A     = insn0_pre>>32; /* implicit addend */
       ulong value = S + A;
@@ -205,8 +207,8 @@ fd_ebpf_static_link( fd_ebpf_link_opts_t * opts,
                 eBPF code generated by clang has src_reg==0. */
       insn0_post |= 0x1000;
 
-      insn[ 0 ] = insn0_post;
-      insn[ 1 ] = insn1_post;
+      FD_STORE( ulong, insn+0, insn0_post );
+      FD_STORE( ulong, insn+8, insn1_post );
 
       FD_LOG_DEBUG(( "reloc %lu at insn %lu\n"
                      "  S: %#lx\tA: %#lx\n"
