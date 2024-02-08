@@ -124,7 +124,7 @@ fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err );
 
 ulong
-fd_rocksdb_find_last_slot( fd_rocksdb_t * db, 
+fd_rocksdb_find_last_slot( fd_rocksdb_t * db,
                            char **        err );
 
 /* fd_rocksdb_get_meta
@@ -163,7 +163,9 @@ int
 fd_rocksdb_import_block( fd_rocksdb_t *    db,
                          fd_slot_meta_t *  m,
                          fd_blockstore_t * blockstore,
-                         int txnstatus );
+                         int txnstatus,
+                         const uchar *hash_override
+);
 
 FD_PROTOTYPES_END
 

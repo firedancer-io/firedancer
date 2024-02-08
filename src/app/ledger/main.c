@@ -53,7 +53,8 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
                 char const *      file,
                 ulong             end_slot,
                 fd_blockstore_t * blockstore,
-                int txnstatus ) {
+                int txnstatus,
+                ulong trashhash) {
   fd_rocksdb_t rocks_db;
   char *err = fd_rocksdb_init(&rocks_db, file);
   if (err != NULL) {
@@ -85,6 +86,9 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   if (ret < 0)
     FD_LOG_ERR(("fd_rocksdb_root_iter_seek returned %d", ret));
 
+  uchar trash_hash[32];
+  memset(trash_hash, 0xFE, sizeof(trash_hash));
+
   ulong blk_cnt = 0;
   do {
     ulong slot = m.slot;
@@ -93,7 +97,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Read and deshred block from RocksDB */
 
-    int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore, txnstatus);
+    int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore, txnstatus, (slot == trashhash) ? trash_hash : NULL);
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
 
     // if( blk_cnt % 1000 == 0 ) {
@@ -153,6 +157,7 @@ main( int     argc,
   char const * backup       = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--backup",       NULL, NULL      );
   char const * capture_fpath = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--capture",      NULL, NULL      );
   char const * checkacchash = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--checkacchash", NULL, NULL      );
+  ulong        trashhash    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--trashhash",    NULL, ULONG_MAX );
 #ifdef _ENABLE_LTHASH
   char const * lthash       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",       NULL, "false"   );
 #endif
@@ -404,7 +409,7 @@ main( int     argc,
     if( rocksdb_dir ) {
       if ( end_slot >= slot_ctx->slot_bank.slot + slot_history_max )
         end_slot = slot_ctx->slot_bank.slot + slot_history_max - 1;
-      ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0) );
+      ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0), trashhash );
     }
 
     /* Dump feature activation state */

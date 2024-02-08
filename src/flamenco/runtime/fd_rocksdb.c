@@ -287,9 +287,11 @@ int
 fd_rocksdb_import_block( fd_rocksdb_t *    db,
                          fd_slot_meta_t *  m,
                          fd_blockstore_t * blockstore,
-                         int txnstatus ) {
+                         int txnstatus,
+                         const uchar *hash_override) // How much effort should we go to here to confirm the size of the hash override?
+{
   fd_blockstore_start_write( blockstore );
-  
+
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -401,36 +403,40 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
 
     vallen = 0;
     err = NULL;
-    res = rocksdb_get_cf(
-      db->db,
-      db->ro,
-      db->cf_handles[ FD_ROCKSDB_CFIDX_BANK_HASHES ],
-      (char const *)&slot_be, sizeof(ulong),
-      &vallen,
-      &err );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "rocksdb: %s", err ));
-      free( err );
-    } else {
-      fd_scratch_push();
-      fd_bincode_decode_ctx_t decode = {
-        .data    = res,
-        .dataend = res + vallen,
-        .valloc  = fd_scratch_virtual(),
-      };
-      fd_frozen_hash_versioned_t versioned;
-      int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
-      if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) goto cleanup;
-      if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
-      if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
-      /* Success */
-      fd_memcpy( block_entry->block.bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
-    cleanup:
-      free( res );
-      fd_scratch_pop();
+    if (NULL != hash_override)
+      fd_memcpy( block_entry->block.bank_hash.hash, hash_override, 32UL );
+    else {
+      res = rocksdb_get_cf(
+        db->db,
+          db->ro,
+          db->cf_handles[ FD_ROCKSDB_CFIDX_BANK_HASHES ],
+          (char const *)&slot_be, sizeof(ulong),
+          &vallen,
+          &err );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_WARNING(( "rocksdb: %s", err ));
+        free( err );
+      } else {
+        fd_scratch_push();
+        fd_bincode_decode_ctx_t decode = {
+          .data    = res,
+          .dataend = res + vallen,
+          .valloc  = fd_scratch_virtual(),
+        };
+        fd_frozen_hash_versioned_t versioned;
+        int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
+        if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) goto cleanup;
+        if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
+        if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
+        /* Success */
+        fd_memcpy( block_entry->block.bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
+      cleanup:
+        free( res );
+        fd_scratch_pop();
+      }
     }
   }
-    
+
   if( txnstatus ) {
     fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
     fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
@@ -467,7 +473,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
             meta_owned = 1;
           }
         }
-          
+
         txn_map_entry->meta_gaddr = meta_gaddr;
         txn_map_entry->meta_sz = meta_sz;
         txn_map_entry->meta_owned = meta_owned;
