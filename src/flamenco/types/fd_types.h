@@ -402,26 +402,11 @@ typedef struct fd_solana_account_meta_off fd_solana_account_meta_off_t;
 #define FD_SOLANA_ACCOUNT_META_OFF_FOOTPRINT sizeof(fd_solana_account_meta_off_t)
 #define FD_SOLANA_ACCOUNT_META_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (32 bytes) */
-struct __attribute__((packed)) fd_solana_account_fd_hash {
-  uchar value[32];
-};
-typedef struct fd_solana_account_fd_hash fd_solana_account_fd_hash_t;
-#define FD_SOLANA_ACCOUNT_FD_HASH_FOOTPRINT sizeof(fd_solana_account_fd_hash_t)
-#define FD_SOLANA_ACCOUNT_FD_HASH_ALIGN (8UL)
-
-struct __attribute__((packed)) fd_solana_account_fd_hash_off {
-  uint value_off;
-};
-typedef struct fd_solana_account_fd_hash_off fd_solana_account_fd_hash_off_t;
-#define FD_SOLANA_ACCOUNT_FD_HASH_OFF_FOOTPRINT sizeof(fd_solana_account_fd_hash_off_t)
-#define FD_SOLANA_ACCOUNT_FD_HASH_OFF_ALIGN (8UL)
-
 /* Encoded Size: Dynamic */
 struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
-  fd_solana_account_fd_hash_t hash;
+  fd_hash_t hash;
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)

@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include "context/fd_exec_slot_ctx.h"
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
@@ -20,7 +21,13 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
                                 char const *         data,
                                 ulong                sz );
 
-/* TODO make this function gracefully handle errors */
+static int
+restore_manifest( void *                 ctx,
+                  fd_solana_manifest_t * manifest ) {
+  return (!!fd_exec_slot_ctx_recover( ctx, manifest ) ? 0 : EINVAL);
+}
+
+/* TODO make this function gracefully handle errors ? */
 
 static int
 load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
@@ -31,16 +38,12 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
   uchar * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
 
-  if( !fd_scratch_alloc_is_safe( 16UL, FD_SNAPSHOT_RESTORE_SCRATCH_SZ ) )
-    FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
-  uchar * scratch_mem = fd_scratch_alloc( 16UL, FD_SNAPSHOT_RESTORE_SCRATCH_SZ );
-
   ulong max_window_sz = 10000000;
   if( !fd_scratch_alloc_is_safe( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) ) )
     FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
   uchar * zstd_mem = fd_scratch_alloc( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx, scratch_mem, FD_SNAPSHOT_RESTORE_SCRATCH_SZ );
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, slot_ctx, restore_manifest );
   assert( restore );
 
   fd_tar_reader_t reader_[1];

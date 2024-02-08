@@ -1,6 +1,7 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_snapshot_load.h"
 #include "fd_snapshot_http.h"
+#include "fd_snapshot_restore_private.h"
 #include "../runtime/fd_acc_mgr.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
@@ -156,12 +157,12 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
 /* fd_snapshot_dumper_on_manifest gets called when the snapshot manifest
    becomes available. */
 
-static void
+static int
 fd_snapshot_dumper_on_manifest( void *                 _d,
                                 fd_solana_manifest_t * manifest ) {
 
   fd_snapshot_dumper_t * d = _d;
-  if( d->yaml_fd<0 ) return;
+  if( !d->want_manifest ) return 0;
   d->want_manifest = 0;
 
   FILE * file = fdopen( d->yaml_fd, "w" );
@@ -170,7 +171,7 @@ fd_snapshot_dumper_on_manifest( void *                 _d,
     close( d->yaml_fd );
     d->yaml_fd  = -1;
     d->has_fail = 1;
-    return;
+    return errno;
   }
 
   fd_scratch_push();
@@ -188,23 +189,7 @@ fd_snapshot_dumper_on_manifest( void *                 _d,
   fclose( file );
   close( d->yaml_fd );
   d->yaml_fd = -1;
-}
-
-/* fd_snapshot_dumper_prepare creates a new funk transaction ready to
-   collect any accounts newly inserted by the snapshot loader.  Unlike
-   in a real database, these accounts get discarded very frequently
-   during unpack. */
-
-static void
-fd_snapshot_dumper_prepare( fd_snapshot_dumper_t * d ) {
-  fd_exec_slot_ctx_t * slot_ctx = d->slot_ctx;
-
-  fd_funk_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) )
-    FD_LOG_ERR(( "Failed to create funk txn" ));  /* unreachable, as there will only ever be one live funk txn */
-
-  slot_ctx->funk_txn = funk_txn;
+  return err;
 }
 
 /* fd_snapshot_dumper_record processes a newly encountered account
@@ -277,9 +262,12 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
   fd_exec_slot_ctx_t * slot_ctx = d->slot_ctx;
   fd_funk_txn_t *      funk_txn = slot_ctx->funk_txn;
+  fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
   fd_funk_t *          funk     = d->funk;
   fd_wksp_t *          wksp     = fd_funk_wksp( funk );
   fd_funk_rec_t *      rec_map  = fd_funk_rec_map( funk, wksp );
+
+  /* Dump all the records */
 
   for( fd_funk_rec_t const * rec = fd_funk_txn_rec_head( funk_txn, rec_map );
                              rec;
@@ -288,10 +276,18 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
     fd_snapshot_dumper_record( d, rec, wksp );
   }
 
+  /* In order to save heap space, evict all the accounts we just
+     visited.  We can do this because we know we'll never read them
+     again. */
+
   if( FD_UNLIKELY( fd_funk_txn_cancel( funk, funk_txn, 1 )!=1UL ) )
     FD_LOG_ERR(( "Failed to cancel funk txn" ));  /* unreachable */
-  slot_ctx->funk_txn = NULL;
 
+  funk_txn = fd_funk_txn_prepare( funk, NULL, &txn_xid, 1 );
+  if( FD_UNLIKELY( !funk_txn ) )
+    FD_LOG_ERR(( "Failed to prepare funk txn" ));  /* unreachable */
+
+  slot_ctx->funk_txn = funk_txn;
   return 0;
 }
 
@@ -302,8 +298,6 @@ static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   fd_tar_io_reader_t * vtar = dumper->vtar;
-
-  fd_snapshot_dumper_prepare( dumper );
 
   int untar_err = fd_tar_io_reader_advance( vtar );
   if( untar_err==0 )     { /* ok */ }
@@ -325,7 +319,6 @@ fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 struct fd_snapshot_dump_args {
   char const * _page_sz;
   ulong        page_cnt;
-  ulong        manifest_max;
   ulong        near_cpu;
   ulong        zstd_window_sz;
   char *       snapshot;
@@ -550,10 +543,13 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Set up the snapshot reader */
 
-  uchar * file_buf = fd_scratch_alloc( 1UL, args->manifest_max );
-  d->restore = fd_snapshot_restore_new( restore_mem, d->slot_ctx, file_buf, args->manifest_max );
+  /* funk_txn is destroyed automatically when deleting fd_funk_t. */
+  fd_funk_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
+  d->slot_ctx->funk_txn = funk_txn;
+
+  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, d->slot_ctx->valloc, d, fd_snapshot_dumper_on_manifest );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
-  fd_snapshot_restore_set_cb_manifest( d->restore, fd_snapshot_dumper_on_manifest, d );
 
   d->tar = fd_tar_reader_new( fd_scratch_alloc( alignof(fd_tar_reader_t), sizeof(fd_tar_reader_t) ), &fd_snapshot_restore_tar_vt, d->restore );
   if( FD_UNLIKELY( !d->tar ) ) { FD_LOG_WARNING(( "Failed to create fd_tar_reader_t" )); return EXIT_FAILURE; }
@@ -620,7 +616,6 @@ cmd_dump( int     argc,
   fd_snapshot_dump_args_t args[1] = {{0}};
   args->_page_sz       =         fd_env_strip_cmdline_cstr  ( &argc, &argv, "--page-sz",        NULL,      "gigantic" );
   args->page_cnt       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--page-cnt",       NULL,             3UL );
-  args->manifest_max   =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--manifest-max",   NULL,         1UL<<30 );  /* 1 GiB */
   args->near_cpu       =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--near-cpu",       NULL, fd_log_cpu_id() );
   args->zstd_window_sz =         fd_env_strip_cmdline_ulong ( &argc, &argv, "--zstd-window-sz", NULL,      33554432UL );
   args->snapshot       = (char *)fd_env_strip_cmdline_cstr  ( &argc, &argv, "--snapshot",       NULL,            NULL );
@@ -643,7 +638,7 @@ cmd_dump( int     argc,
 
   /* With scratch */
 
-  ulong smax = args->manifest_max + args->zstd_window_sz + (1<<29);  /* manifest plus 512 MiB headroom */
+  ulong smax = args->zstd_window_sz + (1<<29);  /* manifest plus 512 MiB headroom */
   FD_LOG_INFO(( "Using %.2f MiB scratch space", (double)smax/(1<<20) ));
   uchar * smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, 1UL );
   if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "fd_wksp_alloc_laddr for scratch region of size %lu failed", smax ));
