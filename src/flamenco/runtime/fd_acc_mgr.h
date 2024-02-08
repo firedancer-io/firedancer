@@ -133,8 +133,8 @@ fd_acc_exists( fd_account_meta_t const * m ) {
   has_owner = !!has_owner;
 # endif
 
-  return ( ( m->info.lamports > 0 ) &
-           ( m->dlen          > 0 ) &
+  return ( ( m->info.lamports > 0 ) |
+           ( m->dlen          > 0 ) |
            ( has_owner            ) );
 
 }
