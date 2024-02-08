@@ -507,8 +507,7 @@ main( int     argc,
       FD_LOG_ERR(("backup failed: error %d", err));
   }
 
-  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
-  fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
+  fd_alloc_delete( fd_alloc_leave( alloc ) );
   fd_funk_leave( funk );
   fd_blockstore_leave( blockstore );
 

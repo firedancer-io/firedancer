@@ -120,6 +120,13 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
       if( tag ) { /* ~50/50 */
 
         ulong sz = gaddr_hi - gaddr_lo;
+        void * laddr_lo = fd_wksp_laddr_fast( wksp, gaddr_lo );
+        
+        #if FD_HAS_DEEPCLEAN
+        /* Copy the entire wksp over. This includes regions that may have been
+           poisoned at one point. */
+        fd_asan_unpoison( laddr_lo, sz );
+        #endif
 
         /* Checkpt partition header */
 
@@ -131,7 +138,6 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
 
         /* Checkpt partition data */
 
-        void * laddr_lo = fd_wksp_laddr_fast( wksp, gaddr_lo );
         err = fd_wksp_private_checkpt_write( checkpt, laddr_lo, sz ); if( FD_UNLIKELY( err ) ) goto io_err;
       }
 
