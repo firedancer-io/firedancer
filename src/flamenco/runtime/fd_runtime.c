@@ -2256,12 +2256,17 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_solana_account_meta_t *info = &acc->info;
 
   // RentCollector::can_skip_rent_collection (enter)
-  // RentCollector::should_collect_rent      (enter)
 
-   /* TODO this is dumb */
+  // RentCollector::should_collect_rent      (enter)
+  // https://github.com/solana-labs/solana/blob/e1e70f2c3c35f6bddf214b33810ea48d1ec6ed3c/accounts-db/src/rent_collector.rs#L74
+
   fd_pubkey_t incinerator;
   fd_base58_decode_32("1nc1nerator11111111111111111111111111111111", incinerator.key);
   if (0 == memcmp(key, &incinerator, sizeof(fd_pubkey_t)))
+    return 0;
+
+  /* Executable accounts must be rent-exempt */
+  if (info->executable)
     return 0;
 
   long due = fd_rent_due(acc, epoch + 1,
@@ -3292,9 +3297,7 @@ void fd_process_new_epoch(
   // Add new entry to stakes.stake_history, set appropriate epoch and
   // update vote accounts with warmed up stakes before saving a
   // snapshot of stakes in epoch stakes
-#if 0 /* This function has a leak and doesn't do much anyway */
   fd_stakes_activate_epoch(slot_ctx, epoch);
-#endif
 
   // (We might not implement this part)
   /* Save a snapshot of stakes for use in consensus and stake weighted networking

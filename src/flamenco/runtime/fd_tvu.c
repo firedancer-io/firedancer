@@ -933,6 +933,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     blockstore->root = snapshot_slot;
     blockstore->min  = snapshot_slot;
   }
+
+  runtime_ctx->abort_on_mismatch = (uchar)args->abort_on_mismatch;
 }
 
 int

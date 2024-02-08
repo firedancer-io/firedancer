@@ -370,6 +370,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
 
+  fd_valloc_free( slot_ctx->valloc, 
+    fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
+  fd_sysvar_stake_history_destroy( &history, slot_ctx );
+
   // TODO: Update epoch stakes?
   // fd_sysvar_stake_history_read( slot_ctx, &history );
   // refresh_vote_accounts( slot_ctx, &history );

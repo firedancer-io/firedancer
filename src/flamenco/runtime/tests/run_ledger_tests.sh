@@ -139,7 +139,7 @@ fi
 
 status=$?
 
-if [ $status -ne 0 ]
+if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $log;
 then
   tail -20 $log
   echo 'ledger test failed:'
