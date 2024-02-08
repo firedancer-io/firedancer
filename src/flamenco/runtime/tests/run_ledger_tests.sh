@@ -86,6 +86,10 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
+    --noreplay)
+        NOREPLAY=1
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -132,6 +136,10 @@ then
   fi
   echo 'ledger test failed: $status'
   exit $status
+fi
+
+if [[ -n "$NOREPLAY" ]]; then
+  exit 0
 fi
 
 log=/tmp/ledger_log$$
