@@ -5,7 +5,7 @@ SCRIPTDIR=${PWD}/scripts
 
 #Defaults
 MACHINE=linux_gcc_x86_64
-PLATFORM=rhel
+PLATFORM=debian11
 
 #Bump this any time there's a change to a Dockerfile
 IMAGETAG=0.7
@@ -15,8 +15,8 @@ eval set -- "$GETOPT"
 
 usage () {
 echo -e "\nUsage: $0 [ -t|--tag release|tag|branchname ] [ -m|--machine machinetype ] [ -p|--platform platform ]
-\nWhere machinetype is one of the targets in ../../config and defaults to \"linux_gcc_x86_64\" if not specified
-Where platform is \"rhel\" or \"debian\" and defaults to \"rhel\"\n"
+\nWhere machinetype is one of the targets in ../../config/machine and defaults to \"linux_gcc_x86_64\" if not specified
+Where platform is \"rhel8\", \"rocky8\", or \"debian11\" and defaults to \"debian11\"\n"
 }
 
 while : ; do
@@ -24,17 +24,21 @@ while : ; do
     -t | --tag )  TAG="$2" ; shift 2
       ;;
     -m | --machine )
-        if [ -f "../../config/${2}.mk" ]
+        if [ -f "../../config/machine/${2}.mk" ]
           then MACHINE="$2" ; shift 2
-        else echo "$2 does not appear to be a valid machine type, please review types in ../../config"
+        else echo "$2 does not appear to be a valid machine type, please review types in ../../config/machine"
           exit 1
         fi
       ;;
     -p | --platform )
-        if [ "$2" = rhel ]
-          then PLATFORM=rhel ; shift 2
-        elif [ "$2" = debian ]
-          then PLATFORM=debian ; shift 2
+        if [ "$2" = rhel8 ]
+          then PLATFORM=rhel8 ; shift 2
+        elif [ "$2" = rocky8 ]
+          then PLATFORM=rocky8
+	  BASE_IMAGE=rockylinux@sha256:72afc2e1a20c9ddf56a81c51148ebcbe927c0a879849efe813bee77d69df1dd8 #8.5.20220308
+          shift 2
+        elif [ "$2" = debian11 ]
+          then PLATFORM=debian11 ; shift 2
         else
           echo -e "\nThat is not a valid platform selection"
           usage ; exit 1
@@ -62,7 +66,7 @@ fi
 
 
 
-$DOCKER image exists fdbuilder_${PLATFORM}:$IMAGETAG || $DOCKER build -f Dockerfile.${PLATFORM} -t fdbuilder_${PLATFORM}:$IMAGETAG -t fdbuilder_${PLATFORM}:latest .
+$DOCKER image exists fdbuilder_${PLATFORM}:$IMAGETAG || $DOCKER build $([ -n BASE_IMAGE ] && echo "--build-arg=BASE_IMAGE=${BASE_IMAGE}") -f Dockerfile.${PLATFORM} -t fdbuilder_${PLATFORM}:$IMAGETAG -t fdbuilder_${PLATFORM}:latest .
 
 $DOCKER run --rm \
         --volume "$OUTDIR:/build/out:Z" \

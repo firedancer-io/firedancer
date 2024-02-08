@@ -1,0 +1,24 @@
+---
+version: "3.8"
+services:
+  firedancer:
+    image: firedancer_rocky9:latest
+# increment this if building a new version
+    image: firedancer_rocky9:0.1
+    volumes:
+      - /data/firedancer:/home/firedancer/.firedancer:Z
+      - /data/firedancer/log:/opt/firedancer/log:Z
+    ipc: host
+    network_mode: "host"
+    privileged: true
+    command: fddev --config /opt/firedancer/config/default.toml dev
+    build:
+      context: ../ubi9
+      args:
+# Defaults provided both here and in Dockerfile. This will override values in Dockerfile.
+        BUILDER_BASE_IMAGE: rockylinux@sha256:45cc42828cc5ceeffa3a9b4f6363fb582fac3ab91f77bf403daa067f8f049f96 #9.3.20231119
+        RELEASE_BASE_IMAGE: rockylinux@sha256:45cc42828cc5ceeffa3a9b4f6363fb582fac3ab91f77bf403daa067f8f049f96 #9.3.20231119
+        MACHINE: linux_gcc_x86_64
+        RUST_VERSION: 1.73.0
+# We can define a release, tag, or branch rather than main. Defaults to main if undefined.
+        GITTAG:

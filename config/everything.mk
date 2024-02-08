@@ -414,7 +414,7 @@ run-script-test: bin unit-test
 	mkdir -p "$(OBJDIR)/cov/raw" && \
 OBJDIR=$(OBJDIR) \
 MACHINE=$(MACHINE) \
-LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_tests.profraw" \
+LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_test-%p.profraw" \
 contrib/test/run_script_tests.sh
 
 run-integration-test: fddev

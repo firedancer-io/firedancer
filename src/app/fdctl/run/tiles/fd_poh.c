@@ -812,12 +812,13 @@ publish_tick( fd_poh_ctx_t *     ctx,
   ctx->last_hashcnt = ctx->hashcnt;
 
   dst += sizeof(fd_entry_batch_meta_t);
-  *(ulong*)dst = hash_delta;
-  fd_memcpy( dst+8UL, ctx->hash, 32UL );
-  *(ulong*)(dst+40UL) = 0;
+  fd_entry_batch_header_t * tick = (fd_entry_batch_header_t *)dst;
+  tick->hashcnt_delta = hash_delta;
+  fd_memcpy( tick->hash, ctx->hash, 32UL );
+  tick->txn_cnt = 0UL;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sz = sizeof(fd_entry_batch_meta_t)+48UL;
+  ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_mux_publish( mux, sig, ctx->out_chunk, sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );

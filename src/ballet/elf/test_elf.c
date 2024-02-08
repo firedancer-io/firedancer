@@ -136,7 +136,16 @@ main( int     argc,
       char ** argv) {
   fd_boot( &argc, &argv );
 
-  /* TODO */
+  static char const haystack[22] = "\0Hello, Nick!\0A\0AAAA\0A";
+  FD_TEST(            fd_elf_read_cstr( NULL,     0UL,               0UL,  4UL )==NULL          );  /* undersz haystack */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack),  0UL,  0UL )==NULL          );  /* undersz needle */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack),  0UL,  4UL )==haystack+ 0   );  /* no char needle */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack),  1UL,  4UL )==NULL          );  /* oversz needle */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack), 21UL,  1UL )==NULL          );  /* oob needle */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack), 21UL,  2UL )==NULL          );  /* oob needle */
+  FD_TEST( 0==memcmp( fd_elf_read_cstr( haystack, sizeof(haystack), 14UL,  5UL ), "A",    2UL ) );  /* typical needle */
+  FD_TEST(            fd_elf_read_cstr( haystack, sizeof(haystack), 16UL,  4UL )==NULL          );  /* oversz needle */
+  FD_TEST( 0==memcmp( fd_elf_read_cstr( haystack, sizeof(haystack), 16UL,  5UL ), "AAAA", 5UL ) );  /* max size needle */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -1,0 +1,24 @@
+---
+version: "3.8"
+services:
+  firedancer:
+    image: firedancer_ubuntu2004:latest
+# increment this if building a new version
+    image: firedancer_ubuntu2004:0.1
+    volumes:
+      - /data/firedancer:/home/firedancer/.firedancer:Z
+      - /data/firedancer/log:/opt/firedancer/log:Z
+    ipc: host
+    network_mode: "host"
+    privileged: true
+    command: fddev --config /opt/firedancer/config/default.toml dev
+    build:
+      context: .
+      args:
+# Defaults provided both here and in Dockerfile. This will override values in Dockerfile.
+        BUILDER_BASE_IMAGE: ubuntu@sha256:a4fab1802f08df089c4b2e0a1c8f1a06f573bd1775687d07fef4076d3a2e4900
+        RELEASE_BASE_IMAGE: ubuntu@sha256:a4fab1802f08df089c4b2e0a1c8f1a06f573bd1775687d07fef4076d3a2e4900
+        MACHINE: linux_gcc_x86_64
+        RUST_VERSION: 1.73.0
+# We can define a release, tag, or branch rather than main. Defaults to main if undefined.
+        GITTAG:
