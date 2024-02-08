@@ -206,23 +206,18 @@ check_macos_pkgs () {
 
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
-  case "$DISTRO" in
-    fedora)
-      check_fedora_pkgs
-      ;;
-    debian)
-      check_debian_pkgs
-      ;;
-    alpine)
-      check_alpine_pkgs
-      ;;
-    macos)
-      check_macos_pkgs
-      ;;
-    *)
-      echo "Unsupported distro $DISTRO. Your mileage may vary."
-      ;;
-  esac
+  for word in $DISTRO ; do
+    case "$word" in
+      fedora|debian|alpine|macos)
+        check_${word}_pkgs
+        ;;
+      rhel|centos)
+        ;;
+      *)
+        echo "Unsupported distro $DISTRO. Your mileage may vary."
+        ;;
+    esac
+  done
 
   if [[ ! -z "${PACKAGE_INSTALL_CMD[@]}" ]]; then
     echo "[!] Found missing system packages"
