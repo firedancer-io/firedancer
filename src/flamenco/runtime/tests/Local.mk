@@ -15,9 +15,8 @@ $(call make-unit-test,bench_tps,bench_tps,fd_aio fd_quic fd_tls fd_ballet fd_tan
 run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l empty-ledger -t 2 -X 133
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l empty-ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v1181-snap -s snapshot-100-2YC8ZW7NtJNgEphk3jB9BmcQKHSnUv8YGp2tUfQSodBR.tar.zst -i incremental-snapshot-100-150-GcNxXtNgzsNHASLJAfJ9eMN2VZKM9VtJKvT9bUveqzda.tar.zst
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v1181-snap
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v1181-snap -s snapshot-100-2YC8ZW7NtJNgEphk3jB9BmcQKHSnUv8YGp2tUfQSodBR.tar.zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_snapshot_tests.sh -l v1181-snap -s snapshot-100-2YC8ZW7NtJNgEphk3jB9BmcQKHSnUv8YGp2tUfQSodBR.tar.zst -i incremental-snapshot-100-150-GcNxXtNgzsNHASLJAfJ9eMN2VZKM9VtJKvT9bUveqzda.tar.zst
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_snapshot_tests.sh -l v1181-snap -s snapshot-100-2YC8ZW7NtJNgEphk3jB9BmcQKHSnUv8YGp2tUfQSodBR.tar.zst
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v17-big
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l v11712-test-ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
