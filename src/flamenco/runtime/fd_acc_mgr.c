@@ -167,7 +167,27 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        int *                 opt_err ) {
 
   fd_funk_t *       funk = acc_mgr->funk;
+
   fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
+
+  if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
+    FD_LOG_WARNING(( "null pubkey (system program?) is being modified" ));
+
+#ifdef VLOG
+  ulong rec_cnt = 0;
+  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+       NULL != rec;
+       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+
+    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
+
+    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s  rec_cnt: %d", rec->pair.key->uc, do_create ? "true" : "false", rec_cnt));
+
+    rec_cnt++;
+  }
+
+  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s", pubkey->uc, do_create ? "true" : "false"));
+#endif
 
   int funk_err = FD_FUNK_SUCCESS;
   fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
@@ -190,7 +210,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
     fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
   fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    
+
   if( do_create && ret->magic == 0 )
     fd_account_meta_init(ret);
 
@@ -264,6 +284,11 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
 
   if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
     return FD_ACC_MGR_ERR_WRONG_MAGIC;
+
+#ifdef VLOG
+  FD_LOG_DEBUG(( "fd_acc_mgr_modify: %32J create: %s  lamports: %ld  owner: %32J  executable: %s,  rent_epoch: %ld, data_len: %ld",
+      pubkey->uc, do_create ? "true" : "false", meta->info.lamports, meta->info.owner, meta->info.executable ? "true" : "false", meta->info.rent_epoch, meta->dlen ));
+#endif
 
   account->orig_rec  = account->const_rec  = account->rec;
   account->orig_meta = account->const_meta = account->meta = meta;
@@ -488,6 +513,10 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     /* Compute the batch sizes */
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * borrowed_account = accounts[i];
+
+#ifdef VLOG
+      FD_TEST (!((borrowed_account->pubkey->ul[0] == 0) & (borrowed_account->pubkey->ul[1] == 0) & (borrowed_account->pubkey->ul[2] == 0) & (borrowed_account->pubkey->ul[3] == 0)));
+#endif
 
       fd_funk_rec_key_t rec_key = fd_acc_funk_key( borrowed_account->pubkey );
       fd_funk_xid_key_pair_t xid_key_pair[1];

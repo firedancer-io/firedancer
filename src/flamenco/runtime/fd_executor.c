@@ -292,6 +292,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
     fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
+#ifdef VLOG
+    FD_LOG_WARNING(( "%32J", program_id_acc ));
+#endif
+
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if (exec_instr_func != NULL) {
