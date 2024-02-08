@@ -147,10 +147,19 @@ fd_snapshot_load( const char **        snapshotfiles,
     fd_features_restore( slot_ctx );
     fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
+    if (!FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+      /* We need to flush the incremental snapshot's changes if we are
+         using the OLD verification method.  Otherwise, iterating over
+         the root would only see the base snapshot's records. */
+      fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+      slot_ctx->funk_txn = parent_txn;
+      child_txn = NULL;
+    }
+
     if( verify_hash ) {
       if (0 == i) {
         fd_hash_t accounts_hash;
-        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash);
+        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 0);
 
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
@@ -159,10 +168,13 @@ fd_snapshot_load( const char **        snapshotfiles,
       } else if (1 == i) {
         fd_hash_t accounts_hash;
 
-        if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation))
-          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash);
-        else
-          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash);
+        if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+          FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
+          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 1);
+        } else {
+          FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
+          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash, 0);
+        }
 
         if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
           FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
@@ -171,8 +183,12 @@ fd_snapshot_load( const char **        snapshotfiles,
       }
     }
 
-    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
-    slot_ctx->funk_txn = parent_txn;
+    /* flush if we haven't done so already */
+    if( child_txn ) {
+      fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+      slot_ctx->funk_txn = parent_txn;
+      child_txn = NULL;
+    }
   }
 
   fd_hashes_load(slot_ctx);

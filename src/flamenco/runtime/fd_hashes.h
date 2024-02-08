@@ -80,14 +80,16 @@ int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_hash_t * accounts_hash,
                   fd_funk_txn_t * child_txn,
-                  ulong do_hash_verify );
+                  ulong do_hash_verify,
+                  int with_dead );
 
 /* Generate a non-incremental hash of the entire account database. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_hash_t * accounts_hash,
                   fd_funk_txn_t * child_txn,
-                  uint check_hash );
+                  uint check_hash,
+                  int with_dead );
 
 int
 fd_accounts_init_lthash( fd_exec_slot_ctx_t * slot_ctx );

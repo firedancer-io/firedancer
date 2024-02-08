@@ -880,7 +880,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
-      
+
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
         if ( txn_ctx->nonce_accounts[i] ) {
           accounts_to_save_cnt++;
@@ -1510,7 +1510,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     double block_execute_time_ms = (double)block_execute_time * 1e-6;
 
     FD_LOG_INFO(( "executed block successfully - slot: %lu, elapsed: %6.6f ms", slot_ctx->slot_bank.slot, block_execute_time_ms ));
-  
+
     return FD_RUNTIME_EXECUTE_SUCCESS;
   } FD_SCRATCH_SCOPE_END;
 }
@@ -1879,7 +1879,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
 
       if (FD_FEATURE_ACTIVE(slot_ctx, epoch_accounts_hash)) {
         if (txn->xid.ul[0] >= slot_ctx->epoch_ctx->epoch_bank.eah_start_slot) {
-          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0 );
+          fd_accounts_hash( slot_ctx, &slot_ctx->slot_bank.epoch_account_hash, NULL, 0, 0 );
           slot_ctx->epoch_ctx->epoch_bank.eah_start_slot = ULONG_MAX;
         }
       }
@@ -2289,7 +2289,7 @@ fd_runtime_collect_rent_account( fd_exec_slot_ctx_t * slot_ctx,
   // RentCollector::can_skip_rent_collection (exit)
 
   // RentCollector::get_rent_due
-  
+
 
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/accounts-db/src/rent_collector.rs#L170-L182 */
 
