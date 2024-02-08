@@ -27,6 +27,8 @@ IMAX="--indexmax 100000"
 START="--start 241819853"
 HISTORY="--slothistory 3000"
 END=""
+TRASHHASH=""
+EXPECTED="0"
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -40,6 +42,16 @@ while [[ $# -gt 0 ]]; do
        ;;
     -p|--pages)
        PAGES="--page-cnt $2"
+       shift
+       shift
+       ;;
+    -t|--trash)
+       TRASHHASH="--trashhash $2"
+       shift
+       shift
+       ;;
+    -X|--expected)
+       EXPECTED="$2"
        shift
        shift
        ;;
@@ -100,6 +112,7 @@ set -x
   --reset true \
   --cmd ingest \
   --rocksdb dump/$LEDGER/rocksdb \
+  $TRASHHASH \
   $IMAX \
   $END \
   --txnmax 100 \
@@ -113,7 +126,11 @@ status=$?
 
 if [ $status -ne 0 ]
 then
-  echo 'ledger test failed:'
+  if [ "$status" -eq "$EXPECTED" ]; then
+    echo "inverted test passed"
+    exit 0
+  fi
+  echo 'ledger test failed: $status'
   exit $status
 fi
 
@@ -141,6 +158,10 @@ status=$?
 
 if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $log;
 then
+  if [ "$status" -eq "$EXPECTED" ]; then
+    echo "inverted test passed"
+    exit 0
+  fi
   tail -20 $log
   echo 'ledger test failed:'
   echo $log

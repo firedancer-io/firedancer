@@ -39,8 +39,8 @@ test_main( int     argc,
   ulong  align_max = FD_VOLATILE_CONST( _align_max );
   ulong  sz_max    = FD_VOLATILE_CONST( _sz_max    );
 
-  ulong print_interval  = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
-  ulong print_mask      = (print_interval<<1)-1UL;
+  ulong print_interval          = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
+  ulong FD_FN_UNUSED print_mask = (print_interval<<1)-1UL;
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
@@ -62,6 +62,7 @@ test_main( int     argc,
 
   for( ulong i=0UL; i<2UL*alloc_cnt; i++ ) {
 
+    #if !FD_HAS_DEEPCLEAN
     if( (i & print_mask)==print_interval )  {
       char * info    = NULL;
       ulong  info_sz = 0UL;
@@ -74,6 +75,7 @@ test_main( int     argc,
       FD_LOG_DEBUG(( "fd_alloc_fprintf said:\n%*s", (int)(info_sz&INT_MAX), info ));
       free( info );
     }
+    #endif
 
     /* Determine if we should alloc or free this iteration.  If j==0,
        there are no outstanding allocs to free so we must alloc.  If
@@ -94,11 +96,21 @@ test_main( int     argc,
       ulong align    = fd_ulong_if( lg_align==lg_align_max+1, 0UL, 1UL<<lg_align );
 
       sz[j] = fd_rng_ulong_roll( rng, sz_max+1UL );
+      #if FD_HAS_DEEPCLEAN
+      /* Enforce 8 byte alignment requirements */
+      align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
+      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] ); 
+      #endif
 
       /* Allocate it */
 
       ulong max;
       mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
+
+      #if FD_HAS_DEEPCLEAN
+      if ( mem[j] && sz[j] )
+        FD_TEST( fd_asan_query( mem[j], sz[j] ) == NULL );
+      #endif
 
       /* Check if the value is sane */
 
@@ -141,6 +153,11 @@ test_main( int     argc,
       /* Free the allocation */
 
       fd_alloc_free( alloc, mem[k] );
+
+      #if FD_HAS_DEEPCLEAN
+      if ( mem[k] && sz[k] )
+          FD_TEST( fd_asan_query( mem[k], sz[k] ) != NULL );
+      #endif
 
       /* Remove from outstanding allocations */
 
@@ -319,4 +336,3 @@ main( int     argc,
 }
 
 #endif
-

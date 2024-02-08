@@ -222,13 +222,23 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
                         ulong *     _lo,
                         ulong *     _hi ) {
   align = fd_ulong_if( !align, FD_WKSP_ALIGN_DEFAULT, align );
-  ulong footprint = sz + align - 1UL;
 
   if( FD_UNLIKELY( !sz                        ) ) goto fail; /* silent */
   if( FD_UNLIKELY( !wksp                      ) ) { FD_LOG_WARNING(( "NULL wksp"   )); goto fail; }
   if( FD_UNLIKELY( !fd_ulong_is_pow2( align ) ) ) { FD_LOG_WARNING(( "bad align"   )); goto fail; }
-  if( FD_UNLIKELY( footprint < sz             ) ) { FD_LOG_WARNING(( "sz overflow" )); goto fail; }
   if( FD_UNLIKELY( !tag                       ) ) { FD_LOG_WARNING(( "bad tag"     )); goto fail; }
+
+  #if FD_HAS_DEEPCLEAN
+    /* ASan requires 8 byte alignment for poisoning because memory is mapped in
+       8 byte intervals to ASan shadow bytes. */
+    align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
+    if ( sz && sz < ULONG_MAX )
+      sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
+  #endif 
+
+  ulong footprint = sz + align - 1UL;
+
+  if( FD_UNLIKELY( footprint < sz             ) ) { FD_LOG_WARNING(( "sz overflow" )); goto fail; }
 
   fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
 
@@ -313,6 +323,10 @@ trimmed:
   FD_VOLATILE( pinfo[ i ].tag ) = tag;
   FD_COMPILER_MFENCE();
 
+  #if FD_HAS_DEEPCLEAN
+  fd_asan_unpoison( fd_wksp_laddr_fast( wksp, lo ), hi - lo );
+  #endif 
+
   fd_wksp_private_unlock( wksp );
   *_lo = lo;
   *_hi = hi;
@@ -342,6 +356,11 @@ fd_wksp_free( fd_wksp_t * wksp,
   fd_wksp_private_unlock( wksp );
 
   if( FD_UNLIKELY( i>=part_max ) ) FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation" ));
+  else {
+    #if FD_HAS_DEEPCLEAN
+    fd_asan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
+    #endif 
+  }
 }
 
 ulong
