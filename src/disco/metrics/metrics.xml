@@ -176,6 +176,12 @@ metric introduced.
 
     <counter name="NonQuicPacketTooSmall" summary="Count of packets received on the non-QUIC port that were too small to be a valid IP packet." />
     <counter name="NonQuicPacketTooLarge" summary="Count of packets received on the non-QUIC port that were too large to be a valid transaction." />
+    <histogram name="FragProcessingTime" min="0" max="0.000100" converter="seconds">
+      <summary>Duration in seconds of the fragment processing time within QUIC</summary>
+    </histogram>
+    <histogram name="FinalProcessingTime" min="0" max="0.000100" converter="seconds">
+      <summary>Duration in seconds of the final fragment processing time within QUIC</summary>
+    </histogram>
 </group>
 
 <group name="BankTile" tile="bank">
@@ -188,6 +194,9 @@ metric introduced.
     <counter name="TransactionLoad" enum="TransactionError" summary="Result of loading a transaction." />
     <counter name="TransactionExecuting" enum="TransactionError" summary="Result of executing a transaction. Could be a failure or success." />
     <counter name="TransactionExecuted" enum="TransactionError" summary="When a transaction executes (makes it onto the chain), result of executing a transaction. The transaction can still fail." />
+    <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+      <summary>Duration in seconds of the processing time within Bank</summary>
+    </histogram>
 </group>
 
 <group name="PohTile" tile="poh">
@@ -199,6 +208,9 @@ metric introduced.
     <counter name="ReplayNoLongerLeader" summary="Received a notification of a new bank that was on time, but we are no longer leader at the target slot." />
     <counter name="LeaderSlotMissedBackpressure" summary="Couldn't tell pack to start packing, because the PoH tile was backpressured." />
     <counter name="NoLeaderBank" summary="Got sent transactions for a valid leader slot, but we did not have a leader bank available." />
+    <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+      <summary>Duration in seconds of the processing time within Poh</summary>
+    </histogram>
 </group>
 
 <group name="Quic" tile="quic">
@@ -252,10 +264,42 @@ metric introduced.
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
+  <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+    <summary>Duration in seconds of the processing time within Pack</summary>
+  </histogram>
+</group>
 
+<group name="ShredTile" tile="shred">
+  <counter name="SkippedIncomplete" summary="Count of blocks skipped due to incomplete shred set" />
+  <counter name="SkippedBad" summary="Count of blocks skipped due to bad shred set" />
+  <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+    <summary>Duration in seconds of the processing time within Shred</summary>
+  </histogram>
 </group>
 
 <group name="StoreTile" tile="store">
+  <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+    <summary>Duration in seconds of the processing time within Store</summary>
+  </histogram>
+</group>
+
+<group name="NetTile" tile="net">
+  <counter name="UpdateArpFailed" summary="Insert of ARP entry into kernel ARP table failed" />
+  <counter name="ArpProbeTx" summary="Count ARP probe sends" />
+  <counter name="NoRoute" summary="No route to the destination IP was found" />
+  <counter name="PacketsTx" summary="Packets sent via this tile" />
+</group>
+
+<group name="VerifyTile" tile="verify">
+  <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+    <summary>Duration in seconds of the processing time within Verify</summary>
+  </histogram>
+</group>
+
+<group name="DedupTile" tile="dedup">
+  <histogram name="ProcessingTime" min="0" max="0.000100" converter="seconds">
+    <summary>Duration in seconds of the processing time within Dedup</summary>
+  </histogram>
 </group>
 
 </metrics>

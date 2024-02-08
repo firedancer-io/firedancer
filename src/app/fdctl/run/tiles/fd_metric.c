@@ -260,6 +260,12 @@ prometheus_print( fd_topo_t * topo,
   PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_POH, FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
+  PRINT( "\n" );
+  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_NET, FD_METRICS_NET_TOTAL, FD_METRICS_NET, PRINT_TILE );
+  if( FD_UNLIKELY( result<0 ) ) return result;
+  PRINT( "\n" );
+  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_SHRED, FD_METRICS_SHRED_TOTAL, FD_METRICS_SHRED, PRINT_TILE );
+  if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* Now backfill Content-Length */
   int printed = snprintf( content_len, 21, "%lu", start_len - *out_len - content_start );

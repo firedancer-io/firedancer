@@ -45,6 +45,10 @@ init( config_t * const config ) {
   RUN( "ip netns exec %s ip link set dev %s up", interface0, interface0 );
   RUN( "ip netns exec %s ip link set dev %s up", interface1, interface1 );
 
+  /* lo interface isn't (necessarily) up */
+  RUN( "ip netns exec %s ip link set dev lo up", interface0 );
+  RUN( "ip netns exec %s ip link set dev lo up", interface1 );
+
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the virtual interfaces default to one channel total */
   RUN( "nsenter --net=/var/run/netns/%s ethtool --set-channels %s rx %u tx %u",

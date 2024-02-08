@@ -626,6 +626,8 @@ fd_mux_tile( fd_cnc_t *              cnc,
     ulong seq_test =        this_in_mline->seq;
     FD_COMPILER_MFENCE();
 
+    /* TODO histogram over (now - tsorig) here */
+
     int filter = 0;
     if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, &filter );
 

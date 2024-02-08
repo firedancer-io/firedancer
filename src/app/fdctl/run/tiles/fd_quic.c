@@ -69,12 +69,18 @@ typedef struct {
 
   fd_wksp_t * verify_out_mem;
 
+  ulong       tsorig; /* tsorig from the most recent callback */
+
   struct {
     ulong legacy_reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_APPEND_CNT ];
     ulong legacy_reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_NON_QUIC_REASSEMBLY_PUBLISH_CNT ];
 
     ulong reasm_append [ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_APPEND_CNT ];
     ulong reasm_publish[ FD_METRICS_COUNTER_QUIC_TILE_REASSEMBLY_PUBLISH_CNT ];
+
+    /* histograms for processing_time */
+    fd_histf_t frag_processing_time[1];
+    fd_histf_t final_processing_time[1];
   } metrics;
 } fd_quic_ctx_t;
 
@@ -202,6 +208,9 @@ metrics_write( void * _ctx ) {
   FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_APPEND,           ctx->metrics.reasm_append );
   FD_MCNT_ENUM_COPY( QUIC_TILE, REASSEMBLY_PUBLISH,          ctx->metrics.reasm_publish );
 
+  FD_MHIST_COPY( QUIC_TILE, FRAG_PROCESSING_TIME, ctx->metrics.frag_processing_time );
+  FD_MHIST_COPY( QUIC_TILE, FINAL_PROCESSING_TIME, ctx->metrics.final_processing_time );
+
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
   FD_MCNT_SET(   QUIC, SENT_PACKETS,     ctx->quic->metrics.net_tx_pkt_cnt );
@@ -284,6 +293,8 @@ during_frag( void * _ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
   fd_memcpy( ctx->buffer, src, sz ); /* TODO: Eliminate copy... fd_aio needs refactoring */
+
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 }
 
 static void
@@ -423,6 +434,14 @@ quic_stream_receive( fd_quic_stream_t * stream,
 
   int add_err = fd_tpu_reasm_append( reasm, slot, data, data_sz, offset );
   ctx->metrics.reasm_append[ add_err ]++;
+
+
+  /* decompress tsorig, and update metrics with difference from tspub */
+  long tspub_full      = fd_tickcount();
+  long tsref           = tspub_full;
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = tspub_full - tsorig_full;
+  fd_histf_sample( ctx->metrics.frag_processing_time, (ulong)processing_time );
 }
 
 /* quic_stream_notify is called back by the QUIC implementation when a
@@ -468,11 +487,18 @@ quic_stream_notify( fd_quic_stream_t * stream,
   /* Publish message */
 
   ulong  seq   = *mux->seq;
-  uint   tspub = (uint)fd_frag_meta_ts_comp( fd_tickcount() );
+  long   tspub_full = fd_tickcount();
+  uint   tspub = (uint)fd_frag_meta_ts_comp( tspub_full );
   int pub_err = fd_tpu_reasm_publish( reasm, slot, mcache, base, seq, tspub );
   ctx->metrics.reasm_publish[ pub_err ]++;
 
   fd_mux_advance( mux );
+
+  /* decompress tsorig, and update metrics with difference from tspub */
+  long tsref           = tspub_full;
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = tspub_full - tsorig_full;
+  fd_histf_sample( ctx->metrics.final_processing_time, (ulong)processing_time );
 }
 
 static int
@@ -686,6 +712,11 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_histf_join( fd_histf_new( ctx->metrics.frag_processing_time, FD_MHIST_SECONDS_MIN( QUIC_TILE, FRAG_PROCESSING_TIME ),
+                                                                  FD_MHIST_SECONDS_MAX( QUIC_TILE, FRAG_PROCESSING_TIME ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.final_processing_time, FD_MHIST_SECONDS_MIN( QUIC_TILE, FINAL_PROCESSING_TIME ),
+                                                                   FD_MHIST_SECONDS_MAX( QUIC_TILE, FINAL_PROCESSING_TIME ) ) );
 }
 
 static ulong

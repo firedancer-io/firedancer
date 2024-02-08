@@ -198,6 +198,9 @@ typedef struct {
       uchar raw[ 63679UL ]; /* The largest that fits in 1 FEC set */
     };
   } pending_batch;
+
+  /* histogram for processing_time */
+  fd_histf_t processing_time[1];
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -431,12 +434,19 @@ send_shred( fd_shred_ctx_t *      ctx,
 
   ulong pkt_sz = shred_sz + sizeof(eth_ip_udp_t);
 
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  long  tspub_full = fd_tickcount();
+  ulong tspub = fd_frag_meta_ts_comp( tspub_full );
   ulong   sig = fd_disco_netmux_sig( dest->ip4, dest->port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_SHRED, (ushort)0 );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
       pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+
+  /* decompress tsorig and tspub, and update metrics with difference */
+  long tsref           = tspub_full;
+  long tsorig_full     = fd_frag_meta_ts_decomp( tsorig, tsref );
+  long processing_time = tspub_full - tsorig_full;
+  fd_histf_sample( ctx->processing_time, (ulong)processing_time );
 }
 
 static void
@@ -792,6 +802,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_batch.slot           = 0UL;
   fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );
 
+  fd_histf_join( fd_histf_new( ctx->processing_time, FD_MHIST_SECONDS_MIN( SHRED_TILE, PROCESSING_TIME ),
+                                                     FD_MHIST_SECONDS_MAX( SHRED_TILE, PROCESSING_TIME ) ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -821,6 +834,13 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static void
+metrics_write( void * _ctx )
+{
+  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
+  FD_MHIST_COPY( SHRED_TILE, PROCESSING_TIME, ctx->processing_time );
+}
+
 fd_tile_config_t fd_tile_shred = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 4UL,
@@ -828,6 +848,7 @@ fd_tile_config_t fd_tile_shred = {
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

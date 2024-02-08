@@ -418,6 +418,12 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong tsorig;
+
+  struct {
+    fd_histf_t processing_time[1];
+  } metrics;
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -967,6 +973,8 @@ during_frag( void * _ctx,
 
   fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
   if( FD_UNLIKELY( in_idx==ctx->stake_in_idx ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in.chunk0 || chunk>ctx->stake_in.wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
@@ -1163,6 +1171,13 @@ after_frag( void *             _ctx,
   fd_fseq_update( ctx->pack_busy[ target_bank_idx ], ctx->_microblock_trailer->busy_seq );
 
   publish_microblock( ctx, mux, *opt_sig, target_slot, hashcnt_delta, txn_cnt );
+
+  /* decompress tsorig and tspub, and update metrics with difference */
+  long now             = fd_tickcount();
+  long tsref           = now;
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = now - tsorig_full;
+  fd_histf_sample( ctx->metrics.processing_time, (ulong)processing_time );
 }
 
 static void
@@ -1252,6 +1267,16 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_histf_join( fd_histf_new( ctx->metrics.processing_time, FD_MHIST_SECONDS_MIN( POH_TILE, PROCESSING_TIME ),
+                                                             FD_MHIST_SECONDS_MAX( POH_TILE, PROCESSING_TIME ) ) );
+}
+
+static inline void
+metrics_write( void * _ctx ) {
+  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
+
+  FD_MHIST_COPY( POH_TILE, PROCESSING_TIME, ctx->metrics.processing_time );
 }
 
 fd_tile_config_t fd_tile_poh = {
@@ -1262,6 +1287,7 @@ fd_tile_config_t fd_tile_poh = {
   .mux_during_housekeeping  = during_housekeeping,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

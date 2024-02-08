@@ -32,6 +32,8 @@ typedef struct {
   ulong       out_wmark;
   ulong       out_chunk;
 
+  ulong       tsorig;
+
   struct {
     ulong slot_acquire[ 3 ];
 
@@ -39,6 +41,7 @@ typedef struct {
     ulong txn_load[ 38 ];
     ulong txn_executing[ 38 ];
     ulong txn_executed[ 38 ];
+    fd_histf_t processing_time[1];
   } metrics;
 } fd_bank_ctx_t;
 
@@ -74,6 +77,7 @@ metrics_write( void * _ctx ) {
   FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_EXECUTING,  ctx->metrics.txn_executing );
   FD_MCNT_ENUM_COPY( BANK_TILE, TRANSACTION_EXECUTED,  ctx->metrics.txn_executed );
 
+  FD_MHIST_COPY( BANK_TILE, PROCESSING_TIME, ctx->metrics.processing_time );
 }
 
 static void
@@ -137,6 +141,8 @@ during_frag( void * _ctx,
   (void)opt_filter;
 
   fd_bank_ctx_t * ctx = (fd_bank_ctx_t *)_ctx;
+
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark || sz!=sizeof(fd_became_leader_t) ) ) {
@@ -272,7 +278,8 @@ after_frag( void *             _ctx,
      so there's always 64 extra bytes at the end to stash the pointer. */
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  long tspub_full = fd_tickcount();
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( tspub_full );
   ulong sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   trailer->abi_txns = ctx->txn_abi_mem;
@@ -281,6 +288,12 @@ after_frag( void *             _ctx,
   trailer->busy_seq = seq;
   fd_mux_publish( mux, *opt_sig, ctx->out_chunk, sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sz, ctx->out_chunk0, ctx->out_wmark );
+
+  /* decompress tsorig and tspub, and update metrics with difference */
+  long tsref           = tspub_full;
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = tspub_full - tsorig_full;
+  fd_histf_sample( ctx->metrics.processing_time, (ulong)processing_time );
 }
 
 static void
@@ -320,6 +333,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+  fd_histf_join( fd_histf_new( ctx->metrics.processing_time, FD_MHIST_SECONDS_MIN( BANK_TILE, PROCESSING_TIME ),
+                                                             FD_MHIST_SECONDS_MAX( BANK_TILE, PROCESSING_TIME ) ) );
 }
 
 fd_tile_config_t fd_tile_bank = {
