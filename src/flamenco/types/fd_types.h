@@ -214,17 +214,10 @@ typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 #define FD_SOLANA_ACCOUNT_META_FOOTPRINT sizeof(fd_solana_account_meta_t)
 #define FD_SOLANA_ACCOUNT_META_ALIGN (8UL)
 
-struct __attribute__((packed)) fd_solana_account_fd_hash {
-  uchar value[32];
-};
-typedef struct fd_solana_account_fd_hash fd_solana_account_fd_hash_t;
-#define FD_SOLANA_ACCOUNT_FD_HASH_FOOTPRINT sizeof(fd_solana_account_fd_hash_t)
-#define FD_SOLANA_ACCOUNT_FD_HASH_ALIGN (8UL)
-
 struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
-  fd_solana_account_fd_hash_t hash;
+  fd_hash_t hash;
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)

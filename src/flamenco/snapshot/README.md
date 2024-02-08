@@ -60,6 +60,69 @@ specified in the manifest file.
 - Firedancer currently only includes each account once.
 - Firedancer currently always sets the account vec slot number to `0`.
 
+### Pitfalls
+
+When loading snapshots there are surprisingly many edge cases.
+
+- A snapshot MAY contain different revisions of the same account.
+  Revisions are ordered by the "slot" field of the account .
+- Revisions of accounts MAY appear out of order (you may see a record
+  at a high slot number first, then at a low slot number).
+- A snapshot with two accounts at the same slot MUST be rejected by the
+  loader.
+- The "deleted"/"dead" state of an account also counts as a revision.
+  In order to handle this correctly, the snapshot represents deleted
+  accounts as accounts with most fields zero (see fd_acc_exists for a
+  definition of what it means for an account to exist or be deleted).  A
+  correct loader MUST remember that an account was deleted after loading
+  it because it might see an older, still existing revision of it in the
+  future.
+- The loader MUST reject snapshots that contain an account revision
+  with the "slot" number greater than the slot the snapshot was taken
+  at.  (The latter is available in the bank fields of the manifest)
+- The producer SHOULD NOT set the "slot" number of an account revision
+  lower the actual slot number than this revision was created at.
+  The loader SHOULD NOT assume that the producer behaved correctly in
+  this regard because it can't verify the actual slot number the
+  revision was created at.
+- An account vec MAY have trailing "garbage" data.  The file content
+  itself is not indicative where this trailing data starts.  Often, it
+  looks deceivingly like a valid account header.  As mentioned above,
+  consult the manifest for the "real" manifest size to understand where
+  the garbage data starts.  The producer SHOULD NOT generate a garbage
+  region.  (The only reason it exists is because Solana Labs snapshot
+  production is written poorly)
+- There is padding between accounts so that each account header is
+  aligned by 8 bytes.  It is unclear whether padding is allowed after
+  the last account in an AppendVec but _before_ the garbage data.
+  The loader SHOULD gracefully handle trailing padding.  The producer
+  SHOULD NOT insert padding between the last account and the garbage
+  data.
+  ```
+  +----------------+  <-- start of AppendVec
+  | account header |
+  +----------------+
+  | account data   |
+  +----------------+
+  | padding        |  <-- this edge case
+  +----------------+  <-- end of file (according to bank manifest)
+  | garbage        |
+  +----------------+  <-- end of file (according to tar/file system)
+  ```
+- The snapshot manifest is unbounded.  You might run out of memory given
+  a crafted snapshot.  Either while loading a snapshot, or some
+  arbitrary time afterwards during a spike of allocations in epoch
+  context data.  Don't forget to check that you have enough memory to
+  handle any additional slot context data _after_ loading a snapshot.
+- Parts of the snapshot manifest are not verifiable immediately.
+  The snapshot only includes an account hash.  A malicious snapshot
+  could pass account hash verification but insert malicious data that
+  is only detected after some arbitrary number of epochs (during the
+  epoch account hash calculation).  Validator implementations should
+  make it clear to users that snapshots should be treated "trust on
+  first use" style, i.e. use a snapshot from a local source whenever
+  possible.
+
 ## Snapshot Restore
 
 Snapshot loading is currently single-threaded in Firedancer.

@@ -205,21 +205,13 @@
       ]
     },
     {
-      "name": "solana_account_fd_hash",
-      "attribute": "((packed))",
-      "type": "struct",
-      "fields": [
-        { "name": "value", "type": "uchar[32]" }
-      ]
-    },
-    {
       "name": "solana_account_hdr",
       "attribute": "((packed, aligned(8UL)))",
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
         { "name": "info", "type": "solana_account_meta" },
-        { "name": "hash", "type": "solana_account_fd_hash" }
+        { "name": "hash", "type": "hash" }
       ]
     },
     {
