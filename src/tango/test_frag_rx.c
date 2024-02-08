@@ -194,7 +194,7 @@ main( int     argc,
     /* Already loaded into registers as part of the wait */
 
 #   elif WAIT_STYLE==0
- 
+
     ulong sig    = (ulong)meta->sig;
     ulong chunk  = (ulong)meta->chunk;
     ulong sz     = (ulong)meta->sz;

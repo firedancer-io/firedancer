@@ -1,6 +1,6 @@
 #include "fd_tango.h"
 
-#if FD_HAS_HOSTED && FD_HAS_AVX
+#if FD_HAS_HOSTED
 
 #define RX_MAX (128UL) /* Max _reliable_ (arb unreliable) */
 
@@ -166,9 +166,9 @@ main( int     argc,
       now = fd_tickcount();
       continue;
     }
-    
+
     /* We are not backpressured, so send metadata with a test pattern */
-    
+
     ulong sig    =                seq;
     ulong chunk  = (ulong)(uint  )seq;
     ulong sz     = (ulong)(ushort)seq;
@@ -220,7 +220,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_AVX capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capability" ));
   fd_halt();
   return 0;
 }

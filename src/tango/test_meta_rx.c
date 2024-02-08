@@ -1,6 +1,6 @@
 #include "fd_tango.h"
 
-#if FD_HAS_HOSTED && FD_HAS_AVX
+#if FD_HAS_HOSTED
 
 static uchar fseq_mem[ FD_FSEQ_FOOTPRINT ] __attribute__((aligned(FD_FSEQ_ALIGN)));
 
@@ -239,7 +239,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_AVX capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED capability" ));
   fd_halt();
   return 0;
 }

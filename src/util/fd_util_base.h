@@ -190,6 +190,14 @@
 #define FD_HAS_AESNI 0
 #endif
 
+/* FD_HAS_ARM:  If the build target supports armv8-a specific features
+   and can benefit from aarch64 specific optimizations, define
+   FD_HAS_ARM. */
+
+#ifndef FD_HAS_ARM
+#define FD_HAS_ARM 0
+#endif
+
 /* FD_HAS_COVERAGE indicates that the build target is built with coverage instrumentation. */
 
 #ifndef FD_HAS_COVERAGE
@@ -660,7 +668,11 @@ fd_type_pun_const( void const * p ) {
    MFENCE (and vice versa).  The processor itself might still reorder
    around the fence though (that requires platform specific fences). */
 
+#if FD_HAS_ARM
+#define FD_COMPILER_MFENCE() __asm__ __volatile__( "dmb ish" ::: "memory" )  /* slow */
+#else
 #define FD_COMPILER_MFENCE() __asm__ __volatile__( "# FD_COMPILER_MFENCE()@" FD_SRC_LOCATION ::: "memory" )
+#endif
 
 /* FD_SPIN_PAUSE():  Yields the logical core of the calling thread to
    the other logical cores sharing the same underlying physical core for
@@ -1031,6 +1043,8 @@ fd_hash_memcpy( ulong                    seed,
 #ifndef FD_TICKCOUNT_STYLE
 #if FD_HAS_X86 /* Use RDTSC */
 #define FD_TICKCOUNT_STYLE 1
+#elif FD_HAS_ARM /* Use CNTVCT_EL0 */
+#define FD_TICKCOUNT_STYLE 2
 #else /* Use portable fallback */
 #define FD_TICKCOUNT_STYLE 0
 #endif
@@ -1075,6 +1089,22 @@ fd_hash_memcpy( ulong                    seed,
    will have appropriate permissions when deployed. */
 
 #define fd_tickcount() ((long)__builtin_ia32_rdtsc())
+
+#elif FD_TICKCOUNT_STYLE==2 /* armv8 (fast) */
+
+/* fd_tickcount (ARM):  Placeholder, may return incorrect results. */
+
+static inline long
+fd_tickcount( void ) {
+  /* consider using 'isb' */
+  ulong value;
+  __asm__ __volatile__ (
+    "isb\n"
+    "mrs %0, cntvct_el0\n"
+    "nop"
+    : "=r" (value) );
+  return (long)value;
+}
 
 #else
 #error "Unknown FD_TICKCOUNT_STYLE"

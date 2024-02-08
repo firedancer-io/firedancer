@@ -60,8 +60,8 @@ $(call map-define,FD_HAS_X86, __x86_64__)
 $(call map-define,FD_HAS_SSE, __SSE4_2__)
 $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
-$(call map-define,FD_IS_X86_64, __x86_64__)
 $(call map-define,FD_HAS_AESNI, __AES__)
+$(call map-define,FD_HAS_ARM, __aarch64__)
 
 # Older version of GCC (<10) don't fully support AVX512, so we disable
 # it in those cases. Older versions of Clang (<8) don't support it
@@ -82,7 +82,7 @@ ifdef FD_HAS_THREADS
 include config/extra/with-threads.mk
 endif
 
-ifdef FD_IS_X86_64
+ifdef FD_HAS_X86
 include config/extra/with-x86-64.mk
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
 $(info Using FD_HAS_AVX=$(FD_HAS_AVX))

@@ -416,10 +416,12 @@ main( int     argc,
 
   /* Test fd_tickcount (FIXME: TEST MORE THAN MONOTONICITY?) */
 
-  long tic = fd_tickcount();
+  long  tic     = fd_tickcount();
+  ulong stutter = 0UL;
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     long toc = fd_tickcount();
-    FD_TEST( (toc - tic) > 0L );
+    stutter = fd_ulong_if( toc==tic, stutter+1UL, 0UL );
+    FD_TEST( ( (toc - tic) >= 0L ) & ( stutter<16UL ) );
     tic = toc;
   }
 
