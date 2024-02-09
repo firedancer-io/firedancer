@@ -12,7 +12,7 @@
 
 #define FD_PACK_ALIGN     (128UL)
 
-#define FD_PACK_MAX_BANK_TILES 63UL
+#define FD_PACK_MAX_BANK_TILES 62UL
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
@@ -134,16 +134,17 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
 #define FD_PACK_INSERT_REJECT_PRIORITY        (-1)
 #define FD_PACK_INSERT_REJECT_DUPLICATE       (-2)
 #define FD_PACK_INSERT_REJECT_UNAFFORDABLE    (-3)
-#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-4)
-#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-5)
-#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-6)
-#define FD_PACK_INSERT_REJECT_FULL            (-7)
+#define FD_PACK_INSERT_REJECT_EXPIRED         (-4)
+#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-5)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-6)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-7)
+#define FD_PACK_INSERT_REJECT_FULL            (-8)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF  7
-#define FD_PACK_INSERT_RETVAL_CNT 11
+#define FD_PACK_INSERT_RETVAL_OFF  8
+#define FD_PACK_INSERT_RETVAL_CNT 12
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -164,15 +165,22 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
    The caller of these methods should not retain any read or write
    interest in the transaction after _fini or _cancel have been called.
 
+   expires_at (for _fini only) bounds the lifetime of the inserted
+   transaction.  No particular unit is prescribed, and it need not be
+   higher than the previous call to txn_fini.  If fd_pack_expire_before
+   has been previously called with a value larger (strictly) than the
+   provided expires_at, the transaction will be rejected with EXPIRED.
+   See fd_pack_expire_before for more details.
+
    pack must be a local join of a pack object.  From the caller's
    perspective, these functions cannot fail, though pack may reject a
    transaction for a variety of reasons.  fd_pack_insert_txn_fini
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                   );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
+fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn, ulong expires_at );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn                   );
 
 
 /* fd_pack_schedule_next_microblock schedules transactions to form a
@@ -200,6 +208,13 @@ ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float
    permits the scheduling of transactions that conflict with the
    previously scheduled microblock. */
 void fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
+
+/* fd_pack_expire_before deletes all available transactions with
+   expires_at values strictly less than expire_before.  pack must be a
+   local join of a pack object.  Retruns the number of transactions
+   deleted.  Subsequent calls to fd_pack_expire_before with the same or
+   a smaller value are no-ops. */
+ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
 
 /* fd_pack_delete_txn removes a transaction (identified by its first
    signature) from the pool of available transactions.  Returns 1 if the

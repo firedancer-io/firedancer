@@ -25,7 +25,8 @@
 /* Right now with no batching in pack, we want to make sure we don't
    produce more than about 800 microblocks.  Setting this to 2ms gives
    us about 200 microblocks per bank. */
-#define MICROBLOCK_DURATION_NS (2L*1000L*1000L)
+#define MICROBLOCK_DURATION_NS  (2L*1000L*1000L)
+#define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
 
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
@@ -194,6 +195,8 @@ after_credit( void *             _ctx,
   for( ulong i=0UL; i<ctx->out_cnt; i++ ) {
     if( FD_LIKELY( (fd_fseq_query( ctx->out_current[i] )==ctx->out_expect[i]) & (ctx->out_ready_at[i]<now) ) ) { /* optimize for the case we send a microblock */
       fd_pack_microblock_complete( ctx->pack, i );
+      /* TODO: record metrics for expire */
+      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)(fd_log_wallclock()-LONG_MIN), TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       long schedule_duration = -fd_tickcount();
@@ -235,7 +238,7 @@ during_frag( void * _ctx,
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) {
-      /* Not interested in shreds, only leader updates. */
+      /* Not interested in stamped microblocks, only leader updates. */
       *opt_filter = 1;
       return;
     }
@@ -341,7 +344,7 @@ after_frag( void *             _ctx,
   } else {
     /* Normal transaction case */
     long insert_duration = -fd_tickcount();
-    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot );
+    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)(fd_log_wallclock()-LONG_MIN) );
     insert_duration      += fd_tickcount();
     ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
     fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );

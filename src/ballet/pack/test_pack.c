@@ -180,7 +180,7 @@ insert( ulong i,
   fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ] );
   fd_memcpy( TXN(slot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-  fd_pack_insert_txn_fini( pack, slot );
+  fd_pack_insert_txn_fini( pack, slot, i );
 }
 
 static void
@@ -397,6 +397,60 @@ test_delete( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
+static void
+test_expiration( void ) {
+  ulong i = 0UL;
+  FD_LOG_NOTICE(( "TEST EXPIRATION" ));
+  fd_pack_t * pack = init_all( 10240UL, 4UL, 128UL, &outcome );
+
+  make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
+  make_transaction( i, 700U, 11.0, "C", "D" ); insert( i++, pack );
+  make_transaction( i, 600U, 10.0, "E", "F" ); insert( i++, pack );
+  make_transaction( i, 500U,  9.0, "G", "H" ); insert( i++, pack );
+  make_transaction( i, 400U,  8.0, "I", "J" ); insert( i++, pack );
+  make_transaction( i, 300U,  7.0, "K", "L" ); insert( i++, pack );
+
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 6UL );
+
+  FD_TEST( fd_pack_expire_before( pack, 2UL ) == 2UL ); /* expire 0, 1 */
+
+  fd_ed25519_sig_t const * sig1 = fd_txn_get_signatures( (fd_txn_t *)txn_scratch[1], payload_scratch[1] );
+  /* transaction 1 was expired, so now deleting it fails */
+  FD_TEST( !fd_pack_delete_transaction( pack, sig1 ) );
+
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
+
+  schedule_validate_microblock( pack, 300000UL, 0.0f, 4UL, 0UL, 0UL, &outcome );
+
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+
+  FD_TEST( fd_pack_expire_before( pack, 10UL ) == 0UL );
+
+  /* These 4 get rejected because they are expired */
+  make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
+  make_transaction( i, 700U, 11.0, "C", "D" ); insert( i++, pack );
+  make_transaction( i, 600U, 10.0, "E", "F" ); insert( i++, pack );
+  make_transaction( i, 500U,  9.0, "G", "H" ); insert( i++, pack );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+
+  make_transaction( i, 500U,  9.0, "A", "H" ); insert( i++, pack );
+  make_transaction( i, 400U,  8.0, "A", "J" ); insert( i++, pack );
+  make_transaction( i, 300U,  7.0, "A", "L" ); insert( i++, pack );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
+
+  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0UL, 1UL, &outcome );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 2UL );
+  /* Even though txn 10 is expired, it was already scheduled, so account
+     A is still in use. */
+  FD_TEST( fd_pack_expire_before( pack, 12UL ) == 1UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 1UL );
+  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0UL, 1UL, &outcome );
+  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, 0UL, 0UL, &outcome );
+
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+}
+
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
@@ -456,7 +510,7 @@ void performance_test( int extra_bench ) {
         fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-        fd_pack_insert_txn_fini( pack, slot );
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) insert   += fd_log_wallclock( );
 
@@ -501,7 +555,7 @@ void performance_test( int extra_bench ) {
         fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-        fd_pack_insert_txn_fini( pack, slot );
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
@@ -528,7 +582,7 @@ void performance_test( int extra_bench ) {
         fd_memcpy( slot->payload, payload_scratch[ j&1 ], payload_sz[ j&1 ]                                              );
         fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-        fd_pack_insert_txn_fini( pack, slot );
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
       }
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
@@ -575,7 +629,7 @@ void heap_overflow_test( void ) {
     fd_memcpy( slot->payload, payload_scratch[ j ], payload_sz[ j ]                                                );
     fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_txn_fini( pack, slot );
+    fd_pack_insert_txn_fini( pack, slot, 0UL );
   }
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 
@@ -590,7 +644,7 @@ void heap_overflow_test( void ) {
     fd_memcpy( slot->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
     fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
-    fd_pack_insert_txn_fini( pack, slot );
+    fd_pack_insert_txn_fini( pack, slot, 0UL );
   }
 
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
@@ -800,6 +854,7 @@ main( int     argc,
   test_vote();
   heap_overflow_test();
   test_delete();
+  test_expiration();
   test_gap();
   test_limits();
   test_reject_writes_to_sysvars();
