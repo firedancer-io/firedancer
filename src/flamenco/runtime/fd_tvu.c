@@ -660,6 +660,23 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   }
 
   /**********************************************************************/
+  /* Solcap                                                             */
+  /**********************************************************************/
+  
+  runtime_ctx->capture_file = NULL;
+  if( args->capture_fpath ) {
+    runtime_ctx->capture_file = fopen( args->capture_fpath, "w+" );
+    if( FD_UNLIKELY( !runtime_ctx->capture_file ) )
+      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", args->capture_fpath, errno, strerror( errno ) ));
+
+    void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+    FD_TEST( capture_ctx_mem );
+    runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+
+    FD_TEST( fd_solcap_writer_init( runtime_ctx->capture_ctx->capture, runtime_ctx->capture_file ) );
+  }
+
+  /**********************************************************************/
   /* Blockstore                                                         */
   /**********************************************************************/
 
@@ -997,6 +1014,13 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_tvu_repair_ctx_t * repair_
 #ifdef FD_HAS_LIBMICROHTTP
   if( tvu_args->rpc_ctx ) fd_rpc_stop_service( tvu_args->rpc_ctx );
 #endif
+
+  if( tvu_args->capture_file != NULL) {
+    fd_solcap_writer_fini( tvu_args->capture_ctx->capture );
+    fd_valloc_free( tvu_args->slot_ctx->valloc, fd_capture_ctx_delete( tvu_args->capture_ctx ) );
+    fclose( tvu_args->capture_file );
+  }
+
   fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
 
   fd_replay_t * replay = repair_ctx->replay;

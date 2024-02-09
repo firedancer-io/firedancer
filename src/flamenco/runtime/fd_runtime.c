@@ -1372,8 +1372,9 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
 }
 
 int
-fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *slot_ctx,
-                                         fd_block_info_t const *block_info,
+fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                         fd_capture_ctx_t * capture_ctx,
+                                         fd_block_info_t const * block_info,
                                          fd_tpool_t * tpool,
                                          ulong max_workers ) {
   fd_sysvar_slot_history_update(slot_ctx);
@@ -1381,10 +1382,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_update_hash_bank_tpool(slot_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
-  // int result = fd_update_hash_bank(slot_ctx, NULL, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt);
-  // (void)tpool;
-  // (void)max_workers;
+  int result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
   if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
     return result;
@@ -1457,7 +1455,7 @@ int fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  res = fd_runtime_block_execute_finalize_tpool( slot_ctx, block_info, tpool, max_workers );
+  res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, max_workers );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
@@ -1471,10 +1469,10 @@ int fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
-                                    fd_capture_ctx_t * capture_ctx FD_PARAM_UNUSED,
-                                    fd_block_info_t const * block_info,
-                                    fd_tpool_t * tpool,
-                                    ulong max_workers ) {
+                                       fd_capture_ctx_t * capture_ctx FD_PARAM_UNUSED,
+                                       fd_block_info_t const * block_info,
+                                       fd_tpool_t * tpool,
+                                       ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
     long block_execute_time = -fd_log_wallclock();
 
@@ -1495,7 +1493,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     long block_finalize_time = -fd_log_wallclock();
-    res = fd_runtime_block_execute_finalize_tpool( slot_ctx, block_info, tpool, max_workers );
+    res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, max_workers );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }

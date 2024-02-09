@@ -304,10 +304,12 @@ main( int     argc,
         FD_TEST( capture_ctx_mem );
         capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-        // FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
+        FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
       }
 
-      // fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
+      if( capture_ctx != NULL ) {
+        fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
+      }
 
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )

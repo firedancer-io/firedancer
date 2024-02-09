@@ -73,6 +73,7 @@ struct fd_runtime_ctx {
 #endif
 
   // random crap
+  FILE *                 capture_file;
   fd_capture_ctx_t *     capture_ctx;
   fd_wksp_t           * local_wksp;
   ulong                  max_workers;
