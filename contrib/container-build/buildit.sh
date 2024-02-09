@@ -66,7 +66,7 @@ fi
 
 
 
-$DOCKER image exists fdbuilder_${PLATFORM}:$IMAGETAG || $DOCKER build $([ -n BASE_IMAGE ] && echo "--build-arg=BASE_IMAGE=${BASE_IMAGE}") -f Dockerfile.${PLATFORM} -t fdbuilder_${PLATFORM}:$IMAGETAG -t fdbuilder_${PLATFORM}:latest .
+$DOCKER image exists fdbuilder_${PLATFORM}:$IMAGETAG || $DOCKER build $([ -n "$BASE_IMAGE" ] && echo "--build-arg=BASE_IMAGE=${BASE_IMAGE}") -f Dockerfile.${PLATFORM} -t fdbuilder_${PLATFORM}:$IMAGETAG -t fdbuilder_${PLATFORM}:latest .
 
 $DOCKER run --rm \
         --volume "$OUTDIR:/build/out:Z" \
