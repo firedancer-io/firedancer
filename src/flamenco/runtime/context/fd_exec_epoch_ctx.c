@@ -16,8 +16,8 @@ fd_exec_epoch_ctx_new( void * mem ) {
 
   fd_exec_epoch_ctx_t * self = (fd_exec_epoch_ctx_t *) mem;
 
-  // all features are disabled by default.
   fd_features_disable_all(&self->features);
+  fd_features_enable_defaults(&self->features);
 
   fd_epoch_bank_new(&self->epoch_bank);
 

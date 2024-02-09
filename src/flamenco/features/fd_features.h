@@ -43,6 +43,7 @@ typedef union fd_features fd_features_t;
 struct fd_feature_id {
   ulong       index;  /* index of feature in fd_features_t */
   fd_pubkey_t id;     /* pubkey of feature */
+  uchar       default_activated; /* whether the feature is activated by default or not. features which have been removed by Solana are activated by default. */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
@@ -61,6 +62,11 @@ fd_features_disable_all( fd_features_t * f );
 
 void
 fd_features_enable_all( fd_features_t * );
+
+/* fd_features_enable_defaults enables all features that are activated
+   by default (those in the hard-coded list in gen_features.py) */
+void
+fd_features_enable_defaults( fd_features_t * );
 
 /* fd_feature_iter_{...} is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:

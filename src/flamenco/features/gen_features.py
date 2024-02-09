@@ -9,9 +9,38 @@ import argparse
 import json
 from pathlib import Path
 import struct
-
 from base58 import b58decode
 
+# The list of all feature names whose implementation has been removed from the Solana source code, and which therefore should default to enabled
+REMOVED_FEATURES = [
+    # 'account_hash_ignore_slot',
+    'enable_early_verification_of_account_modifications',
+    'cap_bpf_program_instruction_accounts',
+    'disable_builtin_loader_ownership_chains',
+    'limit_max_instruction_trace_length',
+    'delay_visibility_of_program_deployment',
+    'check_slice_translation_size',
+    'move_serialized_len_ptr_in_cpi',
+    'enable_program_redeployment_cooldown',
+    'libsecp256k1_0_5_upgrade_enabled',
+    'dedupe_config_program_signers',
+    'system_transfer_zero_check',
+    'disable_cpi_setting_executable_and_rent_epoch',
+    'require_custodian_for_locked_stake_authorize',
+    'vote_stake_checked_instructions',
+    'no_overflow_rent_distribution',
+    'stake_merge_with_unmatched_credits_observed',
+    'remove_deprecated_request_unit_ix',
+    'cap_transaction_accounts_data_size',
+    # 'epoch_accounts_hash',
+    'checked_arithmetic_in_fee_validation',
+    'prevent_rent_paying_rent_recipients',
+    'add_set_tx_loaded_accounts_data_size_instruction',
+    'native_programs_consume_cu',
+    'stop_sibling_instruction_search_at_parent',
+    'remove_bpf_loader_incorrect_program_id',
+    'stop_truncating_strings_in_syscalls'
+]
 
 def generate(feature_map_path, header_path, body_path):
     with open(feature_map_path, "r") as json_file:
@@ -81,12 +110,25 @@ fd_features_disable_all( fd_features_t * f ) {{
   }}
 }}
 
+void
+fd_features_enable_defaults( fd_features_t * f ) {{
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+    !fd_feature_iter_done( id );
+    id = fd_feature_iter_next( id ) ) {{
+      if ( id->default_activated == 1) {{
+        fd_features_set( f, id, 0UL );
+      }}
+    }}
+}}
+
 fd_feature_id_t const ids[] = {{
 {
     chr(0xa).join([
     f'''  {{ .index  = offsetof(fd_features_t, {x["name"]})>>3,
     .id     = {{{pubkey_to_c_array(x["pubkey"])}}}
-              /* {x["pubkey"]} */ }},
+              /* {x["pubkey"]} */ ,
+    .default_activated = {1 if x["name"] in REMOVED_FEATURES else 0}
+              }},
 '''
     for x in fm
     ])
