@@ -20,6 +20,9 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+      - name: really make sure fddev is not running
+        run: |
+          sudo killall fddev || true
       - uses: ./.github/actions/hugepages
 
       - name: build
