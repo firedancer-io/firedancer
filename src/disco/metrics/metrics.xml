@@ -26,13 +26,14 @@ metric introduced.
 </enum>
 
 <enum name="PackTxnInsertReturn">
-  <int value="-7" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
-  <int value="-6" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
-  <int value="-5" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
-  <int value="-4" name="TooLarge" label="Transaction requests too many CUs" />
+  <int value="-8" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
+  <int value="-7" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+  <int value="-6" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-5" name="TooLarge" label="Transaction requests too many CUs" />
+  <int value="-4" name="Expired" label="Transaction already expired" />
   <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
   <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
-  <int value="-1" name="Priority" label="Transaction's fee was too low given it's compute unit requirement and other competing transactions" />
+  <int value="-1" name="Priority" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
   <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
   <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
   <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
