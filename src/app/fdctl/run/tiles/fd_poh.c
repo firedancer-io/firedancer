@@ -44,21 +44,35 @@
    leader is malicious, and says the past thousand leaders crashed, and
    there have been no transactions for days?  How do you check?
 
-   This is what Proof of History attempts to solve.  Each bank in the
-   network must constantly do a lot of busywork (compute hashes), even
-   when it is not leader.
+   This is what Proof of History solves.  Each bank in the network must
+   constantly do a lot of busywork (compute hashes), even when it is not
+   leader.
 
    If the prior thousand leaders crashed, and no transactions happened
    in an hour, the new leader would have to show they did about an hour
    of busywork for everyone else to believe them.
 
-   It's highly theoretical.  For one thing, some banks have really fast
-   computers and can compute a lot of busywork in a short amount of
-   time.  The network is mostly defended against this because all the
-   banks talk to each other, and it's obvious if one of them did not
-   finish.  And if there's a disagreement, the network has a process for
-   adjudicating who is right (fork selection) that will do the right
-   thing as well.
+   A better name for this is proof of skipping.  If a leader is skipping
+   slots (building off of a slot that is not the direct parent), it must
+   prove that it waited a good amount of time to do so.
+
+   It's not a perfect solution.  For one thing, some banks have really
+   fast computers and can compute a lot of busywork in a short amount of
+   time, allowing them to skip prior slot(s) anyway.  But: there is a
+   social component that prevents validators from skipping the prior
+   leader slot.  It is easy to detect when this happens and the network
+   could respond by ignoring their votes or stake.
+
+   You could come up with other schemes: for example, the network could
+   just use wall clock time.  If a new leader publishes a block without
+   waiting 400 milliseconds for the prior slot to complete, then there
+   is no "proof of skipping" and the nodes ignore the slot.
+
+   These schemes have a problem in that they are not deterministic
+   across the network (different computers have different clocks), and
+   so they will cause frequent forks which are very expensive to
+   resolve.  Even though the proof of history scheme is not perfect,
+   it is better than any alternative which is not deterministic.
 
    With all that background, we can now describe at a high level what
    this PoH tile actually does,
@@ -89,11 +103,13 @@
 
     Some particularly common misunderstandings:
 
-     - PoH is important to security.
+     - PoH is critical to security.
 
        This largely isn't true.  The target hash rate of the network is
        so slow (1 hash per 500 nanoseconds) that a malicious leader can
-       easily catch up if they start from an old hash.
+       easily catch up if they start from an old hash, and the only
+       practical attack prevented is the proof of skipping.  Most of the
+       long range attacks in the Solana whitepaper are not relevant.
 
      - PoH keeps passage of time.
 
@@ -114,6 +130,19 @@
        in particular, hold all received transactions for 400
        milliseconds and then reorder and publish some right at the end
        to advantage certain transactions.
+
+    You might be wondering... if all the PoH chain is helping us do is
+    prove that slots were skipped correctly, why do we need to "mix in"
+    transactions to the hash value?  Or do anything at all for slots
+    where we don't skip the prior slot?
+
+    It's a good question, and the answer is that this behavior is not
+    necessary.  An ideal implementation of PoH have no concept of ticks
+    or mixins, and would not be part of the TPU pipeline at all.
+    Instead, there would be a simple field "skip_proof" on the last
+    shred we send for a slot, the hash(hash(...)) value.  This field
+    would only be filled in (and only verified by replayers) in cases
+    where the slot actually skipped a parent.
 
     Then what is the "clock?  In Solana, time is constructed as follows:
 
