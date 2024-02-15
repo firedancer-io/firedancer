@@ -677,11 +677,11 @@ fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
   long carry5 = (h5 + (1L << 24)) >> 25;
   long carry7 = (h7 + (1L << 24)) >> 25;
 
-  h0 += carry9 * 19L; h9 -= carry9 << 25;
-  h2 += carry1;       h1 -= carry1 << 25;
-  h4 += carry3;       h3 -= carry3 << 25;
-  h6 += carry5;       h5 -= carry5 << 25;
-  h8 += carry7;       h7 -= carry7 << 25;
+  h0 += carry9 * 19L; h9 -= fd_long_shift_left(carry9, 25);
+  h2 += carry1;       h1 -= fd_long_shift_left(carry1, 25);
+  h4 += carry3;       h3 -= fd_long_shift_left(carry3, 25);
+  h6 += carry5;       h5 -= fd_long_shift_left(carry5, 25);
+  h8 += carry7;       h7 -= fd_long_shift_left(carry7, 25);
 
   long carry0 = (h0 + (1L << 25)) >> 26;
   long carry2 = (h2 + (1L << 25)) >> 26;
@@ -689,11 +689,11 @@ fd_ed25519_fe_mul121666( fd_ed25519_fe_t *       h,
   long carry6 = (h6 + (1L << 25)) >> 26;
   long carry8 = (h8 + (1L << 25)) >> 26;
 
-  h1 += carry0;       h0 -= carry0 << 26;
-  h3 += carry2;       h2 -= carry2 << 26;
-  h5 += carry4;       h4 -= carry4 << 26;
-  h7 += carry6;       h6 -= carry6 << 26;
-  h9 += carry8;       h8 -= carry8 << 26;
+  h1 += carry0;       h0 -= fd_long_shift_left(carry0, 26);
+  h3 += carry2;       h2 -= fd_long_shift_left(carry2, 26);
+  h5 += carry4;       h4 -= fd_long_shift_left(carry4, 26);
+  h7 += carry6;       h6 -= fd_long_shift_left(carry6, 26);
+  h9 += carry8;       h8 -= fd_long_shift_left(carry8, 26);
 
   h->limb[0] = (int)h0; h->limb[1] = (int)h1;
   h->limb[2] = (int)h2; h->limb[3] = (int)h3;
