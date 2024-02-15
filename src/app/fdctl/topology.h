@@ -108,6 +108,11 @@
 #define FD_TOPO_TILE_KIND_TVU    (12UL)
 #define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_TVU+1 ) /* Keep updated with maximum tile IDX */
 
+#define FD_TOPO_KIND_TVU            (0UL)
+#define FD_TOPO_KIND_FIREDANCER     (1UL)
+#define FD_TOPO_KIND_FRANKENDANCER  (2UL)
+#define FD_TOPO_KIND_MAX            ( FD_TOPO_KIND_FRANKENDANCER+1 )
+
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */

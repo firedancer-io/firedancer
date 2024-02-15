@@ -3,6 +3,7 @@
 
 #include "../fdctl.h"
 #include "tiles/tiles.h"
+#include "topos/topos.h"
 
 #include "../../../tango/xdp/fd_xsk.h"
 

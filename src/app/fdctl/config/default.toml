@@ -54,6 +54,8 @@ scratch_directory = "/home/{user}/.firedancer/{name}"
 # NOT overlap with any of the static ports used by Firedancer below.
 dynamic_port_range = "18900-19000"
 
+topology = "tvu"
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not

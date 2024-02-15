@@ -400,7 +400,7 @@ fd_tile_config_t fd_tile_tvu = {
 };
 
 static int
-doit() {
+doit( void ) {
   fd_runtime_ctx_t runtime_ctx;
   memset(&runtime_ctx, 0, sizeof(runtime_ctx));
 
