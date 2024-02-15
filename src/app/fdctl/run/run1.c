@@ -129,11 +129,11 @@ tile_main( void * _args ) {
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
 
+    in_mcache[ polled_in_cnt ] = args->config->topo.links[ tile->in_link_id[ i ] ].mcache;
+    FD_TEST( in_mcache[ polled_in_cnt ] );
+    in_fseq[ polled_in_cnt ]   = tile->in_link_fseq[ i ];
+    FD_TEST( in_fseq[ polled_in_cnt ] );
     polled_in_cnt += 1;
-    in_mcache[ i ] = args->config->topo.links[ tile->in_link_id[ i ] ].mcache;
-    FD_TEST( in_mcache[ i ] );
-    in_fseq[ i ]   = tile->in_link_fseq[ i ];
-    FD_TEST( in_fseq[ i ] );
   }
 
   ulong out_cnt_reliable = 0;
