@@ -264,6 +264,37 @@ main( int     argc,
 
   FD_TEST( fd_rng_delete( shrng )==_rng );
 
+# if FD_HAS_X86
+
+  FD_LOG_NOTICE(( "Testing RDRAND" ));
+
+  sum_pop  = 0L;
+  sum_pop2 = 0L;
+  min_pop  = INT_MAX;
+  max_pop  = INT_MIN;
+
+  long iter = (1L<<22);
+  ctr = 0;
+  for( long i=0; i<iter; i++ ) {
+    if( !ctr ) { FD_LOG_NOTICE(( "Completed %li iterations", i )); ctr = 1000000; }
+    ctr--;
+
+    uchar seq[8];
+    for(;;)
+      if( FD_LIKELY( fd_rdrand( seq, 8UL ) ) )
+        break;
+    int pop  = fd_ulong_popcnt( FD_LOAD( ulong, seq ) );
+    sum_pop  += (long) pop;
+    sum_pop2 += (long)(pop*pop);
+    min_pop  = pop<min_pop ? pop : min_pop;
+    max_pop  = pop>max_pop ? pop : max_pop;
+  }
+  avg_pop = ((float)sum_pop ) / ((float)iter);
+  rms_pop = sqrtf( (((float)sum_pop2) / ((float)iter)) - avg_pop*avg_pop );
+  FD_LOG_NOTICE(( "rdrand popcount stats: %.3f +/- %.3f [%i,%i]", (double)avg_pop, (double)rms_pop, min_pop, max_pop ));
+
+# endif /* FD_HAS_X86 */
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
