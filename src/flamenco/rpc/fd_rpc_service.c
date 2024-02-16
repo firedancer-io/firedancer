@@ -372,7 +372,7 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_blockstore_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
+    fd_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -423,7 +423,7 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= ctx->slot_ctx->slot_bank.slot && cnt < limitn; ++i ) {
-    fd_blockstore_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
+    fd_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
@@ -1100,7 +1100,7 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     return 0;
   }
 
-  fd_blockstore_block_t * blk = fd_blockstore_block_query( ctx->blks, elem->slot );
+  fd_block_t * blk = fd_blockstore_block_query( ctx->blks, elem->slot );
   if (blk == NULL) {
     fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
     fd_blockstore_end_read( ctx->blks );

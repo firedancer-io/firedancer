@@ -15,14 +15,21 @@
     - finalized when >66% of stake has rooted the slot or its descendants
   */
 
-#include "../gossip/fd_gossip.h"
-#include "../repair/fd_repair.h"
-#include "context/fd_capture_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
-#include "fd_blockstore.h"
-#include "fd_runtime.h"
+#include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/repair/fd_repair.h"
+#include "../shred/fd_fec_resolver.h"
+#include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 
-#define FD_REPLAY_SET_MAX ( 1UL << 10 )
+#define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
+#define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
+#define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
+#define FD_REPLAY_PENDING_MASK     ( FD_REPLAY_PENDING_MAX - 1U )
+
+/* The standard amount of time that we wait before repeating a slot */
+#define FD_REPAIR_BACKOFF_TIME ( (long)150e6 )
 
 /* fd_replay_slot_ctx is a thin wrapper around fd_exec_slot_ctx_t for memory pools and maps */
 struct fd_replay_slot_ctx {
@@ -31,29 +38,6 @@ struct fd_replay_slot_ctx {
   fd_exec_slot_ctx_t slot_ctx;
 };
 typedef struct fd_replay_slot_ctx fd_replay_slot_ctx_t;
-
-/* fd_repair_req is a map of in-flight repair requests. */ /* TODO refactor to use `dlist`? Faster
-   eviction */
-struct fd_repair_req {
-  fd_shred_key_t key;
-  uint           hash;
-  long           ts;  /* request timestamp */
-  ulong          cnt; /* # of request attempts */
-};
-typedef struct fd_repair_req fd_repair_req_t;
-
-/* clang-format off */
-#define MAP_NAME              fd_repair_req
-#define MAP_T                 fd_repair_req_t
-#define MAP_LG_SLOT_CNT       16
-#define MAP_KEY_T             fd_shred_key_t
-#define MAP_KEY_NULL          fd_shred_key_null
-#define MAP_KEY_INVAL(k)      FD_SHRED_KEY_INVAL(k)
-#define MAP_KEY_EQUAL(k0,k1)  FD_SHRED_KEY_EQ(k0,k1)
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     FD_SHRED_KEY_HASH(key)
-#include "../../util/tmpl/fd_map.c"
-/* clang-format on */
 
 #define POOL_NAME fd_replay_pool
 #define POOL_T    fd_replay_slot_ctx_t
@@ -78,60 +62,45 @@ typedef struct fd_replay_commitment fd_replay_commitment_t;
 #define MAP_LG_SLOT_CNT 19 /* slots per epoch */
 #include "../../util/tmpl/fd_map.c"
 
-struct fd_repair_peer {
-  fd_pubkey_t id;
-  uint        hash;
-  ulong       first_slot;
-  ulong       last_slot;
-};
-typedef struct fd_repair_peer fd_repair_peer_t;
+/* clang-format off */
+struct __attribute__((aligned(128UL))) fd_replay {
+  long now;            /* Current time */
 
-#define MAP_NAME                fd_repair_peer
-#define MAP_T                   fd_repair_peer_t
-#define MAP_LG_SLOT_CNT         12 /* 4kb peers */
-#define MAP_KEY                 id
-#define MAP_KEY_T               fd_pubkey_t
-#define MAP_KEY_NULL            pubkey_null
-#define MAP_KEY_INVAL( k )      !( memcmp( &k, &pubkey_null, sizeof( fd_pubkey_t ) ) )
-#define MAP_KEY_EQUAL( k0, k1 ) !( memcmp( ( &k0 ), ( &k1 ), sizeof( fd_pubkey_t ) ) )
-#define MAP_KEY_EQUAL_IS_SLOW   1
-#define MAP_KEY_HASH( key )     ( (uint)( fd_hash( 0UL, &key, sizeof( fd_pubkey_t ) ) ) )
-#include "../../util/tmpl/fd_map.c"
+  /* metadata */
+  ulong smr;           /* super-majority root */
+  ulong snapshot_slot; /* the snapshot slot */
+  ulong turbine_slot;  /* the first turbine slot we received on startup */
 
-#define DEQUE_NAME fd_replay_pending
-#define DEQUE_T    ulong
-#define DEQUE_MAX  64UL /* FIXME reasonable number of outstanding blocks */
-#include "../../util/tmpl/fd_deque.c"
-
-struct fd_replay {
-  fd_replay_slot_ctx_t *   pool;       /* memory pool of slot_ctxs */
-  fd_replay_frontier_t *   frontier;   /* map of slots to slot_ctxs, representing the fork heads */
-  fd_replay_commitment_t * commitment; /* map of slots to stakes per commitment level */
-  ulong *                  pending;    /* pending slots to try to prepare */
-  ulong                    smr;        /* super-majority root */
-  ulong                    snapshot_slot; /* the snapshot slot */
-  ulong                    turbine_slot;  /* the first turbine slot we received on startup */
-
-  /* turbine */
-  // fd_fec_resolver_t * fec_resolver;
+  /* internal joins */
+  fd_replay_slot_ctx_t *     pool;     /* memory pool of slot_ctxs */
+  fd_replay_frontier_t *     frontier; /* map of slots to slot_ctxs, representing the fork heads */
+  fd_replay_commitment_t *   commitment;   /* map of slots to stakes per commitment level */
+  long * pending;                      /* pending slots to try to prepare, PROTECTED BY BLOCKSTORE MUTEX */
+  ulong pending_start;
+  ulong pending_end;
 
   /* repair */
   fd_repair_t *      repair;
-  fd_repair_peer_t * repair_peers;
-  fd_repair_req_t *  repair_reqs; /* map of in-flight repair requests */
-  ulong              repair_req_cnt;
 
-  fd_rng_t *            rng;
+  /* turbine */
+  uchar *             data_shreds;
+  uchar *             parity_shreds;
+  fd_fec_set_t *      fec_sets;
+  fd_fec_resolver_t * fec_resolver; /* turbine */
+
+  /* external joins */
   fd_blockstore_t *     blockstore;
   fd_funk_t *           funk;
   fd_acc_mgr_t *        acc_mgr;
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_gossip_t *         gossip;
+  fd_pubkey_t *         leader;
   fd_tpool_t *          tpool;
   ulong                 max_workers;
-  fd_valloc_t *         valloc;
+  fd_valloc_t           valloc;
 };
 typedef struct fd_replay fd_replay_t;
+/* clang-format on */
 
 struct slot_capitalization {
   ulong key;
@@ -146,10 +115,6 @@ typedef struct slot_capitalization slot_capitalization_t;
 #define MAP_LG_SLOT_CNT LG_SLOT_CNT
 #include "../../util/tmpl/fd_map.c"
 
-#define FD_REPLAY_STATE_ALIGN ( 8UL )
-
-#define FD_REPLAY_STATE_FOOTPRINT ( sizeof( struct fd_runtime_ctx ) )
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_replay_{align,footprint} return the required alignment and
@@ -161,8 +126,23 @@ fd_replay_align( void ) {
   return alignof( fd_replay_t );
 }
 
-FD_FN_CONST ulong
-fd_replay_footprint( ulong slot_max );
+FD_FN_CONST static inline ulong
+fd_replay_footprint( ulong slot_max ) {
+  /* clang-format off */
+  return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
+      alignof( fd_replay_t ), sizeof( fd_replay_t ) ),
+      fd_replay_pool_align(), fd_replay_pool_footprint( slot_max ) ),
+      fd_replay_frontier_align(), fd_replay_frontier_footprint( slot_max ) ),
+      fd_replay_commitment_align(), fd_replay_commitment_footprint() ),
+      alignof( long ), sizeof( long )*FD_REPLAY_PENDING_MAX ),
+    alignof( fd_replay_t ) );
+  /* clang-format on */
+}
 
 /* fd_replay_new formats an unused memory region for use as a replay. mem is a non-NULL pointer to
    this region in the local address space with the required footprint and alignment.*/
@@ -196,9 +176,16 @@ fd_replay_leave( fd_replay_t const * replay );
 void *
 fd_replay_delete( void * replay );
 
+/* fd_replay_add_pending adds the slot to the list of slots which
+   require attention (getting shreds or executing). delay is the
+   number of nanosecs before we should actually act on this.
+   We presume that the blockstore write mutex is held */
+void
+fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay );
+
 /* fd_replay_shred_insert inserts a shred into the blockstore. If this completes a block, and it is
    connected to a frontier fork, it also executes the block and updates the frontier accordingly. */
-void
+int
 fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred );
 
 /* fd_replay_slot_parent queries the parent of slot in the replay frontier, updating the frontier if
@@ -230,19 +217,20 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                         uchar const *          block,
                         ulong                  block_sz );
 
+/* fd_replay_slot_repair repairs all the missing shreds for slot. */
+void
+fd_replay_slot_repair( fd_replay_t * replay, ulong slot );
+
 /* fd_replay_slot_ctx_restore restores slot_ctx to its state as of slot. Assumes the blockhash
  * corresponding to slot is in funk. */
 void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx );
 
 void
-fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred );
+fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shred_sz );
 
 void
 fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred );
-
-fd_repair_peer_t *
-fd_replay_repair_peer_sample( fd_replay_t * replay );
 
 FD_PROTOTYPES_END
 

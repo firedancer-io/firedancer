@@ -2,11 +2,11 @@
 #include "fd_deshredder.h"
 
 void
-fd_deshredder_init( fd_deshredder_t *          shredder,
-                    void *                     buf,
-                    ulong                      bufsz,
+fd_deshredder_init( fd_deshredder_t *   shredder,
+                    void *              buf,
+                    ulong               bufsz,
                     fd_shred_t const ** shreds,
-                    ulong                      shred_cnt ) {
+                    ulong               shred_cnt ) {
   shredder->shreds    = shreds;
   shredder->shred_cnt = (uint)shred_cnt;
   shredder->data_off  = 0U;

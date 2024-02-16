@@ -149,7 +149,7 @@ main( int     argc,
   char const * genesis      = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--genesis",      NULL, NULL      );
   char const * rocksdb_dir  = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--rocksdb",      NULL, NULL      );
   char const * txnstatus    = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--txnstatus",    NULL, "false"   );
-  ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_DEFAULT_SLOT_HISTORY_MAX );
+  ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
   ulong        shred_max    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--shredmax",     NULL, 1UL << 17 );
   ulong        end_slot     = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
   char const * verifyhash   = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--verifyhash",   NULL, NULL      );
@@ -234,7 +234,7 @@ main( int     argc,
 
     int   lg_txn_max    = fd_ulong_find_msb( shred_max ) + 1;
 
-    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, shred_max, lg_txn_max, slot_history_max));
+    blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, shred_max, slot_history_max, lg_txn_max));
     if (blockstore == NULL) {
       fd_wksp_free_laddr(shmem);
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
@@ -304,12 +304,10 @@ main( int     argc,
         FD_TEST( capture_ctx_mem );
         capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
-        FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
+        // FD_TEST( fd_solcap_writer_init( capture_ctx->capture, capture_file ) );
       }
 
-      if( capture_ctx != NULL ) {
-        fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
-      }
+      // fd_solcap_writer_set_slot( capture_ctx->capture, 0UL );
 
       struct stat sbuf;
       if( FD_UNLIKELY( stat( genesis, &sbuf) < 0 ) )

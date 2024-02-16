@@ -21,7 +21,7 @@
 
     rm -f *.zst ; wget --trust-server-names http://localhost:8899/snapshot.tar.bz2 ; wget --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
 
-    build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-24* --incremental incremental-snapshot-24* --pages 100 --backup /data/asiegel/test_backup --slothistory 100
+    build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-25* --incremental incremental-snapshot-25* --pages 100 --backup /data/asiegel/test_backup --slothistory 100
 
     build/native/gcc/unit-test/test_tvu --load /data/asiegel/test_backup --rpc-port 8123 --page-cnt 100 \
       --gossip-peer-addr :8000 \

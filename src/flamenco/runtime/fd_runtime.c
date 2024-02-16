@@ -2601,6 +2601,15 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 void
+fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
+  fd_funk_rec_key_t id   = fd_acc_funk_key( &fd_sysvar_incinerator_id );
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_rec_t const * rec = fd_funk_rec_query( funk, slot_ctx->funk_txn, &id );
+  if( rec )
+    fd_funk_rec_remove( funk, fd_funk_rec_modify( funk, rec ), 1 );
+}
+
+void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   // solana/runtime/src/bank.rs::freeze(....)
   fd_runtime_collect_rent(slot_ctx);
@@ -2745,7 +2754,7 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   slot_ctx->slot_bank.block_height += 1UL;
 
   // Update blockstore
-  fd_blockstore_block_height_set( slot_ctx->blockstore,
+  fd_blockstore_block_height_update( slot_ctx->blockstore,
                             slot_ctx->slot_bank.slot,
                             slot_ctx->slot_bank.block_height );
 
@@ -3477,7 +3486,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
     FD_LOG_DEBUG( ( "reading slot %ld", slot ) );
 
     fd_blockstore_start_read( blockstore );
-    fd_blockstore_block_t * blk = fd_blockstore_block_query( blockstore, slot );
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING( ( "failed to read slot %ld", slot ) );
       fd_blockstore_end_read( blockstore );

@@ -154,7 +154,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
       FD_LOG_ERR(("--slot takes <slot>:<idx>,<slot>:<idx>,<slot>:<idx>..."));
     ++slot_cstr;
     ulong idx = strtoul(slot_cstr, (char **)&slot_cstr, 10);
-    if ( fd_repair_need_highest_window_index(glob, &id, slot, (uint)idx) )
+    if ( fd_repair_need_highest_window_index(glob, slot, (uint)idx) )
       return -1;
     if ( *slot_cstr == '\0' )
       break;

@@ -274,7 +274,7 @@ int fd_block_to_json( fd_textstream_t * ts,
                       int rewards) {
   fd_blockstore_start_read( blks );
   
-  fd_blockstore_block_t * blk = fd_blockstore_block_query(blks, slot);
+  fd_block_t * blk = fd_blockstore_block_query(blks, slot);
   if (blk == NULL) {
     fd_blockstore_end_read( blks );
     return -1;

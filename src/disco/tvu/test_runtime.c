@@ -32,10 +32,10 @@ build/native/gcc/unit-test/test_runtime --wksp giant_wksp --cmd replay --load /d
 
 ****/
 
-#include "../fd_flamenco.h"
+#include "../../flamenco/fd_flamenco.h"
 #include <errno.h>
-#include "fd_runtime.h"
-#include "context/fd_capture_ctx.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "fd_tvu.h"
 
 int

@@ -1,6 +1,6 @@
 #include "tiles.h"
 
-#include "../../../../flamenco/runtime/fd_tvu.h"
+#include "../../../../disco/tvu/fd_tvu.h"
 
 #include "generated/tvu_seccomp.h"
 

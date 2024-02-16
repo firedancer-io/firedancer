@@ -116,7 +116,7 @@ void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   ulong tmp_shred_max = 1UL << 15;
   int   lg_txn_max    = 10;
   ulong slot_history_max = 10;
-  suite->blockstore      = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, lg_txn_max, slot_history_max ) );
+  suite->blockstore      = fd_blockstore_join(fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
   if( suite->blockstore == NULL ) {
     fd_wksp_free_laddr( shmem );
     FD_LOG_ERR( ( "failed to allocate a blockstore" ) );

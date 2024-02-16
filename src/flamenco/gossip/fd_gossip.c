@@ -467,7 +467,7 @@ fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossi
   fd_gossip_send_raw( glob, dest, buf, sz);
   char tmp[100];
   FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
-  FD_LOG_HEXDUMP_DEBUG(("dump: ", buf, sz));
+  // FD_LOG_HEXDUMP_DEBUG(("dump: ", buf, sz));
 }
 
 /* Initiate the ping/pong protocol to a validator address */
@@ -1257,7 +1257,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   }
 
   if (misses)
-    FD_LOG_NOTICE(("responded to pull request with %lu values in %u packets (%lu filtered out)", misses, npackets, hits));
+    FD_LOG_DEBUG(("responded to pull request with %lu values in %u packets (%lu filtered out)", misses, npackets, hits));
 }
 
 /* Handle any gossip message */

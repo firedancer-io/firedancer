@@ -270,6 +270,9 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t *args );
 int
 fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
 
+void
+fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

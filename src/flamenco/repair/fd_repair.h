@@ -5,6 +5,7 @@
 #include "../../util/valloc/fd_valloc.h"
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../runtime/context/fd_exec_epoch_ctx.h"
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
 #define FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED -2
@@ -70,19 +71,16 @@ int fd_repair_recv_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, 
 int fd_repair_is_full( fd_repair_t * glob );
 
 /* Register a request for a shred */
-int fd_repair_need_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index );
+int fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
 
-int fd_repair_need_highest_window_index( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot, uint shred_index );
+int fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index );
 
-int fd_repair_need_orphan( fd_repair_t * glob, fd_pubkey_t const * id, ulong slot );
+int fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
 
-/* Test if a peer is good */
-int fd_repair_is_good_peer( fd_repair_t *       glob,
-                            fd_pubkey_t const * id,
-                            ulong               min_samples,       /* Minimum number of statistical samples */
-                            float               min_response_rate, /* Minimum ratio of responses/requests */
-                            float               max_latency );     /* Maximum average response latency in nanosecs */
+void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
-void fd_repair_print_stats( fd_repair_t * glob, fd_pubkey_t const * id, ulong stake, int favorite );
+void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id );
+
+void fd_repair_set_epoch_ctx( fd_repair_t * repair, fd_exec_epoch_ctx_t * epoch_ctx );
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */

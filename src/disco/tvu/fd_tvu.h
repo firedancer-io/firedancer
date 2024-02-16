@@ -2,15 +2,15 @@
 #define HEADER_fd_src_tvu_fd_tvu_h
 
 #include "../../util/fd_util.h"
-#include "../gossip/fd_gossip.h"
-#include "../repair/fd_repair.h"
-#include "../rpc/fd_rpc_service.h"
-#include "context/fd_exec_epoch_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
-#include "fd_acc_mgr.h"
-#include "fd_blockstore.h"
+#include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/repair/fd_repair.h"
+#include "../../flamenco/rpc/fd_rpc_service.h"
+#include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
+#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
 #include "fd_replay.h"
-#include "fd_runtime.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 
 typedef struct {
   fd_repair_t *        repair;

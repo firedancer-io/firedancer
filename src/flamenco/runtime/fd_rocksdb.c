@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include "../../util/bits/fd_bits.h"
-#include "../../ballet/shred/fd_deshredder.h"
 
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
@@ -350,7 +349,8 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
       fd_blockstore_end_write(blockstore);
       return -1;
     }
-    if (fd_blockstore_shred_insert( blockstore, m, shred ) != FD_BLOCKSTORE_OK) {
+    int rc = fd_blockstore_shred_insert( blockstore, shred );
+    if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
       FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
@@ -363,8 +363,8 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
   rocksdb_iter_destroy(iter);
 
   fd_wksp_t * wksp = fd_wksp_containing( blockstore );
-  fd_blockstore_block_map_t * block_map = fd_wksp_laddr_fast( wksp, blockstore->block_map_gaddr );
-  fd_blockstore_block_map_t * block_entry = fd_blockstore_block_map_query( block_map, slot, NULL );
+  fd_blockstore_slot_map_t * block_map = fd_blockstore_slot_map( blockstore );
+  fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, slot, NULL );
   if( FD_LIKELY( block_entry ) ) {
     size_t vallen = 0;
     char * err = NULL;
@@ -442,7 +442,7 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
     fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
     if( FD_LIKELY( block_entry ) ) {
       uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
-      fd_blockstore_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
+      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
       ulong meta_gaddr = 0;
       ulong meta_sz = 0;
       int meta_owned = 0;

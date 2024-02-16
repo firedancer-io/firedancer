@@ -51,7 +51,6 @@ echo "Running Genesis..."
 GENESIS_OUTPUT=$(solana-genesis \
     --cluster-type mainnet-beta \
     --ledger ledger \
-    --enable-warmup-epochs \
     --bootstrap-validator id.json vote.json stake.json \
     --bootstrap-stake-authorized-pubkey id.json \
     --bootstrap-validator-lamports 2399348000000000 \

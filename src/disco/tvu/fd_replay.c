@@ -1,39 +1,5 @@
 #include "fd_replay.h"
 
-static int
-upsert_repair_req( fd_replay_t * replay, ulong slot, uint shred_idx );
-
-FD_FN_CONST ulong
-fd_replay_footprint( ulong slot_max ) {
-  ulong laddr = 0;
-
-  laddr  = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
-  laddr += sizeof( fd_replay_t );
-
-  laddr  = fd_ulong_align_up( laddr, fd_replay_pool_align() );
-  laddr += fd_replay_pool_footprint( slot_max );
-
-  laddr  = fd_ulong_align_up( laddr, fd_replay_frontier_align() );
-  laddr += fd_replay_frontier_footprint( slot_max );
-
-  laddr  = fd_ulong_align_up( laddr, fd_replay_commitment_align() );
-  laddr += fd_replay_commitment_footprint();
-
-  laddr  = fd_ulong_align_up( laddr, fd_replay_pending_align() );
-  laddr += fd_replay_pending_footprint();
-
-  //   laddr           = fd_ulong_align_up( laddr, fd_fec_resolver_align() );
-  // laddr += fd_fec_resolver_footprint( 1024, 1024, 1024, 1024 );
-
-  laddr  = fd_ulong_align_up( laddr, fd_repair_peer_align() );
-  laddr += fd_repair_peer_footprint();
-
-  laddr  = fd_ulong_align_up( laddr, fd_repair_req_align() );
-  laddr += fd_repair_req_footprint();
-
-  return laddr;
-}
-
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
 
@@ -54,14 +20,13 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   }
 
   fd_memset( mem, 0, footprint );
+  ulong laddr               = (ulong)mem;
+  laddr                     = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
+  fd_replay_t * replay      = (void *)laddr;
+  replay->smr               = FD_SLOT_NULL;
+  replay->snapshot_slot     = FD_SLOT_NULL;
+  replay->turbine_slot      = FD_SLOT_NULL;
 
-  ulong laddr = (ulong)mem;
-
-  laddr                 = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
-  fd_replay_t * replay  = (fd_replay_t *)mem;
-  replay->smr           = FD_SLOT_NULL;
-  replay->turbine_slot  = FD_SLOT_NULL;
-  replay->snapshot_slot = FD_SLOT_NULL;
   laddr += sizeof( fd_replay_t );
 
   laddr        = fd_ulong_align_up( laddr, fd_replay_pool_align() );
@@ -76,24 +41,16 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   replay->commitment = fd_replay_commitment_new( (void *)laddr );
   laddr += fd_replay_commitment_footprint();
 
-  laddr           = fd_ulong_align_up( laddr, fd_replay_pending_align() );
-  replay->pending = fd_replay_pending_new( (void *)laddr );
-  laddr += fd_replay_pending_footprint();
+  laddr           = fd_ulong_align_up( laddr, alignof( long ) );
+  replay->pending = (long *)laddr;
+  laddr += sizeof( long )*FD_REPLAY_PENDING_MAX;
+  replay->pending_start = 0;
+  replay->pending_end = 0;
 
-  //   laddr           = fd_ulong_align_up( laddr, fd_fec_resolver_align() );
-  // replay->fec_resolver = fd_fec_resolver_new( (void *)laddr, 1024, 1024, 1024, 1024 );
-  // laddr += fd_fec_resolver_footprint( 1024, 1024, 1024, 1024 );
+  laddr = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
 
-  laddr                = fd_ulong_align_up( laddr, fd_repair_peer_align() );
-  replay->repair_peers = fd_repair_peer_new( (void *)laddr );
-  laddr += fd_repair_peer_footprint();
+  FD_TEST( laddr == (ulong)mem + footprint );
 
-  laddr               = fd_ulong_align_up( laddr, fd_repair_req_align() );
-  replay->repair_reqs = fd_repair_req_new( (void *)laddr );
-  laddr += fd_repair_req_footprint();
-
-  FD_TEST(laddr <= (ulong)mem + footprint);
-  
   return mem;
 }
 
@@ -115,10 +72,6 @@ fd_replay_join( void * replay ) {
   replay_->pool         = fd_replay_pool_join( replay_->pool );
   replay_->frontier     = fd_replay_frontier_join( replay_->frontier );
   replay_->commitment   = fd_replay_commitment_join( replay_->commitment );
-  replay_->pending      = fd_replay_pending_join( replay_->pending );
-  // replay_->fec_resolver = fd_fec_resolver_join( replay_->fec_resolver );
-  replay_->repair_peers = fd_repair_peer_join( replay_->repair_peers );
-  replay_->repair_reqs  = fd_repair_req_join( replay_->repair_reqs );
 
   return replay_;
 }
@@ -151,27 +104,69 @@ fd_replay_delete( void * replay ) {
 }
 
 void
-fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
-  fd_shred_key_t    key = { .slot = shred->slot, .idx = shred->idx };
-  fd_repair_req_t * req = fd_repair_req_query( replay->repair_reqs, key, NULL );
-  if( FD_LIKELY( req ) ) { /*  shred came from turbine, req was evicted, etc. */
-    fd_repair_req_remove( replay->repair_reqs, req );
-  }
+fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
+  /* We presume that the blockstore write mutex is held */
+  
+  long when = replay->now + delay;
+  long * pending = replay->pending;
+  if( replay->pending_start == replay->pending_end ) {
+    /* Queue is empty */
+    replay->pending_start = slot;
+    replay->pending_end = slot+1U;
+    pending[slot & FD_REPLAY_PENDING_MASK] = when;
+    
+  } else if ( slot < replay->pending_start ) {
+    /* Grow down */
+    if( replay->pending_end - slot > FD_REPLAY_PENDING_MAX )
+      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
+    pending[slot & FD_REPLAY_PENDING_MASK] = when;
+    for( ulong i = slot+1; i < replay->pending_start; ++i ) {
+      /* Zero fill */
+      pending[i & FD_REPLAY_PENDING_MASK] = 0;
+    }
+    replay->pending_start = slot;
 
+  } else if ( slot >= replay->pending_end ) {
+    /* Grow up */
+    if( slot - replay->pending_start > FD_REPLAY_PENDING_MAX )
+      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
+    pending[slot & FD_REPLAY_PENDING_MASK] = when;
+    for( ulong i = replay->pending_end; i < slot; ++i ) {
+      /* Zero fill */
+      pending[i & FD_REPLAY_PENDING_MASK] = 0;
+    }
+    replay->pending_end = slot+1U;
+
+  } else {
+    /* Update in place */
+    long * p = &pending[slot & FD_REPLAY_PENDING_MASK];
+    if( 0 == *p || *p > when )
+      *p = when;
+  }
+}
+
+int
+fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
   fd_blockstore_t * blockstore = replay->blockstore;
 
-  fd_blockstore_start_read( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds */
-  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
-    fd_blockstore_end_read( blockstore );
-    return;
-  }
-  fd_blockstore_end_read( blockstore );
-
   fd_blockstore_start_write( blockstore );
-  int rc = fd_blockstore_shred_insert( blockstore, NULL, shred );
-  if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) FD_LOG_ERR( ( "failed to insert shred" ) );
+  /* TODO remove this check when we can handle duplicate shreds and blocks */
+  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
+    fd_blockstore_end_write( blockstore );
+    return FD_BLOCKSTORE_OK;
+  }
+
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
+  /* FIXME */
+  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
+    FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
+  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    fd_replay_add_pending( replay, shred->slot, 0 );
+  } else {
+    fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
+  }
   fd_blockstore_end_write( blockstore );
+  return rc;
 }
 
 fd_replay_slot_ctx_t *
@@ -181,70 +176,70 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
                         ulong *        block_sz_out ) {
   fd_blockstore_start_read( replay->blockstore );
 
-  fd_blockstore_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
+  ulong re_adds[2];
+  uint re_adds_cnt = 0;
 
-  /* The caller expects this slot to have a complete block, but it doesn't, so try to repair it.
-     This can happen if a slot was removed or we noticed from another data source (eg. gossip votes)
-     that we're missing a block. In normal conditions, `fd_replay_slot_prepare` is only called after
-     receiving all the shreds for slot. */
-  if( FD_LIKELY( !block ) ) {
-    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
+  fd_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
 
-    if( FD_LIKELY( !slot_meta ) ) { /* new slot */
-      if( FD_LIKELY( upsert_repair_req( replay, slot, FD_SHRED_IDX_NULL ) ) ) {
-        fd_repair_peer_t * peer = fd_replay_repair_peer_sample( replay );
-        if( NULL != peer ) {
-          FD_LOG_DEBUG( ( "requesting highest shred %lu from %32J", slot, &peer->id ) );
-          fd_repair_need_highest_window_index( replay->repair, &peer->id, slot, 0 );
-        }
-      }
-    } else { /* existing slot, fill in remaining shreds */
-      // FIXME
+  /* We already executed this block */
+  if( FD_UNLIKELY( block && fd_uint_extract_bit( block->flags, FD_BLOCK_FLAG_EXECUTED ) ) ) goto end;
 
-      fd_repair_peer_t * peer = fd_replay_repair_peer_sample( replay );
-      if( NULL != peer ) {
-        for( ulong i = slot_meta->consumed; i <= slot_meta->last_index; i++ ) {
-          if( FD_LIKELY( upsert_repair_req( replay, slot, (uint)i ) ) ) {
-            FD_LOG_DEBUG( ( "requesting shred %lu %lu", slot, i ) );
-            fd_repair_need_window_index( replay->repair, &peer->id, slot, (uint)i );
-          }
-        }
-      }
-    }
+  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
 
-    fd_replay_pending_push_tail( replay->pending, slot );
-
-    fd_blockstore_end_read( replay->blockstore );
-    return NULL;
+  if( FD_UNLIKELY( !slot_meta ) ) {
+    /* I know nothing about this block yet */
+    fd_replay_slot_repair( replay, slot );
+    re_adds[re_adds_cnt++] = slot;
+    goto end;
   }
 
-  if( FD_UNLIKELY( fd_uint_extract_bit( block->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED ) ) ) {
-    fd_blockstore_end_read( replay->blockstore );
-    return NULL;
+  ulong            parent_slot  = slot_meta->parent_slot;
+  fd_slot_meta_t * parent_slot_meta =
+    fd_blockstore_slot_meta_query( replay->blockstore, parent_slot );
+
+  /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
+   * repaired before we can replay it. */
+  if( FD_UNLIKELY( !parent_slot_meta ) ) {
+    fd_repair_need_orphan( replay->repair, slot );
+    re_adds[re_adds_cnt++] = slot;
+    re_adds[re_adds_cnt++] = parent_slot;
+    goto end;
   }
 
-  ulong parent_slot = fd_blockstore_slot_parent_query( replay->blockstore, slot );
+  fd_block_t * parent_block = fd_blockstore_block_query( replay->blockstore, parent_slot );
 
-  /* If the parent block is missing, this block is an orphan and the ancestry needs to be repaired
-   * before we can replay it. */
-  if( FD_UNLIKELY( !fd_blockstore_block_query( replay->blockstore, parent_slot ) ) ) {
-    fd_repair_peer_t * peer = fd_replay_repair_peer_sample( replay );
-    if( FD_LIKELY( NULL != peer && upsert_repair_req( replay, slot, FD_SHRED_IDX_NULL ) ) ) {
-      fd_repair_need_orphan( replay->repair, &peer->id, slot );
-    }
-
-    fd_replay_pending_push_tail( replay->pending, slot );
-
-    fd_blockstore_end_read( replay->blockstore );
-    return NULL;
+  /* We have a parent slot meta, and therefore have at least one shred of the parent block, so we
+     have the ancestry and need to repair that block directly (as opposed to calling repair orphan).
+  */
+  if( FD_UNLIKELY( !parent_block ) ) {
+    fd_replay_slot_repair( replay, parent_slot );
+    re_adds[re_adds_cnt++] = slot;
+    re_adds[re_adds_cnt++] = parent_slot;
+    goto end;
   }
 
+  /* See if the parent is executed yet */
+  if( FD_UNLIKELY( !fd_uint_extract_bit( parent_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) ) {
+    re_adds[re_adds_cnt++] = slot;
+    re_adds[re_adds_cnt++] = parent_slot;
+    goto end;
+  }
+
+  /* The parent is executed, but the block is still incomplete. Ask for more shreds. */
+  if( FD_UNLIKELY( !block ) ) {
+    fd_replay_slot_repair( replay, slot );
+    re_adds[re_adds_cnt++] = slot;
+    goto end;
+  }
+
+  /* Query for the parent in the frontier */
   fd_replay_slot_ctx_t * parent =
       fd_replay_frontier_ele_query( replay->frontier, &parent_slot, NULL, replay->pool );
 
-  /* If parent isn't in the frontier, that means this block is starting a new fork and the
-   * parent needs to be added to the frontier. This requires rolling back to that txn in
-   * funk, and then inserting it into the frontier. */
+  /* If the parent block is both present and executed (see earlier conditionals), but isn't in the
+     frontier, that means this block is starting a new fork and the parent needs to be added to the
+     frontier. This requires rolling back to that txn in funk, and then inserting it into the
+     frontier. */
 
   if( FD_UNLIKELY( !parent ) ) {
     /* Alloc a new slot_ctx */
@@ -272,21 +267,35 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
 
   /* Mark the block as prepared, and thus unsafe to remove. */
   fd_blockstore_start_write( replay->blockstore );
-  block->flags = fd_uint_set_bit( block->flags, FD_BLOCKSTORE_BLOCK_FLAG_PREPARED );
+  block->flags = fd_uint_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
+  /* add_pending needs the write lock */
+  for (uint i = 0; i < re_adds_cnt; ++i)
+    fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
   fd_blockstore_end_write( replay->blockstore );
 
   return parent;
+
+end:
+  fd_blockstore_end_read( replay->blockstore );
+
+  fd_blockstore_start_write( replay->blockstore );
+  /* add_pending needs the write lock */
+  for (uint i = 0; i < re_adds_cnt; ++i)
+    fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
+  fd_blockstore_end_write( replay->blockstore );
+
+  return NULL;
 }
 
 void
 fd_replay_slot_execute( fd_replay_t *          replay,
                         ulong                  slot,
-                        fd_replay_slot_ctx_t * parent_slot_ctx,
+                        fd_replay_slot_ctx_t * parent,
                         uchar const *          block,
                         ulong                  block_sz ) {
-  ulong txn_cnt                            = 0;
-  parent_slot_ctx->slot_ctx.slot_bank.slot = slot;
-  FD_TEST( fd_runtime_block_eval_tpool( &parent_slot_ctx->slot_ctx,
+  ulong txn_cnt                   = 0;
+  parent->slot_ctx.slot_bank.slot = slot;
+  FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
                                         NULL,
                                         block,
                                         block_sz,
@@ -297,31 +306,34 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   (void)txn_cnt;
 
   fd_blockstore_start_write( replay->blockstore );
-  fd_blockstore_block_t * block_ = fd_blockstore_block_query( replay->blockstore, slot );
+  
+  fd_block_t * block_ = fd_blockstore_block_query( replay->blockstore, slot );
   if( FD_LIKELY( block_ ) ) {
-    block_->flags = fd_uint_set_bit( block_->flags, FD_BLOCKSTORE_BLOCK_FLAG_EXECUTED );
+    block_->flags = fd_uint_set_bit( block_->flags, FD_BLOCK_FLAG_EXECUTED );
   }
+
+  /* FIXME remove this hack once we have turbine
+  for (uint i = 1; i <= 5; ++i)
+  fd_replay_add_pending( replay, slot + i, 0 ); */
+
   fd_blockstore_end_write( replay->blockstore );
 
   /* Re-key the replay_slot_ctx to be the slot of the block we just executed. */
-  fd_replay_slot_ctx_t * child_slot_ctx =
-      fd_replay_frontier_ele_remove( replay->frontier, &parent_slot_ctx->slot, NULL, replay->pool );
-  child_slot_ctx->slot = slot;
+  fd_replay_slot_ctx_t * child =
+      fd_replay_frontier_ele_remove( replay->frontier, &parent->slot, NULL, replay->pool );
+  child->slot = slot;
   if( FD_UNLIKELY( fd_replay_frontier_ele_query( replay->frontier, &slot, NULL, replay->pool ) ) ) {
     FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", slot ) );
   }
-  fd_replay_frontier_ele_insert( replay->frontier, child_slot_ctx, replay->pool );
-
-  /* FIXME remove this hack once we have turbine */
-  fd_replay_pending_push_tail( replay->pending, slot + 1 );
+  fd_replay_frontier_ele_insert( replay->frontier, child, replay->pool );
 
   /* Prepare bank for next execution. */
-  parent_slot_ctx->slot_ctx.slot_bank.slot           = slot;
-  parent_slot_ctx->slot_ctx.slot_bank.collected_fees = 0;
-  parent_slot_ctx->slot_ctx.slot_bank.collected_rent = 0;
+  child->slot_ctx.slot_bank.slot           = slot;
+  child->slot_ctx.slot_bank.collected_fees = 0;
+  child->slot_ctx.slot_bank.collected_rent = 0;
 
   FD_LOG_NOTICE( ( "slot: %lu", slot ) );
-  FD_LOG_NOTICE( ( "bank hash: %32J", child_slot_ctx->slot_ctx.slot_bank.banks_hash.hash ) );
+  FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
 
   //   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
   //   bank->epoch_stakes.vote_accounts_pool; fd_vote_accounts_pair_t_mapnode_t *
@@ -404,23 +416,68 @@ fd_replay_slot_execute( fd_replay_t *          replay,
 }
 
 void
+fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
+  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
+
+  if( FD_LIKELY( !slot_meta ) ) {
+    /* We haven't received any shreds for this slot yet */
+
+    fd_repair_need_highest_window_index( replay->repair, slot, 0 );
+
+  } else {
+    /* We've received at least one shred, so fill in what's missing */
+
+    ulong last_index = slot_meta->last_index;
+
+    /* We don't know the last index yet */
+    if( FD_UNLIKELY( last_index == ULONG_MAX ) ) {
+      last_index = slot_meta->received - 1;
+      fd_repair_need_highest_window_index( replay->repair, slot, (uint)last_index );
+    }
+
+    /* First make sure we are ready to execute this blook soon. Look for an ancestor that was executed. */
+    ulong anc_slot = slot;
+    int good = 0;
+    for( uint i = 0; i < 3; ++i ) {
+      anc_slot  = fd_blockstore_slot_parent_query( replay->blockstore, anc_slot );
+      fd_block_t * anc_block = fd_blockstore_block_query( replay->blockstore, anc_slot );
+      if( anc_block && fd_uint_extract_bit( anc_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) {
+        good = 1;
+        break;
+      }
+    }
+    if( !good ) return;
+    
+    /* Fill in what's missing */
+    ulong cnt = 0;
+    for( ulong i = slot_meta->consumed + 1; i <= last_index; i++ ) {
+      if( fd_blockstore_shred_query( replay->blockstore, slot, (uint)i ) != NULL ) continue;
+      if( fd_repair_need_window_index( replay->repair, slot, (uint)i ) > 0 )
+        ++cnt;
+    }
+    if( cnt )
+      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, cnt ) );
+  }
+}
+
+void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
-  xid.ul[0] = slot;
+  xid.ul[0]             = slot;
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
-  if( !txn ) FD_LOG_ERR( ( "missing txn" ) );
+  if( !txn ) FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
   fd_funk_rec_t const * rec = fd_funk_rec_query_global( replay->funk, txn, &id );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void *                  val = fd_funk_val( rec, fd_funk_wksp( replay->funk ) );
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = val;
   ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  ctx.valloc  = *replay->valloc;
+  ctx.valloc  = replay->valloc;
 
   FD_TEST( slot_ctx->magic == FD_EXEC_SLOT_CTX_MAGIC );
 
@@ -429,10 +486,10 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
   slot_ctx->funk_txn   = txn;
   slot_ctx->acc_mgr    = replay->acc_mgr;
   slot_ctx->blockstore = replay->blockstore;
-  slot_ctx->valloc     = *replay->valloc;
+  slot_ctx->valloc     = replay->valloc;
 
   FD_TEST( fd_slot_bank_decode( &slot_ctx->slot_bank, &ctx ) == FD_BINCODE_SUCCESS );
-  FD_TEST( fd_runtime_sysvar_cache_load( slot_ctx ) );
+  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
   slot_ctx->leader = fd_epoch_leaders_get( slot_ctx->epoch_ctx->leaders, slot );
 
   // TODO how do i get this info, ignoring rewards for now
@@ -458,58 +515,57 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
 }
 
 void
-fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
-  if( FD_UNLIKELY( replay->turbine_slot == FD_SLOT_NULL ) ) {
-    replay->turbine_slot = shred->slot;
-    fd_replay_pending_push_tail( replay->pending, shred->slot );
+fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shred_sz ) {
+  FD_LOG_DEBUG( ( "[turbine] received shred - type: %x slot: %lu idx: %u",
+                  fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
+                  shred->slot,
+                  shred->idx ) );
+  fd_pubkey_t const *  leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  fd_fec_set_t const * out_fec_set = NULL;
+  fd_shred_t const *   out_shred   = NULL;
+  int                  rc          = fd_fec_resolver_add_shred(
+      replay->fec_resolver, shred, shred_sz, leader->uc, &out_fec_set, &out_shred );
+  if( rc == FD_FEC_RESOLVER_SHRED_COMPLETES ) {
+    if( FD_UNLIKELY( replay->turbine_slot == FD_SLOT_NULL ) ) {
+      replay->turbine_slot = shred->slot;
+    }
+    fd_shred_t * parity_shred = (fd_shred_t *)fd_type_pun( out_fec_set->parity_shreds[0] );
+    FD_LOG_DEBUG( ( "slot: %lu. parity: %lu. data: %lu",
+                    parity_shred->slot,
+                    parity_shred->code.code_cnt,
+                    parity_shred->code.data_cnt ) );
+    
+    fd_blockstore_t * blockstore = replay->blockstore;
+    fd_blockstore_start_write( blockstore );
+
+    ulong slot = parity_shred->slot;
+    if( fd_blockstore_block_query( blockstore, slot ) != NULL ) {
+      fd_blockstore_end_write( blockstore );
+      return;
+    }
+
+    /* Start repairs in 300ms */
+    fd_replay_add_pending( replay, slot, (ulong)300e6 );
+
+    for( ulong i = 0; i < parity_shred->code.data_cnt; i++ ) {
+      fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( out_fec_set->data_shreds[i] );
+      FD_LOG_DEBUG(
+          ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
+      int rc = fd_blockstore_shred_insert( blockstore, data_shred );
+      if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
+        FD_LOG_NOTICE(( "[turbine] slot %lu complete", slot ));
+        /* Execute immediately */
+        fd_replay_add_pending( replay, slot, 0 );
+        break;
+      }
+    }
+    
+    fd_blockstore_end_write( blockstore );
   }
-  FD_LOG_NOTICE( ( "inserting" ) );
-  fd_replay_shred_insert( replay, shred );
 }
 
 void
 fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
-  fd_shred_key_t    key = { .slot = shred->slot, .idx = shred->idx };
-  fd_repair_req_t * req = fd_repair_req_query( replay->repair_reqs, key, NULL );
-  if( FD_LIKELY( req ) ) fd_repair_req_remove( replay->repair_reqs, req );
-  replay->repair_req_cnt--;
+  FD_LOG_DEBUG( ( "[repair] rx shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
   fd_replay_shred_insert( replay, shred );
-}
-
-// #define GET_PEER
-//   fd_repair_peer_t * peer = peers[repair_ctx->peer_iter % peer_cnt];
-//   repair_ctx->peer_iter += 17077
-fd_repair_peer_t *
-fd_replay_repair_peer_sample( fd_replay_t * replay ) {
-  for( ulong i = 0; i < fd_repair_peer_slot_cnt(); i++ ) {
-    fd_repair_peer_t * peer = &replay->repair_peers[i];
-    if( fd_repair_peer_key_inval( peer->id ) ) continue;
-    return peer;
-  }
-  return NULL;
-}
-
-static int
-upsert_repair_req( fd_replay_t * replay, ulong slot, uint shred_idx ) {
-  fd_shred_key_t    key = { .slot = slot, .idx = shred_idx };
-  fd_repair_req_t * req = fd_repair_req_query( replay->repair_reqs, key, NULL );
-  long              now = fd_log_wallclock();
-  if( FD_LIKELY( !req ) ) {
-    /* TODO use dlist for time-based eviction */
-    if( FD_UNLIKELY( replay->repair_req_cnt == fd_repair_req_slot_cnt() ) ) {
-      ulong i = fd_rng_ulong( replay->rng );
-      fd_repair_req_remove( replay->repair_reqs, &replay->repair_reqs[i] );
-      replay->repair_req_cnt--;
-    }
-    req = fd_repair_req_insert( replay->repair_reqs, key );
-    replay->repair_req_cnt++;
-    req->ts  = 0;
-    req->cnt = 0;
-  }
-  if( FD_LIKELY( ( now - req->ts ) > (long)100e6 ) ) {
-    req->ts = now;
-    req->cnt++;
-    return 1;
-  }
-  return 0;
 }
