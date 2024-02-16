@@ -42,10 +42,12 @@ Firedancer source tree
   │   ├── funk/        Database optimized for storing Solana ledger and
   │   │                accounts
   │   │
-  │   ├── tango/       IPC messaging layer and networking
+  │   ├── tango/       IPC messaging layer
   │   │
-  │   └── util/        C language environment, system runtime, common data
-  │                    structures and various utilities (math, bits, rng ...)
+  │   ├── util/        C language environment, system runtime, common data
+  │   │                structures and various utilities (math, bits, rng ...)
+  │   │
+  │   └── waltz/       Networking
   │
   └── verification/    CBMC-based code verification system
 
