@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "configure.h"
 
-#include "../../../tango/xdp/fd_xdp_redirect_user.h"
+#include "../../../waltz/xdp/fd_xdp_redirect_user.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -23,7 +23,7 @@ init_perm( fd_caps_ctx_t *  caps,
 
 /* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
    It is embedded into this program. */
-FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/tango/xdp/fd_xdp_redirect_prog.o" );
+FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/waltz/xdp/fd_xdp_redirect_prog.o" );
 
 static void
 init( config_t * const config ) {

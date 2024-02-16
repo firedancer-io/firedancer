@@ -2,15 +2,15 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../../ballet/base64/fd_base64.h"
-#include "../../tango/quic/fd_quic.h"
-#include "../../tango/quic/tests/fd_quic_test_helpers.h"
-#include "../../tango/tls/test_tls_helper.h"
+#include "../../waltz/quic/fd_quic.h"
+#include "../../waltz/quic/tests/fd_quic_test_helpers.h"
+#include "../../waltz/tls/test_tls_helper.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <linux/capability.h>
 #include <sys/random.h>
 
-FD_IMPORT_BINARY(sample_transaction, "src/tango/quic/tests/quic_txn.bin");
+FD_IMPORT_BINARY(sample_transaction, "src/waltz/quic/tests/quic_txn.bin");
 
 static int g_conn_hs_complete = 0;
 static int g_conn_final = 0;
