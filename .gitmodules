@@ -2,6 +2,3 @@
 	path = solana
 	url = https://github.com/firedancer-io/solana.git
 	branch = v1.16-fd
-[submodule "contrib/wycheproof"]
-	path = contrib/wycheproof
-	url = https://github.com/google/wycheproof
