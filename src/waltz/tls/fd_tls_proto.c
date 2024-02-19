@@ -2,7 +2,7 @@
 #include "fd_tls_proto.h"
 #include "fd_tls_serde.h"
 #include "fd_tls_asn1.h"
-#include "../../ballet/x509/fd_x509_cert_parser.h"
+#include "../../ballet/x509/fd_x509_mock.h"
 
 typedef struct fd_tls_u24 tls_u24;  /* code generator helper */
 
@@ -946,20 +946,11 @@ static uint
 fd_tls_client_handle_x509( uchar const *  const cert,
                            ulong          const cert_sz,
                            uchar const ** const out_pubkey ) {
-
-  cert_parsing_ctx parsed = {0};
-  int err = parse_x509_cert( &parsed, cert, (uint)cert_sz );
-  if( FD_UNLIKELY( err ) )
-    return FD_TLS_ALERT_BAD_CERTIFICATE;
-
-  if( FD_UNLIKELY( parsed.spki_alg != SPKI_ALG_ED25519 ) )
+  uchar const * pubkey = fd_x509_mock_pubkey( cert, cert_sz );
+  if( FD_UNLIKELY( !pubkey ) )
     return FD_TLS_ALERT_UNSUPPORTED_CERTIFICATE;
-
-  if( FD_UNLIKELY( parsed.spki_alg_params.ed25519.ed25519_raw_pub_len != 32 ) )
-    return FD_TLS_ALERT_BAD_CERTIFICATE;
-
-  *out_pubkey = cert + parsed.spki_alg_params.ed25519.ed25519_raw_pub_off;
-  return 0L;
+  *out_pubkey = pubkey;
+  return 0U;
 }
 
 static long
