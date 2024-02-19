@@ -108,3 +108,20 @@ fd_x509_mock_cert( uchar buf[ static FD_X509_MOCK_CERT_SZ ],
   fd_memcpy( buf, fd_x509_mock_tpl, FD_X509_MOCK_CERT_SZ );
   fd_memcpy( buf+FD_X509_MOCK_PUBKEY_OFF, public_key, 32UL );
 }
+
+uchar const *
+fd_x509_mock_pubkey( uchar const * cert,
+                     ulong         cert_sz ) {
+
+  if( cert_sz != FD_X509_MOCK_CERT_SZ ) return NULL;
+
+  ulong off = 0UL;
+  int match0 = (0==memcmp( cert+off, fd_x509_mock_tpl+off, FD_X509_MOCK_PUBKEY_OFF ) );
+  off += FD_X509_MOCK_PUBKEY_OFF;
+  off += 32UL;
+  int match1 = (0==memcmp( cert+off, fd_x509_mock_tpl+off, FD_X509_MOCK_CERT_SZ-off ) );
+
+  if( (!match0) | (!match1) ) return NULL;
+
+  return cert + FD_X509_MOCK_PUBKEY_OFF;
+}
