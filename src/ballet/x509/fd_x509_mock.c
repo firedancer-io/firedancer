@@ -1,17 +1,12 @@
 #include "fd_x509_mock.h"
 
-#include "../ed25519/fd_ed25519.h"
-
-
 static uchar const
 fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
   /* Certificate SEQUENCE (3 elem) */
-  0x30, 0x81, 0xf1,
+  0x30, 0x81, 0xf6,
 
     /* tbsCertificate TBSCertificate SEQUENCE (8 elem) */
-    #define FD_X509_MOCK_TBS_OFF (0x03)
-    #define FD_X509_MOCK_TBS_SZ  (0xa7)
-    0x30, 0x81, 0xa4,
+    0x30, 0x81, 0xa9,
 
       /* version [0] (1 elem)  */
       0xa0, 0x03,
@@ -28,15 +23,15 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
         0x06, 0x03, 0x2b, 0x65, 0x70,
 
       /* issuer Name SEQUENCE (1 elem) */
-      0x30, 0x11,
+      0x30, 0x16,
         /* RelativeDistinguishedName SET (1 elem) */
-        0x31, 0x0f,
+        0x31, 0x14,
           /* AttributeTypeAndValue SEQUENCE (2 elem) */
-          0x30, 0x0d,
+          0x30, 0x12,
             /* type AttributeType OBJECT IDENTIFIER 2.5.4.3 commonName (X.520 DN component) */
             0x06, 0x03, 0x55, 0x04, 0x03,
-            /* value AttributeValue [?] UTF8String Solana */
-            0x0c, 0x06, 0x53, 0x6f, 0x6c, 0x61, 0x6e, 0x61,
+            /* value AttributeValue [?] UTF8String Solana node */
+            0x0c, 0x0b, 0x53, 0x6f, 0x6c, 0x61, 0x6e, 0x61, 0x20, 0x6e, 0x6f, 0x64, 0x65,
 
       /* validity Validity SEQUENCE (2 elem) */
       0x30, 0x20,
@@ -56,7 +51,7 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
           0x06, 0x03, 0x2b, 0x65, 0x70,
         /* subjectPublicKey BIT STRING (256 bit) */
         0x03, 0x21, 0x00,
-        #define FD_X509_MOCK_PUBKEY_OFF (0x5f)
+        #define FD_X509_MOCK_PUBKEY_OFF (0x64)
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -107,16 +102,9 @@ fd_x509_mock_tpl[ FD_X509_MOCK_CERT_SZ ] = {
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
 };
 
-
-#if defined(__linux__)
-#include <sys/random.h>
-#include <errno.h>
-#endif
-
 void
-fd_x509_mock_cert( uchar         buf[ static FD_X509_MOCK_CERT_SZ ],
-                   uchar         public_key[ static 32 ] ) {
+fd_x509_mock_cert( uchar buf[ static FD_X509_MOCK_CERT_SZ ],
+                   uchar public_key[ static 32 ] ) {
   fd_memcpy( buf, fd_x509_mock_tpl, FD_X509_MOCK_CERT_SZ );
   fd_memcpy( buf+FD_X509_MOCK_PUBKEY_OFF, public_key, 32UL );
 }
-

@@ -52,7 +52,7 @@ main( int     argc,
   FD_TEST( 0==parse_x509_cert( parsed, cert, FD_X509_MOCK_CERT_SZ ) );
 
   FD_TEST( parsed->tbs_start                       ==0x03U );
-  FD_TEST( parsed->tbs_len                         ==0xa7U );
+  FD_TEST( parsed->tbs_len                         ==0xacU );
   FD_TEST( parsed->version                         ==0x02U );
   FD_TEST( parsed->serial_start                    ==0x0dU );
   FD_TEST( parsed->serial_len                      ==0x08U );
@@ -62,22 +62,25 @@ main( int     argc,
   FD_TEST( parsed->tbs_sig_alg_oid_len             ==0x05U );
   FD_TEST( parsed->tbs_sig_alg_oid_params_len      ==0x00U );
   FD_TEST( parsed->issuer_start                    ==0x1cU );
-  FD_TEST( parsed->issuer_len                      ==0x13U );
+  FD_TEST( parsed->issuer_len                      ==0x18U );
   FD_TEST( parsed->not_before         ==2166042218463232UL );
   FD_TEST( parsed->not_after          ==4503603939115008UL );
-  FD_TEST( parsed->subject_start                   ==0x51U );
+  FD_TEST( parsed->subject_start                   ==0x56U );
   FD_TEST( parsed->subject_len                     ==0x02U );
-  FD_TEST( parsed->sig_start                       ==0xb1U );
+  FD_TEST( parsed->sig_start                       ==0xb6U );
   FD_TEST( parsed->sig_len                         ==0x43U );
-  FD_TEST( parsed->sig_alg_params.ed25519.r_raw_off==0xb4U );
+  FD_TEST( parsed->sig_alg_params.ed25519.r_raw_off==0xb9U );
   FD_TEST( parsed->sig_alg_params.ed25519.r_raw_len==0x20U );
-  FD_TEST( parsed->sig_alg_params.ed25519.s_raw_off==0xd4U );
+  FD_TEST( parsed->sig_alg_params.ed25519.s_raw_off==0xd9U );
   FD_TEST( parsed->sig_alg_params.ed25519.s_raw_len==0x20U );
   FD_TEST( !!parsed->empty_subject             );
   FD_TEST(  !parsed->subject_issuer_identical  );
   FD_TEST( parsed->spki_alg ==SPKI_ALG_ED25519 );
   FD_TEST( parsed->sig_alg  ==SIG_ALG_ED25519  );
   FD_TEST( parsed->hash_alg ==HASH_ALG_SHA512  );
+
+  FD_TEST( 0==memcmp( cert + parsed->spki_alg_params.ed25519.ed25519_raw_pub_off,
+                      public_key, 32 ) );
 
   /* Parse certificate captured from Solana Labs client */
 

@@ -6,5 +6,6 @@ $(call make-fuzz-test,fuzz_x509_cert_parser,fuzz_x509_cert_parser,fd_ballet fd_u
 # X.509 mock cert generator
 $(call add-hdrs,fd_x509_mock.h)
 $(call add-objs,fd_x509_mock,fd_ballet)
-$(call make-unit-test,test_x509_mock,test_x509_mock,fd_ballet fd_util)
-$(call run-unit-test,test_x509_mock)
+
+$(call make-unit-test,test_x509,test_x509,fd_ballet fd_util)
+$(call run-unit-test,test_x509)
