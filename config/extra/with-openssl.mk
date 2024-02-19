@@ -1,4 +1,4 @@
-LDFLAGS+=-Wl,--push-state,-Bstatic -lssl -lcrypto -Wl,--pop-state
+LDFLAGS+=opt/lib/libssl.a opt/lib/libcrypto.a
 
 FD_HAS_OPENSSL:=1
 CPPFLAGS+=-DFD_HAS_OPENSSL=1
