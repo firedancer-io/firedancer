@@ -450,10 +450,10 @@ define _make-lcov
 # objects compiled from assembly code.
 .PHONY: $(1)/cov/mappings.ar
 $(1)/cov/mappings.ar:
-	rm -f $(1)/cov/mappings.ar &&                       \
-  mkdir -p $$(dir $$@) &&                                   \
-  find $$(addsuffix /obj,$(2)) -name '*.o' -exec sh -c      \
-    '[[ -n "`llvm-objdump -h $$$$1 | grep llvm_covmap`" ]]  \
+	rm -f $(1)/cov/mappings.ar &&                          \
+  mkdir -p $$(dir $$@) &&                                \
+  find $$(addsuffix /obj,$(2)) -name '*.o' -exec sh -c   \
+    '[ -n "`llvm-objdump -h $$$$1 | grep llvm_covmap`" ] \
     && llvm-ar --thin q $$@ $$$$1' sh {} \;
 
 # llvm-cov step 5
