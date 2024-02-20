@@ -78,9 +78,14 @@ execve_as_root( int     argc,
 
 static config_t config;
 
+extern int g_no_solana;
+
 int
 main( int     argc,
       char ** _argv ) {
+  /* No genesis if running without solana. */
+  if( g_no_solana ) STAGES[ 11 ] = NULL;
+
   /* save original arguments list in case we need to respawn the process
      as privileged */
   int    orig_argc = argc;
