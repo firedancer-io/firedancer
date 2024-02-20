@@ -252,6 +252,10 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
+
+    // char key_buf[FD_BASE58_ENCODED_32_SZ];
+    // fd_base58_encode_32(dests[i].pubkey.key, NULL, key_buf);
+    // FD_LOG_WARNING(("SHRED DEST: %s, " FD_IP4_ADDR_FMT ":%u", key_buf, FD_IP4_ADDR_FMT_ARGS( dests[i].ip4 ), dests[i].port ));
   }
 }
 
@@ -622,7 +626,8 @@ unprivileged_init( fd_topo_t *      topo,
                    topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
                    topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_POH_TO_SHRED     ||
                    topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].kind != FD_TOPO_LINK_KIND_STAKE_TO_OUT     ||
-                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_CRDS_TO_SHRED    ||
+                   (topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED &&
+                    topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ||
                    topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_SHRED ) )
     FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %lu %lu",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));

@@ -501,6 +501,8 @@ fd_xdp_listen_udp_ports( char const * app_name,
 
   uint value = proto;
   for( ulong i=0; i<udp_dst_ports_sz; i++ ) {
+    FD_LOG_NOTICE(("xdp listen port: %u", udp_dst_ports[i]));
+
     ulong key   = fd_xdp_udp_dst_key( ip4_dst_addr, udp_dst_ports[i] );
 
     if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &key, &value, 0UL ) ) ) {

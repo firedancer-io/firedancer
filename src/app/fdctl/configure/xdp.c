@@ -80,14 +80,15 @@ init( config_t * const config ) {
   }
 
 
-  ushort udp_ports[] = { config->tiles.quic.regular_transaction_listen_port,
+  ushort udp_ports[] = { config->tiles.quic.regular_transaction_listen_port, 
                          config->tiles.quic.quic_transaction_listen_port,
-                         config->tiles.shred.shred_listen_port,
-                         config->tiles.tvu.gossip_listen_port,
+                         config->tiles.shred.shred_listen_port, 
+                         config->tiles.gossip.gossip_listen_port,
+                         config->tiles.repair.repair_listen_port,
                          config->tiles.tvu.repair_listen_port,
                          config->tiles.tvu.tvu_port,
                          config->tiles.tvu.tvu_fwd_port,
-                       };
+                       };  
   if( FD_UNLIKELY( fd_xdp_listen_udp_ports( config->name,
                                             config->tiles.net.ip_addr,
                                             sizeof( udp_ports ) / sizeof( ushort ),

@@ -54,7 +54,7 @@ clone_labs_memory_space_tiles( config_t * const config ) {
                           wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ||
                           wksp->kind==FD_TOPO_WKSP_KIND_BANK ||
                           wksp->kind==FD_TOPO_WKSP_KIND_POH ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_STORE ) ) {
+                          wksp->kind==FD_TOPO_WKSP_KIND_EXT_STORE ) ) {
       fd_topo_join_workspace( config->name, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }

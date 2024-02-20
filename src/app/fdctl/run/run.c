@@ -99,7 +99,7 @@ execve_solana_labs( int config_memfd,
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
     current_executable_path( _current_executable_path );
-
+    
     char config_fd[ 32 ];
     snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
     char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };

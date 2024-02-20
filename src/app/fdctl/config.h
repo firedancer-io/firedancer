@@ -219,6 +219,18 @@ typedef struct {
       ushort tvu_fwd_port;
       ushort rpc_listen_port;
     } tvu;
+
+    struct {
+      char   gossip_peer_addr[ 22 ];
+      char   gossip_my_addr[ 22 ];
+      ushort gossip_listen_port;
+    } gossip;
+
+    struct {
+      char   repair_my_intake_addr[ 22 ];
+      char   repair_my_serve_addr[ 22 ];
+      ushort repair_listen_port;
+    } repair;
   } tiles;
 } config_t;
 

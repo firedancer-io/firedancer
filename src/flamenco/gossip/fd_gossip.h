@@ -4,6 +4,9 @@
 #include "../types/fd_types.h"
 #include "../../util/valloc/fd_valloc.h"
 
+/* Max number of validators that can be known */
+#define FD_PEER_KEY_MAX (1<<14)
+
 /* Global state of gossip protocol */
 typedef struct fd_gossip fd_gossip_t;
 ulong         fd_gossip_align    ( void );
@@ -85,6 +88,8 @@ int fd_gossip_continue( fd_gossip_t * glob );
 /* Pass a raw gossip packet into the protocol. addr is the address of the sender */
 int fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * addr );
 
-const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_peer_addr_t const * src );
+const char * fd_gossip_addr_str( char * dst, ulong dstlen, fd_gossip_peer_addr_t const * src );
+
+ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

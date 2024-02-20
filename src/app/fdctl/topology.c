@@ -706,7 +706,7 @@ fd_topo_validate( fd_topo_t const * topo ) {
        info to shred link, or the poh to shred link. */
     if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_GOSSIP_TO_PACK ) ) continue;
     if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_STAKE_TO_OUT   ) ) continue;
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_CRDS_TO_SHRED  ) ) continue;
+    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ) continue;
 
     ulong producer_cnt = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {

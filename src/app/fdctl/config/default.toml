@@ -498,7 +498,7 @@ topology = "tvu"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-24"
+    affinity = "0-25"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -761,7 +761,6 @@ topology = "tvu"
         page_cnt = 25
         validate_snapshot  = "false"
         check_hash         = "false"
-        load               = ""
         # TODO: LML pick the right port
         gossip_listen_port = 12001
         repair_listen_port = 12001
@@ -770,6 +769,16 @@ topology = "tvu"
         rpc_listen_port    = 12000
         snapshot = ""
         incremental_snapshot = ""
+
+    [tiles.gossip]
+        gossip_peer_addr = "147.75.87.77:8020"
+        gossip_my_addr = "147.75.87.77:8010"
+        gossip_listen_port = 8010
+    
+    [tiles.repair]
+        repair_my_intake_addr = "147.75.87.77:8012"
+        repair_my_serve_addr = "147.75.87.77:8011"
+        repair_listen_port = 8011
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order

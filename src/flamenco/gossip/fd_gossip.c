@@ -19,8 +19,6 @@
 #define FD_GOSSIP_VALUE_EXPIRE ((ulong)(60e3))   /* 1 minute */
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
-/* Max number of validators that can be known */
-#define FD_PEER_KEY_MAX (1<<14)
 /* Max number of validators that can be actively pinged */
 #define FD_ACTIVE_KEY_MAX (1<<8)
 /* Max number of values that can be remembered */
@@ -49,19 +47,19 @@
 #define FD_NANOSEC_TO_MILLI(_ts_) ((ulong)(_ts_/1000000))
 
 /* Test if two addresses are equal */
-int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
+static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   return key1->l == key2->l;
 }
 
 /* Hash an address */
-ulong fd_gossip_peer_addr_hash( const fd_gossip_peer_addr_t * key, ulong seed ) {
+static ulong fd_gossip_peer_addr_hash( const fd_gossip_peer_addr_t * key, ulong seed ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   return (key->l + seed + 7242237688154252699UL)*9540121337UL;
 }
 
 /* Efficiently copy an address */
-void fd_gossip_peer_addr_copy( fd_gossip_peer_addr_t * keyd, const fd_gossip_peer_addr_t * keys ) {
+static void fd_gossip_peer_addr_copy( fd_gossip_peer_addr_t * keyd, const fd_gossip_peer_addr_t * keys ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   keyd->l = keys->l;
 }
@@ -281,7 +279,7 @@ ulong
 fd_gossip_footprint( void ) { return sizeof(fd_gossip_t); }
 
 void *
-fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
+fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) { 
   fd_memset(shmem, 0, sizeof(fd_gossip_t));
   fd_gossip_t * glob = (fd_gossip_t *)shmem;
   glob->valloc = valloc;
@@ -515,7 +513,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (val->pongtime != 0)
       /* Success */
       return;
-    if (val->pingcount++ == 20U) {
+    if (val->pingcount++ >= 50U) {
       /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
@@ -1169,8 +1167,8 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
   /* See if we have a shred version yet */
   if (glob->my_contact_info.shred_version == 0U)
     return;
-  /* Update every 10 secs */
-  if (glob->now - glob->last_contact_time < (long)10e9)
+  /* Update every 1 secs */
+  if (glob->now - glob->last_contact_time < (long)1e9)
     return;
 
   if (glob->last_contact_time != 0) {
@@ -1638,7 +1636,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_ed25519_sign( /* sig */ prune_msg->data.signature.uc,
                      /* msg */ buf,
                      /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                     /* public_key  */ glob->public_key->uc,
+                /* public_key  */ glob->public_key->uc,
                      /* private_key */ glob->private_key,
                      sha );
 
@@ -1774,4 +1772,9 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
 
   fd_gossip_unlock( glob );
   return 0;
+}
+
+ushort
+fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
+  return glob->my_contact_info.shred_version;
 }

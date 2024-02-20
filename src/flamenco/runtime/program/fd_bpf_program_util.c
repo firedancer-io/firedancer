@@ -43,9 +43,6 @@ fd_bpf_get_executable_program_content_for_loader_v2( fd_exec_slot_ctx_t * slot_c
     return -1;
   }
 
-  FD_LOG_WARNING(("K: %32J %32J", program_pubkey, program_rec->const_meta->info.owner));
-
-
   *program_data = program_rec->const_data;
   *program_data_len = program_rec->const_meta->dlen;
 

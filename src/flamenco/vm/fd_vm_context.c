@@ -2,6 +2,7 @@
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/fd_runtime.h"
 
 ulong
@@ -134,7 +135,7 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         // TODO: Check to make sure we are really doing this right! (required for sbpf2?)
         if( instr.imm >= ctx->instrs_sz
             && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
-            && !fd_sbpf_calldests_test( ctx->calldests,  instr.imm ) ) {
+            && !fd_sbpf_calldests_test( ctx->calldests, fd_pchash_inverse( instr.imm ) ) ) {
               return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;

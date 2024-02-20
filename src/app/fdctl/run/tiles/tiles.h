@@ -111,10 +111,13 @@ extern fd_tile_config_t fd_tile_pack;
 extern fd_tile_config_t fd_tile_bank;
 extern fd_tile_config_t fd_tile_poh;
 extern fd_tile_config_t fd_tile_shred;
-extern fd_tile_config_t fd_tile_store;
+extern fd_tile_config_t fd_tile_ext_store;
 extern fd_tile_config_t fd_tile_sign;
 extern fd_tile_config_t fd_tile_metric;
+extern fd_tile_config_t fd_tile_gossip;
+extern fd_tile_config_t fd_tile_repair;
 extern fd_tile_config_t fd_tile_tvu;
+extern fd_tile_config_t fd_tile_store;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,

@@ -237,6 +237,14 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.metric,        prometheus_listen_port                                    );
 
+  ENTRY_STR   ( ., tiles.gossip,        gossip_peer_addr                                          );
+  ENTRY_STR   ( ., tiles.gossip,        gossip_my_addr                                            );
+  ENTRY_USHORT( ., tiles.gossip,        gossip_listen_port                                        );
+
+  ENTRY_STR   ( ., tiles.repair,        repair_my_intake_addr                                     );
+  ENTRY_STR   ( ., tiles.repair,        repair_my_serve_addr                                      );
+  ENTRY_USHORT( ., tiles.repair,        repair_listen_port                                        );
+
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_id                                            );
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_addr                                          );
   ENTRY_STR   ( ., tiles.tvu,           gossip_peer_addr                                          );
@@ -547,6 +555,12 @@ validate_ports( config_t * result ) {
                  "This must be outside the dynamic port range `%s`",
                  result->tiles.shred.shred_listen_port,
                  result->dynamic_port_range ));
+  if( FD_UNLIKELY( result->tiles.gossip.gossip_listen_port >= solana_port_min &&
+                   result->tiles.gossip.gossip_listen_port < solana_port_max ) )
+    FD_LOG_ERR(( "configuration specifies invalid [tiles.gossip.gossip_listen_port] `%hu`. "
+                 "This must be outside the dynamic port range `%s`",
+                 result->tiles.gossip.gossip_listen_port,
+                 result->dynamic_port_range ));
 }
 
 /* These CLUSTER_* values must be ordered from least important to most
@@ -642,6 +656,8 @@ config_tiles( config_t * config ) {
         tile->net.allow_ports[ 4 ] = config->tiles.tvu.repair_listen_port;
         tile->net.allow_ports[ 5 ] = config->tiles.tvu.tvu_port;
         tile->net.allow_ports[ 6 ] = config->tiles.tvu.tvu_fwd_port;
+        tile->net.allow_ports[ 7 ] = config->tiles.gossip.gossip_listen_port;
+        tile->net.allow_ports[ 8 ] = config->tiles.repair.repair_listen_port;
         memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
@@ -686,7 +702,7 @@ config_tiles( config_t * config ) {
         tile->shred.expected_shred_version = config->consensus.expected_shred_version;
         tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
         break;
-      case FD_TOPO_TILE_KIND_STORE:
+      case FD_TOPO_TILE_KIND_EXT_STORE:
         break;
       case FD_TOPO_TILE_KIND_SIGN:
         strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
@@ -714,6 +730,27 @@ config_tiles( config_t * config ) {
         tile->tvu.tvu_port           = config->tiles.tvu.tvu_port;
         tile->tvu.tvu_fwd_port       = config->tiles.tvu.tvu_fwd_port;
         tile->tvu.rpc_listen_port    = config->tiles.tvu.rpc_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_GOSSIP:
+        tile->gossip.gossip_listen_port =  config->tiles.gossip.gossip_listen_port;
+        strncpy( tile->gossip.gossip_peer_addr, config->tiles.gossip.gossip_peer_addr, sizeof(tile->gossip.gossip_peer_addr) );
+        strncpy( tile->gossip.gossip_my_addr, config->tiles.gossip.gossip_my_addr, sizeof(tile->gossip.gossip_my_addr) );
+        
+        strncpy( tile->gossip.repair_my_intake_addr, config->tiles.repair.repair_my_intake_addr, sizeof(tile->gossip.repair_my_intake_addr) );
+        strncpy( tile->gossip.repair_my_serve_addr, config->tiles.repair.repair_my_serve_addr, sizeof(tile->gossip.repair_my_serve_addr) );
+        
+        strncpy( tile->gossip.tvu_my_addr, config->tiles.tvu.tvu_addr, sizeof(tile->gossip.tvu_my_addr) );
+        strncpy( tile->gossip.tvu_my_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->gossip.tvu_my_fwd_addr) );
+
+        fd_memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6 );
+        break;
+      case FD_TOPO_TILE_KIND_REPAIR:
+        tile->repair.repair_listen_port =  config->tiles.repair.repair_listen_port;
+        strncpy( tile->repair.repair_my_intake_addr, config->tiles.repair.repair_my_intake_addr, sizeof(tile->repair.repair_my_intake_addr) );
+        strncpy( tile->repair.repair_my_serve_addr, config->tiles.repair.repair_my_serve_addr, sizeof(tile->repair.repair_my_serve_addr) );
+        fd_memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );
+        break;
+      case FD_TOPO_TILE_KIND_STORE:
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

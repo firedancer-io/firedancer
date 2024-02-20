@@ -6,7 +6,8 @@
 FD_FN_CONST fd_topo_config_fn *
 fd_topo_kind_to_topo_config_fn( ulong topo_kind ) {
   switch( topo_kind ) {
-    case FD_TOPO_KIND_TVU:  return &fd_topo_tvu;
+    case FD_TOPO_KIND_TVU:        return &fd_topo_tvu;
+    case FD_TOPO_KIND_FIREDANCER: return &fd_topo_firedancer;
     default: FD_LOG_ERR(( "unknown topo kind %lu", topo_kind ));
   }
 }
