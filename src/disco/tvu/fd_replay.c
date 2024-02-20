@@ -46,6 +46,7 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   laddr += sizeof( long )*FD_REPLAY_PENDING_MAX;
   replay->pending_start = 0;
   replay->pending_end = 0;
+  replay->pending_lock = 0;
 
   laddr = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
 
@@ -103,9 +104,24 @@ fd_replay_delete( void * replay ) {
   return replay;
 }
 
+static void
+fd_replay_pending_lock( fd_replay_t * replay ) {
+  for(;;) {
+    if( FD_LIKELY( !FD_ATOMIC_CAS( &replay->pending_lock, 0UL, 1UL) ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_replay_pending_unlock( fd_replay_t * replay ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( replay->pending_lock ) = 0UL;
+}
+
 void
 fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
-  /* We presume that the blockstore write mutex is held */
+  fd_replay_pending_lock( replay );
   
   long when = replay->now + delay;
   long * pending = replay->pending;
@@ -143,6 +159,43 @@ fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
     if( 0 == *p || *p > when )
       *p = when;
   }
+
+  fd_replay_pending_unlock( replay );
+}
+
+ulong
+fd_replay_pending_iter_init( fd_replay_t * replay ) {
+  return replay->pending_start;
+}
+
+ulong
+fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
+  fd_replay_pending_lock( replay );
+  ulong end = replay->pending_end;
+  for( i = fd_ulong_max(i, replay->pending_start); 1; ++i ) {
+    if( i >= end ) {
+      /* End sentinel */
+      i = ULONG_MAX;
+      break;
+    }
+    long * ele = &replay->pending[ i & FD_REPLAY_PENDING_MASK ];
+    if( i <= replay->smr || *ele == 0 ) {
+      /* Empty or useless slot */
+      if( replay->pending_start == i )
+        replay->pending_start = i+1U; /* Pop it */
+    } else if( *ele <= now ) {
+      /* Do this slot */
+      long when = *ele;
+      *ele = 0;
+      if( replay->pending_start == i )
+        replay->pending_start = i+1U; /* Pop it */
+      FD_LOG_DEBUG(( "preparing slot %lu when=%ld now=%ld latency=%ld",
+                     i, when, now, now - when ));
+      break;
+    }
+  }
+  fd_replay_pending_unlock( replay );
+  return i;
 }
 
 int
@@ -155,8 +208,9 @@ fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
   }
-
   int rc = fd_blockstore_shred_insert( blockstore, shred );
+  fd_blockstore_end_write( blockstore );
+
   /* FIXME */
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
@@ -165,7 +219,6 @@ fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
   } else {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
   }
-  fd_blockstore_end_write( blockstore );
   return rc;
 }
 
@@ -262,27 +315,22 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
   *block_out    = fd_blockstore_block_data_laddr( replay->blockstore, block );
   *block_sz_out = block->sz;
 
+  /* Mark the block as prepared, and thus unsafe to remove. */
+  block->flags = fd_uint_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
+
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
   fd_blockstore_end_read( replay->blockstore );
 
-  /* Mark the block as prepared, and thus unsafe to remove. */
-  fd_blockstore_start_write( replay->blockstore );
-  block->flags = fd_uint_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
-  /* add_pending needs the write lock */
   for (uint i = 0; i < re_adds_cnt; ++i)
     fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
-  fd_blockstore_end_write( replay->blockstore );
 
   return parent;
 
 end:
   fd_blockstore_end_read( replay->blockstore );
 
-  fd_blockstore_start_write( replay->blockstore );
-  /* add_pending needs the write lock */
   for (uint i = 0; i < re_adds_cnt; ++i)
     fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
-  fd_blockstore_end_write( replay->blockstore );
 
   return NULL;
 }
@@ -311,10 +359,6 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   if( FD_LIKELY( block_ ) ) {
     block_->flags = fd_uint_set_bit( block_->flags, FD_BLOCK_FLAG_EXECUTED );
   }
-
-  /* FIXME remove this hack once we have turbine
-  for (uint i = 1; i <= 5; ++i)
-  fd_replay_add_pending( replay, slot + i, 0 ); */
 
   fd_blockstore_end_write( replay->blockstore );
 
@@ -418,6 +462,11 @@ fd_replay_slot_execute( fd_replay_t *          replay,
 void
 fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
   fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
+
+  if( fd_blockstore_is_slot_ancient( replay->blockstore, slot ) ) {
+    FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
+                 replay->blockstore->max - slot, replay->blockstore->slot_max ));
+  }
 
   if( FD_LIKELY( !slot_meta ) ) {
     /* We haven't received any shreds for this slot yet */
@@ -535,17 +584,17 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                     parity_shred->code.code_cnt,
                     parity_shred->code.data_cnt ) );
     
+    /* Start repairs in 300ms */
+    ulong slot = parity_shred->slot;
+    fd_replay_add_pending( replay, slot, (ulong)300e6 );
+
     fd_blockstore_t * blockstore = replay->blockstore;
     fd_blockstore_start_write( blockstore );
 
-    ulong slot = parity_shred->slot;
     if( fd_blockstore_block_query( blockstore, slot ) != NULL ) {
       fd_blockstore_end_write( blockstore );
       return;
     }
-
-    /* Start repairs in 300ms */
-    fd_replay_add_pending( replay, slot, (ulong)300e6 );
 
     for( ulong i = 0; i < parity_shred->code.data_cnt; i++ ) {
       fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( out_fec_set->data_shreds[i] );
@@ -554,9 +603,12 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
       int rc = fd_blockstore_shred_insert( blockstore, data_shred );
       if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
         FD_LOG_NOTICE(( "[turbine] slot %lu complete", slot ));
+        
+        fd_blockstore_end_write( blockstore );
+        
         /* Execute immediately */
         fd_replay_add_pending( replay, slot, 0 );
-        break;
+        return;
       }
     }
     

@@ -444,6 +444,12 @@ fd_blockstore_tmp_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 int
 fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot );
 
+/* Determine if a slot is ancient and we should ignore shreds */
+static inline int
+fd_blockstore_is_slot_ancient( fd_blockstore_t * blockstore, ulong slot ) {
+  return ( slot + blockstore->slot_max <= blockstore->max );
+}
+
 /* Set the height for a block */
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );

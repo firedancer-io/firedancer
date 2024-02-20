@@ -75,9 +75,10 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_replay_slot_ctx_t *     pool;     /* memory pool of slot_ctxs */
   fd_replay_frontier_t *     frontier; /* map of slots to slot_ctxs, representing the fork heads */
   fd_replay_commitment_t *   commitment;   /* map of slots to stakes per commitment level */
-  long * pending;                      /* pending slots to try to prepare, PROTECTED BY BLOCKSTORE MUTEX */
+  long * pending;                      /* pending slots to try to prepare */
   ulong pending_start;
   ulong pending_end;
+  ulong pending_lock;
 
   /* repair */
   fd_repair_t *      repair;
@@ -178,10 +179,16 @@ fd_replay_delete( void * replay );
 
 /* fd_replay_add_pending adds the slot to the list of slots which
    require attention (getting shreds or executing). delay is the
-   number of nanosecs before we should actually act on this.
-   We presume that the blockstore write mutex is held */
+   number of nanosecs before we should actually act on this. */
 void
 fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay );
+
+ulong
+fd_replay_pending_iter_init( fd_replay_t * replay );
+
+/* Returns ULONG_MAX if there are no more */
+ulong
+fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong iter );
 
 /* fd_replay_shred_insert inserts a shred into the blockstore. If this completes a block, and it is
    connected to a frontier fork, it also executes the block and updates the frontier accordingly. */

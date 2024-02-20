@@ -99,13 +99,13 @@ wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 # sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
 fd_shmem_cfg reset
 
-timeout 30 test_tvu \
+timeout 60 test_tvu \
     --rpc-port 9999 \
     --gossip-peer-addr $PRIMARY_IP:8001 \
     --repair-peer-addr $PRIMARY_IP:8008 \
     --repair-peer-id $(solana-keygen pubkey id.json) \
     --snapshot snapshot* \
-    --page-cnt 10 \
+    --page-cnt 16 \
     --indexmax 10000 \
     --check_hash true \
     --validate-snapshot true \

@@ -175,7 +175,6 @@ struct fd_repair {
     fd_active_elem_t * actives;
     fd_pubkey_t actives_sticky[FD_REPAIR_STICKY_MAX]; /* cache of chosen repair peer samples */
     ulong       actives_sticky_cnt;
-    long        actives_last_shuffle;
     ulong       actives_random_seed;
     /* Duplicate request detection table */
     fd_dupdetect_elem_t * dupdetect;
@@ -225,7 +224,6 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   fd_rng_new(glob->rng, (uint)seed, 0UL);
 
   glob->actives_sticky_cnt   = 0;
-  glob->actives_last_shuffle = 0;
   glob->actives_random_seed  = 0;
 
   return glob;
@@ -454,7 +452,7 @@ fd_repair_decay_stats( fd_repair_t * glob ) {
        !fd_active_table_iter_done( glob->actives, iter );
        iter = fd_active_table_iter_next( glob->actives, iter ) ) {
     fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
-#define DECAY(_v_) _v_ = _v_ - ((_v_)>>2U) /* Reduce by 25% */
+#define DECAY(_v_) _v_ = _v_ - ((_v_)>>3U) /* Reduce by 12.5% */
     DECAY(ele->avg_reqs);
     DECAY(ele->avg_reps);
     DECAY(ele->avg_lat);
@@ -472,6 +470,7 @@ fd_repair_start( fd_repair_t * glob ) {
 }
 
 static void fd_repair_print_all_stats( fd_repair_t * glob );
+static void fd_actives_shuffle( fd_repair_t * repair );
 
 /* Dispatch timed events and other protocol behavior. This should be
  * called inside the main spin loop. */
@@ -482,13 +481,16 @@ fd_repair_continue( fd_repair_t * glob ) {
     fd_repair_send_requests( glob );
     glob->last_sends = glob->now;
   }
-  if ( glob->now - glob->last_decay > (long)60e9 ) { /* 1 minute */
-    fd_repair_decay_stats( glob );
-    glob->last_decay = glob->now;
-  }
   if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
     fd_repair_print_all_stats( glob );
     glob->last_print = glob->now;
+    fd_actives_shuffle( glob );
+    fd_repair_decay_stats( glob );
+    glob->last_decay = glob->now;
+  } else if ( glob->now - glob->last_decay > (long)15e9 ) { /* 15 seconds */
+    fd_actives_shuffle( glob );
+    fd_repair_decay_stats( glob );
+    glob->last_decay = glob->now;
   }
   fd_repair_unlock( glob );
   return 0;
@@ -603,13 +605,13 @@ is_good_peer( fd_active_elem_t * val ) {
   if( FD_UNLIKELY( NULL == val ) ) return -1;                          /* Very bad */
   if( val->avg_reqs < 20U ) return 0;                                  /* Not sure yet, good enough for now */
   if( (float)val->avg_reps < 0.01f*((float)val->avg_reqs) ) return -1; /* Very bad */
-  if( (float)val->avg_reps < 0.1f*((float)val->avg_reqs) ) return 0;   /* Good but not great */
-  if( (float)val->avg_lat > 0.5f*((float)val->avg_reps) ) return 0;    /* Good but not great */
+  if( (float)val->avg_reps < 0.8f*((float)val->avg_reqs) ) return 0;   /* 80%, Good but not great */
+  if( (float)val->avg_lat > 0.3e9f*((float)val->avg_reps) ) return 0;  /* 300ms, Good but not great */
   return 1;                                                            /* Great! */
 }
 
 static void
-actives_shuffle( fd_repair_t * repair ) {
+fd_actives_shuffle( fd_repair_t * repair ) {
   FD_SCRATCH_SCOPE_BEGIN {
     /* Find all the usable stake holders */
     fd_vote_accounts_pair_t_mapnode_t * pool =
@@ -708,22 +710,16 @@ actives_shuffle( fd_repair_t * repair ) {
 
 static fd_active_elem_t *
 actives_sample( fd_repair_t * repair ) {
-  long now = fd_repair_gettime( repair );
-  if( now - repair->actives_last_shuffle > (long)15e9 ) { /* 15 seconds */
-    actives_shuffle( repair );
-    repair->actives_last_shuffle = now;
-  }
-
   ulong seed = repair->actives_random_seed;
   while( repair->actives_sticky_cnt ) {
     seed += 774583887101UL;
     fd_pubkey_t *      id   = &repair->actives_sticky[seed % repair->actives_sticky_cnt];
     fd_active_elem_t * peer = fd_active_table_query( repair->actives, id, NULL );
     if( NULL != peer ) {
-      if( peer->first_request_time == 0U ) peer->first_request_time = now;
+      if( peer->first_request_time == 0U ) peer->first_request_time = repair->now;
       /* Aggressively throw away bad peers */
       if( peer->permanent ||
-          now - peer->first_request_time < (long)5e9 || /* Sample the peer for at least 5 seconds */
+          repair->now - peer->first_request_time < (long)5e9 || /* Sample the peer for at least 5 seconds */
           is_good_peer( peer ) != -1 ) {
         repair->actives_random_seed = seed;
         return peer;

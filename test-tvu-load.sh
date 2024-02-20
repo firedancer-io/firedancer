@@ -101,7 +101,7 @@ fd_shmem_cfg reset
 
 fd_frank_ledger --cmd ingest \
                 --snapshotfile snapshot* \
-                --pages 10 \
+                --pages 16 \
                 --indexmax 10000 \
                 --backup backup
 
@@ -111,7 +111,7 @@ timeout 60 test_tvu \
     --repair-peer-addr $PRIMARY_IP:8008 \
     --repair-peer-id $(solana-keygen pubkey id.json) \
     --load backup \
-    --page-cnt 10 \
+    --page-cnt 16 \
     --indexmax 10000 \
     --check_hash true \
     --validate-snapshot true \

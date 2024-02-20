@@ -314,6 +314,14 @@ struct fd_repair_thread_args {
 
 static void * fd_repair_thread( void * ptr );
 
+struct fd_gossip_thread_args {
+  volatile int * stopflag;
+  int            gossip_fd;
+  fd_replay_t *  replay;
+};
+
+static void * fd_gossip_thread( void * ptr );
+
 int
 fd_tvu_main( fd_gossip_t *         gossip,
              fd_gossip_config_t *  gossip_config,
@@ -387,22 +395,14 @@ fd_tvu_main( fd_gossip_t *         gossip,
   if (rc)
     FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
   
-#define VLEN 32U
-  struct mmsghdr msgs[VLEN];
-  struct iovec   iovecs[VLEN];
-  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
-  uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
-#define CLEAR_MSGS                                                                                 \
-  fd_memset( msgs, 0, sizeof( msgs ) );                                                            \
-  for( uint i = 0; i < VLEN; i++ ) {                                                               \
-    iovecs[i].iov_base          = bufs[i];                                                         \
-    iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;                                              \
-    msgs[i].msg_hdr.msg_iov     = &iovecs[i];                                                      \
-    msgs[i].msg_hdr.msg_iovlen  = 1;                                                               \
-    msgs[i].msg_hdr.msg_name    = sockaddrs[i];                                                    \
-    msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );                                   \
-  }
-
+  /* FIXME: replace with real tile */
+  struct fd_gossip_thread_args gosarg =
+    { .stopflag = stopflag, .gossip_fd = gossip_fd, .replay = repair_ctx->replay };
+  pthread_t gossip_thread;
+  rc = pthread_create( &gossip_thread, NULL, fd_gossip_thread, &gosarg );
+  if (rc)
+    FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
+  
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !*stopflag ) {
@@ -414,76 +414,28 @@ fd_tvu_main( fd_gossip_t *         gossip,
       last_stats = now;
     }
     repair_ctx->replay->now = now;
-    fd_gossip_settime( gossip, now );
 
     /* Try to progress replay */
     fd_replay_t * replay = repair_ctx->replay;
-    fd_blockstore_t * blockstore = replay->blockstore;
-    fd_blockstore_start_write( blockstore ); /* pending is protected by write mutex */
-    ulong i = replay->pending_start;
-    /* Look at the first 128 blocks only */
-    ulong end = fd_ulong_min(replay->pending_end, i+128U);
-    if( i != end )
-      FD_LOG_DEBUG(( "preparing slots (%lu,%lu)", i, end ));
-    for( ; i < end; ++i ) {
-      long * ele = &replay->pending[ i & FD_REPLAY_PENDING_MASK ];
-      if( i <= replay->smr || *ele == 0 ) {
-        /* Empty or useless slot */
-        if( replay->pending_start == i )
-          replay->pending_start = i+1U; /* Pop it */
-        
-      } else if( *ele <= now ) {
-        /* Do this slot */
-        long when = *ele;
-        *ele = 0;
-        if( replay->pending_start == i )
-          replay->pending_start = i+1U; /* Pop it */
-
-        fd_blockstore_end_write( blockstore );
-        
-        FD_LOG_DEBUG(( "preparing slot %lu when=%ld now=%ld latency=%ld",
-                       i, when, now, now - when ));
-        uchar const * block;
-        ulong         block_sz = 0;
-        fd_replay_slot_ctx_t * parent_slot_ctx =
-            fd_replay_slot_prepare( replay, i, &block, &block_sz );
-        if( FD_LIKELY( parent_slot_ctx ) ) {
-          fd_replay_slot_execute( replay, i, parent_slot_ctx, block, block_sz );
-        }
-        
-        fd_blockstore_start_write( blockstore );
-
-        /* TODO use smr instead */
-        if( FD_LIKELY( parent_slot_ctx ) ) {
-          /* Clip old slots that can't possibly execute now */
-          ulong j = fd_ulong_max( i, 32UL ) - 32UL;
-          replay->pending_start = fd_ulong_max( replay->pending_start, j );
-        }
+    for (ulong i = fd_replay_pending_iter_init( replay );
+         (i = fd_replay_pending_iter_next( replay, now, i )) != ULONG_MAX; ) {
+      uchar const * block;
+      ulong         block_sz = 0;
+      fd_replay_slot_ctx_t * parent_slot_ctx =
+        fd_replay_slot_prepare( replay, i, &block, &block_sz );
+      if( FD_LIKELY( parent_slot_ctx ) ) {
+        fd_replay_slot_execute( replay, i, parent_slot_ctx, block, block_sz );
       }
     }
-    fd_blockstore_end_write( blockstore );
 
-    /* Loop gossip */
-    fd_gossip_continue( gossip );
-
-    /* Read more packets */
-    CLEAR_MSGS;
-    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
-    if( gossip_rc < 0 ) {
-      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
-      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
-      return -1;
-    }
-
-    for( uint i = 0; i < (uint)gossip_rc; ++i ) {
-      fd_gossip_peer_addr_t from;
-      gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
-      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
-    }
+    /* Allow other threads to add pendings */
+    struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
+    nanosleep(&ts, NULL);
   }
 
   pthread_join( turb_thread, NULL );
   pthread_join( repair_thread, NULL );
+  pthread_join( gossip_thread, NULL );
   
   close( gossip_fd );
   close( repair_fd );
@@ -512,10 +464,21 @@ fd_turbine_thread( void * ptr ) {
 
   fd_tvu_setup_scratch( args->replay->valloc );
 
+#define VLEN 32U
   struct mmsghdr msgs[VLEN];
   struct iovec   iovecs[VLEN];
   uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+#define CLEAR_MSGS                                                                                 \
+  fd_memset( msgs, 0, sizeof( msgs ) );                                                            \
+  for( uint i = 0; i < VLEN; i++ ) {                                                               \
+    iovecs[i].iov_base          = bufs[i];                                                         \
+    iovecs[i].iov_len           = FD_ETH_PAYLOAD_MAX;                                              \
+    msgs[i].msg_hdr.msg_iov     = &iovecs[i];                                                      \
+    msgs[i].msg_hdr.msg_iovlen  = 1;                                                               \
+    msgs[i].msg_hdr.msg_name    = sockaddrs[i];                                                    \
+    msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );                                   \
+  }
   while( !*stopflag ) {
     CLEAR_MSGS;
     int tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
@@ -568,6 +531,44 @@ fd_repair_thread( void * ptr ) {
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
+    }
+  }
+  return NULL;
+}
+
+static void *
+fd_gossip_thread( void * ptr ) {
+  struct fd_gossip_thread_args * args = (struct fd_gossip_thread_args *)ptr;
+  volatile int * stopflag = args->stopflag;
+  int gossip_fd = args->gossip_fd;
+  fd_gossip_t * gossip = args->replay->gossip;
+
+  fd_tvu_setup_scratch( args->replay->valloc );
+
+  struct mmsghdr msgs[VLEN];
+  struct iovec   iovecs[VLEN];
+  uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
+  uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
+  while( !*stopflag ) {
+    long now = fd_log_wallclock();
+    fd_gossip_settime( gossip, now );
+
+    /* Loop gossip */
+    fd_gossip_continue( gossip );
+
+    /* Read more packets */
+    CLEAR_MSGS;
+    int gossip_rc = recvmmsg( gossip_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
+    if( gossip_rc < 0 ) {
+      if( errno == EINTR || errno == EWOULDBLOCK ) continue;
+      FD_LOG_ERR( ( "recvmmsg failed: %s", strerror( errno ) ) );
+      break;
+    }
+
+    for( uint i = 0; i < (uint)gossip_rc; ++i ) {
+      fd_gossip_peer_addr_t from;
+      gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
+      fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
     }
   }
   return NULL;
@@ -1054,10 +1055,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     repair_ctx->replay = replay;
     gossip_ctx->replay = replay;
-
-    // FIXME: replace with turbine
-    // for( uint i = 1; i <= 5; ++i )
-    //   fd_replay_add_pending( replay, snapshot_slot + i, 0 );
   } // if (runtime_ctx->live)
 
   replay_slot->slot    = slot_ctx->slot_bank.slot;
