@@ -5,22 +5,23 @@ IFS=$'\n\t'
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # create temporary files in the user's home directory because it's likely to be on a large disk
-TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu.XXXXXX)
+TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
 cd $TMPDIR
 
 cleanup() {
   sudo killall solana-validator || true
-  sudo killall test_tvu || true
+  sudo killall fddev || true
+  fddev configure fini all >/dev/null 2>&1 || true
   rm -rf "$TMPDIR"
 }
 
-#trap cleanup EXIT SIGINT SIGTERM
+trap cleanup EXIT SIGINT SIGTERM
 
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR=$SCRIPT_DIR
 
+sudo killall fddev || true
 sudo killall solana-validator || true
-sudo killall test_tvu || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -28,15 +29,11 @@ if ! command -v solana > /dev/null; then
 fi
 
 # if fd_frank_ledger is not on path then use the one in the home directory
-if ! command -v fd_frank_ledger > /dev/null; then
+if ! command -v fddev > /dev/null; then
   PATH="$FD_DIR/build/native/gcc/bin":$PATH
 fi
-# if test_tvu is not on path then use the one in the home directory
-if ! command -v test_tvu > /dev/null; then
-  PATH="$FD_DIR/build/native/gcc/unit-test":$PATH
-fi
 
-sudo env "PATH=$PATH" fddev configure fini xdp
+#fddev configure fini all >/dev/null 2>&1
 
 echo "Creating mint and stake authority keys..."
 solana-keygen new --no-bip39-passphrase -o faucet.json > /dev/null
@@ -64,12 +61,12 @@ GENESIS_OUTPUT=$(solana-genesis \
 GENESIS_HASH=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Genesis hash:).*(?=Shred version:)' | xargs)
 SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks per slot:)' | xargs)
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
-PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1 )
+PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
 RUST_LOG=trace solana-validator \
     --identity id.json \
     --ledger ledger \
-    --limit-ledger-size 50000000 \
+    --limit-ledger-size 100000000 \
     --no-genesis-fetch \
     --no-snapshot-fetch \
     --no-poh-speed-test \
@@ -96,7 +93,6 @@ done
 
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
-# sudo "$FD_DIR/build/native/gcc/bin/fd_shmem_cfg" alloc 50 gigantic 0
 fd_shmem_cfg reset
 
 fd_frank_ledger --cmd ingest \
@@ -105,18 +101,17 @@ fd_frank_ledger --cmd ingest \
                 --indexmax 10000 \
                 --backup backup
 
-timeout 60 test_tvu \
-    --rpc-port 9999 \
-    --gossip-peer-addr $PRIMARY_IP:8001 \
-    --repair-peer-addr $PRIMARY_IP:8008 \
-    --repair-peer-id $(solana-keygen pubkey id.json) \
-    --load backup \
-    --page-cnt 16 \
-    --indexmax 10000 \
-    --check_hash true \
-    --validate-snapshot true \
-    --log-level-logfile 0 \
-    --log-level-stderr 0 >test_tvu.log 2>&1 || true
-    
-grep -q "evaluated block successfully" test_tvu.log
-grep -qv "Bank hash mismatch" test_tvu.log
+echo "[tiles.tvu]
+  repair_peer_id = \"$(solana-keygen pubkey id.json)\"
+  repair_peer_addr = \"$PRIMARY_IP:8008\"
+  gossip_peer_addr = \"$PRIMARY_IP:8001\"
+  snapshot = \"$(echo snapshot*)\"
+  load = \"backup\"
+  page_cnt = 25
+  validate_snapshot = \"true\"
+  check_hash = \"true\"
+" > fddev.toml
+
+timeout 60 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
+grep -q "evaluated block successfully" $(readlink -f fddev.log)
+grep -qv "Bank hash mismatch" $(readlink -f fddev.log)

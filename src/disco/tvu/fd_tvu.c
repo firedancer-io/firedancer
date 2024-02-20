@@ -581,7 +581,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    int                   live,
                    fd_wksp_t *           _wksp,
                    fd_runtime_args_t *   args ) {
-
+  fd_flamenco_boot( NULL, NULL );
   fd_memset( runtime_ctx, 0, sizeof( fd_runtime_ctx_t ) );
 
   runtime_ctx->live = live;
@@ -631,7 +631,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   }
   FD_TEST( funk_wksp );
 
-  if( args->snapshot ) {
+  if( args->snapshot && args->snapshot[0] != '\0' ) {
     if( wksp != funk_wksp ) /* Start from scratch */
       fd_wksp_reset( funk_wksp, (uint)hashseed );
   } else if( args->load ) {
@@ -830,10 +830,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /**********************************************************************/
 
   ulong snapshot_slot = 0;
-  if( args->snapshot ) {
-    if( !args->incremental_snapshot )
+  if( args->snapshot && args->snapshot[0] != '\0' ) {
+    if( !args->incremental_snapshot || args->incremental_snapshot[0] == '\0' ) {
       FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
                         "using a local validator." ) );
+      // TODO: LML We really need to fix the way these arguments are handled
+      args->incremental_snapshot = NULL;
+    }
     const char * p = strstr( args->snapshot, "snapshot-" );
     if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
     do {
@@ -844,17 +847,17 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     if( sscanf( p, "snapshot-%lu", &snapshot_slot ) < 1 )
       FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
 
-    if( args->incremental_snapshot ) {
+    if( args->incremental_snapshot && args->incremental_snapshot[0] != '\0' ) {
 
-      p = strstr( args->incremental_snapshot, "snapshot-" );
+      p = strstr( args->incremental_snapshot, "incremental-snapshot-" );
       if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
       do {
-        const char * p2 = strstr( p + 1, "snapshot-" );
+        const char * p2 = strstr( p + 1, "incremental-snapshot-" );
         if( p2 == NULL ) break;
         p = p2;
       } while( 1 );
       ulong i, j;
-      if( sscanf( p, "snapshot-%lu-%lu", &i, &j ) < 2 )
+      if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
         FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
       if( i != snapshot_slot )
         FD_LOG_ERR( ( "--snapshot-file slot number does not match --incremental" ) );
@@ -870,7 +873,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
       ((NULL != args->check_hash) && (strcasecmp( args->check_hash, "true ") == 0))
       );
 
-  } else if( args->incremental_snapshot ) {
+  } else if( args->incremental_snapshot && args->incremental_snapshot[0] != '\0' ) {
     fd_runtime_recover_banks( slot_ctx, 0 );
 
     char   out[128];

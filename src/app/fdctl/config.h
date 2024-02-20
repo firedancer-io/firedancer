@@ -207,7 +207,9 @@ typedef struct {
       char my_repair_addr[ 22 ];
       char tvu_addr[ 22 ];
       char tvu_fwd_addr[ 22 ];
+      char load[ PATH_MAX ];
       char snapshot[ PATH_MAX ];
+      char incremental_snapshot[ PATH_MAX ];
       char validate_snapshot[ 22 ];
       char check_hash[ 22 ];
       uint page_cnt;

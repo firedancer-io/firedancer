@@ -761,13 +761,15 @@ topology = "tvu"
         page_cnt = 25
         validate_snapshot  = "false"
         check_hash         = "false"
+        load               = ""
         # TODO: LML pick the right port
         gossip_listen_port = 12001
         repair_listen_port = 12001
         tvu_port           = 12001
         tvu_fwd_port       = 12001
         rpc_listen_port    = 12000
-        snapshot = "/data/llamb/tmp-test-tvu.1LqXfl/snapshot-200-HkXT5YYU2aKPu6pUz2uHpJeHapjVfDkM4B5uPaaSEU17.tar.zst"
+        snapshot = ""
+        incremental_snapshot = ""
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order

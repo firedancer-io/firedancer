@@ -245,6 +245,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.tvu,           tvu_addr                                                  );
   ENTRY_STR   ( ., tiles.tvu,           tvu_fwd_addr                                              );
   ENTRY_STR   ( ., tiles.tvu,           snapshot                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           incremental_snapshot                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           load                                                      );
   ENTRY_STR   ( ., tiles.tvu,           validate_snapshot                                         );
   ENTRY_STR   ( ., tiles.tvu,           check_hash                                                );
   ENTRY_UINT  ( ., tiles.tvu,           page_cnt                                                  );
@@ -701,7 +703,9 @@ config_tiles( config_t * config ) {
         strncpy( tile->tvu.my_repair_addr, config->tiles.tvu.my_repair_addr, sizeof(tile->tvu.my_repair_addr) );
         strncpy( tile->tvu.tvu_addr, config->tiles.tvu.tvu_addr, sizeof(tile->tvu.tvu_addr) );
         strncpy( tile->tvu.tvu_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->tvu.tvu_fwd_addr) );
+        strncpy( tile->tvu.load, config->tiles.tvu.load, sizeof(tile->tvu.load) );
         strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
+	strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
         strncpy( tile->tvu.validate_snapshot, config->tiles.tvu.validate_snapshot, sizeof(tile->tvu.validate_snapshot) );
         strncpy( tile->tvu.check_hash, config->tiles.tvu.check_hash, sizeof(tile->tvu.check_hash) );
         tile->tvu.page_cnt = config->tiles.tvu.page_cnt;
