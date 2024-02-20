@@ -334,7 +334,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
              char const *          tvu_fwd_addr_ ) {
 
   repair_ctx->replay->now = fd_log_wallclock();
-  
+
   /* initialize gossip */
   int gossip_fd = fd_tvu_create_socket( &gossip_config->my_addr );
   gossip_sockfd = gossip_fd;
@@ -386,7 +386,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
   int rc = pthread_create( &turb_thread, NULL, fd_turbine_thread, &ttarg );
   if (rc)
     FD_LOG_ERR( ( "error creating turbine thread: %s", strerror(errno) ) );
-  
+
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
     { .stopflag = stopflag, .repair_fd = repair_fd, .replay = repair_ctx->replay };
@@ -394,7 +394,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
   rc = pthread_create( &repair_thread, NULL, fd_repair_thread, &reparg );
   if (rc)
     FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
-  
+
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
     { .stopflag = stopflag, .gossip_fd = gossip_fd, .replay = repair_ctx->replay };
@@ -402,7 +402,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
   rc = pthread_create( &gossip_thread, NULL, fd_gossip_thread, &gosarg );
   if (rc)
     FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
-  
+
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !*stopflag ) {
@@ -436,7 +436,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
   pthread_join( turb_thread, NULL );
   pthread_join( repair_thread, NULL );
   pthread_join( gossip_thread, NULL );
-  
+
   close( gossip_fd );
   close( repair_fd );
   close( tvu_fd );
@@ -686,7 +686,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /**********************************************************************/
   /* Solcap                                                             */
   /**********************************************************************/
-  
+
   runtime_ctx->capture_file = NULL;
   if( args->capture_fpath ) {
     runtime_ctx->capture_file = fopen( args->capture_fpath, "w+" );
@@ -782,7 +782,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
       42UL );
   fd_fec_resolver_t * fec_resolver = fd_fec_resolver_join( fd_fec_resolver_new(
       fec_resolver_mem, depth, partial_depth, complete_depth, done_depth, fec_sets ) );
-  
+
   /**********************************************************************/
   /* Replay                                                             */
   /**********************************************************************/
@@ -870,7 +870,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
       ((NULL != args->check_hash) && (strcasecmp( args->check_hash, "true ") == 0))
       );
 
-  } else if( args->incremental_snapshot ) { 
+  } else if( args->incremental_snapshot ) {
     fd_runtime_recover_banks( slot_ctx, 0 );
 
     char   out[128];
@@ -924,7 +924,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   }
 
   fd_runtime_cleanup_incinerator( slot_ctx );
-  
+
   /**********************************************************************/
   /* Identity                                                           */
   /**********************************************************************/
@@ -1144,8 +1144,8 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_tvu_repair_ctx_t * repair_
 
   fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
 
-  fd_replay_t * replay = repair_ctx->replay;
-  if( NULL != replay ) {
+  if (( NULL != repair_ctx) && (NULL != repair_ctx->replay )) {
+    fd_replay_t * replay = repair_ctx->replay;
     for( fd_replay_frontier_iter_t iter =
              fd_replay_frontier_iter_init( replay->frontier, replay->pool );
          !fd_replay_frontier_iter_done( iter, replay->frontier, replay->pool );

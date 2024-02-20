@@ -50,13 +50,7 @@ main( int     argc,
   fd_runtime_ctx_t state;
   fd_memset(&state, 0, sizeof(state));
 
-  fd_tvu_repair_ctx_t repair_ctx;
-  memset(&repair_ctx, 0, sizeof(repair_ctx));
-
-  fd_tvu_gossip_ctx_t gossip_ctx;
-  memset(&gossip_ctx, 0, sizeof(gossip_ctx));
-
-  fd_tvu_main_setup( &state, &repair_ctx, &gossip_ctx, 0, NULL, &args);
+  fd_tvu_main_setup( &state, NULL, NULL, 0, NULL, &args);
 
   // TODO: tracing, captures, and capitalization is broken
 #if 0
@@ -112,7 +106,7 @@ main( int     argc,
     if( err!=0 ) return err;
   }
 
-  fd_tvu_main_teardown(&state, &repair_ctx);
+  fd_tvu_main_teardown(&state, NULL);
 
   FD_LOG_NOTICE(( "pass" ));
 
