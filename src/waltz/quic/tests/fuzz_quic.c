@@ -2,6 +2,7 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -117,9 +118,9 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
 void init_quic(void) {
   void *ctx = (void *)0x1234UL;
   void *shaio = fd_aio_new(_aio, ctx, test_aio_send_func);
-  FD_TEST(shaio);
+  assert( shaio );
   fd_aio_t *aio = fd_aio_join(shaio);
-  FD_TEST(aio);
+  assert(aio);
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
@@ -139,24 +140,22 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
   fd_boot(argc, argv);
   atexit(fd_halt);
 
-  ulong cpu_idx = fd_tile_cpu_id(fd_tile_idx());
-  if (cpu_idx > fd_shmem_cpu_cnt())
-    cpu_idx = 0UL;
+  /* Use unoptimized wksp memory */
 
-  char const *_page_sz =
-      fd_env_strip_cmdline_cstr(argc, argv, "--page-sz", NULL, "normal");
-  ulong page_cnt =
-      fd_env_strip_cmdline_ulong(argc, argv, "--page-cnt", NULL, 3200UL);
-  ulong numa_idx = fd_env_strip_cmdline_ulong(argc, argv, "--numa-idx", NULL,
-                                              fd_shmem_numa_idx(cpu_idx));
+  ulong wksp_sz = 13107200UL;
 
-  ulong page_sz = fd_cstr_to_shmem_page_sz(_page_sz);
-  if (FD_UNLIKELY(!page_sz))
-    FD_LOG_ERR(("unsupported --page-sz"));
+  uchar * mem = aligned_alloc( 4096UL, wksp_sz );
+  assert( mem );
 
-  fd_wksp_t *wksp = fd_wksp_new_anonymous(
-      page_sz, page_cnt, fd_shmem_cpu_idx(numa_idx), "wksp", 0UL);
-  FD_TEST(wksp);
+  ulong part_max = fd_wksp_part_max_est( wksp_sz, 64UL<<10 );
+  assert( part_max );
+  ulong data_max = fd_wksp_data_max_est( wksp_sz, 64UL<<10 );
+
+  fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( mem, "wksp", 42U, part_max, data_max ) );
+  assert( wksp );
+
+  int shmem_err = fd_shmem_join_anonymous( "wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, mem, 4096UL, wksp_sz/4096UL );
+  assert( !shmem_err );
 
   fd_quic_limits_t const quic_limits = {.conn_cnt = 10,
                                         .conn_id_cnt = 10,
@@ -167,11 +166,11 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
                                         .tx_buf_sz = 1 << 14};
 
   ulong quic_footprint = fd_quic_footprint(&quic_limits);
-  FD_TEST(quic_footprint);
+  assert( quic_footprint );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   server_quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng);
-  FD_TEST(server_quic);
+  assert( server_quic );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   fd_quic_config_t *server_config = &server_quic->config;
