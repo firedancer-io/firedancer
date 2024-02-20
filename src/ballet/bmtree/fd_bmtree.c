@@ -8,7 +8,7 @@
 
    will declare in the current compile unit a header only library
    with the following APIs:
-   
+
      // Public node API
 
      struct __attribute__((aligned(32))) bmt_node {
@@ -116,9 +116,9 @@ fd_bmtree_private_merge( fd_bmtree_node_t       * node,
 
 # if FD_HAS_AVX
 
-  __m256i avx_pre = _mm256_load_si256( (__m256i const *)fd_bmtree_node_prefix );
-  __m256i avx_a   = _mm256_load_si256( (__m256i const *)a           );
-  __m256i avx_b   = _mm256_load_si256( (__m256i const *)b           );
+  __m256i avx_pre = _mm256_load_si256 ( (__m256i const *)fd_bmtree_node_prefix );
+  __m256i avx_a   = _mm256_loadu_si256( (__m256i const *)a           );
+  __m256i avx_b   = _mm256_loadu_si256( (__m256i const *)b           );
 
   uchar mem[96] __attribute__((aligned(32)));
 
@@ -147,7 +147,7 @@ FD_FN_CONST ulong
 fd_bmtree_depth( ulong leaf_cnt ) {
   return fd_ulong_if(
     /* if */   leaf_cnt<=1UL,
-    /* then */ leaf_cnt, 
+    /* then */ leaf_cnt,
     /* else */ (ulong)fd_ulong_find_msb_w_default( leaf_cnt-1UL, -1 /*irrelevant*/ ) + 2UL
   );
 }
@@ -176,7 +176,7 @@ fd_bmtree_node_cnt( ulong leaf_cnt ) {
 
 /* bmtree_commit_{footprint,align} return the alignment and footprint
    required for a memory region to be used as a bmtree_commit_t. */
-FD_FN_CONST ulong fd_bmtree_commit_align    ( void ) { return alignof(fd_bmtree_commit_t); }
+FD_FN_CONST ulong fd_bmtree_commit_align    ( void ) { return FD_BMTREE_COMMIT_ALIGN; }
 
 FD_FN_CONST ulong
 fd_bmtree_commit_footprint( ulong inclusion_proof_layer_cnt ) {
@@ -325,7 +325,7 @@ fd_bmtree_get_proof( fd_bmtree_commit_t * state,
 
   ulong leaf_cnt = state->leaf_cnt;
   ulong hash_sz  = state->hash_sz;
-  
+
   if( FD_UNLIKELY( leaf_idx >= leaf_cnt ) ) return 0UL;
 
   ulong inc_idx   = leaf_idx * 2UL;

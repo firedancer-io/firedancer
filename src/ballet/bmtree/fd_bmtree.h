@@ -146,7 +146,7 @@ static uchar const fd_bmtree_node_prefix[32UL] __attribute__((aligned(32))) = "\
    for a 20 / 32 byte node size).  We declare it this way to make the
    structure very AVX friendly and to allow SHA256 to write directly
    into the hash even if BMTREE_HASH_SZ isn't 32. */
-struct __attribute__((aligned(32))) fd_bmtree_node {
+struct __attribute__((packed)) fd_bmtree_node {
   uchar hash[ 32 ]; /* Last bytes may not be meaningful */
 };
 
