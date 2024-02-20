@@ -1,0 +1,46 @@
+# Creates a coverage report using only the ClusterFuzz corpus.
+# This complements our main coverage report, which only uses local test
+# vectors.  As ClusterFuzz continually finds new things to fuzz, we run
+# this script daily.
+
+name: Coverage Report (ClusterFuzz)
+on:
+  schedule:
+    - cron: 30 11 * * *
+  workflow_dispatch:
+jobs:
+  coverage-report-clusterfuzz:
+    name: Coverage Report (ClusterFuzz)
+    runs-on: ubuntu-latest
+    env:
+      MACHINE: linux_clang_haswell
+      EXTRAS: llvm-cov
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/deps
+
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: ${{ secrets.FUZZ_SERVICE_ACCT_JSON_BUNDLE }}
+
+      - name: Build
+        run: make -j fuzz-test
+
+      - name: Replace corpus dir
+        run: contrib/test/fetch_clusterfuzz_corpus.sh
+
+      - name: Generate fuzz coverage
+        run: |
+          make run-fuzz-test
+          make build/linux/clang/haswell/cov/cov.lcov
+
+      - name: Upload coverage report to CodeCov
+        uses: codecov/codecov-action@v3
+        timeout-minutes: 5
+        with:
+          files: build/linux/clang/haswell/cov/cov.lcov
+          name: dist-cov-report-cf
+          functionalities: search
+          flags: clusterfuzz
