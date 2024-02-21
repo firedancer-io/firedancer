@@ -426,54 +426,57 @@ seccomp-policies:
 # Documentation:
 #   https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
 #   https://llvm.org/docs/CoverageMappingFormat.html
+#   https://man.archlinux.org/man/lcov.1.en
 #
-# We thus have these steps:
-# 1. Compile with llvm-cov
-# 2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
-# 3. Merge raw profiles from test runs into a single profile per machine using 'llvm-profdata merge'
-# 4. Merge coverage mappings from all objects across all machines into an .ar file
-# 5. Combine profile data and coverage mapping using 'llvm-cov export'
-# 6. Generate HTML report using 'genhtml'
+# We thus have these steps
+#
+# 1. For each machine
+# 1.1. Compile with llvm-cov
+# 1.2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
+# 1.3. Merge raw profiles from test runs into a per-machine profile using 'llvm-profdata merge'
+# 1.4. Merge all machine objects into a thin .ar file
+# 1.5. Generate lcov tracefile from coverage mappings (step 1.4) and indexed profile data (step 1.3)
+# 1.6. Generate machine-specific HTML report using 'genhtml'
+#
+# 2. Once across all machines
+# 2.1. Merge lcov tracefiles using 'lcov -a'
+# 2.2. Generate combined HTML report using 'genhtml'
 
-# llvm-cov step 3: Merge and index "raw" profile data from test runs
+# llvm-cov step 1.3: Merge and index "raw" profile data from test runs
 $(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
-	mkdir -p $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
+	$(MKDIR) $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
 
-# Usage: $(call make-lcov,<report_objdir>,<profdata_objdirs>)
-# e.g. $(call make-lcov,build/cov,build/machine1 build/machine2)
-#      will create build/cov/cov.lcov from build/machine{1,2}/cov/cov.profdata
-define _make-lcov
-# llvm-cov step 4
+# llvm-cov step 1.4
 # Create a thin archive containing all objects with coverage mappings.
 # Sigh ... llvm-cov has a bug that makes it blow up when it encounters
 # any object in the archive without an __llvm_covmap section, such as
 # objects compiled from assembly code.
-.PHONY: $(1)/cov/mappings.ar
-$(1)/cov/mappings.ar:
-	rm -f $(1)/cov/mappings.ar &&                          \
-  mkdir -p $$(dir $$@) &&                                \
-  find $$(addsuffix /obj,$(2)) -name '*.o' -exec sh -c   \
-    '[ -n "`llvm-objdump -h $$$$1 | grep llvm_covmap`" ] \
-    && llvm-ar --thin q $$@ $$$$1' sh {} \;
+.PHONY: $(OBJDIR)/cov/mappings.ar
+$(OBJDIR)/cov/mappings.ar:
+	rm -f $(OBJDIR)/cov/mappings.ar &&                       \
+  $(MKDIR) $(dir $@) &&                                    \
+  find $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
+    '[ -n "`llvm-objdump -h $$1 | grep llvm_covmap`" ]     \
+    && llvm-ar --thin q $@ $$1' sh {} \;
 
-# llvm-cov step 5
-$(1)/cov/cov.lcov: $$(addsuffix /cov/cov.profdata,$(2)) $(1)/cov/mappings.ar
-ifeq ($(2),)
+# llvm-cov step 1.5
+$(OBJDIR)/cov/cov.lcov: $(addsuffix /cov/cov.profdata,$(OBJDIR)) $(OBJDIR)/cov/mappings.ar
+ifeq ($(OBJDIR),)
 	echo "No profile data found. Did you set OBJDIRS?" >&2 && exit 1
 endif
-	$(LLVM_COV) export                             \
-  -format=lcov                                 \
-  $$(addprefix -instr-profile=,$$<)            \
-  $(1)/cov/mappings.ar                         \
-  --ignore-filename-regex="test_.*\\.c"        \
-> $$@
-endef
-make-lcov = $(eval $(call _make-lcov,$(1),$(2)))
+	$(LLVM_COV) export                    \
+  -format=lcov                          \
+  $(addprefix -instr-profile=,$<)       \
+  $(OBJDIR)/cov/mappings.ar             \
+  --ignore-filename-regex="test_.*\\.c" \
+> $@
 
-# Create lcov report for current target
-$(call make-lcov,$(OBJDIR),$(OBJDIR))
+# llvm-cov step 2.1
+# Merge multiple lcov files together
+$(BASEDIR)/cov/cov.lcov: $(shell find $(BASEDIR) -name 'cov.lcov' -print)
+	$(MKDIR) $(BASEDIR)/cov && $(LCOV) -o $@ $(addprefix -a ,$^)
 
-# llvm-cov step 6
+# llvm-cov step 1.6, 2.2
 # Create HTML coverage report using lcov genhtml
 %/cov/html/index.html: %/cov/cov.lcov
 	rm -rf $(dir $@) && $(GENHTML) --output $(dir $@) $<
@@ -482,8 +485,9 @@ $(call make-lcov,$(OBJDIR),$(OBJDIR))
 # `make cov-report` produces a coverage report from test runs for the
 # currently selected build profile
 cov-report: $(OBJDIR)/cov/html/index.html
+	$(LCOV) --summary $(OBJDIR)/cov/cov.lcov
 
 # `make dist-cov-report OBJDIRS="build/native/gcc build/native/clang ..."`
 # produces a coverage report from multiple build profiles
-$(call make-lcov,$(BASEDIR),$(OBJDIRS))
 dist-cov-report: $(BASEDIR)/cov/html/index.html
+	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov
