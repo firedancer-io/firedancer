@@ -5,8 +5,8 @@
 #include "../context/fd_exec_slot_ctx.h"
 
 int
-fd_sysvar_clock_read( fd_exec_slot_ctx_t *    slot_ctx,
-                      fd_sol_sysvar_clock_t * result ) {
+fd_sysvar_clock_read( fd_sol_sysvar_clock_t * result,
+                      fd_exec_slot_ctx_t *    slot_ctx ) {
   FD_BORROWED_ACCOUNT_DECL(acc);
   int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_clock_id, acc );
 
