@@ -25,6 +25,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sign.o: src/app/fdctl/run/tiles/generated/sign_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_repair.o: src/app/fdctl/run/tiles/generated/repair_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_tvu.o: src/app/fdctl/run/tiles/generated/tvu_seccomp.h
+# $(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated/replay_seccomp.h
 
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.

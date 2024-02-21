@@ -26,6 +26,9 @@
 
 #define MAX_REPAIR_PEERS 40200UL
 
+#define SMAX    (1UL << 30UL)
+#define SDEPTH  (1UL << 11UL)
+
 struct __attribute__((packed)) fd_shred_dest_wire {
   fd_pubkey_t pubkey[1];
   /* The Labs splice writes this as octets, which means when we read
@@ -163,6 +166,9 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SMAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SDEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -440,6 +446,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
   ctx->repair = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+
+  void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SMAX ) );
+  void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SDEPTH ) );
+
+  FD_TEST( ( !!smem ) & ( !!fmem ) );
+  fd_scratch_attach( smem, fmem, SMAX, SDEPTH );
+  
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));

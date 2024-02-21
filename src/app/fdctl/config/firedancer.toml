@@ -1,1 +1,29 @@
 topology = "firedancer"
+
+[tiles.tvu]
+  repair_peer_id = "6VfruTG68WhnhsngCdN23WgGTDsa7oRTKvhBxshYFxkn"
+  repair_peer_addr = "147.75.87.77:8008"
+  gossip_peer_addr = "147.75.87.77:8001"
+  snapshot = "snapshot-100-FKQ9e5RarvUPRB1rXQmEbbPtAS4qwV363U1x1mJdpQ3W.tar.zst"
+  page_cnt = 25
+  validate_snapshot = "true"
+  check_hash = "true"
+  tvu_addr         = "147.75.87.77:9003"
+  tvu_fwd_addr     = "147.75.87.77:9004"
+  gossip_listen_port = 8010
+  repair_listen_port = 8011
+  tvu_port           = 9003
+  tvu_fwd_port       = 9004
+
+[tiles.gossip]
+    gossip_peer_addr = "147.75.87.77:8020"
+    gossip_my_addr = "147.75.87.77:8010"
+    gossip_listen_port = 8010
+
+[tiles.repair]
+    repair_my_intake_addr = "147.75.87.77:8012"
+    repair_my_serve_addr = "147.75.87.77:8011"
+    repair_listen_port = 8011
+
+[development]
+    no_clone = true

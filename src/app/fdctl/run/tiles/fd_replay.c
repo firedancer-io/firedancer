@@ -2,8 +2,7 @@
 
 #include "tiles.h"
 
-#include "generated/store_seccomp.h"
-#include "../../../../flamenco/repair/fd_repair.h"
+#include "generated/replay_seccomp.h"
 #include "../../../../util/fd_util.h"
 
 #include <unistd.h>
@@ -19,53 +18,11 @@
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../util/net/fd_udp.h"
 
-#define SHRED_IN_IDX    0
-#define REPAIR_IN_IDX   1
+#define STORE_IN_IDX    0
 
 #define REPAIR_OUT_IDX  0
-#define REPLAY_OUT_IDX  1
 
 #define MAX_REPAIR_PEERS 40200UL
-
-struct __attribute__((packed)) fd_shred_dest_wire {
-  fd_pubkey_t pubkey[1];
-  /* The Labs splice writes this as octets, which means when we read
-     this, it's essentially network byte order */
-  uint   ip4_addr;
-  ushort udp_port;
-};
-typedef struct fd_shred_dest_wire fd_shred_dest_wire_t;
-
-struct fd_contact_info_elem {
-  fd_pubkey_t key;
-  ulong next;
-  fd_gossip_contact_info_v1_t contact_info;
-};
-typedef struct fd_contact_info_elem fd_contact_info_elem_t;
-
-static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
-
-static ulong
-fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
-}
-
-static void
-fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
-  memcpy( keyd->key, keys->key, sizeof(fd_pubkey_t) );
-}
-
-/* Contact info table */
-#define MAP_NAME     fd_contact_info_table
-#define MAP_KEY_T    fd_pubkey_t
-#define MAP_KEY_EQ   fd_pubkey_eq
-#define MAP_KEY_HASH fd_pubkey_hash
-#define MAP_KEY_COPY fd_pubkey_copy
-#define MAP_T        fd_contact_info_elem_t
-#include "../../../../util/tmpl/fd_map_giant.c"
 
 
 struct fd_store_tile_ctx {
@@ -240,6 +197,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
   
+
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
   ctx->net_in = topo->workspaces[ netmux_link->wksp_id ].wksp;
@@ -271,8 +229,8 @@ populate_allowed_seccomp( void *               scratch,
                           ulong                out_cnt,
                           struct sock_filter * out ) {
   (void)scratch;
-  populate_sock_filter_policy_store( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_store_instr_cnt;
+  populate_sock_filter_policy_replay( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_replay_instr_cnt;
 }
 
 static ulong
