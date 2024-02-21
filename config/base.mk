@@ -31,6 +31,7 @@ LLVM_PROFDATA?=llvm-profdata
 RUST_PROFILE=debug
 
 # lcov
+LCOV=lcov
 GENHTML=genhtml
 # newer versions of genhtml will require '-ignore-errors unmapped'
 

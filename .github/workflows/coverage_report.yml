@@ -51,3 +51,4 @@ jobs:
           name: dist-cov-report
           fail_ci_if_error: false
           functionalities: search
+          flags: ci
