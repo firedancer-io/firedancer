@@ -383,7 +383,7 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
       fd_type_pun_const( program_acc_rec->const_data );
 
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read(ctx.slot_ctx, &clock);
+  fd_sysvar_clock_read( &clock, ctx.slot_ctx );
   ulong current_slot = clock.slot;
 
   if( fd_ulong_sat_add(state->slot, DEPLOYMENT_COOLDOWN_IN_SLOTS) > current_slot ) {
