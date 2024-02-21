@@ -31,6 +31,12 @@
        ulong right;  // treap.  Further, all these can be used arbitrarily when not in treap (this includes perhaps using an
        ulong prio;   // anonymous union and/or bit fields for even more flexibility).  Additional considerations for prio below.
 
+       // if TREAP_OPTIMIZE_ITERATION is set to 1, the following two
+       // fields are also needed:
+       ulong next;  // Similarly to above, technically TREAP_IDX_T TREAP_NEXT, TREAP_PREV.  These fields are treap-managed when
+       ulong prev;  // a myele is in the treap and can be used arbitrarily when not.
+
+
        ... Generally speaking, this treap implement is agnostic to how
        ... the user manages treap priorities.  The algorithmic costs
        ... below assume that priorities are random though.
@@ -349,7 +355,7 @@
 
 #ifndef TREAP_CMP
 #error "Define TREAP_CMP"
-#endif 
+#endif
 
 /* TREAP_LT returns 1 if the element e0's query fields are strictly less
    element e1's query fields and 0 otherwise.  Should be a pure
@@ -386,6 +392,27 @@
 
 #ifndef TREAP_PRIO
 #define TREAP_PRIO prio
+#endif
+
+/* TREAP_OPTIMIZE_ITERATION controls a space/time tradeoff: when
+   TREAP_OPTIMIZE_ITERATION is set to 1, each element has two additional
+   fields and insert and delete take slightly longer.  However, in
+   return, iteration in either direction is substantially faster.  This
+   works by essentially threading a doubly-linked list through elements
+   in iteration order. The default is sets this to 0, meaning that the
+   next and prev fields are not required. */
+#ifndef TREAP_OPTIMIZE_ITERATION
+#define TREAP_OPTIMIZE_ITERATION 0
+#endif
+
+#if TREAP_OPTIMIZE_ITERATION
+# ifndef  TREAP_NEXT
+#  define TREAP_NEXT next
+# endif
+
+# ifndef  TREAP_PREV
+#  define TREAP_PREV prev
+# endif
 #endif
 
 /* TREAP_IMPL_STYLE controls what this template should emit.
@@ -425,6 +452,10 @@
 struct TREAP_(private) {
   ulong       ele_max; /* Maximum number of elements in treap, in [0,TREAP_IDX_NULL] */
   ulong       ele_cnt; /* Current number of elements in treap, in [0,ele_max] */
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_IDX_T first;   /* Index of the left-most treap element, in [0,ele_max) or TREAP_IDX_NULL */
+  TREAP_IDX_T last;    /* Index of the right-most treap element, in [0,ele_max) or TREAP_IDX_NULL */
+#endif
   TREAP_IDX_T root;    /* Index of the root treap element, in [0,ele_max) or TREAP_IDX_NULL */
 };
 
@@ -594,6 +625,11 @@ TREAP_(new)( void * shmem,
   treap->ele_cnt = 0UL;
   treap->root    = (TREAP_IDX_T)TREAP_IDX_NULL;
 
+#if TREAP_OPTIMIZE_ITERATION
+  treap->first   = (TREAP_IDX_T)TREAP_IDX_NULL;
+  treap->last    = (TREAP_IDX_T)TREAP_IDX_NULL;
+#endif
+
   return treap;
 }
 
@@ -660,13 +696,22 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   /* Find leaf where to insert n */
 
   TREAP_IDX_T * _p_child = &treap->root;
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_IDX_T * _p_pnext = &treap->first; /* pointer to prev node's next idx */
+  TREAP_IDX_T * _p_nprev = &treap->last;  /* pointer to next node's prev idx */
+#endif
 
   ulong i = TREAP_IDX_NULL;
   for(;;) {
     ulong j = (ulong)*_p_child;
     if( FD_UNLIKELY( TREAP_IDX_IS_NULL( j ) ) ) break; /* Optimize for large treap */
     i = j;
-    _p_child = fd_ptr_if( TREAP_(lt)( pool + n, pool + i ), &pool[ i ].TREAP_LEFT, &pool[ i ].TREAP_RIGHT );
+    int lt = TREAP_(lt)( pool + n, pool + i );
+    _p_child = fd_ptr_if( lt, &pool[ i ].TREAP_LEFT, &pool[ i ].TREAP_RIGHT );
+#if TREAP_OPTIMIZE_ITERATION
+    _p_pnext = fd_ptr_if( lt, _p_pnext,              &pool[ i ].TREAP_NEXT  );
+    _p_nprev = fd_ptr_if( lt, &pool[ i ].TREAP_PREV, _p_nprev               );
+#endif
   }
 
   /* Insert n.  This might momentarily break the heap property. */
@@ -675,6 +720,13 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   pool[ n ].TREAP_LEFT   = (TREAP_IDX_T)TREAP_IDX_NULL;
   pool[ n ].TREAP_RIGHT  = (TREAP_IDX_T)TREAP_IDX_NULL;
   *_p_child = (TREAP_IDX_T)n;
+
+#if TREAP_OPTIMIZE_ITERATION
+  pool[ n ].TREAP_PREV = *_p_nprev;
+  pool[ n ].TREAP_NEXT = *_p_pnext;
+  *_p_nprev = (TREAP_IDX_T)n;
+  *_p_pnext = (TREAP_IDX_T)n;
+#endif
 
   /* Bubble n up until the heap property is restored. */
 
@@ -737,6 +789,15 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   TREAP_IDX_T * _t0      = fd_ptr_if( TREAP_IDX_IS_NULL( p ), &treap->root, &pool[ p ].TREAP_LEFT  );
   TREAP_IDX_T * _p_child = fd_ptr_if( d==(ulong)*_t0,         _t0,          &pool[ p ].TREAP_RIGHT );
 
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_IDX_T prev = pool[ d ].TREAP_PREV;
+  TREAP_IDX_T next = pool[ d ].TREAP_NEXT;
+  TREAP_IDX_T * _pnext = fd_ptr_if( TREAP_IDX_IS_NULL( prev ), &treap->first, &pool[ prev ].TREAP_NEXT );
+  TREAP_IDX_T * _nprev = fd_ptr_if( TREAP_IDX_IS_NULL( next ), &treap->last,  &pool[ next ].TREAP_PREV );
+  *_pnext = next;
+  *_nprev = prev;
+#endif
+
   for(;;) {
 
     /* At this point, we have a hole to fill at d:
@@ -790,14 +851,18 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
 }
 
 static inline void
-TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
-                       TREAP_T *     key,         /* Element whose key is not in the treap rooted at idx_node */
-                       TREAP_IDX_T * _idx_left,   /* Where to store the left tree root */
-                       TREAP_IDX_T * _idx_right,  /* Where to store the right tree root */
-                       TREAP_T *     pool ) {     /* Underlying pool */
+TREAP_(private_split)( TREAP_IDX_T   idx_node,         /* Tree to split */
+                       TREAP_T *     key,              /* Element whose key is not in the treap rooted at idx_node */
+                       TREAP_IDX_T * _idx_left,        /* Where to store the left tree root */
+                       TREAP_IDX_T * _idx_right,       /* Where to store the right tree root */
+                       TREAP_IDX_T * _idx_last_left,   /* Where to store the last (in BST order) element of the new left tree */
+                       TREAP_IDX_T * _idx_first_right, /* Where to store the first(in BST order) element in the new right tree */
+                       TREAP_T *     pool ) {          /* Underlying pool */
 
   TREAP_IDX_T idx_parent_left  = TREAP_IDX_NULL;
   TREAP_IDX_T idx_parent_right = TREAP_IDX_NULL;
+  *_idx_last_left   = TREAP_IDX_NULL;
+  *_idx_first_right = TREAP_IDX_NULL;
 
   while( !TREAP_IDX_IS_NULL( idx_node ) ) {
 
@@ -834,6 +899,10 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
       idx_parent_left = idx_node;
       _idx_left = &pool[ idx_node ].TREAP_RIGHT;
 
+      /* If everything in the right subtree is to the right of the key,
+         this is the last node on the left. */
+      *_idx_last_left = idx_node;
+
       /* Recurse on the right subtree */
       idx_node = pool[ idx_node ].TREAP_RIGHT;
 
@@ -844,6 +913,8 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
 
       idx_parent_right = idx_node;
       _idx_right = &pool[ idx_node ].TREAP_LEFT;
+
+      *_idx_first_right = idx_node;
 
       idx_node = pool[ idx_node ].TREAP_LEFT;
 
@@ -856,6 +927,7 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,    /* Tree to split */
   *_idx_right = TREAP_IDX_NULL;
 }
 
+#if !TREAP_OPTIMIZE_ITERATION
 static inline void
 TREAP_(private_join)( TREAP_IDX_T    idx_left,  /* Root of the left treap */
                       TREAP_IDX_T    idx_right, /* Root of the right treap, keys in left treap < keys in right treap */
@@ -922,6 +994,7 @@ TREAP_(private_join)( TREAP_IDX_T    idx_left,  /* Root of the left treap */
     }
   }
 }
+#endif
 
 TREAP_(t) *
 TREAP_(merge)( TREAP_(t) * treap_a,
@@ -933,13 +1006,62 @@ TREAP_(merge)( TREAP_(t) * treap_a,
   TREAP_IDX_T   new_root   = TREAP_IDX_NULL;
   TREAP_IDX_T * _idx_merge = &new_root;
 
+# if TREAP_OPTIMIZE_ITERATION
+  /* Invariant: idx_{a,b}_{first,last} is the index of the first/last
+     node in key order in the subtree rooted at idx_a/idx_b. */
+  TREAP_IDX_T  idx_a_first = treap_a->first;
+  TREAP_IDX_T  idx_a_last  = treap_a->last;
+  TREAP_IDX_T  idx_b_first = treap_b->first;
+  TREAP_IDX_T  idx_b_last  = treap_b->last;
+
+  /* merged_{prev,next} are the nodes immediately before/after the
+     merged subtree.  If these are IDX_NULL, then treap_a->first/last
+     should be updated instead. */
+  TREAP_IDX_T  merged_prev   = TREAP_IDX_NULL;
+  TREAP_IDX_T  merged_next   = TREAP_IDX_NULL;
+# endif
+
 # define STACK_MAX (128UL)
 
-  struct { TREAP_IDX_T idx_merge_parent; TREAP_IDX_T * _idx_merge; TREAP_IDX_T idx_a; TREAP_IDX_T idx_b; } stack[ STACK_MAX ];
+  struct { TREAP_IDX_T idx_merge_parent; TREAP_IDX_T * _idx_merge; TREAP_IDX_T idx_a; TREAP_IDX_T idx_b;
+#   if TREAP_OPTIMIZE_ITERATION
+    TREAP_IDX_T idx_a_first, idx_a_last, idx_b_first, idx_b_last;
+    TREAP_IDX_T merged_prev, merged_next;
+#   endif
+  } stack[ STACK_MAX ];
   ulong stack_top = 0UL;
 
 # define STACK_IS_EMPTY (!stack_top)
 # define STACK_IS_FULL  (stack_top>=STACK_MAX)
+
+#if TREAP_OPTIMIZE_ITERATION
+# define STACK_PUSH( imp, im, ia, ib, iaf, ial, ibf, ibl, mp, mn ) do { \
+    stack[ stack_top ].idx_merge_parent = (imp);                        \
+    stack[ stack_top ]._idx_merge       = (im);                         \
+    stack[ stack_top ].idx_a            = (ia);                         \
+    stack[ stack_top ].idx_b            = (ib);                         \
+    stack[ stack_top ].idx_a_first      = (iaf);                        \
+    stack[ stack_top ].idx_a_last       = (ial);                        \
+    stack[ stack_top ].idx_b_first      = (ibf);                        \
+    stack[ stack_top ].idx_b_last       = (ibl);                        \
+    stack[ stack_top ].merged_prev      = (mp);                         \
+    stack[ stack_top ].merged_next      = (mn);                         \
+    stack_top++;                                                        \
+  } while(0)
+# define STACK_POP( imp, im, ia, ib, iaf, ial, ibf, ibl, mp, mn ) do {  \
+    stack_top--;                                 \
+    (imp) = stack[ stack_top ].idx_merge_parent; \
+    (im)  = stack[ stack_top ]._idx_merge;       \
+    (ia)  = stack[ stack_top ].idx_a;            \
+    (ib)  = stack[ stack_top ].idx_b;            \
+    (iaf) = stack[ stack_top ].idx_a_first;      \
+    (ial) = stack[ stack_top ].idx_a_last;       \
+    (ibf) = stack[ stack_top ].idx_b_first;      \
+    (ibl) = stack[ stack_top ].idx_b_last;       \
+    (mp)  = stack[ stack_top ].merged_prev;      \
+    (mn)  = stack[ stack_top ].merged_next;      \
+  } while(0)
+#else
 # define STACK_PUSH( imp, im, ia, ib ) do {      \
     stack[ stack_top ].idx_merge_parent = (imp); \
     stack[ stack_top ]._idx_merge       = (im);  \
@@ -954,6 +1076,7 @@ TREAP_(merge)( TREAP_(t) * treap_a,
     (ia)  = stack[ stack_top ].idx_a;            \
     (ib)  = stack[ stack_top ].idx_b;            \
   } while(0)
+#endif
 
   TREAP_IDX_T idx_merge_parent = TREAP_IDX_NULL;
 
@@ -979,11 +1102,36 @@ TREAP_(merge)( TREAP_(t) * treap_a,
                                                            &pool[ idx_b ].TREAP_PARENT ) = idx_merge_parent;
       *_idx_merge = (TREAP_IDX_T)fd_ulong_if( idx_b_is_null, (ulong)idx_a, (ulong)idx_b );
 
+#     if TREAP_OPTIMIZE_ITERATION
+      /* Update the four pointers to insert the range
+         idx_a_first and idx_a_last (or b if a is the empty subtree)
+         between merged_prev and merged_next.  If both are the empty
+         subtree, then merged_prev connects directly to merged_next. */
+      *fd_ptr_if( TREAP_IDX_IS_NULL( merged_prev ), &treap_a->first, &pool[ merged_prev ].TREAP_NEXT ) =
+                                        (TREAP_IDX_T)fd_ulong_if( idx_b_is_null, fd_ulong_if( idx_a_is_null, (ulong)merged_next,
+                                                                                                             (ulong)idx_a_first ),
+                                                                                                             (ulong)idx_b_first );
+      *fd_ptr_if( TREAP_IDX_IS_NULL( merged_next ), &treap_a->last , &pool[ merged_next ].TREAP_PREV ) =
+                                        (TREAP_IDX_T)fd_ulong_if( idx_b_is_null, fd_ulong_if( idx_a_is_null, (ulong)merged_prev,
+                                                                                                             (ulong)idx_a_last  ),
+                                                                                                             (ulong)idx_b_last  );
+      *fd_ptr_if( idx_b_is_null, fd_ptr_if( idx_a_is_null, &idx_tmp,
+                                                           &pool[ idx_a_first ].TREAP_PREV ),
+                                                           &pool[ idx_b_first ].TREAP_PREV ) = merged_prev;
+      *fd_ptr_if( idx_b_is_null, fd_ptr_if( idx_a_is_null, &idx_tmp,
+                                                           &pool[ idx_a_last ].TREAP_NEXT ),
+                                                           &pool[ idx_b_last ].TREAP_NEXT ) = merged_next;
+
+#     endif
       /* Pop the stack to get the next merge to do.  If the stack is
          empty, we are done. */
 
       if( STACK_IS_EMPTY ) break;
+#     if TREAP_OPTIMIZE_ITERATION
+      STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b, idx_a_first, idx_a_last, idx_b_first, idx_b_last, merged_prev, merged_next );
+#     else
       STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b );
+#     endif
       continue;
     }
 
@@ -1001,8 +1149,13 @@ TREAP_(merge)( TREAP_(t) * treap_a,
       /* Remove elements from B one-by-one and insert them into A.
          O(B lg B) for the removes, O(B lg(A + B)) for the inserts. */
 
+#     if TREAP_OPTIMIZE_ITERATION
+      TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL, .root = idx_a, .first=idx_a_first, .last=idx_a_last };
+      TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = 0UL, .root = idx_b, .first=idx_b_first, .last=idx_b_last };
+#     else
       TREAP_(t) temp_treap_a = { .ele_max = treap_a->ele_max, .ele_cnt = 0UL, .root = idx_a };
       TREAP_(t) temp_treap_b = { .ele_max = treap_b->ele_max, .ele_cnt = 0UL, .root = idx_b };
+#     endif
       pool[ idx_a ].TREAP_PARENT = TREAP_IDX_NULL;
       pool[ idx_b ].TREAP_PARENT = TREAP_IDX_NULL;
       do {
@@ -1019,11 +1172,23 @@ TREAP_(merge)( TREAP_(t) * treap_a,
       pool[ idx_a ].TREAP_PARENT = idx_merge_parent;
       *_idx_merge = idx_a;
 
+#     if TREAP_OPTIMIZE_ITERATION
+      *fd_ptr_if( TREAP_IDX_IS_NULL( merged_prev ), &treap_a->first, &pool[ merged_prev ].TREAP_NEXT ) = temp_treap_a.first;
+      *fd_ptr_if( TREAP_IDX_IS_NULL( merged_next ), &treap_a->last,  &pool[ merged_next ].TREAP_PREV ) = temp_treap_a.last;
+      pool[ temp_treap_a.first ].TREAP_PREV = merged_prev;
+      pool[ temp_treap_a.last  ].TREAP_NEXT = merged_next;
+#     endif
+
       /* Pop the stack to get the next merge to do.  If the stack is
          empty, we are done. */
 
       if( STACK_IS_EMPTY ) break;
+#     if TREAP_OPTIMIZE_ITERATION
+      STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b,
+          idx_a_first, idx_a_last, idx_b_first, idx_b_last, merged_prev, merged_next );
+#     else
       STACK_POP( idx_merge_parent, _idx_merge, idx_a, idx_b );
+#     endif
       continue;
     }
 
@@ -1033,7 +1198,12 @@ TREAP_(merge)( TREAP_(t) * treap_a,
 
     TREAP_IDX_T prio_a = pool[ idx_a ].TREAP_PRIO;
     TREAP_IDX_T prio_b = pool[ idx_b ].TREAP_PRIO;
-    fd_swap_if( (prio_a<prio_b) | ((prio_a==prio_b) & (int)(idx_a ^ idx_b)), idx_a, idx_b );
+    int swap = (prio_a<prio_b) | ((prio_a==prio_b) & (int)(idx_a ^ idx_b));
+    fd_swap_if( swap, idx_a,       idx_b       );
+#   if TREAP_OPTIMIZE_ITERATION
+    fd_swap_if( swap, idx_a_first, idx_b_first );
+    fd_swap_if( swap, idx_a_last,  idx_b_last  );
+#   endif
 
     /* At this point, we have two non-empty treaps to merge and A's root
        priority is higher than B's root priority.  So, we know the root
@@ -1052,7 +1222,21 @@ TREAP_(merge)( TREAP_(t) * treap_a,
 
     TREAP_IDX_T idx_b_left;
     TREAP_IDX_T idx_b_right;
-    TREAP_(private_split)( idx_b, &pool[ idx_a ], &idx_b_left, &idx_b_right, pool );
+    TREAP_IDX_T idx_b_left_last;
+    TREAP_IDX_T idx_b_right_first;
+    TREAP_(private_split)( idx_b, &pool[ idx_a ], &idx_b_left, &idx_b_right, &idx_b_left_last, &idx_b_right_first, pool );
+
+#   if TREAP_OPTIMIZE_ITERATION
+    /* Split the iteration order links in B as well */
+    TREAP_IDX_T dummy;
+    *fd_ptr_if( TREAP_IDX_IS_NULL( idx_b_left_last   ), &dummy, &pool[ idx_b_left_last   ].TREAP_NEXT ) = TREAP_IDX_NULL;
+    *fd_ptr_if( TREAP_IDX_IS_NULL( idx_b_right_first ), &dummy, &pool[ idx_b_right_first ].TREAP_PREV ) = TREAP_IDX_NULL;
+
+    /* The first node in B's left subtree is the first node in B unless
+       it is empty.  Similarly for B's right subtree. */
+    TREAP_IDX_T idx_b_left_first = (TREAP_IDX_T)fd_ulong_if( TREAP_IDX_IS_NULL( idx_b_left  ), TREAP_IDX_NULL, idx_b_first );
+    TREAP_IDX_T idx_b_right_last = (TREAP_IDX_T)fd_ulong_if( TREAP_IDX_IS_NULL( idx_b_right ), TREAP_IDX_NULL, idx_b_last  );
+#   endif
 
     /* At this point, A's left subtree and B's left split are all keys
        to the left of A's root and A's right subtree.  Similarly, B's
@@ -1064,10 +1248,21 @@ TREAP_(merge)( TREAP_(t) * treap_a,
        side first and the right side later (making this a cache oblivious
        algorithm too). */
 
+#   if TREAP_OPTIMIZE_ITERATION
+    STACK_PUSH( idx_a, &pool[ idx_a ].TREAP_RIGHT, idx_a_right, idx_b_right,
+                pool[ idx_a ].TREAP_NEXT, idx_a_last, idx_b_right_first, idx_b_right_last, idx_a, merged_next );
+#   else
     STACK_PUSH( idx_a, &pool[ idx_a ].TREAP_RIGHT, idx_a_right, idx_b_right );
+#   endif
 
     idx_merge_parent = idx_a;
     _idx_merge       = &pool[ idx_a ].TREAP_LEFT;
+#   if TREAP_OPTIMIZE_ITERATION
+    idx_a_last       = pool[ idx_a ].TREAP_PREV;
+    idx_b_first      = idx_b_left_first;
+    idx_b_last       = idx_b_left_last;
+    merged_next      = idx_a;
+#   endif
     idx_a            = idx_a_left;
     idx_b            = idx_b_left;
   }
@@ -1076,6 +1271,10 @@ TREAP_(merge)( TREAP_(t) * treap_a,
   treap_b->root     = TREAP_IDX_NULL;
   treap_a->ele_cnt += treap_b->ele_cnt;
   treap_b->ele_cnt  = 0UL;
+# if TREAP_OPTIMIZE_ITERATION
+  treap_b->first    = TREAP_IDX_NULL;
+  treap_b->last     = TREAP_IDX_NULL;
+# endif
 
   return treap_a;
 
@@ -1089,24 +1288,37 @@ TREAP_(merge)( TREAP_(t) * treap_a,
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_init)( TREAP_(t) const * treap,
                        TREAP_T const *   pool ) {
+#if TREAP_OPTIMIZE_ITERATION
+  (void)pool;
+  return treap->first;
+#else
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
   while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_LEFT; }
   return i;
+#endif
 }
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_init)( TREAP_(t) const * treap,
                        TREAP_T const *   pool ) {
+#if TREAP_OPTIMIZE_ITERATION
+  (void)pool;
+  return treap->last;
+#else
   ulong i = TREAP_IDX_NULL;
   ulong j = (ulong)treap->root;
   while( FD_LIKELY( !TREAP_IDX_IS_NULL( j ) ) ) { i = j; j = (ulong)pool[ j ].TREAP_RIGHT; }
   return i;
+#endif
 }
 
 TREAP_STATIC TREAP_(fwd_iter_t)
 TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
                        TREAP_T const *    pool ) {
+#if TREAP_OPTIMIZE_ITERATION
+  return pool[ i ].TREAP_NEXT;
+#else
   ulong r = (ulong)pool[ i ].TREAP_RIGHT;
 
   if( TREAP_IDX_IS_NULL( r ) ) {
@@ -1127,11 +1339,15 @@ TREAP_(fwd_iter_next)( TREAP_(fwd_iter_t) i,
   }
 
   return i;
+#endif
 }
 
 TREAP_STATIC TREAP_(rev_iter_t)
 TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
                        TREAP_T const *    pool ) {
+#if TREAP_OPTIMIZE_ITERATION
+  return pool[ i ].TREAP_PREV;
+#else
   ulong l = (ulong)pool[ i ].TREAP_LEFT;
 
   if( TREAP_IDX_IS_NULL( l ) ) {
@@ -1152,6 +1368,7 @@ TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
   }
 
   return i;
+#endif
 }
 
 TREAP_STATIC int
@@ -1179,6 +1396,9 @@ TREAP_(verify)( TREAP_(t) const * treap,
     l = (ulong)pool[ l ].TREAP_LEFT;
     loop_cnt++;
   }
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_TEST( treap->first==i );
+#endif
 
   /* In-order traverse the treap starting from the leftmost */
 
@@ -1191,6 +1411,12 @@ TREAP_(verify)( TREAP_(t) const * treap,
        NULL if i is the first element we are visiting. */
 
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
+#if TREAP_OPTIMIZE_ITERATION
+    /* Check the l <-> i link */
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) TREAP_TEST( pool[ i ].TREAP_PREV==l );
+#endif
+
 
     ulong p = (ulong)pool[ i ].TREAP_PARENT;
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( p ) ) ) {
@@ -1234,15 +1460,19 @@ TREAP_(verify)( TREAP_(t) const * treap,
       for(;;) {
         TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
         TREAP_TEST( i       <ele_max ); /* Make sure valid index */
-        l = (ulong)pool[ i ].TREAP_LEFT;
-        if( TREAP_IDX_IS_NULL( l ) ) break;
-        i = l;
+        ulong ll = (ulong)pool[ i ].TREAP_LEFT;
+        if( TREAP_IDX_IS_NULL( ll ) ) break;
+        i = ll;
         loop_cnt++;
       }
 
     }
 
   }
+
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_TEST( treap->last==l );
+#endif
 
   TREAP_TEST( cnt==ele_cnt ); /* Make sure we visited correct number of elements */
 
@@ -1258,6 +1488,9 @@ TREAP_(verify)( TREAP_(t) const * treap,
 #undef TREAP_STATIC
 
 #undef TREAP_IMPL_STYLE
+#undef TREAP_NEXT
+#undef TREAP_PREV
+#undef TREAP_OPTIMIZE_ITERATION
 #undef TREAP_PRIO
 #undef TREAP_RIGHT
 #undef TREAP_LEFT
