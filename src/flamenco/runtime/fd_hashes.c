@@ -915,7 +915,6 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
     /* Why check the executable high bits??? Aren't those just garbage?? */
 
     if( !is_dead && do_hash_verify ) {
-      FD_LOG_NOTICE(( "DO HASH VERIFY" ));
       uchar hash[32];
       ulong old_slot = slot_ctx->slot_bank.slot;
       slot_ctx->slot_bank.slot = metadata->slot;

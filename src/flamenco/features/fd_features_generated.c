@@ -738,7 +738,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, account_hash_ignore_slot)>>3,
     .id     = {"\x06\x88\x0e\xd2\xd7\xba\x96\x67\x8f\x11\x2c\x91\x03\x77\xb7\xc9\xc5\xd4\x04\x96\xe4\xb7\x4c\x8f\x64\xfb\x77\x3f\x84\xd6\x12\xe4"}
               /* SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, set_exempt_rent_epoch_max)>>3,
@@ -774,7 +774,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, epoch_accounts_hash)>>3,
     .id     = {"\x3f\x7c\x76\xbc\xf9\xca\x28\x17\x4a\x5a\xf1\x64\x71\x2e\xb4\x6e\x29\x48\x29\x2b\x19\x68\x8e\xf9\xad\x5a\x19\x23\x25\x12\x11\x99"}
               /* 5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, remove_deprecated_request_unit_ix)>>3,

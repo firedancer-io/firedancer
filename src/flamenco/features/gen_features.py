@@ -13,7 +13,7 @@ from base58 import b58decode
 
 # The list of all feature names whose implementation has been removed from the Solana source code, and which therefore should default to enabled
 REMOVED_FEATURES = [
-    # 'account_hash_ignore_slot',
+    'account_hash_ignore_slot',
     'enable_early_verification_of_account_modifications',
     'cap_bpf_program_instruction_accounts',
     'disable_builtin_loader_ownership_chains',
@@ -32,7 +32,7 @@ REMOVED_FEATURES = [
     'stake_merge_with_unmatched_credits_observed',
     'remove_deprecated_request_unit_ix',
     'cap_transaction_accounts_data_size',
-    # 'epoch_accounts_hash',
+    'epoch_accounts_hash',
     'checked_arithmetic_in_fee_validation',
     'prevent_rent_paying_rent_recipients',
     'add_set_tx_loaded_accounts_data_size_instruction',

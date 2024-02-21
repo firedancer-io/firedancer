@@ -18,7 +18,7 @@
 
 # this assumes the test_runtime has already been built
 
-LEDGER="v1176-big"
+LEDGER="v18-small"
 SNAPSHOT=""
 INC_SNAPSHOT=""
 END_SLOT="--end-slot 1010"
@@ -29,6 +29,7 @@ HISTORY="--slothistory 3000"
 END=""
 TRASHHASH=""
 EXPECTED="0"
+LOG="/tmp/ledger_log$$"
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -83,6 +84,11 @@ while [[ $# -gt 0 ]]; do
        ;;
     -h|--slothistory)
        HISTORY="--slothistory $2"
+       shift
+       shift
+       ;;
+    -l|--log)
+       LOG="$2"
        shift
        shift
        ;;
@@ -142,8 +148,6 @@ if [[ -n "$NOREPLAY" ]]; then
   exit 0
 fi
 
-log=/tmp/ledger_log$$
-
 ARGS=" --load test_ledger_backup \
   --cmd replay \
   $PAGES \
@@ -160,20 +164,20 @@ then
   ARGS="$ARGS --cap dump/$LEDGER/capitalization.csv"
 fi
 
-"$OBJDIR"/unit-test/test_runtime $ARGS >& $log
+"$OBJDIR"/unit-test/test_runtime $ARGS >& $LOG
 
 status=$?
 
-if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $log;
+if [ $status -ne 0 ] || grep -q "Bank hash mismatch" $LOG;
 then
   if [ "$status" -eq "$EXPECTED" ]; then
     echo "inverted test passed"
     exit 0
   fi
-  tail -20 $log
+  tail -20 $LOG
   echo 'ledger test failed:'
-  echo $log
+  echo $LOG
   exit $status
 fi
 
-rm $log
+rm $LOG
