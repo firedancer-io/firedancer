@@ -1,4 +1,7 @@
 ifdef FD_HAS_INT128
+$(call add-hdrs,fd_address_lookup_table_program.h)
+$(call add-objs,fd_address_lookup_table_program,fd_flamenco)
+
 $(call add-hdrs,fd_bpf_loader_v1_program.h)
 $(call add-objs,fd_bpf_loader_v1_program,fd_flamenco)
 
