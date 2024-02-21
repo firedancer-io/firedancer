@@ -21,11 +21,12 @@
 #define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
-#define FD_TPU_REASM_FOOTPRINT( slot_cnt )                                               \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
-    FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                 ), /* hdr    */ \
-    alignof(fd_tpu_reasm_slot_t), (slot_cnt)*sizeof(fd_tpu_reasm_slot_t) ), /* slots  */ \
-    FD_CHUNK_ALIGN,               (slot_cnt)*FD_TPU_REASM_MTU            ), /* chunks */ \
+#define FD_TPU_REASM_FOOTPRINT( slot_cnt )                                                                  \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
+    FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                 ), /* hdr      */                  \
+    alignof(fd_tpu_reasm_slot_t), (slot_cnt)*sizeof(fd_tpu_reasm_slot_t) ), /* slots    */                  \
+    alignof(ulong),               (depth)*sizeof(ulong)                  ), /* slot_idx */                  \
+    FD_CHUNK_ALIGN,               (slot_cnt)*FD_TPU_REASM_MTU            ), /* chunks   */                  \
     FD_TPU_REASM_ALIGN )
 
 /* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
@@ -123,17 +124,18 @@ typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  ulong slots_off;   /* slots mem   */
-  ulong chunks_off;  /* payload mem */
+  ulong slots_off;    /* slots mem   */
+  ulong slot_idx_off; /* slot_idx mem  */
+  ulong chunks_off;   /* payload mem */
 
-  uint   depth;      /* mcache depth */
-  uint   burst;      /* max concurrent reassemblies */
+  uint   depth;       /* mcache depth */
+  uint   burst;       /* max concurrent reassemblies */
 
-  uint   head;       /* least recent reassembly */
-  uint   tail;       /* most  recent reassembly */
+  uint   head;        /* least recent reassembly */
+  uint   tail;        /* most  recent reassembly */
 
   uint   slot_cnt;
-  ushort orig;       /* tango orig */
+  ushort orig;        /* tango orig */
 };
 
 typedef struct fd_tpu_reasm fd_tpu_reasm_t;
@@ -183,8 +185,7 @@ void *
 fd_tpu_reasm_new( void *           shmem,
                   ulong            depth,  /* Assumed in {2^0,2^1,2^2,...,2^32} */
                   ulong            burst,  /* Assumed in [1,2^32) */
-                  ulong            orig,   /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
-                  fd_frag_meta_t * mcache );
+                  ulong            orig    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */ );
 
 fd_tpu_reasm_t *
 fd_tpu_reasm_join( void * shreasm );
@@ -257,6 +258,16 @@ fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
 static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
 fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
   return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE ulong *
+fd_tpu_reasm_slot_idx_laddr( fd_tpu_reasm_t * reasm ) {
+  return (ulong *)( (ulong)reasm + reasm->slot_idx_off );
+}
+
+static inline FD_FN_PURE ulong const *
+fd_tpu_reasm_slot_idx_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (ulong const *)( (ulong)reasm + reasm->slot_idx_off );
 }
 
 static inline FD_FN_PURE uchar *

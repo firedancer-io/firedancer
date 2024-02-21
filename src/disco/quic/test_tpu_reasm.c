@@ -26,13 +26,15 @@ verify_state( fd_tpu_reasm_t * reasm,
 
   /* Check for invalid state and duplicates in mcache */
 
-  for( fd_frag_meta_t * frag = mcache; frag < mcache+depth; frag++ ) {
+  for( ulong i = 0UL; i < depth; i++ ) {
+    fd_frag_meta_t * frag = mcache + i;
+    ulong * slot_idx = fd_tpu_reasm_slot_idx_laddr( reasm ) + i;
+
     FD_TEST( frag->sz < FD_TPU_REASM_MTU );
 
-    uint slot_idx = (uint)frag->sig;
-    FD_TEST( slot_idx<slot_cnt );
+    FD_TEST( *slot_idx<slot_cnt );
 
-    fd_tpu_reasm_slot_t * slot = slots + slot_idx;
+    fd_tpu_reasm_slot_t * slot = slots + *slot_idx;
     FD_TEST( slot->state==FD_TPU_REASM_STATE_PUB );
 
     slot->state = (uchar)0x42;  /* mark as visited */
@@ -107,7 +109,7 @@ main( int     argc,
   static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN)))
   tpu_reasm_mem[ FD_TPU_REASM_FOOTPRINT( depth+burst ) ];
 
-  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig, mcache ) );
+  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig ) );
   FD_TEST( reasm );
 
   /* Verify initial state of reasm */
@@ -145,7 +147,7 @@ main( int     argc,
 
   /* Reininitalize */
 
-  fd_tpu_reasm_reset( reasm, mcache );
+  fd_tpu_reasm_reset( reasm );
   verify_state( reasm, mcache );
 
   /* Confirm that invalid transactions don't get published */

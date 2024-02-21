@@ -24,23 +24,22 @@ void *
 fd_tpu_reasm_new( void *           shmem,
                   ulong            depth,
                   ulong            burst,
-                  ulong            orig,
-                  fd_frag_meta_t * mcache ) {
+                  ulong            orig ) {
 
   if( FD_UNLIKELY( !shmem ) ) return NULL;
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, FD_TPU_REASM_ALIGN ) ) ) return NULL;
   if( FD_UNLIKELY( !fd_tpu_reasm_footprint( depth, burst ) ) ) return NULL;
   if( FD_UNLIKELY( orig > FD_FRAG_META_ORIG_MAX ) ) return NULL;
-  if( FD_UNLIKELY( !mcache ) ) return NULL;
 
   /* Memory layout */
 
   ulong slot_cnt  = depth+burst;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_tpu_reasm_t *      reasm  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_t), sizeof(fd_tpu_reasm_t) );
-  fd_tpu_reasm_slot_t * slots  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t) );
-  uchar *               chunks = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,               slot_cnt*FD_TPU_REASM_MTU            );
+  fd_tpu_reasm_t *      reasm    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_t), sizeof(fd_tpu_reasm_t) );
+  fd_tpu_reasm_slot_t * slots    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tpu_reasm_slot_t), slot_cnt*sizeof(fd_tpu_reasm_slot_t) );
+  ulong *               slot_idx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),               depth*sizeof(ulong)                  );
+  uchar *               chunks   = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,               slot_cnt*FD_TPU_REASM_MTU            );
   FD_SCRATCH_ALLOC_FINI( l, alignof(fd_tpu_reasm_t) );
 
   fd_memset( reasm, 0, sizeof(fd_tpu_reasm_t) );
@@ -48,18 +47,19 @@ fd_tpu_reasm_new( void *           shmem,
 
   /* Initialize reasm object */
 
-  reasm->slots_off  = (ulong)( (uchar *)slots  - (uchar *)reasm );
-  reasm->chunks_off = (ulong)( (uchar *)chunks - (uchar *)reasm );
-  reasm->depth      = (uint)depth;
-  reasm->burst      = (uint)burst;
-  reasm->head       = (uint)slot_cnt-1U;
-  reasm->tail       = (uint)depth;
-  reasm->slot_cnt   = (uint)slot_cnt;
-  reasm->orig       = (ushort)orig;
+  reasm->slots_off    = (ulong)( (uchar *)slots  - (uchar *)reasm );
+  reasm->slot_idx_off = (ulong)( (uchar *)slot_idx - (uchar *)reasm );
+  reasm->chunks_off   = (ulong)( (uchar *)chunks - (uchar *)reasm );
+  reasm->depth        = (uint)depth;
+  reasm->burst        = (uint)burst;
+  reasm->head         = (uint)slot_cnt-1U;
+  reasm->tail         = (uint)depth;
+  reasm->slot_cnt     = (uint)slot_cnt;
+  reasm->orig         = (ushort)orig;
 
   /* Initial slot distribution */
 
-  fd_tpu_reasm_reset( reasm, mcache );
+  fd_tpu_reasm_reset( reasm );
 
   FD_COMPILER_MFENCE();
   reasm->magic = FD_TPU_REASM_MAGIC;
@@ -69,17 +69,17 @@ fd_tpu_reasm_new( void *           shmem,
 }
 
 void
-fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm,
-                    fd_frag_meta_t * mcache ) {
+fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm ) {
 
   uint depth    = reasm->depth;
   uint burst    = reasm->burst;
   uint node_cnt = depth+burst;
   fd_tpu_reasm_slot_t * slots = fd_tpu_reasm_slots_laddr( reasm );
+  ulong * slot_idx = fd_tpu_reasm_slot_idx_laddr( reasm );
 
   for( uint j=0U; j<depth; j++ ) {
-    slots [ j ].state = FD_TPU_REASM_STATE_PUB;
-    mcache[ j ].sig   = (uint)j;
+    slots   [ j ].state = FD_TPU_REASM_STATE_PUB;
+    slot_idx[ j ]       = (ulong)j;
   }
   for( uint j=depth; j<node_cnt; j++ ) {
     fd_tpu_reasm_slot_t * slot = slots + j;
@@ -249,16 +249,16 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   }
 
   /* Acquire mcache line */
-  ulong            depth = reasm->depth;
-  fd_frag_meta_t * meta  = mcache + fd_mcache_line_idx( seq, depth );
+  ulong            depth         = reasm->depth;
+  fd_frag_meta_t * meta          = mcache + fd_mcache_line_idx( seq, depth );
+  ulong *          free_slot_idx = fd_tpu_reasm_slot_idx_laddr( reasm ) + fd_mcache_line_idx( seq, depth );
 
   /* Detect which slot this message belongs to */
-  uint free_slot_idx = (uint)meta->sig;  /* TODO consider storing in separate array */
-  if( FD_UNLIKELY( free_slot_idx >= reasm->slot_cnt ) ) {
+  if( FD_UNLIKELY( *free_slot_idx >= reasm->slot_cnt ) ) {
     /* mcache corruption */
-    FD_LOG_WARNING(( "mcache corruption detected! tpu_reasm slot %u out of bounds (max %u)",
-                     free_slot_idx, reasm->slot_cnt ));
-    fd_tpu_reasm_reset( reasm, mcache );
+    FD_LOG_WARNING(( "mcache corruption detected! tpu_reasm slot %lu out of bounds (max %u)",
+                     *free_slot_idx, reasm->slot_cnt ));
+    fd_tpu_reasm_reset( reasm );
     return FD_TPU_REASM_ERR_STATE;
   }
 
@@ -267,12 +267,12 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   slot->state = FD_TPU_REASM_STATE_PUB;
 
   /* Free oldest published slot */
-  fd_tpu_reasm_slot_t * free_slot = fd_tpu_reasm_slots_laddr( reasm ) + free_slot_idx;
+  fd_tpu_reasm_slot_t * free_slot = fd_tpu_reasm_slots_laddr( reasm ) + *free_slot_idx;
   if( FD_UNLIKELY( free_slot->state != FD_TPU_REASM_STATE_PUB ) ) {
     /* mcache/slots out of sync (memory leak) */
-    FD_LOG_WARNING(( "mcache corruption detected! tpu_reasm slot %u not published",
-                     free_slot_idx ));
-    fd_tpu_reasm_reset( reasm, mcache );
+    FD_LOG_WARNING(( "mcache corruption detected! tpu_reasm slot %lu not published",
+                     *free_slot_idx ));
+    fd_tpu_reasm_reset( reasm );
     return FD_TPU_REASM_ERR_STATE;
   }
   free_slot->state = FD_TPU_REASM_STATE_FREE;
@@ -283,10 +283,11 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   ulong ctl    = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
   ulong tsorig = slot->tsorig;
 
+  *free_slot_idx = slot_idx;
+
   FD_COMPILER_MFENCE();
   meta->seq    = fd_seq_dec( seq, 1UL );
   FD_COMPILER_MFENCE();
-  meta->sig    = (ulong )slot_idx;
   meta->chunk  = (uint  )chunk;
   meta->sz     = (ushort)sz;
   meta->ctl    = (ushort)ctl;

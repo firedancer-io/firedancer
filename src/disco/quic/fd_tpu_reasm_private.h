@@ -12,8 +12,7 @@
    assumed to be of depth reasm->depth. */
 
 void
-fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm,
-                    fd_frag_meta_t * mcache );
+fd_tpu_reasm_reset( fd_tpu_reasm_t * reasm );
 
 /* Slot class methods *************************************************/
 
