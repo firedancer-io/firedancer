@@ -145,17 +145,19 @@ fd_topo_create_workspaces( char *      app_name,
        succeed inside the data region.  The difference between total_footprint
        and known_footprint is given to "loose" data, that may be dynamically
        allocated out of the workspace at runtime. */
-    ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
-    if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
+    if( FD_LIKELY( wksp->known_footprint ) ) {
+      ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
+      if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
 
-    /* gaddr_lo is the start of the workspace data region that can be
-       given out in response to wksp alloc requests.  We rely on an
-       implicit assumption everywhere that the bytes we are given by
-       this single allocation will be at gaddr_lo, so that we can find
-       them, so we verify this here for paranoia in case the workspace
-       alloc implementation changes. */
-    if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
-      FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
+      /* gaddr_lo is the start of the workspace data region that can be
+         given out in response to wksp alloc requests.  We rely on an
+         implicit assumption everywhere that the bytes we are given by
+         this single allocation will be at gaddr_lo, so that we can find
+         them, so we verify this here for paranoia in case the workspace
+         alloc implementation changes. */
+      if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
+        FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
+    }
 
     fd_wksp_leave( join );
 
@@ -180,35 +182,13 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   if( FD_LIKELY( mode != FD_TOPO_FILL_MODE_FOOTPRINT ) )
     scratch_top = fd_ulong_align_up( (ulong)wksp->wksp + fd_wksp_private_data_off( wksp->part_max ), fd_topo_workspace_align() );
 
-  char path[ FD_WKSP_CSTR_MAX ];
-  void * pod1 = SCRATCH_ALLOC( fd_pod_align(), fd_pod_footprint( 16384 ) );
-  uchar * pod = NULL;
-  if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-    pod = fd_pod_join( fd_pod_new( pod1, 16384 ) );
-    if( FD_UNLIKELY( !pod ) ) FD_LOG_ERR(( "fd_pod_new failed" ));
-  }
-
-  if( FD_UNLIKELY( wksp->kind == FD_TOPO_WKSP_KIND_PACK_BANK ) )
-    fd_pod_insert_ulong( pod, "cnt", fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK ) );
-
-#define INSERT_POD( path, laddr ) do {                                                              \
-    if( FD_UNLIKELY( !laddr ) )                                                                     \
-      FD_LOG_ERR(( "laddr is NULL" ));                                                              \
-    char wksp_cstr[ FD_WKSP_CSTR_MAX ];                                                             \
-    if( FD_UNLIKELY( !fd_wksp_cstr( wksp->wksp, fd_wksp_gaddr( wksp->wksp, laddr ), wksp_cstr ) ) ) \
-      FD_LOG_ERR(( "fd_wksp_cstr failed" ));                                                        \
-    if( FD_UNLIKELY( !fd_pod_insert_cstr( pod, path, wksp_cstr ) ) )                                \
-      FD_LOG_ERR(( "fd_pod_insert_cstr failed" ));                                                  \
-  } while(0)
-
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ i ];
     if( FD_LIKELY( link->wksp_id!=wksp->id ) ) continue;
 
     void * mcache = SCRATCH_ALLOC( fd_mcache_align(), fd_mcache_footprint( link->depth, 0UL ) );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-      snprintf1( path, sizeof(path), "mcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
-      INSERT_POD( path, fd_mcache_new( mcache, link->depth, 0UL, 0UL ) );
+      FD_TEST( fd_mcache_new( mcache, link->depth, 0UL, 0UL ) );
     } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
       link->mcache = fd_mcache_join( mcache );
       if( FD_UNLIKELY( !link->mcache ) ) FD_LOG_ERR(( "fd_mcache_join failed" ));
@@ -217,8 +197,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     if( FD_LIKELY( link->mtu ) ) {
       void * dcache = SCRATCH_ALLOC( fd_dcache_align(), fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-        snprintf1( path, sizeof(path), "dcache_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
-        INSERT_POD( path, fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
+        FD_TEST( fd_dcache_new( dcache, fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_dcache_join( dcache );
         if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_dcache_join failed" ));
@@ -230,8 +209,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       void * reasm = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( link->depth, link->burst ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
         fd_frag_meta_t * joined_mcache = fd_mcache_join( mcache );
-        snprintf1( path, sizeof(path), "reasm_%s_%lu", fd_topo_link_kind_str( link->kind ), link->kind_id );
-        INSERT_POD( path, fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL, joined_mcache ) );
+        FD_TEST( fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL, joined_mcache ) );
         fd_mcache_leave( joined_mcache );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_tpu_reasm_join( reasm );
@@ -240,8 +218,8 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
+  ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
   if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_BANK_BUSY ) ) {
-    ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
     for( ulong i=0UL; i<bank_cnt; i++ ) {
       void * _fseq = SCRATCH_ALLOC( fd_fseq_align(), fd_fseq_footprint() );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
@@ -262,6 +240,22 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
+  if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_POH_SHRED ) ) {
+    void * shred_version = SCRATCH_ALLOC( 8UL, 8UL );
+    if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
+      *(ulong*)shred_version = 0UL;
+    } else if ( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
+      for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+        fd_topo_tile_t * tile = &topo->tiles[ j ];
+        if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_POH ) ) {
+          tile->extra[ bank_cnt ] = shred_version;
+        } else if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_SHRED ) ) {
+          tile->extra[ 0 ] = shred_version;
+        }
+      }
+    }
+  }
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
@@ -270,8 +264,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
          applications only need to map this workspace as readonly. */
       void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-        snprintf1( path, sizeof(path), "cnc_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
-        INSERT_POD( path, fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
+        FD_TEST( fd_cnc_new( cnc, 0UL, 0, fd_tickcount() ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         tile->cnc = fd_cnc_join( cnc );
         if( FD_UNLIKELY( !tile->cnc ) ) FD_LOG_ERR(( "fd_cnc_join failed" ));
@@ -284,14 +277,9 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
          all in another workspace.  We use metrics because it's already
          taking up a page in the TLB and writable by everyone anyway. */
       for( ulong j=0UL; j<tile->in_cnt; j++ ) {
-        fd_topo_link_t * link = &topo->links[ tile->in_link_id[ j ] ];
-
         void * fseq = SCRATCH_ALLOC( fd_fseq_align(), fd_fseq_footprint() );
         if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-          snprintf1( path, sizeof(path), "fseq_%s_%lu_%s_%lu",
-                    fd_topo_link_kind_str( link->kind ), link->kind_id,
-                    fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
-          INSERT_POD( path, fd_fseq_new( fseq, 0UL ) );
+          FD_TEST( fd_fseq_new( fseq, 0UL ) );
         } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
           tile->in_link_fseq[ j ] = fd_fseq_join( fseq );
           if( FD_UNLIKELY( !tile->in_link_fseq[ j ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
@@ -306,32 +294,11 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
 
       ulong * metrics = SCRATCH_ALLOC( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT(tile->in_cnt, out_reliable_consumer_cnt) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-        snprintf1( path, sizeof(path), "metrics_%s_%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
-        INSERT_POD( path, fd_metrics_new( metrics, tile->in_cnt, out_reliable_consumer_cnt ) );
+        FD_TEST( fd_metrics_new( metrics, tile->in_cnt, out_reliable_consumer_cnt ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         tile->metrics = fd_metrics_join( metrics );
         if( FD_UNLIKELY( !tile->metrics ) ) FD_LOG_ERR(( "fd_metrics_join failed" ));
       }
-    }
-  }
-
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
-
-    switch( tile->kind ) {
-      case FD_TOPO_TILE_KIND_SHRED: {
-        void * shred_version = SCRATCH_ALLOC( 8UL, 8UL );
-        if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-          *(ulong*)shred_version = 0UL;
-          INSERT_POD( "shred_version", shred_version );
-        } else if ( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
-          tile->extra[ 0 ] = shred_version;
-        }
-        break;
-      }
-      default:
-        break;
     }
   }
 
@@ -625,6 +592,12 @@ fd_topo_validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
       for( ulong k=0UL; k<topo->tiles[ i ].in_cnt; k++ ) {
+        ulong link_kind = topo->links[ topo->tiles[ i ].out_link_id[ j ] ].kind;
+        /* PoH tile "publishes" this on behalf of Solana Labs, so it's not
+           a real circular link. */
+        if( FD_UNLIKELY( link_kind==FD_TOPO_LINK_KIND_STAKE_TO_OUT ||
+                         link_kind==FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ) continue;
+
         if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].in_link_id[ k ] ) )
           FD_LOG_ERR(( "tile %lu has out link %lu same as in", i, topo->tiles[ i ].out_link_id[ j ] ));
       }
@@ -701,13 +674,6 @@ fd_topo_validate( fd_topo_t const * topo ) {
 
   /* Each link has exactly one producer */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
-    /* gossip to pack is sent by solana, and not hosted in a tile for
-       now, nor are the stakes to pack and shred tile link, the contact
-       info to shred link, or the poh to shred link. */
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_GOSSIP_TO_PACK ) ) continue;
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_STAKE_TO_OUT   ) ) continue;
-    if( FD_UNLIKELY( topo->links[ i ].kind == FD_TOPO_LINK_KIND_CRDS_TO_SHRED  ) ) continue;
-
     ulong producer_cnt = 0;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       for( ulong k=0UL; k<topo->tiles[ j ].out_cnt; k++ ) {
