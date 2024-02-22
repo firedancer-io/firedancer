@@ -4,6 +4,7 @@
 
 #include "generated/store_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
+#include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../util/fd_util.h"
 
 #include <unistd.h>
@@ -27,49 +28,11 @@
 
 #define MAX_REPAIR_PEERS 40200UL
 
-struct __attribute__((packed)) fd_shred_dest_wire {
-  fd_pubkey_t pubkey[1];
-  /* The Labs splice writes this as octets, which means when we read
-     this, it's essentially network byte order */
-  uint   ip4_addr;
-  ushort udp_port;
-};
-typedef struct fd_shred_dest_wire fd_shred_dest_wire_t;
-
-struct fd_contact_info_elem {
-  fd_pubkey_t key;
-  ulong next;
-  fd_gossip_contact_info_v1_t contact_info;
-};
-typedef struct fd_contact_info_elem fd_contact_info_elem_t;
-
-static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
-
-static ulong
-fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) ); 
-}
-
-static void
-fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
-  memcpy( keyd->key, keys->key, sizeof(fd_pubkey_t) );
-}
-
-/* Contact info table */
-#define MAP_NAME     fd_contact_info_table
-#define MAP_KEY_T    fd_pubkey_t
-#define MAP_KEY_EQ   fd_pubkey_eq
-#define MAP_KEY_HASH fd_pubkey_hash
-#define MAP_KEY_COPY fd_pubkey_copy
-#define MAP_T        fd_contact_info_elem_t
-#include "../../../../util/tmpl/fd_map_giant.c"
-
 
 struct fd_store_tile_ctx {
   fd_wksp_t * wksp;
+  
+  fd_blockstore_t * blockstore;
 
   fd_wksp_t *     net_in;
   ulong           chunk;
@@ -82,6 +45,8 @@ struct fd_store_tile_ctx {
   fd_wksp_t * repair_in_mem;
   ulong       repair_in_chunk0;
   ulong       repair_in_wmark;
+
+  fd_shred34_t s34_buffer[1];
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -129,6 +94,8 @@ before_frag( void * _ctx,
   }
 }
 
+
+
 static void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -143,18 +110,20 @@ during_frag( void * _ctx,
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
-    FD_LOG_WARNING(("shred!!!!!"));
+    if( FD_UNLIKELY( chunk<ctx->shred_in_chunk0 || chunk>ctx->shred_in_wmark || sz > sizeof(fd_shred34_t) ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->wmark ));
+    }
+
+    fd_shred34_t const * s34 = fd_chunk_to_laddr_const( ctx->shred_in_mem, chunk );
+
+    memcpy( ctx->s34_buffer, s34, sz );
+    FD_LOG_WARNING(( "SHRED: %lu", sz ));
+    *opt_filter = 0;
+    
     return;
   }
 
-  
-  if( FD_UNLIKELY( chunk<ctx->chunk || chunk>ctx->wmark || sz>FD_NET_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->chunk, ctx->wmark ));
-    *opt_filter = 1;
-    return;
-  }
-
-  *opt_filter = 0;
+  *opt_filter = 1;
 
   return;
 }
@@ -169,7 +138,6 @@ after_frag( void *             _ctx,
             ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
-  (void)in_idx;
   (void)opt_chunk;
   (void)opt_sz;
   (void)opt_filter;
@@ -179,10 +147,15 @@ after_frag( void *             _ctx,
   (void)opt_sig;
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
-  (void)ctx;
+      FD_LOG_WARNING(("AAHHH!"));
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
-    return;
+    for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
+      if( fd_blockstore_shred_insert( ctx->blockstore, &ctx->s34_buffer->pkts[i].shred ) != FD_BLOCKSTORE_OK ) {
+        FD_LOG_ERR(( "failed inserting to blockstore" ));
+      }
+      FD_LOG_WARNING(("SHREDS INSERTED!"));
+    }
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
@@ -230,10 +203,43 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  }
   
   ctx->wksp = topo->workspaces[ tile->wksp_id ].wksp;
+
+  /* TODO: combine with fd_tvu_main_setup */
+  ulong hashseed = 42;
+
+  fd_blockstore_t *        blockstore = NULL;
+  fd_wksp_tag_query_info_t blockstore_info;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( ctx->wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( ctx->wksp, blockstore_info.gaddr_lo );
+    blockstore   = fd_blockstore_join( shmem );
+    if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstore" ) );
+  } else {
+    void * shmem = fd_wksp_alloc_laddr(
+        ctx->wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+
+    // Sensible defaults for an anon blockstore:
+    // - 1mb of shreds
+    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
+    // - 1mb of txns
+    ulong tmp_shred_max    = 1UL << 20;
+    ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
+    int   lg_txn_max       = 20;
+    blockstore             = fd_blockstore_join(
+        fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
+    if( blockstore == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+    }
+  }
+
+  ctx->blockstore = blockstore;
 
   void * alloc_shmem = fd_wksp_alloc_laddr( ctx->wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
   if( FD_UNLIKELY( !alloc_shmem ) ) { 

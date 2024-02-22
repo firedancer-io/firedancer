@@ -4,6 +4,7 @@
 
 #include "generated/replay_seccomp.h"
 #include "../../../../util/fd_util.h"
+#include "../../../../disco/shred/fd_stake_ci.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -20,11 +21,6 @@
 
 #define STORE_IN_IDX    0
 
-#define REPAIR_OUT_IDX  0
-
-#define MAX_REPAIR_PEERS 40200UL
-
-
 struct fd_store_tile_ctx {
   fd_wksp_t * wksp;
 
@@ -32,13 +28,25 @@ struct fd_store_tile_ctx {
   ulong           chunk;
   ulong           wmark;
 
-  fd_wksp_t * shred_in_mem;
-  ulong       shred_in_chunk0;
-  ulong       shred_in_wmark;
+  fd_wksp_t * store_in_mem;
+  ulong       store_in_chunk0;
+  ulong       store_in_wmark;
 
   fd_wksp_t * repair_in_mem;
   ulong       repair_in_chunk0;
   ulong       repair_in_wmark;
+
+  fd_frag_meta_t * stake_weights_out_mcache;
+  ulong *          stake_weights_out_sync;
+  ulong            stake_weights_out_depth;
+  ulong            stake_weights_out_seq;
+
+  fd_wksp_t * stake_weights_out_mem;
+  ulong       stake_weights_out_chunk0;
+  ulong       stake_weights_out_wmark;
+  ulong       stake_weights_out_chunk;
+
+  long last_stake_weights_push_time;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -80,8 +88,8 @@ before_frag( void * _ctx,
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
   (void)ctx;
-
-  if( FD_UNLIKELY( in_idx==SHRED_IN_IDX )) {
+  
+  if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     return;
   }
 }
@@ -99,11 +107,9 @@ during_frag( void * _ctx,
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
-    FD_LOG_WARNING(("shred!!!!!"));
+  if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     return;
   }
-
   
   if( FD_UNLIKELY( chunk<ctx->chunk || chunk>ctx->wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->chunk, ctx->wmark ));
@@ -138,11 +144,7 @@ after_frag( void *             _ctx,
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
   (void)ctx;
 
-  if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
-    return;
-  }
-
-  if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
+  if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     return;
   }
 
@@ -161,29 +163,50 @@ privileged_init( fd_topo_t *      topo,
 static void
 during_housekeeping( void * _ctx ) {
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
-  (void)ctx;
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
+  long now = fd_log_wallclock();
+  if( now - ctx->last_stake_weights_push_time > (long)5e9 ) {
+    ctx->last_stake_weights_push_time = now;
+
+    FD_LOG_DEBUG(("pushing stake weights"));
+
+    ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
+    stake_weights_msg[0] = 0; /* epoch */
+    stake_weights_msg[1] = 1; /* staked_cnt */
+    stake_weights_msg[2] = 0; /* start_slot */
+    stake_weights_msg[3] = 432000; /* slot_cnt */
+
+    fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
+    
+    fd_base58_decode_32( "6SUAHkAHzEsR7hoPKPWcougcX2sqNGJpU1Nj1EZzXyAB", stake_weights[0].key.uc );
+    stake_weights[0].stake = 1;
+
+    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+
+    ulong stake_weights_sz = 4*sizeof(ulong) + (1 * sizeof(fd_stake_weight_t));
+    ulong stake_weights_sig = 4UL;
+    fd_mcache_publish( ctx->stake_weights_out_mcache, ctx->stake_weights_out_depth, ctx->stake_weights_out_seq, stake_weights_sig, ctx->stake_weights_out_chunk,
+      stake_weights_sz, 0UL, tsorig, tspub );
+    ctx->stake_weights_out_seq   = fd_seq_inc( ctx->stake_weights_out_seq, 1UL );
+    ctx->stake_weights_out_chunk = fd_dcache_compact_next( ctx->stake_weights_out_chunk, stake_weights_sz, ctx->stake_weights_out_chunk0, ctx->stake_weights_out_wmark );
+  }
 }
 
-void
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 2 ||
-                   topo->links[ tile->in_link_id[ SHRED_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_SHRED_TO_STORE    ||
-                   topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_REPAIR_TO_STORE ) )
-    FD_LOG_ERR(( "store tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
-
-  // if( FD_UNLIKELY( tile->out_cnt != 1 ||
-  //                  topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX ) )
-  //   FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %lu %lu",
-  //                tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
-      
-  if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
-    FD_LOG_ERR(( "store tile has a primary output link" ));
+  // if( FD_UNLIKELY( tile->in_cnt != 1 ||
+  //                  topo->links[ tile->in_link_id[ STORE_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_STORE_TO_REPLAY ) ) {
+  //   FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %lu %lu",
+  //                tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+  // }
+  
+  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
+    FD_LOG_ERR(( "store tile missing a primary output link" ));
 
   /* Scratch mem setup */
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -196,7 +219,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !alloc_shmem ) ) { 
     FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
   }
-  
+
+  ctx->last_stake_weights_push_time = 0;
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
@@ -204,12 +228,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->chunk  = fd_disco_compact_chunk0( ctx->net_in );
   ctx->wmark  = fd_disco_compact_wmark( ctx->net_in, netmux_link->mtu );
 
-  /* Set up contact info tile output */
+  /* Set up shred tile input */
+  fd_topo_link_t * store_in_link = &topo->links[ tile->in_link_id[ STORE_IN_IDX ] ];
+  ctx->store_in_mem    = topo->workspaces[ store_in_link->wksp_id ].wksp;
+  ctx->store_in_chunk0 = fd_dcache_compact_chunk0( ctx->store_in_mem, store_in_link->dcache );
+  ctx->store_in_wmark  = fd_dcache_compact_wmark( ctx->store_in_mem, store_in_link->dcache, store_in_link->mtu );
 
-  fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
-  ctx->shred_in_mem    = topo->workspaces[ shred_in_link->wksp_id ].wksp;
-  ctx->shred_in_chunk0 = fd_dcache_compact_chunk0( ctx->shred_in_mem, shred_in_link->dcache );
-  ctx->shred_in_wmark  = fd_dcache_compact_wmark( ctx->shred_in_mem, shred_in_link->dcache, shred_in_link->mtu );
+/* Set up stake weights tile output */
+  fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id_primary ];
+  ctx->stake_weights_out_mcache = stake_weights_out->mcache;
+  ctx->stake_weights_out_sync   = fd_mcache_seq_laddr( ctx->stake_weights_out_mcache );
+  ctx->stake_weights_out_depth  = fd_mcache_depth( ctx->stake_weights_out_mcache );
+  ctx->stake_weights_out_seq    = fd_mcache_seq_query( ctx->stake_weights_out_sync );
+  ctx->stake_weights_out_mem    = topo->workspaces[ stake_weights_out->wksp_id ].wksp;
+  ctx->stake_weights_out_chunk0 = fd_dcache_compact_chunk0( ctx->stake_weights_out_mem, stake_weights_out->dcache );
+  ctx->stake_weights_out_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_out_mem, stake_weights_out->dcache, stake_weights_out->mtu );
+  ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
   /* Valloc setup */
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
@@ -247,8 +281,8 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_tile_config_t fd_tile_store = {
-  .mux_flags                = FD_MUX_FLAG_COPY,
+fd_tile_config_t fd_tile_replay = {
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,

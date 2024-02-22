@@ -612,6 +612,11 @@ is_good_peer( fd_active_elem_t * val ) {
 
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
+  if( repair->epoch_ctx == NULL ) {
+    FD_LOG_WARNING(( "repair does not have stake weights yet, cannot shuffle active set" ));
+    return;
+  }
+
   FD_SCRATCH_SCOPE_BEGIN {
     /* Find all the usable stake holders */
     fd_vote_accounts_pair_t_mapnode_t * pool =

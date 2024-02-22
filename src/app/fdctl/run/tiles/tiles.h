@@ -118,6 +118,7 @@ extern fd_tile_config_t fd_tile_gossip;
 extern fd_tile_config_t fd_tile_repair;
 extern fd_tile_config_t fd_tile_tvu;
 extern fd_tile_config_t fd_tile_store;
+extern fd_tile_config_t fd_tile_replay;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,

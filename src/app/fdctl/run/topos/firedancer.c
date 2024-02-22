@@ -42,6 +42,8 @@ fd_topo_firedancer( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC       }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_GOSSIP       }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_REPAIR       }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_BLOCKSTORE   }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_REPLAY       }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -93,6 +95,7 @@ fd_topo_firedancer( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC,     FD_TOPO_WKSP_KIND_METRIC,     ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, i ));
   TILE( 1,                                FD_TOPO_TILE_KIND_REPAIR,     FD_TOPO_WKSP_KIND_REPAIR,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX, i ));
+  TILE( 1,                                FD_TOPO_TILE_KIND_REPLAY,     FD_TOPO_WKSP_KIND_REPLAY,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_STAKE_TO_OUT,  i ));
 
   topo->tile_cnt = tile_cnt;
 
@@ -124,7 +127,6 @@ fd_topo_firedancer( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_STORE,  0UL, 1, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_STORE,  0UL, FD_TOPO_LINK_KIND_REPAIR_TO_STORE, 0UL, 1, 1 );
-
 
   /* Sign links don't need to be reliable because they are synchronous,
      so there's at most one fragment in flight at a time anyway.  The

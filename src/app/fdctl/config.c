@@ -721,7 +721,7 @@ config_tiles( config_t * config ) {
         strncpy( tile->tvu.tvu_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->tvu.tvu_fwd_addr) );
         strncpy( tile->tvu.load, config->tiles.tvu.load, sizeof(tile->tvu.load) );
         strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
-	strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
+	      strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
         strncpy( tile->tvu.validate_snapshot, config->tiles.tvu.validate_snapshot, sizeof(tile->tvu.validate_snapshot) );
         strncpy( tile->tvu.check_hash, config->tiles.tvu.check_hash, sizeof(tile->tvu.check_hash) );
         tile->tvu.page_cnt = config->tiles.tvu.page_cnt;
@@ -751,6 +751,8 @@ config_tiles( config_t * config ) {
         fd_memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        break;
+      case FD_TOPO_TILE_KIND_REPLAY:
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
