@@ -50,6 +50,7 @@ clone_labs_memory_space_tiles( config_t * const config ) {
                           wksp->kind==FD_TOPO_WKSP_KIND_BANK_BUSY ||
                           wksp->kind==FD_TOPO_WKSP_KIND_POH_SHRED ||
                           wksp->kind==FD_TOPO_WKSP_KIND_SHRED_STORE ||
+                          wksp->kind==FD_TOPO_WKSP_KIND_DEDUP_PACK ||
                           wksp->kind==FD_TOPO_WKSP_KIND_STAKE_OUT ||
                           wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ||
                           wksp->kind==FD_TOPO_WKSP_KIND_BANK ||
@@ -136,7 +137,6 @@ solana_labs_boot( config_t * config ) {
 
   ADD1( "fdctl" );
   ADD( "--log", "-" );
-  ADD( "--firedancer-app-name", config->name );
 
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );

@@ -328,28 +328,9 @@ run_monitor( config_t * const config,
         link_snap_t * cur = &link_snap_cur[ link_idx ];
 
         fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-        char * producer;
-        switch( link->kind ) {
-          /* Special case Solana produced link names for now since we can't find them
-             in the topology. */
-          case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
-            producer = "stakes";
-            break;
-          }
-          case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
-            producer = "gossip";
-            break;
-          }
-          case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
-            producer = "crds";
-            break;
-          }
-          default: {
-            ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
-            FD_TEST( producer_tile_id != ULONG_MAX );
-            producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
-          }
-        }
+        ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
+        FD_TEST( producer_tile_id != ULONG_MAX );
+        char * producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
         PRINT( " %7s->%-7s", producer, fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
         ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
         ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;

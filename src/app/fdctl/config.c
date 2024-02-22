@@ -650,6 +650,13 @@ topo_initialize( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL, 0, 0 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL    );
+
+  /* PoH tile represents the Solana Labs address space, so it's
+     responsible for publishing Solana Labs provided data to
+     these links. */
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL    );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL    );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_POH,    0UL, FD_TOPO_LINK_KIND_CRDS_TO_SHRED,   0UL    );
 }
 
 static void

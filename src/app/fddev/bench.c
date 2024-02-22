@@ -338,32 +338,9 @@ bench_cmd_fn( args_t *         args,
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
       fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-      char * producer;
-      switch( link->kind ) {
-        /* Special case Solana produced link names for now since we can't find them
-            in the topology. */
-        case FD_TOPO_LINK_KIND_POH_TO_SHRED: {
-          producer = "poh";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_STAKE_TO_OUT: {
-          producer = "stakes";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK: {
-          producer = "gossip";
-          break;
-        }
-        case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
-          producer = "crds";
-          break;
-        }
-        default: {
-          ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
-          FD_TEST( producer_tile_id != ULONG_MAX );
-          producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
-        }
-      }
+      ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
+      FD_TEST( producer_tile_id != ULONG_MAX );
+      char * producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
 
       ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
 
