@@ -574,6 +574,354 @@ fd_gossip_thread( void * ptr ) {
   return NULL;
 }
 
+typedef struct {
+  ulong       hashseed;
+  char        hostname[64];
+  fd_funk_t * funk;
+} funk_setup_t;
+
+void funk_setup( fd_wksp_t *  wksp,
+                 char const * funk_wksp_name,
+                 char const * snapshot,
+                 char const * load,
+                 ulong        txn_max,
+                 ulong        rec_max,
+                 funk_setup_t * out ) {
+  fd_memset( out, 0, sizeof( funk_setup_t ) );
+  gethostname( out->hostname, sizeof( out->hostname ) );
+  out->hashseed = fd_hash( 0, out->hostname, strnlen( out->hostname, sizeof( out->hostname ) ) );
+
+  fd_wksp_t * funk_wksp = NULL;
+  if( funk_wksp_name == NULL ) {
+    funk_wksp = wksp;
+    if( rec_max == ULONG_MAX ) { rec_max = 100000000; }
+  } else {
+    funk_wksp = fd_wksp_attach( funk_wksp_name );
+    if( funk_wksp == NULL )
+      FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
+    if( rec_max == ULONG_MAX ) { rec_max = 350000000; }
+  }
+  FD_TEST( funk_wksp );
+
+  if( snapshot && snapshot[0] != '\0' ) {
+    if( wksp != funk_wksp ) /* Start from scratch */
+      fd_wksp_reset( funk_wksp, (uint)out->hashseed );
+  } else if( load ) {
+    FD_LOG_NOTICE( ( "loading %s", load ) );
+    int err = fd_wksp_restore( funk_wksp, load, (uint)out->hashseed );
+    if( err ) FD_LOG_ERR( ( "load failed: error %d", err ) );
+
+  } else {
+    FD_LOG_WARNING( ( "using --snapshot or --load is recommended" ) );
+  }
+
+  fd_wksp_tag_query_info_t funk_info;
+  ulong                    funk_tag = FD_FUNK_MAGIC;
+  if( fd_wksp_tag_query( funk_wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( funk_wksp, funk_info.gaddr_lo );
+    out->funk         = fd_funk_join( shmem );
+    if( out->funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
+  } else {
+    void * shmem =
+        fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
+    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
+    out->funk = fd_funk_join( fd_funk_new( shmem, 1, out->hashseed, txn_max, rec_max ) );
+    if( out->funk == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR( ( "failed to allocate a funky" ) );
+    }
+  }
+}
+
+fd_valloc_t allocator_setup( fd_wksp_t *  wksp, char const * allocator ) {
+  FD_TEST( wksp );
+
+  void * alloc_shmem =
+      fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
+  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
+  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
+  fd_alloc_t * alloc = fd_alloc_join( alloc_shalloc, 3UL );
+  if( FD_UNLIKELY( !alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
+
+  if( strcmp( allocator, "libc" ) == 0 ) {
+    return fd_libc_alloc_virtual();
+  } else if( strcmp( allocator, "wksp" ) == 0 ) {
+    return fd_alloc_virtual( alloc );
+  } else {
+    FD_LOG_ERR( ( "unknown allocator specified" ) );
+  }
+}
+
+typedef struct {
+  FILE * capture_file;
+  fd_capture_ctx_t * capture_ctx;
+} solcap_setup_t;
+
+void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_t * out ) {
+  fd_memset( out, 0, sizeof( solcap_setup_t ) );
+  out->capture_file = fopen( capture_fpath, "w+" );
+  if( FD_UNLIKELY( !out->capture_file ) )
+    FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", capture_fpath, errno, strerror( errno ) ));
+
+  void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+  FD_TEST( capture_ctx_mem );
+  out->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
+
+  FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
+}
+typedef struct {
+  fd_blockstore_t * blockstore;
+} blockstore_setup_t;
+
+void blockstore_setup( fd_wksp_t * wksp, ulong hashseed, blockstore_setup_t * out ) {
+  FD_TEST( wksp );
+  fd_memset( out, 0, sizeof( blockstore_setup_t ) );
+
+  fd_wksp_tag_query_info_t blockstore_info;
+  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
+  if( fd_wksp_tag_query( wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
+    void * shmem = fd_wksp_laddr_fast( wksp, blockstore_info.gaddr_lo );
+    out->blockstore   = fd_blockstore_join( shmem );
+    if( out->blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstore" ) );
+  } else {
+    void * shmem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
+    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+
+    // Sensible defaults for an anon blockstore:
+    // - 1mb of shreds
+    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
+    // - 1mb of txns
+    ulong tmp_shred_max    = 1UL << 20;
+    ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
+    int   lg_txn_max       = 20;
+    out->blockstore             = fd_blockstore_join(
+        fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
+    if( out->blockstore == NULL ) {
+      fd_wksp_free_laddr( shmem );
+      FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
+    }
+  }
+}
+
+typedef struct {
+  uchar * data_shreds;
+  uchar * parity_shreds;
+  fd_fec_set_t * fec_sets;
+  fd_fec_resolver_t * fec_resolver;
+} turbine_setup_t;
+
+void turbine_setup( fd_wksp_t * wksp, turbine_setup_t * out ) {
+  FD_TEST( wksp );
+  fd_memset( out, 0, sizeof( turbine_setup_t ) );
+
+  ulong   depth          = 512;
+  ulong   partial_depth  = 1;
+  ulong   complete_depth = 1;
+  ulong   total_depth    = depth + partial_depth + complete_depth;
+  out->data_shreds       = fd_wksp_alloc_laddr(
+      wksp, 128UL, FD_REEDSOL_DATA_SHREDS_MAX * total_depth * FD_SHRED_MAX_SZ, 42UL );
+  out->parity_shreds     = fd_wksp_alloc_laddr(
+      wksp, 128UL, FD_REEDSOL_PARITY_SHREDS_MAX * total_depth * FD_SHRED_MIN_SZ, 42UL );
+  out->fec_sets          = fd_wksp_alloc_laddr(
+      wksp, alignof( fd_fec_set_t ), total_depth * sizeof( fd_fec_set_t ), 42UL );
+
+  ulong k = 0;
+  ulong l = 0;
+  /* TODO move this into wksp mem */
+  for( ulong i = 0; i < total_depth; i++ ) {
+    for( ulong j = 0; j < FD_REEDSOL_DATA_SHREDS_MAX; j++ ) {
+      out->fec_sets[i].data_shreds[j] = &out->data_shreds[FD_SHRED_MAX_SZ * k++];
+    }
+    for( ulong j = 0; j < FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) {
+      out->fec_sets[i].parity_shreds[j] = &out->parity_shreds[FD_SHRED_MIN_SZ * l++];
+    }
+  }
+  FD_TEST( k == FD_REEDSOL_DATA_SHREDS_MAX * total_depth );
+  FD_TEST( l == FD_REEDSOL_PARITY_SHREDS_MAX * total_depth );
+
+  ulong  done_depth       = 1024;
+  void * fec_resolver_mem = fd_wksp_alloc_laddr(
+      wksp,
+      fd_fec_resolver_align(),
+      fd_fec_resolver_footprint( depth, partial_depth, complete_depth, done_depth ),
+      42UL );
+  out->fec_resolver = fd_fec_resolver_join( fd_fec_resolver_new(
+      fec_resolver_mem, depth, partial_depth, complete_depth, done_depth, out->fec_sets ) );
+}
+typedef struct {
+  fd_replay_t * replay;
+} replay_setup_t;
+
+void replay_setup( fd_wksp_t         * wksp,
+                   fd_valloc_t         valloc,
+                   uchar             * data_shreds,
+                   uchar             * parity_shreds,
+                   fd_fec_set_t      * fec_sets,
+                   fd_fec_resolver_t * fec_resolver,
+                   replay_setup_t    * out ) {
+  FD_TEST( wksp );
+  fd_memset( out, 0, sizeof( replay_setup_t ) );
+
+  void * replay_mem =
+      fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint( 1024UL ), 42UL );
+  out->replay = fd_replay_join( fd_replay_new( replay_mem, 1024UL, 42UL ) );
+  out->replay->valloc       = valloc;
+
+  FD_TEST( out->replay );
+  FD_TEST( out->replay->frontier );
+  FD_TEST( out->replay->pool );
+
+  out->replay->data_shreds   = data_shreds;
+  out->replay->parity_shreds = parity_shreds;
+  out->replay->fec_sets      = fec_sets;
+  out->replay->fec_resolver  = fec_resolver;
+
+  FD_TEST( out->replay->data_shreds );
+  FD_TEST( out->replay->parity_shreds );
+  FD_TEST( out->replay->fec_sets );
+  FD_TEST( out->replay->fec_resolver );
+}
+typedef struct {
+  fd_exec_epoch_ctx_t  * exec_epoch_ctx;
+  fd_exec_slot_ctx_t   * exec_slot_ctx;
+  fd_replay_slot_ctx_t * replay_slot_ctx;
+} slot_ctx_setup_t;
+
+void slot_ctx_setup( fd_valloc_t valloc,
+                     uchar * epoch_ctx_mem,
+                     fd_replay_slot_ctx_t * replay_slot_ctx,
+                     fd_blockstore_t * blockstore,
+                     fd_funk_t * funk,
+                     fd_acc_mgr_t * acc_mgr,
+                     slot_ctx_setup_t * out ) {
+  fd_memset( out, 0, sizeof( slot_ctx_setup_t ) );
+
+  out->exec_epoch_ctx   = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
+  out->replay_slot_ctx = fd_replay_pool_ele_acquire( replay_slot_ctx );
+  out->exec_slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &replay_slot_ctx->slot_ctx ) );
+
+  FD_TEST( out->exec_slot_ctx );
+
+  out->exec_slot_ctx->epoch_ctx = out->exec_epoch_ctx;
+  out->exec_epoch_ctx->valloc = valloc;
+  out->exec_slot_ctx->valloc  = valloc;
+
+  out->exec_slot_ctx->acc_mgr      = fd_acc_mgr_new( acc_mgr, funk );
+  out->exec_slot_ctx->blockstore   = blockstore;
+}
+
+typedef struct {
+  ulong snapshot_slot;
+} snapshot_setup_t;
+
+void snapshot_setup( char const * snapshot,
+                     char const * incremental_snapshot,
+                     char const * validate_snapshot,
+                     char const * check_hash,
+                     fd_exec_slot_ctx_t * exec_slot_ctx,
+                     snapshot_setup_t * out ) {
+  fd_memset( out, 0, sizeof( snapshot_setup_t ) );
+
+  if( snapshot && snapshot[0] != '\0' ) {
+    if( !incremental_snapshot || incremental_snapshot[0] == '\0' ) {
+      FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
+                        "using a local validator." ) );
+      // TODO: LML We really need to fix the way these arguments are handled
+      incremental_snapshot = NULL;
+    }
+    const char * p = strstr( snapshot, "snapshot-" );
+    if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+    do {
+      const char * p2 = strstr( p + 1, "snapshot-" );
+      if( p2 == NULL ) break;
+      p = p2;
+    } while( 1 );
+    if( sscanf( p, "snapshot-%lu", &out->snapshot_slot ) < 1 )
+      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+
+    if( incremental_snapshot && incremental_snapshot[0] != '\0' ) {
+
+      p = strstr( incremental_snapshot, "incremental-snapshot-" );
+      if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
+      do {
+        const char * p2 = strstr( p + 1, "incremental-snapshot-" );
+        if( p2 == NULL ) break;
+        p = p2;
+      } while( 1 );
+      ulong i, j;
+      if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
+        FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
+      if( i != out->snapshot_slot )
+        FD_LOG_ERR( ( "--snapshot-file slot number does not match --incremental" ) );
+      out->snapshot_slot = j;
+    }
+
+    const char * snapshotfiles[3];
+    snapshotfiles[0] = snapshot;
+    snapshotfiles[1] = incremental_snapshot;
+    snapshotfiles[2] = NULL;
+    fd_snapshot_load( snapshotfiles, exec_slot_ctx,
+      ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
+      ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
+      );
+
+  } else if( incremental_snapshot && incremental_snapshot[0] != '\0' ) {
+    fd_runtime_recover_banks( exec_slot_ctx, 0 );
+
+    char   incremental_snapshot_out[128];
+    if( strncmp( incremental_snapshot, "http", 4 ) == 0 ) {
+      FILE * fp;
+
+      /* Open the command for reading. */
+      char   cmd[128];
+      snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
+      FD_LOG_NOTICE(("cmd: %s", cmd));
+      fp = popen( cmd, "r" );
+      if( fp == NULL ) {
+        printf( "Failed to run command\n" );
+        exit( 1 );
+      }
+
+      /* Read the output a line at a time - output it. */
+      if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
+        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
+      }
+      incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )]  = '\0';
+      incremental_snapshot = incremental_snapshot_out;
+
+      /* close */
+      pclose( fp );
+    }
+    const char * p = strstr( incremental_snapshot, "snapshot-" );
+    if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
+    do {
+      const char * p2 = strstr( p + 1, "snapshot-" );
+      if( p2 == NULL ) break;
+      p = p2;
+    } while( 1 );
+    ulong i, j;
+    if( sscanf( p, "snapshot-%lu-%lu", &i, &j ) < 2 )
+      FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
+    if( i != exec_slot_ctx->slot_bank.slot )
+      FD_LOG_ERR( ( "ledger slot number does not match --incremental, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, incremental_snapshot ) );
+    out->snapshot_slot = j;
+
+    const char * snapshotfiles[2];
+    snapshotfiles[0] = incremental_snapshot;
+    snapshotfiles[1] = NULL;
+    fd_snapshot_load( snapshotfiles, exec_slot_ctx,
+      ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
+      ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
+      );
+
+  } else {
+    fd_runtime_recover_banks( exec_slot_ctx, 0 );
+  }
+
+  fd_runtime_cleanup_incinerator( exec_slot_ctx );
+}
+
 void
 fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_tvu_repair_ctx_t * repair_ctx,
@@ -611,322 +959,55 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
   runtime_ctx->local_wksp = wksp;
 
-  /**********************************************************************/
-  /* funk */
-  /**********************************************************************/
+  funk_setup_t funk_setup_out = {0};
+  funk_setup( wksp, args->funk_wksp_name, args->snapshot, args->load, args->txn_max, args->index_max, &funk_setup_out );
 
-  char hostname[64];
-  gethostname( hostname, sizeof( hostname ) );
-  ulong hashseed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
+  fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
-  fd_wksp_t * funk_wksp = NULL;
-  if( args->funk_wksp_name == NULL ) {
-    funk_wksp = wksp;
-    if( args->index_max == ULONG_MAX ) { args->index_max = 100000000; }
-  } else {
-    funk_wksp = fd_wksp_attach( args->funk_wksp_name );
-    if( funk_wksp == NULL )
-      FD_LOG_ERR( ( "failed to attach to workspace %s", args->funk_wksp_name ) );
-    if( args->index_max == ULONG_MAX ) { args->index_max = 350000000; }
-  }
-  FD_TEST( funk_wksp );
-
-  if( args->snapshot && args->snapshot[0] != '\0' ) {
-    if( wksp != funk_wksp ) /* Start from scratch */
-      fd_wksp_reset( funk_wksp, (uint)hashseed );
-  } else if( args->load ) {
-    FD_LOG_NOTICE( ( "loading %s", args->load ) );
-    int err = fd_wksp_restore( funk_wksp, args->load, (uint)hashseed );
-    if( err ) FD_LOG_ERR( ( "load failed: error %d", err ) );
-
-  } else {
-    FD_LOG_WARNING( ( "using --snapshot or --load is recommended" ) );
-  }
-
-  fd_funk_t *              funk = NULL;
-  fd_wksp_tag_query_info_t funk_info;
-  ulong                    funk_tag = FD_FUNK_MAGIC;
-  if( fd_wksp_tag_query( funk_wksp, &funk_tag, 1, &funk_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( funk_wksp, funk_info.gaddr_lo );
-    funk         = fd_funk_join( shmem );
-    if( funk == NULL ) FD_LOG_ERR( ( "failed to join a funky" ) );
-  } else {
-    void * shmem =
-        fd_wksp_alloc_laddr( funk_wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a funky" ) );
-    funk = fd_funk_join( fd_funk_new( shmem, 1, hashseed, args->txn_max, args->index_max ) );
-    if( funk == NULL ) {
-      fd_wksp_free_laddr( shmem );
-      FD_LOG_ERR( ( "failed to allocate a funky" ) );
-    }
-  }
-
-  /**********************************************************************/
-  /* we need a local allocator */
-  /**********************************************************************/
-
-  void * alloc_shmem =
-      fd_wksp_alloc_laddr( runtime_ctx->local_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); }
-  void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
-  if( FD_UNLIKELY( !alloc_shalloc ) ) { FD_LOG_ERR( ( "fd_allow_new failed" ) ); }
-  runtime_ctx->alloc = fd_alloc_join( alloc_shalloc, 3UL );
-  if( FD_UNLIKELY( !runtime_ctx->alloc ) ) { FD_LOG_ERR( ( "fd_alloc_join failed" ) ); }
-
-  fd_valloc_t valloc;
-
-  if( strcmp( args->allocator, "libc" ) == 0 ) {
-    valloc = fd_libc_alloc_virtual();
-  } else if( strcmp( args->allocator, "wksp" ) == 0 ) {
-    valloc = fd_alloc_virtual( runtime_ctx->alloc );
-  } else {
-    FD_LOG_ERR( ( "unknown allocator specified" ) );
-  }
-
-  /**********************************************************************/
-  /* Solcap                                                             */
-  /**********************************************************************/
-
-  runtime_ctx->capture_file = NULL;
+  solcap_setup_t solcap_setup_out = {0};
   if( args->capture_fpath ) {
-    runtime_ctx->capture_file = fopen( args->capture_fpath, "w+" );
-    if( FD_UNLIKELY( !runtime_ctx->capture_file ) )
-      FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", args->capture_fpath, errno, strerror( errno ) ));
-
-    void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-    FD_TEST( capture_ctx_mem );
-    runtime_ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
-
-    FD_TEST( fd_solcap_writer_init( runtime_ctx->capture_ctx->capture, runtime_ctx->capture_file ) );
+    solcap_setup( args->capture_fpath, valloc, &solcap_setup_out ); 
   }
 
-  /**********************************************************************/
-  /* Blockstore                                                         */
-  /**********************************************************************/
-
-  fd_wksp_t * blockstore_wksp = NULL;
-  if( blockstore_wksp == NULL ) {
-    blockstore_wksp = wksp;
-  } else {
-    blockstore_wksp = fd_wksp_attach( args->blockstore_wksp_name );
-  }
-  FD_TEST( blockstore_wksp );
-
-  fd_blockstore_t *        blockstore = NULL;
-  fd_wksp_tag_query_info_t blockstore_info;
-  ulong                    blockstore_tag = FD_BLOCKSTORE_MAGIC;
-  if( fd_wksp_tag_query( blockstore_wksp, &blockstore_tag, 1, &blockstore_info, 1 ) > 0 ) {
-    void * shmem = fd_wksp_laddr_fast( blockstore_wksp, blockstore_info.gaddr_lo );
-    blockstore   = fd_blockstore_join( shmem );
-    if( blockstore == NULL ) FD_LOG_ERR( ( "failed to join a blockstore" ) );
-  } else {
-    void * shmem = fd_wksp_alloc_laddr(
-        blockstore_wksp, fd_blockstore_align(), fd_blockstore_footprint(), FD_BLOCKSTORE_MAGIC );
-    if( shmem == NULL ) FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
-
-    // Sensible defaults for an anon blockstore:
-    // - 1mb of shreds
-    // - 64 slots of history (~= finalized = 31 slots on top of a confirmed block)
-    // - 1mb of txns
-    ulong tmp_shred_max    = 1UL << 20;
-    ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
-    int   lg_txn_max       = 20;
-    blockstore             = fd_blockstore_join(
-        fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
-    if( blockstore == NULL ) {
-      fd_wksp_free_laddr( shmem );
-      FD_LOG_ERR( ( "failed to allocate a blockstore" ) );
-    }
-  }
-
-  /**********************************************************************/
-  /* Scratch                                                            */
-  /**********************************************************************/
+  blockstore_setup_t blockstore_setup_out = {0};
+  blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
 
   ulong smax = fd_tvu_setup_scratch( valloc );
 
-  /**********************************************************************/
-  /* Turbine                                                            */
-  /**********************************************************************/
+  turbine_setup_t turbine_setup_out = {0};
+  turbine_setup( wksp, &turbine_setup_out );
 
-  ulong   depth          = 512;
-  ulong   partial_depth  = 1;
-  ulong   complete_depth = 1;
-  ulong   total_depth    = depth + partial_depth + complete_depth;
-  uchar * data_shreds    = fd_wksp_alloc_laddr(
-      wksp, 128UL, FD_REEDSOL_DATA_SHREDS_MAX * total_depth * FD_SHRED_MAX_SZ, 42UL );
-  uchar * parity_shreds = fd_wksp_alloc_laddr(
-      wksp, 128UL, FD_REEDSOL_PARITY_SHREDS_MAX * total_depth * FD_SHRED_MIN_SZ, 42UL );
-  fd_fec_set_t * fec_sets = fd_wksp_alloc_laddr(
-      wksp, alignof( fd_fec_set_t ), total_depth * sizeof( fd_fec_set_t ), 42UL );
+  replay_setup_t replay_setup_out = {0};
+  replay_setup( wksp,
+                valloc,
+                turbine_setup_out.data_shreds,
+                turbine_setup_out.parity_shreds,
+                turbine_setup_out.fec_sets,
+                turbine_setup_out.fec_resolver,
+                &replay_setup_out );
 
-  ulong k = 0;
-  ulong l = 0;
-  /* TODO move this into wksp mem */
-  for( ulong i = 0; i < total_depth; i++ ) {
-    for( ulong j = 0; j < FD_REEDSOL_DATA_SHREDS_MAX; j++ ) {
-      fec_sets[i].data_shreds[j] = &data_shreds[FD_SHRED_MAX_SZ * k++];
-    }
-    for( ulong j = 0; j < FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) {
-      fec_sets[i].parity_shreds[j] = &parity_shreds[FD_SHRED_MIN_SZ * l++];
-    }
-  }
-  FD_TEST( k == FD_REEDSOL_DATA_SHREDS_MAX * total_depth );
-  FD_TEST( l == FD_REEDSOL_PARITY_SHREDS_MAX * total_depth );
+  slot_ctx_setup_t slot_ctx_setup_out = {0};
+  slot_ctx_setup( valloc,
+                  runtime_ctx->epoch_ctx_mem,
+                  replay_setup_out.replay->pool,
+                  blockstore_setup_out.blockstore,
+                  funk_setup_out.funk,
+                  runtime_ctx->_acc_mgr,
+                  &slot_ctx_setup_out );
 
-  ulong  done_depth       = 1024;
-  void * fec_resolver_mem = fd_wksp_alloc_laddr(
-      wksp,
-      fd_fec_resolver_align(),
-      fd_fec_resolver_footprint( depth, partial_depth, complete_depth, done_depth ),
-      42UL );
-  fd_fec_resolver_t * fec_resolver = fd_fec_resolver_join( fd_fec_resolver_new(
-      fec_resolver_mem, depth, partial_depth, complete_depth, done_depth, fec_sets ) );
-
-  /**********************************************************************/
-  /* Replay                                                             */
-  /**********************************************************************/
-
-  void * replay_mem =
-      fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint( 1024UL ), 42UL );
-  fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem, 1024UL, 42UL ) );
-  replay->valloc       = valloc;
-
-  replay->data_shreds   = data_shreds;
-  replay->parity_shreds = parity_shreds;
-  replay->fec_sets      = fec_sets;
-  replay->fec_resolver  = fec_resolver;
-
-  FD_TEST( replay );
-  FD_TEST( replay->frontier );
-  FD_TEST( replay->pool );
-  FD_TEST( replay->data_shreds );
-  FD_TEST( replay->parity_shreds );
-  FD_TEST( replay->fec_sets );
-  FD_TEST( replay->fec_resolver );
-
-  /**********************************************************************/
-  /* slot_ctx                                                           */
-  /**********************************************************************/
-
-  fd_exec_epoch_ctx_t * epoch_ctx =
-      fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( runtime_ctx->epoch_ctx_mem ) );
-  fd_replay_slot_ctx_t * replay_slot = fd_replay_pool_ele_acquire( replay->pool );
-  fd_exec_slot_ctx_t *   slot_ctx =
-      fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &replay_slot->slot_ctx ) );
-  FD_TEST( slot_ctx );
-  slot_ctx->epoch_ctx = runtime_ctx->epoch_ctx = epoch_ctx;
-  runtime_ctx->slot_ctx                        = slot_ctx;
-
-  epoch_ctx->valloc = valloc;
-  slot_ctx->valloc  = valloc;
-
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( runtime_ctx->_acc_mgr, funk );
-  slot_ctx->acc_mgr      = acc_mgr;
-  slot_ctx->blockstore   = blockstore;
+  runtime_ctx->epoch_ctx = slot_ctx_setup_out.exec_epoch_ctx;
+  runtime_ctx->slot_ctx  = slot_ctx_setup_out.exec_slot_ctx;
 
   /**********************************************************************/
   /* snapshots                                                          */
   /**********************************************************************/
-
-  ulong snapshot_slot = 0;
-  if( args->snapshot && args->snapshot[0] != '\0' ) {
-    if( !args->incremental_snapshot || args->incremental_snapshot[0] == '\0' ) {
-      FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
-                        "using a local validator." ) );
-      // TODO: LML We really need to fix the way these arguments are handled
-      args->incremental_snapshot = NULL;
-    }
-    const char * p = strstr( args->snapshot, "snapshot-" );
-    if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
-    do {
-      const char * p2 = strstr( p + 1, "snapshot-" );
-      if( p2 == NULL ) break;
-      p = p2;
-    } while( 1 );
-    if( sscanf( p, "snapshot-%lu", &snapshot_slot ) < 1 )
-      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
-
-    if( args->incremental_snapshot && args->incremental_snapshot[0] != '\0' ) {
-
-      p = strstr( args->incremental_snapshot, "incremental-snapshot-" );
-      if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-      do {
-        const char * p2 = strstr( p + 1, "incremental-snapshot-" );
-        if( p2 == NULL ) break;
-        p = p2;
-      } while( 1 );
-      ulong i, j;
-      if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
-        FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-      if( i != snapshot_slot )
-        FD_LOG_ERR( ( "--snapshot-file slot number does not match --incremental" ) );
-      snapshot_slot = j;
-    }
-
-    const char * snapshotfiles[3];
-    snapshotfiles[0] = args->snapshot;
-    snapshotfiles[1] = args->incremental_snapshot;
-    snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx,
-      ((NULL != args->validate_snapshot) && (strcasecmp( args->validate_snapshot, "true" ) == 0)),
-      ((NULL != args->check_hash) && (strcasecmp( args->check_hash, "true ") == 0))
-      );
-
-  } else if( args->incremental_snapshot && args->incremental_snapshot[0] != '\0' ) {
-    fd_runtime_recover_banks( slot_ctx, 0 );
-
-    char   out[128];
-    if( strncmp( args->incremental_snapshot, "http", 4 ) == 0 ) {
-      FILE * fp;
-
-      /* Open the command for reading. */
-      char   cmd[128];
-      snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", args->incremental_snapshot );
-      FD_LOG_NOTICE(("cmd: %s", cmd));
-      fp = popen( cmd, "r" );
-      if( fp == NULL ) {
-        printf( "Failed to run command\n" );
-        exit( 1 );
-      }
-
-      /* Read the output a line at a time - output it. */
-      if( !fgets( out, sizeof( out ) - 1, fp ) ) {
-        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
-      }
-      out[strcspn( out, "\n" )]  = '\0';
-      args->incremental_snapshot = out;
-
-      /* close */
-      pclose( fp );
-    }
-    const char * p = strstr( args->incremental_snapshot, "snapshot-" );
-    if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-    do {
-      const char * p2 = strstr( p + 1, "snapshot-" );
-      if( p2 == NULL ) break;
-      p = p2;
-    } while( 1 );
-    ulong i, j;
-    if( sscanf( p, "snapshot-%lu-%lu", &i, &j ) < 2 )
-      FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-    if( i != slot_ctx->slot_bank.slot )
-      FD_LOG_ERR( ( "ledger slot number does not match --incremental, %lu %lu %s", i, slot_ctx->slot_bank.slot, args->incremental_snapshot ) );
-    snapshot_slot = j;
-
-    const char * snapshotfiles[2];
-    snapshotfiles[0] = args->incremental_snapshot;
-    snapshotfiles[1] = NULL;
-    fd_snapshot_load( snapshotfiles, slot_ctx,
-      ((NULL != args->validate_snapshot) && (strcasecmp( args->validate_snapshot, "true" ) == 0)),
-      ((NULL != args->check_hash) && (strcasecmp( args->check_hash, "true ") == 0))
-      );
-
-  } else {
-    fd_runtime_recover_banks( slot_ctx, 0 );
-  }
-
-  fd_runtime_cleanup_incinerator( slot_ctx );
+  snapshot_setup_t snapshot_setup_out = {0};
+  snapshot_setup(args->snapshot,
+                 args->incremental_snapshot,
+                 args->validate_snapshot,
+                 args->check_hash,
+                 slot_ctx_setup_out.exec_slot_ctx,
+                 &snapshot_setup_out );
 
   /**********************************************************************/
   /* Identity                                                           */
@@ -962,7 +1043,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* rpc service                                                        */
     /**********************************************************************/
     runtime_ctx->rpc_ctx =
-        fd_rpc_alloc_ctx( funk, blockstore, &runtime_ctx->public_key, slot_ctx, valloc );
+        fd_rpc_alloc_ctx( funk_setup_out.funk, blockstore_setup_out.blockstore, &runtime_ctx->public_key, slot_ctx_setup_out.exec_slot_ctx, valloc );
     fd_rpc_start_service( args->rpc_port, runtime_ctx->rpc_ctx );
 #endif
 
@@ -982,12 +1063,12 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
 
     void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
-    fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, hashseed, valloc ) );
+    fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, funk_setup_out.hashseed, valloc ) );
     runtime_ctx->repair      = repair;
 
     repair_ctx->repair     = repair;
-    repair_ctx->blockstore = blockstore;
-    repair_ctx->slot_ctx   = slot_ctx;
+    repair_ctx->blockstore = blockstore_setup_out.blockstore;
+    repair_ctx->slot_ctx   = slot_ctx_setup_out.exec_slot_ctx;
     repair_ctx->peer_iter  = 0;
 
     runtime_ctx->repair_config.fun_arg = repair_ctx;
@@ -1007,7 +1088,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->gossip_config.deliver_fun   = gossip_deliver_fun;
     runtime_ctx->gossip_config.send_fun      = gossip_send_packet;
 
-    ulong seed = fd_hash( 0, hostname, strnlen( hostname, sizeof( hostname ) ) );
+    ulong seed = fd_hash( 0, funk_setup_out.hostname, strnlen( funk_setup_out.hostname, sizeof( funk_setup_out.hostname ) ) );
 
     void *        gossip_mem = fd_valloc_malloc( valloc, fd_gossip_align(), fd_gossip_footprint() );
     fd_gossip_t * gossip     = fd_gossip_join( fd_gossip_new( gossip_mem, seed, valloc ) );
@@ -1030,47 +1111,47 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* Prepare                                                             */
     /***********************************************************************/
 
-    fd_repair_set_epoch_ctx( repair, epoch_ctx );
+    fd_repair_set_epoch_ctx( repair, slot_ctx_setup_out.exec_epoch_ctx);
 
-    replay->blockstore  = blockstore;
-    replay->funk        = funk;
-    replay->acc_mgr     = acc_mgr;
-    replay->epoch_ctx   = epoch_ctx;
-    replay->tpool       = tpool;
-    replay->max_workers = args->tcnt;
-    replay->repair      = repair;
-    replay->gossip      = gossip;
+    replay_setup_out.replay->blockstore  = blockstore_setup_out.blockstore;
+    replay_setup_out.replay->funk        = funk_setup_out.funk;
+    replay_setup_out.replay->acc_mgr     = runtime_ctx->_acc_mgr;
+    replay_setup_out.replay->epoch_ctx   = slot_ctx_setup_out.exec_epoch_ctx;
+    replay_setup_out.replay->tpool       = tpool;
+    replay_setup_out.replay->max_workers = args->tcnt;
+    replay_setup_out.replay->repair      = repair;
+    replay_setup_out.replay->gossip      = gossip;
 
     /* bootstrap replay with the snapshot slot */
-    ulong snapshot_slot = slot_ctx->slot_bank.slot;
-    replay->smr         = snapshot_slot;
-    replay_slot->slot   = snapshot_slot;
+    ulong snapshot_slot = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
+    replay_setup_out.replay->smr         = snapshot_slot;
+    slot_ctx_setup_out.replay_slot_ctx->slot   = snapshot_slot;
 
     /* add it to the frontier */
-    fd_replay_frontier_ele_insert( replay->frontier, replay_slot, replay->pool );
+    fd_replay_frontier_ele_insert( replay_setup_out.replay->frontier, slot_ctx_setup_out.replay_slot_ctx, replay_setup_out.replay->pool );
 
     /* fake the snapshot slot's block and mark it as executed */
     fd_blockstore_slot_map_t * slot_entry =
-        fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), snapshot_slot );
+        fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore_setup_out.blockstore ), snapshot_slot );
     slot_entry->block.data_gaddr = ULONG_MAX;
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_EXECUTED );
 
-    repair_ctx->replay = replay;
-    gossip_ctx->replay = replay;
+    repair_ctx->replay = replay_setup_out.replay;
+    gossip_ctx->replay = replay_setup_out.replay;
   } // if (runtime_ctx->live)
 
-  replay_slot->slot    = slot_ctx->slot_bank.slot;
-  replay->turbine_slot = FD_SLOT_NULL;
+  slot_ctx_setup_out.replay_slot_ctx->slot    = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
+  replay_setup_out.replay->turbine_slot = FD_SLOT_NULL;
 
   /* FIXME epoch boundary stuff when replaying */
-  fd_features_restore( slot_ctx );
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  fd_features_restore( slot_ctx_setup_out.exec_slot_ctx );
+  fd_runtime_update_leaders( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx_setup_out.exec_slot_ctx );
 
-  if( FD_LIKELY( snapshot_slot != 0 ) ) {
-    blockstore->root = snapshot_slot;
-    blockstore->min  = snapshot_slot;
+  if( FD_LIKELY( snapshot_setup_out.snapshot_slot != 0 ) ) {
+    blockstore_setup_out.blockstore->root = snapshot_setup_out.snapshot_slot;
+    blockstore_setup_out.blockstore->min  = snapshot_setup_out.snapshot_slot;
   }
 
   runtime_ctx->abort_on_mismatch = (uchar)args->abort_on_mismatch;
