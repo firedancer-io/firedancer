@@ -967,6 +967,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   solcap_setup_t solcap_setup_out = {0};
   if( args->capture_fpath ) {
     solcap_setup( args->capture_fpath, valloc, &solcap_setup_out ); 
+    runtime_ctx->capture_file = solcap_setup_out.capture_file;
+    runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
   }
 
   blockstore_setup_t blockstore_setup_out = {0};
