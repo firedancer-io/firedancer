@@ -43,8 +43,11 @@
 #define FD_VM_MAX_HEAP_SZ (256*1024)
 #define FD_VM_DEFAULT_HEAP_SZ (32*1024)
 
-#define FD_VM_MEM_MAP_SUCCESS       (0)
-#define FD_VM_MEM_MAP_ERR_ACC_VIO   (1)
+/* TODO: consider disambiguating different ERR_ACC_VIO cases
+   (misaligned, out of bounds, etc) */
+
+#define FD_VM_MEM_MAP_SUCCESS     (0)
+#define FD_VM_MEM_MAP_ERR_ACC_VIO (1) /* FIXME: MAKE NEGATIVE */
 
 /* Forward definition of fd_vm_sbpf_exec_context_t. */
 struct fd_vm_exec_context;
@@ -206,7 +209,7 @@ struct fd_vm_exec_context {
   ulong                 compute_meter;               /* The remaining CUs left for the transaction */
   ulong                 due_insn_cnt;                /* Currently executed instructions */
   ulong                 previous_instruction_meter;  /* Last value of remaining compute units */
-  ulong                 cond_fault;                  /* If non-zero, indicates a fault occured during execution */
+  int                   cond_fault;                  /* If non-zero, indicates a fault occured during execution */
 
   /* Memory regions: */
   uchar *       read_only;                /* The read-only memory region, typically just the relocated program binary blob */
@@ -264,6 +267,12 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t * ctx,
                                     ulong                  vm_addr,
                                     ulong                  sz,
                                     int                    write );
+
+/* TODO: WHY IS CTX->CHECK_ALIGN / CTX->CHECK_SIZE A THING?  CONSIDERING
+   REMOVING THESE OR MAKING A COMPILE TIME OPTION (WITH A DEFAULT OF
+   TRUE). */
+
+/* FIXME: ARG ORDERING CONVENTION IS ALIGN/SZ */
 
 static inline void *
 fd_vm_translate_vm_to_host( fd_vm_exec_context_t * ctx,
