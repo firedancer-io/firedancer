@@ -1,6 +1,3 @@
-
-#include "../fd_vm_context.h"
-#include "../fd_vm_syscalls.h"
 #include "fd_vm_curve25519.h"
 
 static void

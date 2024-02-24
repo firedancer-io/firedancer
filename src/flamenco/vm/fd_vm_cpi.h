@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_cpi_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_cpi_h
 
-#include "../fd_flamenco_base.h"
+#include "fd_vm_base.h"
 
 /* fd_vm_cpi contains type definitions for the cross-program-invocation
    (CPI) API.  These types are passed from the virtual machine to the

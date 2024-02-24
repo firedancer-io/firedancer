@@ -1,10 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_disasm_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_disasm_h
 
-#include "../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "fd_vm_base.h"
 
-# define MAX_BUFFER_LEN 100000
+#define MAX_BUFFER_LEN 100000 /* FIXME: NASTY */
 
 FD_PROTOTYPES_BEGIN
 

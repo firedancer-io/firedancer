@@ -1,11 +1,5 @@
 #include "fd_vm_interp.h"
 
-#include "../../ballet/murmur3/fd_murmur3.h"
-#include "../../util/bits/fd_sat.h"
-
-#include "fd_vm_context.h"
-#include "../runtime/fd_runtime.h"
-
 /* TODO: consider doing renaming read/write -> ld/st */
 
 /* TODO: consider writing in a branchless way (e.g. for read, would do a
