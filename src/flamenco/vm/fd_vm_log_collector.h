@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_log_collector_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_log_collector_h
 
-#include "../fd_flamenco_base.h"
+#include "fd_vm_base.h"
 
 #define FD_VM_LOG_COLLECTOR_BYTES_LIMIT (10000UL)
 

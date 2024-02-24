@@ -1,5 +1,3 @@
-#include "../fd_flamenco_base.h"
-
 /* Jump table template
  *
  * This template implements a manual jump table. As opposed to using a switch/case idiom you can
