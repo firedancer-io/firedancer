@@ -15,12 +15,6 @@ set_vm_read_only_memory_region( fd_vm_exec_context_t * vm_ctx ) {
 }
 
 static void
-reset_log_collector( fd_vm_log_collector_t * log_collector ) {
-    log_collector->buf_used = 0;
-    fd_memset( log_collector->buf, 0, FD_VM_LOG_COLLECTOR_BYTES_LIMIT );
-}
-
-static void
 test_vm_syscall_sol_memset(
     char *                 test_case_name,
     fd_vm_exec_context_t * vm_ctx,
@@ -33,7 +27,7 @@ test_vm_syscall_sol_memset(
 ) {
     set_vm_heap_memory_region( vm_ctx );
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_memset((void *) vm_ctx, dst_vm_addr, val, sz, 0, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_memset( vm_ctx, dst_vm_addr, val, sz, 0, 0, &ret_code );
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
@@ -60,7 +54,7 @@ test_vm_syscall_sol_memcpy(
 ) {
     set_vm_heap_memory_region( vm_ctx );
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_memcpy((void *) vm_ctx, dst_vm_addr, src_vm_addr, sz, 0, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_memcpy(vm_ctx, dst_vm_addr, src_vm_addr, sz, 0, 0, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
@@ -86,7 +80,7 @@ test_vm_syscall_sol_memcmp(
     ulong                  expected_syscall_ret
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_memcmp((void *) vm_ctx, vm_addr_1, vm_addr_2, sz, vm_cmp_result_addr, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_memcmp( vm_ctx, vm_addr_1, vm_addr_2, sz, vm_cmp_result_addr, 0, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
@@ -114,12 +108,12 @@ test_vm_syscall_sol_memmove(
     fd_memcpy( temp, (void *)src_host_addr, sz );
 
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_memmove((void *) vm_ctx, dst_vm_addr, src_vm_addr, sz, 0, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_memmove(vm_ctx, dst_vm_addr, src_vm_addr, sz, 0, 0, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( (void *)dst_host_addr, (void *)temp, sz ) == 0 );
+        FD_TEST( memcmp( (void *)dst_host_addr, temp, sz ) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -136,12 +130,12 @@ test_vm_syscall_sol_log(
     fd_vm_log_collector_t * expected_log_collector
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_log((void *) vm_ctx, msg_vm_addr, msg_len, 0, 0, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_log(vm_ctx, msg_vm_addr, msg_len, 0, 0, 0, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( (void *)&vm_ctx->log_collector, (void *)expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
+        FD_TEST( memcmp( &vm_ctx->log_collector, expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -161,12 +155,12 @@ test_vm_syscall_sol_log_64(
     fd_vm_log_collector_t * expected_log_collector
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_log_64((void *) vm_ctx, r1, r2, r3, r4, r5, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_log_64(vm_ctx, r1, r2, r3, r4, r5, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( (void *)&vm_ctx->log_collector, (void *)expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
+        FD_TEST( memcmp( &vm_ctx->log_collector, expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -183,12 +177,12 @@ test_vm_syscall_sol_log_data(
     fd_vm_log_collector_t * expected_log_collector
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_log_data((void *) vm_ctx, data_vm_addr, data_len, 0, 0, 0, &ret_code);
+    ulong syscall_ret = fd_vm_syscall_sol_log_data(vm_ctx, data_vm_addr, data_len, 0, 0, 0, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
 if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s sucks", test_case_name ));
 
     if (ret_code == 0 && syscall_ret == 0) {
-        FD_TEST( memcmp( (void *)&vm_ctx->log_collector, (void *)expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
+        FD_TEST( memcmp( &vm_ctx->log_collector, expected_log_collector, sizeof(fd_vm_log_collector_t)) == 0 );
     }
 
     FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
@@ -431,14 +425,13 @@ main( int     argc,
         FD_VM_MEM_MAP_ERR_ACC_VIO
     );
 
-    fd_vm_log_collector_t expected_log_collector;
-    reset_log_collector(&expected_log_collector);
-    reset_log_collector(&vm_ctx.log_collector);
+    fd_vm_log_collector_t expected_log_collector[1];
+    fd_vm_log_collector_wipe( expected_log_collector );
+    fd_vm_log_collector_wipe( vm_ctx.log_collector   );
 
-    fd_memcpy( expected_log_collector.buf, "hello world", 11 );
-    expected_log_collector.buf_used = 11;
+    fd_vm_log_collector_append( expected_log_collector, "hello world", 11UL );
     fd_memcpy( &vm_ctx.heap[0], "hello world", 11 );
-    // test for colletcing logs at the heap region
+    // test for collecting logs at the heap region
     test_vm_syscall_sol_log(
         "test_vm_syscall_sol_log: log at the heap region",
         &vm_ctx,
@@ -446,12 +439,11 @@ main( int     argc,
         11UL,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
 
-    // test for colletcing logs at the read only region
-    fd_memcpy( expected_log_collector.buf + expected_log_collector.buf_used, &vm_ctx.read_only[0], 100 );
-    expected_log_collector.buf_used += 100UL;
+    // test for collecting logs at the read only region
+    fd_vm_log_collector_append( expected_log_collector, &vm_ctx.read_only[0], 100UL );
     test_vm_syscall_sol_log(
         "test_vm_syscall_sol_log: log at the read only region",
         &vm_ctx,
@@ -459,20 +451,19 @@ main( int     argc,
         100UL,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
 
     // test for writing logs that exceed the remaining space
-    fd_memcpy( expected_log_collector.buf + expected_log_collector.buf_used, &vm_ctx.heap[0], FD_VM_LOG_COLLECTOR_BYTES_LIMIT );
-    expected_log_collector.buf_used = FD_VM_LOG_COLLECTOR_BYTES_LIMIT;
+    fd_vm_log_collector_append( expected_log_collector, &vm_ctx.heap[0], FD_VM_LOG_COLLECTOR_BUF_MAX );
     test_vm_syscall_sol_log(
         "test_vm_syscall_sol_log: log that exceeds the limit",
         &vm_ctx,
         FD_VM_MEM_MAP_HEAP_REGION_START,
-        FD_VM_LOG_COLLECTOR_BYTES_LIMIT + 1UL,
+        FD_VM_LOG_COLLECTOR_BUF_MAX + 1UL,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
 
     // test for writing logs when there's no more space
@@ -483,22 +474,21 @@ main( int     argc,
         1UL,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
 
-    reset_log_collector(&expected_log_collector);
-    reset_log_collector(&vm_ctx.log_collector);
+    fd_vm_log_collector_wipe( expected_log_collector );
+    fd_vm_log_collector_wipe( vm_ctx.log_collector   );
     ulong r1 = fd_rng_ulong(rng);
     ulong r2 = fd_rng_ulong(rng);
     ulong r3 = fd_rng_ulong(rng);
     ulong r4 = fd_rng_ulong(rng);
     ulong r5 = fd_rng_ulong(rng);
     char msg[1024];
-    ulong msg_len =  (ulong)sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
-    fd_memcpy( expected_log_collector.buf, msg, msg_len );
-    expected_log_collector.buf_used = msg_len;
+    ulong msg_len = (ulong)sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
+    fd_vm_log_collector_append( expected_log_collector, msg, msg_len );
 
-    // test for colletcing log_64 at the heap region
+    // test for collecting log_64 at the heap region
     test_vm_syscall_sol_log_64(
         "test_vm_syscall_sol_log_64: log_64 at the heap region",
         &vm_ctx,
@@ -509,11 +499,11 @@ main( int     argc,
         r5,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
 
-    reset_log_collector(&expected_log_collector);
-    reset_log_collector(&vm_ctx.log_collector);
+    fd_vm_log_collector_wipe( expected_log_collector );
+    fd_vm_log_collector_wipe( vm_ctx.log_collector   );
 
     // test for collecting log_data at the heap region
     fd_vm_vec_t log_vec = {
@@ -522,12 +512,11 @@ main( int     argc,
     };
     ulong data_chunk_num = 5UL;
     for (ulong i = 0; i < data_chunk_num; ++i) {
-        fd_memcpy((void *) (&vm_ctx.heap[0] + i * sizeof(fd_vm_vec_t)), &log_vec, sizeof(log_vec));
+        fd_memcpy( (&vm_ctx.heap[0] + i * sizeof(fd_vm_vec_t)), &log_vec, sizeof(log_vec));
     }
     ulong data_len = data_chunk_num * sizeof(fd_vm_vec_t);
 
-    expected_log_collector.buf_used = 58UL;
-    memcpy(&expected_log_collector.buf[0], "Program data: ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g=", expected_log_collector.buf_used);
+    fd_vm_log_collector_append( expected_log_collector, "Program data: ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g=", 58UL );
 
     test_vm_syscall_sol_log_data(
         "test_vm_syscall_sol_log_data: log_data at the heap region",
@@ -536,7 +525,7 @@ main( int     argc,
         data_len,
         0,
         0,
-        &expected_log_collector
+        expected_log_collector
     );
     fd_rng_delete( fd_rng_leave( rng ) );
 
