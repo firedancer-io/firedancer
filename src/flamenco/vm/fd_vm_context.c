@@ -178,10 +178,8 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( FD_UNLIKELY( end_addr > (FD_VM_STACK_MAX_DEPTH * FD_VM_STACK_FRAME_WITH_GUARD_SZ ) ) ) {
-        return 0UL;
-      }
-      host_addr = (ulong)ctx->stack.data + start_addr;
+      if( FD_UNLIKELY( end_addr > FD_VM_STACK_DATA_MAX ) ) return 0UL;
+      host_addr = (ulong)fd_vm_stack_data( ctx->stack ) + start_addr;
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
