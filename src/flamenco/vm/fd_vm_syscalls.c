@@ -4,16 +4,8 @@
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #include "../../ballet/base64/fd_base64.h"
-#include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
-#include "fd_vm_context.h"
-#include "fd_vm_cpi.h"
-#include "../runtime/sysvar/fd_sysvar_clock.h"
-#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../runtime/sysvar/fd_sysvar_fees.h"
 #include "../runtime/fd_account.h"
-#include "../runtime/context/fd_exec_txn_ctx.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
+#include "../runtime/sysvar/fd_sysvar.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
 #include <stdbool.h>
