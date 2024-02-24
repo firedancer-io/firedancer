@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_context_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_context_h
 
-#include "fd_vm_stack.h"
 #include "fd_vm_cpi.h"
 #include "fd_vm_trace.h"
 
@@ -219,7 +218,7 @@ struct fd_vm_exec_context {
   ulong         read_only_sz;             /* The read-only memory region size */
   uchar *       input;                    /* The program input memory region */
   ulong         input_sz;                 /* The program input memory region size */
-  fd_vm_stack_t stack;                    /* The sBPF call frame stack */
+  fd_vm_stack_t stack[1];                 /* The sBPF call frame stack */
   ulong         heap_sz;                  /* The configured size of the heap */
   uchar         heap[FD_VM_MAX_HEAP_SZ];  /* The heap memory allocated by the bump allocator syscall */
 
