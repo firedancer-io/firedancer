@@ -203,19 +203,19 @@ JT_CASE_END
 /* 0x60 - 0x6f */
 /* 0x61 */ JT_CASE(0x61) // FD_BPF_OP_LDXW
   cond_fault = fd_vm_mem_map_read_uint( ctx, (ulong)((long)register_file[instr.src_reg] + instr.offset), &register_file[instr.dst_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x61 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x61 : &&JT_RET_LOC);
 fallthrough_0x61:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x62 */ JT_CASE(0x62) // FD_BPF_OP_STW
   cond_fault = fd_vm_mem_map_write_uint( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (uint)instr.imm );
-  goto *((cond_fault == 0) ? &&fallthrough_0x62 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x62 : &&JT_RET_LOC);
 fallthrough_0x62:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x63 */ JT_CASE(0x63) // FD_BPF_OP_STXW
   cond_fault = fd_vm_mem_map_write_uint( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (uint)register_file[instr.src_reg]);
-  goto *((cond_fault == 0) ? &&fallthrough_0x63 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x63 : &&JT_RET_LOC);
 fallthrough_0x63:
 INSTR_POST_CODE
 JT_CASE_END
@@ -234,19 +234,19 @@ INSTR_POST_CODE
 JT_CASE_END
 /* 0x69 */ JT_CASE(0x69) // FD_BPF_OP_LDXH
   cond_fault = fd_vm_mem_map_read_ushort( ctx, (ulong)((long)register_file[instr.src_reg] + instr.offset), &register_file[instr.dst_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x69 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x69 : &&JT_RET_LOC);
 fallthrough_0x69:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x6a */ JT_CASE(0x6a) // FD_BPF_OP_STH
   cond_fault = fd_vm_mem_map_write_ushort( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (ushort)instr.imm );
-  goto *((cond_fault == 0) ? &&fallthrough_0x6a : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x6a : &&JT_RET_LOC);
 fallthrough_0x6a:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x6b */ JT_CASE(0x6b) // FD_BPF_OP_STXH
   cond_fault = fd_vm_mem_map_write_ushort( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (ushort)register_file[instr.src_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x6b : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x6b : &&JT_RET_LOC);
 fallthrough_0x6b:
 INSTR_POST_CODE
 JT_CASE_END
@@ -267,19 +267,19 @@ JT_CASE_END
 /* 0x70 - 0x7f */
 /* 0x71 */ JT_CASE(0x71) // FD_BPF_OP_LDXB
   cond_fault = fd_vm_mem_map_read_uchar( ctx, (ulong)((long)register_file[instr.src_reg] + instr.offset), &register_file[instr.dst_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x71 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x71 : &&JT_RET_LOC);
 fallthrough_0x71:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x72 */ JT_CASE(0x72) // FD_BPF_OP_STB
   cond_fault = fd_vm_mem_map_write_uchar( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (uchar)instr.imm );
-  goto *((cond_fault == 0) ? &&fallthrough_0x72 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x72 : &&JT_RET_LOC);
 fallthrough_0x72:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x73 */ JT_CASE(0x73) // FD_BPF_OP_STXB
   cond_fault = fd_vm_mem_map_write_uchar( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (uchar)register_file[instr.src_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x73 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x73 : &&JT_RET_LOC);
 fallthrough_0x73:
 INSTR_POST_CODE
 JT_CASE_END
@@ -298,19 +298,19 @@ INSTR_POST_CODE
 JT_CASE_END
 /* 0x79 */ JT_CASE(0x79) // FD_BPF_OP_LDXQ
   cond_fault = fd_vm_mem_map_read_ulong( ctx, (ulong)((long)register_file[instr.src_reg] + instr.offset), (ulong *)&register_file[instr.dst_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x79 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x79 : &&JT_RET_LOC);
 fallthrough_0x79:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x7a */ JT_CASE(0x7a) // FD_BPF_OP_STQ
   cond_fault = fd_vm_mem_map_write_ulong( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (ulong)instr.imm );
-  goto *((cond_fault == 0) ? &&fallthrough_0x7a : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x7a : &&JT_RET_LOC);
 fallthrough_0x7a:
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x7b */ JT_CASE(0x7b) // FD_BPF_OP_STXQ
   cond_fault = fd_vm_mem_map_write_ulong( ctx, (ulong)((long)register_file[instr.dst_reg] + instr.offset), (ulong)register_file[instr.src_reg] );
-  goto *((cond_fault == 0) ? &&fallthrough_0x7b : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x7b : &&JT_RET_LOC);
 fallthrough_0x7b:
 INSTR_POST_CODE
 JT_CASE_END
@@ -372,8 +372,9 @@ BRANCH_PRE_CODE
     } else if( instr.imm==0x71e3cf81 ) {
       pc = (long)ctx->entrypoint;  /* TODO: subtract 1 here? */
     } else {
-      // TODO: real error for nonexistent func
-      cond_fault = 1;
+      ctx->compute_meter = compute_meter;
+      cond_fault = (int)((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]); /* FIXME: NO CAST */
+      compute_meter = ctx->compute_meter;
     }
   } else {
     ctx->compute_meter = compute_meter;
@@ -382,9 +383,7 @@ BRANCH_PRE_CODE
     compute_meter = ctx->compute_meter;
     //FD_LOG_WARNING(("CUs! (TAB22) consumed %lu", ctx->compute_meter));
   }
-  previous_instruction_meter = compute_meter;
-  ctx->previous_instruction_meter = previous_instruction_meter;
-  goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
+  goto *(!cond_fault ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
 BRANCH_POST_CODE
 JT_CASE_END
@@ -403,12 +402,12 @@ BRANCH_PRE_CODE
   // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
   register_file[10] += 0x2000;
   // FIXME: stack overflow fault.
-  cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
+  cond_fault = (int)fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] ); /* FIXME: NO CAST */
   pc = (long)((start_addr / 8UL)-1);
   pc -= (long)ctx->instrs_offset / 8;
-  /* TODO: verify that program counter is within bounds */
-  /* TODO: when static_syscalls are enabled, check that the call destination is valid */
-  goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
+  /* TODO verify that program counter is within bounds */
+  /* TODO when static_syscalls are enabled, check that the call destination is valid */
+  goto *(!cond_fault ? &&fallthrough_0x8d : &&JT_RET_LOC);
 }
 fallthrough_0x8d:
 BRANCH_POST_CODE
