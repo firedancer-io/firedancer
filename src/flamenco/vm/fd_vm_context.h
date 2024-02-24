@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_context_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_context_h
 
-#include "fd_vm_log_collector.h"
 #include "fd_vm_stack.h"
 #include "fd_vm_cpi.h"
 #include "fd_vm_trace.h"
@@ -209,7 +208,7 @@ struct fd_vm_exec_context {
   ulong                 register_file[11];           /* The sBPF register file */
   ulong                 program_counter;             /* The current instruction index being executed */
   ulong                 instruction_counter;         /* The number of instructions which have been executed */
-  fd_vm_log_collector_t log_collector;               /* The log collector used by `sol_log_*` syscalls */
+  fd_vm_log_collector_t log_collector[1];            /* The log collector used by `sol_log_*` syscalls */
   ulong                 compute_meter;               /* The remaining CUs left for the transaction */
   ulong                 due_insn_cnt;                /* Currently executed instructions */
   ulong                 previous_instruction_meter;  /* Last value of remaining compute units */
