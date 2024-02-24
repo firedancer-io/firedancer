@@ -1,5 +1,4 @@
 #include "fd_vm_cpi.h"
-#include <stddef.h>
 
 FD_STATIC_ASSERT( offsetof( fd_vm_vec_t, addr )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_vec_t, len  )== 8UL, layout );
