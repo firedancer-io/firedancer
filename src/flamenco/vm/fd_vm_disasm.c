@@ -1,10 +1,4 @@
-#include <stdio.h>
-
 #include "fd_vm_disasm.h"
-
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
 
 # define OUT_PRINTF(...) \
   do { \

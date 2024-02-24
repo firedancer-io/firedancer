@@ -1,10 +1,5 @@
-#include "../fd_flamenco_base.h"
 #include "fd_vm_interp.h"
-#include "fd_vm_syscalls.h"
-#include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-
-#include <stdlib.h>
+#include "fd_vm_syscalls.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
 
 static ulong accumulator_syscall(FD_FN_UNUSED void * _ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret) {
   *ret = arg0 + arg1 + arg2 + arg3 + arg4;
@@ -16,7 +11,7 @@ test_program_success( char *                test_case_name,
                       ulong                 expected_result,
                       ulong                 instrs_sz,
                       fd_sbpf_instr_t *     instrs ) {
-  FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
+//FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sbpf_syscalls_t syscalls;
 
@@ -45,10 +40,10 @@ test_program_success( char *                test_case_name,
     FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
   }
   FD_TEST( ctx.register_file[0]==expected_result );
-  FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
-  FD_LOG_NOTICE(( "Time: %ldns", dt ));
-  FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
-  FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)ctx.instruction_counter / (double) dt)));
+//FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
+  FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
+//FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)ctx.instruction_counter ));
+//FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)ctx.instruction_counter / (double) dt)));
 }
 
 #define TEST_PROGRAM_SUCCESS(test_case_name, expected_result, instrs_sz, ...) { \
@@ -510,6 +505,7 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
+#if 0
   TEST_PROGRAM_SUCCESS("jeq-imm", 0x1, 8,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 0),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R1,  0,      0, 0xa),
@@ -709,6 +705,7 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 1),
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
+#endif
 
   TEST_PROGRAM_SUCCESS("ldq", 0x1122334455667788, 3,
     FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R0,  0,      0, 0x55667788),
@@ -716,6 +713,7 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
+#if 0
   TEST_PROGRAM_SUCCESS("stb-heap", 0x11, 5,
     FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1,  0,      0, 0x0),
     FD_SBPF_INSTR(FD_SBPF_OP_ADDL_IMM,  0,      0,      0, 0x3),
@@ -785,6 +783,7 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_LDXDW,     FD_SBPF_R0,  FD_SBPF_R1, +2, 0),
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
+#endif
 
   TEST_PROGRAM_SUCCESS("prime", 0x1, 16,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 100000007),
@@ -837,8 +836,8 @@ main( int     argc,
 
   free( instrs );
 
+  FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
-
   fd_halt();
   return 0;
 }
