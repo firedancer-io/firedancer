@@ -6,127 +6,65 @@
 #include "fd_vm_context.h"
 #include "../runtime/fd_runtime.h"
 
-#include <stdio.h>
+/* TODO: consider doing renaming read/write -> ld/st */
 
-/* Helper function for reading a uchar from VM memory. Returns success or a fault for the memory
- * access. Sets the value pointed to by `val` on success.
- */
-static inline ulong
-fd_vm_mem_map_read_uchar( fd_vm_exec_context_t * ctx,
-                          ulong                  vm_addr,
-                          ulong *                val ) {
+/* TODO: consider writing in a branchless way (e.g. for read, would do a
+   load and store from sentinel location on error or, more optimally,
+   would change the API specification to allow *val to be clobbered on
+   error so a conditional store doesn't need to be used). */
 
-  void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(uchar), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+/* TODO: Note that if alignment checks are done by
+   translate_vm_to_host_const (which is likely the case though it is
+   currently inexplicably a run-time configured option), then the read
+   operations don't need any special treatment to be loaded. */
 
-  *val = fd_ulong_load_1( vm_mem );
-  return FD_VM_MEM_MAP_SUCCESS;
+/* fd_vm_mem_map_read_* are helper functions for reading a * from VM
+   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and an
+   FD_VM_MEM_MAP_ERR code (negative) on failure.  Assumes val points to
+   a valid ulong.  On success, *val holds the value read (zero padded
+   out to a width of 64-bits) and, on failure, *val is touched. */
+
+#define DECL(T,op)                                                                               \
+static inline int                                                                                \
+fd_vm_mem_map_read_##T( fd_vm_exec_context_t * ctx,                                              \
+                        ulong                  vm_addr,                                          \
+                        ulong *                val ) {                                           \
+  void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(T), alignof(T) ); \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;                                 \
+  *val = op( vm_mem );                                                                           \
+  return FD_VM_MEM_MAP_SUCCESS;                                                                  \
 }
 
-/* Helper function for reading a ushort from VM memory. Returns success or a fault for the memory
- * access. Sets the value pointed to by `val` on success.
- */
-static inline ulong
-fd_vm_mem_map_read_ushort( fd_vm_exec_context_t * ctx,
-                           ulong                  vm_addr,
-                           ulong *                val ) {
+DECL( uchar,  fd_ulong_load_1 )
+DECL( ushort, fd_ulong_load_2 )
+DECL( uint,   fd_ulong_load_4 )
+DECL( ulong,  fd_ulong_load_8 )
 
-  void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(ushort), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+#undef DECL
 
-  *val = fd_ulong_load_2( vm_mem );
-  return FD_VM_MEM_MAP_SUCCESS;
+/* fd_vm_mem_map_write_* are helper functions for writing a * to VM
+   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and an
+   FD_VM_MEM_MAP_ERR code (negative) on failure.  On success, val has
+   been written to vm_addr in the VM memory.  On failure, the VM memory
+   was unchanged. */
+
+#define DECL(T)                                                                      \
+static inline int                                                                    \
+fd_vm_mem_map_write_##T( fd_vm_exec_context_t * ctx,                                 \
+                         ulong                  vm_addr,                             \
+                         T                      val ) {                              \
+  void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(T), alignof(T) ); \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;                     \
+  memcpy( vm_mem, &val, sizeof(T) ); /* So gross */                                  \
+  return FD_VM_MEM_MAP_SUCCESS;                                                      \
 }
 
-/* Helper function for reading a uint from VM memory. Returns success or a fault for the memory
- * access. Sets the value pointed to by `val` on success.
- */
-static inline ulong
-fd_vm_mem_map_read_uint( fd_vm_exec_context_t * ctx,
-                         ulong                  vm_addr,
-                         ulong *                val ) {
+DECL( uchar  )
+DECL( ushort )
+DECL( uint   )
+DECL( ulong  )
 
-  void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(uint), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  *val = fd_ulong_load_4( vm_mem );
-  return FD_VM_MEM_MAP_SUCCESS;
-}
-
-/* Helper function for reading a ulong from VM memory. Returns success or a fault for the memory
- * access. Sets the value pointed to by `val` on success.
- */
-static inline ulong
-fd_vm_mem_map_read_ulong( fd_vm_exec_context_t * ctx,
-                          ulong                  vm_addr,
-                          ulong *                val ) {
-
-  void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(ulong), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  *val = fd_ulong_load_8( vm_mem );
-  return FD_VM_MEM_MAP_SUCCESS;
-}
-
-/* Helper function for writing a uchar to VM memory. Returns success or a fault for the memory
- * access. The value `val` is written to vm_addr on success.
- */
-static inline ulong
-fd_vm_mem_map_write_uchar( fd_vm_exec_context_t *  ctx,
-                           ulong                   vm_addr,
-                           uchar                   val ) {
-
-  void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(uchar), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  *(uchar *)vm_mem = val;
-  return FD_VM_MEM_MAP_SUCCESS;
-}
-
-/* Helper function for writing a ushort to VM memory. Returns success or a fault for the memory
- * access. The value `val` is written to vm_addr on success.
- */
-static inline ulong
-fd_vm_mem_map_write_ushort( fd_vm_exec_context_t * ctx,
-                            ulong                  vm_addr,
-                            ushort                 val ) {
-
-  void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(ushort), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  memcpy( vm_mem, &val, sizeof(ushort) );
-  return FD_VM_MEM_MAP_SUCCESS;
-}
-
-/* Helper function for writing a uint to VM memory. Returns success or a fault for the memory
- * access. The value `val` is written to vm_addr on success.
- */
-static inline ulong
-fd_vm_mem_map_write_uint( fd_vm_exec_context_t * ctx,
-                          ulong                  vm_addr,
-                          uint                   val ) {
-
-  void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(uint), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  memcpy( vm_mem, &val, sizeof(uint) );
-  return FD_VM_MEM_MAP_SUCCESS;
-}
-
-/* Helper function for writing a ulong to VM memory. Returns success or a fault for the memory
- * access. The value `val` is written to vm_addr on success.
- */
-static inline ulong
-fd_vm_mem_map_write_ulong( fd_vm_exec_context_t *  ctx,
-                          ulong                    vm_addr,
-                          ulong                    val ) {
-
-  void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(ulong), alignof(uchar) );
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  memcpy( vm_mem, &val, sizeof(ulong) );
-  return FD_VM_MEM_MAP_SUCCESS;
-}
+#undef DECL
 
 ulong
 fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
@@ -143,7 +81,7 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
     // );
     // let heap =
 
-  ulong cond_fault = 0;
+  int cond_fault = 0;
 
   ulong compute_meter = ctx->compute_meter;
   ulong due_insn_cnt = ctx->due_insn_cnt;
@@ -158,7 +96,7 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
-  cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  cond_fault = (int)fd_vm_consume_compute_meter(ctx, heap_cus_consumed); /* FIXME: NO CAST */
   compute_meter = ctx->compute_meter;
   if( cond_fault != 0 ) {
     goto JT_RET_LOC;
@@ -212,7 +150,7 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx ) {
   ulong * register_file = ctx->register_file;
   // memset( register_file, 0, sizeof(register_file) );
 
-  ulong cond_fault = 994;
+  int cond_fault = 994;
   ulong compute_meter = ctx->compute_meter;
   ulong due_insn_cnt = ctx->due_insn_cnt;
   ulong previous_instruction_meter = ctx->previous_instruction_meter;
@@ -227,7 +165,7 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx ) {
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
-  cond_fault = fd_vm_consume_compute_meter(ctx, heap_cus_consumed);
+  cond_fault = (int)fd_vm_consume_compute_meter(ctx, heap_cus_consumed); /* FIXME: NO CAST */
   compute_meter = ctx->compute_meter;
   if( cond_fault != 0) {
     goto JT_RET_LOC;
