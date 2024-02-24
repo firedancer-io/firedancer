@@ -322,21 +322,19 @@ ulong
 fd_vm_syscall_sol_log(
     void *  _ctx,
     ulong   msg_vm_addr,
-    ulong   msg_len,
+    ulong   msg_sz,
     ulong   r3 __attribute__((unused)),
     ulong   r4 __attribute__((unused)),
     ulong   r5 __attribute__((unused)),
     ulong * pr0
 ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
-  ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_max(msg_len, vm_compute_budget.syscall_base_cost) );
+  ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_max(msg_sz, vm_compute_budget.syscall_base_cost) );
   if ( FD_UNLIKELY( err ) ) return err;
 
-  void const * msg_host_addr =
-      fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_len, alignof(uchar) );
+  void const * msg_host_addr = fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_sz, alignof(uchar) );
   if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-  fd_vm_log_collector_log( &ctx->log_collector, msg_host_addr, msg_len );
+  fd_vm_log_collector_append( ctx->log_collector, msg_host_addr, msg_sz );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -358,8 +356,7 @@ fd_vm_syscall_sol_log_64(
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program log: %lx %lx %lx %lx %lx", r1, r2, r3, r4, r5 );
-
-  fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -379,7 +376,7 @@ fd_vm_syscall_sol_log_pubkey(
   ulong err = fd_vm_consume_compute_meter( ctx, vm_compute_budget.log_pubkey_units );
   if ( FD_UNLIKELY( err ) ) return err;
 
-  char msg[128];
+  char msg[128]; /* FIXME: CHECK THIS SIZE */
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
 
   void * pubkey_host_addr =
@@ -389,8 +386,7 @@ fd_vm_syscall_sol_log_pubkey(
   fd_base58_encode_32( pubkey_host_addr, NULL, pubkey_str );
 
   int msg_len = sprintf( msg, "Program log: %s", pubkey_str );
-
-  fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -418,8 +414,7 @@ fd_vm_syscall_sol_log_compute_units(
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program consumption: %lu units remaining\n", ctx->compute_meter);
-
-  fd_vm_log_collector_log( &ctx->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -450,6 +445,7 @@ fd_vm_syscall_sol_log_data(
   err = fd_vm_consume_compute_meter( ctx, fd_ulong_sat_mul(vm_compute_budget.syscall_base_cost, len) );
   if ( FD_UNLIKELY( err ) ) return err;
 
+  /* FIXME: MSG_LEN HANDLING */
   char msg[102400];
   ulong msg_len = (ulong) sprintf( msg, "Program data: " );
 
@@ -470,7 +466,7 @@ fd_vm_syscall_sol_log_data(
   if ( FD_UNLIKELY( err ) ) return err;
 
   *pr0 = 0;
-  fd_vm_log_collector_log( &ctx->log_collector, msg, msg_len );
+  fd_vm_log_collector_append( ctx->log_collector, msg, msg_len );
   return FD_VM_SYSCALL_SUCCESS;
 
 }
