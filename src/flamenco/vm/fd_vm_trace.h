@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_trace_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_trace_h
 
-#include "../fd_flamenco_base.h"
+#include "fd_vm_base.h"
 
 #define FD_VM_TRACE_MEM_ENTRY_TYPE_UNKNOWN (0UL)
 #define FD_VM_TRACE_MEM_ENTRY_TYPE_READ    (1UL)

@@ -1,7 +1,5 @@
 #include "fd_vm_trace.h"
 
-#include <stdlib.h>
-
 void *
 fd_vm_trace_context_new( void * shmem, ulong __attribute__((unused)) max_trace_entries ) {
   return shmem;
