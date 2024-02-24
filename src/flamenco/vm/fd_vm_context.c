@@ -1,10 +1,5 @@
 #include "fd_vm_context.h"
 
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
-#include "../runtime/fd_runtime.h"
-
 ulong
 fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   ulong exceeded = ctx->compute_meter < cost;

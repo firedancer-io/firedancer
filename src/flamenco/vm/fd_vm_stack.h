@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_stack_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_stack_h
 
-#include "../fd_flamenco_base.h"
+#include "fd_vm_base.h"
 
 /* FIXME: The max depth of the stack is configurable by the compute budget */
 #define FD_VM_STACK_MAX_DEPTH           (64)
