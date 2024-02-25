@@ -1,6 +1,6 @@
 #include "fd_vm_interp.h"    /* FIXME: COMBINE FD_VM_INTERP / DISASM / SYSCALLS INTO SINGLE HEADER? */
 #include "fd_vm_disasm.h"
-#include "fd_vm_syscalls.h"
+#include "syscall/fd_vm_syscall.h"
 
 #include <errno.h>
 #include <sys/stat.h>
