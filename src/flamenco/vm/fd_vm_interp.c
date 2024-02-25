@@ -13,10 +13,10 @@
    operations don't need any special treatment to be loaded. */
 
 /* fd_vm_mem_map_read_* are helper functions for reading a * from VM
-   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and an
-   FD_VM_MEM_MAP_ERR code (negative) on failure.  Assumes val points to
-   a valid ulong.  On success, *val holds the value read (zero padded
-   out to a width of 64-bits) and, on failure, *val is touched. */
+   memory.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_ACC_VIO
+   (negative) on failure.  Assumes val points to a valid ulong.  On
+   success, *val holds the value read (zero padded out to a width of
+   64-bits) and, on failure, *val is touched. */
 
 #define DECL(T,op)                                                                               \
 static inline int                                                                                \
@@ -24,9 +24,9 @@ fd_vm_mem_map_read_##T( fd_vm_exec_context_t * ctx,                             
                         ulong                  vm_addr,                                          \
                         ulong *                val ) {                                           \
   void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(T), alignof(T) ); \
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;                                 \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_ACC_VIO;                                         \
   *val = op( vm_mem );                                                                           \
-  return FD_VM_MEM_MAP_SUCCESS;                                                                  \
+  return FD_VM_SUCCESS;                                                                          \
 }
 
 DECL( uchar,  fd_ulong_load_1 )
@@ -37,10 +37,10 @@ DECL( ulong,  fd_ulong_load_8 )
 #undef DECL
 
 /* fd_vm_mem_map_write_* are helper functions for writing a * to VM
-   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and an
-   FD_VM_MEM_MAP_ERR code (negative) on failure.  On success, val has
-   been written to vm_addr in the VM memory.  On failure, the VM memory
-   was unchanged. */
+   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and
+   FD_VM_ERR_ACC_VIO (negative) on failure.  On success, val has been
+   written to vm_addr in the VM memory.  On failure, the VM memory was
+   unchanged. */
 
 #define DECL(T)                                                                      \
 static inline int                                                                    \
@@ -48,9 +48,9 @@ fd_vm_mem_map_write_##T( fd_vm_exec_context_t * ctx,                            
                          ulong                  vm_addr,                             \
                          T                      val ) {                              \
   void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(T), alignof(T) ); \
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;                     \
-  memcpy( vm_mem, &val, sizeof(T) ); /* So gross */                                  \
-  return FD_VM_MEM_MAP_SUCCESS;                                                      \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_ACC_VIO;                             \
+  memcpy( vm_mem, &val, sizeof(T) ); /* FIXME: So gross */                           \
+  return FD_VM_SUCCESS;                                                              \
 }
 
 DECL( uchar  )
@@ -90,7 +90,7 @@ fd_vm_interp_instrs( fd_vm_exec_context_t * ctx ) {
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
-  cond_fault = (int)fd_vm_consume_compute_meter(ctx, heap_cus_consumed); /* FIXME: NO CAST */
+  cond_fault = fd_vm_consume_compute(ctx, heap_cus_consumed);
   compute_meter = ctx->compute_meter;
   if( cond_fault != 0 ) {
     goto JT_RET_LOC;
@@ -159,7 +159,7 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx ) {
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
-  cond_fault = (int)fd_vm_consume_compute_meter(ctx, heap_cus_consumed); /* FIXME: NO CAST */
+  cond_fault = fd_vm_consume_compute( ctx, heap_cus_consumed );
   compute_meter = ctx->compute_meter;
   if( cond_fault != 0) {
     goto JT_RET_LOC;

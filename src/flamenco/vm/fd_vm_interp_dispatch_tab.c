@@ -388,7 +388,7 @@ BRANCH_PRE_CODE
       }
     } else {
       ctx->compute_meter = compute_meter;
-      cond_fault = (int)((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]); /* FIXME: NO CAST */
+      cond_fault = syscall_entry_imm->func( ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0] );
       compute_meter = ctx->compute_meter;
     }
   } else {

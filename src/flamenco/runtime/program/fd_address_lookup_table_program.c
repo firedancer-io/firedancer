@@ -204,10 +204,10 @@ static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
 
   instr_info->data = buf;
   instr_info->data_sz = (ushort) sizeof(fd_system_program_instruction_t);
-  ulong exec_err = fd_vm_prepare_instruction(ctx->instr, instr_info, ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_cnt);
-  if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
+  int exec_err = fd_vm_prepare_instruction(ctx->instr, instr_info, ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_cnt);
+  if( exec_err != FD_PROGRAM_OK ) {
     FD_LOG_WARNING(("PREPARE FAILED"));
-    return (int)exec_err;
+    return exec_err;
   }
   return fd_execute_instr( ctx->txn_ctx, instr_info );
 }
