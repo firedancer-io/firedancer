@@ -1,4 +1,4 @@
-#include "fd_vm_syscalls.h"
+#include "syscall/fd_vm_syscall.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
