@@ -1,13 +1,5 @@
 #include "fd_vm_context.h"
 
-ulong
-fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
-  ulong exceeded = ctx->compute_meter < cost;
-  ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
-  // FD_LOG_WARNING(("CUs! consumed %lu cost %lu", ctx->compute_meter, cost));
-  return exceeded;
-}
-
 // Opcode validation success/error codes.
 #define FD_VALID        (0) /* Valid opcode */
 #define FD_CHECK_JMP    (1) /* Validation should check that the instruction is a valid jump */
