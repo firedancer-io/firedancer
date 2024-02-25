@@ -1,16 +1,23 @@
 #include "fd_vm_interp.h"
 #include "fd_vm_syscalls.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
 
-static ulong accumulator_syscall(FD_FN_UNUSED void * _ctx, ulong arg0, ulong arg1, ulong arg2, ulong arg3, ulong arg4, ulong * ret) {
+static int
+accumulator_syscall( FD_PARAM_UNUSED void *  _ctx,
+                     /**/            ulong   arg0,
+                     /**/            ulong   arg1,
+                     /**/            ulong   arg2,
+                     /**/            ulong   arg3,
+                     /**/            ulong   arg4,
+                     /**/            ulong * ret ) {
   *ret = arg0 + arg1 + arg2 + arg3 + arg4;
   return 0;
 }
 
 static void
-test_program_success( char *                test_case_name,
-                      ulong                 expected_result,
-                      ulong                 instrs_sz,
-                      fd_sbpf_instr_t *     instrs ) {
+test_program_success( char *            test_case_name,
+                      ulong             expected_result,
+                      ulong             instrs_sz,
+                      fd_sbpf_instr_t * instrs ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sbpf_syscalls_t syscalls;
