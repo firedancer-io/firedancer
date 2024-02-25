@@ -4,41 +4,34 @@ static int
 poseidon_cost( ulong   input_cnt,
                ulong   cost_coefficient,
                ulong * cost_out ) {
-
   ulong input_sq;
-  if( FD_UNLIKELY( __builtin_umull_overflow( input_cnt, input_cnt, &input_sq ) ) )
-    return 0;
+  if( FD_UNLIKELY( __builtin_umull_overflow( input_cnt, input_cnt, &input_sq ) ) ) return 0;
 
   ulong mul_result;
-  if( FD_UNLIKELY( __builtin_umull_overflow( cost_coefficient, input_sq, &mul_result ) ) )
-    return 0;
+  if( FD_UNLIKELY( __builtin_umull_overflow( cost_coefficient, input_sq, &mul_result ) ) ) return 0;
 
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( mul_result, input_cnt, cost_out ) ) )
-    return 0;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( mul_result, input_cnt, cost_out ) ) ) return 0;
 
   return 1;
 }
 
-ulong
-fd_vm_syscall_sol_poseidon(
-    void *  _ctx,
-    ulong   params,
-    ulong   endianness,
-    ulong   vals_addr,
-    ulong   vals_len,
-    ulong   result_addr,
-    ulong * pr0
-) {
-
+int
+fd_vm_syscall_sol_poseidon( void *  _ctx,
+                            ulong   params,
+                            ulong   endianness,
+                            ulong   vals_addr,
+                            ulong   vals_len,
+                            ulong   result_addr,
+                            ulong * _ret ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  *pr0 = 0UL;
+  *_ret = 0UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1731 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
     /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
-    *pr0 = 1UL;  /* PoseidonSyscallError::InvalidParameters */
+    *_ret = 1UL;  /* PoseidonSyscallError::InvalidParameters */
     return FD_VM_SYSCALL_ERR_INVAL;
   }
 
@@ -50,7 +43,7 @@ fd_vm_syscall_sol_poseidon(
     break;
   default:
     /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
-    *pr0 = 2UL;  /* PoseidonSyscallError::InvalidEndianness */
+    *_ret = 2UL;  /* PoseidonSyscallError::InvalidEndianness */
     return FD_VM_SYSCALL_ERR_INVAL;
   }
 
@@ -71,14 +64,14 @@ fd_vm_syscall_sol_poseidon(
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1751 */
 
-  ulong err = fd_vm_consume_compute_meter( ctx, cost );
+  int err = fd_vm_consume_compute( ctx, cost );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1753-L1759 */
 
   void * hash_result =
       fd_vm_translate_vm_to_host( ctx, result_addr, 32UL, 1UL );
-  if( FD_UNLIKELY( !hash_result ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !hash_result ) ) return FD_VM_ERR_ACC_VIO;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1760-L1766 */
 
@@ -87,7 +80,7 @@ fd_vm_syscall_sol_poseidon(
   ulong               slices_sz = vals_len * sizeof(fd_vm_vec_t);
   fd_vm_vec_t const * slices =
       fd_vm_translate_vm_to_host_const( ctx, vals_addr, slices_sz, FD_VM_VEC_ALIGN );
-  if( FD_UNLIKELY( !slices ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_ACC_VIO;
 
   /* At this point, Solana Labs allocates a vector of translated slices.
      Ideally, we'd do this in O(1) allocs by doing incremental hashing

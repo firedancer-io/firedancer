@@ -23,11 +23,12 @@ struct fd_vm_trace_entry {
   ulong ic;
   ulong cus;
   ulong register_file[11];
-  
-  ulong                   mem_entries_used;
+
+  ulong                     mem_entries_used;
   fd_vm_trace_mem_entry_t * mem_entries_head;
   fd_vm_trace_mem_entry_t * mem_entries_tail;
 };
+
 typedef struct fd_vm_trace_entry fd_vm_trace_entry_t;
 
 struct fd_vm_trace_context {
@@ -37,21 +38,15 @@ struct fd_vm_trace_context {
 
   fd_valloc_t           valloc;
 };
+
 typedef struct fd_vm_trace_context fd_vm_trace_context_t;
 
 FD_PROTOTYPES_BEGIN
 
 /* Lifecycle functions */
 
-static FD_FN_UNUSED ulong
-fd_vm_trace_context_align( void ) {
-  return 8;
-}
-
-static FD_FN_UNUSED ulong
-fd_vm_trace_context_footprint( ulong max_trace_entries ) {
-  return sizeof(max_trace_entries);
-}
+FD_FN_CONST static inline ulong fd_vm_trace_context_align( void ) { return 8UL; }
+FD_FN_CONST static inline ulong fd_vm_trace_context_footprint( ulong max_trace_entries ) { return sizeof(max_trace_entries); }
 
 void *
 fd_vm_trace_context_new( void * shmem, ulong max_trace_entries );
@@ -59,7 +54,7 @@ fd_vm_trace_context_new( void * shmem, ulong max_trace_entries );
 fd_vm_trace_context_t *
 fd_vm_trace_context_join( void * shctx );
 
-void * 
+void *
 fd_vm_trace_context_leave( fd_vm_trace_context_t * ctx );
 
 void *
@@ -68,7 +63,7 @@ fd_vm_trace_context_delete( void * shctx );
 
 /* Other functions */
 void
-fd_vm_trace_context_add_entry( fd_vm_trace_context_t * ctx, 
+fd_vm_trace_context_add_entry( fd_vm_trace_context_t * ctx,
                                ulong pc,
                                ulong ic,
                                ulong cus,

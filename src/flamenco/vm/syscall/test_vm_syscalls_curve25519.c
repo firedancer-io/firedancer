@@ -2,9 +2,7 @@
 
 static void
 set_vm_read_only_memory_region( fd_vm_exec_context_t * vm_ctx ) {
-    for (ulong i = 0; i < vm_ctx->read_only_sz; i++) {
-        vm_ctx->read_only[i] = (uchar) (i % (UCHAR_MAX + 1));
-    }
+  for( ulong i=0UL; i<vm_ctx->read_only_sz; i++ ) vm_ctx->read_only[i] = (uchar) (i % (UCHAR_MAX + 1));
 }
 
 static void
@@ -17,11 +15,11 @@ test_vm_syscall_sol_curve_multiscalar_mul(
     ulong                 point_cnt,
     ulong                 result_point_vm_addr,
     ulong                 expected_ret_code,
-    ulong                 expected_syscall_ret,
+    int                   expected_syscall_ret,
     void *                expected_result_host_ptr
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm_ctx, curve_id, scalar_vm_addr, point_vm_addr, point_cnt, result_point_vm_addr, &ret_code);
+    int   syscall_ret = fd_vm_syscall_sol_curve_multiscalar_mul((void *) vm_ctx, curve_id, scalar_vm_addr, point_vm_addr, point_cnt, result_point_vm_addr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
 
@@ -43,11 +41,11 @@ test_fd_vm_syscall_sol_curve_group_op(
     ulong                 in1_vm_addr,
     ulong                 result_point_vm_addr,
     ulong                 expected_ret_code,
-    ulong                 expected_syscall_ret,
+    int                   expected_syscall_ret,
     void *                expected_result_host_ptr
 ) {
     ulong ret_code = 0UL;
-    ulong syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm_ctx, curve_id, op_id, in0_vm_addr, in1_vm_addr, result_point_vm_addr, &ret_code);
+    int   syscall_ret = fd_vm_syscall_sol_curve_group_op((void *) vm_ctx, curve_id, op_id, in0_vm_addr, in1_vm_addr, result_point_vm_addr, &ret_code);
     FD_TEST( ret_code == expected_ret_code );
     FD_TEST( syscall_ret == expected_syscall_ret );
 
@@ -103,7 +101,7 @@ main( int     argc,
     0UL, // point_cnt
     result_point_vm_addr,
     0UL, // ret_code
-    FD_VM_MEM_MAP_ERR_ACC_VIO, // syscall_ret
+    FD_VM_ERR_ACC_VIO, // syscall_ret
     expected_result_host_ptr
   );
 

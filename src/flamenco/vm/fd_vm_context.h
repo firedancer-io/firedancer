@@ -25,12 +25,6 @@
 #define FD_VM_COND_FAULT_FLAG_MEM_TRANS   (0x1UL)
 #define FD_VM_COND_FAULT_FLAG_BAD_CALL    (0x2UL)
 
-/* TODO: consider disambiguating different ERR_ACC_VIO cases
-   (misaligned, out of bounds, etc) */
-
-#define FD_VM_MEM_MAP_SUCCESS     (0)
-#define FD_VM_MEM_MAP_ERR_ACC_VIO (1)
-
 /* VM memory map constants */
 #define FD_VM_MEM_MAP_PROGRAM_REGION_START   (0x100000000UL)
 #define FD_VM_MEM_MAP_STACK_REGION_START     (0x200000000UL)
@@ -41,24 +35,6 @@
 #define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS  (32)
 #define FD_VM_MAX_HEAP_SZ (256*1024)
 #define FD_VM_DEFAULT_HEAP_SZ (32*1024)
-
-/* Forward definition of fd_vm_sbpf_exec_context_t. */
-struct fd_vm_exec_context;
-typedef struct fd_vm_exec_context fd_vm_exec_context_t;
-
-/* Syscall function type for all sBPF syscall/external function calls.
-   They take a context from the VM and VM registers 1-5 as input, and
-   return a value to VM register 0.  The syscall return value is a
-   status code for the syscall. */
-
-typedef ulong /* FIXME: MAKE AN INT */
-(*fd_vm_syscall_fn_ptr_t)( fd_vm_exec_context_t * ctx,
-                           ulong                  arg0,
-                           ulong                  arg1,
-                           ulong                  arg2,
-                           ulong                  arg3,
-                           ulong                  arg4,
-                           ulong *                ret );
 
 /* fd_vm_heap_allocator_t is the state of VM's native allocator backing
    the sol_alloc_free_ syscall.  Provides a naive bump allocator.
@@ -237,9 +213,18 @@ typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Consume `cost` compute units */
-ulong
-fd_vm_consume_compute_meter( fd_vm_exec_context_t * ctx, ulong cost );
+/* fd_vm_consume_compute consume `cost` compute units from ctx.
+   Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET (negative)
+   on failure. */
+
+static inline int
+fd_vm_consume_compute( fd_vm_exec_context_t * ctx,
+                       ulong                  cost ) {
+  ulong compute_meter = ctx->compute_meter;
+  ulong consumed      = fd_ulong_min( cost, compute_meter );
+  ctx->compute_meter  = compute_meter - consumed;
+  return consumed<=cost ? FD_VM_SUCCESS : FD_VM_ERR_BUDGET; /* cmov */
+}
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
 FD_FN_PURE ulong
