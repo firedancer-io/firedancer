@@ -1,4 +1,4 @@
-#include "fd_vm_syscalls.h"
+#include "syscall/fd_vm_syscall.h"
 
 static void
 set_vm_heap_memory_region( fd_vm_exec_context_t * vm_ctx ) {
