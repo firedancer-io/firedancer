@@ -19,24 +19,24 @@
 
 #define MAX_RETURN_DATA                 (1024UL)
 
-#define FD_VM_SYSCALL_DECL(name) \
-  ulong fd_vm_syscall_##name ( \
-    void *  _ctx, \
-    ulong   r1,  \
-    ulong   r2, \
-    ulong   r3, \
-    ulong   r4, \
-    ulong   r5, \
-    ulong * ret_val )
+#define FD_VM_SYSCALL_DECL(name)         \
+int                                      \
+fd_vm_syscall_##name ( void *  _ctx,     \
+                       ulong   r1,       \
+                       ulong   r2,       \
+                       ulong   r3,       \
+                       ulong   r4,       \
+                       ulong   r5,       \
+                       ulong * ret_val )
 
 FD_PROTOTYPES_BEGIN
 
 /* Registers a syscall by name to an execution context. */
 
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t * syscalls,
-                        char const *         name,
-                        fd_sbpf_syscall_fn_t fn_ptr );
+fd_vm_register_syscall( fd_sbpf_syscalls_t *   syscalls,
+                        char const *           name,
+                        fd_sbpf_syscall_func_t func );
 
 /* fd_vm_syscall_register all reigsters all syscalls implemented.
    May change between Firedancer versions without warning. */
@@ -151,16 +151,14 @@ struct fd_instruction_account {
 typedef struct fd_instruction_account fd_instruction_account_t;
 
 // Prepare instruction method
-ulong
-fd_vm_prepare_instruction(
-  fd_instr_info_t const * caller_instr,
-  fd_instr_info_t * callee_instr,
-  fd_exec_instr_ctx_t * instr_ctx,
-  fd_instruction_account_t instruction_accounts[256],
-  ulong * instruction_accounts_cnt,
-  fd_pubkey_t const * signers,
-  ulong signers_cnt
-);
+int
+fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
+                           fd_instr_info_t *        callee_instr,
+                           fd_exec_instr_ctx_t *    instr_ctx,
+                           fd_instruction_account_t instruction_accounts[256],
+                           ulong *                  instruction_accounts_cnt,
+                           fd_pubkey_t const *      signers,
+                           ulong                    signers_cnt );
 
 FD_PROTOTYPES_END
 
