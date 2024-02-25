@@ -1,5 +1,5 @@
 #include "fd_vm_interp.h"
-#include "fd_vm_syscalls.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
+#include "syscall/fd_vm_syscall.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _ctx,

@@ -4,7 +4,7 @@
 #include "../fd_executor.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../vm/fd_vm_syscalls.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../vm/fd_vm_interp.h"
 #include "../../vm/fd_vm_disasm.h"
 #include "fd_bpf_loader_serialization.h"
