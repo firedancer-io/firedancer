@@ -20,9 +20,13 @@
    completed successfully.  FD_VM_ERR_* are negative integers and
    returned to indicate an operation that failed and why. */
 
+/* FIXME: Renumber and harmonize after consolidating */
+
 #define FD_VM_SUCCESS           (0)
-#define FD_VM_ERR_PUSH_OVERFLOW (-2)
-#define FD_VM_ERR_POP_UNDERFLOW (-3)
+#define FD_VM_ERR_PUSH_OVERFLOW (-1)
+#define FD_VM_ERR_POP_UNDERFLOW (-2)
+#define FD_VM_ERR_ACC_VIO       (-3) /* TODO: consider disambiguating ERR_ACC_VIO cases (misaligned, out-of-bounds, etc) */
+#define FD_VM_ERR_BUDGET        (-4) /* Compute budget was exceeded */
 
 //#define FD_VM_ERR_POP_EMPTY   (-1) /* FIXME: WHY WAS THIS DEFINED BEFORE ... NOT USED, SEEMS REDUNDANT WITH POP_UNDERFLOW */
 
