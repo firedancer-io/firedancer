@@ -27,24 +27,28 @@
 #define SET_NAME fd_sbpf_calldests
 #include "../../util/tmpl/fd_set_dynamic.c"
 
-/* fd_sbpf_syscall_fn_t is a callback implementing an sBPF syscall.
-   ctx is the executor context. */
+/* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
+   ctx is the executor context.  Returns 0 on suceess or an integer
+   error code on failure. */
 
-typedef ulong
-(* fd_sbpf_syscall_fn_t)( void *  ctx,
-                          ulong   r1,
-                          ulong   r2,
-                          ulong   r3,
-                          ulong   r4,
-                          ulong   r5,
-                          ulong * r0 );
+/* FIXME: THIS ARGUABLE BELONGS IN FLAMENCO/VM */
+/* FIXME: IS INT RETURN TYPE WIDE ENOUGH FOR PROTOCOL USAGES? */
+
+typedef int
+(*fd_sbpf_syscall_func_t)( void *  ctx,
+                           ulong   arg0,
+                           ulong   arg1,
+                           ulong   arg2,
+                           ulong   arg3,
+                           ulong   arg4,
+                           ulong * _ret );
 
 /* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
 
 struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
-  uint                 key;       /* Murmur3-32 hash of function name */
-  fd_sbpf_syscall_fn_t func_ptr;  /* Function pointer */
-  char const *         name;
+  uint                   key;  /* Murmur3-32 hash of function name */
+  fd_sbpf_syscall_func_t func; /* Function pointer */
+  char const *           name;
 };
 
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
