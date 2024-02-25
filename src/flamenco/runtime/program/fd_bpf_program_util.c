@@ -1,9 +1,9 @@
 #include "fd_bpf_program_util.h"
 #include "fd_bpf_loader_v2_program.h"
 #include "fd_bpf_loader_v3_program.h"
-#include "../../vm/fd_vm_syscalls.h"
 #include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 
 #include <assert.h>
 
