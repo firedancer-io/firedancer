@@ -1353,7 +1353,8 @@ typedef struct fd_system_program_instruction_create_account fd_system_program_in
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L193 */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_create_account_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   ulong lamports;
   ulong space;
   fd_pubkey_t owner;
@@ -1365,7 +1366,8 @@ typedef struct fd_system_program_instruction_create_account_with_seed fd_system_
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L269 */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_allocate_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   ulong space;
   fd_pubkey_t owner;
 };
@@ -1376,7 +1378,8 @@ typedef struct fd_system_program_instruction_allocate_with_seed fd_system_progra
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_assign_with_seed {
   fd_pubkey_t base;
-  char* seed;
+  ulong seed_len;
+  uchar* seed;
   fd_pubkey_t owner;
 };
 typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_instruction_assign_with_seed_t;
@@ -1386,7 +1389,8 @@ typedef struct fd_system_program_instruction_assign_with_seed fd_system_program_
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288 */
 struct __attribute__((aligned(8UL))) fd_system_program_instruction_transfer_with_seed {
   ulong lamports;
-  char* from_seed;
+  ulong from_seed_len;
+  uchar* from_seed;
   fd_pubkey_t from_owner;
 };
 typedef struct fd_system_program_instruction_transfer_with_seed fd_system_program_instruction_transfer_with_seed_t;
