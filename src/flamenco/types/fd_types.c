@@ -9805,11 +9805,13 @@ int fd_system_program_instruction_create_account_with_seed_decode_preflight(fd_b
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong seed_len;
+  err = fd_bincode_uint64_decode(&seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_preflight(ctx);
@@ -9820,11 +9822,12 @@ int fd_system_program_instruction_create_account_with_seed_decode_preflight(fd_b
 }
 void fd_system_program_instruction_create_account_with_seed_decode_unsafe(fd_system_program_instruction_create_account_with_seed_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->base, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->seed, slen, ctx );
-  self->seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->seed_len, ctx);
+  if (self->seed_len != 0) {
+    self->seed = fd_valloc_malloc( ctx->valloc, 8UL, self->seed_len );
+    fd_bincode_bytes_decode_unsafe(self->seed, self->seed_len, ctx);
+  } else
+    self->seed = NULL;
   fd_bincode_uint64_decode_unsafe(&self->lamports, ctx);
   fd_bincode_uint64_decode_unsafe(&self->space, ctx);
   fd_pubkey_decode_unsafe(&self->owner, ctx);
@@ -9837,7 +9840,7 @@ void fd_system_program_instruction_create_account_with_seed_new(fd_system_progra
 void fd_system_program_instruction_create_account_with_seed_destroy(fd_system_program_instruction_create_account_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->base, ctx);
   if (NULL != self->seed) {
-    fd_valloc_free( ctx->valloc, self->seed);
+    fd_valloc_free( ctx->valloc, self->seed );
     self->seed = NULL;
   }
   fd_pubkey_destroy(&self->owner, ctx);
@@ -9849,7 +9852,7 @@ ulong fd_system_program_instruction_create_account_with_seed_align( void ){ retu
 void fd_system_program_instruction_create_account_with_seed_walk(void * w, fd_system_program_instruction_create_account_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_create_account_with_seed", level++);
   fd_pubkey_walk(w, &self->base, fun, "base", level);
-  fun( w,  self->seed, "seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fun( w, &self->space, "space", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_pubkey_walk(w, &self->owner, fun, "owner", level);
@@ -9858,7 +9861,10 @@ void fd_system_program_instruction_create_account_with_seed_walk(void * w, fd_sy
 ulong fd_system_program_instruction_create_account_with_seed_size(fd_system_program_instruction_create_account_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
-  size += sizeof(ulong) + strlen(self->seed);
+  do {
+    size += sizeof(ulong);
+    size += self->seed_len;
+  } while(0);
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->owner);
@@ -9869,11 +9875,12 @@ int fd_system_program_instruction_create_account_with_seed_encode(fd_system_prog
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_uint64_encode(&self->space, ctx);
@@ -9896,11 +9903,13 @@ int fd_system_program_instruction_allocate_with_seed_decode_preflight(fd_bincode
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong seed_len;
+  err = fd_bincode_uint64_decode(&seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_pubkey_decode_preflight(ctx);
@@ -9909,11 +9918,12 @@ int fd_system_program_instruction_allocate_with_seed_decode_preflight(fd_bincode
 }
 void fd_system_program_instruction_allocate_with_seed_decode_unsafe(fd_system_program_instruction_allocate_with_seed_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->base, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->seed, slen, ctx );
-  self->seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->seed_len, ctx);
+  if (self->seed_len != 0) {
+    self->seed = fd_valloc_malloc( ctx->valloc, 8UL, self->seed_len );
+    fd_bincode_bytes_decode_unsafe(self->seed, self->seed_len, ctx);
+  } else
+    self->seed = NULL;
   fd_bincode_uint64_decode_unsafe(&self->space, ctx);
   fd_pubkey_decode_unsafe(&self->owner, ctx);
 }
@@ -9925,7 +9935,7 @@ void fd_system_program_instruction_allocate_with_seed_new(fd_system_program_inst
 void fd_system_program_instruction_allocate_with_seed_destroy(fd_system_program_instruction_allocate_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->base, ctx);
   if (NULL != self->seed) {
-    fd_valloc_free( ctx->valloc, self->seed);
+    fd_valloc_free( ctx->valloc, self->seed );
     self->seed = NULL;
   }
   fd_pubkey_destroy(&self->owner, ctx);
@@ -9937,7 +9947,7 @@ ulong fd_system_program_instruction_allocate_with_seed_align( void ){ return FD_
 void fd_system_program_instruction_allocate_with_seed_walk(void * w, fd_system_program_instruction_allocate_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_allocate_with_seed", level++);
   fd_pubkey_walk(w, &self->base, fun, "base", level);
-  fun( w,  self->seed, "seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->space, "space", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
   fd_pubkey_walk(w, &self->owner, fun, "owner", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction_allocate_with_seed", level--);
@@ -9945,7 +9955,10 @@ void fd_system_program_instruction_allocate_with_seed_walk(void * w, fd_system_p
 ulong fd_system_program_instruction_allocate_with_seed_size(fd_system_program_instruction_allocate_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
-  size += sizeof(ulong) + strlen(self->seed);
+  do {
+    size += sizeof(ulong);
+    size += self->seed_len;
+  } while(0);
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->owner);
   return size;
@@ -9955,11 +9968,12 @@ int fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_in
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_bincode_uint64_encode(&self->space, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->owner, ctx);
@@ -9980,22 +9994,25 @@ int fd_system_program_instruction_assign_with_seed_decode_preflight(fd_bincode_d
   int err;
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong seed_len;
+  err = fd_bincode_uint64_decode(&seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_system_program_instruction_assign_with_seed_decode_unsafe(fd_system_program_instruction_assign_with_seed_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->base, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->seed, slen, ctx );
-  self->seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->seed_len, ctx);
+  if (self->seed_len != 0) {
+    self->seed = fd_valloc_malloc( ctx->valloc, 8UL, self->seed_len );
+    fd_bincode_bytes_decode_unsafe(self->seed, self->seed_len, ctx);
+  } else
+    self->seed = NULL;
   fd_pubkey_decode_unsafe(&self->owner, ctx);
 }
 void fd_system_program_instruction_assign_with_seed_new(fd_system_program_instruction_assign_with_seed_t* self) {
@@ -10006,7 +10023,7 @@ void fd_system_program_instruction_assign_with_seed_new(fd_system_program_instru
 void fd_system_program_instruction_assign_with_seed_destroy(fd_system_program_instruction_assign_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_pubkey_destroy(&self->base, ctx);
   if (NULL != self->seed) {
-    fd_valloc_free( ctx->valloc, self->seed);
+    fd_valloc_free( ctx->valloc, self->seed );
     self->seed = NULL;
   }
   fd_pubkey_destroy(&self->owner, ctx);
@@ -10018,14 +10035,17 @@ ulong fd_system_program_instruction_assign_with_seed_align( void ){ return FD_SY
 void fd_system_program_instruction_assign_with_seed_walk(void * w, fd_system_program_instruction_assign_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_assign_with_seed", level++);
   fd_pubkey_walk(w, &self->base, fun, "base", level);
-  fun( w,  self->seed, "seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->seed, "seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk(w, &self->owner, fun, "owner", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction_assign_with_seed", level--);
 }
 ulong fd_system_program_instruction_assign_with_seed_size(fd_system_program_instruction_assign_with_seed_t const * self) {
   ulong size = 0;
   size += fd_pubkey_size(&self->base);
-  size += sizeof(ulong) + strlen(self->seed);
+  do {
+    size += sizeof(ulong);
+    size += self->seed_len;
+  } while(0);
   size += fd_pubkey_size(&self->owner);
   return size;
 }
@@ -10034,11 +10054,12 @@ int fd_system_program_instruction_assign_with_seed_encode(fd_system_program_inst
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_pubkey_encode(&self->owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -10057,22 +10078,25 @@ int fd_system_program_instruction_transfer_with_seed_decode_preflight(fd_bincode
   int err;
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong from_seed_len;
+  err = fd_bincode_uint64_decode(&from_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (from_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(from_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_system_program_instruction_transfer_with_seed_decode_unsafe(fd_system_program_instruction_transfer_with_seed_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_bincode_uint64_decode_unsafe(&self->lamports, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->from_seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->from_seed, slen, ctx );
-  self->from_seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->from_seed_len, ctx);
+  if (self->from_seed_len != 0) {
+    self->from_seed = fd_valloc_malloc( ctx->valloc, 8UL, self->from_seed_len );
+    fd_bincode_bytes_decode_unsafe(self->from_seed, self->from_seed_len, ctx);
+  } else
+    self->from_seed = NULL;
   fd_pubkey_decode_unsafe(&self->from_owner, ctx);
 }
 void fd_system_program_instruction_transfer_with_seed_new(fd_system_program_instruction_transfer_with_seed_t* self) {
@@ -10081,7 +10105,7 @@ void fd_system_program_instruction_transfer_with_seed_new(fd_system_program_inst
 }
 void fd_system_program_instruction_transfer_with_seed_destroy(fd_system_program_instruction_transfer_with_seed_t* self, fd_bincode_destroy_ctx_t * ctx) {
   if (NULL != self->from_seed) {
-    fd_valloc_free( ctx->valloc, self->from_seed);
+    fd_valloc_free( ctx->valloc, self->from_seed );
     self->from_seed = NULL;
   }
   fd_pubkey_destroy(&self->from_owner, ctx);
@@ -10093,14 +10117,17 @@ ulong fd_system_program_instruction_transfer_with_seed_align( void ){ return FD_
 void fd_system_program_instruction_transfer_with_seed_walk(void * w, fd_system_program_instruction_transfer_with_seed_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_system_program_instruction_transfer_with_seed", level++);
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w,  self->from_seed, "from_seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->from_seed, "from_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk(w, &self->from_owner, fun, "from_owner", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_system_program_instruction_transfer_with_seed", level--);
 }
 ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_instruction_transfer_with_seed_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
-  size += sizeof(ulong) + strlen(self->from_seed);
+  do {
+    size += sizeof(ulong);
+    size += self->from_seed_len;
+  } while(0);
   size += fd_pubkey_size(&self->from_owner);
   return size;
 }
@@ -10109,11 +10136,12 @@ int fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_in
   int err;
   err = fd_bincode_uint64_encode(&self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->from_seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->from_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->from_seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->from_seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->from_seed, self->from_seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_pubkey_encode(&self->from_owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;

@@ -581,11 +581,11 @@
       "name": "sol_sysvar_clock",
       "type": "struct",
       "fields": [
-          { "name": "slot", "type": "uint64_t" },
-          { "name": "epoch_start_timestamp", "type": "int64_t" },
-          { "name": "epoch", "type": "uint64_t" },
-          { "name": "leader_schedule_epoch", "type": "uint64_t" },
-          { "name": "unix_timestamp", "type": "int64_t" }
+          { "name": "slot", "type": "ulong" },
+          { "name": "epoch_start_timestamp", "type": "long" },
+          { "name": "epoch", "type": "ulong" },
+          { "name": "leader_schedule_epoch", "type": "ulong" },
+          { "name": "unix_timestamp", "type": "long" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114"
     },
@@ -601,7 +601,7 @@
       "name": "vote_lockout",
       "type": "struct",
       "fields": [
-          { "name": "slot", "type": "uint64_t" },
+          { "name": "slot", "type": "ulong" },
           { "name": "confirmation_count", "type": "uint" }
       ]
     },
@@ -609,7 +609,7 @@
       "name": "lockout_offset",
       "type": "struct",
       "fields": [
-          { "name": "offset", "type": "uint64_t",  "modifier": "varint" },
+          { "name": "offset", "type": "ulong",  "modifier": "varint" },
           { "name": "confirmation_count", "type": "uchar" }
       ]
     },
@@ -1127,7 +1127,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "char*" },
+        { "name": "seed", "type": "vector", "element": "uchar" },
         { "name": "lamports", "type": "ulong" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
@@ -1139,7 +1139,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "char*" },
+        { "name": "seed", "type": "vector", "element": "uchar" },
         { "name": "space", "type": "ulong" },
         { "name": "owner", "type": "pubkey" }
       ],
@@ -1150,7 +1150,7 @@
       "type": "struct",
       "fields": [
         { "name": "base", "type": "pubkey" },
-        { "name": "seed", "type": "char*" },
+        { "name": "seed", "type": "vector", "element": "uchar" },
         { "name": "owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
@@ -1160,7 +1160,7 @@
       "type": "struct",
       "fields": [
         { "name": "lamports", "type": "ulong" },
-        { "name": "from_seed", "type": "char*" },
+        { "name": "from_seed", "type": "vector", "element": "uchar" },
         { "name": "from_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L288"
