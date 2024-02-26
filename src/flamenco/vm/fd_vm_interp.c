@@ -13,7 +13,7 @@
    operations don't need any special treatment to be loaded. */
 
 /* fd_vm_mem_map_read_* are helper functions for reading a * from VM
-   memory.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_ACC_VIO
+   memory.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_PERM
    (negative) on failure.  Assumes val points to a valid ulong.  On
    success, *val holds the value read (zero padded out to a width of
    64-bits) and, on failure, *val is touched. */
@@ -24,7 +24,7 @@ fd_vm_mem_map_read_##T( fd_vm_exec_context_t * ctx,                             
                         ulong                  vm_addr,                                          \
                         ulong *                val ) {                                           \
   void const * vm_mem = fd_vm_translate_vm_to_host_const( ctx, vm_addr, sizeof(T), alignof(T) ); \
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_ACC_VIO;                                         \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_PERM;                                            \
   *val = op( vm_mem );                                                                           \
   return FD_VM_SUCCESS;                                                                          \
 }
@@ -37,10 +37,9 @@ DECL( ulong,  fd_ulong_load_8 )
 #undef DECL
 
 /* fd_vm_mem_map_write_* are helper functions for writing a * to VM
-   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and
-   FD_VM_ERR_ACC_VIO (negative) on failure.  On success, val has been
-   written to vm_addr in the VM memory.  On failure, the VM memory was
-   unchanged. */
+   memory.  Returns FD_VM_MEM_SUCCESS (0) on success and FD_VM_ERR_PERM
+   (negative) on failure.  On success, val has been written to vm_addr
+   in the VM memory.  On failure, the VM memory was unchanged. */
 
 #define DECL(T)                                                                      \
 static inline int                                                                    \
@@ -48,7 +47,7 @@ fd_vm_mem_map_write_##T( fd_vm_exec_context_t * ctx,                            
                          ulong                  vm_addr,                             \
                          T                      val ) {                              \
   void * vm_mem = fd_vm_translate_vm_to_host( ctx, vm_addr, sizeof(T), alignof(T) ); \
-  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_ACC_VIO;                             \
+  if( FD_UNLIKELY( !vm_mem ) ) return FD_VM_ERR_PERM;                                \
   memcpy( vm_mem, &val, sizeof(T) ); /* FIXME: So gross */                           \
   return FD_VM_SUCCESS;                                                              \
 }

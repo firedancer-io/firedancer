@@ -14,7 +14,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( FD_PARAM_UNUSED void *  _ctx,
                                       FD_PARAM_UNUSED ulong   vals_len,
                                       FD_PARAM_UNUSED ulong   result_addr,
                                       FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_SYSCALL_ERR_INVAL;
+  return FD_VM_ERR_INVAL;
 }
 
 int
@@ -25,7 +25,7 @@ fd_vm_syscall_sol_alt_bn128_compression( FD_PARAM_UNUSED void *  _ctx,
                                          FD_PARAM_UNUSED ulong   vals_len,
                                          FD_PARAM_UNUSED ulong   result_addr,
                                          FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_SYSCALL_ERR_INVAL;
+  return FD_VM_ERR_INVAL;
 }
 
 int
@@ -39,7 +39,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _ctx,
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
 
   /* TODO don't hardcode limit */
-  if( FD_UNLIKELY( slices_cnt>vm_compute_budget.sha256_max_slices ) ) return FD_VM_SYSCALL_ERR_INVAL;
+  if( FD_UNLIKELY( slices_cnt>vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
 
   int err = fd_vm_consume_compute( ctx, vm_compute_budget.sha256_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -48,14 +48,14 @@ fd_vm_syscall_sol_blake3( /**/            void *  _ctx,
 
   fd_vm_vec_t const * slices = fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
   void *              hash   = fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
-  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_ERR_PERM;
 
   fd_blake3_t blake[1];
   fd_blake3_init( blake );
 
   for( ulong i=0UL; i<slices_cnt; i++ ) {
     void const * slice = fd_vm_translate_vm_to_host( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_PERM;
 
     /* FIXME: SHA256 COST MODEL? */
     /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) */
@@ -70,7 +70,7 @@ fd_vm_syscall_sol_blake3( /**/            void *  _ctx,
   fd_blake3_fini( blake, hash );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /* pointer constraints for input parameters */
@@ -99,10 +99,10 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _ctx,
        https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L967  */
 
     uchar const * point = fd_vm_translate_vm_to_host_const( ctx, point_addr, POINT_SZ, POINT_ALIGN );
-    if( FD_UNLIKELY( !point ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !point ) ) return FD_VM_ERR_PERM;
 
     *_ret = (ulong)!!fd_ed25519_point_validate( point );  /* 1 if ok, 0 if not */
-    return FD_VM_SYSCALL_SUCCESS;
+    return FD_VM_SUCCESS;
   }
 
   case FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255: {
@@ -111,10 +111,10 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _ctx,
        https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L985 */
 
     uchar const * point = fd_vm_translate_vm_to_host_const( ctx, point_addr, POINT_SZ, POINT_ALIGN );
-    if( FD_UNLIKELY( !point ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !point ) ) return FD_VM_ERR_PERM;
 
     *_ret = (ulong)!!fd_ristretto255_point_validate( point );  /* 1 if ok, 0 if not */
-    return FD_VM_SYSCALL_SUCCESS;
+    return FD_VM_SUCCESS;
   }
 
   default:
@@ -122,7 +122,7 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _ctx,
   }
 
   *_ret = 1UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -153,10 +153,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1027 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_PERM;
 
       uchar const * p1c = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_PERM;
 
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
@@ -165,7 +165,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( p0v & p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ed25519_point_t h[1];
         fd_ed25519_point_add( h, p0, p1 );
@@ -181,10 +181,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1055 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_PERM;
 
       uchar const * p1c = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_PERM;
 
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
@@ -193,7 +193,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( p0v & p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ed25519_point_t h[1];
         fd_ed25519_point_sub( h, p0, p1 );
@@ -209,10 +209,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1083 */
 
       uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, in0_addr, SCALAR_SZ, SCALAR_ALIGN );
-      if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_PERM;
 
       uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ,  POINT_ALIGN  );
-      if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
       fd_ed25519_point_t p[1];
       int pv = !!fd_ed25519_point_decompress( p, pc );
@@ -220,7 +220,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( pv & sv ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ed25519_point_t h[1];
         fd_ed25519_point_scalarmult( h, s, p );
@@ -245,10 +245,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1115 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_PERM;
 
       uchar const * p1c = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_PERM;
 
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
@@ -257,7 +257,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ristretto255_point_t h[1];
         fd_ristretto255_point_add( h, p0, p1 );
@@ -273,10 +273,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1143 */
 
       uchar const * p0c = fd_vm_translate_vm_to_host_const( ctx, in0_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p0c ) ) return FD_VM_ERR_PERM;
 
       uchar const * p1c = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !p1c ) ) return FD_VM_ERR_PERM;
 
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
@@ -285,7 +285,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ristretto255_point_t h[1];
         fd_ristretto255_point_sub( h, p0, p1 );
@@ -301,10 +301,10 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
          https://github.com/solana-labs/solana/blob/c0fbfc6422fa5b739049c01bfda48a0da1bf6a46/programs/bpf_loader/src/syscalls/mod.rs#L1173 */
 
       uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, in0_addr, SCALAR_SZ, SCALAR_ALIGN );
-      if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_PERM;
 
       uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, in1_addr, POINT_SZ,  POINT_ALIGN  );
-      if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
       fd_ristretto255_point_t p[1];
       int pv = !!fd_ristretto255_point_decompress( p, pc );
@@ -312,7 +312,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
 
       if( FD_LIKELY( pv && sv ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( ctx, out_addr, POINT_SZ, POINT_ALIGN );
-        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_ACC_VIO;
+        if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ristretto255_point_t h[1];
         fd_ristretto255_point_scalarmult( h, s, p );
@@ -331,7 +331,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _ctx,
   }
 
   *_ret = ret;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /* multiscalar_multiply_edwards computes a MSM on curve25519.
@@ -436,17 +436,17 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _ctx,
        https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/bpf_loader/src/syscalls/mod.rs#L1233 */
 
     uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, scalar_addr, scalar_list_sz, SCALAR_ALIGN );
-    if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_PERM;
 
     uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, point_addr,  point_list_sz,  POINT_ALIGN  );
-    if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
     fd_ed25519_point_t _r[1];
     fd_ed25519_point_t * r = multiscalar_multiply_edwards( _r, s, pc, point_cnt );
 
     if( FD_LIKELY( r ) ) {
       uchar * rc = fd_vm_translate_vm_to_host( ctx, result_point_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_PERM;
 
       fd_ed25519_point_compress( rc, r );
       ret = 0UL;
@@ -460,16 +460,16 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _ctx,
        https://github.com/solana-labs/solana/blob/d6aba9dc483a79ab569b47b7f3df19e6535f6722/programs/bpf_loader/src/syscalls/mod.rs#L1273 */
 
     uchar const * s  = fd_vm_translate_vm_to_host_const( ctx, scalar_addr, scalar_list_sz, SCALAR_ALIGN );
-    if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !s  ) ) return FD_VM_ERR_PERM;
 
     uchar const * pc = fd_vm_translate_vm_to_host_const( ctx, point_addr,  point_list_sz,  POINT_ALIGN  );
-    if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
     fd_ristretto255_point_t _r[1];
     fd_ristretto255_point_t * r = multiscalar_multiply_ristretto( _r, s, pc, point_cnt );
     if( FD_LIKELY( r ) ) {
       uchar * rc = fd_vm_translate_vm_to_host( ctx, result_point_addr, POINT_SZ, POINT_ALIGN );
-      if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_PERM;
 
       fd_ristretto255_point_compress( rc, r );
       ret = 0UL;
@@ -482,7 +482,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _ctx,
   }
 
   *_ret = ret;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -495,13 +495,13 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _ctx,
                              /**/            ulong * _ret ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
 
-  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_SYSCALL_ERR_INVAL;
+  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
 
   int err = fd_vm_consume_compute( ctx, vm_compute_budget.sha256_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
 
   void * hash = fd_vm_translate_vm_to_host( ctx, res_vaddr, 32UL, alignof(uchar) );
-  if( FD_UNLIKELY( !hash ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !hash ) ) return FD_VM_ERR_PERM;
 
   fd_keccak256_t keccak[1];
   fd_keccak256_init( keccak );
@@ -510,11 +510,11 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _ctx,
     ulong slices_sz = slices_cnt*sizeof(fd_vm_vec_t);
 
     fd_vm_vec_t const * slices = fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
-    if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_PERM;
 
     for( ulong i=0UL; i<slices_cnt; i++ ) {
       void const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-      if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_PERM;
 
       /* FIXME: SHA256 COST MODEL? */
       /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) */
@@ -530,7 +530,7 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _ctx,
   fd_keccak256_fini( keccak, hash );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 static inline int
@@ -562,7 +562,7 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
   if( FD_UNLIKELY( params!=0UL ) ) {
     /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
     *_ret = 1UL;  /* PoseidonSyscallError::InvalidParameters */
-    return FD_VM_SYSCALL_ERR_INVAL;
+    return FD_VM_ERR_INVAL;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1732 */
@@ -575,14 +575,14 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
   default:
     /* TODO What is the implicit conversion form PoseidonSyscallError to SyscallError? */
     *_ret = 2UL;  /* PoseidonSyscallError::InvalidEndianness */
-    return FD_VM_SYSCALL_ERR_INVAL;
+    return FD_VM_ERR_INVAL;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1734-L1741 */
 
   if( FD_UNLIKELY( vals_len > 12UL ) ) {
     /* TODO Log: "Poseidon hashing {} sequences is not supported" */
-    return FD_VM_SYSCALL_ERR_INVAL;
+    return FD_VM_ERR_INVAL;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1743-L1750 */
@@ -590,7 +590,7 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
   ulong cost;
   if( FD_UNLIKELY( !fd_vm_syscall_sol_poseidon_cost( vals_len, 1UL, &cost ) ) ) {
     /* TODO Log: "Overflow while calculating the compute cost" */
-    return FD_VM_SYSCALL_ERR_INVAL;
+    return FD_VM_ERR_INVAL;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1751 */
@@ -601,7 +601,7 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1753-L1759 */
 
   void * hash_result = fd_vm_translate_vm_to_host( ctx, result_addr, 32UL, 1UL );
-  if( FD_UNLIKELY( !hash_result ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !hash_result ) ) return FD_VM_ERR_PERM;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/bpf_loader/src/syscalls/mod.rs#L1760-L1766 */
 
@@ -610,7 +610,7 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
   ulong slices_sz = vals_len*sizeof(fd_vm_vec_t);
 
   fd_vm_vec_t const * slices = fd_vm_translate_vm_to_host_const( ctx, vals_addr, slices_sz, FD_VM_VEC_ALIGN );
-  if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !slices ) ) return FD_VM_ERR_PERM;
 
   /* At this point, Solana Labs allocates a vector of translated slices.
      Ideally, we'd do this in O(1) allocs by doing incremental hashing
@@ -621,7 +621,7 @@ fd_vm_syscall_sol_poseidon( void *  _ctx,
 
   FD_LOG_WARNING(( "Poseidon input parsing not yet implemented" ));
 
-  return FD_VM_SYSCALL_ERR_INVAL;
+  return FD_VM_ERR_INVAL;
 }
 
 #if FD_HAS_SECP256K1
@@ -642,29 +642,29 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _ctx,
   /* FIXME: Consider fusing these branches? */
 
   void const * hash = fd_vm_translate_vm_to_host_const( ctx, hash_vaddr, sizeof(fd_hash_t), alignof(uchar) );
-  if( FD_UNLIKELY( !hash ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !hash ) ) return FD_VM_ERR_PERM;
 
   void const * signature = fd_vm_translate_vm_to_host_const( ctx, signature_vaddr, 64UL, alignof(uchar) );
-  if( FD_UNLIKELY( !signature ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !signature ) ) return FD_VM_ERR_PERM;
 
   void * pubkey_result = fd_vm_translate_vm_to_host( ctx, result_vaddr, 64UL, alignof(uchar) );
-  if( FD_UNLIKELY( !pubkey_result ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !pubkey_result ) ) return FD_VM_ERR_PERM;
 
   if( FD_UNLIKELY( recovery_id_val > 4UL ) ) {
     *_ret = 1UL; // Secp256k1RecoverError::InvalidRecoveryId
-    return FD_VM_SYSCALL_SUCCESS;
+    return FD_VM_SUCCESS;
   }
 
   uchar secp256k1_pubkey[64];
   if( FD_UNLIKELY( !fd_secp256k1_recover( secp256k1_pubkey, hash, signature, (int)recovery_id_val ) ) ) {
     *_ret = 2UL; // Secp256k1RecoverError::InvalidSignature
-    return FD_VM_SYSCALL_SUCCESS;
+    return FD_VM_SUCCESS;
   }
 
   memcpy( pubkey_result, secp256k1_pubkey, 64UL );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 #else
@@ -677,7 +677,7 @@ fd_vm_syscall_sol_secp256k1_recover( FD_PARAM_UNUSED void *  _ctx,
                                      FD_PARAM_UNUSED ulong   result_vaddr,
                                      FD_PARAM_UNUSED ulong   arg3,
                                      FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  return FD_VM_ERR_UNSUP;
 }
 
 #endif
@@ -692,7 +692,7 @@ fd_vm_syscall_sol_sha256( /**/            void *  _ctx,
                           /**/            ulong * _ret ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
-  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_SYSCALL_ERR_INVAL;
+  if( FD_UNLIKELY( slices_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
 
   int err = fd_vm_consume_compute( ctx, vm_compute_budget.sha256_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -701,14 +701,14 @@ fd_vm_syscall_sol_sha256( /**/            void *  _ctx,
 
   fd_vm_vec_t const * slices = fd_vm_translate_vm_to_host_const( ctx, slices_vaddr, slices_sz, FD_VM_VEC_ALIGN );
   void *              hash   = fd_vm_translate_vm_to_host      ( ctx, res_vaddr,    32UL,      alignof(uchar)  );
-  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( (!slices) | (!hash) ) ) return FD_VM_ERR_PERM;
 
   fd_sha256_t sha[1];
   fd_sha256_init( sha );
 
   for( ulong i=0UL; i<slices_cnt; i++ ) {
     uchar const * slice = fd_vm_translate_vm_to_host_const( ctx, slices[i].addr, slices[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !slice ) ) return FD_VM_ERR_PERM;
 
     /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) */
     ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost,
@@ -722,5 +722,5 @@ fd_vm_syscall_sol_sha256( /**/            void *  _ctx,
   fd_sha256_fini( sha, hash );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }

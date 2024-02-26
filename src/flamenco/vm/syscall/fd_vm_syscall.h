@@ -7,22 +7,7 @@
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
    SYSCALLS? */
 
-/* TODO These syscall errors do not map exactly to Labs SyscallError */
-
-#define FD_VM_SYSCALL_SUCCESS           (0UL)
-#define FD_VM_SYSCALL_ERR_ABORT         (1UL)
-#define FD_VM_SYSCALL_ERR_PANIC         (2UL)
-#define FD_VM_SYSCALL_ERR_MEM_OVERLAP   (3UL)
-#define FD_VM_SYSCALL_ERR_INVAL         (4UL)
-#define FD_VM_SYSCALL_ERR_INSTR_ERR     (5UL)
-#define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED (6UL)
-#define FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE        (7UL)
-#define FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS             (8UL)
-#define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
-
-/* FIXME: NAME */
-
-#define MAX_RETURN_DATA                 (1024UL)
+#define MAX_RETURN_DATA (1024UL) /* FIXME: NAME */
 
 #define FD_VM_SYSCALL_DECL(name)     \
 int                                  \
@@ -35,6 +20,9 @@ fd_vm_syscall_##name ( void *  _ctx, \
                        ulong * _ret )
 
 FD_PROTOTYPES_BEGIN
+
+/* FIXME: MOVE THESE TO SOMETHING LIKE VM_CONTEXT */
+/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT */
 
 /* Registers a syscall by name to an execution context. */
 
@@ -159,14 +147,14 @@ FD_VM_SYSCALL_DECL(cpi_rust);
 
 FD_VM_SYSCALL_DECL(sol_alloc_free);
 
-/* Get syscalls *********************************************************/
+/* Get syscalls *******************************************************/
 
 FD_VM_SYSCALL_DECL(sol_set_return_data);
 FD_VM_SYSCALL_DECL(sol_get_return_data);
 FD_VM_SYSCALL_DECL(sol_get_stack_height);
 FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
 
-/* Sysvar syscalls */
+/* Sysvar syscalls ****************************************************/
 
 FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);

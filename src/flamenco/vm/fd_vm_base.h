@@ -22,13 +22,28 @@
 
 /* FIXME: Renumber and harmonize after consolidating */
 
-#define FD_VM_SUCCESS           (0)
-#define FD_VM_ERR_PUSH_OVERFLOW (-1)
-#define FD_VM_ERR_POP_UNDERFLOW (-2)
-#define FD_VM_ERR_ACC_VIO       (-3) /* TODO: consider disambiguating ERR_ACC_VIO cases (misaligned, out-of-bounds, etc) */
-#define FD_VM_ERR_BUDGET        (-4) /* Compute budget was exceeded */
+/* FIXME: consider disambiguating PERM case out-of-bounds, etc) into
+   something like ACCES (e.g. out of bounds VM memory request),
+   FAULT/BUS cases (e.g. misaligned VM memory access), and/or PERM (e.g.
+   disallowed VM memory access like writing read-only memory) */
 
-//#define FD_VM_ERR_POP_EMPTY   (-1) /* FIXME: WHY WAS THIS DEFINED BEFORE ... NOT USED, SEEMS REDUNDANT WITH POP_UNDERFLOW */
+/* TODO: Specify exactly how these map onto Labs SyscallError (and
+   provide full coverage of Lab SyscallErrors) */
+
+#define FD_VM_SUCCESS                          (  0) /* Request completed normally */
+#define FD_VM_ERR_INVAL                        ( -1) /* Request failed because did not make sense */
+#define FD_VM_ERR_UNSUP                        ( -2) /* Request failed because it is not supported on this target (yet) */
+#define FD_VM_ERR_FULL                         ( -3) /* Request failed because no free resources */
+#define FD_VM_ERR_EMPTY                        ( -4) /* Request failed because no used resources */
+#define FD_VM_ERR_PERM                         ( -5) /* Request failed because requestor does not have permission */
+#define FD_VM_ERR_BUDGET                       ( -6) /* Request failed because compute budget exceeded */
+
+#define FD_VM_ERR_ABORT                        ( -7)
+#define FD_VM_ERR_PANIC                        ( -8)
+#define FD_VM_ERR_MEM_OVERLAP                  ( -9)
+#define FD_VM_ERR_INSTR_ERR                    (-10)
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-11)
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-12)
 
 /* fd_vm_log_collector API ********************************************/
 
@@ -164,14 +179,14 @@ fd_vm_stack_wipe( fd_vm_stack_t * stack ) {
 
 /* fd_vm_stack_push pushes a new frame onto the VM stack.  Assumes
    stack, ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS
-   (0) on success or FD_VM_ERR_PUSH_OVERFLOW (negative) on failure. */
+   (0) on success or FD_VM_ERR_FULL (negative) on failure. */
 
 static inline int
 fd_vm_stack_push( fd_vm_stack_t * stack,
                   ulong           ret_instr_ptr,
                   ulong const     saved_reg[4] ) {
   ulong top_idx = stack->depth;
-  if( FD_UNLIKELY( top_idx>=FD_VM_STACK_DEPTH_MAX ) ) return FD_VM_ERR_PUSH_OVERFLOW;
+  if( FD_UNLIKELY( top_idx>=FD_VM_STACK_DEPTH_MAX ) ) return FD_VM_ERR_FULL;
   fd_vm_stack_private_shadow_t * shadow = stack->shadow + top_idx;
   shadow->ret_instr_ptr = ret_instr_ptr;
   shadow->saved_reg[0]  = saved_reg[0];
@@ -184,9 +199,9 @@ fd_vm_stack_push( fd_vm_stack_t * stack,
 
 /* fd_vm_stack_pop pops a frame off the VM stack.  Assumes stack,
    ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS (0) on
-   success and FD_VM_ERR_POP_UNDERFLOW (negative) on failure.  On
-   success, *_ret_instr_ptr and saved_reg[0:3] hold the values popped
-   off the stack on return.  These are unchanged otherwise. */
+   success and FD_VM_ERR_EMPTY (negative) on failure.  On success,
+   *_ret_instr_ptr and saved_reg[0:3] hold the values popped off the
+   stack on return.  These are unchanged otherwise. */
 /* TODO: CONSIDER ZERO COPY API? */
 
 static inline int
@@ -194,7 +209,7 @@ fd_vm_stack_pop( fd_vm_stack_t * stack,
                  ulong *         _ret_instr_ptr,
                  ulong           saved_reg[4] ) {
   ulong top_idx = stack->depth;
-  if( FD_UNLIKELY( !top_idx ) ) return FD_VM_ERR_POP_UNDERFLOW;
+  if( FD_UNLIKELY( !top_idx ) ) return FD_VM_ERR_EMPTY;
   top_idx--;
   fd_vm_stack_private_shadow_t * shadow = stack->shadow + top_idx;
   *_ret_instr_ptr = shadow->ret_instr_ptr;
