@@ -230,6 +230,8 @@ struct fd_gossip {
     fd_gossip_data_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
     fd_gossip_send_packet_fun send_fun;
+    /* Function used to send packets for signing to remote tile */
+    fd_gossip_sign_fun sign_fun;
     void * fun_arg;
     /* Table of all known validators, keyed by gossip address */
     fd_peer_elem_t * peers;
@@ -395,7 +397,8 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   glob->my_contact_info.shred_version = config->shred_version;
   glob->deliver_fun = config->deliver_fun;
   glob->send_fun = config->send_fun;
-  glob->fun_arg = config->fun_arg;
+  glob->sign_fun = config->sign_fun;
+  glob->fun_arg  = config->fun_arg;
 
   if (config->shred_version == 0U) {
     /* Configure temp identity needed to retrieve shred version */
@@ -535,7 +538,6 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   }
 
   fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
-  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
 
   /* Build a ping message */
   fd_gossip_msg_t gmsg;
@@ -545,14 +547,19 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_hash_copy( &ping->token, &val->pingtoken );
 
   /* Sign it */
-  fd_sha512_t sha[1];
-  fd_ed25519_sign( /* sig */ ping->signature.uc,
-                   /* msg */ ping->token.uc,
-                   /* sz  */ 32UL,
-                   /* public_key  */ public_key,
-                   /* private_key */ private_key,
-                   sha );
-
+  if (glob->my_contact_info.shred_version == 0U) {
+    uchar * private_key = glob->tmp_private_key;
+    fd_sha512_t sha[1];
+    fd_ed25519_sign( /* sig */ ping->signature.uc,
+                    /* msg */ ping->token.uc,
+                    /* sz  */ 32UL,
+                    /* public_key  */ public_key,
+                    /* private_key */ private_key,
+                    sha );
+  } else {
+    (*glob->sign_fun)(glob->fun_arg, ping->signature.uc, ping->token.uc, 32UL);
+  }
+  
   fd_gossip_send( glob, key, &gmsg );
 }
 
@@ -576,7 +583,6 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_gossip_ping_t * pong = &gmsg.inner.pong;
 
   fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
-  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
 
   fd_hash_copy( &pong->from, public_key );
 
@@ -588,12 +594,17 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_sha256_fini( sha, pong->token.uc );
 
   /* Sign it */
-  fd_ed25519_sign( /* sig */ pong->signature.uc,
-                   /* msg */ pong->token.uc,
-                   /* sz  */ 32UL,
-                   /* public_key  */ public_key,
-                   /* private_key */ private_key,
-                   sha2 );
+  if (glob->my_contact_info.shred_version == 0U) {
+    uchar * private_key = glob->tmp_private_key;
+    fd_ed25519_sign( /* sig */ pong->signature.uc,
+                     /* msg */ pong->token.uc,
+                     /* sz  */ 32UL,
+                     /* public_key  */ public_key,
+                     /* private_key */ private_key,
+                     sha2 );
+  } else {
+    (*glob->sign_fun)(glob->fun_arg, pong->signature.uc, pong->token.uc, 32UL);
+  }
 
   fd_gossip_send(glob, from, &gmsg);
 }
@@ -653,7 +664,6 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     return;
   }
   fd_pubkey_t * public_key = ( glob->my_contact_info.shred_version == 0U ? &glob->tmp_contact_info.id : glob->public_key );
-  uchar * private_key = ( glob->my_contact_info.shred_version == 0U ? glob->tmp_private_key : glob->private_key );
   fd_hash_copy(pubkey, public_key);
   *wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* convert to ms */
 
@@ -666,13 +676,19 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     FD_LOG_WARNING(("fd_crds_data_encode failed"));
     return;
   }
-  fd_sha512_t sha[1];
-  fd_ed25519_sign( /* sig */ crd->signature.uc,
+
+  if (glob->my_contact_info.shred_version == 0U) {
+    uchar * private_key = glob->tmp_private_key;
+    fd_sha512_t sha[1];
+    fd_ed25519_sign( /* sig */ crd->signature.uc,
                    /* msg */ buf,
                    /* sz  */ (ulong)((uchar*)ctx.data - buf),
                    /* public_key  */ public_key,
                    /* private_key */ private_key,
                    sha );
+  } else {
+    (*glob->sign_fun)(glob->fun_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
+  }
 }
 
 /* Convert a hash to a bloom filter bit position */
@@ -992,7 +1008,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
                          /* sig */ crd->signature.uc,
                          /* public_key */ pubkey->uc,
                          sha )) {
-    FD_LOG_DEBUG(("received crds_value with invalid signature"));
+    FD_LOG_WARNING(("received crds_value with invalid signature"));
     return;
   }
 
@@ -1632,13 +1648,8 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
       return;
     }
-    fd_sha512_t sha[1];
-    fd_ed25519_sign( /* sig */ prune_msg->data.signature.uc,
-                     /* msg */ buf,
-                     /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                /* public_key  */ glob->public_key->uc,
-                     /* private_key */ glob->private_key,
-                     sha );
+
+    (*glob->sign_fun)(glob->fun_arg, prune_msg->data.signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
 
     fd_gossip_send(glob, &peerval->key, &gmsg);
   }

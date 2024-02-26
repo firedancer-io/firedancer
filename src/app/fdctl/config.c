@@ -724,6 +724,7 @@ config_tiles( config_t * config ) {
 	strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
         strncpy( tile->tvu.validate_snapshot, config->tiles.tvu.validate_snapshot, sizeof(tile->tvu.validate_snapshot) );
         strncpy( tile->tvu.check_hash, config->tiles.tvu.check_hash, sizeof(tile->tvu.check_hash) );
+        strncpy( tile->tvu.identity_key_path, config->consensus.identity_path, sizeof(tile->tvu.identity_key_path) );
         tile->tvu.page_cnt = config->tiles.tvu.page_cnt;
         tile->tvu.gossip_listen_port = config->tiles.tvu.gossip_listen_port;
         tile->tvu.repair_listen_port = config->tiles.tvu.repair_listen_port;

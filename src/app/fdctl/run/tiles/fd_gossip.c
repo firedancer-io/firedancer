@@ -20,9 +20,11 @@
 #include "../../../../util/net/fd_udp.h"
 
 #define NET_IN_IDX      0
+#define SIGN_IN_IDX     1
 
 #define SHRED_OUT_IDX   0
 #define REPAIR_OUT_IDX  1
+#define SIGN_OUT_IDX    2
 
 struct __attribute__((packed)) fd_shred_dest_wire {
   uchar  pubkey[32];
@@ -91,6 +93,7 @@ struct fd_gossip_tile_ctx {
   ulong       repair_contact_out_chunk0;
   ulong       repair_contact_out_wmark;
   ulong       repair_contact_out_chunk;
+  fd_keyguard_client_t  keyguard_client[1];
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -283,6 +286,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
     ele->contact_info = *contact_info;
   }
+}
+
+void
+gossip_signer( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len ) {
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *) signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
 }
 
 static void
@@ -511,15 +523,17 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 1 ||
-                   topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %lu %lu",
+  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+                   topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT ||
+                   topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP ) ) {
+    FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %lu %lu",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+  if( FD_UNLIKELY( tile->out_cnt != 3 ||
                    topo->links[ tile->out_link_id[ SHRED_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED ||
-                   topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ) ) {
+                   topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ||
+                   topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %lu %lu",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
   }
@@ -579,6 +593,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_contact_out_mem, repair_contact_out->dcache, repair_contact_out->mtu );
   ctx->repair_contact_out_chunk  = ctx->repair_contact_out_chunk0;
 
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                            sign_out->mcache,
+                                                            sign_out->dcache,
+                                                            sign_in->mcache,
+                                                            sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
   /* Valloc setup */
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
@@ -604,6 +627,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_config.fun_arg = ctx;
   ctx->gossip_config.deliver_fun = gossip_deliver_fun;
   ctx->gossip_config.send_fun = gossip_send_packet;
+  ctx->gossip_config.sign_fun = gossip_signer;
   ctx->gossip_config.shred_version = 0;
 
   if( fd_gossip_set_config( ctx->gossip, &ctx->gossip_config ) ) {

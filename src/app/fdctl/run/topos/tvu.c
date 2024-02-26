@@ -41,6 +41,8 @@ fd_topo_tvu( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_METRIC }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_TVU    }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_GOSSIP_SIGN  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_GOSSIP  }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -69,6 +71,8 @@ fd_topo_tvu( config_t * config ) {
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_SIGN_TO_QUIC,    FD_TOPO_WKSP_KIND_SIGN_QUIC,    128UL,                                    64UL,                   1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_SIGN,   FD_TOPO_WKSP_KIND_SHRED_SIGN,   128UL,                                    32UL,                   1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   FD_TOPO_WKSP_KIND_SIGN_SHRED,   128UL,                                    64UL,                   1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN,  FD_TOPO_WKSP_KIND_GOSSIP_SIGN,  128UL,                                    2048UL,                 1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,  FD_TOPO_WKSP_KIND_SIGN_GOSSIP,  128UL,                                    64UL,                   1UL );
 
   topo->link_cnt = link_cnt;
 
@@ -137,4 +141,8 @@ fd_topo_tvu( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_TVU_TO_NETMUX,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN,  0UL, 0, 1 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN,  0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,  0UL, 0, 0 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN, 0UL, FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,  0UL    );
 }

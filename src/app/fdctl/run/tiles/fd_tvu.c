@@ -5,6 +5,7 @@
 #include "generated/tvu_seccomp.h"
 
 #include <linux/unistd.h>
+#include "../../../../flamenco/fd_flamenco.h"
 
 fd_wksp_t *     g_wksp = NULL;
 char            g_repair_peer_id[ FD_BASE58_ENCODED_32_SZ ];
@@ -52,6 +53,10 @@ ulong g_tvu_buffer_sz;
 uchar g_tvu_buffer[ FD_NET_MTU ];
 ulong g_tvu_fwd_buffer_sz;
 uchar g_tvu_fwd_buffer[ FD_NET_MTU ];
+
+fd_topo_link_t * g_sign_in = NULL;
+fd_topo_link_t * g_sign_out = NULL;
+uchar const * g_identity_key = NULL;
 
 typedef struct {
   int socket_fd;
@@ -327,9 +332,15 @@ privileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
+  uchar const * identity_key = load_key_into_protected_memory( tile->tvu.identity_key_path, /* pubkey only: */ 0 );
+
   g_net_in    = topo->workspaces[ netmux_link->wksp_id ].wksp;
   g_chunk  = fd_disco_compact_chunk0( g_net_in );
   g_wmark  = fd_disco_compact_wmark ( g_net_in, netmux_link->mtu );
+
+  g_sign_in = &topo->links[ tile->in_link_id[ 1 ] ];
+  g_sign_out = &topo->links[ tile->out_link_id[ 0 ] ];
+  g_identity_key = identity_key;
 
   (void)topo;
   (void)tile;
@@ -361,6 +372,9 @@ unprivileged_init( fd_topo_t *      topo,
   g_net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
   g_net_out_wmark  = fd_dcache_compact_wmark ( g_net_out_mem, net_out->dcache, net_out->mtu );
   g_net_out_chunk  = g_net_out_chunk0;
+
+  g_sign_in = &topo->links[ tile->in_link_id[ 1 ] ];
+  g_sign_out = &topo->links[ tile->out_link_id[ 0 ] ];
 }
 
 static ulong
@@ -405,6 +419,7 @@ fd_tile_config_t fd_tile_tvu = {
 
 static int
 doit( void ) {
+  fd_flamenco_boot(NULL, NULL);
   fd_runtime_ctx_t runtime_ctx;
   memset(&runtime_ctx, 0, sizeof(runtime_ctx));
 
@@ -413,6 +428,17 @@ doit( void ) {
 
   fd_tvu_gossip_ctx_t gossip_ctx;
   memset(&gossip_ctx, 0, sizeof(gossip_ctx));
+
+  if ( fd_keyguard_client_join( fd_keyguard_client_new( gossip_ctx.keyguard_client,
+                                                            g_sign_out->mcache,
+                                                            g_sign_out->dcache,
+                                                            g_sign_in->mcache,
+                                                            g_sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
+  memcpy(runtime_ctx.private_key, g_identity_key, 32);
+  FD_LOG_WARNING(("Identity key %32J", runtime_ctx.private_key));
+  memcpy(runtime_ctx.public_key.uc, g_identity_key + 32UL, 32);
   fd_runtime_args_t args = {
     .gossip_peer_addr     = g_gossip_peer_addr,
     .my_gossip_addr       = g_my_gossip_addr,

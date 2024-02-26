@@ -11,6 +11,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "fd_replay.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../keyguard/fd_keyguard_client.h"
 
 typedef struct {
   fd_repair_t *        repair;
@@ -25,7 +26,8 @@ typedef struct {
 typedef struct {
   fd_gossip_t *      gossip;
   fd_repair_t *      repair;
-  fd_replay_t *      replay; 
+  fd_replay_t *      replay;
+  fd_keyguard_client_t keyguard_client[1];
 } fd_tvu_gossip_ctx_t;
 
 void

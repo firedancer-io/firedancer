@@ -59,7 +59,9 @@
 #define FD_TOPO_WKSP_KIND_REPAIR       (28UL)
 #define FD_TOPO_WKSP_KIND_TVU          (29UL)
 #define FD_TOPO_WKSP_KIND_STORE        (30UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_GOSSIP_SIGN  (31UL)
+#define FD_TOPO_WKSP_KIND_SIGN_GOSSIP  (32UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_SIGN_GOSSIP+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -98,6 +100,8 @@
 #define FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR    (22UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE      (23UL)
 #define FD_TOPO_LINK_KIND_REPAIR_TO_STORE     (24UL)
+#define FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN      (25UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP      (26UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -296,6 +300,7 @@ typedef struct {
       char load[ PATH_MAX ];
       char validate_snapshot[ 22 ];
       char check_hash[ 22 ];
+      char identity_key_path[ PATH_MAX ];
       uint page_cnt;
       ushort gossip_listen_port;
       ushort repair_listen_port;
@@ -452,6 +457,8 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_REPAIR:       return "repair";
     case FD_TOPO_WKSP_KIND_TVU:          return "tvu";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
+    case FD_TOPO_WKSP_KIND_GOSSIP_SIGN:  return "gossip_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_GOSSIP:  return "sign_gossip";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -488,6 +495,8 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:      return "shred_store";
     case FD_TOPO_LINK_KIND_REPAIR_TO_STORE:     return "repair_store";
     case FD_TOPO_LINK_KIND_TVU_TO_NETMUX:       return "tvu_netmux";
+    case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN:      return "gossip_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP:      return "sign_gossip";
     default: FD_LOG_ERR(( "unknown link kind %lu", kind )); return NULL;
   }
 }

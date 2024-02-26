@@ -39,6 +39,9 @@ typedef void (*fd_gossip_data_deliver_fun)(fd_crds_data_t* data, void* arg);
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_gossip_send_packet_fun)( uchar const * msg, size_t msglen, fd_gossip_peer_addr_t const * addr, void * arg );
 
+/* Callback for signing */
+typedef void (*fd_gossip_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
+
 struct fd_gossip_config {
     fd_pubkey_t * public_key;
     uchar * private_key;
@@ -46,6 +49,7 @@ struct fd_gossip_config {
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
     fd_gossip_send_packet_fun send_fun;
+    fd_gossip_sign_fun sign_fun;
     void * fun_arg;
 };
 typedef struct fd_gossip_config fd_gossip_config_t;

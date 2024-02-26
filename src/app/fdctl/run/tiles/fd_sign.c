@@ -17,6 +17,7 @@ typedef struct {
 
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
+  ulong            _length;
 
   ulong             in_kind [ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
@@ -62,7 +63,6 @@ during_frag( void * _ctx,
   (void)seq;
   (void)sig;
   (void)chunk;
-  (void)sz;
   (void)opt_filter;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
@@ -74,6 +74,10 @@ during_frag( void * _ctx,
       break;
     case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
+      break;
+    case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN:
+      ctx->_length = sz;
+      fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], ctx->_length );
       break;
     default:
       FD_LOG_CRIT(( "unexpected link kind %lu", ctx->in_kind[ in_idx ] ));
@@ -117,6 +121,13 @@ after_frag( void *             _ctx,
       fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
       break;
     }
+    case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN: {
+      if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, ctx->_length, FD_KEYGUARD_ROLE_GOSSIP ) ) ) {
+        FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed %lu %u %u %u %u", ctx->_length, ctx->_data[0], ctx->_data[1], ctx->_data[2], ctx->_data[3] ));
+      }
+      fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, ctx->_length, ctx->public_key, ctx->private_key, ctx->sha512 );
+      break;
+    }
     default:
       FD_LOG_CRIT(( "unexpected link kind %lu", ctx->in_kind[ in_idx ] ));
   }
@@ -156,8 +167,8 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
-    ctx->in_data[ i ] = in_link->dcache;
-    ctx->in_kind[ i ] = in_link->kind;
+    ctx->in_data[ i ]    = in_link->dcache;
+    ctx->in_kind[ i ]    = in_link->kind;
 
     ctx->out[ i ].mcache = out_link->mcache;
     ctx->out[ i ].data   = out_link->dcache;
@@ -174,6 +185,12 @@ unprivileged_init( fd_topo_t *      topo,
         FD_TEST( in_link->mtu==130UL );
         FD_TEST( out_link->mtu==64UL );
         break;
+      case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN: {
+        FD_TEST( out_link->kind == FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP );
+        FD_TEST( in_link->mtu==2048UL);
+        FD_TEST( out_link->mtu==64UL );
+        break;
+      }
       default:
         FD_LOG_CRIT(( "unexpected link kind %lu", in_link->kind ));
     }

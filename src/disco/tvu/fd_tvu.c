@@ -175,6 +175,15 @@ gossip_send_packet( uchar const *                 data,
   }
 }
 
+void
+gossip_signer_fun( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len ) {
+  fd_tvu_gossip_ctx_t * ctx = (fd_tvu_gossip_ctx_t *) signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+}
+
 /* Convert my style of address to UNIX style */
 static int
 repair_to_sockaddr( uchar * dst, fd_repair_peer_addr_t const * src ) {
@@ -930,7 +939,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_wksp_t *           _wksp,
                    fd_runtime_args_t *   args ) {
   fd_flamenco_boot( NULL, NULL );
-  fd_memset( runtime_ctx, 0, sizeof( fd_runtime_ctx_t ) );
 
   runtime_ctx->live = live;
 
@@ -1012,15 +1020,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                  &snapshot_setup_out );
 
   /**********************************************************************/
-  /* Identity                                                           */
-  /**********************************************************************/
-
-  FD_TEST( 32UL == getrandom( runtime_ctx->private_key, 32UL, 0 ) );
-  fd_sha512_t sha[1];
-  FD_TEST(
-      fd_ed25519_public_from_private( runtime_ctx->public_key.uc, runtime_ctx->private_key, sha ) );
-
-  /**********************************************************************/
   /* Thread pool                                                        */
   /**********************************************************************/
 
@@ -1089,6 +1088,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->gossip_config.shred_version = 0;
     runtime_ctx->gossip_config.deliver_fun   = gossip_deliver_fun;
     runtime_ctx->gossip_config.send_fun      = gossip_send_packet;
+    runtime_ctx->gossip_config.sign_fun      = gossip_signer_fun;
 
     ulong seed = fd_hash( 0, funk_setup_out.hostname, strnlen( funk_setup_out.hostname, sizeof( funk_setup_out.hostname ) ) );
 
