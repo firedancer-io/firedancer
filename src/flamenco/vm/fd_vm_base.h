@@ -47,7 +47,8 @@
 
 /* fd_vm_log_collector API ********************************************/
 
-/* TODO: ADD SPECIFIC UNIT TEST COVERAGE OF THIS API */
+/* FIXME: ADD SPECIFIC UNIT TEST COVERAGE OF THIS API */
+/* FIXME: RENAME AGGREGATOR FOR CONSISTENT WITH OTHER APIS? */
 
 /* A fd_vm_log_collector_t is used by the vm for storing text/bytes
    logged by programs running in the vm.  The collector can collect up
