@@ -266,7 +266,7 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _ctx,
                      FD_PARAM_UNUSED ulong   arg4,
                      /**/            ulong * _ret ) {
   *_ret = 0;
-  return FD_VM_SYSCALL_ERR_ABORT;
+  return FD_VM_ERR_ABORT;
 }
 
 int
@@ -293,13 +293,13 @@ fd_vm_syscall_sol_panic( /**/            void *  _ctx,
 
   if( FD_UNLIKELY( !str ) ) {
     FD_LOG_WARNING(( "sol_panic_ called with invalid string (addr=%#lx, len=%#lx)", msg_vaddr, msg_len ));
-    return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
+    return FD_VM_ERR_MEM_OVERLAP;
   }
 
   if( FD_UNLIKELY( msg_len > 1024UL ) ) FD_LOG_WARNING(( "Truncating sol_panic_ message (orig %#lx bytes)", msg_len ));
   FD_LOG_HEXDUMP_DEBUG(( "sol_panic", str, msg_len ));
 
-  return FD_VM_SYSCALL_ERR_PANIC;
+  return FD_VM_ERR_PANIC;
 }
 
 int
@@ -316,11 +316,11 @@ fd_vm_syscall_sol_log( /**/            void *  _ctx,
   if( FD_UNLIKELY( err ) ) return err;
 
   void const * msg_host_addr = fd_vm_translate_vm_to_host_const( ctx, msg_vm_addr, msg_sz, alignof(uchar) );
-  if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !msg_host_addr ) ) return FD_VM_ERR_PERM;
   fd_vm_log_collector_append( ctx->log_collector, msg_host_addr, msg_sz );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -341,7 +341,7 @@ fd_vm_syscall_sol_log_64( void *  _ctx,
   fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -361,7 +361,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _ctx,
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
 
   void * pubkey_host_addr = fd_vm_translate_vm_to_host( ctx, pubkey_vm_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( FD_UNLIKELY( !pubkey_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !pubkey_host_addr ) ) return FD_VM_ERR_PERM;
 
   fd_base58_encode_32( pubkey_host_addr, NULL, pubkey_str );
 
@@ -369,7 +369,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _ctx,
   fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -381,7 +381,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _ctx,
                                      FD_PARAM_UNUSED ulong   arg4,
                                      /**/            ulong * _ret ) {
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-  if( FD_UNLIKELY( !ctx ) ) return FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED;
+  if( FD_UNLIKELY( !ctx ) ) return FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED;
 
   int err = fd_vm_consume_compute( ctx, vm_compute_budget.syscall_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
@@ -391,7 +391,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _ctx,
   fd_vm_log_collector_append( ctx->log_collector, msg, (ulong)msg_len );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -439,7 +439,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _ctx,
   fd_vm_log_collector_append( ctx->log_collector, msg, msg_len );
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -457,23 +457,23 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _ctx,
 
   /* Check for overlap */
   if( (dst_vm_addr <= src_vm_addr && src_vm_addr < dst_vm_addr + n) ||
-      (src_vm_addr <= dst_vm_addr && dst_vm_addr < src_vm_addr + n) ) return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
+      (src_vm_addr <= dst_vm_addr && dst_vm_addr < src_vm_addr + n) ) return FD_VM_ERR_MEM_OVERLAP;
 
   if( FD_UNLIKELY( !n ) ) {
     *_ret = 0;
-    return FD_VM_SYSCALL_SUCCESS;
+    return FD_VM_SUCCESS;
   }
 
   void *       dst_host_addr = fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_PERM;
 
   void const * src_host_addr = fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
-  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_ERR_PERM;
 
   fd_memcpy( dst_host_addr, src_host_addr, n );
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -490,15 +490,15 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _ctx,
   if( FD_UNLIKELY( err ) ) return err;
 
   uchar const * host_addr1 = fd_vm_translate_vm_to_host_const( ctx, vm_addr1, n, alignof(uchar) );
-  if( FD_UNLIKELY( !host_addr1 ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !host_addr1 ) ) return FD_VM_ERR_PERM;
 
   uchar const * host_addr2 = fd_vm_translate_vm_to_host_const( ctx, vm_addr2, n, alignof(uchar) );
-  if( FD_UNLIKELY( !host_addr2 ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !host_addr2 ) ) return FD_VM_ERR_PERM;
 
   int * cmp_result_host_addr = fd_vm_translate_vm_to_host( ctx, cmp_result_vm_addr, sizeof(int), alignof(int) );
-  if( FD_UNLIKELY( !cmp_result_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !cmp_result_host_addr ) ) return FD_VM_ERR_PERM;
 
-  if( FD_UNLIKELY( (!host_addr1) | (!host_addr2) ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( (!host_addr1) | (!host_addr2) ) ) return FD_VM_ERR_PERM;
 
   for( ulong i=0UL; i<n; i++ ) {
     uchar byte1 = host_addr1[i];
@@ -510,7 +510,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _ctx,
   }
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -527,12 +527,12 @@ fd_vm_syscall_sol_memset( /**/            void *  _ctx,
   if( FD_UNLIKELY( err ) ) return err;
 
   void * dst_host_addr = fd_vm_translate_vm_to_host( ctx, dst_vm_addr, n, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_PERM;
 
   fd_memset( dst_host_addr, (int)c, n );
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -549,15 +549,15 @@ fd_vm_syscall_sol_memmove( /**/            void *  _ctx,
   if( FD_UNLIKELY( err ) ) return err;
 
   void *       dst_host_addr = fd_vm_translate_vm_to_host      ( ctx, dst_vm_addr, n, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !dst_host_addr ) ) return FD_VM_ERR_PERM;
 
   void const * src_host_addr = fd_vm_translate_vm_to_host_const( ctx, src_vm_addr, n, alignof(uchar) );
-  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !src_host_addr ) ) return FD_VM_ERR_PERM;
 
   memmove( dst_host_addr, src_host_addr, n );
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /**********************************************************************
@@ -611,14 +611,14 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     FD_LOG_WARNING(("TODO: return too many signers" ));
-    return FD_VM_SYSCALL_ERR_INVAL;
+    return FD_VM_ERR_INVAL;
   }
 
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
   if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
       FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
-      return FD_VM_SYSCALL_ERR_INVAL;
+      return FD_VM_ERR_INVAL;
     }
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
@@ -626,11 +626,11 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
       // Cap the number of account_infos a caller can pass to approximate
       // maximum that accounts that could be passed in an instruction
       // todo: correct return code type. Too many accounts passed to inner instruction.
-      return FD_VM_SYSCALL_ERR_INVAL;
+      return FD_VM_ERR_INVAL;
     }
   }
 
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 // FIXME: NEED TO DO IS_DUPLICATE INIT HERE
@@ -791,24 +791,23 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
-      return FD_VM_SYSCALL_ERR_INVAL;
+      return FD_VM_ERR_INVAL;
     }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
-      return FD_VM_SYSCALL_ERR_INVAL;
+      return FD_VM_ERR_INVAL;
     }
   } else {
-    /* Enforce instruction limit */
-    ulong tot_sz = acct_cnt;
-    tot_sz = fd_ulong_sat_mul( tot_sz, sizeof(fd_vm_sol_account_meta_t) );
-    tot_sz = fd_ulong_sat_add( tot_sz, data_sz );
-    if( FD_UNLIKELY( tot_sz > vm_compute_budget.max_cpi_instruction_size ) ) {
-      FD_LOG_WARNING(( "cpi: instruction too long (%lu)", tot_sz ));
-      return FD_VM_SYSCALL_ERR_INVAL;
+    ulong tot_sz;
+    int too_long  = __builtin_umull_overflow( acct_cnt, sizeof(fd_vm_c_account_meta_t), &tot_sz );
+        too_long |= __builtin_uaddl_overflow( tot_sz, data_sz, &tot_sz );
+    if( FD_UNLIKELY( too_long ) ) {
+      FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
+      return FD_VM_ERR_INVAL;
     }
   }
 
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /* fd_vm_syscall_pdas_t is buffer holding program derived accounts. */
@@ -899,7 +898,7 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
   /* Translate array of seeds.  Each seed is an array of byte arrays. */
   fd_vm_vec_t const * seeds =
     fd_vm_translate_vm_to_host_const( ctx, signers_seeds_va, signers_seeds_cnt*sizeof(fd_vm_vec_t), FD_VM_VEC_ALIGN );
-  if( FD_UNLIKELY( !seeds ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !seeds ) ) return FD_VM_ERR_PERM;
 
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
@@ -907,10 +906,14 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
   /* Create program addresses */
 
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+
+    /* Check seed count (avoid overflow) */
+    if( FD_UNLIKELY( seeds[i].len > FD_CPI_MAX_SEEDS ) ) return FD_VM_ERR_INVAL;
+
     /* Translate inner seed slice.  Each element points to a byte array. */
     fd_vm_vec_t const * seed =
       fd_vm_translate_vm_to_host_const( ctx, seeds[i].addr, seeds[i].len * sizeof(fd_vm_vec_t), FD_VM_VEC_ALIGN );
-    if( FD_UNLIKELY( !seed ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !seed ) ) return FD_VM_ERR_PERM;
 
     /* Derive PDA */
 
@@ -932,10 +935,8 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
 
     for( ulong j=0UL; j < seeds[i].len; j++ ) {
       /* Check seed limb length */
-      /* TODO: use constant */
-      if( FD_UNLIKELY( seed[j].len > 32 ) ) {
-        return FD_VM_SYSCALL_ERR_INVAL;
-      }
+      /* TODO use constant */
+      if( FD_UNLIKELY( seed[j].len > 32 ) ) return FD_VM_ERR_INVAL;
 
       /* Translate inner seed limb (type &[u8]) */
       uchar const * seed_limb = fd_vm_translate_vm_to_host_const( ctx, seed[j].addr, seed[j].len, alignof(uchar) );
@@ -944,12 +945,12 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
 
     if( FD_UNLIKELY( !fd_vm_syscall_pda_fini( ctx, pdas ) ) ) {
       FD_LOG_WARNING(("fini failed"));
-      return FD_VM_SYSCALL_ERR_INVAL;
+      return FD_VM_ERR_INVAL;
     }
 
   }
 
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 static int
@@ -966,7 +967,7 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_exec_context_t * ctx,
   }
 
   fd_vm_syscall_pdas_delete( fd_vm_syscall_pdas_leave( pdas ) );
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /**********************************************************************
@@ -994,20 +995,20 @@ fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t *            ctx,
 
   fd_vm_rc_refcell_t const * caller_acc_lamports_box =
     fd_vm_translate_vm_to_host_const( ctx, caller_acc_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_PERM;
 
   ulong * caller_acc_lamports =
     fd_vm_translate_vm_to_host( ctx, caller_acc_lamports_box->addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
   *caller_acc_lamports = updated_lamports;
 
   fd_vm_rc_refcell_vec_t * caller_acc_data_box =
     fd_vm_translate_vm_to_host( ctx, caller_acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_PERM;
 
   uchar * caller_acc_data =
     fd_vm_translate_vm_to_host( ctx, caller_acc_data_box->addr, caller_acc_data_box->len, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
 
   uchar * caller_acc_owner = fd_vm_translate_vm_to_host( ctx, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
   if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
@@ -1050,11 +1051,11 @@ fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t *         ctx,
   }
 
   ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( ctx, caller_acc_info->lamports_addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
   *caller_acc_lamports = updated_lamports;
 
   uchar * caller_acc_data = fd_vm_translate_vm_to_host( ctx, caller_acc_info->data_addr, caller_acc_info->data_sz, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
 
   uchar * caller_acc_owner = fd_vm_translate_vm_to_host( ctx, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
   if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
@@ -1171,10 +1172,10 @@ from_account_info_rust( fd_vm_exec_context_t *            ctx,
                         fd_caller_account_t *             out ) {
   fd_vm_rc_refcell_t const * caller_acc_lamports_box =
     fd_vm_translate_vm_to_host_const( ctx, account_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_PERM;
 
   ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( ctx, caller_acc_lamports_box->addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
 
   out->lamports = *caller_acc_lamports;
 
@@ -1184,13 +1185,13 @@ from_account_info_rust( fd_vm_exec_context_t *            ctx,
 
   fd_vm_rc_refcell_vec_t * caller_acc_data_box =
     fd_vm_translate_vm_to_host( ctx, account_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_PERM;
 
   int err = fd_vm_consume_compute( ctx, caller_acc_data_box->len / vm_compute_budget.cpi_bytes_per_unit );
   if( FD_UNLIKELY( err ) ) return err;
 
   uchar * caller_acc_data = fd_vm_translate_vm_to_host( ctx, caller_acc_data_box->addr, caller_acc_data_box->len, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
 
   out->serialized_data = caller_acc_data;
   out->serialized_data_len = caller_acc_data_box->len;
@@ -1206,7 +1207,7 @@ from_account_info_c( fd_vm_exec_context_t * ctx,
                      fd_caller_account_t * out ) {
 
   ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( ctx, account_info->lamports_addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
 
   out->lamports = *caller_acc_lamports;
 
@@ -1325,15 +1326,15 @@ fd_vm_syscall_cpi_c( void *  _ctx,
 
   fd_vm_c_instruction_t const * instruction =
     fd_vm_translate_vm_to_host_const( ctx, instruction_va, sizeof(fd_vm_c_instruction_t), FD_VM_C_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   fd_vm_c_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const( ctx, instruction->accounts_addr,
                                       instruction->accounts_len*sizeof(fd_vm_c_account_meta_t), FD_VM_C_ACCOUNT_META_ALIGN );
-  if( FD_UNLIKELY( !accounts ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !accounts ) ) return FD_VM_ERR_PERM;
 
   uchar const * data = fd_vm_translate_vm_to_host_const( ctx, instruction->data_addr, instruction->data_len, alignof(uchar) );
-  if( FD_UNLIKELY( !data ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !data ) ) return FD_VM_ERR_PERM;
 
   /* Instruction checks ***********************************************/
 
@@ -1354,7 +1355,7 @@ fd_vm_syscall_cpi_c( void *  _ctx,
   fd_vm_c_account_info_t const * acc_infos =
     fd_vm_translate_vm_to_host_const( ctx, acct_infos_va,
                                       acct_info_cnt*sizeof(fd_vm_c_account_info_t), FD_VM_C_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
 
@@ -1365,7 +1366,7 @@ fd_vm_syscall_cpi_c( void *  _ctx,
   // FD_LOG_DEBUG(( "CPI9: %lu %lx %32J", i, acc_infos[i].key_addr, acct_addr->uc ));
     if( FD_UNLIKELY( !acct_addr ) ) {
       FD_LOG_WARNING(("Translate failed %lu", i));
-      return FD_VM_ERR_ACC_VIO;
+      return FD_VM_ERR_PERM;
     }
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
@@ -1395,7 +1396,7 @@ fd_vm_syscall_cpi_c( void *  _ctx,
   }
 
   ulong caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
@@ -1405,7 +1406,7 @@ fd_vm_syscall_cpi_c( void *  _ctx,
   // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, ctx->compute_meter, err_exec ));
 
   *_ret = instr_exec_res;
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
 
   for( ulong i = 0; i < update_len; i++ ) {
     fd_pubkey_t const * callee = &ctx->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
@@ -1414,9 +1415,9 @@ fd_vm_syscall_cpi_c( void *  _ctx,
   }
 
   caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
 
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /**********************************************************************
@@ -1445,7 +1446,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
 
   fd_vm_rust_instruction_t const * instruction =
     fd_vm_translate_vm_to_host_const( ctx, instruction_va, sizeof(fd_vm_rust_instruction_t), FD_VM_RUST_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
     fd_vm_consume_compute( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
@@ -1462,7 +1463,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
 
   uchar const * data = fd_vm_translate_vm_to_host_const( ctx, instruction->data.addr, instruction->data.len, alignof(uchar) );
   if( FD_UNLIKELY( check_authorized_program( instruction->pubkey, ctx->instr_ctx->slot_ctx, data, instruction->data.len ) ) )
-    return FD_VM_ERR_ACC_VIO;
+    return FD_VM_ERR_PERM;
 
   /* Instruction checks ***********************************************/
 
@@ -1474,7 +1475,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   fd_vm_rust_account_info_t const * acc_infos =
     fd_vm_translate_vm_to_host_const( ctx, acct_infos_va,
                                       acct_info_cnt*sizeof(fd_vm_rust_account_info_t), FD_VM_RUST_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
 
@@ -1482,7 +1483,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   for( ulong i=0UL; i<acct_info_cnt; i++ ) {
     fd_pubkey_t const * acct_addr =
       fd_vm_translate_vm_to_host_const( ctx, acc_infos[i].pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_ERR_PERM;
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
@@ -1511,7 +1512,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   }
 
   ulong caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
 
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
@@ -1524,7 +1525,7 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, ctx->compute_meter, err_exec ));
 
   *_ret = instr_exec_res;
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
 
   for( ulong i = 0; i < update_len; i++ ) {
     fd_pubkey_t const * callee = &ctx->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
@@ -1533,9 +1534,9 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   }
 
   caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );
-  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
+  if( caller_lamports!=ctx->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
 
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1577,7 +1578,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _ctx,
 
 fini:
   *_ret = r0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /* FIXME: PREFIX?  BRANCHLESS? */
@@ -1610,22 +1611,22 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _ctx,
     if( FD_UNLIKELY( err ) ) return err;
 
     uchar * return_data_result = fd_vm_translate_vm_to_host( ctx, return_data_addr, length, alignof(uchar) );
-    if( FD_UNLIKELY( !return_data_result ) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !return_data_result ) ) return FD_VM_ERR_PERM;
 
     // Copy over return data
     fd_memcpy(return_data_result, return_data->data, length);
     fd_pubkey_t * program_id_result =
       fd_vm_translate_vm_to_host( ctx, program_id_addr, sizeof(fd_pubkey_t), alignof(fd_pubkey_t) );
-    if( FD_UNLIKELY( !program_id_result) ) return FD_VM_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !program_id_result) ) return FD_VM_ERR_PERM;
 
     if( !is_nonoverlapping( (ulong)return_data_result, length, (ulong)program_id_result, sizeof(fd_pubkey_t) ) )
-      return FD_VM_SYSCALL_ERR_MEM_OVERLAP;
+      return FD_VM_ERR_MEM_OVERLAP;
 
     fd_memcpy(program_id_result->uc, return_data->program_id.uc, sizeof(fd_pubkey_t));
   }
 
   *_ret = return_data->len;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1642,10 +1643,10 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
   int err = fd_vm_consume_compute( ctx, cost );
   if( FD_UNLIKELY( err ) ) return err;
 
-  if( FD_UNLIKELY( len>MAX_RETURN_DATA ) ) return FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE;
+  if( FD_UNLIKELY( len>MAX_RETURN_DATA ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
 
   uchar const * return_data = fd_vm_translate_vm_to_host_const( ctx, addr, len, alignof(uchar) );
-  if( FD_UNLIKELY( !return_data ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !return_data ) ) return FD_VM_ERR_PERM;
 
   fd_pubkey_t const * program_id = &ctx->instr_ctx->instr->program_id_pubkey;
   fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.program_id.uc, program_id->uc, sizeof(fd_pubkey_t) );
@@ -1653,7 +1654,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
   if( !len ) fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.data, return_data, len );
 
   *_ret = 0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1670,7 +1671,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _ctx,
   if( FD_UNLIKELY( err ) ) return err;
 
   *_ret = ctx->instr_ctx->txn_ctx->instr_stack_sz;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /**********************************************************************
@@ -1697,12 +1698,12 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _ctx,
   fd_sysvar_clock_read( &clock, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_sol_sysvar_clock_t), FD_SOL_SYSVAR_CLOCK_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
 
   memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1725,12 +1726,12 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _ctx,
   fd_sysvar_epoch_schedule_read( &schedule, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_epoch_schedule_t), FD_EPOCH_SCHEDULE_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
 
   memcpy( out, &schedule, sizeof(fd_epoch_schedule_t) );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1753,12 +1754,12 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _ctx,
   fd_sysvar_fees_read( &fees, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_sysvar_fees_t), FD_SYSVAR_FEES_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
 
   memcpy( out, &fees, sizeof(fd_sysvar_fees_t) );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1781,12 +1782,12 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _ctx,
   fd_sysvar_rent_read( &rent, ctx->instr_ctx->slot_ctx );
 
   void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_rent_t), FD_RENT_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
 
   memcpy( out, &rent, sizeof(fd_rent_t) );
 
   *_ret = 0UL;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 /**********************************************************************
@@ -1879,7 +1880,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _ctx,
 
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( fd_alloca( alignof(fd_sha256_t), sizeof(fd_sha256_t ) ) ) );
   if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, NULL ) ) )
-    return FD_VM_ERR_ACC_VIO;
+    return FD_VM_ERR_PERM;
 
   fd_pubkey_t result;
   fd_sha256_append( sha, "ProgramDerivedAddress", 21L );
@@ -1894,7 +1895,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _ctx,
      Cannot reorder - Out may be an invalid pointer if PDA is invalid */
 
   fd_pubkey_t * out = fd_vm_translate_vm_to_host( ctx, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
 
   /* Write result into out */
 
@@ -1904,7 +1905,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _ctx,
 fini:
   fd_sha256_delete( fd_sha256_leave( sha ) );
   *_ret = r0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -1951,7 +1952,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
     uchar suffix[1] = {(uchar)(255UL - i)};
 
     if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) )
-      return FD_VM_ERR_ACC_VIO;
+      return FD_VM_ERR_PERM;
 
     /* Compute PDA on copy of SHA state */
 
@@ -1966,12 +1967,12 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
 
       /* Delayed translation and overlap check */
 
-      if( FD_UNLIKELY( ( !address_out   ) | ( !bump_seed_out ) ) ) return FD_VM_ERR_ACC_VIO;
+      if( FD_UNLIKELY( ( !address_out   ) | ( !bump_seed_out ) ) ) return FD_VM_ERR_PERM;
 
       if( (ulong)address_out > (ulong)bump_seed_out ) {
-        if( !( ( (ulong)address_out - (ulong)bump_seed_out ) >= 1UL ) ) return FD_VM_ERR_ACC_VIO;
+        if( !( ( (ulong)address_out - (ulong)bump_seed_out ) >= 1UL ) ) return FD_VM_ERR_PERM;
       } else {
-         if( !( ( (ulong)bump_seed_out - (ulong)address_out ) >= 32UL ) ) return FD_VM_ERR_ACC_VIO;
+         if( !( ( (ulong)bump_seed_out - (ulong)address_out ) >= 32UL ) ) return FD_VM_ERR_PERM;
       }
 
       /* Write results */
@@ -1989,7 +1990,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
 
 fini:
   *_ret = r0;
-  return FD_VM_SYSCALL_SUCCESS;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -2000,5 +2001,5 @@ fd_vm_syscall_sol_get_processed_sibling_instruction( FD_PARAM_UNUSED void *  _ct
                                                      FD_PARAM_UNUSED ulong   arg3,
                                                      FD_PARAM_UNUSED ulong   arg4,
                                                      FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_SYSCALL_ERR_UNIMPLEMENTED;
+  return FD_VM_ERR_UNSUP;
 }
