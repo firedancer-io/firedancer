@@ -13,4 +13,7 @@ $(call add-objs,fd_config_program,fd_flamenco)
 
 $(call add-hdrs,fd_ed25519_program.h)
 $(call add-objs,fd_ed25519_program,fd_flamenco)
+
+$(call add-hdrs,fd_system_program.h)
+$(call add-objs,fd_system_program fd_system_program_nonce,fd_flamenco)
 endif
