@@ -50,6 +50,8 @@ struct fd_vm_heap_allocator {
 };
 typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
 
+/* FIXME: SHOULD COMPUTE BUDGET BE COMPILE TIME? */
+
 struct fd_vm_exec_compute_budget {
     /// Number of compute units that a transaction or individual instruction is
     /// allowed to consume. Compute units are consumed by program execution,

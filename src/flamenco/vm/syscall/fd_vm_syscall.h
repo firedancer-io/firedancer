@@ -11,7 +11,7 @@
 
 #define FD_VM_SYSCALL_DECL(name)     \
 int                                  \
-fd_vm_syscall_##name ( void *  _ctx, \
+fd_vm_syscall_##name ( void *  _vm,  \
                        ulong   arg0, \
                        ulong   arg1, \
                        ulong   arg2, \
@@ -44,48 +44,193 @@ void
 fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
                             fd_exec_slot_ctx_t const * slot_ctx );
 
-/* Syscall function declarations **************************************/
-
-/*** Exceptional syscalls ***/
+/* fd_vm_syscall_util *************************************************/
 
 /* syscall(b6fc1a11) "abort"
-   Abort program execution and fail transaction. */
+   Abort program execution and fail transaction.
+
+   Inputs:
+
+     arg0 - ignored
+     arg1 - ignored
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_ABORT: *_ret 0. (FIXME: SHOULD IT DO THIS?)
+
+   FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
 FD_VM_SYSCALL_DECL(abort);
 
 /* syscall(686093bb) "sol_panic_"
-   Log panic message, abort program execution, and fail transaction. */
+   Log panic message, abort program execution, and fail transaction.
+
+   Inputs:
+
+     arg0 - message cstr VM address, indexed [0,arg1), FIXME: WHEN IS NULL OKAY?
+     arg1 - message cstr strlen, FIXME: IS 0 OKAY (PROBABLY)?
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_MEM_OVERLAP: bad address range.  *_ret unchanged.
+     Compute budget decremented.  (FIXME: PROBABLY SHOULD BE ERR_PERM TO
+     BE CONSISTENT WITH OTHER SYSCALLS).
+
+     FD_VM_ERR_PANIC: *_ret unchanged.  Compute budget decremented.
+
+   IMPORANT SAFETY TIP!  All VM_ERR cases fail the transaction so it is
+   okay for a PANIC to return non-panic error codes (such might be
+   useful for additional disambiguation of error cases). */
 
 FD_VM_SYSCALL_DECL(sol_panic);
 
-/* Logging syscalls ***************************************************/
-
 /* syscall(207559bd) "sol_log_"
-   Write message to log. */
+   Write message to log.
+
+   Inputs:
+
+     arg0 - message cstr VM address, indexed [0,arg1), FIXME: WHEN IS NULL OKAY?
+     arg1 - message cstr strlen, FIXME: IS 0 OKAY (PROBABLY)?
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
+     budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     IMPORANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the log collector
+     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... LIKEWISE
+     SEEMS LIKE THERE MIGHT BE OTHER ERROR CASES LIKE NON-PRINTABLE
+     CHARACTERS, NO CSTR '\0'-TERMINATION AND/OR OTHER STRING
+     SANTIZATION NEEDED GIVEN THE COMMENT IN LOG_PANIC). */
 
 FD_VM_SYSCALL_DECL( sol_log );
 
 /* syscall(5c2a3178) "sol_log_64_"
-   Write register file (r1, r2, r3, r4, r5) to log. */
+   Write args0:4 to the log as a hexadecimal
+
+   Inputs:
+
+     arg0 - ulong
+     arg1 - ulong
+     arg2 - ulong
+     arg3 - ulong
+     arg4 - ulong
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
+     budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     IMPORANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the log collector
+     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
 
 FD_VM_SYSCALL_DECL( sol_log_64 );
 
-/* syscall(52ba5096) "sol_log_compute_units_"
-   Write remaining compute unit count to log. */
-
-FD_VM_SYSCALL_DECL( sol_log_compute_units );
-
 /* syscall(7ef088ca) "sol_log_pubkey"
-   Write Base58 encoding of 32 byte array to log. */
+   Write Base58 encoding of 32 byte array to log.
+
+   Inputs:
+
+     arg0 - pubkey VM address, indexed [0,32), FIXME: IS NULL ERR_PERM?
+     arg1 - ignored
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
+     budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     IMPORANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the log collector
+     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
 
 FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
-/* syscall(???) "sol_log_data"
-   Write Base64 encoded bytes to log. */
+/* syscall(52ba5096) "sol_log_compute_units_"
+   Write remaining compute unit count to log.
+
+   Inputs:
+
+     arg0 - ignored
+     arg1 - ignored
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED: NULL vm handle passed.
+     (FIXME: WHY DON'T OTHER SYSCALLS NEED TO CHECK VM?)
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     IMPORANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the log collector
+     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
+
+FD_VM_SYSCALL_DECL( sol_log_compute_units );
+
+/* syscall(FIXME) "sol_log_data"
+   Write Base64 encoded bytes to log.
+
+   Inputs:
+
+     arg0 - gather vector VM address, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
+     arg1 - gather vector cnt, FIXME: IS 0 OKAY (PROBABLY)
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Note a gather vector element is a pair:
+     ulong vaddr ... holds the viritual address of the region, indexed [0,sz)
+     ulong sz    ... holds the size of the region (FIXME: IS 0 OKAY ... PROBABLY)?
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     IMPORANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the log collector
+     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... SEEMS LIKE
+     THERE MIGHT BE OTHER ERROR CASES LIKE NON-PRINTABLE CHARACTERS, NO
+     CSTR '\0'-TERMINATION AND/OR OTHER STRING SANTIZATION NEEDED GIVEN
+     THE COMMENT IN LOG_PANIC). */
 
 FD_VM_SYSCALL_DECL( sol_log_data );
 
-/*** PDA (program derived address) syscalls ***/
+/*** PDA (program derived address) syscalls ***************************/
 
 /* syscall(9377323c) "sol_create_program_address"
    Compute SHA-256 hash of `<program ID> .. &[&[u8]] .. <PDA Marker>`,
@@ -133,7 +278,6 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
                            ulong *                  instruction_accounts_cnt,
                            fd_pubkey_t const *      signers,
                            ulong                    signers_cnt );
-
 
 /* syscall(a22b9c85) "sol_invoke_signed_c"
    Dispatch a cross program invocation.  Inputs are in C ABI. */
