@@ -101,7 +101,7 @@ main( int     argc,
     0UL, // point_cnt
     result_point_vm_addr,
     0UL, // ret_code
-    FD_VM_ERR_ACC_VIO, // syscall_ret
+    FD_VM_ERR_PERM, // syscall_ret
     expected_result_host_ptr
   );
 
@@ -144,7 +144,7 @@ main( int     argc,
       2UL,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
@@ -186,7 +186,7 @@ main( int     argc,
       2UL,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
@@ -221,7 +221,7 @@ main( int     argc,
       in1_vm_addr,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
@@ -258,7 +258,7 @@ main( int     argc,
       in1_vm_addr,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
@@ -292,7 +292,7 @@ main( int     argc,
       in1_vm_addr,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
@@ -330,7 +330,7 @@ main( int     argc,
       in1_vm_addr,
       result_point_vm_addr,
       0UL, // ret_code
-      FD_VM_SYSCALL_SUCCESS, // syscall_ret
+      FD_VM_SUCCESS, // syscall_ret
       expected_result_host_ptr
     );
   }
