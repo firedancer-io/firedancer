@@ -7,14 +7,12 @@ with open('fd_types.json', 'r') as json_file:
 
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
-names = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
 
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
-print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
@@ -56,14 +54,6 @@ class PrimitiveMember:
         self.encode = ("encode" not in json or json["encode"])
         self.walk = ("walk" not in json or json["walk"])
 
-    def fixupType(t):
-        if t == 'uint64_t':
-            return 'ulong'
-        elif t == 'int64_t':
-            return 'long'
-        else:
-            return t
-
     def emitPreamble(self):
         pass
 
@@ -93,7 +83,7 @@ class PrimitiveMember:
     }
 
     def emitMember(self):
-        PrimitiveMember.emitMemberMap[self.type](self.name);
+        PrimitiveMember.emitMemberMap[self.type](self.name)
 
     def string_decode_preflight(n, varint):
         print(f'{indent}  ulong slen;', file=body)
@@ -972,7 +962,7 @@ class TreapMember:
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
         print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
-        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body);
+        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -990,7 +980,7 @@ class TreapMember:
         print('    if ( FD_UNLIKELY( err ) ) return err;', file=body)
 
         if self.rev:
-            print(f'    for ( {treap_name}_rev_iter_t iter = {treap_name}_rev_iter_init( self->treap, self->pool );', file=body);
+            print(f'    for ( {treap_name}_rev_iter_t iter = {treap_name}_rev_iter_init( self->treap, self->pool );', file=body)
             print(f'          !{treap_name}_rev_iter_done( iter );', file=body);
             print(f'          iter = {treap_name}_rev_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_rev_iter_ele( iter, self->pool );', file=body)
@@ -999,7 +989,7 @@ class TreapMember:
             print('    }', file=body)
             print('  } else {', file=body)
         else:
-            print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+            print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
             print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
             print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1028,7 +1018,7 @@ class TreapMember:
         else:
             print('  size += sizeof(ulong);', file=body)
         print(f'  if (self->treap) {{', file=body)
-        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
         print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
         print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1041,7 +1031,7 @@ class TreapMember:
         treap_t = self.treap_t
 
         print(f'  if (self->treap) {{', file=body)
-        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body);
+        print(f'    for ( {treap_name}_fwd_iter_t iter = {treap_name}_fwd_iter_init( self->treap, self->pool );', file=body)
         print(f'          !{treap_name}_fwd_iter_done( iter );', file=body);
         print(f'          iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
@@ -1343,7 +1333,7 @@ memberTypeMap = {
 }
 
 def parseMember(namespace, json):
-    type = PrimitiveMember.fixupType(str(json["type"]))
+    type = str(json["type"])
     if type in memberTypeMap:
         c = memberTypeMap[type]
     elif type in PrimitiveMember.emitMemberMap:
@@ -1358,11 +1348,15 @@ class OpaqueType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
         self.walktype = (json["walktype"] if "walktype" in json else None)
+        self.size = (int(json["size"]) if "size" in json else None)
+        self.emitprotos = (bool(json["emitprotos"]) if "emitprotos" in json else True)
 
     def emitHeader(self):
         pass
 
     def emitPrototypes(self):
+        if not self.emitprotos:
+            return
         n = self.fullname
         print(f"void {n}_new({n}_t* self);", file=header)
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
@@ -1377,6 +1371,8 @@ class OpaqueType:
         print("", file=header)
 
     def emitImpls(self):
+        if not self.emitprotos:
+            return
         n = self.fullname
 
         print(f'int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
@@ -1425,7 +1421,7 @@ class StructType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
-        for f in entry["fields"]:
+        for f in json["fields"]:
             self.fields.append(parseMember(self.fullname, f))
         self.comment = (json["comment"] if "comment" in json else None)
         self.nomethods = ("attribute" in json)
@@ -1447,6 +1443,7 @@ class StructType:
             print(f'/* {self.comment} */', file=header)
 
         n = self.fullname
+        # Struct type
         print(f'struct {self.attribute}{n} {{', file=header)
         for f in self.fields:
             f.emitMember()
@@ -1552,7 +1549,7 @@ class EnumType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
         self.variants = []
-        for f in entry["variants"]:
+        for f in json["variants"]:
             if 'type' in f:
                 self.variants.append(parseMember(self.fullname, f))
             else:
@@ -1575,12 +1572,14 @@ class EnumType:
                 v.emitPreamble()
 
         n = self.fullname
+
+        # Enum type
         print(f'union {self.attribute}{n}_inner {{', file=header)
         empty = True
         for v in self.variants:
             if not isinstance(v, str):
-              empty = False
-              v.emitMember()
+                empty = False
+                v.emitMember()
         if empty:
             print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
         print("};", file=header)
@@ -1796,39 +1795,35 @@ class EnumType:
             if not isinstance(v, str):
                 v.emitPostamble()
 
-alltypes = []
-for entry in entries:
-    if entry['type'] == 'opaque':
-        alltypes.append(OpaqueType(entry))
-    if entry['type'] == 'struct':
-        alltypes.append(StructType(entry))
-    if entry['type'] == 'enum':
-        alltypes.append(EnumType(entry))
+def main():
+    alltypes = []
+    for entry in entries:
+        if entry['type'] == 'opaque':
+            alltypes.append(OpaqueType(entry))
+        if entry['type'] == 'struct':
+            alltypes.append(StructType(entry))
+        if entry['type'] == 'enum':
+            alltypes.append(EnumType(entry))
 
-for t in alltypes:
-    t.emitHeader()
+    for t in alltypes:
+        t.emitHeader()
 
-print("", file=header)
-print("FD_PROTOTYPES_BEGIN", file=header)
-print("", file=header)
+    print("", file=header)
+    print("FD_PROTOTYPES_BEGIN", file=header)
+    print("", file=header)
 
-for t in alltypes:
-    t.emitPrototypes()
+    for t in alltypes:
+        t.emitPrototypes()
 
-print("FD_PROTOTYPES_END", file=header)
-print("", file=header)
-print("#endif // HEADER_" + json_object["name"].upper(), file=header)
+    print("FD_PROTOTYPES_END", file=header)
+    print("", file=header)
+    print("#endif // HEADER_" + json_object["name"].upper(), file=header)
 
-for t in alltypes:
-    t.emitImpls()
+    for t in alltypes:
+        t.emitImpls()
 
-for t in alltypes:
-    t.emitPostamble()
+    for t in alltypes:
+        t.emitPostamble()
 
-nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
-type_name_count = len(nametypes)
-print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
-print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
-for t in nametypes:
-    print(f' \"{t.fullname}\",', file=names)
-print("};", file=names)
+if __name__ == "__main__":
+    main()
