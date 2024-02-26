@@ -17,10 +17,6 @@
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
 #define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
-
-#define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
-
 /* fd_acc_mgr_t translates between the runtime account DB abstraction
    and the actual funk database.  Also manages rent collection.
    fd_acc_mgr_t cannot be relocated to another address space.
