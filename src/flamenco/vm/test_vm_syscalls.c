@@ -231,7 +231,7 @@ main( int     argc,
       0UL,
       100UL,
       0,
-      FD_VM_ERR_ACC_VIO
+      FD_VM_ERR_PERM
   );
 
   test_vm_syscall_sol_memcpy(
@@ -269,7 +269,7 @@ main( int     argc,
       (ulong) &vm_ctx.read_only[0],
       100UL,
       0,
-      FD_VM_ERR_ACC_VIO
+      FD_VM_ERR_PERM
   );
 
   // test we cannot copy more than the available size from the read-only region
@@ -282,7 +282,7 @@ main( int     argc,
       (ulong) &vm_ctx.heap[0],
       read_only_sz + 1UL,
       0,
-      FD_VM_ERR_ACC_VIO
+      FD_VM_ERR_PERM
   );
 
   // test we cannot copy overlapping regions in heap where src is before dst
@@ -295,7 +295,7 @@ main( int     argc,
       (ulong) &vm_ctx.heap[10],
       100UL,
       0,
-      FD_VM_SYSCALL_ERR_MEM_OVERLAP
+      FD_VM_ERR_MEM_OVERLAP
   );
 
   // test we cannot copy overlapping regions in heap where src is after dst
@@ -308,7 +308,7 @@ main( int     argc,
       (ulong) &vm_ctx.heap[0],
       100UL,
       0,
-      FD_VM_SYSCALL_ERR_MEM_OVERLAP
+      FD_VM_ERR_MEM_OVERLAP
   );
 
   // test we can memmove from heap region to heap region
@@ -360,7 +360,7 @@ main( int     argc,
       (ulong) &vm_ctx.read_only[0],
       100UL,
       0,
-      FD_VM_ERR_ACC_VIO
+      FD_VM_ERR_PERM
   );
 
   // test for memcmp at the heap region
@@ -405,7 +405,7 @@ main( int     argc,
       (ulong) &vm_ctx.read_only[200],
       100UL,
       0,
-      FD_VM_ERR_ACC_VIO
+      FD_VM_ERR_PERM
   );
 
   fd_vm_log_collector_wipe( expected_log_collector );
