@@ -117,7 +117,6 @@ during_frag( void * _ctx,
     fd_shred34_t const * s34 = fd_chunk_to_laddr_const( ctx->shred_in_mem, chunk );
 
     memcpy( ctx->s34_buffer, s34, sz );
-    FD_LOG_WARNING(( "SHRED: %lu", sz ));
     *opt_filter = 0;
     
     return;
@@ -127,6 +126,18 @@ during_frag( void * _ctx,
 
   return;
 }
+
+// int
+// insert_shreds( fd_store_tile_ctx_t * ctx ) {
+        
+//   fd_blockstore_start_write( ctx->blockstore );
+
+//   if( fd_blockstore_shred_insert( ctx->blockstore,  ) != FD_BLOCKSTORE_OK ) {
+//     FD_LOG_ERR(( "failed inserting to blockstore" ));
+//   }
+
+//   fd_blockstore_end_write( ctx->blockstore );
+// }
 
 static void
 after_frag( void *             _ctx,
@@ -147,14 +158,12 @@ after_frag( void *             _ctx,
   (void)opt_sig;
 
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
-      FD_LOG_WARNING(("AAHHH!"));
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
     for( ulong i = 0; i < ctx->s34_buffer->shred_cnt; i++ ) {
       if( fd_blockstore_shred_insert( ctx->blockstore, &ctx->s34_buffer->pkts[i].shred ) != FD_BLOCKSTORE_OK ) {
         FD_LOG_ERR(( "failed inserting to blockstore" ));
       }
-      FD_LOG_WARNING(("SHREDS INSERTED!"));
     }
   }
 
@@ -177,6 +186,7 @@ privileged_init( fd_topo_t *      topo,
 static void
 during_housekeeping( void * _ctx ) {
   fd_store_tile_ctx_t * ctx = (fd_store_tile_ctx_t *)_ctx;
+
   (void)ctx;
 }
 

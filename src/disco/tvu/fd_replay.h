@@ -22,11 +22,10 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "fd_pending_slots.h"
 
 #define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
 #define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
-#define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
-#define FD_REPLAY_PENDING_MASK     ( FD_REPLAY_PENDING_MAX - 1U )
 
 /* The standard amount of time that we wait before repeating a slot */
 #define FD_REPAIR_BACKOFF_TIME ( (long)150e6 )
@@ -101,6 +100,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_valloc_t           valloc;
 };
 typedef struct fd_replay fd_replay_t;
+
+
 /* clang-format on */
 
 struct slot_capitalization {
@@ -140,7 +141,7 @@ fd_replay_footprint( ulong slot_max ) {
       fd_replay_pool_align(), fd_replay_pool_footprint( slot_max ) ),
       fd_replay_frontier_align(), fd_replay_frontier_footprint( slot_max ) ),
       fd_replay_commitment_align(), fd_replay_commitment_footprint() ),
-      alignof( long ), sizeof( long )*FD_REPLAY_PENDING_MAX ),
+      alignof( long ), sizeof( long )*FD_PENDING_MAX ),
     alignof( fd_replay_t ) );
   /* clang-format on */
 }

@@ -21,6 +21,7 @@
 
 #define NET_IN_IDX      0
 #define CONTACT_IN_IDX  1
+#define STAKE_IN_IDX  2
 
 #define NET_OUT_IDX     0
 
@@ -86,6 +87,10 @@ struct fd_repair_tile_ctx {
   fd_wksp_t * contact_in_mem;
   ulong       contact_in_chunk0;
   ulong       contact_in_wmark;
+
+  fd_wksp_t * stake_weights_in_mem;
+  ulong       stake_weights_in_chunk0;
+  ulong       stake_weights_in_wmark;
 
   fd_wksp_t *     net_in;
   ulong           chunk;
@@ -266,6 +271,22 @@ handle_new_cluster_contact_info( fd_repair_tile_ctx_t * ctx,
   }
 }
 
+static inline void
+handle_new_stake_weights( fd_repair_tile_ctx_t * ctx,
+                          uchar const    * buf ) {
+  ulong const * header = (ulong const *)fd_type_pun_const( buf );
+
+  ulong stakes_cnt = header[ 1 ]; 
+
+  if( stakes_cnt >= MAX_REPAIR_PEERS ) {
+    FD_LOG_ERR(( "Cluster nodes had %lu stake weights, which was more than the max of %lu", stakes_cnt, MAX_REPAIR_PEERS ));
+  }
+
+  fd_stake_weight_t const * in_stake_weights = fd_type_pun_const( header+4UL );
+  fd_repair_set_stake_weights( ctx->repair, in_stake_weights, stakes_cnt );
+}
+
+
 static void 
 repair_send_packet( uchar const * msg, 
                     size_t msglen, 
@@ -327,6 +348,15 @@ during_frag( void * _ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
+    if( FD_UNLIKELY( chunk<ctx->stake_weights_in_chunk0 || chunk>ctx->stake_weights_in_wmark ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+            ctx->stake_weights_in_chunk0, ctx->stake_weights_in_wmark ));
+
+    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_weights_in_mem, chunk );
+    handle_new_stake_weights( ctx, dcache_entry );
+    return;
+  }
   
   if( FD_UNLIKELY( chunk<ctx->chunk || chunk>ctx->wmark || sz>FD_NET_MTU ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->chunk, ctx->wmark ));
@@ -379,6 +409,12 @@ after_frag( void *             _ctx,
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
+    *opt_filter = 1;
+    return;
+  }
+
+  if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
+    *opt_filter = 1;
     return;
   }
 
@@ -427,9 +463,10 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+  if( FD_UNLIKELY( tile->in_cnt != 3 ||
                    topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
-                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ) )
+                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ||
+                   topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_STAKE_TO_OUT ) )
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %lu %lu",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
 
@@ -493,16 +530,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
   fd_memcpy( ctx->src_mac_addr, tile->gossip.src_mac_addr, 6 );
-  /* Set up contact info tile output */
 
+  /* Set up contact info tile input */
   fd_topo_link_t * contact_in_link   = &topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ];
   ctx->contact_in_mem    = topo->workspaces[ contact_in_link->wksp_id ].wksp;
   ctx->contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->contact_in_mem, contact_in_link->dcache );
   ctx->contact_in_wmark  = fd_dcache_compact_wmark ( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
+  /* Set up tile stake weight tile output */
+  fd_topo_link_t * stake_weights_in_link   = &topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ];
+  ctx->stake_weights_in_mem    = topo->workspaces[ stake_weights_in_link->wksp_id ].wksp;
+  ctx->stake_weights_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_weights_in_mem, stake_weights_in_link->dcache );
+  ctx->stake_weights_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_weights_in_mem, stake_weights_in_link->dcache, stake_weights_in_link->mtu );
 
   /* Valloc setup */
-
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) { 
     FD_LOG_ERR( ( "fd_allow_new failed" ) ); }

@@ -2,7 +2,6 @@
 
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
-
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING( ( "NULL mem" ) );
     return NULL;
@@ -43,7 +42,7 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
 
   laddr           = fd_ulong_align_up( laddr, alignof( long ) );
   replay->pending = (long *)laddr;
-  laddr += sizeof( long )*FD_REPLAY_PENDING_MAX;
+  laddr += sizeof( long )*FD_PENDING_MAX;
   replay->pending_start = 0;
   replay->pending_end = 0;
   replay->pending_lock = 0;
@@ -102,100 +101,6 @@ fd_replay_delete( void * replay ) {
   }
 
   return replay;
-}
-
-static void
-fd_replay_pending_lock( fd_replay_t * replay ) {
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( &replay->pending_lock, 0UL, 1UL) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-  FD_COMPILER_MFENCE();
-}
-
-static void
-fd_replay_pending_unlock( fd_replay_t * replay ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( replay->pending_lock ) = 0UL;
-}
-
-void
-fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
-  fd_replay_pending_lock( replay );
-  
-  long when = replay->now + delay;
-  long * pending = replay->pending;
-  if( replay->pending_start == replay->pending_end ) {
-    /* Queue is empty */
-    replay->pending_start = slot;
-    replay->pending_end = slot+1U;
-    pending[slot & FD_REPLAY_PENDING_MASK] = when;
-    
-  } else if ( slot < replay->pending_start ) {
-    /* Grow down */
-    if( replay->pending_end - slot > FD_REPLAY_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
-    pending[slot & FD_REPLAY_PENDING_MASK] = when;
-    for( ulong i = slot+1; i < replay->pending_start; ++i ) {
-      /* Zero fill */
-      pending[i & FD_REPLAY_PENDING_MASK] = 0;
-    }
-    replay->pending_start = slot;
-
-  } else if ( slot >= replay->pending_end ) {
-    /* Grow up */
-    if( slot - replay->pending_start > FD_REPLAY_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
-    pending[slot & FD_REPLAY_PENDING_MASK] = when;
-    for( ulong i = replay->pending_end; i < slot; ++i ) {
-      /* Zero fill */
-      pending[i & FD_REPLAY_PENDING_MASK] = 0;
-    }
-    replay->pending_end = slot+1U;
-
-  } else {
-    /* Update in place */
-    long * p = &pending[slot & FD_REPLAY_PENDING_MASK];
-    if( 0 == *p || *p > when )
-      *p = when;
-  }
-
-  fd_replay_pending_unlock( replay );
-}
-
-ulong
-fd_replay_pending_iter_init( fd_replay_t * replay ) {
-  return replay->pending_start;
-}
-
-ulong
-fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
-  fd_replay_pending_lock( replay );
-  ulong end = replay->pending_end;
-  for( i = fd_ulong_max(i, replay->pending_start); 1; ++i ) {
-    if( i >= end ) {
-      /* End sentinel */
-      i = ULONG_MAX;
-      break;
-    }
-    long * ele = &replay->pending[ i & FD_REPLAY_PENDING_MASK ];
-    if( i <= replay->smr || *ele == 0 ) {
-      /* Empty or useless slot */
-      if( replay->pending_start == i )
-        replay->pending_start = i+1U; /* Pop it */
-    } else if( *ele <= now ) {
-      /* Do this slot */
-      long when = *ele;
-      *ele = 0;
-      if( replay->pending_start == i )
-        replay->pending_start = i+1U; /* Pop it */
-      FD_LOG_DEBUG(( "preparing slot %lu when=%ld now=%ld latency=%ld",
-                     i, when, now, now - when ));
-      break;
-    }
-  }
-  fd_replay_pending_unlock( replay );
-  return i;
 }
 
 int

@@ -150,5 +150,6 @@ fd_topo_firedancer( config_t * config ) {
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 0, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR,  0UL, 0, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX,  0UL, 0, 1 );
-  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_REPAIR_TO_STORE,  0UL   );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_REPAIR_TO_STORE,   0UL   );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_REPAIR,  0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,      0UL, 1, 1 );
 }

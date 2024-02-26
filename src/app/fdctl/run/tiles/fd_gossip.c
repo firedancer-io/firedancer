@@ -398,6 +398,9 @@ during_housekeeping( void * _ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
+  fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
+  fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
+
   long now = fd_log_wallclock();
   if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
     ctx->last_shred_dest_push_time = now;

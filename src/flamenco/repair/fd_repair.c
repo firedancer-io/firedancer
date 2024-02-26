@@ -193,8 +193,9 @@ struct fd_repair {
     fd_rng_t rng[1];
     /* RNG seed */
     ulong seed;
-    /* Epoch ctx, need for stakes */
-    fd_exec_epoch_ctx_t * epoch_ctx;
+    /* Stake weights */
+    ulong stake_weights_cnt;
+    fd_stake_weight_t * stake_weights;
     /* Heap allocator */
     fd_valloc_t valloc;
 };
@@ -217,6 +218,8 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX));
   glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
+  glob->stake_weights = fd_valloc_malloc( valloc, fd_stake_weight_align(), FD_ACTIVE_KEY_MAX * fd_stake_weight_footprint() );
+  glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
   glob->last_decay = 0;
   glob->last_print = 0;
@@ -241,6 +244,7 @@ fd_repair_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_valloc_free(valloc, fd_active_table_delete(fd_active_table_leave(glob->actives)));
   fd_valloc_free(valloc, fd_needed_table_delete(fd_needed_table_leave(glob->needed)));
   fd_valloc_free(valloc, fd_dupdetect_table_delete(fd_dupdetect_table_leave(glob->dupdetect)));
+  fd_valloc_free( valloc, glob->stake_weights );
   return glob;
 }
 
@@ -612,49 +616,22 @@ is_good_peer( fd_active_elem_t * val ) {
 
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
-  if( repair->epoch_ctx == NULL ) {
+  if( repair->stake_weights_cnt == 0 ) {
     FD_LOG_WARNING(( "repair does not have stake weights yet, cannot shuffle active set" ));
     return;
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
     /* Find all the usable stake holders */
-    fd_vote_accounts_pair_t_mapnode_t * pool =
-        repair->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * root =
-        repair->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
     fd_active_elem_t ** leftovers = fd_scratch_alloc(
         alignof( fd_active_elem_t * ),
-        sizeof( fd_active_elem_t * ) * fd_vote_accounts_pair_t_map_size( pool, root ) );
+        sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
     ulong leftovers_cnt = 0;
-    for( fd_vote_accounts_pair_t_mapnode_t const * n =
-             fd_vote_accounts_pair_t_map_minimum_const( pool, root );
-         n;
-         n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
-      fd_vote_state_versioned_t versioned;
-      fd_bincode_decode_ctx_t   decode_ctx;
-      decode_ctx.data    = n->elem.value.data;
-      decode_ctx.dataend = n->elem.value.data + n->elem.value.data_len;
-      decode_ctx.valloc  = fd_scratch_virtual();
-      int rc             = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
-      if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) continue;
-      ulong stake = n->elem.stake;
+    for( ulong i = 0; i < repair->stake_weights_cnt; i++ ) {
+      fd_stake_weight_t const * stake_weight = &repair->stake_weights[i];
+      ulong stake = stake_weight->stake;
       if( !stake ) continue;
-      fd_pubkey_t const * key;
-      switch( versioned.discriminant ) {
-      case fd_vote_state_versioned_enum_current:
-        key = &versioned.inner.current.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v0_23_5:
-        key = &versioned.inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        key = &versioned.inner.v1_14_11.node_pubkey;
-        break;
-      default:
-        FD_LOG_DEBUG( ( "unrecognized vote_state_versioned type" ) );
-        continue;
-      }
+      fd_pubkey_t const * key = &stake_weight->key;
       fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
       if( NULL == peer || peer->sticky ) continue;
       leftovers[leftovers_cnt++] = peer;
@@ -877,6 +854,21 @@ void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id ) {
   fd_repair_unlock( glob );
 }
 
-void fd_repair_set_epoch_ctx( fd_repair_t * repair, fd_exec_epoch_ctx_t * epoch_ctx ) {
-  repair->epoch_ctx = epoch_ctx;
+void 
+fd_repair_set_stake_weights( fd_repair_t * repair, 
+                             fd_stake_weight_t const * stake_weights,
+                             ulong stake_weights_cnt ) {
+  if( stake_weights == NULL ) {
+    FD_LOG_ERR(( "stake weights NULL" ));
+  }
+  if( stake_weights_cnt > FD_ACTIVE_KEY_MAX ) {
+    FD_LOG_ERR(( "too many stake weights" ));
+  }
+
+  fd_repair_lock( repair );
+
+  fd_memcpy( repair->stake_weights, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
+  repair->stake_weights_cnt = stake_weights_cnt;
+
+  fd_repair_unlock( repair );
 }

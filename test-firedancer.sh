@@ -114,7 +114,7 @@ echo "topology = \"firedancer\"
     gossip_peer_addr = \"$PRIMARY_IP:8020\"
     gossip_my_addr = \"$PRIMARY_IP:8010\"
     gossip_listen_port = 8010
-qq
+
 [tiles.repair]
     repair_my_intake_addr = \"$PRIMARY_IP:8012\"
     repair_my_serve_addr = \"$PRIMARY_IP:8011\"
