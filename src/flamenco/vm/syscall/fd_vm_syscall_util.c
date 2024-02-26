@@ -191,7 +191,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
   ulong sz = cnt*sizeof(fd_vm_vec_t); /* FIXME: OVERFLOW TRAPPING */
   fd_vm_vec_t const * untranslated_fields = fd_vm_translate_slice_vm_to_host_const( vm, vaddr, sz, FD_VM_VEC_ALIGN );
-  /* FIXME: TRAP TRANSLATED ADDR */
+  if ( FD_UNLIKELY( !untranslated_fields ) ) return FD_VM_ERR_PERM;
 
   err = fd_vm_consume_compute( vm, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, cnt ) );
   if( FD_UNLIKELY( err ) ) return err;
@@ -206,10 +206,14 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
     void const * translated_addr =
       fd_vm_translate_vm_to_host_const( vm, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
-    /* FIXME: TRAP TRANSLATED ADDR */
+    if ( FD_UNLIKELY( !translated_addr ) ) return FD_VM_ERR_PERM;
 
     char encoded[1500];
     ulong encoded_len = fd_base64_encode( encoded, (uchar const *) translated_addr, untranslated_fields[i].len );
+
+    /* FIXME: OVERFLOW RISK HERE */
+    memcpy( msg + msg_len, encoded, encoded_len );
+    msg_len += encoded_len;
 
     /* Append a space if more fields */
 
@@ -217,10 +221,6 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
       sprintf( msg + msg_len, " " ); /* FIXME: OVER RISK HERE AND GROSS */
       msg_len++;
     }
-
-    /* FIXME: OVERFLOW RISK HERE */
-    memcpy( msg + msg_len, encoded, encoded_len );
-    msg_len += encoded_len;
   }
 
   /* FIXME: DOS VECTOR ... SHOULD TRY TO BILL FOR COMPUTE UPFRONT SO WE
