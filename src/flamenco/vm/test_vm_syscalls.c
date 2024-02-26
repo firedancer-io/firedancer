@@ -1,5 +1,7 @@
 #include "syscall/fd_vm_syscall.h"
 
+#define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
+
 static void
 set_vm_heap_memory_region( fd_vm_exec_context_t * vm_ctx ) {
   for( ulong i=0UL; i<vm_ctx->heap_sz; i++ ) vm_ctx->heap[i] = (uchar) (i % (UCHAR_MAX + 1));
@@ -180,20 +182,22 @@ main( int     argc,
   uchar read_only_prog[read_only_sz];
 
   fd_vm_exec_context_t vm_ctx = {
-      .entrypoint          = 0,
-      .program_counter     = 0,
-      .instruction_counter = 0,
-      .instrs              = NULL,
-      .instrs_sz           = 0,
-      .instrs_offset       = 0,
-      .syscall_map         = NULL,
-      .calldests           = NULL,
-      .input               = NULL,
-      .input_sz            = 0,
-      .read_only           = read_only_prog,
-      .read_only_sz        = read_only_sz,
-      .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
+    .entrypoint          = 0,
+    .program_counter     = 0,
+    .instruction_counter = 0,
+    .instrs              = NULL,
+    .instrs_sz           = 0,
+    .instrs_offset       = 0,
+    .syscall_map         = NULL,
+    .calldests           = NULL,
+    .input               = NULL,
+    .input_sz            = 0,
+    .read_only           = read_only_prog,
+    .read_only_sz        = read_only_sz,
+    .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
+    .compute_meter       = FD_MAX_COMPUTE_UNIT_LIMIT,
   };
+
 
   set_vm_read_only_memory_region( &vm_ctx );
 
@@ -491,20 +495,17 @@ main( int     argc,
   fd_vm_vec_t log_vec = { .addr = FD_VM_MEM_MAP_HEAP_REGION_START + 100, .len = 5UL };
   ulong data_chunk_num = 5UL;
   for( ulong i=0UL; i<data_chunk_num; i++ ) fd_memcpy( (&vm_ctx.heap[0] + i * sizeof(fd_vm_vec_t)), &log_vec, sizeof(log_vec));
-  ulong data_len = data_chunk_num*sizeof(fd_vm_vec_t);
   fd_vm_log_collector_append( expected_log_collector, "Program data: ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g= ZGVmZ2g=", 58UL );
 
-if(0) { /* FIXME: TEMPORARILY SKIPPING WHILE DIAGNOSING PRE-EXISTING MEMORY CORRUPTION ISSUES */
   test_vm_syscall_sol_log_data(
-      "test_vm_syscall_sol_log_data: log_data at the heap region",
-      &vm_ctx,
-      FD_VM_MEM_MAP_HEAP_REGION_START,
-      data_len,
-      0,
-      0,
-      expected_log_collector
+    "test_vm_syscall_sol_log_data: log_data at the heap region",
+    &vm_ctx,
+    FD_VM_MEM_MAP_HEAP_REGION_START,
+    data_chunk_num,
+    0,
+    0,
+    expected_log_collector
   );
-}
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
