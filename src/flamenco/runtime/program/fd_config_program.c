@@ -32,7 +32,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 1UL ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-# define ACC_IDX_CONFIG (0UL)
+# define ACC_IDX_CONFIG ((uchar)0)
   fd_borrowed_account_t * config_acc_rec = NULL;
   fd_instr_borrowed_account_view_idx( &ctx, ACC_IDX_CONFIG, &config_acc_rec );
 
@@ -43,7 +43,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
-  uint is_config_account_signer = fd_instr_acc_is_signer_idx( ctx.instr, ACC_IDX_CONFIG );
+  int is_config_account_signer = fd_instr_acc_is_signer_idx( ctx.instr, ACC_IDX_CONFIG );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
