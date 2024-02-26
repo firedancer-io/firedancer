@@ -44,10 +44,21 @@ fd_instr_acc_is_writable( fd_instr_info_t const * instr,
   return 0;
 }
 
-FD_FN_PURE static inline uint
+FD_FN_PURE static inline int
 fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
                             uchar                   idx ) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
+}
+
+static inline int
+fd_instr_acc_is_signer( fd_instr_info_t const * instr,
+                        fd_pubkey_t const *     acc ) {
+
+  for( ulong i=0UL; i < instr->acct_cnt; i++ )
+    if( 0==memcmp( &instr->acct_pubkeys[i], acc, sizeof(fd_pubkey_t) ) )
+      return fd_instr_acc_is_signer_idx( instr, (uchar)i );
+
+  return 0;
 }
 
 /* fd_instr_acc_is_owned_by_current_program returns 1 if the given
