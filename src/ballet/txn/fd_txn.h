@@ -490,42 +490,41 @@ fd_txn_account_cnt( fd_txn_t * txn,
   return cnt;
 }
 
-/* fd_txn_acct_iter_{init, next, end}: These functions are used for
+/* fd_txn_acct_iter_{init, next, end, idx}: These functions are used for
    iterating over the accounts in a transaction that have the property
    specified by include_cat.
 
    Example usage:
 
    fd_txn_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, payload );
-   fd_txn_acct_iter_t ctrl[1];
-   for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE, ctrl );
-         i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, ctrl ) ) {
-     // Do something with acct[ i ]
+   for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+         i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+     // Do something with acct[ fd_txn_acct_iter_idx( i ) ]
    }
 
    For fd_txn_acct_iter_init, txn must be a pointer to a valid
-   transaction, include_cat must be one of the FD_TXN_ACCT_CAT_* values
-   defined above (or a bitwise combination of them) and out_ctrl must
-   point to a writable, potentially uninitialized fd_txn_acct_iter_t.
-   Cannot fail from the caller's perspective.  On completion, returns
+   transaction and include_cat must be one of the FD_TXN_ACCT_CAT_*
+   values defined above (or a bitwise combination of them).  On
+   completion, returns a value i such that fd_txn_acct_iter_idx( i ) is
    the index of the first account address meeting the specified
-   criteria, or fd_txn_acct_iter_end() if there aren't any.
+   criteria, or i==fd_txn_acct_iter_end() if there aren't any account
+   addresses that meet the criteria.
 
    For fd_acct_iter_next, cur should be the current value of the
-   iteration variable, and ctrl contains the control information
-   produced by fd_txn_acct_iter_init, and potentially updated by calls
-   to fd_acct_iter_next.  Returns the next value of the iteration
-   variable, or fd_txn_acct_iter_end() if no more accounts meeting the
-   criteria specified in the call to fd_txn_acct_iter_init remain.
-   It is undefined behavior to call fd_acct_iter_next with values of cur
-   and ctrl not returned by the same call to either fd_acct_iter_init or
-   fd_acct_iter_next.  It's also U.B. to call fd_acct_iter_next after
-   fd_acct_iter_end has been returned.
+   iteration variable.  Advances the iteration variable such that
+   fd_txn_acct_iter_idx( i ) is the index of the next account meeting
+   the initially specified criteria, or i==fd_txn_acct_iter_end() if
+   there aren't any more account addresss meeting the criteria.  It is
+   undefined behavior to call fd_acct_iter_next with a value of cur not
+   returned by a call to either fd_acct_iter_init or fd_acct_iter_next.
+   It's also U.B. to call fd_acct_iter_next after fd_acct_iter_end has
+   been returned.
 
    fd_txn_acct_iter_t should be treated as an opaque handle and not
-   modified other than by using fd_txn_acc_iter_next. It does not need
-   to be destroyed, and is small enough that it should typically be
-   allocated on the stack. */
+   modified other than by using fd_txn_acc_iter_next.  You can peek and
+   see that it's a ulong, so it fits in a register and doesn't need to
+   be destroyed or cleaned up.  It's safe to save a fd_txn_acct_iter_t
+   value to resume iteration later with the same transaction. */
 
 typedef ulong fd_txn_acct_iter_t;
 
@@ -535,100 +534,81 @@ typedef ulong fd_txn_acct_iter_t;
    iterate over, there are at most 3 disjoint ranges.
 
    For any iteration space I, we can choose 6 integers
-   {start,end}_{0,1,2} so that
-    I = [start0, end0) U [start1, end1) U [start2, end2)
-   and 0<=start0<=end0<=start1<=end1<=start2<=end2<=256 with the
-   additional restriction that the only empty interval we allow is
-   [256, 256).
-   The fact that we need to handle 0 and 256 is a bit pesky, because it
-   seems like we need more than a byte to represent each number.
-   However, notice that we return start0 from _init, so we don't need to
-   represent it explicitly in the control word.  Furthermore, if
-   start0==0, then all the remaining values are at least 1.  Thus, we
-   can get away with storing each integer in one byte (an the whole
-   control word in a single ulong) as long as we store one less than the
-   actual value. */
+   {start,count}_{0,1,2} so that
+    I = [start0, start0+count0) U [start1, start1+count1)
+                                U [start2, start2+count2)
+   Any empty intervals are represented as [0, 0).
+   We store the control word as a single ulong with start0 in the low
+   order bits.  Then the current account index can be retrieved by
+   taking the low order byte, and the count remaining in the current
+   interval is the second lowest byte.  We can update both in one
+   instruction by subtracting 255. */
 
-static inline ulong
-fd_txn_acct_iter_init( fd_txn_t * txn,
-                       int        include_cat,
-                       ulong *    ctrl     ) {
-  /* Our goal is to output something that looks like [end0-1, start1-1,
-     end1-1, start2-1, end2-1, don't care, don't care, don't care], but
-     we initially construct [255, 255, start0-1, end0-1, start1-1,
-     end1-1, start2-1, end2-1].  If include_cat==0 and we don't end up
-     doing anything below, then this is the right answer.  Otherwise,
-     we'll immediately advance to the next interval when we compare with
-     it. */
-  union {
-    uchar control[9]; /* The last dummy write might be to [8]. We want
-                         to ignore it in that case. */
-    ulong _ctrl;
-  } u;
-  u._ctrl = ULONG_MAX;
-  ulong i = 0;
+static inline fd_txn_acct_iter_t FD_FN_PURE
+fd_txn_acct_iter_init( fd_txn_t const * txn,
+                       int              include_cat ) {
+  /* Our goal is to output something that looks like [start0, count0,
+     start1, count1, start2, count2, 0, 0] from lowest order to highest.
+     We construct the potentially 3 (start, count) pairs and then
+     branchlessly get rid of any empty ones. */
+  ulong control[3] = { 0 }; /* High 6 bytes of each stay element not touched */
+  ulong i = (ulong)(-1L);   /* So that it is 0 post increment */
 
-  /* One less than the start and end of the account address indices
-     corresponding to the category r.  Starting these at -1 handles all
-     the -1's necessary. */
-  ulong start = (ulong)(-1L);
-  ulong end   = (ulong)(-1L);
+  /* Make references more convenient.  Dead code elimination seems to
+     take care of the unneeded ones. */
+  ulong s = txn->signature_cnt;
+  ulong q = txn->readonly_signed_cnt;
+  ulong r = txn->readonly_unsigned_cnt;
+  ulong a = txn->acct_addr_cnt;
+  ulong t = txn->addr_table_adtl_cnt;
+  ulong u = txn->addr_table_adtl_writable_cnt;
 
-  /* Note: This has to be invoked in the account address index order */
-# define EXTEND_REGION( r )                                                      \
-  do{                                                                            \
-    ulong cnt =  fd_txn_account_cnt( txn, r );                                   \
-    start     =  end;                                                            \
-    end       += cnt;                                                            \
-    /* If cnt==0, we want to do nothing.  The easiest way to do that is          \
-       to make the interval [endi, endi). */                                     \
-    ulong endi   = (ulong)u.control[2*i+1];                                      \
-    ulong _start = fd_ulong_if( cnt>0, start, endi );                            \
-    ulong _end   = fd_ulong_if( cnt>0, end,   endi );                            \
-    if( include_cat & r ) { /* Hopefully a compile-time const */                 \
-      /* If the start of this sub-interval equals the end of the current         \
-         interval, then we just extend the interval.  This next write is         \
-         a dummy in that case (overwritten before being read) but saves          \
-         a branch.  If it is not, then we write the current start and            \
-         end as the next interval and advance i. */                              \
-      u.control[2*i+2] = (uchar)_start;                                          \
-      i = fd_ulong_if( endi==_start, i, i+1 );                                   \
-      u.control[2*i+1] = (uchar)_end;                                            \
-    }                                                                            \
-  } while( 0 )
+  /* All the branches here should be known at compile time. */
+  /* If WRITABLE_SIGNER is included, then f>>1 is 0, so the second
+     branch will always be true, setting control[0]=0. */
+# define INCLUDE_RANGE(f, start, cnt)                        \
+  if( include_cat & (f) ) {                                  \
+    if( !(include_cat & ((f)>>1) ) ) control[ ++i ]=(start); \
+    control[ i ] += (cnt)<<8;                                \
+  }
 
-  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_SIGNER        );
-  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_SIGNER        );
-  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
-  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
-  /* FIXME: Right now we don't have a way of iterating over addresses in
-     lookup tables. */
-  EXTEND_REGION( FD_TXN_ACCT_CAT_WRITABLE_ALT           );
-  EXTEND_REGION( FD_TXN_ACCT_CAT_READONLY_ALT           );
-#undef EXTEND_REGION
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_WRITABLE_SIGNER,          0, s-q   );
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_READONLY_SIGNER,        s-q, q     );
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM,   s, a-r-s );
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM, a-r, r     );
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_WRITABLE_ALT,             a, u     );
+  INCLUDE_RANGE( FD_TXN_ACCT_CAT_READONLY_ALT,           a+u, t-u   );
+# undef INCLUDE_RANGE
 
-  /* Undo last dummy write.  In the worst case, i==3 at this point, so
-     we might write to u.control[8], but we don't care about that write
-     then. */
-  u.control[2*i+2] = (uchar)0xFF;
+  /* We now need to delete the empty intervals (if any). */
+  ulong control0 = control[0];
+  ulong control1 = control[1];
+  ulong control2 = control[2];
 
-  *ctrl = (0xFFFFFFUL<<40) | (u._ctrl >> 24);
-  ulong start0 = ((ulong)u.control[2] + 1UL) & 0xFFUL; /* Do the arithmetic as uchars so that 0xFF -> 0 */
-  return fd_ulong_if( i==0UL, 256UL, start0 );
+  int control2_empty = !(control2&0xFF00UL);
+  control2 = fd_ulong_if( control2_empty, 0UL,      control2 );
+
+  int control1_empty = !(control1&0xFF00UL);
+  control1 = fd_ulong_if( control1_empty, control2, control1 );
+  control2 = fd_ulong_if( control1_empty, 0UL,      control2 );
+
+  int control0_empty = !(control0&0xFF00UL);
+  control0 = fd_ulong_if( control0_empty, control1, control0 );
+  control1 = fd_ulong_if( control0_empty, control2, control1 );
+  control2 = fd_ulong_if( control0_empty, 0UL,      control2 );
+
+  return control0 | (control1<<16) | (control2<<32);
 }
 
-static inline ulong
-fd_txn_acct_iter_next( ulong   cur,
-                       ulong * _ctrl ) {
-  ulong control = *_ctrl;
-  ulong end = control & 0xFF; /* this is end-1, as explained above, but
-                                 the interval is half-open */
-  ulong next_start = ((control>>8)&0xFFUL)+1UL;
-  *_ctrl = fd_ulong_if( cur==end, control>>16, control );
-  return   fd_ulong_if( cur==end, next_start,  cur+1UL );
+static inline fd_txn_acct_iter_t FD_FN_CONST
+fd_txn_acct_iter_next( fd_txn_acct_iter_t cur ) {
+  cur = cur + 0x0001UL - 0x0100UL; /* Increment low byte, decrement count */
+  /* Move to the next interval if we're done with this one. */
+  return fd_ulong_if( cur&0xFF00UL, cur, cur>>16 );
 }
 
-static inline ulong FD_FN_CONST fd_txn_acct_iter_end( void ) { return FD_TXN_ACCT_ADDR_MAX; }
+static inline fd_txn_acct_iter_t FD_FN_CONST fd_txn_acct_iter_end( void                   ) { return 0UL;          }
+static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_iter_t cur ) { return cur & 0xFFUL; }
 
 /* fd_txn_parse_core: Parses a transaction from the canonical encoding, i.e.
    the format used on the wire.
