@@ -620,11 +620,10 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   ord->expires_at = expires_at;
 
-  fd_txn_acct_iter_t ctrl[1];
   int writes_to_sysvar = 0;
-  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-      i=fd_txn_acct_iter_next( i, ctrl ) ) {
-    writes_to_sysvar |= fd_pack_unwritable_contains( accts+i );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    writes_to_sysvar |= fd_pack_unwritable_contains( accts+fd_txn_acct_iter_idx( iter ) );
   }
 
   fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
@@ -670,11 +669,12 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
 
-  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-      i=fd_txn_acct_iter_next( i, ctrl ) ) {
-    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
-      q = bitset_map_insert( pack->acct_to_bitset, accts[i] );
+      q = bitset_map_insert( pack->acct_to_bitset, acct );
       q->ref_cnt                  = 0UL;
       q->first_instance           = ord;
       q->first_instance_was_write = 1;
@@ -692,13 +692,15 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     FD_PACK_BITSET_SETN( ord->w_bitset , q->bit );
   }
 
-  for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-      i=fd_txn_acct_iter_next( i, ctrl ) ) {
-    if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
+    fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+    if( FD_UNLIKELY( fd_pack_unwritable_contains( &acct ) ) ) continue;
+
+    fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct, NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
-      q = bitset_map_insert( pack->acct_to_bitset, accts[i] );
+      q = bitset_map_insert( pack->acct_to_bitset, acct );
       q->ref_cnt                  = 0UL;
       q->first_instance           = ord;
       q->first_instance_was_write = 0;
@@ -807,11 +809,12 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
     }
 
     if( FD_PACK_BITSET_INTERSECT4_EMPTY( bitset_rw_in_use, bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) {
-      fd_txn_acct_iter_t ctrl[1];
       /* Check conflicts between this transaction's writable accounts and
          current readers */
-      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-          i=fd_txn_acct_iter_next( i, ctrl ) ) {
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+        ulong i=fd_txn_acct_iter_idx( iter );
 
         fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
         if( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) {
@@ -827,8 +830,10 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
 
       /* Check conflicts between this transaction's readonly accounts and
          current writers */
-      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-          i=fd_txn_acct_iter_next( i, ctrl ) ) {
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+        ulong i=fd_txn_acct_iter_idx( iter );
         if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
 
         fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
@@ -857,10 +862,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       out->flags      = cur->txn->flags;
       out++;
 
-      fd_txn_acct_iter_t ctrl[1];
-      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-          i=fd_txn_acct_iter_next( i, ctrl ) ) {
-        fd_acct_addr_t acct_addr = acct[i];
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+        fd_acct_addr_t acct_addr = acct[fd_txn_acct_iter_idx( iter )];
 
         fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
         if( !in_wcost_table ) { in_wcost_table = acct_uses_insert( writer_costs, acct_addr );   in_wcost_table->total_cost = 0UL; }
@@ -871,7 +875,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
 
         use_by_bank[use_by_bank_cnt++] = *use;
 
-        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct[i], NULL );
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct_addr, NULL );
         if( FD_UNLIKELY( !(--q->ref_cnt) ) ) {
           ushort bit = q->bit;
           bitset_map_remove( pack->acct_to_bitset, q );
@@ -886,11 +890,12 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
           if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
         }
       }
-      for( ulong i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-          i=fd_txn_acct_iter_next( i, ctrl ) ) {
-        fd_acct_addr_t acct_addr = acct[i];
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
 
-        if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
+        fd_acct_addr_t acct_addr = acct[fd_txn_acct_iter_idx( iter )];
+
+        if( fd_pack_unwritable_contains( &acct_addr ) ) continue; /* No need to track sysvars because they can't be writable */
 
         fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct_addr, NULL );
         if( !use ) { use = acct_uses_insert( acct_in_use, acct_addr ); use->in_use_by = 0UL; }
@@ -898,7 +903,7 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
         if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
         use->in_use_by |= bank_tile_mask;
 
-        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct[i], NULL );
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, acct_addr, NULL );
         if( FD_UNLIKELY( !(--q->ref_cnt) ) ) {
           ushort bit = q->bit;
           bitset_map_remove( pack->acct_to_bitset, q );
@@ -1196,9 +1201,9 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
 
   fd_txn_t * _txn = TXN( containing->txn );
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( _txn, containing->txn->payload );
-  fd_txn_acct_iter_t ctrl[1];
-  for( ulong i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    ulong i=fd_txn_acct_iter_idx( iter );
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
     FD_TEST( q ); /* q==NULL not be possible */
 
@@ -1217,8 +1222,10 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
       }
     }
   }
-  for( ulong i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM, ctrl ); i<fd_txn_acct_iter_end();
-      i=fd_txn_acct_iter_next( i, ctrl ) ) {
+
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    ulong i=fd_txn_acct_iter_idx( iter );
     if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
 
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
