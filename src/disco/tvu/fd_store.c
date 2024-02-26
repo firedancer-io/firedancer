@@ -67,6 +67,7 @@ fd_store_delete( void * store ) {
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
+                       ulong *        repair_slot_out,
                        uchar const ** block_out,
                        ulong *        block_sz_out ) {
   fd_blockstore_start_read( store->blockstore );
@@ -74,6 +75,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   ulong re_adds[2];
   uint re_adds_cnt = 0;
 
+  *repair_slot_out = 0;
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
   fd_block_t * block = fd_blockstore_block_query( store->blockstore, slot );
@@ -86,6 +88,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   if( FD_UNLIKELY( !slot_meta ) ) {
     /* I know nothing about this block yet */
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
+    *repair_slot_out = slot;
     re_adds[re_adds_cnt++] = slot;
     goto end;
   }
@@ -98,6 +101,7 @@ fd_store_slot_prepare( fd_store_t *   store,
    * repaired before we can replay it. */
   if( FD_UNLIKELY( !parent_slot_meta ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_ORPHAN;
+    *repair_slot_out = slot;
     re_adds[re_adds_cnt++] = slot;
     re_adds[re_adds_cnt++] = parent_slot;
     goto end;
@@ -109,7 +113,8 @@ fd_store_slot_prepare( fd_store_t *   store,
      have the ancestry and need to repair that block directly (as opposed to calling repair orphan).
   */
   if( FD_UNLIKELY( !parent_block ) ) {
-    rc = FD_STORE_SLOT_PREPARE_NEED_PARENT_REPAIR;
+    rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
+    *repair_slot_out = parent_slot;
     re_adds[re_adds_cnt++] = slot;
     re_adds[re_adds_cnt++] = parent_slot;
     goto end;
@@ -125,6 +130,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   /* The parent is executed, but the block is still incomplete. Ask for more shreds. */
   if( FD_UNLIKELY( !block ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
+    *repair_slot_out = slot;
     re_adds[re_adds_cnt++] = slot;
     goto end;
   }
@@ -144,4 +150,36 @@ end:
     fd_pending_slots_add( store->pending_slots, re_adds[i], store->now + FD_REPAIR_BACKOFF_TIME );
 
   return rc;
+}
+
+int
+fd_store_shred_insert( fd_store_t * store,
+                       fd_shred_t const * shred ) {
+  fd_blockstore_t * blockstore = store->blockstore;
+
+  fd_blockstore_start_write( blockstore );
+  /* TODO remove this check when we can handle duplicate shreds and blocks */
+  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
+    fd_blockstore_end_write( blockstore );
+    return FD_BLOCKSTORE_OK;
+  }
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
+  fd_blockstore_end_write( blockstore );
+
+  /* FIXME */
+  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
+    FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
+  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    fd_pending_slots_add( store->pending_slots, shred->slot, store->now );
+  } else {
+    fd_pending_slots_add( store->pending_slots, shred->slot, store->now + FD_REPAIR_BACKOFF_TIME );
+  }
+  return rc;
+}
+
+void
+fd_store_add_pending( fd_store_t * store,
+                      ulong slot,
+                      ulong delay ) {
+  fd_pending_slots_add( store->pending_slots, slot, store->now + (long)delay );
 }

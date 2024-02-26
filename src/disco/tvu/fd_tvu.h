@@ -11,11 +11,13 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "fd_replay.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "fd_store.h"
 
 typedef struct {
   fd_repair_t *        repair;
   fd_blockstore_t *    blockstore;
   fd_replay_t *        replay;
+  fd_store_t *         store;
   fd_exec_slot_ctx_t * slot_ctx;
   fd_tpool_t *         tpool;
   ulong                max_workers;

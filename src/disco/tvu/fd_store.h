@@ -9,7 +9,6 @@
 #define FD_STORE_SLOT_PREPARE_CONTINUE            (0)
 #define FD_STORE_SLOT_PREPARE_NEED_ORPHAN         (1)
 #define FD_STORE_SLOT_PREPARE_NEED_REPAIR         (2)
-#define FD_STORE_SLOT_PREPARE_NEED_PARENT_REPAIR  (3)
 
 /* The standard amount of time that we wait before repeating a slot */
 #define FD_REPAIR_BACKOFF_TIME ( (long)150e6 )
@@ -58,8 +57,18 @@ fd_store_delete( void * store );
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
+                       ulong *        repair_slot_out,
                        uchar const ** block_out,
                        ulong *        block_sz_out );
+
+int
+fd_store_shred_insert( fd_store_t * store,
+                       fd_shred_t const * shred );
+
+void
+fd_store_add_pending( fd_store_t * store,
+                      ulong slot,
+                      ulong delay );
 
 FD_PROTOTYPES_END
 

@@ -102,7 +102,7 @@ repair_deliver_fun( fd_shred_t const *                            shred,
                     FD_PARAM_UNUSED fd_pubkey_t const *           id,
                     void *                                        arg ) {
   fd_tvu_repair_ctx_t * repair_ctx = (fd_tvu_repair_ctx_t *)arg;
-  fd_replay_repair_rx( repair_ctx->replay, shred );
+  fd_store_shred_insert( repair_ctx->store, shred );
 }
 
 static void
@@ -302,6 +302,7 @@ struct fd_turbine_thread_args {
   volatile int * stopflag;
   int            tvu_fd;
   fd_replay_t *  replay;
+  fd_store_t *   store;
 };
 
 static void * fd_turbine_thread( void * ptr );
@@ -322,6 +323,68 @@ struct fd_gossip_thread_args {
 
 static void * fd_gossip_thread( void * ptr );
 
+fd_replay_slot_ctx_t *
+fd_tvu_slot_prepare( int store_slot_prepare_mode,
+                     fd_replay_t * replay,
+                     fd_repair_t * repair,
+                     ulong slot ) {
+
+  switch( store_slot_prepare_mode ) {
+    case FD_STORE_SLOT_PREPARE_CONTINUE: {
+      break;
+    }
+    case FD_STORE_SLOT_PREPARE_NEED_REPAIR: {
+      fd_replay_slot_repair( replay, slot );
+      return NULL;
+    }
+    case FD_STORE_SLOT_PREPARE_NEED_ORPHAN: {
+      fd_repair_need_orphan( repair, slot );
+      return NULL;
+    }
+    default: {
+      FD_LOG_ERR(( "unrecognized store slot prepare mode" ));
+    }
+  }
+  
+  if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
+    fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
+    if( !slot_meta ) {
+      FD_LOG_ERR(( "slot meta not found for newly prepared slot" ));
+    }
+
+    ulong parent_slot = slot_meta->parent_slot;
+    /* Query for the parent in the frontier */
+    fd_replay_slot_ctx_t * parent =
+        fd_replay_frontier_ele_query( replay->frontier, &parent_slot, NULL, replay->pool );
+
+    /* If the parent block is both present and executed (see earlier conditionals), but isn't in the
+      frontier, that means this block is starting a new fork and the parent needs to be added to the
+      frontier. This requires rolling back to that txn in funk, and then inserting it into the
+      frontier. */
+
+    if( FD_UNLIKELY( !parent ) ) {
+      /* Alloc a new slot_ctx */
+      parent       = fd_replay_pool_ele_acquire( replay->pool );
+      parent->slot = parent_slot;
+
+      /* Format and join the slot_ctx */
+      fd_exec_slot_ctx_t * slot_ctx =
+          fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &parent->slot_ctx ) );
+      if( FD_UNLIKELY( !slot_ctx ) ) { FD_LOG_ERR( ( "failed to new and join slot_ctx" ) ); }
+
+      /* Restore and decode w/ funk */
+      fd_replay_slot_ctx_restore( replay, parent->slot, slot_ctx );
+
+      /* Add to frontier */
+      fd_replay_frontier_ele_insert( replay->frontier, parent, replay->pool );
+    }
+
+    return parent;
+  }
+
+  return NULL;
+}
+
 int
 fd_tvu_main( fd_gossip_t *         gossip,
              fd_gossip_config_t *  gossip_config,
@@ -333,8 +396,8 @@ fd_tvu_main( fd_gossip_t *         gossip,
              char const *          tvu_addr_,
              char const *          tvu_fwd_addr_ ) {
 
-  repair_ctx->replay->now = fd_log_wallclock();
-
+  repair_ctx->store->now = repair_ctx->replay->now = fd_log_wallclock();
+  
   /* initialize gossip */
   int gossip_fd = fd_tvu_create_socket( &gossip_config->my_addr );
   gossip_sockfd = gossip_fd;
@@ -381,7 +444,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
-    { .stopflag = stopflag, .tvu_fd = tvu_fd, .replay = repair_ctx->replay };
+    { .stopflag = stopflag, .tvu_fd = tvu_fd, .replay = repair_ctx->replay, .store = repair_ctx->store };
   pthread_t turb_thread;
   int rc = pthread_create( &turb_thread, NULL, fd_turbine_thread, &ttarg );
   if (rc)
@@ -414,15 +477,18 @@ fd_tvu_main( fd_gossip_t *         gossip,
       last_stats = now;
     }
     repair_ctx->replay->now = now;
+    repair_ctx->store->now = now;
 
     /* Try to progress replay */
     fd_replay_t * replay = repair_ctx->replay;
-    for (ulong i = fd_replay_pending_iter_init( replay );
-         (i = fd_replay_pending_iter_next( replay, now, i )) != ULONG_MAX; ) {
+    fd_store_t * store = repair_ctx->store;
+    for (ulong i = fd_pending_slots_iter_init( store->pending_slots );
+         (i = fd_pending_slots_iter_next( store->pending_slots, now, i )) != ULONG_MAX; ) {
       uchar const * block;
       ulong         block_sz = 0;
-      fd_replay_slot_ctx_t * parent_slot_ctx =
-        fd_replay_slot_prepare( replay, i, &block, &block_sz );
+      ulong repair_slot = FD_SLOT_NULL;
+      int store_slot_prepare_mode = fd_store_slot_prepare( store, i, &repair_slot, &block, &block_sz );
+      fd_replay_slot_ctx_t * parent_slot_ctx = fd_tvu_slot_prepare( store_slot_prepare_mode, replay, repair_ctx->repair, repair_slot );
       if( FD_LIKELY( parent_slot_ctx ) ) {
         fd_replay_slot_execute( replay, i, parent_slot_ctx, block, block_sz );
       }
@@ -454,6 +520,66 @@ fd_tvu_setup_scratch( fd_valloc_t valloc ) {
   FD_TEST( ( !!smem ) & ( !!fmem ) );
   fd_scratch_attach( smem, fmem, smax, sdepth );
   return smax;
+}
+
+static void
+fd_tvu_turbine_rx( fd_replay_t * replay, 
+                   fd_store_t * store,
+                   fd_shred_t const * shred, 
+                   ulong shred_sz ) {
+  FD_LOG_DEBUG( ( "[turbine] received shred - type: %x slot: %lu idx: %u",
+                  fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
+                  shred->slot,
+                  shred->idx ) );
+  fd_pubkey_t const *  leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  fd_fec_set_t const * out_fec_set = NULL;
+  fd_shred_t const *   out_shred   = NULL;
+  int                  rc          = fd_fec_resolver_add_shred(
+      replay->fec_resolver, shred, shred_sz, leader->uc, &out_fec_set, &out_shred );
+  if( rc == FD_FEC_RESOLVER_SHRED_COMPLETES ) {
+    if( FD_UNLIKELY( replay->turbine_slot == FD_SLOT_NULL ) ) {
+      replay->turbine_slot = shred->slot;
+    }
+    fd_shred_t * parity_shred = (fd_shred_t *)fd_type_pun( out_fec_set->parity_shreds[0] );
+    FD_LOG_DEBUG( ( "slot: %lu. parity: %lu. data: %lu",
+                    parity_shred->slot,
+                    parity_shred->code.code_cnt,
+                    parity_shred->code.data_cnt ) );
+    
+    /* Start repairs in 300ms */
+    ulong slot = parity_shred->slot;
+    fd_store_add_pending( store, slot, (ulong)300e6 );
+
+    fd_blockstore_t * blockstore = store->blockstore;
+    fd_blockstore_start_write( blockstore );
+
+    if( fd_blockstore_block_query( blockstore, slot ) != NULL ) {
+      fd_blockstore_end_write( blockstore );
+      return;
+    }
+
+    for( ulong i = 0; i < parity_shred->code.data_cnt; i++ ) {
+      fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( out_fec_set->data_shreds[i] );
+      FD_LOG_DEBUG(
+          ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
+      int rc = fd_store_shred_insert( store, shred );
+      if( rc < FD_BLOCKSTORE_OK ) {
+        FD_LOG_ERR(( "error storing shred from turbine" ));
+      }
+      // int rc = fd_blockstore_shred_insert( blockstore, data_shred );
+      // if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
+      //   FD_LOG_NOTICE(( "[turbine] slot %lu complete", slot ));
+        
+      //   fd_blockstore_end_write( blockstore );
+        
+      //   /* Execute immediately */
+      //   fd_replay_add_pending( replay, slot, 0 );
+      //   return;
+      // }
+    }
+    
+    fd_blockstore_end_write( blockstore );
+  }
 }
 
 static void *
@@ -492,7 +618,7 @@ fd_turbine_thread( void * ptr ) {
       fd_gossip_peer_addr_t from;
       gossip_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       fd_shred_t const * shred = fd_shred_parse( bufs[i], msgs[i].msg_len );
-      fd_replay_turbine_rx( args->replay, shred, msgs[i].msg_len );
+      fd_tvu_turbine_rx( args->replay, args->store, shred, msgs[i].msg_len );
     }
   }
   return NULL;
@@ -993,6 +1119,19 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.fun_arg = repair_ctx;
 
     if( fd_repair_set_config( repair, &runtime_ctx->repair_config ) ) runtime_ctx->blowup = 1;
+
+    /**********************************************************************/
+    /* Store                                                              */
+    /**********************************************************************/
+    void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
+    fd_store_t * store     = fd_store_join( fd_store_new( store_mem ) );
+    store->blockstore = blockstore;
+    store->smr = snapshot_slot;
+    store->snapshot_slot = snapshot_slot;
+    store->turbine_slot = FD_SLOT_NULL;
+    store->valloc = valloc;
+
+    repair_ctx->store = store;
 
     /**********************************************************************/
     /* Gossip                                                             */

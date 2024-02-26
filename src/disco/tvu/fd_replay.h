@@ -181,15 +181,6 @@ fd_replay_delete( void * replay );
 /* fd_replay_add_pending adds the slot to the list of slots which
    require attention (getting shreds or executing). delay is the
    number of nanosecs before we should actually act on this. */
-void
-fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay );
-
-ulong
-fd_replay_pending_iter_init( fd_replay_t * replay );
-
-/* Returns ULONG_MAX if there are no more */
-ulong
-fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong iter );
 
 /* fd_replay_shred_insert inserts a shred into the blockstore. If this completes a block, and it is
    connected to a frontier fork, it also executes the block and updates the frontier accordingly. */
@@ -201,20 +192,20 @@ fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred );
 void
 fd_replay_slot_parent_query( fd_replay_t * replay, ulong slot );
 
-/* fd_replay_slot_prepare prepares slot for execution. It does 3 things:
-     1. the block for that slot is complete.
-     2. the block is not an orphan (parent block is present).
-     3. checks if the parent block is in the frontier (adding it if not).
+// /* fd_replay_slot_prepare prepares slot for execution. It does 3 things:
+//      1. the block for that slot is complete.
+//      2. the block is not an orphan (parent block is present).
+//      3. checks if the parent block is in the frontier (adding it if not).
 
-   It is intended to be called in a loop as shreds are asynchronously received.
+//    It is intended to be called in a loop as shreds are asynchronously received.
 
-   Returns FD_REPLAY_READY on 3, otherwise FD_REPLAY_PENDING.
-*/
-fd_replay_slot_ctx_t *
-fd_replay_slot_prepare( fd_replay_t *  replay,
-                        ulong          slot,
-                        uchar const ** block_out,
-                        ulong *        block_sz_out );
+//    Returns FD_REPLAY_READY on 3, otherwise FD_REPLAY_PENDING.
+// */
+// fd_replay_slot_ctx_t *
+// fd_replay_slot_prepare( fd_replay_t *  replay,
+//                         ulong          slot,
+//                         uchar const ** block_out,
+//                         ulong *        block_sz_out );
 
 /* fd_replay_slot_execute executes block at slot_ctx. Intended to be called after
    fd_replay_slot_prepare returns successfully.  */
@@ -236,9 +227,6 @@ fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t
 
 void
 fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shred_sz );
-
-void
-fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred );
 
 FD_PROTOTYPES_END
 
