@@ -1,6 +1,8 @@
 #include "fd_vm_interp.h"
 #include "syscall/fd_vm_syscall.h" /* FIXME: HMMM ... MAYBE INTERP AND SYSCALLS SHOULD BE COMBINED */
 
+#define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
+
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _ctx,
                      /**/            ulong   arg0,
@@ -20,7 +22,10 @@ test_program_success( char *            test_case_name,
                       fd_sbpf_instr_t * instrs ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
-  fd_sbpf_syscalls_t syscalls;
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint()) );
+  FD_TEST( syscalls );
+
+  fd_vm_register_syscall( syscalls, "accumulator", accumulator_syscall );
 
   fd_vm_exec_context_t ctx = {
     .entrypoint = 0,
@@ -28,10 +33,13 @@ test_program_success( char *            test_case_name,
     .instruction_counter = 0,
     .instrs = instrs,
     .instrs_sz = instrs_sz,
-    .syscall_map = &syscalls,
+    .syscall_map = syscalls,
+    .compute_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
+    .due_insn_cnt = 0,
+    .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
+    .heap_sz = FD_VM_DEFAULT_HEAP_SZ,
+    .alloc               = {.offset = 0}
   };
-
-  fd_vm_register_syscall( ctx.syscall_map, "accumulator", accumulator_syscall );
 
   ulong validation_res = fd_vm_context_validate( &ctx );
   if (validation_res != 0) {
@@ -42,9 +50,13 @@ test_program_success( char *            test_case_name,
   long dt = -fd_log_wallclock();
   fd_vm_interp_instrs( &ctx );
   dt += fd_log_wallclock();
+
+  free( syscalls );
   if (expected_result != ctx.register_file[0]) {
     FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
     FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
+    FD_LOG_WARNING(( "Cond fault: %lu 0x%lx", ctx.cond_fault, ctx.cond_fault));
+    FD_LOG_WARNING(( "IC: %lu 0x%lx", ctx.instruction_counter, ctx.instruction_counter));
   }
   FD_TEST( ctx.register_file[0]==expected_result );
 //FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));
@@ -793,7 +805,7 @@ main( int     argc,
 #endif
 
   TEST_PROGRAM_SUCCESS("prime", 0x1, 16,
-    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 100000007),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 10007),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0,  0,      0, 0x1),
     FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 0x2),
     FD_SBPF_INSTR(FD_SBPF_OP_JGT_IMM,   FD_SBPF_R1,  0,     +4, 0x2),
