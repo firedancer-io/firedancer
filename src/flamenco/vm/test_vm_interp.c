@@ -38,7 +38,7 @@ test_program_success( char *            test_case_name,
     .due_insn_cnt = 0,
     .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
     .heap_sz = FD_VM_DEFAULT_HEAP_SZ,
-    .alloc               = {.offset = 0}
+    .alloc               = { {.offset = 0} }
   };
 
   ulong validation_res = fd_vm_context_validate( &ctx );

@@ -1222,49 +1222,8 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   return FD_VM_SUCCESS;
 }
 
-int
-fd_vm_syscall_sol_alloc_free( /**/            void *  _ctx,
-                              /**/            ulong   sz,
-                              /**/            ulong   free_addr,
-                              FD_PARAM_UNUSED ulong   arg2,
-                              FD_PARAM_UNUSED ulong   arg3,
-                              FD_PARAM_UNUSED ulong   arg4,
-                              /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  /* Value to return */
-  ulong r0 = 0UL;
-
-  ulong align = ctx->check_align ? 8UL : 1UL;
-
-  fd_vm_heap_allocator_t * alloc = &ctx->alloc;
-
-  /* Non-zero free address implies that this is a free() call.
-     However, we provide a bump allocator, so free is a no-op. */
-
-  if( free_addr ) goto fini;
-
-  /* Rest of function provides malloc() ... */
-
-  ulong pos   = fd_ulong_align_up( alloc->offset, align );
-  ulong vaddr = fd_ulong_sat_add ( pos,           FD_VM_MEM_MAP_HEAP_REGION_START );
-        pos   = fd_ulong_sat_add ( pos,           sz    );
-
-  /* Bail if allocation overruns heap size */
-
-  if( FD_UNLIKELY( pos > ctx->heap_sz ) ) goto fini;
-
-  /* Success. Return virtual address of allocation and update allocator */
-
-  r0            = vaddr;
-  alloc->offset = pos;
-
-fini:
-  *_ret = r0;
-  return FD_VM_SUCCESS;
-}
-
 /* FIXME: PREFIX?  BRANCHLESS? */
+/* FIXME: IS SAT SUB NEEDED GIVEN THE SRC>DST CHECK? */
 static inline int
 is_nonoverlapping( ulong src, ulong src_len,
                    ulong dst, ulong dst_len ) {
@@ -1337,139 +1296,6 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
   if( !len ) fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.data, return_data, len );
 
   *_ret = 0;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_stack_height( /**/            void *  _ctx,
-                                    FD_PARAM_UNUSED ulong   arg0,
-                                    FD_PARAM_UNUSED ulong   arg1,
-                                    FD_PARAM_UNUSED ulong   arg2,
-                                    FD_PARAM_UNUSED ulong   arg3,
-                                    FD_PARAM_UNUSED ulong   arg4,
-                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  int err = fd_vm_consume_compute( ctx, vm_compute_budget.syscall_base_cost );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  *_ret = ctx->instr_ctx->txn_ctx->instr_stack_sz;
-  return FD_VM_SUCCESS;
-}
-
-/**********************************************************************
-   SYSVAR GETTERS
- **********************************************************************/
-
-int
-fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _ctx,
-                                    /**/            ulong   out_addr,
-                                    FD_PARAM_UNUSED ulong   arg1,
-                                    FD_PARAM_UNUSED ulong   arg2,
-                                    FD_PARAM_UNUSED ulong   arg3,
-                                    FD_PARAM_UNUSED ulong   arg4,
-                                    /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  FD_TEST( ctx->instr_ctx->instr );  /* TODO */
-
-  int err = fd_vm_consume_compute( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sol_sysvar_clock_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_sol_sysvar_clock_t clock;
-  fd_sol_sysvar_clock_new( &clock );
-  fd_sysvar_clock_read( &clock, ctx->instr_ctx->slot_ctx );
-
-  void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_sol_sysvar_clock_t), FD_SOL_SYSVAR_CLOCK_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _ctx,
-                                             /**/            ulong   out_addr,
-                                             FD_PARAM_UNUSED ulong   arg1,
-                                             FD_PARAM_UNUSED ulong   arg2,
-                                             FD_PARAM_UNUSED ulong   arg3,
-                                             FD_PARAM_UNUSED ulong   arg4,
-                                             /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  FD_TEST( ctx->instr_ctx->instr );  /* TODO */
-
-  int err = fd_vm_consume_compute( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_epoch_schedule_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_epoch_schedule_t schedule;
-  fd_epoch_schedule_new( &schedule );
-  fd_sysvar_epoch_schedule_read( &schedule, ctx->instr_ctx->slot_ctx );
-
-  void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_epoch_schedule_t), FD_EPOCH_SCHEDULE_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out, &schedule, sizeof(fd_epoch_schedule_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _ctx,
-                                   /**/            ulong   out_addr,
-                                   FD_PARAM_UNUSED ulong   arg1,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  FD_TEST( ctx->instr_ctx->instr );  /* TODO */
-
-  int err = fd_vm_consume_compute( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sysvar_fees_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_sysvar_fees_t fees;
-  fd_sysvar_fees_new( &fees );
-  fd_sysvar_fees_read( &fees, ctx->instr_ctx->slot_ctx );
-
-  void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_sysvar_fees_t), FD_SYSVAR_FEES_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out, &fees, sizeof(fd_sysvar_fees_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _ctx,
-                                   /**/            ulong   out_addr,
-                                   FD_PARAM_UNUSED ulong   arg1,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  FD_TEST( ctx->instr_ctx->instr );  /* TODO */
-
-  int err = fd_vm_consume_compute( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_rent_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_sysvar_rent_read( &rent, ctx->instr_ctx->slot_ctx );
-
-  void * out = fd_vm_translate_vm_to_host( ctx, out_addr, sizeof(fd_rent_t), FD_RENT_ALIGN );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out, &rent, sizeof(fd_rent_t) );
-
-  *_ret = 0UL;
   return FD_VM_SUCCESS;
 }
 
@@ -1674,15 +1500,4 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
 fini:
   *_ret = r0;
   return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_processed_sibling_instruction( FD_PARAM_UNUSED void *  _ctx,
-                                                     FD_PARAM_UNUSED ulong   arg0,
-                                                     FD_PARAM_UNUSED ulong   arg1,
-                                                     FD_PARAM_UNUSED ulong   arg2,
-                                                     FD_PARAM_UNUSED ulong   arg3,
-                                                     FD_PARAM_UNUSED ulong   arg4,
-                                                     FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_ERR_UNSUP;
 }
