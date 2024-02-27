@@ -1,8 +1,6 @@
 #include "tiles.h"
 
 #include "generated/pack_seccomp.h"
-/* TODO: fd_stake_ci probably belongs elsewhere */
-#include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/shred/fd_shredder.h"
 
 #include "../../../../ballet/pack/fd_pack.h"
@@ -15,8 +13,7 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define STAKE_INFO_IN_IDX (2UL)
-#define POH_IN_IDX (3UL)
+#define POH_IN_IDX (2UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -94,8 +91,6 @@ typedef struct {
   fd_pack_t *  pack;
   fd_txn_p_t * cur_spot;
 
-  fd_pubkey_t identity_pubkey __attribute__((aligned(32UL)));
-
   /* The leader slot we are currently packing for, or ULONG_MAX if we
      are not the leader. */
   ulong  leader_slot;
@@ -123,8 +118,6 @@ typedef struct {
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
-
-  fd_stake_ci_t stake_ci[ 1 ];
 } fd_pack_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -262,11 +255,6 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( in_idx == STAKE_INFO_IN_IDX ) ) {
-    fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
-    return;
-  }
-
   ctx->cur_spot              = fd_pack_insert_txn_init( ctx->pack );
 
   ulong payload_sz;
@@ -339,8 +327,6 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
-  } else if( FD_UNLIKELY( in_idx == STAKE_INFO_IN_IDX ) ) {
-    fd_stake_ci_stake_msg_fini( ctx->stake_ci );
   } else {
     /* Normal transaction case */
     long insert_duration = -fd_tickcount();
@@ -351,25 +337,6 @@ after_frag( void *             _ctx,
 
     ctx->cur_spot = NULL;
   }
-}
-
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile,
-                 void *           scratch ) {
-  (void)topo;
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-
-  if( FD_UNLIKELY( !strcmp( tile->pack.identity_key_path, "" ) ) )
-    FD_LOG_ERR(( "identity_key_path not set" ));
-
-  /* This seems like overkill for just the public key, but it's not
-     really easy to load just the public key without also getting the
-     private key. */
-  void const * identity_pubkey = load_key_into_protected_memory( tile->pack.identity_key_path, 1 /* public_key_only */ );
-  ctx->identity_pubkey = *(fd_pubkey_t const *)identity_pubkey;
 }
 
 static void
@@ -418,8 +385,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
-
-  fd_stake_ci_join( fd_stake_ci_new( ctx->stake_ci, &(ctx->identity_pubkey) ) );
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
@@ -487,6 +452,5 @@ fd_tile_config_t fd_tile_pack = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
 };
