@@ -36,18 +36,24 @@
 #define FD_VM_MAX_HEAP_SZ (256*1024)
 #define FD_VM_DEFAULT_HEAP_SZ (32*1024)
 
-/* fd_vm_heap_allocator_t is the state of VM's native allocator backing
-   the sol_alloc_free_ syscall.  Provides a naive bump allocator.
-   Obviously, this feature is redundant.  The same allocation logic
-   could trivially be implemented in on-chain bytecode.
+/* fd_vm_heap_allocator_t provides the allocator backing the
+   sol_alloc_free_ syscall.
 
-   TODO Document if this is a legacy feature.  I think it has been
-        removed in later runtime versions. */
+   IMPORANT SAFETY TIP!  THE BEHAVIOR OF THIS HEAP ALLOCATOR MUST MATCH
+   THE SOLANA VALIDATOR HEAP ALLOCATOR:
+
+   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
+
+   BIT-FOR-BIT AND BUG-FOR-BUG.  SEE THE SYSCALL_ALLOC_FREE FOR MORE
+   DETAILS.
+
+   Like many syscalls, the same allocation logic could trivially be
+   implemented in on-chain bytecode. */
 
 struct fd_vm_heap_allocator {
-  ulong offset;   /* Points to beginning of free region within heap,
-                     relative to start of heap region. */
+  ulong offset; /* Points to beginning of free region within heap, relative to start of heap region. */
 };
+
 typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
 
 /* FIXME: SHOULD COMPUTE BUDGET BE COMPILE TIME? */
@@ -204,13 +210,16 @@ struct fd_vm_exec_context {
   fd_exec_instr_ctx_t * instr_ctx;
 
   /* Miscellaneous native state:
+
      Below contains state of syscall logic for the lifetime of the
-     execution context.
-     TODO Separate this out from the core virtual machine */
-  fd_vm_heap_allocator_t alloc; /* Bump allocator provided through syscall */
+     execution context.  FIXME: Consider separating this out from the
+     core virtual machine? */
+
+  fd_vm_heap_allocator_t alloc[1]; /* Bump allocator provided through syscall */
 
   fd_vm_trace_context_t * trace_ctx;
 };
+
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
 FD_PROTOTYPES_BEGIN

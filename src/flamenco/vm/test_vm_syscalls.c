@@ -170,7 +170,6 @@ if( FD_UNLIKELY( syscall_ret!=expected_syscall_ret ) ) FD_LOG_WARNING(( "%s suck
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
-
 int
 main( int     argc,
       char ** argv ) {
