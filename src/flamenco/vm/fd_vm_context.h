@@ -215,9 +215,10 @@ typedef struct fd_vm_exec_context fd_vm_exec_context_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_consume_compute consume `cost` compute units from ctx.
+/* fd_vm_consume_compute consumes `cost` compute units from ctx.
    Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET (negative)
    on failure. */
+/* FIXME: NAME */
 
 static inline int
 fd_vm_consume_compute( fd_vm_exec_context_t * ctx,
@@ -226,6 +227,19 @@ fd_vm_consume_compute( fd_vm_exec_context_t * ctx,
   ulong consumed      = fd_ulong_min( cost, compute_meter );
   ctx->compute_meter  = compute_meter - consumed;
   return consumed<=cost ? FD_VM_SUCCESS : FD_VM_ERR_BUDGET; /* cmov */
+}
+
+/* fd_vm_consume_mem consumes 'sz' bytes equivalent compute units from
+   ctx.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET
+   (negative) on failure.  FIXME: IT IS HIGHLY DEBATABLE SZ 0 SHOULD
+   HAVE ZERO COST DUE TO THINGS LIKE ADDRESS TRANSLATIONS AND WHAT NOT. */
+/* FIXME: NAME */
+
+static inline int
+fd_vm_consume_mem( fd_vm_exec_context_t * ctx,
+                   ulong                  sz ) {
+  ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost, sz / vm_compute_budget.cpi_bytes_per_unit );
+  return fd_vm_consume_compute( ctx, cost );
 }
 
 /* Validates the sBPF program from the given context. Returns success or an error code. */
