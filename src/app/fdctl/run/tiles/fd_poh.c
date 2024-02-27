@@ -393,7 +393,7 @@ typedef struct {
   /* We need to tell pack when we are done with a microblock so that it
      can reschedule (unlock) the accounts that were in it. */
   ulong * pack_busy[ 32 ];
-  
+
   fd_sha256_t * sha256;
   void * bmtree;
 
@@ -418,6 +418,13 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  struct {
+    ulong replay_too_early;
+    ulong replay_too_late;
+    ulong replay_no_longer_leader;
+    ulong leader_slot_missed_backpressure;
+  } deferred_metrics;
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -451,7 +458,22 @@ static fd_poh_ctx_t * fd_poh_global_ctx;
 static volatile ulong fd_poh_waiting_lock __attribute__((aligned(128UL)));
 static volatile ulong fd_poh_returned_lock __attribute__((aligned(128UL)));
 
-static fd_poh_ctx_t *
+/* To help show correctness, functions that might be called from
+   Rust, either directly or indirectly, have this fake "attribute"
+   CALLED_FROM_RUST, which is actually nothing.  Calls from Rust
+   typically execute on threads did not call fd_boot, so they do not
+   have the typical FD_TL variables.  In particular, they cannot use
+   normal metrics, and their log messages don't have full context.
+   Additionally, Rust functions marked CALLED_FROM_RUST cannot call back
+   into a C fd_ext function without causing a deadlock (although the
+   other Rust fd_ext functions have a similar problem).
+
+   To prevent annotation from polluting the whole codebase, calls to
+   functions outside this file are manually checked and marked as being
+   safe at each call rather than annotated. */
+#define CALLED_FROM_RUST
+
+static CALLED_FROM_RUST fd_poh_ctx_t *
 fd_ext_poh_write_lock( void ) {
   for(;;) {
     /* Acquire the waiter lock to make sure we are the first writer in the queue. */
@@ -468,7 +490,7 @@ fd_ext_poh_write_lock( void ) {
   return fd_poh_global_ctx;
 }
 
-static void
+static CALLED_FROM_RUST void
 fd_ext_poh_write_unlock( void ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( fd_poh_returned_lock ) = 0UL;
@@ -481,13 +503,13 @@ fd_ext_poh_write_unlock( void ) {
    not need any locking, since they are called serially from the single
    PoH tile. */
 
-extern void fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
-extern void fd_ext_bank_acquire( void const * bank );
-extern void fd_ext_bank_release( void const * bank );
-extern void fd_ext_bank_release_thunks( void * load_and_execute_output );
-extern void fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
-extern void fd_ext_poh_signal_leader_change( void * sender );
-extern void fd_ext_poh_register_tick( void const * bank, uchar const * hash );
+extern                  void fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
+extern CALLED_FROM_RUST void fd_ext_bank_acquire( void const * bank );
+extern CALLED_FROM_RUST void fd_ext_bank_release( void const * bank );
+extern                  void fd_ext_bank_release_thunks( void * load_and_execute_output );
+extern                  void fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
+extern CALLED_FROM_RUST void fd_ext_poh_signal_leader_change( void * sender );
+extern                  void fd_ext_poh_register_tick( void const * bank, uchar const * hash );
 
 /* fd_ext_poh_initialize is called by Solana Labs on startup to
    initialize the PoH tile with some static configuration, and the
@@ -505,7 +527,7 @@ extern void fd_ext_poh_register_tick( void const * bank, uchar const * hash );
    It can be used with `fd_ext_poh_signal_leader_change` which
    will just issue a nonblocking send on the channel. */
 
-void
+CALLED_FROM_RUST void
 fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */
                        ulong         hashcnt_per_tick,    /* See clock comments above, will be 12,500 for mainnet-beta. */
                        ulong         ticks_per_slot,      /* See clock comments above, will almost always be 64. */
@@ -519,13 +541,13 @@ fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments 
     FD_SPIN_PAUSE();
   }
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
-  
+
   ctx->hashcnt             = tick_height*hashcnt_per_tick;
   ctx->last_hashcnt        = ctx->hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
-  ctx->reset_slot_start_ns = fd_log_wallclock();
+  ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
-  fd_memcpy( ctx->hash, last_entry_hash, 32UL );
+  memcpy( ctx->hash, last_entry_hash, 32UL );
 
   ctx->signal_leader_change = signal_leader_change;
 
@@ -553,7 +575,7 @@ fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments 
    If there is no leader bank, NULL is returned.  In this case, the
    caller should not call `Arc::from_raw()`. */
 
-void const *
+CALLED_FROM_RUST void const *
 fd_ext_poh_acquire_leader_bank( void ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
   void const * bank = NULL;
@@ -570,7 +592,7 @@ fd_ext_poh_acquire_leader_bank( void ) {
    (unskipped) slot we are building on top of.  This is always a good
    known value, and will not be ULONG_MAX. */
 
-ulong
+CALLED_FROM_RUST ulong
 fd_ext_poh_reset_slot( void ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
   ulong reset_slot = ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot;
@@ -581,17 +603,17 @@ fd_ext_poh_reset_slot( void ) {
 /* fd_ext_poh_reached_leader_slot returns 1 if we have reached a slot
    where we are leader.  This is used by the replay stage to determine
    if it should create a new leader bank descendant of the prior reset
-   slot block. 
-   
+   slot block.
+
    Sometimes, even when we reach our slot we do not return 1, as we are
    giving a grace period to the prior leader to finish publishing their
-   block. 
-   
+   block.
+
    out_leader_slot is the slot height of the leader slot we reached, and
    reset_slot is the slot height of the last good (unskipped) slot we
    are building on top of. */
 
-int
+CALLED_FROM_RUST int
 fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
                                 ulong * out_reset_slot ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
@@ -616,9 +638,9 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
   }
 
   if( FD_LIKELY( slot>=1UL ) ) {
-    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot-1UL );
+    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot-1UL ); /* Safe to call from Rust */
     if( FD_LIKELY( leaders ) ) {
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot-1UL );
+      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot-1UL ); /* Safe to call from Rust */
       if( FD_LIKELY( leader ) ) {
         if( FD_UNLIKELY( !memcmp( leader->uc, ctx->identity_key.uc, 32UL ) ) ) {
           /* We were the leader in the previous slot, so also no need for
@@ -658,7 +680,7 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
    is by the replay stage.  See the notes in the long comment above for
    more on how this works. */
 
-void
+CALLED_FROM_RUST void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
@@ -669,8 +691,8 @@ fd_ext_poh_begin_leader( void const * bank,
   ulong current_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   if( FD_UNLIKELY( slot!=current_slot ) ) {
     /* Already timed out.. nothing to do. */
-    if( FD_LIKELY( slot<current_slot ) ) FD_MCNT_INC( POH_TILE, REPLAY_TOO_EARLY, 1UL );
-    else                                 FD_MCNT_INC( POH_TILE, REPLAY_TOO_LATE, 1UL );
+    if( FD_LIKELY( slot<current_slot ) ) ctx->deferred_metrics.replay_too_early++;
+    else                                 ctx->deferred_metrics.replay_too_late ++;
 
     fd_ext_poh_write_unlock();
     return;
@@ -684,7 +706,7 @@ fd_ext_poh_begin_leader( void const * bank,
        and now we don't think we are leader anymore.  PoH is probably
        correct in this case, so just miss the slot, and let fork
        selection figure it out. */
-    FD_MCNT_INC( POH_TILE, REPLAY_NO_LONGER_LEADER, 1UL );
+    ctx->deferred_metrics.replay_no_longer_leader++;
     fd_ext_poh_write_unlock();
     return;
   }
@@ -699,7 +721,7 @@ fd_ext_poh_begin_leader( void const * bank,
    leader.  Includes the current slot.  If we are not leader in what
    remains of the current and next epoch, return ULONG_MAX. */
 
-static inline ulong
+static inline CALLED_FROM_RUST ulong
 next_leader_slot_hashcnt( fd_poh_ctx_t * ctx ) {
   ulong current_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   /* If we have published anything in a particular slot, then we
@@ -716,11 +738,11 @@ next_leader_slot_hashcnt( fd_poh_ctx_t * ctx ) {
   current_slot = fd_ulong_max( current_slot, 1UL+(ctx->last_hashcnt-1UL)/ctx->hashcnt_per_slot );
 
   for(;;) {
-    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, current_slot );
+    fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, current_slot ); /* Safe to call from Rust */
     if( FD_UNLIKELY( !leaders ) ) break;
 
     while( current_slot<(leaders->slot0+leaders->slot_cnt) ) {
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, current_slot );
+      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, current_slot ); /* Safe to call from Rust */
       if( FD_UNLIKELY( !memcmp( leader->key, ctx->identity_key.key, 32UL ) ) ) return current_slot*ctx->hashcnt_per_slot;
       current_slot++;
     }
@@ -729,13 +751,13 @@ next_leader_slot_hashcnt( fd_poh_ctx_t * ctx ) {
   return ULONG_MAX;
 }
 
-static void
+static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
   ctx->current_leader_bank = NULL;
   ctx->next_leader_slot_hashcnt = next_leader_slot_hashcnt( ctx );
   if( FD_UNLIKELY( ctx->send_leader_now_for_slot!=ULONG_MAX ) ) {
-    FD_MCNT_INC( POH_TILE, LEADER_SLOT_MISSED_BACKPRESSURE, 1UL );
+    ctx->deferred_metrics.leader_slot_missed_backpressure++;
     ctx->send_leader_now_for_slot = ULONG_MAX;
   }
   FD_COMPILER_MFENCE();
@@ -747,24 +769,24 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
    the active fork has finished a block and we need to reset our PoH to
    be ticking on top of the block it produced. */
 
-void
+CALLED_FROM_RUST void
 fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully produced a block */
                   uchar const * reset_blockhash  /* The hash of the last tick in the produced block */ ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   int leader_before_reset = ctx->hashcnt>=ctx->next_leader_slot_hashcnt;
 
-  fd_memcpy( ctx->hash, reset_blockhash, 32UL );
+  memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->hashcnt             = (reset_bank_slot+1UL)*ctx->hashcnt_per_slot;
   ctx->last_hashcnt        = ctx->hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
-  ctx->reset_slot_start_ns = fd_log_wallclock();
+  ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.
-       
+
        The order is important here, ctx->hashcnt must be updated before
        calling no_longer_leader. */
     no_longer_leader( ctx );
@@ -869,7 +891,7 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay stage, do not do any hashing.
-       
+
        This is not ideal, but greatly simplifies the control flow. */
     return;
   }
@@ -886,7 +908,7 @@ after_credit( void *             _ctx,
 
        (a) Ticks. These occur every 12,500 (hashcnt_per_tick) hashcnts,
            and there will be 64 (ticks_per_slot) of them in each slot.
-           
+
            Ticks must not have any transactions mixed into the hash.
            This is not strictly needed in theory, but is required by the
            current consensus protocol.
@@ -936,8 +958,8 @@ after_credit( void *             _ctx,
 }
 
 static inline void
-during_housekeeping( void * ctx ) {
-  (void)ctx;
+during_housekeeping( void * _ctx ) {
+  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( fd_poh_waiting_lock ) )  {
@@ -951,6 +973,12 @@ during_housekeeping( void * ctx ) {
     FD_VOLATILE( fd_poh_waiting_lock ) = 0UL;
   }
   FD_COMPILER_MFENCE();
+
+  FD_MCNT_INC( POH_TILE, REPLAY_TOO_EARLY,                ctx->deferred_metrics.replay_too_early                );
+  FD_MCNT_INC( POH_TILE, REPLAY_TOO_LATE,                 ctx->deferred_metrics.replay_too_late                 );
+  FD_MCNT_INC( POH_TILE, REPLAY_NO_LONGER_LEADER,         ctx->deferred_metrics.replay_no_longer_leader         );
+  FD_MCNT_INC( POH_TILE, LEADER_SLOT_MISSED_BACKPRESSURE, ctx->deferred_metrics.leader_slot_missed_backpressure );
+  memset( &ctx->deferred_metrics, '\0', sizeof(ctx->deferred_metrics) );
 }
 
 static inline void
@@ -1340,6 +1368,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_shred_version = tile->extra[ tile->in_cnt-1UL ];
   FD_TEST( fd_shred_version );
+
+  memset( &ctx->deferred_metrics, '\0', sizeof(ctx->deferred_metrics) );
 
   poh_link_init( &gossip_pack, topo, tile, 0UL );
   poh_link_init( &stake_out,   topo, tile, 1UL );
