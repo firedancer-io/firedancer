@@ -208,9 +208,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       FD_TEST( !link->mtu );
       void * reasm = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( link->depth, link->burst ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-        fd_frag_meta_t * joined_mcache = fd_mcache_join( mcache );
-        FD_TEST( fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL, joined_mcache ) );
-        fd_mcache_leave( joined_mcache );
+        FD_TEST( fd_tpu_reasm_new( reasm, link->depth, link->burst, 0UL ) );
       } else if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
         link->dcache = fd_tpu_reasm_join( reasm );
         if( FD_UNLIKELY( !link->dcache ) ) FD_LOG_ERR(( "fd_tpu_reasm_join failed" ));

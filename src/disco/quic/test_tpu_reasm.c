@@ -13,7 +13,8 @@ verify_state( fd_tpu_reasm_t * reasm,
   FD_TEST( reasm->slots_off  );
   FD_TEST( reasm->chunks_off );
 
-  fd_tpu_reasm_slot_t * slots  = fd_tpu_reasm_slots_laddr( reasm );
+  fd_tpu_reasm_slot_t * slots     = fd_tpu_reasm_slots_laddr   ( reasm );
+  uint *                pub_slots = fd_tpu_reasm_pub_slots_laddr( reasm );
 
   uint depth    = reasm->depth;
   uint burst    = reasm->burst;
@@ -26,10 +27,12 @@ verify_state( fd_tpu_reasm_t * reasm,
 
   /* Check for invalid state and duplicates in mcache */
 
-  for( fd_frag_meta_t * frag = mcache; frag < mcache+depth; frag++ ) {
+  for( ulong i = 0UL; i < depth; i++ ) {
+    fd_frag_meta_t * frag = mcache + i;
+    uint slot_idx = pub_slots[ i ];
+
     FD_TEST( frag->sz < FD_TPU_REASM_MTU );
 
-    uint slot_idx = (uint)frag->sig;
     FD_TEST( slot_idx<slot_cnt );
 
     fd_tpu_reasm_slot_t * slot = slots + slot_idx;
@@ -37,9 +40,8 @@ verify_state( fd_tpu_reasm_t * reasm,
 
     slot->state = (uchar)0x42;  /* mark as visited */
   }
-  for( fd_frag_meta_t * frag = mcache; frag < mcache+depth; frag++ ) {
-    fd_tpu_reasm_slot_t * slot = slots + frag->sig;
-    slot->state = FD_TPU_REASM_STATE_PUB;  /* undo */
+  for( ulong i = 0UL; i < depth; i++ ) {
+    slots[ pub_slots[ i ] ].state = FD_TPU_REASM_STATE_PUB;  /* undo */
   }
 
   /* Scan slots via queue (head to tail) */
@@ -105,15 +107,17 @@ main( int     argc,
   ulong seq = fd_mcache_seq0( mcache );
 
   static uchar __attribute__((aligned(FD_TPU_REASM_ALIGN)))
-  tpu_reasm_mem[ FD_TPU_REASM_FOOTPRINT( depth+burst ) ];
+  tpu_reasm_mem[ FD_TPU_REASM_FOOTPRINT( depth, burst ) ];
 
-  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig, mcache ) );
+  fd_tpu_reasm_t * reasm = fd_tpu_reasm_join( fd_tpu_reasm_new( tpu_reasm_mem, depth, burst, orig ) );
   FD_TEST( reasm );
 
-  /* Verify initial state of reasm */
+  FD_LOG_INFO(( "Test initialization" ));
 
   fd_tpu_reasm_slot_t * slots = fd_tpu_reasm_slots_laddr( reasm );
   FD_TEST( slots );
+  uint * pub_slots = fd_tpu_reasm_pub_slots_laddr( reasm );
+  FD_TEST( pub_slots );
   uchar * chunks = fd_tpu_reasm_chunks_laddr( reasm );
   FD_TEST( chunks );
 
@@ -121,8 +125,9 @@ main( int     argc,
 
   /* Confirm that memory regions are within bounds */
 
-  FD_TEST( reasm->slots_off  + (slot_cnt * sizeof(fd_tpu_reasm_slot_t)) <= sizeof(tpu_reasm_mem) );
-  FD_TEST( reasm->chunks_off + (slot_cnt * FD_TPU_REASM_MTU)            <= sizeof(tpu_reasm_mem) );
+  FD_TEST( reasm->slots_off     + (slot_cnt * sizeof(fd_tpu_reasm_slot_t)) <= sizeof(tpu_reasm_mem) );
+  FD_TEST( reasm->pub_slots_off + (depth    * sizeof(uint))                <= sizeof(tpu_reasm_mem) );
+  FD_TEST( reasm->chunks_off    + (slot_cnt * FD_TPU_REASM_MTU)            <= sizeof(tpu_reasm_mem) );
 
   /* Confirm that the data regions of slots don't overlap */
 
@@ -143,12 +148,12 @@ main( int     argc,
     memset( data, 0xFF, FD_TPU_REASM_MTU );
   }
 
-  /* Reininitalize */
+  FD_LOG_INFO(( "Test fd_tpu_reasm_reset" ));
 
-  fd_tpu_reasm_reset( reasm, mcache );
+  fd_tpu_reasm_reset( reasm );
   verify_state( reasm, mcache );
 
-  /* Confirm that invalid transactions don't get published */
+  FD_LOG_INFO(( "Test invalid txn" ));
 
   do {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_prepare( reasm, 0UL );
@@ -159,13 +164,13 @@ main( int     argc,
     FD_TEST( slot->state == FD_TPU_REASM_STATE_FREE );
     verify_state( reasm, mcache );
 
-    fd_frag_meta_t * mline = mcache + seq;
+    fd_frag_meta_t * mline = mcache + fd_mcache_line_idx( seq, depth );
     FD_TEST( mline->seq != seq );
 
     seq = fd_seq_inc( seq, 1UL );
   } while(0);
 
-  /* Confirm that basic publishing works */
+  FD_LOG_INFO(( "Test basic publishing" ));
 
   do {
     fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_prepare( reasm, 0UL );
@@ -177,10 +182,12 @@ main( int     argc,
     FD_TEST( slot->state == FD_TPU_REASM_STATE_PUB );
     verify_state( reasm, mcache );
 
-    fd_frag_meta_t * mline = mcache + seq;
+    ulong            line_idx = fd_mcache_line_idx( seq, depth );
+    fd_frag_meta_t * mline    = mcache + line_idx;
+
     FD_TEST( mline->seq == seq );
     FD_TEST( mline->sz >= transaction4_sz+sizeof(fd_txn_t) );
-    FD_TEST( (ulong)(slot - slots) == mline->sig );
+    FD_TEST( (ulong)(slot - slots) == pub_slots[ line_idx ] );
 
     uchar const * data = fd_chunk_to_laddr_const( tpu_reasm_mem, mline->chunk );
     FD_TEST( 0==memcmp( data, transaction4, transaction4_sz ) );
@@ -188,7 +195,7 @@ main( int     argc,
     seq = fd_seq_inc( seq, 1UL );
   } while(0);
 
-  /* Test fd_tpu_reasm_prepare */
+  FD_LOG_INFO(( "Test fd_tpu_reasm_prepare" ));
 
   uint free_cnt;
   for( ulong j=0UL; j<2*burst; j++ ) {
@@ -198,7 +205,7 @@ main( int     argc,
     FD_TEST( (long)free_cnt==fd_long_max( (long)burst-(long)j-1L, 0L ) );
   }
 
-  /* Test fd_tpu_reasm_{cancel,publish} */
+  FD_LOG_INFO(( "Test fd_tpu_reasm_{cancel,publish}" ));
 
 # define check_free_diff( free_cnt_new, diff ) do {        \
     uint free_cnt_new_ = (free_cnt_new);                   \
