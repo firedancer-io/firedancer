@@ -7,6 +7,7 @@
 #include "../../../../waltz/xdp/fd_xsk_private.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../waltz/ip/fd_ip.h"
+#include "../../../../disco/metrics/generated/fd_metrics_net.h"
 
 #include <linux/unistd.h>
 
@@ -250,13 +251,19 @@ send_arp_probe( fd_net_ctx_t * ctx,
   /* prepare arp table */
   int arp_table_rtn = fd_ip_update_arp_table( ctx->ip, dst_ip_addr, ifindex );
 
-  if( FD_UNLIKELY( arp_table_rtn == FD_IP_SUCCESS ) ) {
+  if( FD_LIKELY( arp_table_rtn == FD_IP_SUCCESS ) ) {
     /* generate a probe */
     fd_ip_arp_gen_arp_probe( arp_buf, FD_IP_ARP_SZ, &arp_len, dst_ip_addr, fd_uint_bswap( src_ip_addr ), src_mac_addr );
 
     /* send the probe */
     fd_aio_pkt_info_t aio_buf = { .buf = arp_buf, .buf_sz = (ushort)arp_len };
     ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+
+    /* increment metric for arp probe tx */
+    FD_MCNT_INC( NET_TILE, ARP_PROBE_TX, 1UL );
+  } else {
+    /* increment metric for update ARP failed */
+    FD_MCNT_INC( NET_TILE, UPDATE_ARP_FAILED, 1UL );
   }
 }
 
@@ -325,6 +332,9 @@ after_frag( void *             _ctx,
         break;
       case FD_IP_NO_ROUTE:
         /* cannot make progress here */
+
+        /* increment metric for "no route" */
+        FD_MCNT_INC( NET_TILE, NO_ROUTE, 1UL );
         break;
       case FD_IP_SUCCESS:
         /* set destination mac address */
@@ -334,6 +344,9 @@ after_frag( void *             _ctx,
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
 
         ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+
+        /* increment metric for packet tx */
+        FD_MCNT_INC( NET_TILE, PACKETS_TX, 1UL );
         break;
       case FD_IP_RETRY:
         /* refresh tables */

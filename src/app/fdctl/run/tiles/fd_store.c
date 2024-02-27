@@ -6,6 +6,10 @@ typedef struct {
   fd_wksp_t * in_mem;
   ulong       in_chunk0;
   ulong       in_wmark;
+  ulong       tsorig;
+  struct {
+    fd_histf_t processing_time[1];
+  } metrics;
 } fd_store_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -30,7 +34,7 @@ static inline void
 metrics_write( void * _ctx ) {
   fd_store_ctx_t * ctx = (fd_store_ctx_t *)_ctx;
 
-  (void)ctx;
+  FD_MHIST_COPY( STORE_TILE, PROCESSING_TIME, ctx->metrics.processing_time );
 }
 
 static void const * fd_ext_blockstore;
@@ -98,6 +102,12 @@ after_frag( void *             _ctx,
 
   /* No error code because this cannot fail. */
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride );
+
+  /* decompress tsorig and tspub, and update metrics with difference */
+  long tsref           = fd_tickcount();
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = tsref - tsorig_full;
+  fd_histf_sample( ctx->metrics.processing_time, (ulong)processing_time );
 }
 
 static void
@@ -118,6 +128,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_mem = topo->workspaces[ topo->links[ tile->in_link_id[ 0UL ] ].wksp_id ].wksp;
   ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
+
+  fd_histf_join( fd_histf_new( ctx->metrics.processing_time, FD_MHIST_SECONDS_MIN( STORE_TILE, PROCESSING_TIME ),
+                                                             FD_MHIST_SECONDS_MAX( STORE_TILE, PROCESSING_TIME ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

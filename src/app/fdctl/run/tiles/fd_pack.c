@@ -125,6 +125,9 @@ typedef struct {
   fd_histf_t insert_duration  [ 1 ];
 
   fd_stake_ci_t stake_ci[ 1 ];
+
+  ulong tsorig;
+  fd_histf_t processing_time[ 1 ];
 } fd_pack_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -156,6 +159,8 @@ metrics_write( void * _ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,  ctx->insert_result );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
+
+  FD_MHIST_COPY( PACK, PROCESSING_TIME, ctx->processing_time );
 }
 
 static inline void
@@ -233,6 +238,8 @@ during_frag( void * _ctx,
   (void)seq;
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
@@ -350,6 +357,13 @@ after_frag( void *             _ctx,
     fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
 
     ctx->cur_spot = NULL;
+
+    /* decompress tsorig and tspub, and update metrics with difference */
+    long now             = fd_tickcount();
+    long tsref           = now;
+    long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+    long processing_time = now - tsorig_full;
+    fd_histf_sample( ctx->processing_time, (ulong)processing_time );
   }
 }
 
@@ -433,6 +447,9 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_histf_join( fd_histf_new( ctx->processing_time, FD_MHIST_SECONDS_MIN( PACK, PROCESSING_TIME ),
+                                                     FD_MHIST_SECONDS_MAX( PACK, PROCESSING_TIME ) ) );
 }
 
 static long

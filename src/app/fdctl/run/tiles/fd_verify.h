@@ -35,6 +35,13 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong tsorig;  /* timestamp of the last packet in compressed form */
+
+  struct {
+    /* histogram for processing_time */
+    fd_histf_t processing_time[1];
+  } metrics;
 } fd_verify_ctx_t;
 
 static inline int

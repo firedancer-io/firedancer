@@ -58,6 +58,8 @@ during_frag( void * _ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   fd_memcpy( dst, src, sz );
+
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 }
 
 static inline void
@@ -113,6 +115,12 @@ after_frag( void *             _ctx,
   *opt_filter = 0;
   *opt_chunk = ctx->out_chunk;
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  long tspub_full      = fd_tickcount();
+  long tsref           = tspub_full;
+  long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+  long processing_time = tspub_full - tsorig_full;
+  fd_histf_sample( ctx->metrics.processing_time, (ulong)processing_time );
 }
 
 static void
@@ -155,6 +163,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  fd_histf_join( fd_histf_new( ctx->metrics.processing_time, FD_MHIST_SECONDS_MIN( SHRED_TILE, PROCESSING_TIME ),
+                                                             FD_MHIST_SECONDS_MAX( SHRED_TILE, PROCESSING_TIME ) ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -183,12 +194,20 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static void
+metrics_write( void * _ctx )
+{
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  FD_MHIST_COPY( VERIFY_TILE, PROCESSING_TIME, ctx->metrics.processing_time );
+}
+
 fd_tile_config_t fd_tile_verify = {
   .mux_flags                = FD_MUX_FLAG_COPY, /* must copy frags for tile isolation and security */
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

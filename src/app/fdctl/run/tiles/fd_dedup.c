@@ -37,6 +37,13 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  ulong       tsorig;
+
+  struct {
+    /* histogram for processing_time */
+    fd_histf_t processing_time[1];
+  } metrics;
 } fd_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -91,6 +98,8 @@ during_frag( void * _ctx,
 
   fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
 
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -128,6 +137,13 @@ after_frag( void *             _ctx,
     *opt_chunk     = ctx->out_chunk;
     *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
+
+    /* decompress tsorig and tspub, and update metrics with difference */
+    long now             = fd_tickcount();
+    long tsref           = now;
+    long tsorig_full     = fd_frag_meta_ts_decomp( ctx->tsorig, tsref );
+    long processing_time = now - tsorig_full;
+    fd_histf_sample( ctx->metrics.processing_time, (ulong)processing_time );
   }
 }
 
@@ -160,6 +176,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  fd_histf_join( fd_histf_new( ctx->metrics.processing_time, FD_MHIST_SECONDS_MIN( DEDUP_TILE, PROCESSING_TIME ),
+                                                             FD_MHIST_SECONDS_MAX( DEDUP_TILE, PROCESSING_TIME ) ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -188,12 +207,20 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static void
+metrics_write( void * _ctx )
+{
+  fd_dedup_ctx_t * ctx = (fd_dedup_ctx_t *)_ctx;
+  FD_MHIST_COPY( DEDUP_TILE, PROCESSING_TIME, ctx->metrics.processing_time );
+}
+
 fd_tile_config_t fd_tile_dedup = {
   .mux_flags                = FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_metrics_write        = metrics_write,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
