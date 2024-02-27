@@ -252,7 +252,7 @@ fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
       fd_repair_need_highest_window_index( replay->repair, slot, (uint)last_index );
     }
 
-    /* First make sure we are ready to execute this blook soon. Look for an ancestor that was executed. */
+    /* First make sure we are ready to execute this block soon. Look for an ancestor that was executed. */
     ulong anc_slot = slot;
     int good = 0;
     for( uint i = 0; i < 3; ++i ) {

@@ -229,7 +229,8 @@ typedef struct {
     struct {
       char   repair_my_intake_addr[ 22 ];
       char   repair_my_serve_addr[ 22 ];
-      ushort repair_listen_port;
+      ushort repair_intake_listen_port;
+      ushort repair_serve_listen_port;
     } repair;
   } tiles;
 } config_t;

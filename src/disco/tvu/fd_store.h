@@ -4,6 +4,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 
+#include "util.h"
 #include "fd_pending_slots.h"
 
 #define FD_STORE_SLOT_PREPARE_CONTINUE            (0)
@@ -43,7 +44,7 @@ fd_store_footprint( void ) {
 }
 
 void *
-fd_store_new( void * mem );
+fd_store_new( void * mem, ulong lo_wmark_slot );
 
 fd_store_t * 
 fd_store_join( void * store );
@@ -69,6 +70,12 @@ void
 fd_store_add_pending( fd_store_t * store,
                       ulong slot,
                       ulong delay );
+
+ulong
+fd_store_slot_repair( fd_store_t * store,
+                      ulong slot,
+                      fd_repair_request_t * out_repair_reqs,
+                      ulong out_repair_reqs_sz );
 
 FD_PROTOTYPES_END
 

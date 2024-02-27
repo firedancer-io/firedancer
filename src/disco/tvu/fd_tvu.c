@@ -1124,7 +1124,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* Store                                                              */
     /**********************************************************************/
     void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
-    fd_store_t * store     = fd_store_join( fd_store_new( store_mem ) );
+    fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
     store->blockstore = blockstore;
     store->smr = snapshot_slot;
     store->snapshot_slot = snapshot_slot;

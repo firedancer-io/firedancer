@@ -1,7 +1,7 @@
 #include "fd_store.h"
 
 void *
-fd_store_new( void * mem ) {
+fd_store_new( void * mem, ulong lo_wmark_slot ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING( ( "NULL mem" ) );
     return NULL;
@@ -13,6 +13,11 @@ fd_store_new( void * mem ) {
   }
 
   fd_memset( mem, 0, fd_store_footprint() );
+
+  fd_store_t * store = (fd_store_t *)mem;
+  if( FD_UNLIKELY( !fd_pending_slots_new( store->pending_slots, lo_wmark_slot ) ) ) {    
+    return NULL;
+  }
 
   return mem;
 }
@@ -30,6 +35,9 @@ fd_store_join( void * store ) {
   }
 
   fd_store_t * store_ = (fd_store_t *)store;
+  if( FD_UNLIKELY( !fd_pending_slots_join( store_->pending_slots ) ) ) {    
+    return NULL;
+  }
 
   return store_;
 }
@@ -182,4 +190,76 @@ fd_store_add_pending( fd_store_t * store,
                       ulong slot,
                       ulong delay ) {
   fd_pending_slots_add( store->pending_slots, slot, store->now + (long)delay );
+}
+
+ulong
+fd_store_slot_repair( fd_store_t * store,
+                      ulong slot,
+                      fd_repair_request_t * out_repair_reqs,
+                      ulong out_repair_reqs_sz ) {
+  ulong repair_req_cnt = 0;
+  fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( store->blockstore, slot );
+
+  if( fd_blockstore_is_slot_ancient( store->blockstore, slot ) ) {
+    FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
+                 store->blockstore->max - slot, store->blockstore->slot_max ));
+  }
+
+  if( FD_LIKELY( !slot_meta ) ) {
+    /* We haven't received any shreds for this slot yet */
+
+    if( repair_req_cnt >= out_repair_reqs_sz ) { 
+      FD_LOG_ERR(( "too many repair requests" ));
+    }
+    fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
+    repair_req->shred_index = 0;
+    repair_req->slot = slot;
+    repair_req->type = FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX;
+  } else {
+    /* We've received at least one shred, so fill in what's missing */
+
+    ulong last_index = slot_meta->last_index;
+
+    /* We don't know the last index yet */
+    if( FD_UNLIKELY( last_index == ULONG_MAX ) ) {
+      last_index = slot_meta->received - 1;
+      if( repair_req_cnt >= out_repair_reqs_sz ) { 
+        FD_LOG_ERR(( "too many repair requests" ));
+      }
+      fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
+      repair_req->shred_index = (uint)last_index;
+      repair_req->slot = slot;
+      repair_req->type = FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX;
+    }
+
+    /* First make sure we are ready to execute this block soon. Look for an ancestor that was executed. */
+    ulong anc_slot = slot;
+    int good = 0;
+    for( uint i = 0; i < 3; ++i ) {
+      anc_slot  = fd_blockstore_slot_parent_query( store->blockstore, anc_slot );
+      fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
+      if( anc_block && fd_uint_extract_bit( anc_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) {
+        good = 1;
+        break;
+      }
+    }
+    if( !good ) return repair_req_cnt;
+    
+    /* Fill in what's missing */
+    for( ulong i = slot_meta->consumed + 1; i <= last_index; i++ ) {
+      if( fd_blockstore_shred_query( store->blockstore, slot, (uint)i ) != NULL ) continue;
+      if( repair_req_cnt >= out_repair_reqs_sz ) { 
+        FD_LOG_ERR(( "too many repair requests" ));
+      }
+      fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
+      repair_req->shred_index = (uint)i;
+      repair_req->slot = slot;
+      repair_req->type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
+    }
+    if( repair_req_cnt ) {
+      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, repair_req_cnt ) );
+    }
+  }
+
+  return repair_req_cnt;
 }
