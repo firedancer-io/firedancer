@@ -21,11 +21,12 @@
 #define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
-#define FD_TPU_REASM_FOOTPRINT( slot_cnt )                                               \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
-    FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                 ), /* hdr    */ \
-    alignof(fd_tpu_reasm_slot_t), (slot_cnt)*sizeof(fd_tpu_reasm_slot_t) ), /* slots  */ \
-    FD_CHUNK_ALIGN,               (slot_cnt)*FD_TPU_REASM_MTU            ), /* chunks */ \
+#define FD_TPU_REASM_FOOTPRINT( depth, burst )                                                              \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
+    FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                        ), /* hdr       */           \
+    alignof(uint),                 (depth)         *sizeof(uint)                ), /* pub_slots */           \
+    alignof(fd_tpu_reasm_slot_t), ((depth)+(burst))*sizeof(fd_tpu_reasm_slot_t) ), /* slots     */           \
+    FD_CHUNK_ALIGN,               ((depth)+(burst))*FD_TPU_REASM_MTU            ), /* chunks    */           \
     FD_TPU_REASM_ALIGN )
 
 /* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
@@ -67,8 +68,7 @@
    concurrent stream count and transaction rate to appropriate levels.
    (Via QUIC connection quotas)
 
-   The tpu_reasm MUST be the only writer to the mcache.  In particular,
-   another writer MUST NOT change the 'sig' field of any frag meta.
+   The tpu_reasm MUST be the only writer to the mcache.
 
    ### Eviction Policy
 
@@ -115,7 +115,11 @@
    mirroring the set of packets exposed downstream (notwithstanding a
    startup transient of up to depth packets).  This also guarantees that
    the number of slots in the FREE and BUSY states is kept at _exactly_
-   burst at all times. */
+   burst at all times.
+
+   In order to support the above, the 'pub_slots' lookup table tracks
+   which published mcache lines (indexed by `seq % depth`) correspond to
+   which slot indexes. */
 
 struct fd_tpu_reasm_slot;
 typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
@@ -123,17 +127,18 @@ typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  ulong slots_off;   /* slots mem   */
-  ulong chunks_off;  /* payload mem */
+  ulong slots_off;     /* slots mem     */
+  ulong pub_slots_off; /* pub_slots mem */
+  ulong chunks_off;    /* payload mem   */
 
-  uint   depth;      /* mcache depth */
-  uint   burst;      /* max concurrent reassemblies */
+  uint   depth;       /* mcache depth */
+  uint   burst;       /* max concurrent reassemblies */
 
-  uint   head;       /* least recent reassembly */
-  uint   tail;       /* most  recent reassembly */
+  uint   head;        /* least recent reassembly */
+  uint   tail;        /* most  recent reassembly */
 
   uint   slot_cnt;
-  ushort orig;       /* tango orig */
+  ushort orig;        /* tango orig */
 };
 
 typedef struct fd_tpu_reasm fd_tpu_reasm_t;
@@ -176,15 +181,13 @@ fd_tpu_reasm_footprint( ulong depth,  /* Assumed in {2^0,2^1,2^2,...,2^31} */
    tpu_reasm.  shmem is a non-NULL pointer to this region in the local
    address space with the required footprint and alignment.  {depth,
    burst,mtu} as described above.  orig is the Tango origin ID of this
-   tpu_reasm.  mcache is the target mcache (on return, tpu_reasm has an
-   exclusive write interest over the mcache) */
+   tpu_reasm. */
 
 void *
-fd_tpu_reasm_new( void *           shmem,
-                  ulong            depth,  /* Assumed in {2^0,2^1,2^2,...,2^32} */
-                  ulong            burst,  /* Assumed in [1,2^32) */
-                  ulong            orig,   /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
-                  fd_frag_meta_t * mcache );
+fd_tpu_reasm_new( void * shmem,
+                  ulong  depth,  /* Assumed in {2^0,2^1,2^2,...,2^32} */
+                  ulong  burst,  /* Assumed in [1,2^32) */
+                  ulong  orig    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */ );
 
 fd_tpu_reasm_t *
 fd_tpu_reasm_join( void * shreasm );
@@ -248,26 +251,6 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
 void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot );
-
-static inline FD_FN_PURE fd_tpu_reasm_slot_t *
-fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
-  return (fd_tpu_reasm_slot_t *)( (ulong)reasm + reasm->slots_off );
-}
-
-static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
-fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
-  return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
-}
-
-static inline FD_FN_PURE uchar *
-fd_tpu_reasm_chunks_laddr( fd_tpu_reasm_t * reasm ) {
-  return (uchar *)( (ulong)reasm + reasm->chunks_off );
-}
-
-static inline FD_FN_PURE uchar const *
-fd_tpu_reasm_chunks_laddr_const( fd_tpu_reasm_t const * reasm ) {
-  return (uchar const *)( (ulong)reasm + reasm->chunks_off );
-}
 
 FD_PROTOTYPES_END
 
