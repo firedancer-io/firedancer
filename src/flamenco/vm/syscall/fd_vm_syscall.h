@@ -63,7 +63,7 @@ fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
 
    FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
-FD_VM_SYSCALL_DECL(abort);
+FD_VM_SYSCALL_DECL( abort );
 
 /* syscall(686093bb) "sol_panic_"
    Log panic message, abort program execution, and fail transaction.
@@ -91,7 +91,7 @@ FD_VM_SYSCALL_DECL(abort);
    okay for a PANIC to return non-panic error codes (such might be
    useful for additional disambiguation of error cases). */
 
-FD_VM_SYSCALL_DECL(sol_panic);
+FD_VM_SYSCALL_DECL( sol_panic );
 
 /* syscall(207559bd) "sol_log_"
    Write message to log.
@@ -230,6 +230,121 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
 FD_VM_SYSCALL_DECL( sol_log_data );
 
+/* syscall(FIXME) "sol_memcpy"
+   Copy sz bytes from src to dst.  src and dst should not overlap.
+
+   Inputs:
+
+     arg0 - dst VM address, indexed [0,sz)
+     arg1 - src VM address, indexed [0,sz)
+     arg2 - sz, 0 okay
+     arg3 - ignored
+     arg4 - ignored
+
+  Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for src (an empty address range
+     is considered valid ... FIXME: CHECK THIS IS DESIRED) and/or bad
+     address range for dst (an empty address range is considered valid
+     ... FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.  Compute
+     budget decremented.
+
+     FD_VM_ERR_MEM_OVERLAP: address ranges for src and dst overlap
+     (either partially or fully ... FIXME: CHECK IF EXACT OVERLAP IS
+     PERMITTED).  Empty address ranges are considered to never overlap
+     (FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.  Compute budget
+     decremented.  FIXME: CONSIDER MERGING THIS ERR CODE WITH PERM?
+
+     FD_VM_SUCCESS: success.  *_ret = 0.  On return, dst[i]==src[i] for
+     i in [0,sz).  Compute budget decremented.  IMPORTANT SAFETY TIP!
+     The current Solana cost model has sz 0 at zero cost so sz==0 always
+     succeeds. */
+
+FD_VM_SYSCALL_DECL( sol_memcpy );
+
+/* syscall(FIXME) "sol_memcmp"
+   Compare sz bytes at addr0 to addr1
+
+   Inputs:
+
+     arg0 - addr0 VM address, indexed [0,sz)
+     arg1 - addr1 VM address, indexed [0,sz)
+     arg2 - sz, FIXME: IS SZ 0 OKAY?
+     arg3 - cmp_result VM address to a 32-bit int
+     arg4 - ignored
+
+  Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for addr0, bad address range for
+     addr1 or bad, bad address for cmp result (pointers without 32-bit
+     integer alignment if check_align is enabled).  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret = 0.  If the memory regions are
+     different, on return, *cmp_result will hold a positive / negative
+     number if the memory region at addr0 compares strictly greater /
+     less than the memory region at addr1.  If the regions are the same,
+     *cmp_result will be unchanged (set *cmp_result to zero before
+     calling this to emulate C-style memcmp ... FIXME: IS THIS REALLY
+     THE DESIRED BEHAVIOR?).  Compute budget decremented. */
+
+FD_VM_SYSCALL_DECL( sol_memcmp );
+
+/* syscall(FIXME) "sol_memset"
+   Set sz bytes at dst to the byte value c.
+
+   Inputs:
+
+     arg0 - dst VM address, indexed [0,sz)
+     arg1 - c, bits [8,64) are ignored
+     arg2 - sz, FIXME: IS SZ 0 OKAY?
+     arg3 - ignored
+     arg4 - ignored
+
+  Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for dst.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret = 0.  Compute budget decremented.
+     On return, dst[i]==(c & 255UL) for i in [0,sz). */
+
+FD_VM_SYSCALL_DECL( sol_memset );
+
+/* syscall(FIXME) "sol_memmove"
+   Copy sz bytes from src to dst.  src and dst can overlap.
+
+   Inputs:
+
+     arg0 - dst VM address, indexed [0,sz)
+     arg1 - src VM address, indexed [0,sz)
+     arg2 - sz, FIXME: IS SZ 0 OKAY?
+     arg3 - ignored
+     arg4 - ignored
+
+  Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for src and/or bad address range
+     for dst.  *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret = 0.  On return,
+     dst[i]==src_as_it_was_before_the_call[i] for i in [0,sz).  Compute
+     budget decremented. */
+
+FD_VM_SYSCALL_DECL( sol_memmove );
+
 /*** PDA (program derived address) syscalls ***************************/
 
 /* syscall(9377323c) "sol_create_program_address"
@@ -243,13 +358,6 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
    list  until a point is found that is not a valid Ed25519 curve point. */
 
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
-
-/* Memory syscalls ****************************************************/
-
-FD_VM_SYSCALL_DECL(sol_memcpy);
-FD_VM_SYSCALL_DECL(sol_memcmp);
-FD_VM_SYSCALL_DECL(sol_memset);
-FD_VM_SYSCALL_DECL(sol_memmove);
 
 /* Program syscalls ***************************************************/
 
