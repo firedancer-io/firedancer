@@ -125,7 +125,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
     .instr_ctx           = &ctx,
     .due_insn_cnt        = 0,
     .previous_instruction_meter = ctx.txn_ctx->compute_meter,
-    .alloc               = {.offset = 0}
+    .alloc               = { {.offset = 0} }
   };
 
   ulong trace_sz = 4 * 1024 * 1024;
