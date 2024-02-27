@@ -1338,6 +1338,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_cnt = tile->in_cnt-1UL;
   ctx->stake_in_idx = tile->in_cnt-1UL;
 
+  fd_shred_version = tile->extra[ tile->in_cnt-1UL ];
+  FD_TEST( fd_shred_version );
+
   poh_link_init( &gossip_pack, topo, tile, 0UL );
   poh_link_init( &stake_out,   topo, tile, 1UL );
   poh_link_init( &crds_shred,  topo, tile, 2UL );
@@ -1370,9 +1373,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->pack_busy[ i ] = tile->extra[ i ];
     if( FD_UNLIKELY( !ctx->pack_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
   }
-
-  fd_shred_version = tile->extra[ tile->in_cnt-1UL ];
-  FD_TEST( fd_shred_version );
 
   FD_TEST( tile->out_cnt==3UL );
 

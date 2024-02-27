@@ -617,7 +617,6 @@ topo_initialize( config_t * config ) {
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i,   1, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_DEDUP_TO_PACK,   0UL, 1, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_PACK,  0UL, 1, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_STAKE_TO_OUT,    0UL, 1, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_PACK,   0UL, FD_TOPO_LINK_KIND_POH_TO_SHRED,    0UL, 1, 1 );
   /* These pack to bank links are reliable, but they are flow controlled
      by the busy flag that sits between them.  We don't mark them
