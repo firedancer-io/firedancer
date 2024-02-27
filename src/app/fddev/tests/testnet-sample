@@ -1,0 +1,15 @@
+build/native/gcc/bin/fd_shmem_cfg alloc 256 gigantic 0
+
+rm -f *.zst && wget --trust-server-names http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2
+
+build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 200 --backup /data/asiegel/test_backup --slothistory 1000
+
+echo "[tiles.tvu]
+  gossip_peer_addr = \"139.178.68.207:8001\"
+  incremental_snapshot = \"http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2\"
+  load = \"/data/asiegel/test_backup\"
+  rpc_listen_port = 8123
+  page_cnt = 200
+" > testnet.toml
+
+build/native/gcc/bin/fddev --no-clone --no-sandbox --no-solana-labs --config $(readlink -f testnet.toml)

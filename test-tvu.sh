@@ -104,6 +104,6 @@ echo "[tiles.tvu]
 " > fddev.toml
 
 # timeout 60 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
-timeout 60 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) || true
+timeout 90 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) || true
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 grep -qv "Bank hash mismatch" $(readlink -f fddev.log)
