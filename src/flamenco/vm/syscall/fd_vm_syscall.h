@@ -270,29 +270,27 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
 
    Inputs:
 
-     arg0 - addr0 VM address, indexed [0,sz)
-     arg1 - addr1 VM address, indexed [0,sz)
+     arg0 - addr0 VM address, treated as a uchar array indexed [0,sz)
+     arg1 - addr1 VM address, treated as a uchar array indexed [0,sz)
      arg2 - sz, FIXME: IS SZ 0 OKAY?
-     arg3 - cmp_result VM address to a 32-bit int
+     arg3 - out VM address, pointer to a 32-bit int
      arg4 - ignored
 
   Return:
 
-     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_out and *_ret
+     unchanged.  Compute budget decremented.
 
      FD_VM_ERR_PERM: bad address range for addr0, bad address range for
-     addr1 or bad, bad address for cmp result (pointers without 32-bit
-     integer alignment if check_align is enabled).  *_ret unchanged.
+     addr1 or bad address range for out (including 32-bit integer
+     alignment if check_align is enabled).  *_out and *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret = 0.  If the memory regions are
-     different, on return, *cmp_result will hold a positive / negative
-     number if the memory region at addr0 compares strictly greater /
-     less than the memory region at addr1.  If the regions are the same,
-     *cmp_result will be unchanged (set *cmp_result to zero before
-     calling this to emulate C-style memcmp ... FIXME: IS THIS REALLY
-     THE DESIRED BEHAVIOR?).  Compute budget decremented. */
+     FD_VM_SUCCESS: success.  *_out will hold a positive / zero /
+     negative number if the region at addr0 lexicographically compares
+     strictly greater than / equal to / strictly less than the region at
+     addr1.  The specific value will exactly match the value from the
+     existing Solana validator.  Compute budget decremented. */
 
 FD_VM_SYSCALL_DECL( sol_memcmp );
 
@@ -345,6 +343,116 @@ FD_VM_SYSCALL_DECL( sol_memset );
 
 FD_VM_SYSCALL_DECL( sol_memmove );
 
+/* syscall(FIXME) "sol_alloc_free"
+   DEPRECATED ... dynamic heap allocation support
+
+   Inputs:
+
+     arg0 - sz, ignored if vaddr is not 0
+     arg1 - vaddr VM address
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     All cases return FD_VM_SUCCESS.
+
+     If vaddr is 0, this is "malloc"-like:
+
+       Let the VM heap region cover bytes [heap_start,heap_end) with
+       heap_start<=heap_end.  If the request was satisfied, on return,
+       *_ret will point to a range of heap bytes [*_ret,*_ret+sz) that
+       does not overlap with any other current allocation such that
+       heap_start<=*_ret<=*_ret+sz<=heap_end.  This includes the zero sz
+       case (note that the zero sz case might return the same value as a
+       previous zero sz case and/or return the exact value of heap_end).
+
+       If the request cannot be satisfied, *_ret = 0 on return and the
+       heap unchanged.
+
+       IMPORTANT SAFETY TIP!  If the VM has check_align set, this
+       location will have an alignment of at least 8.  Otherwise, this
+       location will have no particular alignment.  Note that this
+       implies allocations done by this syscall do not conform to the
+       usual alignment requirements of a standard malloc call for older
+       VM code.
+
+     If vaddr is not-zero, this is "free"-like.  Since the underlying
+     implementation is necessarily a bump allocator (see implementation
+     for more details), the specific value is ignored and *_ret = 0 on
+     return.
+
+   FIXME: SHOULD THIS NOT DECREMENT THE COMPUTE BUDGET?  E.G. SZ = 0
+   INFINITE LOOP) */
+
+FD_VM_SYSCALL_DECL(sol_alloc_free);
+
+/* syscall(FIXME) "sol_get_clock_sysvar"
+   syscall(FIXME) "sol_get_epoch_schedule_sysvar"
+   syscall(FIXME) "sol_get_fees_sysvar"
+   syscall(FIXME) "sol_get_rent_sysvar"
+   Get various sysvar values
+
+   Inputs:
+
+     arg0 - out VM address
+     arg1 - ignored
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for out.  *_ret unchanged.
+     Compute budget decremented.  out should have:
+                      | align | sz
+       clock          |     8 | 40
+       epoch_schedule |     1 | 40 ... FIXME: HMMM
+       fees           |     8 |  8
+       rent           |     8 | 24
+     Strict alignment is only required if the VM has check_align set.
+
+     FD_VM_SUCCESS: success.  *_ret = 0.  On return, out_addr[i] for i
+     in [0,sz) will hold the value of the appropriate sysvar.  Compute
+     budget decremented. */
+
+FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
+FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
+FD_VM_SYSCALL_DECL(sol_get_fees_sysvar);
+FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
+
+/* syscall(FIXME) "sol_get_stack_height"
+
+   Inputs:
+
+     arg0 - ignored
+     arg1 - ignored
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret = stack_height.  Compute budget
+     decremented. */
+
+FD_VM_SYSCALL_DECL(sol_get_stack_height);
+
+/* FIXME: NOT IMPLENTED YET (IGNORES ALL ARGUMENTS AND RETRNS
+   FD_VM_ERR_UNSUP).  */
+
+FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
+
+FD_VM_SYSCALL_DECL(sol_get_return_data);
+FD_VM_SYSCALL_DECL(sol_set_return_data);
+
 /*** PDA (program derived address) syscalls ***************************/
 
 /* syscall(9377323c) "sol_create_program_address"
@@ -355,13 +463,9 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
 /* syscall(48504a38) "sol_try_find_program_address"
    Repeatedly derive program address while incrementing nonce in seed
-   list  until a point is found that is not a valid Ed25519 curve point. */
+   list until a point is found that is not a valid Ed25519 curve point.  */
 
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
-
-/* Program syscalls ***************************************************/
-
-FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
 
 /* CPI syscalls *******************************************************/
 
@@ -396,22 +500,6 @@ FD_VM_SYSCALL_DECL(cpi_c);
    Dispatch a cross program invocation.  Inputs are in Rust ABI. */
 
 FD_VM_SYSCALL_DECL(cpi_rust);
-
-FD_VM_SYSCALL_DECL(sol_alloc_free);
-
-/* Get syscalls *******************************************************/
-
-FD_VM_SYSCALL_DECL(sol_set_return_data);
-FD_VM_SYSCALL_DECL(sol_get_return_data);
-FD_VM_SYSCALL_DECL(sol_get_stack_height);
-FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
-
-/* Sysvar syscalls ****************************************************/
-
-FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_fees_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
 
 /* Crypto syscalls ****************************************************/
 
