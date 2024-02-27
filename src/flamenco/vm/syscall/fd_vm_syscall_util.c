@@ -206,7 +206,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
     void const * translated_addr =
       fd_vm_translate_vm_to_host_const( vm, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
-    if ( FD_UNLIKELY( !translated_addr ) ) return FD_VM_ERR_PERM;
+    if( FD_UNLIKELY( !translated_addr ) ) return FD_VM_ERR_PERM;
 
     char encoded[1500];
     ulong encoded_len = fd_base64_encode( encoded, (uchar const *) translated_addr, untranslated_fields[i].len );
@@ -231,6 +231,128 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   if( FD_UNLIKELY( err ) ) return err;
 
   fd_vm_log_collector_append( vm->log_collector, msg, msg_len );
+
+  *_ret = 0;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
+                          /**/            ulong   dst_vaddr,
+                          /**/            ulong   src_vaddr,
+                          /**/            ulong   sz,
+                          FD_PARAM_UNUSED ulong   arg3,
+                          FD_PARAM_UNUSED ulong   arg4,
+                          /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  int err = fd_vm_consume_mem( vm, sz );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  /* Check for overlap */
+  /* FIXME: DOES THIS LOGIC WORK IF DST_VADDR+SZ OR SRC_VADDR+SZ OVERFLOW? */
+
+  if( FD_UNLIKELY( ( (dst_vaddr<=src_vaddr) & (src_vaddr<(dst_vaddr+sz)) ) |
+                   ( (src_vaddr<=dst_vaddr) & (dst_vaddr<(src_vaddr+sz)) ) ) ) return FD_VM_ERR_MEM_OVERLAP;
+
+  /* FIXME: CONSIDER MOVING THIS SHORT-CIRCUI TABOVE THE OVERLAPPING
+     SHORTCUT (AND MAYBE THE COST MODEL AS SZ==0 COSTS NOTHING IN THE
+     CURRENT COST MODEL). */
+
+  if( FD_UNLIKELY( !sz ) ) {
+    *_ret = 0;
+    return FD_VM_SUCCESS;
+  }
+
+  void *       dst_haddr = fd_vm_translate_vm_to_host      ( vm, dst_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+
+  void const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
+
+  fd_memcpy( dst_haddr, src_haddr, sz );
+
+  *_ret = 0;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
+                          /**/            ulong   vaddr0,
+                          /**/            ulong   vaddr1,
+                          /**/            ulong   sz,
+                          /**/            ulong   cmp_result_vaddr,
+                          FD_PARAM_UNUSED ulong   arg4,
+                          /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  int err = fd_vm_consume_mem( vm, sz );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  uchar const * haddr0 = fd_vm_translate_vm_to_host_const( vm, vaddr0, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !haddr0 ) ) return FD_VM_ERR_PERM;
+
+  uchar const * haddr1 = fd_vm_translate_vm_to_host_const( vm, vaddr1, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !haddr1 ) ) return FD_VM_ERR_PERM;
+
+  int * cmp_result_haddr = fd_vm_translate_vm_to_host( vm, cmp_result_vaddr, sizeof(int), alignof(int) );
+  if( FD_UNLIKELY( !cmp_result_haddr ) ) return FD_VM_ERR_PERM;
+
+  for( ulong i=0UL; i<sz; i++ ) {
+    int i0 = (int)haddr0[i];
+    int i1 = (int)haddr1[i];
+    if( i0!=i1 ) {
+      *cmp_result_haddr = i0 - i1;
+      break;
+    }
+  }
+
+  *_ret = 0;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_memset( /**/            void *  _vm,
+                          /**/            ulong   dst_vaddr,
+                          /**/            ulong   c,
+                          /**/            ulong   sz,
+                          FD_PARAM_UNUSED ulong   arg3,
+                          FD_PARAM_UNUSED ulong   arg4,
+                          /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  int err = fd_vm_consume_mem( vm, sz );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  void * dst_haddr = fd_vm_translate_vm_to_host( vm, dst_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+
+  if( FD_LIKELY( sz ) ) fd_memset( dst_haddr, (int)(c & 255UL), sz ); /* Sigh ... avoid UB behavior around sz==0 */
+
+  *_ret = 0;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_memmove( /**/            void *  _vm,
+                           /**/            ulong   dst_vaddr,
+                           /**/            ulong   src_vaddr,
+                           /**/            ulong   sz,
+                           FD_PARAM_UNUSED ulong   arg3,
+                           FD_PARAM_UNUSED ulong   arg4,
+                           /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  int err = fd_vm_consume_mem( vm, sz );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  void *       dst_haddr = fd_vm_translate_vm_to_host      ( vm, dst_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+
+  void const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
+
+  memmove( dst_haddr, src_haddr, sz );
 
   *_ret = 0;
   return FD_VM_SUCCESS;
