@@ -803,7 +803,7 @@ fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
     ( *glob->deliver_fail_fun )(id, slot, UINT_MAX, glob->fun_arg, FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED );
     return -1;
   }
-  
+
   fd_repair_nonce_t key = glob->next_nonce++;
   fd_needed_elem_t * val = fd_needed_table_insert(glob->needed, &key);
   fd_hash_copy(&val->id, id);

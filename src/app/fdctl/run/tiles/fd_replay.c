@@ -179,7 +179,7 @@ during_housekeeping( void * _ctx ) {
 
     fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
     
-    fd_base58_decode_32( "ERoQtNbx2kJyeJrk9Gve2E1Q7NQLeGdEi4rsPu3VoLgA", stake_weights[0].key.uc );
+    fd_base58_decode_32( "HciGSB55JeEdb7aCzcgnkHa55byLGAs1qJcqbNhU99MP", stake_weights[0].key.uc );
     stake_weights[0].stake = 1;
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );

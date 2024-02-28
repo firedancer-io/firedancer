@@ -15,7 +15,8 @@ fd_store_new( void * mem, ulong lo_wmark_slot ) {
   fd_memset( mem, 0, fd_store_footprint() );
 
   fd_store_t * store = (fd_store_t *)mem;
-  if( FD_UNLIKELY( !fd_pending_slots_new( store->pending_slots, lo_wmark_slot ) ) ) {    
+  store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), lo_wmark_slot );
+  if( FD_UNLIKELY( !store->pending_slots ) ) {    
     return NULL;
   }
 
@@ -35,7 +36,8 @@ fd_store_join( void * store ) {
   }
 
   fd_store_t * store_ = (fd_store_t *)store;
-  if( FD_UNLIKELY( !fd_pending_slots_join( store_->pending_slots ) ) ) {    
+  store_->pending_slots = fd_pending_slots_join( store_->pending_slots );
+  if( FD_UNLIKELY( !store_->pending_slots ) ) {    
     return NULL;
   }
 

@@ -17,7 +17,6 @@ fd_pending_slots_new( void * mem, ulong lo_wmark ) {
 
   fd_memset( mem, 0, footprint );
   ulong laddr = (ulong)mem;
-  laddr = fd_ulong_align_up( laddr, alignof(fd_pending_slots_t) );
   fd_pending_slots_t * pending_slots = (void *)laddr;
   pending_slots->lo_wmark = lo_wmark;
   pending_slots->start = 0;
@@ -145,21 +144,22 @@ fd_pending_slots_add( fd_pending_slots_t * pending_slots,
     
   } else if ( slot < pending_slots->start ) {
     /* Grow down */
-    if( pending_slots->end - slot > FD_PENDING_MAX )
+    if( (long)(pending_slots->end - slot) > (long)FD_PENDING_MAX )
       FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", pending_slots->start, pending_slots->end, slot ));
     pending[slot & FD_PENDING_MASK] = when;
-    for( ulong i = slot+1; i < pending_slots->start; ++i ) {
+    for( ulong i = slot+1; i < pending_slots->start; i++ ) {
       /* Zero fill */
+      if(slot==0) __asm__("int $3");
       pending[i & FD_PENDING_MASK] = 0;
     }
     pending_slots->start = slot;
 
   } else if ( slot >= pending_slots->end ) {
     /* Grow up */
-    if( slot - pending_slots->start > FD_PENDING_MAX )
+    if( (long)(slot - pending_slots->start) > (long)FD_PENDING_MAX )
       FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", pending_slots->start, pending_slots->end, slot ));
     pending[slot & FD_PENDING_MASK] = when;
-    for( ulong i = pending_slots->end; i < slot; ++i ) {
+    for( ulong i = pending_slots->end; i < slot; i++ ) {
       /* Zero fill */
       pending[i & FD_PENDING_MASK] = 0;
     }

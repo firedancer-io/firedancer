@@ -22,12 +22,12 @@ struct __attribute__((aligned(128UL))) fd_store {
   ulong snapshot_slot; /* the snapshot slot */
   ulong turbine_slot;  /* the first turbine slot we received on startup */
 
-  /* internal joins */
-  fd_pending_slots_t pending_slots[1];
-
   /* external joins */
   fd_blockstore_t *     blockstore;
   fd_valloc_t           valloc;
+
+  /* internal joins */
+  fd_pending_slots_t * pending_slots;
 };
 typedef struct fd_store fd_store_t;
 
@@ -40,7 +40,7 @@ fd_store_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_store_footprint( void ) {
-  return sizeof( fd_store_t );
+  return sizeof( fd_store_t ) + fd_pending_slots_footprint();
 }
 
 void *

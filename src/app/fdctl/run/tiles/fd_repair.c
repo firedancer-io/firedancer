@@ -347,29 +347,31 @@ repair_send_packet( uchar const * msg,
                     size_t msglen, 
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
-
-  FD_LOG_WARNING(("send packet " FD_IP4_ADDR_FMT " %u", FD_IP4_ADDR_FMT_ARGS( addr->addr ), addr->port));
-
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-
   send_packet( arg, addr->addr, fd_ushort_bswap( addr->port ), msg, msglen, tsorig );
 }
 
 static void
 repair_shred_deliver( fd_shred_t const * shred,
-                          ulong shred_len, 
-                          fd_repair_peer_addr_t const * from, 
-                          fd_pubkey_t const * id, 
-                          void * arg ) {
+                      ulong shred_sz, 
+                      fd_repair_peer_addr_t const * from, 
+                      fd_pubkey_t const * id, 
+                      void * arg ) {
   fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *)arg;
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
-  FD_LOG_WARNING(("GOT SHRED"));
-  (void)shred;
-  (void)shred_len;
   (void)from;
+  (void)arg;
   (void)id;
-  (void)ctx;
-}
+  
+  fd_shred_t * out_shred = fd_chunk_to_laddr( ctx->store_out_mem, ctx->store_out_chunk );
+  fd_memcpy( out_shred, shred, shred_sz );
+  
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mcache_publish( ctx->store_out_mcache, ctx->store_out_depth, ctx->store_out_seq, 1, ctx->store_out_chunk,
+    shred_sz, 0UL, tsorig, tspub );
+  ctx->store_out_seq   = fd_seq_inc( ctx->store_out_seq, 1UL );
+  ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, shred_sz, ctx->store_out_chunk0, ctx->store_out_wmark );}
 
 static void
 repair_shred_deliver_fail( fd_pubkey_t const * id, 
@@ -478,10 +480,8 @@ after_frag( void *             _ctx,
             ulong *            opt_tsorig,
             int *              opt_filter,
             fd_mux_context_t * mux ) {
-  (void)in_idx;
   (void)opt_chunk;
   (void)opt_sz;
-  (void)opt_filter;
   (void)mux;
   (void)seq;
   (void)opt_tsorig;
@@ -516,11 +516,9 @@ after_frag( void *             _ctx,
     peer_addr.addr = ip;
     peer_addr.port = fd_ushort_bswap( hdr->udp->net_sport );
 
-    FD_LOG_WARNING(("got repair packet"));
     fd_repair_settime( ctx->repair, fd_log_wallclock() );
     fd_repair_continue( ctx->repair );
     fd_repair_recv_packet( ctx->repair, ctx->repair_buffer + hdr_sz, ctx->repair_buffer_sz - hdr_sz, &peer_addr );
-
   } else {
     FD_LOG_ERR(( "port %u not handled %lu", port, in_idx ));
     *opt_filter = 1;
@@ -607,10 +605,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_sha512_t sha[1];
   FD_TEST( fd_ed25519_public_from_private( ctx->identity_public_key.uc, ctx->identity_private_key, sha ) );
 
-  FD_LOG_NOTICE(( "gossip starting - identity: %32J", ctx->identity_public_key.key ));
+  FD_LOG_NOTICE(( "repair starting - identity: %32J", ctx->identity_public_key.key ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
-
   ctx->net_out_mcache = net_out->mcache;
   ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
@@ -619,6 +616,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
+
+
+  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ];
+  ctx->store_out_mcache = store_out->mcache;
+  ctx->store_out_sync   = fd_mcache_seq_laddr( ctx->store_out_mcache );
+  ctx->store_out_depth  = fd_mcache_depth( ctx->store_out_mcache );
+  ctx->store_out_seq    = fd_mcache_seq_query( ctx->store_out_sync );
+  ctx->store_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( store_out->dcache ), store_out->dcache );
+  ctx->store_out_mem    = topo->workspaces[ store_out->wksp_id ].wksp;
+  ctx->store_out_wmark  = fd_dcache_compact_wmark( ctx->store_out_mem, store_out->dcache, store_out->mtu );
+  ctx->store_out_chunk  = ctx->store_out_chunk0;
 
   fd_memcpy( ctx->src_mac_addr, tile->gossip.src_mac_addr, 6 );
 

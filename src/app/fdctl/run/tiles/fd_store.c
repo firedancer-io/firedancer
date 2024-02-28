@@ -48,7 +48,6 @@ struct fd_store_tile_ctx {
   ulong       repair_in_chunk0;
   ulong       repair_in_wmark;
 
-
   fd_frag_meta_t * repair_req_out_mcache;
   ulong *          repair_req_out_sync;
   ulong            repair_req_out_depth;
@@ -60,6 +59,7 @@ struct fd_store_tile_ctx {
   ulong       repair_req_out_chunk;
 
   fd_shred34_t s34_buffer[1];
+  uchar shred_buffer[FD_SHRED_MAX_SZ];
 
   fd_repair_request_t * repair_req_buffer;
 };
@@ -126,12 +126,26 @@ during_frag( void * _ctx,
 
   if( FD_UNLIKELY( in_idx==SHRED_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->shred_in_chunk0 || chunk>ctx->shred_in_wmark || sz > sizeof(fd_shred34_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->wmark ));
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->shred_in_wmark ));
     }
 
     fd_shred34_t const * s34 = fd_chunk_to_laddr_const( ctx->shred_in_mem, chunk );
 
     memcpy( ctx->s34_buffer, s34, sz );
+    *opt_filter = 0;
+    
+    return;
+  }
+
+  if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
+    if( FD_UNLIKELY( chunk<ctx->repair_in_chunk0 || chunk>ctx->repair_in_wmark || sz > FD_SHRED_MAX_SZ ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->repair_in_chunk0, ctx->repair_in_wmark ));
+    }
+
+    FD_LOG_WARNING(("SHRED: %lu", sz));
+    uchar const * shred = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
+
+    memcpy( ctx->shred_buffer, shred, sz );
     *opt_filter = 0;
     
     return;
@@ -172,7 +186,9 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
-    return;
+    if( fd_store_shred_insert( ctx->store, fd_type_pun_const( ctx->shred_buffer ) ) < FD_BLOCKSTORE_OK ) {
+      FD_LOG_ERR(( "failed inserting to blockstore" ));
+    }
   }
 
   *opt_filter = 1;
@@ -219,6 +235,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
     // TODO: send replay execute request!
+    FD_LOG_WARNING(("READY TO EXECUTE: %lu", slot));
   }
 
   if( repair_req_cnt != 0 ) {
@@ -333,6 +350,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shred_in_mem    = topo->workspaces[ shred_in_link->wksp_id ].wksp;
   ctx->shred_in_chunk0 = fd_dcache_compact_chunk0( ctx->shred_in_mem, shred_in_link->dcache );
   ctx->shred_in_wmark  = fd_dcache_compact_wmark( ctx->shred_in_mem, shred_in_link->dcache, shred_in_link->mtu );
+
+  /* Set up repair tile input */
+  fd_topo_link_t * repair_in_link = &topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ];
+  ctx->repair_in_mem    = topo->workspaces[ repair_in_link->wksp_id ].wksp;
+  ctx->repair_in_chunk0 = fd_dcache_compact_chunk0( ctx->repair_in_mem, repair_in_link->dcache );
+  ctx->repair_in_wmark  = fd_dcache_compact_wmark( ctx->repair_in_mem, repair_in_link->dcache, repair_in_link->mtu );
 
   /* Set up repair request output */
   fd_topo_link_t * repair_req_out = &topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ];
