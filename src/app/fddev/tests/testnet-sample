@@ -4,7 +4,8 @@ rm -f *.zst && wget --trust-server-names http://entrypoint3.testnet.solana.com:8
 
 build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 200 --backup /data/asiegel/test_backup --slothistory 1000
 
-echo "[tiles.tvu]
+echo "topology = \"tvu\"
+[tiles.tvu]
   gossip_peer_addr = \"139.178.68.207:8001\"
   incremental_snapshot = \"http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2\"
   load = \"/data/asiegel/test_backup\"

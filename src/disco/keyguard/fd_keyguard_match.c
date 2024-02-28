@@ -1,6 +1,8 @@
 #include "fd_keyguard.h"
 #include "../../ballet/shred/fd_shred.h"
 
+#define MIN_PRUNE_MSG_SZ 80
+
 /* fd_keyguard_match fingerprints signing requests and checks them for
    ambiguity.
 
@@ -174,6 +176,11 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
     & (data[2]==0x00)
     & (data[3]==0x00) )
     return 1;
+
+  if ( sz >= MIN_PRUNE_MSG_SZ ) {
+    ulong prune_len = *(ulong *)(data + 32);
+    if ( sz == MIN_PRUNE_MSG_SZ + prune_len * 32) return 1;
+  }
 
   return 0;
 }

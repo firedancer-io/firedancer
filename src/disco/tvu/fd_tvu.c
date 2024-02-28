@@ -832,6 +832,56 @@ void snapshot_setup( char const * snapshot,
                      snapshot_setup_t * out ) {
   fd_memset( out, 0, sizeof( snapshot_setup_t ) );
 
+  char snapshot_out[128];
+  if( snapshot && snapshot[0] != '\0' && strncmp( snapshot, "http", 4 ) == 0 ) {
+    FILE * fp;
+    
+    /* Open the command for reading. */
+    char   cmd[128];
+    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", snapshot );
+    FD_LOG_NOTICE(("cmd: %s", cmd));
+    fp = popen( cmd, "r" );
+    if( fp == NULL ) {
+      printf( "Failed to run command\n" );
+      exit( 1 );
+    }
+    
+    /* Read the output a line at a time - output it. */
+    if( !fgets( snapshot_out, sizeof( snapshot_out ) - 1, fp ) ) {
+        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
+    }
+    snapshot_out[strcspn( snapshot_out, "\n" )]  = '\0';
+    snapshot = snapshot_out;
+    
+    /* close */
+    pclose( fp );
+  }
+  
+  char incremental_snapshot_out[128];
+  if( incremental_snapshot && incremental_snapshot[0] != '\0' && strncmp( incremental_snapshot, "http", 4 ) == 0 ) {
+    FILE * fp;
+    
+    /* Open the command for reading. */
+    char   cmd[128];
+    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
+    FD_LOG_NOTICE(("cmd: %s", cmd));
+    fp = popen( cmd, "r" );
+    if( fp == NULL ) {
+      printf( "Failed to run command\n" );
+      exit( 1 );
+    }
+    
+    /* Read the output a line at a time - output it. */
+    if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
+        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
+    }
+    incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )]  = '\0';
+    incremental_snapshot = incremental_snapshot_out;
+    
+    /* close */
+    pclose( fp );
+  }
+  
   if( snapshot && snapshot[0] != '\0' ) {
     if( !incremental_snapshot || incremental_snapshot[0] == '\0' ) {
       FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
@@ -878,30 +928,6 @@ void snapshot_setup( char const * snapshot,
   } else if( incremental_snapshot && incremental_snapshot[0] != '\0' ) {
     fd_runtime_recover_banks( exec_slot_ctx, 0 );
 
-    char   incremental_snapshot_out[128];
-    if( strncmp( incremental_snapshot, "http", 4 ) == 0 ) {
-      FILE * fp;
-
-      /* Open the command for reading. */
-      char   cmd[128];
-      snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
-      FD_LOG_NOTICE(("cmd: %s", cmd));
-      fp = popen( cmd, "r" );
-      if( fp == NULL ) {
-        printf( "Failed to run command\n" );
-        exit( 1 );
-      }
-
-      /* Read the output a line at a time - output it. */
-      if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
-        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
-      }
-      incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )]  = '\0';
-      incremental_snapshot = incremental_snapshot_out;
-
-      /* close */
-      pclose( fp );
-    }
     const char * p = strstr( incremental_snapshot, "snapshot-" );
     if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
     do {

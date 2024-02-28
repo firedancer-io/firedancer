@@ -1455,6 +1455,13 @@ fd_log_private_stack_discover( ulong   stack_sz,
   FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to make sure compiler puts this in stack */
   ulong stack_addr = (ulong)stack_mem;
 
+  /* fopen is not thread safe in this case */
+# if FD_HAS_ATOMIC
+  FD_COMPILER_MFENCE();
+  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
+  FD_COMPILER_MFENCE();
+# endif
+
   FILE * file = fopen( "/proc/self/maps", "r" );
   if( FD_UNLIKELY( !file ) )
     FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1500,6 +1507,12 @@ fd_log_private_stack_discover( ulong   stack_sz,
       FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   }
+
+# if FD_HAS_ATOMIC
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
+  FD_COMPILER_MFENCE();
+# endif
 
   *_stack0 = stack0;
   *_stack1 = stack1;
