@@ -236,7 +236,7 @@ solana_labs_main( void * args ) {
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%d", getpid1() ));
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile solana-labs pid:%lu", fd_sandbox_getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_log_private_shared_lock[1] = 0;
@@ -247,7 +247,7 @@ solana_labs_main( void * args ) {
 
   clone_labs_memory_space_tiles( config );
 
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );

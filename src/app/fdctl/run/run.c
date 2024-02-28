@@ -172,7 +172,7 @@ main_pid_namespace( void * _args ) {
   config_t * const config = args->config;
 
   fd_log_thread_set( "pidns" );
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_group_id_set( pid );
   fd_log_private_thread_id_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,

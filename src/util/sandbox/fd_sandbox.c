@@ -312,3 +312,18 @@ fd_sandbox_alloc_protected_pages( ulong page_cnt,
   return middle_pages;
 #undef PAGE_SZ
 }
+
+ulong
+fd_sandbox_getpid( void ) {
+  char pid[ 11 ] = {0}; /* 10 characters for INT_MAX, and then a NUL terminator. */
+  long count = readlink( "/proc/self", pid, sizeof(pid) );
+  if( FD_UNLIKELY( count<0L ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count>=sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  char * endptr;
+  ulong result = strtoul( pid, &endptr, 10 );
+  /* A pid > INT_MAX is malformed, even if we can represent it in the
+     ulong we are returning. */
+  if( FD_UNLIKELY( *endptr != '\0' || result>INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+
+  return result;
+}

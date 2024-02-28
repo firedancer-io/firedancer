@@ -5,11 +5,6 @@
 
 #include <stdlib.h>
 
-/* Get the true PID of the process, as it appears in the root
-   PID namespace of the system. */
-int
-getpid1( void );
-
 /* mkdir_all() is like `mkdir -p`, it creates all directories
    needed as part of the path. Logs an error and exits the process
    if anything goes wrong.  Directories that did not already
