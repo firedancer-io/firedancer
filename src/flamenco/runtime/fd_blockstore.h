@@ -379,10 +379,9 @@ fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block
 /* Operations */
 
 /* Insert shred into the blockstore, fast O(1).  Fail if this shred is already in the blockstore or
- * the blockstore is full. Returns an error code indicating success or
- * failure.
+ * the blockstore is full. Returns an error code indicating success or failure.
  *
- * TODO eventually this will need to support "upsert" duplicate shred handling
+ * TODO eventually this will need to support "upsert" duplicate shred handling.
  */
 int
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
@@ -391,7 +390,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
  * blockstore. The returned pointer lifetime is until the shred is removed. Check return value for
  * error info.
  *
- * Warning: if the slot of that shred is incomplete, this pointer could become invalid!
+ * If the block corresponding to that shred is incomplete, the returned pointer's lifetime is only
+ * as long as the slot remains incomplete. Otherwise, the returned pointer's lifetime is as long as
+ * the slot remains in the blockstore.
+ *
+ * Callers should hold the read lock during the entirety of its read to ensure the pointer remains
+ * valid.
  */
 fd_shred_t *
 fd_blockstore_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
