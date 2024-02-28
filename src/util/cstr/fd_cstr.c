@@ -124,6 +124,25 @@ fd_cstr_printf( char *       buf,
   return buf;
 }
 
+int
+fd_cstr_printf_check( char *       buf,
+                      ulong        sz,
+                      ulong *      opt_len,
+                      char const * fmt, ... ) {
+  if( FD_UNLIKELY( (!buf) | (!sz) ) ) {
+    if( opt_len ) *opt_len = 0UL;
+    return 0;
+  }
+  va_list ap;
+  va_start( ap, fmt );
+  int   ret = vsnprintf( buf, sz, fmt, ap );
+  ulong len = fd_ulong_if( ret<0, 0UL, fd_ulong_min( (ulong)ret, sz-1UL ) );
+  buf[ len ] = '\0';
+  va_end( ap );
+  if( opt_len ) *opt_len = len;
+  return fd_int_if( ret<0 || (ulong)ret>=sz, 0, 1 );
+}
+
 char *
 fd_cstr_append_printf( char *       buf,
                        char const * fmt, ... ) {

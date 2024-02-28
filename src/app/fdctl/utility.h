@@ -35,15 +35,6 @@ int internet_routing_interface( void );
    performed. */
 void nanosleep1( uint secs, uint nanos );
 
-/* snprintf1() functions like snprintf except if the buffer is not
-   large enough or there is some other error printing, it logs an
-   error and exits the program. returns s. */
-char *
-snprintf1( char * s,
-           ulong  maxlen,
-           char * format,
-           ... );
-
 /* load_key_into_protected_memory() reads the key file from disk and
    stores the parsed contents in a specially mapped page in memory that
    will not appear in core dumps, will not be paged out to disk, is
@@ -73,9 +64,10 @@ current_executable_path( char path[ PATH_MAX ] );
    not exit successfully with code 0, the calling program is aborted. */
 #define RUN(...) do {                                                  \
     char cmd[ 4096 ];                                                  \
-    snprintf1( cmd,                                                    \
-               sizeof(cmd),                                            \
-               __VA_ARGS__ );                                          \
+    FD_TEST( fd_cstr_printf_check( cmd,                                \
+                                   sizeof(cmd),                        \
+                                   NULL,                               \
+                                   __VA_ARGS__ ) );                    \
     int ret = system( cmd );                                           \
     if( FD_UNLIKELY( ret ) )                                           \
       FD_LOG_ERR(( "running command `%s` failed exit code=%d (%i-%s)", \
@@ -93,9 +85,10 @@ current_executable_path( char path[ PATH_MAX ] );
    is aborted. */
 #define OUTPUT(output, ...) do {                              \
     char cmd[ 4096 ];                                         \
-    snprintf1( cmd,                                           \
-               sizeof(cmd),                                   \
-               __VA_ARGS__ );                                 \
+    FD_TEST( fd_cstr_printf_check( cmd,                       \
+                                   sizeof(cmd),               \
+                                   NULL,                      \
+                                   __VA_ARGS__ ) );           \
     FILE * process = popen( cmd, "r" );                       \
     if( FD_UNLIKELY( !process ) )                             \
       FD_LOG_ERR(( "popen of command `%s` failed (%i-%s)",    \

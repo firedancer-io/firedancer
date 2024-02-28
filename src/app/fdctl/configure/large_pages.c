@@ -81,8 +81,8 @@ static configure_result_t check( config_t * const config ) {
   for( int i=0; i<2; i++ ) {
     uint actual = read_uint_file( paths[i], ERR_MSG );
     if( FD_UNLIKELY( actual < expected[i] ) )
-      NOT_CONFIGURED( "expected at least %u %s pages, but there are %u",
-                      expected[i],
+      NOT_CONFIGURED( "expected at least %lu %s pages, but there are %u",
+                      expected[ i ],
                       i ? "gigantic" : "huge",
                       actual );
   }

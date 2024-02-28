@@ -27,16 +27,16 @@ init( config_t * const config ) {
   char buffer[ 32 ][ 24 ];
 #define ADD1( arg ) do { argv[ idx++ ] = arg; } while( 0 )
 #define ADD( arg, val ) do { argv[ idx++ ] = arg; argv[ idx++ ] = val; } while( 0 )
-#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 24, "%lu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+#define ADDU( arg, val ) do { argv[ idx++ ] = arg; FD_TEST( fd_cstr_printf_check( buffer[ bufidx ], 24, NULL, "%lu", val ) ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
 
   char faucet[ PATH_MAX ];
-  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
 
   char stake[ PATH_MAX ];
-  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( stake, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
 
   char vote[ PATH_MAX ];
-  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( vote, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
 
   ADD1( "fddev" );
 
@@ -120,7 +120,7 @@ rmtree( char * path ) {
       if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
       char path1[ PATH_MAX ];
-      snprintf1( path1, PATH_MAX, "%s/%s", path, entry->d_name );
+      FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", path, entry->d_name ) );
 
       struct stat st;
       if( FD_UNLIKELY( lstat( path1, &st ) ) ) {

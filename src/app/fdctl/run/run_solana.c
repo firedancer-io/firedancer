@@ -132,8 +132,8 @@ solana_labs_boot( config_t * config ) {
   char buffer[ 32 ][ 16 ];
 #define ADD1( arg ) do { argv[ idx++ ] = arg; } while( 0 )
 #define ADD( arg, val ) do { argv[ idx++ ] = arg; argv[ idx++ ] = val; } while( 0 )
-#define ADDU( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%u", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
-#define ADDH( arg, val ) do { argv[ idx++ ] = arg; snprintf1( buffer[ bufidx ], 16, "%hu", val ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+#define ADDU( arg, val ) do { argv[ idx++ ] = arg; FD_TEST( fd_cstr_printf_check( buffer[ bufidx ], 16, NULL, "%u", val ) ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
+#define ADDH( arg, val ) do { argv[ idx++ ] = arg; FD_TEST( fd_cstr_printf_check( buffer[ bufidx ], 16, NULL, "%hu", val ) ); argv[ idx++ ] = buffer[ bufidx++ ]; } while( 0 )
 
   ADD1( "fdctl" );
   ADD( "--log", "-" );
@@ -190,7 +190,7 @@ solana_labs_boot( config_t * config ) {
     ADD( "--gossip-host", config->gossip.host );
   } else {
     char ip_addr[16];
-    snprintf1( ip_addr, 16, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) );
+    FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) ) );
     ADD( "--gossip-host", ip_addr );
   }
   if( config->development.gossip.allow_private_address ) {

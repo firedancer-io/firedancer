@@ -153,7 +153,7 @@ main_bencher( void * _args ) {
   if( FD_UNLIKELY( -1==connect( conn, fd_type_pun( &addr ), sizeof(addr) ) ) ) FD_LOG_ERR(( "connect() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   char faucet_key_path[ PATH_MAX ];
-  snprintf1( faucet_key_path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( faucet_key_path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
 
   const uchar * private_key = load_key_into_protected_memory( faucet_key_path, 0 );
   const uchar * public_key = private_key+32UL;

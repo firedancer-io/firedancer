@@ -81,13 +81,13 @@ fini( config_t * const config ) {
   const char * interface1 = config->development.netns.interface1;
 
   char cmd[ 256 ];
-  snprintf1( cmd, sizeof(cmd), "ip link del dev %s", interface0 );
+  FD_TEST( fd_cstr_printf_check( cmd, sizeof(cmd), NULL, "ip link del dev %s", interface0 ) );
   int status3 = system( cmd ); // Destroys interface1 as well, no need to check failure
   if( FD_UNLIKELY( status3 ) ) FD_LOG_DEBUG(( "ip link del dev %s failed", interface0 ));
 
-  snprintf1( cmd, sizeof(cmd), "ip netns delete %s", interface0 );
+  FD_TEST( fd_cstr_printf_check( cmd, sizeof(cmd), NULL, "ip netns delete %s", interface0 ) );
   int status1 = system( cmd );
-  snprintf1( cmd, sizeof(cmd), "ip netns delete %s", interface1 );
+  FD_TEST( fd_cstr_printf_check( cmd, sizeof(cmd), NULL, "ip netns delete %s", interface1 ) );
   int status2 = system( cmd );
 
   /* if neither of them was present, we wouldn't get to the undo step so make sure we were
@@ -101,13 +101,13 @@ check( config_t * const config ) {
   const char * interface1 = config->development.netns.interface1;
 
   char path[ PATH_MAX ];
-  snprintf1( path, sizeof(path), "/var/run/netns/%s", interface0 );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/var/run/netns/%s", interface0 ) );
 
   struct stat st;
   int result1 = stat( path, &st );
   if( FD_UNLIKELY( result1 && errno != ENOENT ) ) PARTIALLY_CONFIGURED( "netns `%s` cannot be read", interface0 );
 
-  snprintf1( path, sizeof(path), "/var/run/netns/%s", interface1 );
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/var/run/netns/%s", interface1 ) );
   int result2 = stat( path, &st );
   if( FD_UNLIKELY( result2 && errno != ENOENT ) ) PARTIALLY_CONFIGURED( "netns `%s` cannot be read", interface1 );
 

@@ -138,15 +138,16 @@ update_config_for_dev( config_t * const config ) {
   fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
   if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
     char genesis_path[ PATH_MAX ];
-    snprintf1( genesis_path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
+    FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
     shred->shred.expected_shred_version = compute_shred_version( genesis_path );
   }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
-    snprintf1( config->consensus.vote_account_path,
-               sizeof( config->consensus.vote_account_path ),
-               "%s/vote-account.json",
-               config->scratch_directory );
+    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                   sizeof( config->consensus.vote_account_path ),
+                                   NULL,
+                                   "%s/vote-account.json",
+                                   config->scratch_directory ) );
 }
 
 static void *
@@ -239,7 +240,7 @@ run_firedancer_threaded( config_t * config ) {
     if( FD_UNLIKELY( pthread_create( &threads[ i ], attr, tile_main1, &args[ i ] ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     char thread_name[ FD_LOG_NAME_MAX ] = {0};
-    snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "fd%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+    FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "fd%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
     if( FD_UNLIKELY( pthread_setname_np( threads[ i ], thread_name ) ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 

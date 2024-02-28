@@ -25,22 +25,24 @@ typedef struct {
     }                                                    \
   } while( 0 )
 
-#define NOT_CONFIGURED(...) do {              \
-    configure_result_t result;                \
-    result.result = CONFIGURE_NOT_CONFIGURED; \
-    snprintf1( result.message,                \
-               sizeof( result.message ),      \
-               __VA_ARGS__ );                 \
-    return result;                            \
+#define NOT_CONFIGURED(...) do {                             \
+    configure_result_t result;                               \
+    result.result = CONFIGURE_NOT_CONFIGURED;                \
+    FD_TEST( fd_cstr_printf_check( result.message,           \
+                                   sizeof( result.message ), \
+                                   NULL,                     \
+                                   __VA_ARGS__ ) );          \
+    return result;                                           \
   } while( 0 )
 
-#define PARTIALLY_CONFIGURED(...) do {              \
-    configure_result_t result;                      \
-    result.result = CONFIGURE_PARTIALLY_CONFIGURED; \
-    snprintf1( result.message,                      \
-               sizeof( result.message ),            \
-               __VA_ARGS__ );                       \
-    return result;                                  \
+#define PARTIALLY_CONFIGURED(...) do {                       \
+    configure_result_t result;                               \
+    result.result = CONFIGURE_PARTIALLY_CONFIGURED;          \
+    FD_TEST( fd_cstr_printf_check( result.message,           \
+                                   sizeof( result.message ), \
+                                   NULL,                     \
+                                   __VA_ARGS__ ) );          \
+    return result;                                           \
   } while( 0 )
 
 #define CONFIGURE_OK() do {       \

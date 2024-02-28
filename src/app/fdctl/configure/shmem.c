@@ -64,7 +64,7 @@ init( config_t * const config ) {
     mkdir_all( mount_path[ i ], config->uid, config->gid );
     ulong mount_size = page_size[ i ] * (mem_total / page_size[ i ] );
     char options[ 256 ];
-    snprintf1( options, sizeof(options), "pagesize=%lu,size=%lu", page_size[ i ], mount_size );
+    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,size=%lu", page_size[ i ], mount_size ) );
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( chown( mount_path[ i ], config->uid, config->gid ) ) )
@@ -168,7 +168,7 @@ check( config_t * const config ) {
         char * options = strtok_r( NULL, " ", &saveptr );
         if( FD_UNLIKELY( !options ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
         char search[ 256 ];
-        snprintf1( search, sizeof(search), "pagesize=%s", size[i] );
+        FD_TEST( fd_cstr_printf_check( search, sizeof(search), NULL, "pagesize=%s", size[i] ) );
         if( FD_UNLIKELY( !strstr( options, search ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
             FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));

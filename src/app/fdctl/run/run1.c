@@ -54,7 +54,7 @@ tile_main( void * _args ) {
   fd_log_cpu_set( NULL );
   fd_log_private_tid_set( pid );
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
-  snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
   fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
@@ -200,7 +200,7 @@ run1_cmd_fn( args_t *         args,
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
 
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
-  snprintf1( thread_name, FD_LOG_NAME_MAX-1UL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id );
+  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
   fd_log_thread_set( thread_name );
 
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

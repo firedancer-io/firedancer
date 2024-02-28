@@ -99,7 +99,7 @@ execve_solana_labs( int config_memfd,
     current_executable_path( _current_executable_path );
 
     char config_fd[ 32 ];
-    snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
+    FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
     char * args[ 5 ] = { _current_executable_path, "run-solana", "--config-fd", config_fd, NULL };
     if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
@@ -147,9 +147,9 @@ execve_tile( fd_topo_tile_t * tile,
     current_executable_path( _current_executable_path );
 
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
-    snprintf1( kind_id, sizeof( kind_id ), "%lu", tile->kind_id );
-    snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
-    snprintf1( pipe_fd, sizeof( pipe_fd ), "%d", pipefd );
+    FD_TEST( fd_cstr_printf_check( kind_id, sizeof( kind_id ), NULL, "%lu", tile->kind_id ) );
+    FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
+    FD_TEST( fd_cstr_printf_check( pipe_fd, sizeof( pipe_fd ), NULL, "%d", pipefd ) );
     char * args[ 9 ] = { _current_executable_path, "run1", fd_topo_tile_kind_str( tile->kind ), kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
     if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
