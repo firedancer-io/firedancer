@@ -59,7 +59,7 @@ check( config_t * const config ) {
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
     uint param = read_uint_file( params[ i ], ERR_MSG );
     if( FD_UNLIKELY( param < limits[ i ] ) )
-      NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %lu)", params[ i ], param, limits[ i ] );
+      NOT_CONFIGURED( "kernel parameter `%s` is too low (%u < %u)", params[ i ], param, limits[ i ] );
   }
 
   CONFIGURE_OK();

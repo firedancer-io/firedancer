@@ -22,7 +22,7 @@ static int namespace_original_fd = 0;
 void
 enter_network_namespace( const char * interface ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/var/run/netns/%s", interface );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/var/run/netns/%s", interface ) );
 
   if( FD_LIKELY( !namespace_original_fd ) ) {
     namespace_original_fd = open( "/proc/self/ns/net", O_RDONLY | O_CLOEXEC );
@@ -167,23 +167,6 @@ nanosleep1( uint secs, uint nanos ) {
     if( FD_LIKELY( errno == EINTR ) ) ts = rem;
     else FD_LOG_ERR(( "nanosleep failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-}
-
-/* FIXME: USE FD_CSTR_PRINTF */
-char *
-snprintf1( char * s,
-           ulong  maxlen,
-           char * format,
-           ... ) {
-  va_list args;
-  va_start( args, format );
-  int len = vsnprintf( s, maxlen, format, args );
-  va_end( args );
-  if( FD_UNLIKELY( len < 0 ) )
-    FD_LOG_ERR(( "vsnprintf failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( (ulong)len >= maxlen ) )
-    FD_LOG_ERR(( "vsnprintf truncated output (maxlen=%lu)", maxlen ));
-  return s;
 }
 
 void

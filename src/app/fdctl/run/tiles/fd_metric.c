@@ -196,23 +196,23 @@ prometheus_print1( fd_topo_t *               topo,
             ulong edge = fd_histf_right( hist, k );
             if( FD_LIKELY( metric->histogram.converter==FD_METRICS_CONVERTER_SECONDS ) ) {
               double edgef = fd_metrics_convert_ticks_to_seconds( edge-1 );
-              snprintf1( le_str, sizeof( le_str ), "%.17g", edgef );
+              FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%.17g", edgef ) );
             } else {
-              snprintf1( le_str, sizeof( le_str ), "%lu", edge-1 );
+              FD_TEST( fd_cstr_printf_check( le_str, sizeof( le_str ), NULL, "%lu", edge-1 ) );
             }
             le = le_str;
           }
 
-          snprintf1( value_str, sizeof( value_str ), "%lu", value );
+          FD_TEST( fd_cstr_printf_check( value_str, sizeof( value_str ), NULL, "%lu", value ));
           PRINT( "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, le, value_str );
         }
 
         char sum_str[ 64 ];
         if( FD_LIKELY( metric->histogram.converter==FD_METRICS_CONVERTER_SECONDS ) ) {
           double sumf = fd_metrics_convert_ticks_to_seconds( *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) );
-          snprintf1( sum_str, sizeof( sum_str ), "%.17g", sumf );
+          FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%.17g", sumf ) );
         } else {
-          snprintf1( sum_str, sizeof( sum_str ), "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) );
+          FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) ));
         }
 
         PRINT( "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, sum_str );
@@ -262,9 +262,8 @@ prometheus_print( fd_topo_t * topo,
   if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* Now backfill Content-Length */
-  int printed = snprintf( content_len, 21, "%lu", start_len - *out_len - content_start );
-  if( FD_UNLIKELY( printed<0 ) ) return -1;
-  if( FD_UNLIKELY( (ulong)printed>=21 ) ) return -1;
+  ulong printed;
+  if( FD_UNLIKELY( !fd_cstr_printf_check( content_len, 21, &printed, "%lu", start_len - *out_len - content_start ) ) ) return -1;
   content_len[ printed ] = ' '; /* Clear NUL terminator */
 
   return (long)(start_len - *out_len);

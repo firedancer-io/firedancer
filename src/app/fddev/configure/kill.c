@@ -21,7 +21,7 @@ cmdline( char * buf,
          size_t len,
          ulong  pid ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/proc/%lu/cmdline", pid );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/cmdline", pid ) );
 
   FILE * fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp && errno==ENOENT ) ) {
@@ -61,7 +61,7 @@ maybe_kill( config_t * const config,
   if( FD_UNLIKELY( killed ) ) return killed;
 
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/proc/%lu/maps", pid );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/maps", pid ) );
   FILE * fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp && errno==ENOENT ) ) return 0;
   else if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
@@ -84,7 +84,7 @@ maybe_kill( config_t * const config,
 
   if( FD_UNLIKELY( killed ) ) return killed;
 
-  snprintf1( path, PATH_MAX, "/proc/%lu/numa_maps", pid );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/numa_maps", pid ) );
   fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 

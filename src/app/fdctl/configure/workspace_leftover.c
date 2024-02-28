@@ -18,10 +18,7 @@ check_page_size( char * name,
                  ulong  size,
                  ulong  expected ) {
   char page_path[ PATH_MAX ];
-  snprintf1( page_path,
-             PATH_MAX,
-             "/sys/devices/system/node/node0/hugepages/hugepages-%lukB/free_hugepages",
-             size );
+  FD_TEST( fd_cstr_printf_check( page_path, PATH_MAX, NULL, "/sys/devices/system/node/node0/hugepages/hugepages-%lukB/free_hugepages", size ) );
 
   FILE * fp = fopen( page_path, "r" );
   if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", page_path, errno, fd_io_strerror( errno ) ));
@@ -94,7 +91,7 @@ fini( config_t * const config ) {
     if( FD_UNLIKELY( *endptr ) ) continue;
 
     char path[ PATH_MAX ];
-    snprintf1( path, PATH_MAX, "/proc/%lu/maps", pid );
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/maps", pid ) );
     FILE * fp = fopen( path, "r" );
     if( FD_UNLIKELY( !fp && errno != ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
@@ -115,7 +112,7 @@ fini( config_t * const config ) {
     if( FD_LIKELY( fclose( fp ) ) )
       FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
-    snprintf1( path, PATH_MAX, "/proc/%lu/numa_maps", pid );
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/numa_maps", pid ) );
     fp = fopen( path, "r" );
     if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 

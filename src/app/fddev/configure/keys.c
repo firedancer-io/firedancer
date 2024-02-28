@@ -14,15 +14,15 @@ init( config_t * const config ) {
     generate_keypair( config->consensus.identity_path, config );
 
   char faucet[ PATH_MAX ];
-  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   generate_keypair( faucet, config );
 
   char stake[ PATH_MAX ];
-  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( stake, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
   generate_keypair( stake, config );
 
   char vote[ PATH_MAX ];
-  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( vote, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
   generate_keypair( vote, config );
 }
 
@@ -30,13 +30,13 @@ init( config_t * const config ) {
 static void
 fini( config_t * const config ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
     FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
     FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
     FD_LOG_ERR(( "could not remove cluster file `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
@@ -46,9 +46,9 @@ static configure_result_t
 check( config_t * const config ) {
   char faucet[ PATH_MAX ], stake[ PATH_MAX ], vote[ PATH_MAX ];
 
-  snprintf1( faucet, PATH_MAX, "%s/faucet.json", config->scratch_directory );
-  snprintf1( stake, PATH_MAX, "%s/stake-account.json", config->scratch_directory );
-  snprintf1( vote, PATH_MAX, "%s/vote-account.json", config->scratch_directory );
+  FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
+  FD_TEST( fd_cstr_printf_check( stake,  PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
+  FD_TEST( fd_cstr_printf_check( vote,   PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
 
   struct stat st;
   if( FD_UNLIKELY( stat( faucet, &st ) && errno == ENOENT &&
