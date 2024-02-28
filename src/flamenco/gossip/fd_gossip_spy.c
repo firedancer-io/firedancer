@@ -239,8 +239,9 @@ main( int     argc,
       fd_valloc_malloc( valloc, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ),
       stdout );
   config.deliver_fun = print_data;
-  config.fun_arg = yamldump;
-  config.send_fun = send_packet;
+  config.deliver_arg = yamldump;
+  config.send_fun    = send_packet;
+  config.send_arg    = NULL;
 
   ulong seed = fd_hash(0, hostname, strnlen(hostname, sizeof(hostname)));
 

@@ -48,9 +48,11 @@ struct fd_gossip_config {
     fd_gossip_peer_addr_t my_addr;
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
+    void * deliver_arg;
     fd_gossip_send_packet_fun send_fun;
+    void * send_arg;
     fd_gossip_sign_fun sign_fun;
-    void * fun_arg;
+    void * sign_arg;
 };
 typedef struct fd_gossip_config fd_gossip_config_t;
 

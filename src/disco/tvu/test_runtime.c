@@ -50,7 +50,7 @@ main( int     argc,
   fd_runtime_ctx_t state;
   fd_memset(&state, 0, sizeof(state));
 
-  fd_tvu_main_setup( &state, NULL, NULL, 0, NULL, &args);
+  fd_tvu_main_setup( &state, NULL, NULL, NULL, 0, NULL, &args);
 
   // TODO: tracing, captures, and capitalization is broken
 #if 0

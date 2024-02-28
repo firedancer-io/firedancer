@@ -423,17 +423,16 @@ doit( void ) {
   fd_runtime_ctx_t runtime_ctx;
   memset(&runtime_ctx, 0, sizeof(runtime_ctx));
 
-  fd_tvu_repair_ctx_t repair_ctx;
-  memset(&repair_ctx, 0, sizeof(repair_ctx));
+  fd_replay_t * replay = NULL;
+  fd_exec_slot_ctx_t * slot_ctx = NULL;
 
-  fd_tvu_gossip_ctx_t gossip_ctx;
-  memset(&gossip_ctx, 0, sizeof(gossip_ctx));
-
-  if ( fd_keyguard_client_join( fd_keyguard_client_new( gossip_ctx.keyguard_client,
-                                                            g_sign_out->mcache,
-                                                            g_sign_out->dcache,
-                                                            g_sign_in->mcache,
-                                                            g_sign_in->dcache ) ) == NULL ) {
+  fd_keyguard_client_t keyguard_client[1];
+  if( fd_keyguard_client_join(
+        fd_keyguard_client_new( keyguard_client,
+                                g_sign_out->mcache,
+                                g_sign_out->dcache,
+                                g_sign_in->mcache,
+                                g_sign_in->dcache ) ) == NULL ) {
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
   memcpy(runtime_ctx.private_key, g_identity_key, 32);
@@ -460,8 +459,9 @@ doit( void ) {
     .rpc_port             = g_rpc_listen_port,
   };
   fd_tvu_main_setup( &runtime_ctx,
-                     &repair_ctx,
-                     &gossip_ctx,
+                     &replay,
+                     &slot_ctx,
+                     keyguard_client,
                      1,
                      g_wksp,
                      &args );
@@ -473,7 +473,8 @@ doit( void ) {
 
   if( fd_tvu_main( runtime_ctx.gossip,
                    &runtime_ctx.gossip_config,
-                   &repair_ctx,
+                   replay,
+                   slot_ctx,
                    &runtime_ctx.repair_config,
                    &runtime_ctx.stopflag,
                    g_repair_peer_id,

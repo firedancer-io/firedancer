@@ -228,11 +228,16 @@ struct fd_gossip {
     uchar tmp_private_key[32U];
     /* Function used to deliver gossip messages to the application */
     fd_gossip_data_deliver_fun deliver_fun;
+    /* Argument to fd_gossip_data_deliver_fun */
+    void * deliver_arg;
     /* Function used to send raw packets on the network */
     fd_gossip_send_packet_fun send_fun;
+    /* Argument to fd_gossip_send_packet_fun */
+    void * send_arg;
     /* Function used to send packets for signing to remote tile */
     fd_gossip_sign_fun sign_fun;
-    void * fun_arg;
+    /* Argument to fd_gossip_sign_fun */
+    void * sign_arg;
     /* Table of all known validators, keyed by gossip address */
     fd_peer_elem_t * peers;
     /* Table of validators that we are actively pinging, keyed by gossip address */
@@ -396,9 +401,11 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   fd_gossip_to_soladdr(&glob->my_contact_info.gossip, &config->my_addr);
   glob->my_contact_info.shred_version = config->shred_version;
   glob->deliver_fun = config->deliver_fun;
+  glob->deliver_arg = config->deliver_arg;
   glob->send_fun = config->send_fun;
+  glob->send_arg = config->send_arg;
   glob->sign_fun = config->sign_fun;
-  glob->fun_arg  = config->fun_arg;
+  glob->sign_arg = config->sign_arg;
 
   if (config->shred_version == 0U) {
     /* Configure temp identity needed to retrieve shred version */
@@ -477,7 +484,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
   if ( sz > PACKET_DATA_SIZE )
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
   fd_gossip_unlock( glob );
-  (*glob->send_fun)(data, sz, dest, glob->fun_arg);
+  (*glob->send_fun)(data, sz, dest, glob->send_arg);
   fd_gossip_lock( glob );
 }
 
@@ -557,7 +564,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
                     /* private_key */ private_key,
                     sha );
   } else {
-    (*glob->sign_fun)(glob->fun_arg, ping->signature.uc, ping->token.uc, 32UL);
+    (*glob->sign_fun)(glob->sign_arg, ping->signature.uc, ping->token.uc, 32UL);
   }
   
   fd_gossip_send( glob, key, &gmsg );
@@ -603,7 +610,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
                      /* private_key */ private_key,
                      sha2 );
   } else {
-    (*glob->sign_fun)(glob->fun_arg, pong->signature.uc, pong->token.uc, 32UL);
+    (*glob->sign_fun)(glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL);
   }
 
   fd_gossip_send(glob, from, &gmsg);
@@ -687,7 +694,7 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
                    /* private_key */ private_key,
                    sha );
   } else {
-    (*glob->sign_fun)(glob->fun_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
+    (*glob->sign_fun)(glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
   }
 }
 
@@ -1111,7 +1118,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   /* Deliver the data upstream */
   fd_gossip_unlock( glob );
-  (*glob->deliver_fun)(&crd->data, glob->fun_arg);
+  (*glob->deliver_fun)(&crd->data, glob->deliver_arg);
   fd_gossip_lock( glob );
 }
 
@@ -1649,7 +1656,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       return;
     }
 
-    (*glob->sign_fun)(glob->fun_arg, prune_msg->data.signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
+    (*glob->sign_fun)(glob->sign_arg, prune_msg->data.signature.uc, buf, (ulong)((uchar*)ctx.data - buf));
 
     fd_gossip_send(glob, &peerval->key, &gmsg);
   }

@@ -13,27 +13,11 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../keyguard/fd_keyguard_client.h"
 
-typedef struct {
-  fd_repair_t *        repair;
-  fd_blockstore_t *    blockstore;
-  fd_replay_t *        replay;
-  fd_exec_slot_ctx_t * slot_ctx;
-  fd_tpool_t *         tpool;
-  ulong                max_workers;
-  ulong                peer_iter;
-} fd_tvu_repair_ctx_t;
-
-typedef struct {
-  fd_gossip_t *      gossip;
-  fd_repair_t *      repair;
-  fd_replay_t *      replay;
-  fd_keyguard_client_t keyguard_client[1];
-} fd_tvu_gossip_ctx_t;
-
 void
 fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
-                   fd_tvu_repair_ctx_t * repair_ctx,
-                   fd_tvu_gossip_ctx_t * gossip_ctx,
+                   fd_replay_t **         replay,
+                   fd_exec_slot_ctx_t **  slot_ctx,
+                   fd_keyguard_client_t * keyguard_client,
                    int                   live,
                    fd_wksp_t *           _wksp,
                    fd_runtime_args_t *   args );
@@ -41,7 +25,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 int
 fd_tvu_main( fd_gossip_t *         gossip,
              fd_gossip_config_t *  gossip_config,
-             fd_tvu_repair_ctx_t * repair_ctx,
+             fd_replay_t *         replay,
+             fd_exec_slot_ctx_t *  slot_ctx,
              fd_repair_config_t *  repair_config,
              volatile int *        stopflag,
              char const *          repair_peer_id_,
@@ -53,6 +38,6 @@ int
 fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv );
 
 void
-fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_tvu_repair_ctx_t * repair_ctx );
+fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay );
 
 #endif /* HEADER_fd_src_tvu_fd_tvu_h */

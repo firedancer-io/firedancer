@@ -624,10 +624,12 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( resolve_hostport( g_gossip_my_addr, &ctx->gossip_config.my_addr ) );
   ctx->gossip_config.private_key = g_identity_private_key;
   ctx->gossip_config.public_key = &g_identity_public_key;
-  ctx->gossip_config.fun_arg = ctx;
   ctx->gossip_config.deliver_fun = gossip_deliver_fun;
+  ctx->gossip_config.deliver_arg = ctx;
   ctx->gossip_config.send_fun = gossip_send_packet;
+  ctx->gossip_config.send_arg = ctx;
   ctx->gossip_config.sign_fun = gossip_signer;
+  ctx->gossip_config.sign_arg = ctx;
   ctx->gossip_config.shred_version = 0;
 
   if( fd_gossip_set_config( ctx->gossip, &ctx->gossip_config ) ) {
