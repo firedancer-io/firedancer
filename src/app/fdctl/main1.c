@@ -106,7 +106,7 @@ fdctl_boot( int *        pargc,
   }
 
   int * log_lock = map_log_memfd( config->log.lock_fd );
-  int pid = getpid1(); /* Need to read /proc since we might be in a PID namespace now */;
+  ulong pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
   log_path = config->log.path;
   if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;
@@ -120,9 +120,9 @@ fdctl_boot( int *        pargc,
                               config->hostname,
                               fd_log_private_cpu_id_default(),
                               NULL,
-                              (ulong)pid,
+                              pid,
                               NULL,
-                              (ulong)pid,
+                              pid,
                               config->uid,
                               config->user,
                               1,

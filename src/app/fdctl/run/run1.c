@@ -41,7 +41,7 @@ tile_main( void * _args ) {
 
   if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
     if( FD_UNLIKELY( tile->id==args->config->development.debug_tile-1 ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%d", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, getpid1() ));
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_sandbox_getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_log_private_shared_lock[1] = 0;
@@ -50,7 +50,7 @@ tile_main( void * _args ) {
     }
   }
 
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_cpu_set( NULL );
   fd_log_private_tid_set( pid );
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
@@ -192,7 +192,7 @@ tile_main( void * _args ) {
 void
 run1_cmd_fn( args_t *         args,
              config_t * const config ) {
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = (ulong)fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
 
   ulong tile_id = fd_topo_find_tile( &config->topo, args->run1.tile_kind, args->run1.kind_id );
