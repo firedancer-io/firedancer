@@ -5,6 +5,7 @@
 #include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/shred/fd_fec_resolver.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../waltz/ip/fd_ip.h"
 
@@ -604,7 +605,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->shred.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  ctx->identity_key[ 0 ] = *(fd_pubkey_t *)load_key_into_protected_memory( tile->shred.identity_key_path, /* pubkey only: */ 1 );
+  ctx->identity_key[ 0 ] = *(fd_pubkey_t *)fd_keyload_load( tile->shred.identity_key_path, /* pubkey only: */ 1 );
 }
 
 void

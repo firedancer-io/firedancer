@@ -309,6 +309,7 @@
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 
@@ -1205,7 +1206,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->poh.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
-  const uchar * identity_key = load_key_into_protected_memory( tile->poh.identity_key_path, /* pubkey only: */ 1 );
+  const uchar * identity_key = fd_keyload_load( tile->poh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 }
 

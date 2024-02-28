@@ -5,6 +5,7 @@
 #include "../fdctl/run/run.h"
 #include "rpc_client/fd_rpc_client.h"
 
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <unistd.h>
@@ -155,7 +156,7 @@ main_bencher( void * _args ) {
   char faucet_key_path[ PATH_MAX ];
   snprintf1( faucet_key_path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
 
-  const uchar * private_key = load_key_into_protected_memory( faucet_key_path, 0 );
+  const uchar * private_key = fd_keyload_load( faucet_key_path, 0 );
   const uchar * public_key = private_key+32UL;
 
   fd_rpc_client_t * rpc_client = fd_rpc_client_join( fd_rpc_client_new( aligned_alloc( FD_RPC_CLIENT_ALIGN, FD_RPC_CLIENT_FOOTPRINT ),

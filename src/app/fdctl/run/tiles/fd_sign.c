@@ -3,6 +3,7 @@
 #include "generated/sign_seccomp.h"
 
 #include "../../../../disco/keyguard/fd_keyguard.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 
 #define MAX_IN (32UL)
 
@@ -134,7 +135,7 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
-  uchar const * identity_key = load_key_into_protected_memory( tile->sign.identity_key_path, /* pubkey only: */ 0 );
+  uchar const * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 }

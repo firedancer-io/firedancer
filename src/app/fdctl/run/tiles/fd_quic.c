@@ -2,6 +2,7 @@
 
 #include "generated/quic_seccomp.h"
 #include "../../../../disco/metrics/generated/fd_metrics_quic.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/xdp/fd_xsk_aio.h"
 #include "../../../../waltz/xdp/fd_xsk.h"
@@ -551,7 +552,7 @@ privileged_init( fd_topo_t *      topo,
   fd_quic_limits_t limits = quic_limits( tile );
   void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
   fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
-  uchar const * public_key = load_key_into_protected_memory( tile->quic.identity_key_path, 1 /* public key only */ );
+  uchar const * public_key = fd_keyload_load( tile->quic.identity_key_path, 1 /* public key only */ );
   fd_memcpy( quic->config.identity_public_key, public_key, 32UL );
 
   /* needed so unprivileged can finish initializing quic */
