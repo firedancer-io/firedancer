@@ -724,8 +724,8 @@ fd_topo_print_log( int         stdout,
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 
   /* The logic to map these private pages into memory is in utility.c,
-     under load_key_into_protected_memory, and the amount of pages
-     should be kept in sync. */
+     under fd_keyload_load, and the amount of pages should be kept in
+     sync. */
   ulong private_key_pages = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
   ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + private_key_pages;
 
