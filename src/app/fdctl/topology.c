@@ -24,7 +24,7 @@ fd_topo_join_workspace( char * const     app_name,
                         fd_topo_wksp_t * wksp,
                         int              mode ) {
   char name[ PATH_MAX ];
-  snprintf( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ) );
 
   wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
@@ -113,7 +113,7 @@ fd_topo_create_workspaces( char *      app_name,
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
     char name[ PATH_MAX ];
-    snprintf1( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ));
 
     ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
     ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
@@ -121,7 +121,7 @@ fd_topo_create_workspaces( char *      app_name,
     int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
     if( FD_UNLIKELY( err && errno == ENOMEM ) ) {
       char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-      snprintf1( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) );
+      FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
                    "with %lu %s pages. The memory needed should already be successfully "
                    "reserved by the `large-pages` configure step, so there are two "
@@ -694,9 +694,9 @@ fd_topo_validate( fd_topo_t const * topo ) {
 static void
 fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
   if( FD_LIKELY( sz >= FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
-    snprintf1( out, 24, "%lu GiB", sz / (1 << 30) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu GiB", sz / (1 << 30) ) );
   } else {
-    snprintf1( out, 24, "%lu MiB", sz / (1 << 20) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu MiB", sz / (1 << 20) ) );
   }
 }
 
@@ -710,7 +710,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINT( ... ) do {                                                           \
     int n = snprintf( cur, remaining, __VA_ARGS__ );                                \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                  \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                   \
     if( FD_UNLIKELY( (ulong)n >= remaining ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining -= (ulong)n;                                                          \
     cur += n;                                                                       \
@@ -764,7 +764,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINTIN( ... ) do {                                                            \
     int n = snprintf( cur_in, remaining_in, __VA_ARGS__ );                             \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                     \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                      \
     if( FD_UNLIKELY( (ulong)n >= remaining_in ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining_in -= (ulong)n;                                                          \
     cur_in += n;                                                                       \
@@ -772,7 +772,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINTOUT( ... ) do {                                                            \
     int n = snprintf( cur_out, remaining_in, __VA_ARGS__ );                             \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                      \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                       \
     if( FD_UNLIKELY( (ulong)n >= remaining_out ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining_out -= (ulong)n;                                                          \
     cur_out += n;                                                                       \
@@ -803,7 +803,7 @@ fd_topo_print_log( int         stdout,
 
     char out_link_id[ 24 ] = "-1";
     if( tile->out_link_id_primary != ULONG_MAX )
-      snprintf1( out_link_id, 24, "%lu", tile->out_link_id_primary );
+      FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );

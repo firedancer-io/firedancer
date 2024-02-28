@@ -924,7 +924,7 @@ config_parse( int *      pargc,
     replace( config->ledger.path, "{user}", config->user );
     replace( config->ledger.path, "{name}", config->name );
   } else {
-    snprintf1( config->ledger.path, sizeof(config->ledger.path), "%s/ledger", config->scratch_directory );
+    FD_TEST( fd_cstr_printf_check( config->ledger.path, sizeof(config->ledger.path), NULL, "%s/ledger", config->scratch_directory ) );
   }
 
   if( FD_UNLIKELY( strcmp( config->snapshots.path, "" ) ) ) {
@@ -935,10 +935,11 @@ config_parse( int *      pargc,
   }
 
   if( FD_UNLIKELY( !strcmp( config->consensus.identity_path, "" ) ) ) {
-    snprintf1( config->consensus.identity_path,
-               sizeof(config->consensus.identity_path),
-               "%s/identity.json",
-               config->scratch_directory );
+    FD_TEST( fd_cstr_printf_check( config->consensus.identity_path,
+                                   sizeof(config->consensus.identity_path),
+                                   NULL,
+                                   "%s/identity.json",
+                                   config->scratch_directory ) );
   } else {
     replace( config->consensus.identity_path, "{user}", config->user );
     replace( config->consensus.identity_path, "{name}", config->name );
@@ -979,10 +980,11 @@ config_parse( int *      pargc,
     if( FD_UNLIKELY( config->is_live_cluster ) )
       FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));
 
-    snprintf1( config->consensus.identity_path,
-               sizeof( config->consensus.identity_path ),
-               "%s/identity.json",
-               config->scratch_directory );
+    FD_TEST( fd_cstr_printf_check( config->consensus.identity_path,
+                                   sizeof(config->consensus.identity_path),
+                                   NULL,
+                                   "%s/identity.json",
+                                   config->scratch_directory ) );
   }
 
   validate_ports( config );

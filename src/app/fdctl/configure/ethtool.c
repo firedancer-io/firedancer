@@ -28,7 +28,7 @@ init_perm( fd_caps_ctx_t *  caps,
 static int
 device_is_bonded( const char * device ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/sys/class/net/%s/bonding", device );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
   struct stat st;
   int err = stat( path, &st );
   if( FD_UNLIKELY( err && errno != ENOENT ) )
@@ -41,7 +41,7 @@ static void
 device_read_slaves( const char * device,
                     char         output[ 4096 ] ) {
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/sys/class/net/%s/bonding/slaves", device );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/slaves", device ) );
 
   FILE * fp = fopen( path, "r" );
   if( FD_UNLIKELY( !fp ) )

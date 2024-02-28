@@ -107,18 +107,18 @@ fini( config_t * const config ) {
   nanosleep1( 1, 0 );
 
   char path[ PATH_MAX ];
-  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/%s", config->name, config->tiles.net.interface );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s", config->name, config->tiles.net.interface ) );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s/lo", config->name );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/fs/bpf/%s/lo", config->name ) );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  snprintf1( path, PATH_MAX, "/sys/fs/bpf/%s", config->name );
+  FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/fs/bpf/%s", config->name ) );
   if( FD_UNLIKELY( rmdir( path ) && errno != ENOENT ) ) FD_LOG_ERR(( "rmdir failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
 check( config_t * const config ) {
   char xdp_path[ PATH_MAX ];
-  snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s", config->name );
+  FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s", config->name ) );
 
   struct stat st;
   int result = stat( xdp_path, &st );
@@ -127,19 +127,19 @@ check( config_t * const config ) {
 
   CHECK( check_dir(  xdp_path, config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
 
-  snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/udp_dsts", config->name );
+  FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/udp_dsts", config->name ) );
   CHECK( check_file( xdp_path, config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
   char * interfaces[] = { config->tiles.net.interface, "lo" };
   ulong interfaces_sz = !strcmp( config->tiles.net.interface, "lo" ) ? 1 : 2;
   for( ulong i=0; i<interfaces_sz; i++ ) {
-    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_link", config->name, interfaces[i] );
+    FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xdp_link", config->name, interfaces[i] ) );
     CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xdp_prog", config->name, interfaces[i] );
+    FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xdp_prog", config->name, interfaces[i] ) );
     CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
-    snprintf1( xdp_path, PATH_MAX, "/sys/fs/bpf/%s/%s/xsks", config->name, interfaces[i] );
+    FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xsks", config->name, interfaces[i] ) );
     CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
   }
 
