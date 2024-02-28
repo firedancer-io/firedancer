@@ -11,21 +11,20 @@
 
 #include "../../tango/tempo/fd_tempo.h"
 
-/* fd_metrics mostly defines way of laying out metrics in shared
-   memory so that a producer and consumer can agree on where they
-   are, and can read and wite them quickly and with little to no
-   boilerplate.
+/* fd_metrics mostly defines way of laying out metrics in shared memory
+   so that a producer and consumer can agree on where they are, and can
+   read and wite them quickly and with little to no boilerplate.
 
-   At initialization time, a thread can call fd_metrics_register
-   which saves a thread local base pointer.  Then, macros are provided
-   which given a macro "name", maps it to an offset from that base
-   pointer and does a write of the corresponding ulong.
+   At initialization time, a thread can call fd_metrics_register which
+   saves a thread local base pointer.  Then, macros are provided which
+   given a macro "name", maps it to an offset from that base pointer and
+   does a write of the corresponding ulong.
 
    For low-frequency metrics like incrementing rarely hit error
    counters, it is OK to use the macros inline.  For high frequency
    metrics in core loops, it may be preferable to accumulate local
-   metric values in the tile and drain them to the metrics shared
-   memory periodically, eg, via. a housekeeping step.
+   metric values in the tile and drain them to the metrics shared memory
+   periodically, eg, via. a housekeeping step.
 
    The metrics area is minimal and contains no metadata itself.  For
    example, histograms in the metrics shared memory are just the bucket

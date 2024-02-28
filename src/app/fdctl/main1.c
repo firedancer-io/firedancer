@@ -106,7 +106,7 @@ fdctl_boot( int *        pargc,
   }
 
   int * log_lock = map_log_memfd( config->log.lock_fd );
-  int pid = getpid1(); /* Need to read /proc since we might be in a PID namespace now */;
+  int pid = fd_sandbox_getpid(); /* Need to read /proc since we might be in a PID namespace now */;
 
   log_path = config->log.path;
   if( FD_LIKELY( config->log.path[ 0 ]=='\0' ) ) log_path = NULL;

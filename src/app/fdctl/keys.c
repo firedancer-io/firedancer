@@ -4,6 +4,8 @@
 #include <sys/stat.h>
 #include <sys/random.h>
 
+#include "../../disco/keyguard/fd_keyload.h"
+
 typedef enum {
   CMD_NEW_IDENTITY,
   CMD_NEW_VOTE_ACCOUNT,
@@ -103,7 +105,7 @@ generate_keypair( const char * keyfile,
 
 void
 keys_pubkey( const char * file_path ) {
-  uchar const * pubkey = load_key_into_protected_memory( file_path, 1 );
+  uchar const * pubkey = fd_keyload_load( file_path, 1 );
   char pubkey_str[FD_BASE58_ENCODED_32_SZ];
   fd_base58_encode_32( pubkey, NULL, pubkey_str );
   printf( "%s\n", pubkey_str );

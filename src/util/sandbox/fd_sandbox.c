@@ -312,3 +312,16 @@ fd_sandbox_alloc_protected_pages( ulong page_cnt,
   return middle_pages;
 #undef PAGE_SZ
 }
+
+int
+fd_sandbox_getpid( void ) {
+  char pid[ 12 ] = {0};
+  long count = readlink( "/proc/self", pid, sizeof(pid) );
+  if( FD_UNLIKELY( count < 0 ) ) FD_LOG_ERR(( "readlink(/proc/self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count >= sizeof(pid) ) ) FD_LOG_ERR(( "readlink(/proc/self) returned truncated pid" ));
+  char * endptr;
+  ulong result = strtoul( pid, &endptr, 10 );
+  if( FD_UNLIKELY( *endptr != '\0' || result > INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid pid" ));
+
+  return (int)result;
+}

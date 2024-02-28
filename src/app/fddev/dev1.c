@@ -31,6 +31,12 @@ dev1_cmd_perm( args_t *         args,
   dev_cmd_perm( args, caps, config );
 }
 
+fd_topo_run_tile_args_t * tile_run_args( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  FD_LOG_ERR(( "bbb" ));
+  return NULL;
+}
+
 void
 dev1_cmd_fn( args_t *         args,
              config_t * const config ) {
@@ -51,31 +57,32 @@ dev1_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int result;
   if( !strcmp( args->dev1.tile_name, "solana" ) ||
       !strcmp( args->dev1.tile_name, "labs" ) ||
       !strcmp( args->dev1.tile_name, "solana-labs" ) ) {
-    result = solana_labs_main( config );
+    solana_labs_main( config );
   } else {
-    ulong tile_kind = fd_topo_tile_kind_from_cstr( args->dev1.tile_name );
-    if( FD_UNLIKELY( tile_kind==ULONG_MAX ) ) FD_LOG_ERR(( "unknown tile %s", args->dev1.tile_name ));
+    fd_topo_t topo[ 1 ];
+    fd_topo_new( topo, config->pod );
 
-    ulong idx;
-    for( idx=0; idx<config->topo.tile_cnt; idx++ ) {
-      if( FD_UNLIKELY( config->topo.tiles[ idx ].kind == tile_kind ) ) break;
+    fd_topo_tile_t * tile = NULL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      fd_topo_tile_t * _tile = topo->tiles[ i ];
+      if( FD_UNLIKELY( strcmp( _tile->name, args->dev1.tile_name ) || _tile->tidx ) ) continue;
+      tile = _tile;
+      break;
     }
 
-    if( FD_UNLIKELY( idx >= config->topo.tile_cnt ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
+    if( FD_UNLIKELY( !tile ) ) FD_LOG_ERR(( "tile %s:%lu not found", args->dev1.tile_name, 0UL ));
 
-    tile_main_args_t args = {
-      .config   = config,
-      .tile     = &config->topo.tiles[ idx ],
-      .pipefd   = -1, /* no parent process to notify about termination */
-      .no_shmem = 0,
-    };
-    result = tile_main( &args );
+    fd_topo_run_tile( tile,
+                      config->development.sandbox,
+                      config->uid,
+                      config->gid,
+                      -1, /* no parent process to notify about termination */
+                      tile_run_args( tile ) );
   }
 
   /* main functions should exit_group and never return, but just in case */
-  exit_group( result );
+  exit_group( 0 );
 }

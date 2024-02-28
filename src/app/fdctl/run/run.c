@@ -5,8 +5,8 @@
 #include "generated/main_seccomp.h"
 #include "generated/pidns_seccomp.h"
 
-#include "tiles/tiles.h"
 #include "../configure/configure.h"
+#include "../../../util/tile/fd_tile_private.h"
 
 #include <sched.h>
 #include <stdio.h>
@@ -17,8 +17,6 @@
 #include <linux/capability.h>
 #include <linux/unistd.h>
 
-#include "../../../util/tile/fd_tile_private.h"
-
 #define NAME "run"
 
 void
@@ -27,7 +25,7 @@ run_cmd_perm( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
+  ulong mlock_limit = fd_topo_memory_mlock_multi_process( config->pod );
 
   fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory with `mlock(2)`" );
   fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
@@ -110,17 +108,16 @@ execve_solana_labs( int config_memfd,
 }
 
 static pid_t
-execve_tile( fd_topo_tile_t * tile,
-             ushort           cpu_idx,
-             fd_cpuset_t *    floating_cpu_set,
-             int              floating_priority,
-             int              config_memfd,
-             int              pipefd ) {
+execve_tile( fd_topo_tile_t const * tile,
+             fd_cpuset_t *          floating_cpu_set,
+             int                    floating_priority,
+             int                    config_memfd,
+             int                    pipefd ) {
   FD_CPUSET_DECL( cpu_set );
-  if( FD_LIKELY( cpu_idx<65535UL ) ) {
+  if( FD_LIKELY( tile->cpu_idx<65535UL ) ) {
     /* set the thread affinity before we clone the new process to ensure
         kernel first touch happens on the desired thread. */
-    fd_cpuset_insert( cpu_set, cpu_idx );
+    fd_cpuset_insert( cpu_set, tile->cpu_idx );
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
@@ -129,13 +126,13 @@ execve_tile( fd_topo_tile_t * tile,
 
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
     FD_LOG_WARNING(( "unable to pin tile to cpu with fd_cpuset_setaffinity (%i-%s). "
-                     "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
+                     "Unable to set the thread affinity for tile %s:%lu on cpu %lu. Attempting to "
                      "continue without explicitly specifying this cpu's thread affinity but it "
                      "is likely this thread group's performance and stability are compromised "
                      "(possibly catastrophically so). Update [layout.affinity] in the configuration "
                      "to specify a set of allowed cpus that have been reserved for this thread "
                      "group on this host to eliminate this warning.",
-                     errno, fd_io_strerror( errno ), tile->id, cpu_idx ));
+                     errno, fd_io_strerror( errno ), tile->name, tile->tidx, tile->cpu_idx ));
   }
 
   /* Clear CLOEXEC on the side of the pipe we want to pass to the tile. */
@@ -147,11 +144,11 @@ execve_tile( fd_topo_tile_t * tile,
     current_executable_path( _current_executable_path );
 
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
-    snprintf1( kind_id, sizeof( kind_id ), "%lu", tile->kind_id );
+    snprintf1( kind_id, sizeof( kind_id ), "%lu", tile->tidx );
     snprintf1( config_fd, sizeof( config_fd ), "%d", config_memfd );
     snprintf1( pipe_fd, sizeof( pipe_fd ), "%d", pipefd );
-    char * args[ 9 ] = { _current_executable_path, "run1", fd_topo_tile_kind_str( tile->kind ), kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
-    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    char const * const args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
+    if( FD_UNLIKELY( -1==execve( _current_executable_path, (char**)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
@@ -172,7 +169,7 @@ main_pid_namespace( void * _args ) {
   config_t * const config = args->config;
 
   fd_log_thread_set( "pidns" );
-  ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong pid = (ulong)fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_group_id_set( pid );
   fd_log_private_thread_id_set( pid );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
@@ -185,25 +182,15 @@ main_pid_namespace( void * _args ) {
       FD_LOG_ERR(( "prctl(PR_SET_CHILD_SUBREAPER) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
-  if( FD_UNLIKELY( affinity_tile_cnt<config->topo.tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                                                                            "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                                                                            "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                                                                            config->topo.tile_cnt, affinity_tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>config->topo.tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                                                                                "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                                                                                "individual tile counts in the [layout] section of the configuration file.",
-                                                                                 config->topo.tile_cnt, affinity_tile_cnt ));
-
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
-  char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
-  struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
+  pid_t child_pids[ 1UL+FD_TOPO_TILE_MAX ];
+  char  child_names[ 1UL+FD_TOPO_TILE_MAX ][ 32 ];
+  ulong child_tidx[ 1UL+FD_TOPO_TILE_MAX ];
+  struct pollfd fds[ 2UL+FD_TOPO_TILE_MAX ];
 
   int config_memfd = config_write_memfd( config );
 
@@ -219,6 +206,7 @@ main_pid_namespace( void * _args ) {
     child_pids[ child_cnt ] = execve_solana_labs( config_memfd, pipefd[ 1 ] );
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], "solana-labs", 32 );
+    child_tidx[ child_cnt ] = 0UL;
     child_cnt++;
   }
 
@@ -231,16 +219,20 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
+  fd_topo_t topo[ 1 ];
+  fd_topo_new( topo, config->pod );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->solana_labs ) ) continue;
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
-    child_pids[ child_cnt ] = execve_tile( tile, tile_to_cpu[ i ], floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
+    child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    strncpy( child_names[ child_cnt ], fd_topo_tile_kind_str( tile->kind ), 32 );
+    strncpy( child_names[ child_cnt ], tile->name, 32 );
+    child_tidx[ child_cnt ] = tile->tidx;
     child_cnt++;
   }
 
@@ -251,7 +243,7 @@ main_pid_namespace( void * _args ) {
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int allow_fds[ 4+FD_TOPO_MAX_TILES ];
+  int allow_fds[ 4UL+FD_TOPO_TILE_MAX ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
@@ -283,11 +275,11 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited while booting with signal %d (%s)\n", child_names[ i ], child_tidx[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
     if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
-      FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
+      FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited while booting with code %d\n", child_names[ i ], child_tidx[ i ], WEXITSTATUS( wstatus ) ));
       exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
     }
   }
@@ -300,6 +292,7 @@ main_pid_namespace( void * _args ) {
      terminate all other children bringing all of our processes down as
      a group.  The parent process will also die if this process dies,
      due to getting SIGHUP on the pipe. */
+
   while( 1 ) {
     if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -312,7 +305,7 @@ main_pid_namespace( void * _args ) {
         }
 
         char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+        ulong  tile_id = child_tidx[ i ];
 
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
@@ -399,8 +392,7 @@ clone_firedancer( config_t * const config,
         will kill all other processes. */
 void
 run_firedancer( config_t * const config ) {
-  /* dump the topology we are using to the output log */
-  fd_topo_print_log( 0, &config->topo );
+  fd_topo_print( config->pod, 0 );
 
   if( FD_UNLIKELY( close( 0 ) ) ) FD_LOG_ERR(( "close(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

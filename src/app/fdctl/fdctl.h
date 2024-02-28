@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_app_fdctl_fdctl_h
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
-#include "topology.h"
 #include "config.h"
 #include "caps.h"
 #include "utility.h"
@@ -14,8 +13,9 @@ struct configure_stage;
 
 typedef union {
   struct {
-    ulong tile_kind;
-    ulong kind_id;
+    char const * tile_name;
+    ulong        tidx;
+
     int   pipe_fd;
   } run1;
 
@@ -71,10 +71,14 @@ typedef struct {
 #define ACTIONS_CNT (10UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];
 
-void fdctl_boot( int *        pargc,
-                 char ***     pargv,
-                 config_t   * config,
-                 char const * log_path);
+void
+fdctl_boot( int *        pargc,
+            char ***     pargv,
+            config_t   * config,
+            char const * log_path);
+
+void
+topo_initialize( config_t * config );
 
 int
 main1( int     argc,

@@ -8,16 +8,17 @@
 static void
 init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
-  ulong mlock_limit = fd_topo_mlock( &config->topo );
+  ulong mlock_limit = fd_topo_memory_mlock_single_process( config->pod );
+
   fd_caps_check_resource( caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory" );
 }
 
 static void
-workspace_path( config_t * const config,
-                fd_topo_wksp_t * wksp,
-                char             out[ PATH_MAX ] ) {
+workspace_path( config_t * const       config,
+                fd_topo_wksp_t const * wksp,
+                char                   out[ static PATH_MAX ] ) {
   char * mount_path;
-  switch( wksp->page_sz ) {
+  switch( wksp->sz.page_sz ) {
     case FD_SHMEM_HUGE_PAGE_SZ:
       mount_path = config->shmem.huge_page_mount_path;
       break;
@@ -25,10 +26,16 @@ workspace_path( config_t * const config,
       mount_path = config->shmem.gigantic_page_mount_path;
       break;
     default:
-      FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
+      FD_LOG_ERR(( "invalid page size %lu", wksp->sz.page_sz ));
   }
 
-  snprintf1( out, PATH_MAX, "%s/%s_%s.wksp", mount_path, config->name, fd_topo_wksp_kind_str( wksp->kind ) );
+  snprintf1( out, PATH_MAX, "%s/%s_%s.wksp", mount_path, config->name, wksp->name );
+}
+
+static void
+obj_new( void * mem, uchar const * pod, char const * id ) {
+  (void)mem; (void)pod; (void)id;
+  return;
 }
 
 static void
@@ -41,11 +48,13 @@ init( config_t * const config ) {
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-  fd_topo_create_workspaces( config->name, &config->topo );
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_NEW );
-  fd_topo_leave_workspaces( &config->topo );
+  fd_topo_t topo[ 1 ];
+  fd_topo_new( topo, config->pod );
+
+  fd_topo_wksp_new( config->pod );
+  fd_topo_wksp_attach_all( topo, FD_TOPO_WKSP_MMAP_MODE_WRITE );
+  fd_topo_wksp_apply( topo, obj_new );
+  fd_topo_wksp_detach( topo );
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -53,10 +62,11 @@ init( config_t * const config ) {
 
 static void
 fini( config_t * const config ) {
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+  fd_topo_t topo[ 1 ];
+  fd_topo_new( topo, config->pod );
 
-  for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    fd_topo_wksp_t const * wksp = topo->wksps[ i ];
 
     char path[ PATH_MAX ];
     workspace_path( config, wksp, path );
@@ -65,24 +75,25 @@ fini( config_t * const config ) {
     int result = stat( path, &st );
     if( FD_LIKELY( !result ) ) {
       char name[ PATH_MAX ];
-      snprintf1( name, PATH_MAX, "%s_%s.wksp", config->name, fd_topo_wksp_kind_str( wksp->kind ) );
+      snprintf1( name, PATH_MAX, "%s_%s.wksp", config->name, wksp->name );
 
       if( FD_UNLIKELY( fd_wksp_delete_named( name ) ) ) {
         if( FD_UNLIKELY( -1==unlink( path ) ) )
           FD_LOG_ERR(( "unlink failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
       }
     }
-    else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
     else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 }
 
 static configure_result_t
 check( config_t * const config ) {
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT );
+  fd_topo_t topo[ 1 ];
+  fd_topo_new( topo, config->pod );
 
-  for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+  for( ulong i=0; i<topo->wksp_cnt; i++ ) {
+    fd_topo_wksp_t const * wksp = topo->wksps[ i ];
 
     char path[ PATH_MAX ];
     workspace_path( config, wksp, path );
@@ -90,7 +101,7 @@ check( config_t * const config ) {
     struct stat st;
     int result = stat( path, &st );
     if( FD_LIKELY( !result ) ) PARTIALLY_CONFIGURED( "workspace `%s` exists", path );
-    else if( FD_LIKELY( result && errno == ENOENT ) ) continue;
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
     else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
 

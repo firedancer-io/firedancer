@@ -57,10 +57,8 @@ check( config_t * const config ) {
      able to clean up the workspace later */
   if( FD_UNLIKELY( !result1 || !result2 ) ) CONFIGURE_OK();
 
-  ulong expected[ 2 ] = {
-    fd_topo_huge_page_cnt( &config->topo ),
-    fd_topo_gigantic_page_cnt( &config->topo )
-  };
+  fd_topo_memory_t memory = fd_topo_memory_required_pages( config->pod );
+  ulong expected[ 2 ] = { memory.huge_page_cnt, memory.gigantic_page_cnt };
 
   CHECK( check_page_size( "huge", 2048, expected[ 0 ] ) );
   CHECK( check_page_size( "gigantic", 1048576, expected[ 1 ] ) );

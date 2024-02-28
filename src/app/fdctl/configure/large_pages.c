@@ -53,10 +53,9 @@ static void init( config_t * const config ) {
     "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
     "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
   };
-  ulong expected[ 2 ] = {
-    fd_topo_huge_page_cnt( &config->topo ),
-    fd_topo_gigantic_page_cnt( &config->topo )
-  };
+
+  fd_topo_memory_t memory = fd_topo_memory_required_pages( config->pod );
+  ulong expected[ 2 ] = { memory.huge_page_cnt, memory.gigantic_page_cnt };
 
   for( int i=0; i<2; i++ ) {
     uint actual = read_uint_file( paths[ i ], ERR_MSG );
@@ -73,10 +72,9 @@ static configure_result_t check( config_t * const config ) {
     "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
     "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
   };
-  ulong expected[ 2 ] = {
-    fd_topo_huge_page_cnt( &config->topo ),
-    fd_topo_gigantic_page_cnt( &config->topo )
-  };
+
+  fd_topo_memory_t memory = fd_topo_memory_required_pages( config->pod );
+  ulong expected[ 2 ] = { memory.huge_page_cnt, memory.gigantic_page_cnt };
 
   for( int i=0; i<2; i++ ) {
     uint actual = read_uint_file( paths[i], ERR_MSG );

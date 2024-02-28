@@ -1,0 +1,12 @@
+{
+  "files.associations": {
+    "*.seccomppolicy": "toml",
+    "fd_topo_link.h": "c",
+    "thread": "c",
+    "limits.h": "c",
+    "chrono": "c",
+    "string_view": "c",
+    "stat.h": "c",
+    "fd_topo_pod_helper.h": "c"
+  }
+}

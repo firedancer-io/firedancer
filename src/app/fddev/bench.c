@@ -5,6 +5,7 @@
 #include "../fdctl/run/run.h"
 #include "rpc_client/fd_rpc_client.h"
 
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/net/fd_ip4.h"
 
 #include <unistd.h>
@@ -155,7 +156,7 @@ main_bencher( void * _args ) {
   char faucet_key_path[ PATH_MAX ];
   snprintf1( faucet_key_path, PATH_MAX, "%s/faucet.json", config->scratch_directory );
 
-  const uchar * private_key = load_key_into_protected_memory( faucet_key_path, 0 );
+  const uchar * private_key = fd_keyload_load( faucet_key_path, 0 );
   const uchar * public_key = private_key+32UL;
 
   fd_rpc_client_t * rpc_client = fd_rpc_client_join( fd_rpc_client_new( aligned_alloc( FD_RPC_CLIENT_ALIGN, FD_RPC_CLIENT_FOOTPRINT ),
@@ -331,41 +332,50 @@ bench_cmd_fn( args_t *         args,
   printf( "\n             link |  ovrnp cnt |  ovrnr cnt |   slow cnt |     tx seq |     rx seq\n" );
   printf(   "------------------+------------+------------+------------+------------+-----------\n" );
 
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
+/*  fd_topo_t * topo = &config->topo;
 
-  fd_topo_t * topo = &config->topo;
-  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
-    for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
-      fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-      ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
-      FD_TEST( producer_tile_id != ULONG_MAX );
-      char * producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
+  ulong query[ FD_TOPO_VERT_MAX ] = {1UL};
+  fd_topo_wksp_join_t join = fd_topo_wksp_join( config->name, topo, query );
+  fd_topo_wksp_fill_t fill = fd_topo_wksp_fill( topo, &join, query, NULL );
 
-      ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
+  fd_topo_vert_t const * vert = fd_topo_findn( topo, FD_TOPO_VERT_ID_TILE, NULL );
+  while( vert ) {
+    fd_topo_vert_tile_t const * consumer_tile = fd_type_pun_const( vert );
+    fd_topo_vert_t const * in_metricsv = fd_topo_walk1( topo, vert, FD_TOPO_EDGE_ID_TILE_METRICS );
 
-      ulong producer_id = fd_topo_find_link_producer( topo, link );
+    ulong in_idx = 0UL;
+    fd_topo_vert_t const * link_in = fd_topo_walkn( topo, vert, FD_TOPO_EDGE_ID_TILE_IN, NULL );
+    while( link_in ) {
+      ulong const * in_metrics = (ulong const *)fd_metrics_link_in( fill.v[ in_metricsv->vidx ], in_idx );
+
+      fd_topo_vert_t const * link = fd_topo_walk1( topo, link_in, FD_TOPO_EDGE_ID_LINK_OUT );
+      fd_topo_vert_tile_t const * producer_tile = fd_type_pun_const( fd_topo_walk1( topo, link, FD_TOPO_EDGE_ID_TILE_OUT ) );
+
       ulong const * out_metrics = NULL;
-      if( FD_LIKELY( producer_id!=ULONG_MAX && topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
-        fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
-        ulong out_idx;
-        for( out_idx=0UL; out_idx<producer->out_cnt; out_idx++ ) {
-          if( producer->out_link_id[ out_idx ]==link->id ) break;
-        }
-        out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
+      fd_topo_vert_link_in_t const * in_link = fd_type_pun_const( link_in );
+      if( FD_LIKELY( producer_tile && in_link->is_reliable ) ) {
+        ulong out_idx = fd_topo_link_out_idx( topo, producer_tile, in_link );
+
+        fd_topo_vert_t const * out_metricsv = fd_topo_walk1( topo, &producer_tile->base, FD_TOPO_EDGE_ID_TILE_METRICS );
+        out_metrics = fd_metrics_link_out( fill.v[ out_metricsv->vidx ], out_idx );
       }
 
-      printf( " %7s->%-7s", producer, fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
+      printf( " %7s->%-7s", producer_tile->name, consumer_tile->name );
       printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ] );
       printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ] );
       printf( " | %10lu", out_metrics ? out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ] : 0UL );
 
-      fd_frag_meta_t const * mcache = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx  ] ].mcache;
-      ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( mcache );
+      fd_topo_vert_t const * mcache = fd_topo_walk1( topo, link, FD_TOPO_EDGE_ID_LINK_MCACHE );
+      ulong const * seq = (ulong const *)fd_mcache_seq_laddr_const( fill.v[ mcache->vidx ] );
       printf( " | %10lu", fd_mcache_seq_query( seq ) );
 
-      ulong const * fseq = topo->tiles[ tile_idx ].in_link_fseq[ in_idx ];
-      printf( " | %10lu\n", fd_fseq_query( fseq ) );
+      fd_topo_vert_t const * fseq = fd_topo_walk1( topo, link, FD_TOPO_EDGE_ID_LINK_IN_FSEQ );
+      printf( " | %10lu\n", fd_fseq_query( fill.v[ fseq->vidx ] ) );
+
+      link_in = fd_topo_walkn( topo, vert, FD_TOPO_EDGE_ID_TILE_IN, link_in );
+      in_idx++;
     }
-  }
+
+    vert = fd_topo_findn( topo, FD_TOPO_VERT_ID_TILE, vert );
+  }*/
 }

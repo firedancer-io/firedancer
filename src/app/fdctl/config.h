@@ -1,9 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_config_h
 #define HEADER_fd_src_app_fdctl_config_h
 
-#include "topology.h"
-
-#include "../../disco/fd_disco_base.h"
+#include "../../disco/fd_disco.h"
 #include "../../ballet/base58/fd_base58.h"
 
 #include <net/if.h>
@@ -26,7 +24,7 @@ typedef struct {
   double tick_per_ns_mu;
   double tick_per_ns_sigma;
 
-  fd_topo_t topo;
+  uchar pod[ 65536 ];
 
   int is_live_cluster;
 
@@ -132,7 +130,10 @@ typedef struct {
     int no_clone;
     int no_solana_labs;
     int bootstrap;
-    uint debug_tile;
+
+    char debug_tile[ 8UL ];
+    uint debug_tidx;
+
     struct {
       int  enabled;
       char interface0     [ 256 ];
@@ -198,15 +199,6 @@ typedef struct {
     } metric;
   } tiles;
 } config_t;
-
-/* memlock_max_bytes() returns, for the entire Firedancer application,
-   what the maximum total amount of `mlock()`ed memory will be in any
-   one process, aka. what the RLIMIT_MLOCK must be set to so that all
-   `mlock()` calls we wish to make will always succeed. The upper
-   bound here is the sum of all workspace sizes, but the real number
-   is lower because no process uses all of the workspaces at once. */
-ulong
-memlock_max_bytes( config_t * const config );
 
 /* config_parse() loads a full configuration object from the provided
    arguments or the environment. First, the `default.toml` file is

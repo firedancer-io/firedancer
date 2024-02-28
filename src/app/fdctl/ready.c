@@ -9,20 +9,26 @@ ready_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ulong wksp_id = fd_topo_find_wksp( &config->topo, FD_TOPO_WKSP_KIND_METRIC_IN );
-  FD_TEST( wksp_id!=ULONG_MAX );
+  fd_topo_t topo[ 1 ];
+  fd_topo_new( topo, config->pod );
 
-  fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_workspace_fill( &config->topo, &config->topo.workspaces[ wksp_id ], FD_TOPO_FILL_MODE_JOIN );
+  fd_topo_wksp_t * wksp = NULL;
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    fd_topo_wksp_t * _wksp = topo->wksps[ i ];
+    if( FD_UNLIKELY( !strcmp( _wksp->name, "metric_in" ) ) ) continue;
+    wksp = _wksp;
+    break;
+  }
 
-  for( ulong i=0; i<config->topo.tile_cnt; i++) {
-    fd_topo_tile_t * tile = &config->topo.tiles[i];
+  if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "no workspace found" ));
 
-    /* Don't wait for solana labs hosted tiles yet, they will take a
-       long time, and aren't needed to start sending transactions
-       anyway. */
-    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
-    
+  fd_topo_wksp_attach( wksp, FD_TOPO_WKSP_MMAP_MODE_READ );
+  fd_topo_wksp_join( topo );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = topo->tiles[ i ];
+    if( FD_UNLIKELY( tile->solana_labs ) ) continue;
+
     long start = fd_log_wallclock();
     int printed = 0;
     do {
@@ -31,15 +37,15 @@ ready_cmd_fn( args_t *         args,
 
       if( FD_LIKELY( signal==FD_CNC_SIGNAL_RUN ) ) break;
       else if( FD_UNLIKELY( signal!=FD_CNC_SIGNAL_BOOT ) )
-        FD_LOG_ERR(( "cnc for tile %s(%lu) is in bad state %s", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_cnc_signal_cstr( signal, buf ) ));
+        FD_LOG_ERR(( "cnc for tile %s:%lu is in bad state %s", tile->name, tile->tidx, fd_cnc_signal_cstr( signal, buf ) ));
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 1000000000L*1L ) ) {
-        FD_LOG_NOTICE(( "waiting for tile %s(%lu) to be ready", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ));
+        FD_LOG_NOTICE(( "waiting for tile %s:%lu to be ready", tile->name, tile->tidx ));
         printed = 1;
       }
     } while(1);
   }
 
-  fd_topo_leave_workspaces( &config->topo );
+  fd_topo_wksp_detach( topo );
   FD_LOG_NOTICE(( "all tiles ready" ));
 }
