@@ -18,14 +18,14 @@ fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
 int
 fd_vm_syscall_sol_panic( /**/            void *  _vm,
                          /**/            ulong   msg_vaddr,
-                         /**/            ulong   msg_len,
+                         /**/            ulong   msg_sz,
                          FD_PARAM_UNUSED ulong   arg2,
                          FD_PARAM_UNUSED ulong   arg3,
                          FD_PARAM_UNUSED ulong   arg4,
                          FD_PARAM_UNUSED ulong * _ret ) {
   fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, msg_len );
+  int err = fd_vm_consume_compute( vm, msg_sz );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Here, Solana Labs charges compute units, does UTF-8 validation,
@@ -40,9 +40,9 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
      VALIDATOR TO GENERATE LOTS OF LOGGING IS A POTENTIAL DOS ATTACK
      VECTOR (PROBABLY RELATED TO THE PREEXISTING "TODO" HERE) */
 
-  char const * str = fd_vm_translate_vm_to_host_const( vm, msg_vaddr, msg_len, alignof(uchar) );
-  if( FD_UNLIKELY( !str ) ) {
-    FD_LOG_WARNING(( "sol_panic_ called with invalid string (addr=%#lx, len=%#lx)", msg_vaddr, msg_len ));
+  char const * msg_haddr = fd_vm_translate_vm_to_host_const( vm, msg_vaddr, msg_sz, alignof(uchar) );
+  if( FD_UNLIKELY( !msg_haddr ) ) {
+    FD_LOG_WARNING(( "sol_panic_ called with invalid string (addr=%#lx, len=%#lx)", msg_vaddr, msg_sz ));
     return FD_VM_ERR_MEM_OVERLAP; /* FIXME: ALMOST CERTAINLY SHOULD BE ERR_PERM */
   }
 
@@ -52,8 +52,8 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
   /* FIXME: WHY 1024?  IS THIS MAX_RETURN_DATA OR SOME OTHER PROTOCOL
      DEFINED VALUE? */
 
-  if( FD_UNLIKELY( msg_len > 1024UL ) ) FD_LOG_WARNING(( "Truncating sol_panic_ message (orig %#lx bytes)", msg_len ));
-  FD_LOG_HEXDUMP_DEBUG(( "sol_panic", str, msg_len ));
+  if( FD_UNLIKELY( msg_sz > 1024UL ) ) FD_LOG_WARNING(( "Truncating sol_panic_ message (orig %#lx bytes)", msg_sz ));
+  FD_LOG_HEXDUMP_DEBUG(( "sol_panic", msg_haddr, msg_sz ));
 
   return FD_VM_ERR_PANIC;
 }
@@ -61,23 +61,23 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
 int
 fd_vm_syscall_sol_log( /**/            void *  _vm,
                        /**/            ulong   msg_vaddr,
-                       /**/            ulong   msg_len,
+                       /**/            ulong   msg_sz,
                        FD_PARAM_UNUSED ulong   arg2,
                        FD_PARAM_UNUSED ulong   arg3,
                        FD_PARAM_UNUSED ulong   arg4,
                        /**/            ulong * _ret ) {
   fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, fd_ulong_max( msg_len, vm_compute_budget.syscall_base_cost ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_max( msg_sz, vm_compute_budget.syscall_base_cost ) );
   if( FD_UNLIKELY( err ) ) return err;
 
-  void const * msg_haddr = fd_vm_translate_vm_to_host_const( vm, msg_vaddr, msg_len, alignof(uchar) );
+  void const * msg_haddr = fd_vm_translate_vm_to_host_const( vm, msg_vaddr, msg_sz, alignof(uchar) );
   if( FD_UNLIKELY( !msg_haddr ) ) return FD_VM_ERR_PERM;
 
   /* FIXME: SHOULD THERE BE SANITIZATION FIRST? */
   /* FIXME: SHOULD TRUNCATION BE SILENT? */
 
-  fd_vm_log_collector_append( vm->log_collector, msg_haddr, msg_len );
+  fd_vm_log_collector_append( vm->log_collector, msg_haddr, msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -179,8 +179,8 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
 
 int
 fd_vm_syscall_sol_log_data( /**/            void *  _vm,
-                            /**/            ulong   vaddr,
-                            /**/            ulong   cnt,
+                            /**/            ulong   slice_vaddr,
+                            /**/            ulong   slice_cnt,
                             FD_PARAM_UNUSED ulong   arg2,
                             FD_PARAM_UNUSED ulong   arg3,
                             FD_PARAM_UNUSED ulong   arg4,
@@ -190,11 +190,11 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
   if( FD_UNLIKELY( err ) ) return err;
 
-  ulong sz = cnt*sizeof(fd_vm_vec_t); /* FIXME: OVERFLOW TRAPPING */
-  fd_vm_vec_t const * untranslated_fields = fd_vm_translate_slice_vm_to_host_const( vm, vaddr, sz, FD_VM_VEC_ALIGN );
-  if ( FD_UNLIKELY( !untranslated_fields ) ) return FD_VM_ERR_PERM;
+  ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t); /* FIXME: OVERFLOW TRAPPING */
+  fd_vm_vec_t const * slice_haddr = fd_vm_translate_slice_vm_to_host_const( vm, slice_vaddr, slice_sz, FD_VM_VEC_ALIGN );
+  if( FD_UNLIKELY( !slice_haddr ) ) return FD_VM_ERR_PERM;
 
-  err = fd_vm_consume_compute( vm, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, cnt ) );
+  err = fd_vm_consume_compute( vm, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, slice_cnt ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   char msg[102400]; /* FIXME: MAGIC NUMBER (AND PROBABLY SHOULD NOT BE ON THE STACK IF NEEDS TO BE MADE LARGER ... PROBABLY SHOULD USE BATCHING HERE) */
@@ -202,15 +202,15 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   ulong msg_len = (ulong)sprintf( msg, "Program data: " ); /* FIXME: GROSS */
 
   ulong cost = 0UL;
-  for( ulong i=0UL; i<cnt; i++ ) {
-    cost += untranslated_fields[i].len; /* FIXME: RENAME THIS FIELD SZ?  (IT ALMOST CERTAINLY ISN'T A LEN) */
+  for( ulong i=0UL; i<slice_cnt; i++ ) {
+    ulong mem_sz = slice_haddr[i].len; /* FIXME: RENAME THIS FIELD SZ?  (IT ALMOST CERTAINLY ISN'T A LEN) */
+    cost += mem_sz; /* FIXME: OVERFLOW RISK HERE */
 
-    void const * translated_addr =
-      fd_vm_translate_vm_to_host_const( vm, untranslated_fields[i].addr, untranslated_fields[i].len, alignof(uchar) );
-    if( FD_UNLIKELY( !translated_addr ) ) return FD_VM_ERR_PERM;
+    void const * mem_haddr = fd_vm_translate_vm_to_host_const( vm, slice_haddr[i].addr, mem_sz, alignof(uchar) );
+    if( FD_UNLIKELY( !mem_haddr ) ) return FD_VM_ERR_PERM;
 
     char encoded[1500];
-    ulong encoded_len = fd_base64_encode( encoded, (uchar const *) translated_addr, untranslated_fields[i].len );
+    ulong encoded_len = fd_base64_encode( encoded, mem_haddr, mem_sz );
 
     /* FIXME: OVERFLOW RISK HERE */
     memcpy( msg + msg_len, encoded, encoded_len );
@@ -218,7 +218,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
 
     /* Append a space if more fields */
 
-    if( i!=(cnt-1UL) ) {
+    if( i!=(slice_cnt-1UL) ) {
       sprintf( msg + msg_len, " " ); /* FIXME: OVER RISK HERE AND GROSS */
       msg_len++;
     }
@@ -313,18 +313,18 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
 
   ulong align = vm->check_align ? 8UL : 1UL;
 
-  ulong pos   = fd_ulong_align_up( alloc->offset, align );
-  ulong vaddr = fd_ulong_sat_add ( pos,           FD_VM_MEM_MAP_HEAP_REGION_START );
-  /**/  pos   = fd_ulong_sat_add ( pos,           sz    );
+  ulong pos         = fd_ulong_align_up( alloc->offset, align );
+  ulong alloc_vaddr = fd_ulong_sat_add ( pos,           FD_VM_MEM_MAP_HEAP_REGION_START );
+  /**/  pos         = fd_ulong_sat_add ( pos,           sz    );
 
-  if( FD_UNLIKELY( pos>vm->heap_sz ) ) { /* Not enough free memory */
+  if( FD_UNLIKELY( pos > vm->heap_sz ) ) { /* Not enough free memory */
     *_ret = 0UL;
     return FD_VM_SUCCESS;
   }
 
   alloc->offset = pos;
 
-  *_ret = vaddr;
+  *_ret = alloc_vaddr;
   return FD_VM_SUCCESS;
 }
 
@@ -342,7 +342,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Check for overlap */
-  /* FIXME: DOES THIS LOGIC WORK IF DST_VADDR+SZ OR SRC_VADDR+SZ OVERFLOW? */
+  /* FIXME: DOES THIS LOGIC WORK IF DST_VADDR+SZ OR SRC_VADDR+SZ
+     OVERFLOW?  SEE THE LOGIC USED FOR GET/SET_RETURN_DATA. */
 
   if( FD_UNLIKELY( ( (dst_vaddr<=src_vaddr) & (src_vaddr<(dst_vaddr+sz)) ) |
                    ( (src_vaddr<=dst_vaddr) & (dst_vaddr<(src_vaddr+sz)) ) ) ) return FD_VM_ERR_MEM_OVERLAP;
@@ -370,8 +371,8 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
 
 int
 fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
-                          /**/            ulong   vaddr0,
-                          /**/            ulong   vaddr1,
+                          /**/            ulong   m0_vaddr,
+                          /**/            ulong   m1_vaddr,
                           /**/            ulong   sz,
                           /**/            ulong   out_vaddr,
                           FD_PARAM_UNUSED ulong   arg4,
@@ -381,11 +382,11 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
   int err = fd_vm_consume_mem( vm, sz );
   if( FD_UNLIKELY( err ) ) return err;
 
-  uchar const * haddr0 = fd_vm_translate_vm_to_host_const( vm, vaddr0, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !haddr0 ) ) return FD_VM_ERR_PERM;
+  uchar const * m0_haddr = fd_vm_translate_vm_to_host_const( vm, m0_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !m0_haddr ) ) return FD_VM_ERR_PERM;
 
-  uchar const * haddr1 = fd_vm_translate_vm_to_host_const( vm, vaddr1, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !haddr1 ) ) return FD_VM_ERR_PERM;
+  uchar const * m1_haddr = fd_vm_translate_vm_to_host_const( vm, m1_vaddr, sz, alignof(uchar) );
+  if( FD_UNLIKELY( !m1_haddr ) ) return FD_VM_ERR_PERM;
 
   int * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(int), alignof(int) );
   if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
@@ -397,15 +398,15 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
 
   int out = 0;
   for( ulong i=0UL; i<sz; i++ ) {
-    int i0 = (int)haddr0[i];
-    int i1 = (int)haddr1[i];
+    int i0 = (int)m0_haddr[i];
+    int i1 = (int)m1_haddr[i];
     if( i0!=i1 ) {
       out = i0 - i1;
       break;
     }
   }
 
-  *out_haddr = out; /* Sigh ... bizarre that this doesn't use ret (like other syscalls) for this.  Slower and more edge cases. */
+  *out_haddr = out; /* Sigh ... silly that this doesn't use ret (like other syscalls) for this ... Slower and more edge cases. */
   *_ret = 0;
   return FD_VM_SUCCESS;
 }
@@ -426,7 +427,8 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
   void * dst_haddr = fd_vm_translate_vm_to_host( vm, dst_vaddr, sz, alignof(uchar) );
   if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
 
-  if( FD_LIKELY( sz ) ) memset( dst_haddr, (int)(c & 255UL), sz ); /* Sigh ... avoid UB around sz==0 */
+  int b = (int)(c & 255UL);
+  if( FD_LIKELY( sz ) ) memset( dst_haddr, b, sz ); /* Sigh ... avoid UB around sz==0 */
 
   *_ret = 0;
   return FD_VM_SUCCESS;
