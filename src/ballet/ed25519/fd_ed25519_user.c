@@ -731,7 +731,7 @@ fd_ed25519_verify( void const *  M,
 
   Z03 = wwl_zero(); Z14 = wwl_zero(); Z25 = wwl_zero();              /* Z      = 0  |0  |0  |0,   in u44|u44|u44|u44 */
   FD_R43X6_QUAD_LANE_SUB_FAST( Rprime, Aprime, 1,0,0,1, Z, Aprime ); /* Rprime = -A'              in s44|u44|u44|s44 */
-  FD_R43X6_QUAD_FOLD_SIGNED  ( Rprime, Rprime );                     /* Rprime = -A'              in u44|u44|u44|u44 */
+  FD_R43X6_QUAD_FOLD_UNSIGNED( Rprime, Rprime );                     /* Rprime = -A'              in u44|u44|u44|u44 */
   FD_R43X6_GE_DMUL_VARTIME   ( Rprime, S, k, Rprime );               /* Rprime = [S]B - [k]A',    in u44|u44|u44|u44 */
 
   if( FD_UNLIKELY( !FD_R43X6_GE_IS_EQ( Rprime, R ) ) ) return FD_ED25519_ERR_MSG;
