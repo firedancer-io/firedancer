@@ -7,7 +7,7 @@
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
    SYSCALLS? */
 
-#define MAX_RETURN_DATA (1024UL) /* FIXME: NAME */
+#define FD_VM_SYSCALL_RETURN_DATA_MAX (1024UL) /* FIXME: SYNC THIS WITH TYPES? */
 
 #define FD_VM_SYSCALL_DECL(name)     \
 int                                  \
@@ -445,10 +445,75 @@ FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
 
 FD_VM_SYSCALL_DECL(sol_get_stack_height);
 
-/* FIXME: NOT IMPLENTED YET (IGNORES ALL ARGUMENTS AND RETRNS
-   FD_VM_ERR_UNSUP).  */
-/* FIXME: THIS IS A CPI THING? */
+/* FIXME: NOT IMPLEMENTED YET ... IGNORES ALL ARGUMENTS AND RETURNS
+   FD_VM_ERR_UNSUP.  (MAYBE GROUP WITH CPI OR PDA?)*/
+
 FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
+
+/* syscall(FIXME) "sol_get_return_data"
+   Get the return data and program id that set it.
+
+   Inputs:
+
+     arg0 - dst, byte VM addr, indexed [0,dst_max), FIXME: WHEN IS NULL OKAY? (PROBABLY "ignored when dst_max==0")
+     arg1 - dst_max, FIXME: IS 0 OKAY? (PROBABLY)
+     arg2 - program_id, byte VM addr, indexed [0,32), FIXME: PROBABLY "ignored when dst_max==0"
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for dst and/or program_id.  *_ret
+     unchanged.  Compute budget decremented.
+
+     FD_VM_ERR_MEM_OVERLAP: dst and program_id address ranges overlap.
+     *_ret unchanged.  Compute budget decremented.  (FIXME: ERR CODE)
+
+     FD_VM_SUCCESS: success.  *_ret=return_data_sz.  Compute budget
+     decremented.  If dst_max was non-zero, dst holds
+     min(return_data_sz,dst_max) bytes of return data (as such, if
+     return_data_sz>dst_max, the value returned in the buffer was
+     truncated).  Any trailing bytes of dst are unchanged.  program_id
+     holds the program_id associated with the return data.
+
+     If dst_max was zero, dst and program_id are untouched.  (FIXME: IS
+     THIS CORRECT BEHAVIOR FOR PROGRAM_ID?)
+
+   FIXME: MAYBE GROUP WITH CPI OR PDA? */
+
+FD_VM_SYSCALL_DECL(sol_get_return_data);
+
+/* syscall(FIXME) "sol_set_return_data"
+   Set the return data.  The return data will be associated with the
+   caller's program ID.
+
+   Inputs:
+
+     arg0 - src, byte VM addr, indexed [0,src_sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - src_sz, FIXME: IS 0 OKAY?
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  *_ret
+     unchanged.  Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for src.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
+
+   FIXME: MAYBE GROUP WITH CPI OR PDA? */
+
+FD_VM_SYSCALL_DECL(sol_set_return_data);
 
 /*** PDA (program derived address) syscalls ***************************/
 
@@ -465,9 +530,6 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
 /* CPI syscalls *******************************************************/
-
-FD_VM_SYSCALL_DECL(sol_get_return_data);
-FD_VM_SYSCALL_DECL(sol_set_return_data);
 
 /* Represents an account for a CPI*/
 
@@ -506,7 +568,8 @@ FD_VM_SYSCALL_DECL(cpi_rust);
 /* syscall(FIXME) sol_alt_bn128_group_op
    syscall(FIXME) sol_alt_bn128_compression
 
-   FIXME: NOT IMPLEMENTED YET */
+   FIXME: NOT IMPLEMENTED YET, IGNORES ALL ARGUMENTS AND RETURNS INVAL
+   MAYBE SHOULD RETURN UNSUP? */
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );

@@ -1222,83 +1222,6 @@ fd_vm_syscall_cpi_rust( void *  _ctx,
   return FD_VM_SUCCESS;
 }
 
-/* FIXME: PREFIX?  BRANCHLESS? */
-/* FIXME: IS SAT SUB NEEDED GIVEN THE SRC>DST CHECK? */
-static inline int
-is_nonoverlapping( ulong src, ulong src_len,
-                   ulong dst, ulong dst_len ) {
-  if( src > dst ) return (fd_ulong_sat_sub(src, dst) >= dst_len);
-  else            return (fd_ulong_sat_sub(dst, src) >= src_len);
-}
-
-int
-fd_vm_syscall_sol_get_return_data( /**/            void *  _ctx,
-                                   /**/            ulong   return_data_addr,
-                                   /**/            ulong   length,
-                                   /**/            ulong   program_id_addr,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  int err = fd_vm_consume_compute( ctx, vm_compute_budget.syscall_base_cost );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_txn_return_data_t * return_data = &ctx->instr_ctx->txn_ctx->return_data;
-  length = fd_ulong_min(length, return_data->len);
-
-  if( FD_LIKELY( length ) ) {
-    ulong cost = fd_ulong_sat_add(length, sizeof(fd_pubkey_t)) / vm_compute_budget.cpi_bytes_per_unit;
-    err = fd_vm_consume_compute( ctx, cost );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    uchar * return_data_result = fd_vm_translate_vm_to_host( ctx, return_data_addr, length, alignof(uchar) );
-    if( FD_UNLIKELY( !return_data_result ) ) return FD_VM_ERR_PERM;
-
-    // Copy over return data
-    fd_memcpy(return_data_result, return_data->data, length);
-    fd_pubkey_t * program_id_result =
-      fd_vm_translate_vm_to_host( ctx, program_id_addr, sizeof(fd_pubkey_t), alignof(fd_pubkey_t) );
-    if( FD_UNLIKELY( !program_id_result) ) return FD_VM_ERR_PERM;
-
-    if( !is_nonoverlapping( (ulong)return_data_result, length, (ulong)program_id_result, sizeof(fd_pubkey_t) ) )
-      return FD_VM_ERR_MEM_OVERLAP;
-
-    fd_memcpy(program_id_result->uc, return_data->program_id.uc, sizeof(fd_pubkey_t));
-  }
-
-  *_ret = return_data->len;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
-                                   /**/            ulong   addr,
-                                   /**/            ulong   len,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  ulong cost = fd_ulong_sat_add(len / vm_compute_budget.cpi_bytes_per_unit, vm_compute_budget.syscall_base_cost);
-  int err = fd_vm_consume_compute( ctx, cost );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  if( FD_UNLIKELY( len>MAX_RETURN_DATA ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
-
-  uchar const * return_data = fd_vm_translate_vm_to_host_const( ctx, addr, len, alignof(uchar) );
-  if( FD_UNLIKELY( !return_data ) ) return FD_VM_ERR_PERM;
-
-  fd_pubkey_t const * program_id = &ctx->instr_ctx->instr->program_id_pubkey;
-  fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.program_id.uc, program_id->uc, sizeof(fd_pubkey_t) );
-  ctx->instr_ctx->txn_ctx->return_data.len = len;
-  if( len ) fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.data, return_data, len );
-
-  *_ret = 0;
-  return FD_VM_SUCCESS;
-}
-
 /**********************************************************************
    PROGRAM DERIVED ADDRESSES
  **********************************************************************/
@@ -1313,51 +1236,46 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
    failure include out-of-bounds memory access or invalid seed list. */
 
 static fd_sha256_t *
-fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
+fd_vm_partial_derive_address( fd_vm_exec_context_t * vm,
                               fd_sha256_t *          sha,
                               ulong                  program_id_vaddr,
-                              ulong                  seeds_vaddr,
-                              ulong                  seeds_cnt,
+                              ulong                  seed_vaddr,
+                              ulong                  seed_cnt,
                               uchar *                bump_seed ) {
 
-  if( FD_UNLIKELY( seeds_cnt > FD_CPI_MAX_SEEDS ) ) return NULL;
+  if( FD_UNLIKELY( seed_cnt > FD_CPI_MAX_SEEDS ) ) return NULL;
 
   /* Translate program ID address */
 
-  fd_pubkey_t const * program_id = fd_vm_translate_vm_to_host_const( ctx, program_id_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
+  fd_pubkey_t const * program_id = fd_vm_translate_vm_to_host_const( vm, program_id_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
 
-  /* Translate seed scatter array address (no overflow, as
-     fd_vm_vec_t<=16UL) */
-  fd_vm_vec_t const * seeds =
-    fd_vm_translate_vm_to_host_const( ctx, seeds_vaddr, seeds_cnt*sizeof(fd_vm_rust_vec_t), FD_VM_VEC_ALIGN );
+  /* Translate seed scatter array address */
+
+  /* FIXME: TYPE CONFUSION BUG */
+  ulong               seed_sz = seed_cnt*sizeof(fd_vm_rust_vec_t); /* No overflow as seed_cnt << ULONG_MAX/sizeof at this point */
+  fd_vm_vec_t const * seed    = fd_vm_translate_vm_to_host_const( vm, seed_vaddr, seed_sz, FD_VM_VEC_ALIGN );
 
   /* Bail if translation fails */
 
-  if( FD_UNLIKELY( (!program_id) | (!seeds) ) ) {
-    FD_LOG_DEBUG(("Failed to translate"));
-    return NULL;
-  }
+  if( FD_UNLIKELY( (!program_id) | (!seed) ) ) return NULL;
 
   /* Start hashing */
 
-  fd_sha256_init( sha );
-
-  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+  for( ulong i=0UL; i<seed_cnt; i++ ) {
 
     /* Refuse to hash overlong parts */
 
-    if( FD_UNLIKELY( seeds[ i ].len > FD_CPI_MAX_SEED_LEN ) ) {
-      FD_LOG_DEBUG(("Seed %lu len %lu exceeded", i, seeds[i].len));
-      return NULL;
-    }
+    if( FD_UNLIKELY( seed[i].len > FD_CPI_MAX_SEED_LEN ) ) return NULL;
+    /* FIXME: WHAT ABOUT LEN==0? */
 
     /* Translate seed */
 
-    void const * seed_part = fd_vm_translate_vm_to_host_const( ctx, seeds[ i ].addr, seeds[ i ].len, alignof(uchar) );
+    void const * seed_part = fd_vm_translate_vm_to_host_const( vm, seed[i].addr, seed[i].len, alignof(uchar) );
+    if( FD_UNLIKELY( !seed_part ) ) return NULL;
 
     /* Append to hash (gather) */
 
-    fd_sha256_append( sha, seed_part, seeds[ i ].len );
+    fd_sha256_append( sha, seed_part, seed[i].len );
 
   }
 
@@ -1369,69 +1287,72 @@ fd_vm_partial_derive_address( fd_vm_exec_context_t * ctx,
 }
 
 int
-fd_vm_syscall_sol_create_program_address( /**/            void *  _ctx,
-                                          /**/            ulong   seeds_vaddr,
-                                          /**/            ulong   seeds_cnt,
+fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
+                                          /**/            ulong   seed_vaddr,
+                                          /**/            ulong   seed_cnt,
                                           /**/            ulong   program_id_vaddr,
                                           /**/            ulong   out_vaddr,
                                           FD_PARAM_UNUSED ulong   arg4,
                                           /**/            ulong * _ret )  {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
-
-  ulong r0 = 1UL;  /* 1 implies fail */
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
 
   /* Charge CUs */
 
-  int err = fd_vm_consume_compute( ctx, vm_compute_budget.create_program_address_units );
+  int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Calculate PDA */
 
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( fd_alloca( alignof(fd_sha256_t), sizeof(fd_sha256_t ) ) ) );
-  if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, NULL ) ) )
+  fd_pubkey_t result[1];
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_sha256_init( sha );
+
+  /* FIXME: SHA ABORT ON FAIL? */
+  if( FD_UNLIKELY( !fd_vm_partial_derive_address( vm, sha, program_id_vaddr, seed_vaddr, seed_cnt, NULL ) ) )
     return FD_VM_ERR_PERM;
 
-  fd_pubkey_t result;
-  fd_sha256_append( sha, "ProgramDerivedAddress", 21L );
-  fd_sha256_fini( sha, &result );
-
-  /* Return failure if PDA overlaps with a valid curve point */
-
-  if( FD_UNLIKELY( fd_ed25519_point_validate( result.key ) ) )
-    goto fini;
-
-  /* Translate output address
-     Cannot reorder - Out may be an invalid pointer if PDA is invalid */
-
-  fd_pubkey_t * out = fd_vm_translate_vm_to_host( ctx, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( FD_UNLIKELY( !out ) ) return FD_VM_ERR_PERM;
-
-  /* Write result into out */
-
-  memcpy( out, result.uc, sizeof(fd_pubkey_t) );
-  r0 = 0UL; /* success */
-
-fini:
+  fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
+  fd_sha256_fini( sha, result );
   fd_sha256_delete( fd_sha256_leave( sha ) );
+
+  ulong r0;
+  if( FD_UNLIKELY( fd_ed25519_point_validate( result->key ) ) ) r0 = 1UL; /* Return failure if PDA overlaps a valid curve point */
+  else {
+
+    /* Translate output address
+       Cannot reorder - Out may be an invalid pointer if PDA is invalid */
+
+    fd_pubkey_t * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
+    if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
+
+    /* Write result into out */
+
+    memcpy( out_haddr, result->uc, sizeof(fd_pubkey_t) );
+    r0 = 0UL; /* success */
+  }
+
   *_ret = r0;
   return FD_VM_SUCCESS;
 }
 
 int
-fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
-                                            ulong   seeds_vaddr,
-                                            ulong   seeds_cnt,
+fd_vm_syscall_sol_try_find_program_address( void *  _vm,
+                                            ulong   seed_vaddr,
+                                            ulong   seed_cnt,
                                             ulong   program_id_vaddr,
                                             ulong   out_vaddr,
                                             ulong   bump_seed_vaddr,
                                             ulong * _ret ) {
-  fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *)_ctx;
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
 
   ulong r0 = 1UL;  /* 1 implies fail */
 
   /* Charge CUs */
 
-  int err = fd_vm_consume_compute( ctx, vm_compute_budget.create_program_address_units );
+  int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Similar to create_program_address, but suffixes a 1 byte nonce
@@ -1447,8 +1368,8 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
      PDA, Solana Labs never validates whether out_vaddr is a valid
      pointer */
 
-  fd_pubkey_t * address_out = fd_vm_translate_vm_to_host( ctx, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
-  uchar * bump_seed_out = fd_vm_translate_vm_to_host( ctx, bump_seed_vaddr, 1UL, alignof(uchar) ); 
+  fd_pubkey_t * address_out = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
+  uchar * bump_seed_out = fd_vm_translate_vm_to_host( vm, bump_seed_vaddr, 1UL, alignof(uchar) );
 
   /* Calculate PDA prefix */
 
@@ -1458,9 +1379,13 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
   for( ulong i=0UL; i<256UL; i++ ) {
     fd_sha256_t _sha[1];
     fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
     uchar suffix[1] = {(uchar)(255UL - i)};
 
-    if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) )
+    fd_sha256_init( sha );
+
+    /* FIXME: SHA ABORT ON FAIL? */
+    if( FD_UNLIKELY( !fd_vm_partial_derive_address( vm, sha, program_id_vaddr, seed_vaddr, seed_cnt, suffix ) ) )
       return FD_VM_ERR_PERM;
 
     /* Compute PDA on copy of SHA state */
@@ -1481,7 +1406,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
       if( (ulong)address_out > (ulong)bump_seed_out ) {
         if( !( ( (ulong)address_out - (ulong)bump_seed_out ) >= 1UL ) ) return FD_VM_ERR_PERM;
       } else {
-         if( !( ( (ulong)bump_seed_out - (ulong)address_out ) >= 32UL ) ) return FD_VM_ERR_PERM;
+        if( !( ( (ulong)bump_seed_out - (ulong)address_out ) >= 32UL ) ) return FD_VM_ERR_PERM;
       }
 
       /* Write results */
@@ -1490,7 +1415,8 @@ fd_vm_syscall_sol_try_find_program_address( void *  _ctx,
       r0 = 0UL; /* success */
       goto fini;
     }
-    int err = fd_vm_consume_compute( ctx, vm_compute_budget.create_program_address_units );
+
+    int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
     if( FD_UNLIKELY( err ) ) return err;
   }
 

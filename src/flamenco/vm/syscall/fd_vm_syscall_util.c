@@ -49,8 +49,7 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
   /* FIXME: FD_LOG_HEXDUMP ALREADY PROVIDES ENOUGH CONTEXT TO DIAGNOSE
      TRUNCATION SO NOT CLEAR WHY THE EXTRA LOGGING HERE */
 
-  /* FIXME: WHY 1024?  IS THIS MAX_RETURN_DATA OR SOME OTHER PROTOCOL
-     DEFINED VALUE? */
+  /* FIXME: WHY 1024?  IS THIS A PROTOCOL DEFINED VALUE? */
 
   if( FD_UNLIKELY( msg_sz > 1024UL ) ) FD_LOG_WARNING(( "Truncating sol_panic_ message (orig %#lx bytes)", msg_sz ));
   FD_LOG_HEXDUMP_DEBUG(( "sol_panic", msg_haddr, msg_sz ));
@@ -613,6 +612,99 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
   if( FD_UNLIKELY( err ) ) return err;
 
   *_ret = vm->instr_ctx->txn_ctx->instr_stack_sz;
+  return FD_VM_SUCCESS;
+}
+
+/* FIXME: PREFIX? */
+/* FIXME: BRANCHLESS? */
+/* FIXME: SEE MEMCPY ABOVE? */
+
+static inline int
+is_nonoverlapping( ulong src, ulong src_sz,    /* Assumes src_sz>0 and [src,src+src_sz) does not wrap */
+                   ulong dst, ulong dst_sz ) { /* Assumes dst_sz>0 and [dst,dst+dst_sz) does not wrap */
+  if( src>dst ) return (src-dst)>=dst_sz;
+  else          return (dst-src)>=src_sz;
+}
+
+int
+fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
+                                   /**/            ulong   dst_vaddr,
+                                   /**/            ulong   dst_max,
+                                   /**/            ulong   program_id_vaddr,
+                                   FD_PARAM_UNUSED ulong   arg3,
+                                   FD_PARAM_UNUSED ulong   arg4,
+                                   /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->return_data;
+
+  ulong return_data_sz = return_data->len;
+
+  ulong cpy_sz = fd_ulong_min( return_data_sz, dst_max );
+  if( FD_LIKELY( cpy_sz ) ) {
+
+    /* FIXME: Assumes non-zero denom */
+    ulong cost = fd_ulong_sat_add( cpy_sz, sizeof(fd_pubkey_t) ) / vm_compute_budget.cpi_bytes_per_unit;
+    err = fd_vm_consume_compute( vm, cost );
+    if( FD_UNLIKELY( err ) ) return err;
+
+    uchar * dst_haddr = fd_vm_translate_vm_to_host( vm, dst_vaddr, cpy_sz, alignof(uchar) );
+    if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+
+    memcpy( dst_haddr, return_data->data, cpy_sz );
+
+    /* FIXME: CHECK alignof(fd_pubkey_t)==1 IS CORRECT */
+    fd_pubkey_t * program_id_haddr = fd_vm_translate_vm_to_host( vm, program_id_vaddr, sizeof(fd_pubkey_t), alignof(fd_pubkey_t) );
+    if( FD_UNLIKELY( !program_id_haddr) ) return FD_VM_ERR_PERM;
+
+    /* At this point, cpy_sz>0, sizeof(fd_pubkey_t)>0 and ranges do not
+       wrap (FIXME: ASSUMES FD_VM_XLAT HAS THE PROPERTY IT FAILS
+       OVERLAPPING RANGES) */
+    if( FD_UNLIKELY( !is_nonoverlapping( (ulong)dst_haddr, cpy_sz, (ulong)program_id_haddr, sizeof(fd_pubkey_t) ) ) )
+      return FD_VM_ERR_MEM_OVERLAP; /* FIXME: Error code? */
+
+    memcpy( program_id_haddr->uc, return_data->program_id.uc, sizeof(fd_pubkey_t) );
+
+  }
+
+  *_ret = return_data_sz;
+  return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
+                                   /**/            ulong   src_vaddr,
+                                   /**/            ulong   src_sz,
+                                   FD_PARAM_UNUSED ulong   arg2,
+                                   FD_PARAM_UNUSED ulong   arg3,
+                                   FD_PARAM_UNUSED ulong   arg4,
+                                   /**/            ulong * _ret ) {
+  fd_vm_exec_context_t * vm = (fd_vm_exec_context_t *)_vm;
+
+  /* FIXME: Assumes non-zero denom */
+  ulong cost = fd_ulong_sat_add( src_sz / vm_compute_budget.cpi_bytes_per_unit, vm_compute_budget.syscall_base_cost );
+  int   err  = fd_vm_consume_compute( vm, cost );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  if( FD_UNLIKELY( src_sz>FD_VM_SYSCALL_RETURN_DATA_MAX ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
+
+  uchar const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, src_sz, alignof(uchar) );
+  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
+
+  fd_exec_instr_ctx_t * instr_ctx = vm->instr_ctx;
+
+  fd_pubkey_t const    * program_id  = &instr_ctx->instr->program_id_pubkey;
+  fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
+
+  memcpy( return_data->program_id.uc, program_id->uc, sizeof(fd_pubkey_t) );
+
+  return_data->len = src_sz;
+  if( FD_LIKELY( src_sz ) ) memcpy( return_data->data, src_haddr, src_sz );
+
+  *_ret = 0;
   return FD_VM_SUCCESS;
 }
 
