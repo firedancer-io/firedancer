@@ -223,6 +223,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
   ENTRY_UINT  ( ., tiles.quic,          idle_timeout_millis                                       );
+  ENTRY_BOOL  ( ., tiles.quic,          retry                                                     );
 
   ENTRY_UINT  ( ., tiles.verify,        receive_buffer_size                                       );
   ENTRY_UINT  ( ., tiles.verify,        mtu                                                       );
@@ -1023,6 +1024,7 @@ config_parse( int *      pargc,
         tile->quic.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
         tile->quic.idle_timeout_millis = config->tiles.quic.idle_timeout_millis;
         strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
+        tile->quic.retry = config->tiles.quic.retry;
         break;
       case FD_TOPO_TILE_KIND_VERIFY:
         break;

@@ -225,7 +225,8 @@ typedef struct {
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
       ulong  idle_timeout_millis;
-      char  identity_key_path[ PATH_MAX ];
+      char   identity_key_path[ PATH_MAX ];
+      int    retry;
     } quic;
 
     struct {
