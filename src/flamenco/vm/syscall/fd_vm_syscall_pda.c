@@ -1,4 +1,4 @@
-#include "../syscall/fd_vm_syscall.h"
+#include "fd_vm_syscall.h"
 
 #include "../../../ballet/ed25519/fd_ed25519_ge.h"
 

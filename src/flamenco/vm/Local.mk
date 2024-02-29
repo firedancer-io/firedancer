@@ -1,6 +1,6 @@
 ifdef FD_HAS_INT128
 $(call add-hdrs,fd_vm_base.h fd_vm_cpi.h fd_vm_trace.h fd_vm_context.h fd_vm_interp.h fd_vm_disasm.h)
-$(call add-objs,fd_vm_context fd_vm_disasm fd_vm_interp fd_vm_syscalls fd_vm_trace,fd_flamenco)
+$(call add-objs,fd_vm_context fd_vm_disasm fd_vm_interp fd_vm_trace,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
