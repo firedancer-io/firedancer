@@ -1,10 +1,11 @@
 #ifndef HEADER_fd_src_app_fdctl_fdctl_h
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
-#include "topology.h"
 #include "config.h"
 #include "caps.h"
 #include "utility.h"
+
+#include "../../disco/topo/fd_topo.h"
 
 #include <unistd.h>
 #include <errno.h>

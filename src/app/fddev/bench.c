@@ -333,7 +333,7 @@ bench_cmd_fn( args_t *         args,
   printf(   "------------------+------------+------------+------------+------------+-----------\n" );
 
   fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN );
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN, fdctl_tile_align, fdctl_tile_footprint );
 
   fd_topo_t * topo = &config->topo;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {

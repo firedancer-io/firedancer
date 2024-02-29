@@ -213,7 +213,7 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t * tile ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong fec_resolver_footprint = fd_fec_resolver_footprint( tile->shred.fec_resolver_depth, 1UL, tile->shred.depth,
                                                             128UL * tile->shred.fec_resolver_depth );

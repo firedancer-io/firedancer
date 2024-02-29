@@ -1,9 +1,8 @@
 #ifndef HEADER_fd_src_app_fdctl_config_h
 #define HEADER_fd_src_app_fdctl_config_h
 
-#include "topology.h"
-
-#include "../../disco/fd_disco_base.h"
+#include "../../disco/fd_disco.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../../ballet/base58/fd_base58.h"
 
 #include <net/if.h>
