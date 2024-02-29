@@ -94,13 +94,27 @@ typedef struct {
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
   ulong (*loose_footprint         )( fd_topo_tile_t * tile );
   ulong (*scratch_align           )( void );
-  ulong (*scratch_footprint       )( fd_topo_tile_t * tile );
+  ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
 } fd_tile_config_t;
 
 FD_FN_CONST fd_tile_config_t *
-fd_topo_tile_to_config( fd_topo_tile_t * tile );
+fd_topo_tile_to_config( fd_topo_tile_t const * tile );
+
+static inline ulong
+fdctl_tile_align( fd_topo_tile_t const * tile ) {
+  fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+  if( FD_LIKELY( config->scratch_align ) ) return config->scratch_align();
+  return 0UL;
+}
+
+static inline ulong
+fdctl_tile_footprint( fd_topo_tile_t const * tile ) {
+  fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+  if( FD_LIKELY( config->scratch_footprint ) ) return config->scratch_footprint( tile );
+  return 0UL;
+}
 
 extern fd_tile_config_t fd_tile_net;
 extern fd_tile_config_t fd_tile_netmux;

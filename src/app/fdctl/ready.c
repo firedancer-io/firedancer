@@ -13,7 +13,7 @@ ready_cmd_fn( args_t *         args,
   FD_TEST( wksp_id!=ULONG_MAX );
 
   fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  fd_topo_workspace_fill( &config->topo, &config->topo.workspaces[ wksp_id ], FD_TOPO_FILL_MODE_JOIN );
+  fd_topo_workspace_fill( &config->topo, &config->topo.workspaces[ wksp_id ], FD_TOPO_FILL_MODE_JOIN, fdctl_tile_align, fdctl_tile_footprint );
 
   for( ulong i=0; i<config->topo.tile_cnt; i++) {
     fd_topo_tile_t * tile = &config->topo.tiles[i];

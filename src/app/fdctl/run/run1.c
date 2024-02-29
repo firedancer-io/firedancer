@@ -111,7 +111,7 @@ tile_main( void * _args ) {
               seccomp_filter );
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
-  fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN );
+  fd_topo_fill_tile( &args->config->topo, tile, FD_TOPO_FILL_MODE_JOIN, fdctl_tile_align, fdctl_tile_footprint );
 
   FD_TEST( tile->cnc );
   FD_TEST( tile->metrics );

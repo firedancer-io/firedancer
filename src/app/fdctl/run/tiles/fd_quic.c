@@ -79,7 +79,7 @@ typedef struct {
 } fd_quic_ctx_t;
 
 FD_FN_CONST static inline fd_quic_limits_t
-quic_limits( fd_topo_tile_t * tile ) {
+quic_limits( fd_topo_tile_t const * tile ) {
   fd_quic_limits_t limits = {
     .conn_cnt                                      = tile->quic.max_concurrent_connections,
     .handshake_cnt                                 = tile->quic.max_concurrent_handshakes,
@@ -119,7 +119,7 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t * tile ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_quic_limits_t limits = quic_limits( tile );
   ulong            l      = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t )      );

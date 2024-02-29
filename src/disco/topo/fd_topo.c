@@ -1,12 +1,14 @@
-#include "topology.h"
+#include "fd_topo.h"
 
-#include "run/tiles/tiles.h"
-#include "../../disco/fd_disco_base.h"
-#include "../../disco/quic/fd_tpu.h"
+#include "../fd_disco_base.h"
+#include "../metrics/fd_metrics.h"
+#include "../quic/fd_tpu.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
 
 #include <stdio.h>
+#include <errno.h>
+#include <unistd.h>
 #include <sys/stat.h>
 
 FD_FN_CONST static ulong
@@ -24,7 +26,7 @@ fd_topo_join_workspace( char * const     app_name,
                         fd_topo_wksp_t * wksp,
                         int              mode ) {
   char name[ PATH_MAX ];
-  snprintf( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ) );
 
   wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
@@ -113,15 +115,15 @@ fd_topo_create_workspaces( char *      app_name,
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
     char name[ PATH_MAX ];
-    snprintf1( name, PATH_MAX, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) );
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ));
 
     ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
     ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
 
     int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
-    if( FD_UNLIKELY( err && errno == ENOMEM ) ) {
+    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
       char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-      snprintf1( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) );
+      FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
                    "with %lu %s pages. The memory needed should already be successfully "
                    "reserved by the `large-pages` configure step, so there are two "
@@ -169,7 +171,9 @@ fd_topo_create_workspaces( char *      app_name,
 void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
-                        ulong            mode ) {
+                        ulong            mode,
+                        ulong (* tile_align )( fd_topo_tile_t const * tile ),
+                        ulong (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
 
 # define SCRATCH_ALLOC( a, s ) (__extension__({                   \
     ulong _scratch_alloc = fd_ulong_align_up( scratch_top, (a) ); \
@@ -308,9 +312,9 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       fd_topo_tile_t * tile = &topo->tiles[ i ];
       if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
 
-      fd_tile_config_t * config = fd_topo_tile_to_config( tile );
-      if( FD_UNLIKELY( config->loose_footprint ) )
-        loose_sz += config->loose_footprint( tile );
+      // fd_tile_config_t * config = fd_topo_tile_to_config( tile );
+      // if( FD_UNLIKELY( config->loose_footprint ) )
+      //   loose_sz += config->loose_footprint( tile );
     }
 
     /* Typical size is fd_alloc top level superblock-ish, and then one alloc for all of the scratch space */
@@ -320,14 +324,14 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       fd_topo_tile_t * tile = &topo->tiles[ i ];
       if( FD_LIKELY( tile->wksp_id!=wksp->id ) ) continue;
 
-      fd_tile_config_t * config = fd_topo_tile_to_config( tile );
-      if( FD_LIKELY( config->scratch_align ) ) {
+      ulong align = tile_align( tile );
+      if( FD_LIKELY( align ) ) {
         ulong current_wksp_offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() ) + scratch_top;
 
-        ulong desired_scratch_align = config->scratch_align();
+        ulong desired_scratch_align = tile_align( tile );
         ulong pad_to_align = desired_scratch_align - (current_wksp_offset % desired_scratch_align);
 
-        ulong tile_mem_offset = (ulong)SCRATCH_ALLOC( 1UL, pad_to_align + config->scratch_footprint( tile ) );
+        ulong tile_mem_offset = (ulong)SCRATCH_ALLOC( 1UL, pad_to_align + tile_footprint( tile ) );
         tile->user_mem_offset = fd_ulong_align_up( fd_wksp_private_data_off( part_max ), fd_topo_workspace_align() ) + tile_mem_offset + pad_to_align;
       }
     }
@@ -357,18 +361,22 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
 void
 fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
-                   ulong            mode ) {
+                   ulong            mode,
+                   ulong (* tile_align )( fd_topo_tile_t const * tile ),
+                   ulong (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     if( FD_UNLIKELY( -1!=tile_needs_wksp( topo, tile, i ) ) )
-      fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode );
+      fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode, tile_align, tile_footprint );
   }
 }
 
 void
 fd_topo_fill( fd_topo_t * topo,
-              ulong       mode ) {
+              ulong       mode,
+              ulong (* tile_align )( fd_topo_tile_t const * tile ),
+              ulong (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode );
+    fd_topo_workspace_fill( topo, &topo->workspaces[ i ], mode, tile_align, tile_footprint );
   }
 }
 
@@ -410,8 +418,6 @@ fd_topo_mlock_max_tile1( fd_topo_t const * topo,
 
 FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo ) {
-  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-
   ulong highest_tile_mem = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -423,8 +429,6 @@ fd_topo_mlock_max_tile( fd_topo_t * topo ) {
 
 FD_FN_PURE ulong
 fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
-  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
@@ -436,8 +440,6 @@ fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
 
 FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t * topo ) {
-  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_HUGE_PAGE_SZ ) ) {
@@ -454,8 +456,6 @@ fd_topo_huge_page_cnt( fd_topo_t * topo ) {
 
 FD_FN_PURE ulong
 fd_topo_normal_page_cnt( fd_topo_t * topo ) {
-  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
@@ -465,8 +465,6 @@ fd_topo_normal_page_cnt( fd_topo_t * topo ) {
 
 FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo ) {
-  fd_topo_fill( topo, FD_TOPO_FILL_MODE_FOOTPRINT );
-
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     result += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
@@ -696,9 +694,9 @@ fd_topo_validate( fd_topo_t const * topo ) {
 static void
 fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
   if( FD_LIKELY( sz >= FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
-    snprintf1( out, 24, "%lu GiB", sz / (1 << 30) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu GiB", sz / (1 << 30) ) );
   } else {
-    snprintf1( out, 24, "%lu MiB", sz / (1 << 20) );
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu MiB", sz / (1 << 20) ) );
   }
 }
 
@@ -712,7 +710,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINT( ... ) do {                                                           \
     int n = snprintf( cur, remaining, __VA_ARGS__ );                                \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                  \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                   \
     if( FD_UNLIKELY( (ulong)n >= remaining ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining -= (ulong)n;                                                          \
     cur += n;                                                                       \
@@ -766,7 +764,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINTIN( ... ) do {                                                            \
     int n = snprintf( cur_in, remaining_in, __VA_ARGS__ );                             \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                     \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                      \
     if( FD_UNLIKELY( (ulong)n >= remaining_in ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining_in -= (ulong)n;                                                          \
     cur_in += n;                                                                       \
@@ -774,7 +772,7 @@ fd_topo_print_log( int         stdout,
 
 #define PRINTOUT( ... ) do {                                                            \
     int n = snprintf( cur_out, remaining_in, __VA_ARGS__ );                             \
-    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf1 failed" ));                      \
+    if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                       \
     if( FD_UNLIKELY( (ulong)n >= remaining_out ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining_out -= (ulong)n;                                                          \
     cur_out += n;                                                                       \
@@ -805,7 +803,7 @@ fd_topo_print_log( int         stdout,
 
     char out_link_id[ 24 ] = "-1";
     if( tile->out_link_id_primary != ULONG_MAX )
-      snprintf1( out_link_id, 24, "%lu", tile->out_link_id_primary );
+      FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
