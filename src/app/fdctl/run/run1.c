@@ -2,6 +2,7 @@
 #include "run.h"
 
 #include "../../../util/tile/fd_tile_private.h"
+
 #include <sched.h>
 #include <sys/wait.h>
 
@@ -15,10 +16,7 @@ run1_cmd_args( int *    pargc,
   if( FD_UNLIKELY( *pargc < 2 ) ) FD_LOG_ERR(( "%s", usage ));
 
   args->run1.pipe_fd  = fd_env_strip_cmdline_int( pargc, pargv, "--pipe-fd", NULL, -1 );
-
-  ulong tile_kind = fd_topo_tile_kind_from_cstr( **pargv );
-  if( FD_UNLIKELY( ULONG_MAX==tile_kind ) ) FD_LOG_ERR(( "unknown tile `%s`", **pargv ));
-  args->run1.tile_kind = tile_kind;
+  strncpy( args->run1.tile_name, **pargv, sizeof( args->run1.tile_name ) - 1 );
 
   (*pargc)--;
   (*pargv)++;
@@ -41,7 +39,7 @@ tile_main( void * _args ) {
 
   if( FD_UNLIKELY( args->config->development.debug_tile ) ) {
     if( FD_UNLIKELY( tile->id==args->config->development.debug_tile-1 ) ) {
-      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_sandbox_getpid() ));
+      FD_LOG_WARNING(( "waiting for debugger to attach to tile %s:%lu pid:%lu", tile->name, tile->kind_id, fd_sandbox_getpid() ));
       if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
         FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       fd_log_private_shared_lock[1] = 0;
@@ -54,11 +52,11 @@ tile_main( void * _args ) {
   fd_log_cpu_set( NULL );
   fd_log_private_tid_set( pid );
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
-  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
+  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", tile->name, tile->kind_id ) );
   fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_NOTICE(( "booting tile %s:%lu pid:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_log_group_id() ));
+  FD_LOG_NOTICE(( "booting tile %s:%lu pid:%lu", tile->name, tile->kind_id, fd_log_group_id() ));
 
   /* preload shared memory before sandboxing, so it is already mapped */
   if( FD_LIKELY( !args->no_shmem ) ) {
@@ -195,12 +193,12 @@ run1_cmd_fn( args_t *         args,
   ulong pid = (ulong)fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
 
-  ulong tile_id = fd_topo_find_tile( &config->topo, args->run1.tile_kind, args->run1.kind_id );
-  if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu not found", fd_topo_tile_kind_str( args->run1.tile_kind ), args->run1.kind_id ));
+  ulong tile_id = fd_topo_find_tile( &config->topo, args->run1.tile_name, args->run1.kind_id );
+  if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s:%lu not found", args->run1.tile_name, args->run1.kind_id ));
   fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
 
   char thread_name[ FD_LOG_NAME_MAX ] = {0};
-  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
+  FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "%s:%lu", tile->name, tile->kind_id ) );
   fd_log_thread_set( thread_name );
 
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

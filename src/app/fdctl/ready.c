@@ -9,7 +9,7 @@ ready_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  ulong wksp_id = fd_topo_find_wksp( &config->topo, FD_TOPO_WKSP_KIND_METRIC_IN );
+  ulong wksp_id = fd_topo_find_wksp( &config->topo, "metric_in" );
   FD_TEST( wksp_id!=ULONG_MAX );
 
   fd_topo_join_workspace( config->name, &config->topo.workspaces[ wksp_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -21,7 +21,7 @@ ready_cmd_fn( args_t *         args,
     /* Don't wait for solana labs hosted tiles yet, they will take a
        long time, and aren't needed to start sending transactions
        anyway. */
-    if( FD_UNLIKELY( fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
+    if( FD_UNLIKELY( tile->is_labs ) ) continue;
     
     long start = fd_log_wallclock();
     int printed = 0;
@@ -31,10 +31,10 @@ ready_cmd_fn( args_t *         args,
 
       if( FD_LIKELY( signal==FD_CNC_SIGNAL_RUN ) ) break;
       else if( FD_UNLIKELY( signal!=FD_CNC_SIGNAL_BOOT ) )
-        FD_LOG_ERR(( "cnc for tile %s(%lu) is in bad state %s", fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_cnc_signal_cstr( signal, buf ) ));
+        FD_LOG_ERR(( "cnc for tile %s:%lu is in bad state %s", tile->name, tile->kind_id, fd_cnc_signal_cstr( signal, buf ) ));
 
       if( FD_UNLIKELY( !printed && (fd_log_wallclock()-start) > 1000000000L*1L ) ) {
-        FD_LOG_NOTICE(( "waiting for tile %s(%lu) to be ready", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ));
+        FD_LOG_NOTICE(( "waiting for tile %s:%lu to be ready", tile->name, tile->kind_id ));
         printed = 1;
       }
     } while(1);

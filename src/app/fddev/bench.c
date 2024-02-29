@@ -341,7 +341,7 @@ bench_cmd_fn( args_t *         args,
       fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
       ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
       FD_TEST( producer_tile_id != ULONG_MAX );
-      char * producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
+      char * producer = topo->tiles[ producer_tile_id ].name;
 
       ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
 
@@ -356,7 +356,7 @@ bench_cmd_fn( args_t *         args,
         out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
       }
 
-      printf( " %7s->%-7s", producer, fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
+      printf( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
       printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ] );
       printf( " | %10lu", in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ] );
       printf( " | %10lu", out_metrics ? out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ] : 0UL );

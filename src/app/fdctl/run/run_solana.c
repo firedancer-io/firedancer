@@ -44,25 +44,25 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   /* preload shared memory for all the solana tiles at once */
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
-    if( FD_LIKELY( wksp->kind==FD_TOPO_WKSP_KIND_PACK_BANK ) ) {
+    if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ) ) {
       fd_topo_join_workspace( config->name, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    } else if( FD_LIKELY( wksp->kind==FD_TOPO_WKSP_KIND_BANK_POH ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_BANK_BUSY ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_POH_SHRED ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_SHRED_STORE ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_DEDUP_PACK ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_STAKE_OUT ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_BANK ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_POH ||
-                          wksp->kind==FD_TOPO_WKSP_KIND_STORE ) ) {
+    } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
+                          !strcmp( wksp->name, "bank_busy" ) ||
+                          !strcmp( wksp->name, "poh_shred" ) ||
+                          !strcmp( wksp->name, "shred_store" ) ||
+                          !strcmp( wksp->name, "dedup_pack" ) ||
+                          !strcmp( wksp->name, "stake_out" ) ||
+                          !strcmp( wksp->name, "metric_in" ) ||
+                          !strcmp( wksp->name, "bank" ) ||
+                          !strcmp( wksp->name, "poh" ) ||
+                          !strcmp( wksp->name, "store" ) ) ) {
       fd_topo_join_workspace( config->name, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_LIKELY( !fd_topo_tile_kind_is_labs( tile->kind ) ) ) continue;
+    if( FD_LIKELY( !tile->is_labs ) ) continue;
 
     ushort cpu_idx = tile_to_cpu[ i ];
 

@@ -133,7 +133,7 @@ static long
 prometheus_print1( fd_topo_t *               topo,
                    char **                   out,
                    ulong *                   out_len,
-                   ulong                     tile_kind,
+                   char const *              tile_name,
                    ulong                     metrics_cnt,
                    fd_metrics_meta_t const * metrics,
                    int                       print_mode ) {
@@ -143,18 +143,18 @@ prometheus_print1( fd_topo_t *               topo,
 
     for( ulong j=0; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
-      if( FD_LIKELY( tile_kind!=ULONG_MAX && tile_kind!=tile->kind ) ) continue;
+      if( FD_LIKELY( tile_name!=NULL && strcmp( tile->name, tile_name ) ) ) continue;
 
       if( FD_LIKELY( metric->type==FD_METRICS_TYPE_COUNTER || metric->type==FD_METRICS_TYPE_GAUGE ) ) {
         if( FD_LIKELY( print_mode==PRINT_TILE ) ) {
           ulong value = *(fd_metrics_tile( tile->metrics ) + metric->offset);
-          PRINT( "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, value );
+          PRINT( "%s{kind=\"%s\",kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, value );
         } else {
           if( FD_LIKELY( print_mode==PRINT_LINK_IN ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
               fd_topo_link_t * link = &topo->links[ tile->in_link_id[ k ] ];
               ulong value = *(fd_metrics_link_in( tile->metrics, k ) + metric->offset );
-              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_topo_link_kind_str( link->kind ), link->kind_id, value );
+              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           } else if( FD_LIKELY( print_mode==PRINT_LINK_OUT ) ) {
             for( ulong k=0; k<tile->in_cnt; k++ ) {
@@ -172,7 +172,7 @@ prometheus_print1( fd_topo_t *               topo,
               ulong producer_out_idx = find_producer_out_idx( topo, producer, tile, k );
               ulong value = *(fd_metrics_link_out( producer->metrics, producer_out_idx ) + metric->offset );
 
-              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, fd_topo_link_kind_str( link->kind ), link->kind_id, value );
+              PRINT( "%s{kind=\"%s\",kind_id=\"%lu\",link_kind=\"%s\",link_kind_id=\"%lu\"} %lu\n", metric->name, tile->name, tile->kind_id, link->name, link->kind_id, value );
             }
           }
         }
@@ -204,7 +204,7 @@ prometheus_print1( fd_topo_t *               topo,
           }
 
           FD_TEST( fd_cstr_printf_check( value_str, sizeof( value_str ), NULL, "%lu", value ));
-          PRINT( "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, le, value_str );
+          PRINT( "%s_bucket{kind=\"%s\",kind_id=\"%lu\",le=\"%s\"} %s\n", metric->name, tile->name, tile->kind_id, le, value_str );
         }
 
         char sum_str[ 64 ];
@@ -215,8 +215,8 @@ prometheus_print1( fd_topo_t *               topo,
           FD_TEST( fd_cstr_printf_check( sum_str, sizeof( sum_str ), NULL, "%lu", *(fd_metrics_tile( tile->metrics ) + metric->offset + FD_HISTF_BUCKET_CNT) ));
         }
 
-        PRINT( "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, sum_str );
-        PRINT( "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, value_str );
+        PRINT( "%s_sum{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, sum_str );
+        PRINT( "%s_count{kind=\"%s\",kind_id=\"%lu\"} %s\n", metric->name, tile->name, tile->kind_id, value_str );
       }
     }
 
@@ -240,25 +240,25 @@ prometheus_print( fd_topo_t * topo,
   PRINT( "                     \r\nContent-Type: text/plain; version=0.0.4\r\n\r\n" );
   ulong content_start = (ulong)(start_len - *out_len);
 
-  long result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
+  long result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_TOTAL, FD_METRICS_ALL, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
+  result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_LINK_IN_TOTAL, FD_METRICS_ALL_LINK_IN, PRINT_LINK_IN );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, ULONG_MAX, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
+  result = prometheus_print1( topo, out, out_len, NULL, FD_METRICS_ALL_LINK_OUT_TOTAL, FD_METRICS_ALL_LINK_OUT, PRINT_LINK_OUT );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_QUIC, FD_METRICS_QUIC_TOTAL, FD_METRICS_QUIC, PRINT_TILE );
+  result = prometheus_print1( topo, out, out_len, "quic", FD_METRICS_QUIC_TOTAL, FD_METRICS_QUIC, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_PACK, FD_METRICS_PACK_TOTAL, FD_METRICS_PACK, PRINT_TILE );
+  result = prometheus_print1( topo, out, out_len, "pack", FD_METRICS_PACK_TOTAL, FD_METRICS_PACK, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_BANK, FD_METRICS_BANK_TOTAL, FD_METRICS_BANK, PRINT_TILE );
+  result = prometheus_print1( topo, out, out_len, "bank", FD_METRICS_BANK_TOTAL, FD_METRICS_BANK, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
   PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, FD_TOPO_TILE_KIND_POH, FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
+  result = prometheus_print1( topo, out, out_len, "poh", FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* Now backfill Content-Length */

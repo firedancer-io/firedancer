@@ -30,7 +30,7 @@ workspace_path( config_t * const config,
       FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
   }
 
-  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, fd_topo_wksp_kind_str( wksp->kind ) ) );
+  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, wksp->name ) );
 }
 
 static void
@@ -64,7 +64,7 @@ fini( config_t * const config ) {
     int result = stat( path, &st );
     if( FD_LIKELY( !result ) ) {
       char name[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", config->name, fd_topo_wksp_kind_str( wksp->kind ) ) );
+      FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", config->name, wksp->name ) );
 
       if( FD_UNLIKELY( fd_wksp_delete_named( name ) ) ) {
         if( FD_UNLIKELY( -1==unlink( path ) ) )
