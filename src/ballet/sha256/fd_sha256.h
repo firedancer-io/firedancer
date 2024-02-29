@@ -115,7 +115,7 @@ fd_sha256_append( fd_sha256_t * sha,
                   void const *  data,
                   ulong         sz );
 
-/* fd_sha256_fini finishes a a sha256 calculation.  sha and hash are
+/* fd_sha256_fini finishes a sha256 calculation.  sha and hash are
    assumed to be valid (i.e. sha is a local join to a sha256 calculation
    state that has an in-progress calculation with no other concurrent
    operations that would modify the state while this is executing and
@@ -124,6 +124,7 @@ fd_sha256_append( fd_sha256_t * sha,
    return, there will be no calculation in-progress on sha and 32-byte
    buffer pointed to by hash will be populated with the calculation
    result). */
+/* FIXME: THIS SHOULD PROBABLY RETURN A FD_SHA256_T */
 
 void *
 fd_sha256_fini( fd_sha256_t * sha,
@@ -138,6 +139,9 @@ fd_sha256_fini( fd_sha256_t * sha,
    function call overheads, branches, copies and data marshalling under
    the hood (things like binary Merkle tree construction were designed
    do lots of such operations). */
+/* FIXME: ADD NEW/JOIN/LEAVE/DELETE TO DOCUMENTATION */
+/* FIXME: PROBABLY SHOULD HAVE AN ABORT API */
+/* FIXME: UPDATE OTHER HASH FUNCTIONS SIMILARLY */
 
 void *
 fd_sha256_hash( void const * data,
