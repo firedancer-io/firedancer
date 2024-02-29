@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 FD_FN_CONST fd_tile_config_t *
-fd_topo_tile_to_config( fd_topo_tile_t * tile ) {
+fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
   switch( tile->kind ) {
     case FD_TOPO_TILE_KIND_NET:    return &fd_tile_net;
     case FD_TOPO_TILE_KIND_NETMUX: return &fd_tile_netmux;

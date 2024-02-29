@@ -1061,6 +1061,8 @@ config_parse( int *      pargc,
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
     }
   }
+
+  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT, fdctl_tile_align, fdctl_tile_footprint );
 }
 
 int

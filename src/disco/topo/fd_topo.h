@@ -1,6 +1,5 @@
-
-#ifndef HEADER_fd_src_app_fdctl_topology_h
-#define HEADER_fd_src_app_fdctl_topology_h
+#ifndef HEADER_fd_src_disco_topo_fd_topo_h
+#define HEADER_fd_src_disco_topo_fd_topo_h
 
 #include "../../tango/fd_tango.h"
 
@@ -570,20 +569,26 @@ fd_topo_create_workspaces( char *      app_name,
 void
 fd_topo_fill_tile( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
-                   ulong            mode );
+                   ulong            mode,
+                   ulong (* tile_align )( fd_topo_tile_t const * tile ),
+                   ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
 
 /* Same as fd_topo_fill_tile but fills in all the objects for a
    particular workspace with the given mode. */
 void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
-                        ulong            mode );
+                        ulong            mode,
+                        ulong (* tile_align )( fd_topo_tile_t const * tile ),
+                        ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
 
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology with
    the given mode. */
 void
 fd_topo_fill( fd_topo_t * topo,
-              ulong       mode );
+              ulong       mode,
+              ulong (* tile_align )( fd_topo_tile_t const * tile ),
+              ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to
    successfully run all tiles in separate processes.  The value returned
@@ -645,4 +650,4 @@ fd_topo_print_log( int         stdout,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_app_fdctl_topology_h */
+#endif /* HEADER_fd_src_disco_topo_fd_topo_h */
