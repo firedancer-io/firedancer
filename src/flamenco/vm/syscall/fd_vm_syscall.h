@@ -7,44 +7,49 @@
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
    SYSCALLS? */
 
-#define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOES THIS BELONG HERE? */
-#define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOES THIS BELONG HERE? */
-#define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOES THIS BELONG HERE? */
+#define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+#define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+#define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 
-#define FD_VM_SYSCALL_DECL(name)     \
-int                                  \
-fd_vm_syscall_##name ( void *  _vm,  \
-                       ulong   arg0, \
-                       ulong   arg1, \
-                       ulong   arg2, \
-                       ulong   arg3, \
-                       ulong   arg4, \
-                       ulong * _ret )
+/* FD_VM_SYSCALL_DECL declares a prototype of a syscall */
+
+#define FD_VM_SYSCALL_DECL(name)    \
+int                                 \
+fd_vm_syscall_##name( void *  _vm,  \
+                      ulong   arg0, \
+                      ulong   arg1, \
+                      ulong   arg2, \
+                      ulong   arg3, \
+                      ulong   arg4, \
+                      ulong * _ret )
 
 FD_PROTOTYPES_BEGIN
 
-/* FIXME: MOVE THESE TO SOMETHING LIKE VM_CONTEXT */
-/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT */
+/* fd_vm_syscall_admin ************************************************/
+
+/* FIXME: MOVE THESE TO SOMETHING LIKE VM.C? */
+/* FIXME: MOVE FD_SBPF_SYSCALLS_T INTO VM_CONTEXT? */
+/* FIXME: DOCUMENT IN MORE DETAIL */
 
 /* Registers a syscall by name to an execution context. */
 
 void
-fd_vm_register_syscall( fd_sbpf_syscalls_t *   syscalls,
+fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
                         char const *           name,
                         fd_sbpf_syscall_func_t func );
 
-/* fd_vm_syscall_register all reigsters all syscalls implemented.
-   May change between Firedancer versions without warning. */
-
-void
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
-
-/* fd_vm_syscall_register_ctx registers all syscalls appropriate for
+/* fd_vm_syscall_register_slot registers all syscalls appropriate for a
    slot context. */
 
 void
-fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
-                            fd_exec_slot_ctx_t const * slot_ctx );
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
+                             fd_exec_slot_ctx_t const * slot_ctx );
+
+/* fd_vm_syscall_register all reigsters all syscalls implemented.  May
+   change between Firedancer versions without warning. */
+
+void
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* fd_vm_syscall_util *************************************************/
 
@@ -279,7 +284,7 @@ FD_VM_SYSCALL_DECL( sol_log_data );
    FIXME: SHOULD THIS NOT DECREMENT THE COMPUTE BUDGET?  E.G. SZ=0
    INFINITE LOOP) */
 
-FD_VM_SYSCALL_DECL(sol_alloc_free);
+FD_VM_SYSCALL_DECL( sol_alloc_free );
 
 /* syscall(FIXME) "sol_memcpy"
    Copy sz bytes from src to dst.  src and dst should not overlap.
@@ -588,9 +593,10 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
-/* CPI syscalls *******************************************************/
+/* fd_vm_syscall_cpi **************************************************/
 
-/* Represents an account for a CPI*/
+/* Represents an account for a CPI */
+/* FIXME: DOES THIS GO HERE?  MAYBE GROUP WITH ADMIN OR OUTSIDE SYSCALL? */
 
 struct fd_instruction_account {
   ushort index_in_transaction;
@@ -599,9 +605,11 @@ struct fd_instruction_account {
   uint is_signer;
   uint is_writable;
 };
+
 typedef struct fd_instruction_account fd_instruction_account_t;
 
-// Prepare instruction method
+/* Prepare instruction method */
+/* FIXME: DOES THIS GO HERE?  MAYBE GROUP WITH ADMIN OR OUTSIDE SYSCALL? */
 
 int
 fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
@@ -613,22 +621,26 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
                            ulong                    signers_cnt );
 
 /* syscall(a22b9c85) "sol_invoke_signed_c"
-   Dispatch a cross program invocation.  Inputs are in C ABI. */
+   Dispatch a cross program invocation.  Inputs are in C ABI.
 
-FD_VM_SYSCALL_DECL(cpi_c);
+   FIXME: BELT SAND AND DOCUMENT */
+
+FD_VM_SYSCALL_DECL( cpi_c );
 
 /* syscall(d7449092) "sol_invoke_signed_rust"
-   Dispatch a cross program invocation.  Inputs are in Rust ABI. */
+   Dispatch a cross program invocation.  Inputs are in Rust ABI.
 
-FD_VM_SYSCALL_DECL(cpi_rust);
+   FIXME: BELT SAND AND DOCUMENT */
 
-/* Crypto syscalls ****************************************************/
+FD_VM_SYSCALL_DECL( cpi_rust );
+
+/* fd_vm_syscall_crypto ***********************************************/
 
 /* syscall(FIXME) sol_alt_bn128_group_op
    syscall(FIXME) sol_alt_bn128_compression
 
    FIXME: NOT IMPLEMENTED YET, IGNORES ALL ARGUMENTS AND RETURNS INVAL
-   MAYBE SHOULD RETURN UNSUP? */
+   (MAYBE SHOULD RETURN UNSUP)? */
 
 FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
 FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
@@ -663,14 +675,21 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
      FD_VM_SUCCESS: success.  *_ret=0 and hash[i] holds the hash of the
      concatentation of the slices.  Compute budget decremented. */
 
-FD_VM_SYSCALL_DECL( sol_blake3                );
-FD_VM_SYSCALL_DECL( sol_keccak256             );
-FD_VM_SYSCALL_DECL( sol_sha256                );
+FD_VM_SYSCALL_DECL( sol_blake3    );
+FD_VM_SYSCALL_DECL( sol_keccak256 );
+FD_VM_SYSCALL_DECL( sol_sha256    );
 
-/* FIXME: BELT SAND AND DOCUMENT */
+/* syscall(FIXME) "sol_poseidon"
 
-FD_VM_SYSCALL_DECL( sol_poseidon              ); /* Light protocol flavor */
-FD_VM_SYSCALL_DECL( sol_secp256k1_recover     );
+   FIXME: BELT SAND AND DOCUMENT */
+
+FD_VM_SYSCALL_DECL( sol_poseidon ); /* Light protocol flavor */
+
+/* syscall(FIXME) "sol_secp256k1_recover"
+
+   FIXME: BELT SAND AND DOCUMENT */
+
+FD_VM_SYSCALL_DECL( sol_secp256k1_recover );
 
 /* fd_vm_syscall_curve ************************************************/
 
@@ -681,12 +700,26 @@ FD_VM_SYSCALL_DECL( sol_secp256k1_recover     );
 #define FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519      (0UL)
 #define FD_VM_SYSCALL_SOL_CURVE_ECC_RISTRETTO255 (1UL)
 
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD        (0UL)  /* add */
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB        (1UL)  /* add inverse */
-#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL        (2UL)  /* scalar mult */
+#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_ADD (0UL) /* add */
+#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB (1UL) /* add inverse */
+#define FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL (2UL) /* scalar mult */
+
+/* syscall(FIXME) sol_curve_validate_point
+
+   FIXME: BELT SAND AND DOCUMENT */
 
 FD_VM_SYSCALL_DECL( sol_curve_validate_point  );
-FD_VM_SYSCALL_DECL( sol_curve_group_op        );
+
+/* syscall(FIXME) sol_curve_validate_point
+
+   FIXME: BELT SAND AND DOCUMENT */
+
+FD_VM_SYSCALL_DECL( sol_curve_group_op );
+
+/* syscall(FIXME) sol_curve_validate_point
+
+   FIXME: BELT SAND AND DOCUMENT */
+
 FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
 
 FD_PROTOTYPES_END
