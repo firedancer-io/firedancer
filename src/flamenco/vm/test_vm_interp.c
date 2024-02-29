@@ -25,7 +25,7 @@ test_program_success( char *            test_case_name,
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint()) );
   FD_TEST( syscalls );
 
-  fd_vm_register_syscall( syscalls, "accumulator", accumulator_syscall );
+  fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
 
   fd_vm_exec_context_t ctx = {
     .entrypoint = 0,
