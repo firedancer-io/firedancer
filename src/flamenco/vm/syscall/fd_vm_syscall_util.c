@@ -689,7 +689,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   int   err  = fd_vm_consume_compute( vm, cost );
   if( FD_UNLIKELY( err ) ) return err;
 
-  if( FD_UNLIKELY( src_sz>FD_VM_SYSCALL_RETURN_DATA_MAX ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
+  if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
 
   uchar const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, src_sz, alignof(uchar) );
   if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
