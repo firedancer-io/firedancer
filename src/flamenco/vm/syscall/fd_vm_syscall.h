@@ -59,7 +59,7 @@ fd_vm_syscall_register_ctx( fd_sbpf_syscalls_t *       syscalls,
 
    Return:
 
-     FD_VM_ERR_ABORT: *_ret 0. (FIXME: SHOULD IT DO THIS?)
+     FD_VM_ERR_ABORT: *_ret=0. (FIXME: SHOULD IT DO THIS?)
 
    FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
@@ -70,8 +70,8 @@ FD_VM_SYSCALL_DECL( abort );
 
    Inputs:
 
-     arg0 - message cstr VM address, indexed [0,arg1), FIXME: WHEN IS NULL OKAY?
-     arg1 - message cstr strlen, FIXME: IS 0 OKAY (PROBABLY)?
+     arg0 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - msg_sz, FIXME: IS 0 OKAY?
      arg2 - ignored
      arg3 - ignored
      arg4 - ignored
@@ -98,8 +98,8 @@ FD_VM_SYSCALL_DECL( sol_panic );
 
    Inputs:
 
-     arg0 - message cstr VM address, indexed [0,arg1), FIXME: WHEN IS NULL OKAY?
-     arg1 - message cstr strlen, FIXME: IS 0 OKAY (PROBABLY)?
+     arg0 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - msg_sz, FIXME: IS 0 OKAY?
      arg2 - ignored
      arg3 - ignored
      arg4 - ignored
@@ -112,7 +112,7 @@ FD_VM_SYSCALL_DECL( sol_panic );
      FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
      budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      IMPORANT SAFETY TIP!  The log message might have been silently
      truncated if not enough room for the message in the log collector
      when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... LIKEWISE
@@ -141,7 +141,7 @@ FD_VM_SYSCALL_DECL( sol_log );
      FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
      budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      IMPORANT SAFETY TIP!  The log message might have been silently
      truncated if not enough room for the message in the log collector
      when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
@@ -153,7 +153,7 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
 
    Inputs:
 
-     arg0 - pubkey VM address, indexed [0,32), FIXME: IS NULL ERR_PERM?
+     arg0 - pubkey, byte VM pointer, indexed [0,32)
      arg1 - ignored
      arg2 - ignored
      arg3 - ignored
@@ -167,7 +167,7 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
      FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
      budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      IMPORANT SAFETY TIP!  The log message might have been silently
      truncated if not enough room for the message in the log collector
      when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
@@ -193,7 +193,7 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      IMPORANT SAFETY TIP!  The log message might have been silently
      truncated if not enough room for the message in the log collector
      when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
@@ -205,22 +205,26 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
    Inputs:
 
-     arg0 - gather vector VM address, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
-     arg1 - gather vector cnt, FIXME: IS 0 OKAY (PROBABLY)
+     arg0 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
+     arg1 - cnt, FIXME: IS 0 OKAY?
      arg2 - ignored
      arg3 - ignored
      arg4 - ignored
 
-   Note a gather vector element is a pair:
-     ulong vaddr ... holds the viritual address of the region, indexed [0,sz)
-     ulong sz    ... holds the size of the region (FIXME: IS 0 OKAY ... PROBABLY)?
+     slice[i] holds the ulong pair:
+       mem, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+       sz, FIXME: IS 0 OKAY?
 
    Return:
 
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret 0.  Compute budget decremented.
+     FD_VM_ERR_PERM: bad address range for slice and/or slice[i].mem
+     (including slice not 8 byte aligned if the VM has check_align set).
+     Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      IMPORANT SAFETY TIP!  The log message might have been silently
      truncated if not enough room for the message in the log collector
      when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... SEEMS LIKE
@@ -230,14 +234,59 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
 FD_VM_SYSCALL_DECL( sol_log_data );
 
+/* syscall(FIXME) "sol_alloc_free"
+   DEPRECATED ... dynamic heap allocation support
+
+   Inputs:
+
+     arg0 - sz, ignored if vaddr is not 0
+     arg1 - free_vaddr, byte VM pointer
+     arg2 - ignored
+     arg3 - ignored
+     arg4 - ignored
+
+   Return:
+
+     All cases return FD_VM_SUCCESS.
+
+     If free_vaddr is 0, this is "malloc"-like:
+
+       Let the VM heap region cover bytes [heap_start,heap_end) with
+       heap_start<=heap_end.  If the request was satisfied, on return,
+       *_ret will point to a range of heap bytes [*_ret,*_ret+sz) that
+       does not overlap with any other current allocation such that
+       heap_start<=*_ret<=*_ret+sz<=heap_end.  This includes the zero sz
+       case (note that the zero sz case might return the same value as a
+       previous zero sz case and/or return the exact value of heap_end).
+
+       If the request cannot be satisfied, *_ret=0 on return and the
+       heap unchanged.
+
+       IMPORTANT SAFETY TIP!  If the VM has check_align set, this
+       location will have at least 8 byte alignment.  Otherwise, this
+       location will have no particular alignment.  Note that this
+       implies allocations done by this syscall do not conform to the
+       usual alignment requirements of a standard malloc call for older
+       VM code.
+
+     If vaddr is not-zero, this is "free"-like.  Since the underlying
+     implementation is necessarily a bump allocator (see implementation
+     for more details), the specific value is ignored and *_ret=0 on
+     return.
+
+   FIXME: SHOULD THIS NOT DECREMENT THE COMPUTE BUDGET?  E.G. SZ=0
+   INFINITE LOOP) */
+
+FD_VM_SYSCALL_DECL(sol_alloc_free);
+
 /* syscall(FIXME) "sol_memcpy"
    Copy sz bytes from src to dst.  src and dst should not overlap.
 
    Inputs:
 
-     arg0 - dst VM address, indexed [0,sz)
-     arg1 - src VM address, indexed [0,sz)
-     arg2 - sz, 0 okay
+     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     arg2 - sz, FIXME: IS 0 okay?
      arg3 - ignored
      arg4 - ignored
 
@@ -246,11 +295,8 @@ FD_VM_SYSCALL_DECL( sol_log_data );
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_ERR_PERM: bad address range for src (an empty address range
-     is considered valid ... FIXME: CHECK THIS IS DESIRED) and/or bad
-     address range for dst (an empty address range is considered valid
-     ... FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.  Compute
-     budget decremented.
+     FD_VM_ERR_PERM: bad address range for src and/or bad address range
+     for dst.  *_ret unchanged.  Compute budget decremented.
 
      FD_VM_ERR_MEM_OVERLAP: address ranges for src and dst overlap
      (either partially or fully ... FIXME: CHECK IF EXACT OVERLAP IS
@@ -258,22 +304,22 @@ FD_VM_SYSCALL_DECL( sol_log_data );
      (FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.  Compute budget
      decremented.  FIXME: CONSIDER MERGING THIS ERR CODE WITH PERM?
 
-     FD_VM_SUCCESS: success.  *_ret = 0.  On return, dst[i]==src[i] for
-     i in [0,sz).  Compute budget decremented.  IMPORTANT SAFETY TIP!
-     The current Solana cost model has sz 0 at zero cost so sz==0 always
+     FD_VM_SUCCESS: success.  *_ret=0.  On return, dst[i]==src[i] for i
+     in [0,sz).  Compute budget decremented.  IMPORTANT SAFETY TIP!  The
+     current Solana cost model has sz==0 at zero cost so sz==0 always
      succeeds. */
 
 FD_VM_SYSCALL_DECL( sol_memcpy );
 
 /* syscall(FIXME) "sol_memcmp"
-   Compare sz bytes at addr0 to addr1
+   Compare sz bytes at m0 to m1
 
    Inputs:
 
-     arg0 - addr0 VM address, treated as a uchar array indexed [0,sz)
-     arg1 - addr1 VM address, treated as a uchar array indexed [0,sz)
+     arg0 - m0, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - m1, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
      arg2 - sz, FIXME: IS SZ 0 OKAY?
-     arg3 - out VM address, pointer to a 32-bit int
+     arg3 - out, int VM pointer
      arg4 - ignored
 
   Return:
@@ -281,16 +327,16 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_out and *_ret
      unchanged.  Compute budget decremented.
 
-     FD_VM_ERR_PERM: bad address range for addr0, bad address range for
-     addr1 or bad address range for out (including 32-bit integer
-     alignment if check_align is enabled).  *_out and *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_PERM: bad address range for m0, m1 and/or out (including
+     out not 4 byte aligned if the VM has check_align set).  *_out and
+     *_ret unchanged.  Compute budget decremented.
 
      FD_VM_SUCCESS: success.  *_out will hold a positive / zero /
-     negative number if the region at addr0 lexicographically compares
+     negative number if the region at m0 lexicographically compares
      strictly greater than / equal to / strictly less than the region at
-     addr1.  The specific value will exactly match the value from the
-     existing Solana validator.  Compute budget decremented. */
+     m1.  Specifically, if the regions different, *_out will be
+     (int)m0[i] - (int)m1[i] where i is the first differing byte.
+     Compute budget decremented. */
 
 FD_VM_SYSCALL_DECL( sol_memcmp );
 
@@ -299,8 +345,8 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
 
    Inputs:
 
-     arg0 - dst VM address, indexed [0,sz)
-     arg1 - c, bits [8,64) are ignored
+     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - c, bits [8,64) ignored
      arg2 - sz, FIXME: IS SZ 0 OKAY?
      arg3 - ignored
      arg4 - ignored
@@ -313,7 +359,7 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
      FD_VM_ERR_PERM: bad address range for dst.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret = 0.  Compute budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
      On return, dst[i]==(c & 255UL) for i in [0,sz). */
 
 FD_VM_SYSCALL_DECL( sol_memset );
@@ -323,8 +369,8 @@ FD_VM_SYSCALL_DECL( sol_memset );
 
    Inputs:
 
-     arg0 - dst VM address, indexed [0,sz)
-     arg1 - src VM address, indexed [0,sz)
+     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     arg1 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
      arg2 - sz, FIXME: IS SZ 0 OKAY?
      arg3 - ignored
      arg4 - ignored
@@ -334,59 +380,14 @@ FD_VM_SYSCALL_DECL( sol_memset );
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_ERR_PERM: bad address range for src and/or bad address range
-     for dst.  *_ret unchanged.  Compute budget decremented.
+     FD_VM_ERR_PERM: bad address range for src and/or dst.  *_ret
+     unchanged.  Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret = 0.  On return,
+     FD_VM_SUCCESS: success.  *_ret=0.  On return,
      dst[i]==src_as_it_was_before_the_call[i] for i in [0,sz).  Compute
      budget decremented. */
 
 FD_VM_SYSCALL_DECL( sol_memmove );
-
-/* syscall(FIXME) "sol_alloc_free"
-   DEPRECATED ... dynamic heap allocation support
-
-   Inputs:
-
-     arg0 - sz, ignored if vaddr is not 0
-     arg1 - vaddr VM address
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
-
-   Return:
-
-     All cases return FD_VM_SUCCESS.
-
-     If vaddr is 0, this is "malloc"-like:
-
-       Let the VM heap region cover bytes [heap_start,heap_end) with
-       heap_start<=heap_end.  If the request was satisfied, on return,
-       *_ret will point to a range of heap bytes [*_ret,*_ret+sz) that
-       does not overlap with any other current allocation such that
-       heap_start<=*_ret<=*_ret+sz<=heap_end.  This includes the zero sz
-       case (note that the zero sz case might return the same value as a
-       previous zero sz case and/or return the exact value of heap_end).
-
-       If the request cannot be satisfied, *_ret = 0 on return and the
-       heap unchanged.
-
-       IMPORTANT SAFETY TIP!  If the VM has check_align set, this
-       location will have an alignment of at least 8.  Otherwise, this
-       location will have no particular alignment.  Note that this
-       implies allocations done by this syscall do not conform to the
-       usual alignment requirements of a standard malloc call for older
-       VM code.
-
-     If vaddr is not-zero, this is "free"-like.  Since the underlying
-     implementation is necessarily a bump allocator (see implementation
-     for more details), the specific value is ignored and *_ret = 0 on
-     return.
-
-   FIXME: SHOULD THIS NOT DECREMENT THE COMPUTE BUDGET?  E.G. SZ = 0
-   INFINITE LOOP) */
-
-FD_VM_SYSCALL_DECL(sol_alloc_free);
 
 /* syscall(FIXME) "sol_get_clock_sysvar"
    syscall(FIXME) "sol_get_epoch_schedule_sysvar"
@@ -396,7 +397,7 @@ FD_VM_SYSCALL_DECL(sol_alloc_free);
 
    Inputs:
 
-     arg0 - out VM address
+     arg0 - out, {clock,schedule,fees,rent} VM pointer
      arg1 - ignored
      arg2 - ignored
      arg3 - ignored
@@ -409,16 +410,15 @@ FD_VM_SYSCALL_DECL(sol_alloc_free);
 
      FD_VM_ERR_PERM: bad address range for out.  *_ret unchanged.
      Compute budget decremented.  out should have:
-                      | align | sz
-       clock          |     8 | 40
-       epoch_schedule |     1 | 40 ... FIXME: HMMM
-       fees           |     8 |  8
-       rent           |     8 | 24
-     Strict alignment is only required if the VM has check_align set.
+                | align | sz
+       clock    |     8 | 40
+       schedule |     1 | 40 ... FIXME: CHECK THIS IS CORRECT!
+       fees     |     8 |  8
+       rent     |     8 | 24
+     Strict alignment is only required when the VM has check_align set.
 
-     FD_VM_SUCCESS: success.  *_ret = 0.  On return, out_addr[i] for i
-     in [0,sz) will hold the value of the appropriate sysvar.  Compute
-     budget decremented. */
+     FD_VM_SUCCESS: success.  *_ret=0.  On return, *out will hold the
+     value of the appropriate sysvar.  Compute budget decremented. */
 
 FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
 FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
@@ -440,18 +440,15 @@ FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
      FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
      Compute budget decremented.
 
-     FD_VM_SUCCESS: success.  *_ret = stack_height.  Compute budget
+     FD_VM_SUCCESS: success.  *_ret=stack_height.  Compute budget
      decremented. */
 
 FD_VM_SYSCALL_DECL(sol_get_stack_height);
 
 /* FIXME: NOT IMPLENTED YET (IGNORES ALL ARGUMENTS AND RETRNS
    FD_VM_ERR_UNSUP).  */
-
+/* FIXME: THIS IS A CPI THING? */
 FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
-
-FD_VM_SYSCALL_DECL(sol_get_return_data);
-FD_VM_SYSCALL_DECL(sol_set_return_data);
 
 /*** PDA (program derived address) syscalls ***************************/
 
@@ -468,6 +465,9 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
 /* CPI syscalls *******************************************************/
+
+FD_VM_SYSCALL_DECL(sol_get_return_data);
+FD_VM_SYSCALL_DECL(sol_set_return_data);
 
 /* Represents an account for a CPI*/
 
@@ -503,6 +503,51 @@ FD_VM_SYSCALL_DECL(cpi_rust);
 
 /* Crypto syscalls ****************************************************/
 
+/* syscall(FIXME) sol_alt_bn128_group_op
+   syscall(FIXME) sol_alt_bn128_compression
+
+   FIXME: NOT IMPLEMENTED YET */
+
+FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
+FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
+
+/* syscall(FIXME) "sol_blake3"
+   syscall(FIXME) "sol_keccak256"
+   syscall(FIXME) "sol_sha256"
+
+   Inputs:
+
+     arg0 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
+     arg1 - cnt, FIXME: IS 0 OKAY?
+     arg2 - hash, byte VM pointer, indexed [0,32)
+     arg3 - ignored
+     arg4 - ignored
+
+     slice[i] holds the ulong pair:
+       mem, byte vector VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+       sz, FIXME: IS 0 OKAY?
+
+   Return:
+
+     FD_VM_ERR_INVAL: cnt too large.  *_ret unchanged.
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: bad address range for slice, hash and/or
+     slice[i].addr (including slice not 8 byte aligned if the VM has
+     check_align set).  *_ret unchanged.  Compute budget decremented.
+
+     FD_VM_SUCCESS: success.  *_ret=0 and hash[i] holds the hash of the
+     concatentation of the slices.  Compute budget decremented. */
+
+FD_VM_SYSCALL_DECL( sol_blake3                );
+FD_VM_SYSCALL_DECL( sol_keccak256             );
+FD_VM_SYSCALL_DECL( sol_sha256                );
+
+FD_VM_SYSCALL_DECL( sol_poseidon              ); /* Light protocol flavor */
+FD_VM_SYSCALL_DECL( sol_secp256k1_recover     );
+
 /* FD_VM_SYSCALL_SOL_CURVE_ECC_{...} specifies the curve IDs and
    FD_VM_SYSCALL_SOL_CURVE_ECC_G_{...} declares IDs of operations on
    elliptic curve groups for the sol_curve syscalls. */
@@ -514,16 +559,9 @@ FD_VM_SYSCALL_DECL(cpi_rust);
 #define FD_VM_SYSCALL_SOL_CURVE_ECC_G_SUB        (1UL)  /* add inverse */
 #define FD_VM_SYSCALL_SOL_CURVE_ECC_G_MUL        (2UL)  /* scalar mult */
 
-FD_VM_SYSCALL_DECL( sol_alt_bn128_group_op    );
-FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
-FD_VM_SYSCALL_DECL( sol_blake3                );
 FD_VM_SYSCALL_DECL( sol_curve_validate_point  );
 FD_VM_SYSCALL_DECL( sol_curve_group_op        );
 FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
-FD_VM_SYSCALL_DECL( sol_keccak256             );
-FD_VM_SYSCALL_DECL( sol_poseidon              ); /* Light protocol flavor */
-FD_VM_SYSCALL_DECL( sol_secp256k1_recover     );
-FD_VM_SYSCALL_DECL( sol_sha256                );
 
 FD_PROTOTYPES_END
 

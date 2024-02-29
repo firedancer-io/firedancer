@@ -1293,7 +1293,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _ctx,
   fd_pubkey_t const * program_id = &ctx->instr_ctx->instr->program_id_pubkey;
   fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.program_id.uc, program_id->uc, sizeof(fd_pubkey_t) );
   ctx->instr_ctx->txn_ctx->return_data.len = len;
-  if( !len ) fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.data, return_data, len );
+  if( len ) fd_memcpy( ctx->instr_ctx->txn_ctx->return_data.data, return_data, len );
 
   *_ret = 0;
   return FD_VM_SUCCESS;
