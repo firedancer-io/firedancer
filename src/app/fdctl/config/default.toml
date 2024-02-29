@@ -721,6 +721,12 @@ dynamic_port_range = "8900-9000"
         # milliseconds
         idle_timeout_millis = 10000
 
+        # Whether QUIC RETRY is enabled
+        # QUIC RETRY is a feature to combat New Connection Request spamming
+        #
+        # This is a boolean
+        retry = true
+
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
     # it is signed by the appropriate private key.
