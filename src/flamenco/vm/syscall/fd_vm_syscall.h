@@ -7,7 +7,9 @@
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
    SYSCALLS? */
 
-#define FD_VM_SYSCALL_RETURN_DATA_MAX (1024UL) /* FIXME: SYNC THIS WITH TYPES? */
+#define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOES THIS BELONG HERE? */
+#define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOES THIS BELONG HERE? */
+#define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOES THIS BELONG HERE? */
 
 #define FD_VM_SYSCALL_DECL(name)     \
 int                                  \
@@ -420,10 +422,10 @@ FD_VM_SYSCALL_DECL( sol_memmove );
      FD_VM_SUCCESS: success.  *_ret=0.  On return, *out will hold the
      value of the appropriate sysvar.  Compute budget decremented. */
 
-FD_VM_SYSCALL_DECL(sol_get_clock_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_epoch_schedule_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_fees_sysvar);
-FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
+FD_VM_SYSCALL_DECL( sol_get_clock_sysvar          );
+FD_VM_SYSCALL_DECL( sol_get_epoch_schedule_sysvar );
+FD_VM_SYSCALL_DECL( sol_get_fees_sysvar           );
+FD_VM_SYSCALL_DECL( sol_get_rent_sysvar           );
 
 /* syscall(FIXME) "sol_get_stack_height"
 
@@ -443,21 +445,21 @@ FD_VM_SYSCALL_DECL(sol_get_rent_sysvar);
      FD_VM_SUCCESS: success.  *_ret=stack_height.  Compute budget
      decremented. */
 
-FD_VM_SYSCALL_DECL(sol_get_stack_height);
+FD_VM_SYSCALL_DECL( sol_get_stack_height );
 
 /* FIXME: NOT IMPLEMENTED YET ... IGNORES ALL ARGUMENTS AND RETURNS
    FD_VM_ERR_UNSUP.  (MAYBE GROUP WITH CPI OR PDA?)*/
 
-FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
+FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* syscall(FIXME) "sol_get_return_data"
-   Get the return data and program id that set it.
+   Get the return data and program id associated with it.
 
    Inputs:
 
-     arg0 - dst, byte VM addr, indexed [0,dst_max), FIXME: WHEN IS NULL OKAY? (PROBABLY "ignored when dst_max==0")
+     arg0 - dst, byte VM pointer, indexed [0,dst_max), FIXME: WHEN IS NULL OKAY? (PROBABLY "ignored when dst_max==0")
      arg1 - dst_max, FIXME: IS 0 OKAY? (PROBABLY)
-     arg2 - program_id, byte VM addr, indexed [0,32), FIXME: PROBABLY "ignored when dst_max==0"
+     arg2 - program_id, byte VM pointer, indexed [0,32), FIXME: PROBABLY "ignored when dst_max==0"
      arg3 - ignored
      arg4 - ignored
 
@@ -484,7 +486,7 @@ FD_VM_SYSCALL_DECL(sol_get_processed_sibling_instruction);
 
    FIXME: MAYBE GROUP WITH CPI OR PDA? */
 
-FD_VM_SYSCALL_DECL(sol_get_return_data);
+FD_VM_SYSCALL_DECL( sol_get_return_data );
 
 /* syscall(FIXME) "sol_set_return_data"
    Set the return data.  The return data will be associated with the
@@ -492,7 +494,7 @@ FD_VM_SYSCALL_DECL(sol_get_return_data);
 
    Inputs:
 
-     arg0 - src, byte VM addr, indexed [0,src_sz), FIXME: WHEN IS NULL OKAY?
+     arg0 - src, byte VM pointer, indexed [0,src_sz), FIXME: WHEN IS NULL OKAY?
      arg1 - src_sz, FIXME: IS 0 OKAY?
      arg2 - ignored
      arg3 - ignored
@@ -513,19 +515,76 @@ FD_VM_SYSCALL_DECL(sol_get_return_data);
 
    FIXME: MAYBE GROUP WITH CPI OR PDA? */
 
-FD_VM_SYSCALL_DECL(sol_set_return_data);
+FD_VM_SYSCALL_DECL( sol_set_return_data );
 
-/*** PDA (program derived address) syscalls ***************************/
+/* fd_vm_syscall_pda **************************************************/
 
 /* syscall(9377323c) "sol_create_program_address"
-   Compute SHA-256 hash of `<program ID> .. &[&[u8]] .. <PDA Marker>`,
-   and check whether result is an Ed25519 curve point. */
+
+   Compute SHA-256 hash of <program ID> .. &[&[u8]] .. <PDA Marker>
+   and check whether result is an Ed25519 curve point.
+
+   Inputs:
+
+     arg0 - seed, ulong pair (FIXME: TRIPLE?) VM pointer, indexed [0,seed_cnt), FIXME: WHEN IS NULL OKAY?
+     arg1 - seed_cnt, FIXME: IS 0 OKAY?
+     arg2 - program_id, byte VM pointer, indexed [0,32) (FIXME: DOUBLE CHECK SIZE / ALIGN REQ)
+     arg3 - out, byte VM pointer, indexed [0,32) (FIXME: DOUBLE CHECK SIZE)
+     arg4 - ignored
+
+     seed[i] holds the ulong pair (FIXME: TRIPLE?):
+       mem, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+       sz, FIXME: IS 0 OKAY?
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: seed_cnt and/or seed[i].sz too large (FIXME: USE
+     DIFFERENT ERR CODE), bad address range for program_id, seed,
+     seed[i].mem and/or out (including 8-byte alignment for seed if the
+     VM has check_align set). *_ret unchanged.  Compute budget
+     decremented.
+
+     FD_VM_SUCCESS: success.  If *_ret==0, a PDA was created and
+     stored at out.  If *_ret==1, create failed and out was unchanged.
+     Compute budget decremented. */
 
 FD_VM_SYSCALL_DECL( sol_create_program_address );
 
 /* syscall(48504a38) "sol_try_find_program_address"
+
    Repeatedly derive program address while incrementing nonce in seed
-   list until a point is found that is not a valid Ed25519 curve point.  */
+   list until a point is found that is not a valid Ed25519 curve point.
+
+   Inputs:
+
+     arg0 - seed, ulong pair (FIXME: TRIPLE?) VM pointer, indexed [0,seed_cnt), FIXME: WHEN IS NULL OKAY?
+     arg1 - seed_cnt, FIXME: IS 0 OKAY?
+     arg2 - program_id, byte VM pointer, indexed [0,32) (FIXME: DOUBLE CHECK SIZE / ALIGN REQ)
+     arg3 - out, byte VM pointer, indexed [0,32) (FIXME: DOUBLE CHECK SIZE)
+     arg4 - bump_seed, byte VM pointer, indexed [0,1)
+
+     seed[i] holds the ulong pair (FIXME: TRIPLE?):
+       mem, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+       sz, FIXME: IS 0 OKAY?
+
+   Return:
+
+     FD_VM_ERR_BUDGET: insufficient compute budget.  *_ret unchanged.
+     Compute budget decremented.
+
+     FD_VM_ERR_PERM: seed_cnt and/or seed[i].sz too large (FIXME: USE
+     DIFFERENT ERR CODE), bad address range for program_id, seed,
+     seed[i].mem, out and/or bump_seed (including 8-byte alignment for
+     seed if the VM has check_align set). *_ret unchanged.  Compute
+     budget decremented.
+
+     FD_VM_SUCCESS: success.  If *_ret==0, a PDA was found and stored at
+     out and the suffix stored at bump_seed.  If *_ret==1, no PDA was
+     found and out and bump_seed were unchanged.  Compute budget
+     decremented. */
 
 FD_VM_SYSCALL_DECL( sol_try_find_program_address );
 
@@ -608,8 +667,12 @@ FD_VM_SYSCALL_DECL( sol_blake3                );
 FD_VM_SYSCALL_DECL( sol_keccak256             );
 FD_VM_SYSCALL_DECL( sol_sha256                );
 
+/* FIXME: BELT SAND AND DOCUMENT */
+
 FD_VM_SYSCALL_DECL( sol_poseidon              ); /* Light protocol flavor */
 FD_VM_SYSCALL_DECL( sol_secp256k1_recover     );
+
+/* fd_vm_syscall_curve ************************************************/
 
 /* FD_VM_SYSCALL_SOL_CURVE_ECC_{...} specifies the curve IDs and
    FD_VM_SYSCALL_SOL_CURVE_ECC_G_{...} declares IDs of operations on
