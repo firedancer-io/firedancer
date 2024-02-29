@@ -141,7 +141,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
 
     ctx->in[i].mem = link_wksp->wksp;
-    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+    if( FD_UNLIKELY( !strcmp( link->name, "quic_verify" ) ) ) {
       ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->dcache );
       ctx->in[i].wmark  = ctx->in[i].chunk0 + (link->depth+link->burst-1) * FD_TPU_REASM_CHUNK_MTU;
     } else {

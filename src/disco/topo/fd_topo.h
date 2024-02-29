@@ -20,95 +20,12 @@
 #define FD_TOPO_FILL_MODE_NEW       (1UL)
 #define FD_TOPO_FILL_MODE_JOIN      (2UL)
 
-/* A FD_TOPO_WKSP_KIND_* is an identifier for a particular "kind" of
-   workspace.  Each workspace kind can exist at most once in the
-   application topology, and the kind of a workspace uniquely
-   identifies it. */
-#define FD_TOPO_WKSP_KIND_NETMUX_INOUT ( 0UL)
-#define FD_TOPO_WKSP_KIND_QUIC_VERIFY  ( 1UL)
-#define FD_TOPO_WKSP_KIND_VERIFY_DEDUP ( 2UL)
-#define FD_TOPO_WKSP_KIND_DEDUP_PACK   ( 3UL)
-#define FD_TOPO_WKSP_KIND_PACK_BANK    ( 4UL)
-#define FD_TOPO_WKSP_KIND_BANK_POH     ( 5UL)
-#define FD_TOPO_WKSP_KIND_BANK_BUSY    ( 6UL)
-#define FD_TOPO_WKSP_KIND_POH_SHRED    ( 7UL)
-#define FD_TOPO_WKSP_KIND_SHRED_STORE  ( 8UL)
-#define FD_TOPO_WKSP_KIND_STAKE_OUT    ( 9UL)
-#define FD_TOPO_WKSP_KIND_METRIC_IN    (10UL)
-
-#define FD_TOPO_WKSP_KIND_QUIC_SIGN    (11UL)
-#define FD_TOPO_WKSP_KIND_SIGN_QUIC    (12UL)
-#define FD_TOPO_WKSP_KIND_SHRED_SIGN   (13UL)
-#define FD_TOPO_WKSP_KIND_SIGN_SHRED   (14UL)
-
-#define FD_TOPO_WKSP_KIND_NET          (15UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (16UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (17UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (18UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (19UL)
-#define FD_TOPO_WKSP_KIND_PACK         (20UL)
-#define FD_TOPO_WKSP_KIND_BANK         (21UL)
-#define FD_TOPO_WKSP_KIND_POH          (22UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (23UL)
-#define FD_TOPO_WKSP_KIND_STORE        (24UL)
-#define FD_TOPO_WKSP_KIND_SIGN         (25UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (26UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
-
-/* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
-   link is a single producer multi consumer communication channel.  In
-   Firedancer, this is represented by an mcache and potentially a
-   dcache.
-
-   A link kind does not uniquely identify a spmc channel, since there
-   may be multiple of the same kind in the application.  For example,
-   one link kind, QUIC_TO_VERIFY is for sending transactions from the
-   QUIC engine to be verified, but we may have N of these links if there
-   are N QUIC tiles. Instead, a link can be uniquely identified by the
-   pair of (kind, kind_id) where kind_id is the 0 indexed counter of
-   that kind of link. */
-#define FD_TOPO_LINK_KIND_NET_TO_NETMUX   ( 0UL)
-#define FD_TOPO_LINK_KIND_NETMUX_TO_OUT   ( 1UL)
-#define FD_TOPO_LINK_KIND_QUIC_TO_NETMUX  ( 2UL)
-#define FD_TOPO_LINK_KIND_QUIC_TO_VERIFY  ( 3UL)
-#define FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP ( 4UL)
-#define FD_TOPO_LINK_KIND_DEDUP_TO_PACK   ( 5UL)
-#define FD_TOPO_LINK_KIND_GOSSIP_TO_PACK  ( 6UL)
-#define FD_TOPO_LINK_KIND_STAKE_TO_OUT    ( 7UL)
-#define FD_TOPO_LINK_KIND_PACK_TO_BANK    ( 8UL)
-#define FD_TOPO_LINK_KIND_BANK_TO_POH     ( 9UL)
-#define FD_TOPO_LINK_KIND_POH_TO_SHRED    (10UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_NETMUX (11UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_STORE  (12UL)
-#define FD_TOPO_LINK_KIND_CRDS_TO_SHRED   (13UL)
-#define FD_TOPO_LINK_KIND_QUIC_TO_SIGN    (14UL)
-#define FD_TOPO_LINK_KIND_SIGN_TO_QUIC    (15UL)
-#define FD_TOPO_LINK_KIND_SHRED_TO_SIGN   (16UL)
-#define FD_TOPO_LINK_KIND_SIGN_TO_SHRED   (17UL)
-
-/* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
-   There may be multiple or in some cases zero of a particular tile
-   kind in the application. */
-#define FD_TOPO_TILE_KIND_NET    ( 0UL)
-#define FD_TOPO_TILE_KIND_NETMUX ( 1UL)
-#define FD_TOPO_TILE_KIND_QUIC   ( 2UL)
-#define FD_TOPO_TILE_KIND_VERIFY ( 3UL)
-#define FD_TOPO_TILE_KIND_DEDUP  ( 4UL)
-#define FD_TOPO_TILE_KIND_PACK   ( 5UL)
-#define FD_TOPO_TILE_KIND_BANK   ( 6UL)
-#define FD_TOPO_TILE_KIND_POH    ( 7UL)
-#define FD_TOPO_TILE_KIND_SHRED  ( 8UL)
-#define FD_TOPO_TILE_KIND_STORE  ( 9UL)
-#define FD_TOPO_TILE_KIND_SIGN   (10UL)
-#define FD_TOPO_TILE_KIND_METRIC (11UL)
-#define FD_TOPO_TILE_KIND_MAX    ( FD_TOPO_TILE_KIND_METRIC+1 ) /* Keep updated with maximum tile IDX */
-
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
 typedef struct {
-  ulong id;   /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
-  ulong kind; /* The kind of this workspace, one of FD_TOPO_WKSP_KIND_*.  There can be at most one of each workspace kind in a topology. */
+  ulong id;           /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
+  char  name[ 13UL ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
@@ -132,10 +49,10 @@ typedef struct {
    the depth and MTU of the mcache and dcache respectively.  A MTU of
    zero means no dcache is needed, as there is no data. */
 typedef struct {
-  ulong id;      /* The ID of this link.  Indexed from [0, link_cnt).  When placed in a topology, the ID must be the index of the link in the links list. */
-  ulong kind;    /* The kind of this link.  One of FD_TOPO_LINK_KIND_*.  There can be multiple of each link kind in a topology. */
-  ulong kind_id; /* The ID of this link within its kind.  If there are N links of a particular kind, they have IDs [0, N).  The pair (kind, kind_id) uniquely identifies a link, as does "id" on its own. */
-  ulong wksp_id; /* The workspace that this link belongs to.  Each link belongs to exactly one workspace. */
+  ulong id;           /* The ID of this link.  Indexed from [0, link_cnt).  When placed in a topology, the ID must be the index of the link in the links list. */
+  char  name[ 13UL ]; /* The name of this link, like "pack_bank". There can be multiple of each link name in a topology. */
+  ulong kind_id;      /* The ID of this link within its name.  If there are N links of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a link, as does "id" on its own. */
+  ulong wksp_id;      /* The workspace that this link belongs to.  Each link belongs to exactly one workspace. */
 
   ulong depth;   /* The depth of the mcache representing the link. */
   ulong mtu;     /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
@@ -162,9 +79,10 @@ typedef struct {
    infrastructure, but only the primary output will be written to. */
 typedef struct {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
-  ulong kind;                   /* The kind of this tile.  One of FD_TOPO_TILE_KIND_*.  There can be multiple of each tile kind in a topology. */
-  ulong kind_id;                /* The ID of this tile within its kind.  If there are n tile of a particular kind, they have IDs [0, N).  The pair (kind, kind_id) uniquely identifies a tile, as does "id" on its own. */
+  char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
+  ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   ulong wksp_id;                /* The workspace that this tile belongs to.  Each tile belongs to exactly one workspace. */
+  int   is_labs;                /* If the tile needs to run in the Solana Labs (Anza) address space or not. */
 
   ulong burst;                  /* The maximum number of fragments this tile can produce on its primary output link in response
                                    to a fragment being received from an input link.  This is used to do flow control, as we do
@@ -280,57 +198,52 @@ typedef struct fd_topo_t {
 FD_PROTOTYPES_BEGIN
 
 FD_FN_PURE static inline ulong
-fd_topo_tile_kind_cnt( fd_topo_t const * topo,
-                       ulong             kind ) {
+fd_topo_tile_name_cnt( fd_topo_t const * topo,
+                       char const *      name ) {
   ulong cnt = 0;
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    if( topo->tiles[ i ].kind == kind ) cnt++;
+    if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, name ) ) ) cnt++;
   }
   return cnt;
 }
 
-/* Finds the workspace of a given kind in the topology.  Returns
+/* Finds the workspace of a given name in the topology.  Returns
    ULONG_MAX if there is no such workspace.  There can be at most one
-   workspace of a given kind.  kind should be one of FD_TOPO_WKSP_KIND_* */
+   workspace of a given name. */
+
 FD_FN_PURE static inline ulong
 fd_topo_find_wksp( fd_topo_t const * topo,
-                   ulong             kind ) {
+                   char const *      name ) {
   for( ulong i=0; i<topo->wksp_cnt; i++ ) {
-    if( topo->workspaces[i].kind == kind ) {
-      return i;
-    }
+    if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name, name ) ) ) return i;
   }
   return ULONG_MAX;
 }
 
-/* Find the tile of a given kind and kind_id in the topology, there will
-   be at most one such tile, since kind_id is unique among the kind.
-   kind should be one of FD_TOPO_TILE_KIND_*.  Returns ULONG_MAX if
-   there is no such tile. */
+/* Find the tile of a given name and kind_id in the topology, there will
+   be at most one such tile, since kind_id is unique among the name.
+   Returns ULONG_MAX if there is no such tile. */
+
 FD_FN_PURE static inline ulong
 fd_topo_find_tile( fd_topo_t const * topo,
-                   ulong             kind,
+                   char const *      name,
                    ulong             kind_id ) {
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    if( topo->tiles[i].kind == kind && topo->tiles[i].kind_id == kind_id ) {
-      return i;
-    }
+    if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, name ) ) && topo->tiles[ i ].kind_id == kind_id ) return i;
   }
   return ULONG_MAX;
 }
 
-/* Find the link of a given kind and kind_id in the topology, there will
-   be at most one such link, since kind_id is unique among the kind.
-   kind should be one of FD_TOPO_LINK_KIND_*.  Returns ULONG_MAX if
-   there is no such link. */
+/* Find the link of a given name and kind_id in the topology, there will
+   be at most one such link, since kind_id is unique among the name.
+   Returns ULONG_MAX if there is no such link. */
+
 FD_FN_PURE static inline ulong
 fd_topo_find_link( fd_topo_t const * topo,
-                   ulong             kind,
+                   char const *      name,
                    ulong             kind_id ) {
   for( ulong i=0; i<topo->link_cnt; i++ ) {
-    if( topo->links[i].kind == kind && topo->links[i].kind_id == kind_id ) {
-      return i;
-    }
+    if( FD_UNLIKELY( !strcmp( topo->links[ i ].name, name ) ) && topo->links[ i ].kind_id == kind_id ) return i;
   }
   return ULONG_MAX;
 }
@@ -348,117 +261,6 @@ fd_topo_find_link_producer( fd_topo_t const *      topo,
     for( ulong j=0; j<tile->out_cnt; j++ ) {
       if( FD_UNLIKELY( tile->out_link_id[ j ] == link->id ) ) return i;
     }
-  }
-  return ULONG_MAX;
-}
-
-/* Given a workspace kind, one of FD_TOPO_WKSP_KIND_*, produce a human
-   readable string for what to name that workspace.  This string
-   uniquely identifies the workspace, since a topology may only have one
-   of each kind of workspace. */
-FD_FN_CONST static inline char *
-fd_topo_wksp_kind_str( ulong kind ) {
-  switch( kind ) {
-    case FD_TOPO_WKSP_KIND_NETMUX_INOUT: return "netmux_inout";
-    case FD_TOPO_WKSP_KIND_QUIC_VERIFY:  return "quic_verify";
-    case FD_TOPO_WKSP_KIND_VERIFY_DEDUP: return "verify_dedup";
-    case FD_TOPO_WKSP_KIND_DEDUP_PACK:   return "dedup_pack";
-    case FD_TOPO_WKSP_KIND_PACK_BANK:    return "pack_bank";
-    case FD_TOPO_WKSP_KIND_BANK_POH:     return "bank_poh";
-    case FD_TOPO_WKSP_KIND_BANK_BUSY:    return "bank_busy";
-    case FD_TOPO_WKSP_KIND_POH_SHRED:    return "poh_shred";
-    case FD_TOPO_WKSP_KIND_SHRED_STORE:  return "shred_store";
-    case FD_TOPO_WKSP_KIND_STAKE_OUT:    return "stake_out";
-    case FD_TOPO_WKSP_KIND_METRIC_IN:    return "metric_in";
-    case FD_TOPO_WKSP_KIND_QUIC_SIGN:    return "quic_sign";
-    case FD_TOPO_WKSP_KIND_SIGN_QUIC:    return "sign_quic";
-    case FD_TOPO_WKSP_KIND_SHRED_SIGN:   return "shred_sign";
-    case FD_TOPO_WKSP_KIND_SIGN_SHRED:   return "sign_shred";
-    case FD_TOPO_WKSP_KIND_NET:          return "net";
-    case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
-    case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
-    case FD_TOPO_WKSP_KIND_VERIFY:       return "verify";
-    case FD_TOPO_WKSP_KIND_DEDUP:        return "dedup";
-    case FD_TOPO_WKSP_KIND_PACK:         return "pack";
-    case FD_TOPO_WKSP_KIND_BANK:         return "bank";
-    case FD_TOPO_WKSP_KIND_POH:          return "poh";
-    case FD_TOPO_WKSP_KIND_SHRED:        return "shred";
-    case FD_TOPO_WKSP_KIND_STORE:        return "store";
-    case FD_TOPO_WKSP_KIND_SIGN:         return "sign";
-    case FD_TOPO_WKSP_KIND_METRIC:       return "metric";
-    default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
-  }
-}
-
-/* Given a link kind, one of FD_TOPO_LINK_KIND_*, produce a human
-   readable string describing it. This string does not uniquely
-   identify a link, since there can be multiple of each link kind
-   in the topology. */
-FD_FN_CONST static inline char *
-fd_topo_link_kind_str( ulong kind ) {
-  switch( kind ) {
-    case FD_TOPO_LINK_KIND_NET_TO_NETMUX:   return "net_netmux";
-    case FD_TOPO_LINK_KIND_NETMUX_TO_OUT:   return "netmux_out";
-    case FD_TOPO_LINK_KIND_QUIC_TO_NETMUX:  return "quic_netmux";
-    case FD_TOPO_LINK_KIND_QUIC_TO_VERIFY:  return "quic_verify";
-    case FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP: return "verify_dedup";
-    case FD_TOPO_LINK_KIND_DEDUP_TO_PACK:   return "dedup_pack";
-    case FD_TOPO_LINK_KIND_GOSSIP_TO_PACK:  return "gossip_pack";
-    case FD_TOPO_LINK_KIND_STAKE_TO_OUT:    return "stake_out";
-    case FD_TOPO_LINK_KIND_PACK_TO_BANK:    return "pack_bank";
-    case FD_TOPO_LINK_KIND_BANK_TO_POH:     return "bank_poh";
-    case FD_TOPO_LINK_KIND_POH_TO_SHRED:    return "poh_shred";
-    case FD_TOPO_LINK_KIND_SHRED_TO_NETMUX: return "shred_netmux";
-    case FD_TOPO_LINK_KIND_SHRED_TO_STORE:  return "shred_store";
-    case FD_TOPO_LINK_KIND_CRDS_TO_SHRED:   return "crds_shred";
-    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:    return "quic_sign";
-    case FD_TOPO_LINK_KIND_SIGN_TO_QUIC:    return "sign_quic";
-    case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:   return "shred_sign";
-    case FD_TOPO_LINK_KIND_SIGN_TO_SHRED:   return "sign_shred";
-    default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
-  }
-}
-
-FD_FN_CONST static inline int
-fd_topo_tile_kind_is_labs( ulong kind ) {
-  return
-    kind==FD_TOPO_TILE_KIND_BANK ||
-    kind==FD_TOPO_TILE_KIND_POH ||
-    kind==FD_TOPO_TILE_KIND_STORE;
-}
-
-/* Given a tile kind, one of FD_TOPO_TILE_KIND_*, produce a human
-   readable string describing it.  This string does not uniquely
-   identify a tile, since there can be multiple of each tile kind
-   in the topology.
-
-   Tile names must be <= 7 chars, so that we can print them easily in
-   diagnostic output and monitoring tools. */
-FD_FN_CONST static inline char *
-fd_topo_tile_kind_str( ulong kind ) {
-  switch ( kind ) {
-     case FD_TOPO_TILE_KIND_NET:    return "net";
-     case FD_TOPO_TILE_KIND_NETMUX: return "netmux";
-     case FD_TOPO_TILE_KIND_QUIC:   return "quic";
-     case FD_TOPO_TILE_KIND_VERIFY: return "verify";
-     case FD_TOPO_TILE_KIND_DEDUP:  return "dedup";
-     case FD_TOPO_TILE_KIND_PACK:   return "pack";
-     case FD_TOPO_TILE_KIND_BANK:   return "bank";
-     case FD_TOPO_TILE_KIND_POH:    return "poh";
-     case FD_TOPO_TILE_KIND_SHRED:  return "shred";
-     case FD_TOPO_TILE_KIND_STORE:  return "store";
-     case FD_TOPO_TILE_KIND_SIGN:   return "sign";
-     case FD_TOPO_TILE_KIND_METRIC: return "metric";
-     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
-  }
-}
-
-/* Given a tile name produced by fd_topo_tile_kind_str, return the tile
-   kind ID.  Returns ULONG_MAX if there is no such tile. */
-FD_FN_CONST static inline ulong
-fd_topo_tile_kind_from_cstr( char const * name ) {
-  for( ulong i=0; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
-    if( !strcmp( name, fd_topo_tile_kind_str( i ) ) ) return i;
   }
   return ULONG_MAX;
 }

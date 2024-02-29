@@ -619,20 +619,20 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
-                   topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_POH_TO_SHRED     ||
-                   topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].kind != FD_TOPO_LINK_KIND_STAKE_TO_OUT     ||
-                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_CRDS_TO_SHRED    ||
-                   topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_SHRED ) )
-    FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+  if( FD_UNLIKELY( tile->in_cnt!=5UL ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "netmux_out" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
+                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
+                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].name, "sign_shred" ) ) )
+    FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %s %s",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
-                   topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_SHRED_TO_NETMUX  ||
-                   topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_SHRED_TO_SIGN ) )
-    FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %lu %lu",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "shred_netmux" )  ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "shred_sign"   ) ) )
+    FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %s %s",
+                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
   ulong shred_store_mcache_depth = tile->shred.depth;
   if( topo->links[ tile->out_link_id_primary ].depth != shred_store_mcache_depth )
@@ -665,7 +665,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
-  ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
+  ulong bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
   if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
   if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 

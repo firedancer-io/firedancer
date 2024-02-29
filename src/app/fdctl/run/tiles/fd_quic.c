@@ -574,17 +574,17 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 2 ||
-                   topo->links[ tile->in_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT ||
-                   topo->links[ tile->in_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_QUIC ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+  if( FD_UNLIKELY( tile->in_cnt!=2UL ||
+                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "netmux_out" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ 1UL ] ].name, "sign_quic" ) ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
+                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
-                   topo->links[ tile->out_link_id[ 0UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_NETMUX  ||
-                   topo->links[ tile->out_link_id[ 1UL ] ].kind != FD_TOPO_LINK_KIND_QUIC_TO_SIGN ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %lu %lu",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
+                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_netmux" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_sign" ) ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
+                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "quic tile in cnt is zero" ));
 
@@ -680,7 +680,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->quic        = quic;
   ctx->quic_rx_aio = fd_quic_get_aio_net_rx( quic );
 
-  ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
 
   ctx->legacy_transaction_port = tile->quic.legacy_transaction_listen_port;

@@ -15,7 +15,7 @@ struct configure_stage;
 
 typedef union {
   struct {
-    ulong tile_kind;
+    char  tile_name[ 7UL ];
     ulong kind_id;
     int   pipe_fd;
   } run1;
@@ -41,7 +41,7 @@ typedef union {
   } dev;
 
   struct {
-    char tile_name[ 32 ];
+    char tile_name[ 7UL ];
     int  no_configure;
   } dev1;
 

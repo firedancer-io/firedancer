@@ -26,7 +26,7 @@ fd_topo_join_workspace( char * const     app_name,
                         fd_topo_wksp_t * wksp,
                         int              mode ) {
   char name[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ) );
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, wksp->name ) );
 
   wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
@@ -51,15 +51,15 @@ tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t * tile, ulong wksp_id ) 
   }
 
   /* Bank and PoH tiles need to update the busy fseq */
-  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_BANK_BUSY ) ) {
-    if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_BANK ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
-    else if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_POH ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
-    else if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_PACK ) ) return FD_SHMEM_JOIN_MODE_READ_ONLY;
+  if( FD_UNLIKELY( !strcmp( topo->workspaces[ wksp_id ].name, "bank_busy" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
+    else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
+    else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) return FD_SHMEM_JOIN_MODE_READ_ONLY;
   }
 
   /* All tiles need to write metrics to the shared metrics workspace,
      and return fseq objects are also placed here for convenience. */
-  if( FD_UNLIKELY( topo->workspaces[ wksp_id ].kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
+  if( FD_UNLIKELY( !strcmp( topo->workspaces[ wksp_id ].name, "metric_in" ) ) ) return FD_SHMEM_JOIN_MODE_READ_WRITE;
 
   /* Tiles only need readonly access to workspaces they consume links
      from. */
@@ -115,7 +115,7 @@ fd_topo_create_workspaces( char *      app_name,
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
     char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, fd_topo_wksp_kind_str( wksp->kind ) ));
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, wksp->name ) );
 
     ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
     ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
@@ -208,7 +208,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
       }
     }
 
-    if( FD_LIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "quic_verify" ) ) ) {
       FD_TEST( !link->mtu );
       void * reasm = SCRATCH_ALLOC( fd_tpu_reasm_align(), fd_tpu_reasm_footprint( link->depth, link->burst ) );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
@@ -220,8 +220,8 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
-  ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
-  if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_BANK_BUSY ) ) {
+  ulong bank_cnt = fd_topo_tile_name_cnt( topo, "bank" );
+  if( FD_UNLIKELY( !strcmp( wksp->name, "bank_busy" ) ) ) {
     for( ulong i=0UL; i<bank_cnt; i++ ) {
       void * _fseq = SCRATCH_ALLOC( fd_fseq_align(), fd_fseq_footprint() );
       if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
@@ -232,9 +232,9 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
         if( FD_UNLIKELY( !fseq ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
         for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
           fd_topo_tile_t * tile = &topo->tiles[ j ];
-          if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_PACK || tile->kind==FD_TOPO_TILE_KIND_POH ) ) {
+          if( FD_UNLIKELY( !strcmp( tile->name, "pack") || !strcmp( tile->name, "poh" ) ) ) {
             tile->extra[ i ] = fseq;
-          } else if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_BANK ) ) {
+          } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
             if( FD_UNLIKELY( tile->kind_id==i ) ) tile->extra[ 0 ] = fseq;
           }
         }
@@ -242,16 +242,16 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     }
   }
 
-  if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_POH_SHRED ) ) {
+  if( FD_UNLIKELY( !strcmp( wksp->name, "poh_shred" ) ) ) {
     void * shred_version = SCRATCH_ALLOC( 8UL, 8UL );
     if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
       *(ulong*)shred_version = 0UL;
     } else if ( FD_LIKELY( mode==FD_TOPO_FILL_MODE_JOIN ) ) {
       for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
         fd_topo_tile_t * tile = &topo->tiles[ j ];
-        if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_POH ) ) {
+        if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
           tile->extra[ bank_cnt ] = shred_version;
-        } else if( FD_UNLIKELY( tile->kind==FD_TOPO_TILE_KIND_SHRED ) ) {
+        } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
           tile->extra[ 0 ] = shred_version;
         }
       }
@@ -261,7 +261,7 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_METRIC_IN ) ) {
+    if( FD_UNLIKELY( !strcmp( wksp->name, "metric_in" ) ) ) {
       /* cnc object goes into the metrics workspace, so that monitor
          applications only need to map this workspace as readonly. */
       void * cnc = SCRATCH_ALLOC( fd_cnc_align(), fd_cnc_footprint( 0UL ) );
@@ -373,8 +373,8 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
 FD_FN_PURE static ulong
 fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
-  if( FD_UNLIKELY( tile->kind == FD_TOPO_TILE_KIND_SHRED ||
-                   tile->kind == FD_TOPO_TILE_KIND_PACK ) ) {
+  if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ||
+                   !strcmp( tile->name, "pack" ) ) ) {
     /* Shred and pack tiles use 5 normal pages to hold key material. */
     key_pages = 5UL;
   }
@@ -458,8 +458,8 @@ void
 fd_topo_validate( fd_topo_t const * topo ) {
   /* Tiles have valid wksp_ids */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_UNLIKELY( topo->tiles[ i ].wksp_id >= topo->wksp_cnt ) )
-      FD_LOG_ERR(( "tile %lu of kind %lu has invalid workspace id %lu", i, topo->tiles[ i ].kind, topo->tiles[ i ].wksp_id ));
+    if( FD_UNLIKELY( topo->tiles[ i ].wksp_id>=topo->wksp_cnt ) )
+      FD_LOG_ERR(( "tile %lu of name %s has invalid workspace id %lu", i, topo->tiles[ i ].name, topo->tiles[ i ].wksp_id ));
   }
 
   /* Links have valid wksp_ids */
@@ -468,24 +468,24 @@ fd_topo_validate( fd_topo_t const * topo ) {
       FD_LOG_ERR(( "invalid workspace id %lu", topo->links[ i ].wksp_id ));
   }
 
-  /* Tiles of the same kind share the same wksp id */
+  /* Tiles of the same name share the same wksp id */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( topo->tiles[ i ].kind == topo->tiles[ j ].kind ) {
-        if( FD_UNLIKELY( topo->tiles[ i ].wksp_id != topo->tiles[ j ].wksp_id ) )
-          FD_LOG_ERR(( "tiles %lu and %lu of kind %lu have different wksp ids", i, j, topo->tiles[ i ].kind ));
+      if( FD_UNLIKELY( !strcmp( topo->tiles[ i ].name, topo->tiles[ j ].name ) ) ) {
+        if( FD_UNLIKELY( topo->tiles[ i ].wksp_id!=topo->tiles[ j ].wksp_id ) )
+          FD_LOG_ERR(( "tiles %lu and %lu of name %s have different wksp ids", i, j, topo->tiles[ i ].name ));
       }
     }
   }
 
-  /* Links of the same kind share the same wksp id */
+  /* Links of the same name share the same wksp id */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     for( ulong j=0UL; j<topo->link_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( topo->links[ i ].kind == topo->links[ j ].kind ) {
-        if( FD_UNLIKELY( topo->links[ i ].wksp_id != topo->links[ j ].wksp_id ) )
-          FD_LOG_ERR(( "links %lu and %lu of kind %lu have different wksp ids", i, j, topo->links[ i ].kind ));
+      if( FD_UNLIKELY( !strcmp( topo->links[ i ].name, topo->links[ j ].name ) ) ) {
+        if( FD_UNLIKELY( topo->links[ i ].wksp_id!=topo->links[ j ].wksp_id ) )
+          FD_LOG_ERR(( "links %lu and %lu of name %s have different wksp ids", i, j, topo->links[ i ].name ));
       }
     }
   }
@@ -494,45 +494,18 @@ fd_topo_validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( topo->tiles[ i ].kind != topo->tiles[ j ].kind ) {
-        if( FD_UNLIKELY( topo->tiles[ i ].wksp_id == topo->tiles[ j ].wksp_id ) )
+      if( FD_UNLIKELY( strcmp( topo->tiles[ i ].name, topo->tiles[ j ].name ) ) ) {
+        if( FD_UNLIKELY( topo->tiles[ i ].wksp_id==topo->tiles[ j ].wksp_id ) )
           FD_LOG_ERR(( "tiles %lu and %lu of different kinds have the same wksp id %lu", i, j, topo->tiles[ i ].wksp_id ));
       }
-    }
-  }
-
-  /* Tiles have valid kinds */
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_UNLIKELY( topo->tiles[ i ].kind >= FD_TOPO_TILE_KIND_MAX ) )
-      FD_LOG_ERR(( "invalid tile kind %lu >= FD_TOPO_TILE_KIND_MAX (%s)", topo->tiles[ i ].kind, fd_topo_tile_kind_str( topo->tiles[ i ].kind ) ));
-  }
-
-  /* Tile kind names are <= 7 chars */
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    if( FD_UNLIKELY( strlen( fd_topo_tile_kind_str( topo->tiles[ i ].kind ) ) > 7 ) )
-      FD_LOG_ERR(( "tile kind name too long: %s", fd_topo_tile_kind_str( topo->tiles[ i ].kind ) ));
-  }
-
-  /* Tile kinds have names */
-  for( ulong i=0UL; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
-    if( FD_UNLIKELY( !strlen( fd_topo_tile_kind_str( i ) ) ) )
-      FD_LOG_ERR(( "tile kind %lu has no name", i ));
-  }
-
-  /* Tile kind names are unique */
-  for( ulong i=0UL; i<FD_TOPO_TILE_KIND_MAX; i++ ) {
-    for( ulong j=0UL; j<FD_TOPO_TILE_KIND_MAX; j++ ) {
-      if( FD_UNLIKELY( i==j ) ) continue;
-      if( FD_UNLIKELY( !strcmp( fd_topo_tile_kind_str( i ), fd_topo_tile_kind_str( j ) ) ) )
-        FD_LOG_ERR(( "duplicate tile kind name %s", fd_topo_tile_kind_str( topo->tiles[ i ].kind ) ));
     }
   }
 
   /* Tile ins are valid */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].in_cnt; j++ ) {
-      if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ] >= topo->link_cnt ) )
-        FD_LOG_ERR(( "tile %lu (%s) has invalid in link %lu", i, fd_topo_tile_kind_str( topo->tiles[ i ].kind ), topo->tiles[ i ].in_link_id[ j ] ));
+      if( FD_UNLIKELY( topo->tiles[ i ].in_link_id[ j ]>=topo->link_cnt ) )
+        FD_LOG_ERR(( "tile %lu (%s) has invalid in link %lu", i, topo->tiles[ i ].name, topo->tiles[ i ].in_link_id[ j ] ));
     }
   }
 
@@ -572,11 +545,11 @@ fd_topo_validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     for( ulong j=0UL; j<topo->tiles[ i ].out_cnt; j++ ) {
       for( ulong k=0UL; k<topo->tiles[ i ].in_cnt; k++ ) {
-        ulong link_kind = topo->links[ topo->tiles[ i ].out_link_id[ j ] ].kind;
+        char const * link_name = topo->links[ topo->tiles[ i ].out_link_id[ j ] ].name;
         /* PoH tile "publishes" this on behalf of Solana Labs, so it's not
            a real circular link. */
-        if( FD_UNLIKELY( link_kind==FD_TOPO_LINK_KIND_STAKE_TO_OUT ||
-                         link_kind==FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ) continue;
+        if( FD_UNLIKELY( !strcmp( link_name, "stake_out" ) ||
+                         !strcmp( link_name, "crds_shred" ) ) ) continue;
 
         if( FD_UNLIKELY( topo->tiles[ i ].out_link_id[ j ] == topo->tiles[ i ].in_link_id[ k ] ) )
           FD_LOG_ERR(( "tile %lu has out link %lu same as in", i, topo->tiles[ i ].out_link_id[ j ] ));
@@ -616,33 +589,12 @@ fd_topo_validate( fd_topo_t const * topo ) {
     }
   }
 
-  /* Workspaces have valid kinds */
-  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_UNLIKELY( topo->workspaces[ i ].kind >= FD_TOPO_WKSP_KIND_MAX ) )
-      FD_LOG_ERR(( "invalid workspace kind %lu", topo->workspaces[ i ].kind ));
-  }
-
-  /* Workspace kinds have names */
-  for( ulong i=0UL; i<FD_TOPO_WKSP_KIND_MAX; i++ ) {
-    if( FD_UNLIKELY( !strlen( fd_topo_wksp_kind_str( i ) ) ) )
-      FD_LOG_ERR(( "workspace kind %lu has no name", i ));
-  }
-
-  /* Workspace kind names are unique */
-  for( ulong i=0UL; i<FD_TOPO_WKSP_KIND_MAX; i++ ) {
-    for( ulong j=0UL; j<FD_TOPO_WKSP_KIND_MAX; j++ ) {
-      if( FD_UNLIKELY( i==j ) ) continue;
-      if( FD_UNLIKELY( !strcmp( fd_topo_wksp_kind_str( i ), fd_topo_wksp_kind_str( j ) ) ) )
-        FD_LOG_ERR(( "duplicate workspace kind name %s", fd_topo_wksp_kind_str( topo->workspaces[ i ].kind ) ));
-    }
-  }
-
-  /* At most one of each workspace kind */
+  /* Workspace names are unique */
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( topo->workspaces[ i ].kind == topo->workspaces[ j ].kind )
-        FD_LOG_ERR(( "duplicate workspace kind %lu", topo->workspaces[ i ].kind ));
+      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name,  topo->workspaces[ j ].name ) ) )
+        FD_LOG_ERR(( "duplicate workspace name %s", topo->workspaces[ i ].name ));
     }
   }
 
@@ -661,15 +613,15 @@ fd_topo_validate( fd_topo_t const * topo ) {
       }
       if( topo->tiles[ j ].out_link_id_primary == i ) producer_cnt++;
     }
-    if( FD_UNLIKELY( producer_cnt != 1 ) )
-      FD_LOG_ERR(( "link %lu (%s %lu) has %lu producers", i, fd_topo_link_kind_str( topo->links[ i ].kind ), topo->links[ i ].kind_id, producer_cnt ));
+    if( FD_UNLIKELY( producer_cnt!=1UL ) )
+      FD_LOG_ERR(( "link %lu (%s:%lu) has %lu producers", i, topo->links[ i ].name, topo->links[ i ].kind_id, producer_cnt ));
   }
 
   /* Each link has at least one consumer */
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     ulong cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ i ] );
     if( FD_UNLIKELY( cnt < 1 ) )
-      FD_LOG_ERR(( "link %lu (%s %lu) has %lu consumers", i, fd_topo_link_kind_str( topo->links[ i ].kind ), topo->links[ i ].kind_id, cnt ));
+      FD_LOG_ERR(( "link %lu (%s:%lu) has %lu consumers", i, topo->links[ i ].name, topo->links[ i ].kind_id, cnt ));
   }
 }
 
@@ -728,7 +680,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, fd_topo_wksp_kind_str( wksp->kind ), wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nLINKS\n" );
@@ -736,12 +688,12 @@ fd_topo_print_log( int         stdout,
     fd_topo_link_t * link = &topo->links[ i ];
 
     char size[ 24 ];
-    if( FD_UNLIKELY( link->kind==FD_TOPO_LINK_KIND_QUIC_TO_VERIFY ) ) {
+    if( FD_UNLIKELY( !strcmp( link->name, "quic_verify" ) ) ) {
       fd_topo_mem_sz_string( fd_tpu_reasm_footprint( link->depth, link->burst ), size );
     } else {
       fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
     }
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, fd_topo_link_kind_str( link->kind ), link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, link->name, link->kind_id, link->wksp_id, link->depth, link->mtu, link->burst );
   }
 
 #define PRINTIN( ... ) do {                                                            \
@@ -788,7 +740,7 @@ fd_topo_print_log( int         stdout,
       FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, fd_topo_tile_kind_str( tile->kind ), tile->kind_id, tile->wksp_id, out_link_id, in, out );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, tile->wksp_id, out_link_id, in, out );
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 

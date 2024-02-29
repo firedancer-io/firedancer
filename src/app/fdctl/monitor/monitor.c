@@ -298,7 +298,7 @@ run_monitor( config_t * const config,
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
       tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
-      PRINT( " %7s", fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
+      PRINT( " %7s", topo->tiles[ tile_idx ].name );
       PRINT( " | %7lu", cur->pid );
       PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - cur->cnc_heartbeat)), 1e8 /* 100 millis */ );
       PRINT( " | " ); printf_heart   ( &buf, &buf_sz, cur->cnc_heartbeat, prv->cnc_heartbeat        );
@@ -330,8 +330,8 @@ run_monitor( config_t * const config,
         fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
         ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
         FD_TEST( producer_tile_id != ULONG_MAX );
-        char * producer = fd_topo_tile_kind_str( topo->tiles[ producer_tile_id ].kind );
-        PRINT( " %7s->%-7s", producer, fd_topo_tile_kind_str( topo->tiles[ tile_idx ].kind ) );
+        char const * producer = topo->tiles[ producer_tile_id ].name;
+        PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
         ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
         ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
         ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;

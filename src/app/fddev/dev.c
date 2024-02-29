@@ -133,7 +133,7 @@ update_config_for_dev( config_t * const config ) {
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
-  ulong shred_id = fd_topo_find_tile( &config->topo, FD_TOPO_TILE_KIND_SHRED, 0UL );
+  ulong shred_id = fd_topo_find_tile( &config->topo, "shred", 0UL );
   if( FD_UNLIKELY( shred_id == ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile" ));
   fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
   if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
@@ -240,7 +240,7 @@ run_firedancer_threaded( config_t * config ) {
     if( FD_UNLIKELY( pthread_create( &threads[ i ], attr, tile_main1, &args[ i ] ) ) ) FD_LOG_ERR(( "pthread_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     char thread_name[ FD_LOG_NAME_MAX ] = {0};
-    FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "fd%s:%lu", fd_topo_tile_kind_str( tile->kind ), tile->kind_id ) );
+    FD_TEST( fd_cstr_printf_check( thread_name, FD_LOG_NAME_MAX-1UL, NULL, "fd%s:%lu", tile->name, tile->kind_id ) );
     if( FD_UNLIKELY( pthread_setname_np( threads[ i ], thread_name ) ) ) FD_LOG_ERR(( "pthread_setname_np() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -298,16 +298,9 @@ dev_cmd_fn( args_t *         args,
         !strcmp( args->dev.debug_tile, "solana-labs" ) ) {
       config->development.debug_tile = UINT_MAX; /* Sentinel value representing Solana Labs */
     } else {
-      ulong tile_kind = fd_topo_tile_kind_from_cstr( args->dev.debug_tile );
-      if( FD_UNLIKELY( tile_kind==ULONG_MAX ) ) FD_LOG_ERR(( "unknown --debug-tile `%s`", args->dev.debug_tile ));
-
-      ulong idx;
-      for( idx=0; idx<config->topo.tile_cnt; idx++ ) {
-        if( FD_UNLIKELY( config->topo.tiles[ idx ].kind == tile_kind ) ) break;
-      }
-
-      if( FD_UNLIKELY( idx >= config->topo.tile_cnt ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));
-      config->development.debug_tile = 1U+(uint)idx;
+      ulong tile_id = fd_topo_find_tile( &config->topo, args->dev.debug_tile, 0UL );
+      if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));
+      config->development.debug_tile = 1U+(uint)tile_id;
     }
   }
 

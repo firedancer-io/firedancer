@@ -418,7 +418,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_aio_t * net_rx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, net_rx_aio_send ) );
   if( FD_UNLIKELY( !net_rx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
 
   ctx->xsk_aio_cnt = 1;

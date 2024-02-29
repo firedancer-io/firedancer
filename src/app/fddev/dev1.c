@@ -57,19 +57,12 @@ dev1_cmd_fn( args_t *         args,
       !strcmp( args->dev1.tile_name, "solana-labs" ) ) {
     result = solana_labs_main( config );
   } else {
-    ulong tile_kind = fd_topo_tile_kind_from_cstr( args->dev1.tile_name );
-    if( FD_UNLIKELY( tile_kind==ULONG_MAX ) ) FD_LOG_ERR(( "unknown tile %s", args->dev1.tile_name ));
-
-    ulong idx;
-    for( idx=0; idx<config->topo.tile_cnt; idx++ ) {
-      if( FD_UNLIKELY( config->topo.tiles[ idx ].kind == tile_kind ) ) break;
-    }
-
-    if( FD_UNLIKELY( idx >= config->topo.tile_cnt ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
+    ulong tile_id = fd_topo_find_tile( &config->topo, args->dev1.tile_name, 0UL );
+    if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
 
     tile_main_args_t args = {
       .config   = config,
-      .tile     = &config->topo.tiles[ idx ],
+      .tile     = &config->topo.tiles[ tile_id ],
       .pipefd   = -1, /* no parent process to notify about termination */
       .no_shmem = 0,
     };

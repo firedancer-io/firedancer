@@ -19,7 +19,7 @@ typedef struct {
 typedef struct {
   uchar             _data[ FD_KEYGUARD_SIGN_REQ_MTU ];
 
-  ulong             in_kind [ MAX_IN ];
+  ulong             in_role [ MAX_IN ];
   uchar *           in_data[ MAX_IN ];
 
   fd_sign_out_ctx_t out[ MAX_IN ];
@@ -69,15 +69,15 @@ during_frag( void * _ctx,
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );
 
-  switch( ctx->in_kind[ in_idx ] ) {
-    case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:
+  switch( ctx->in_role[ in_idx ] ) {
+    case FD_KEYGUARD_ROLE_LEADER:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 32UL );
       break;
-    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:
+    case FD_KEYGUARD_ROLE_TLS:
       fd_memcpy( ctx->_data, ctx->in_data[ in_idx ], 130UL );
       break;
     default:
-      FD_LOG_CRIT(( "unexpected link kind %lu", ctx->in_kind[ in_idx ] ));
+      FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
   }
 }
 
@@ -103,15 +103,15 @@ after_frag( void *             _ctx,
 
   FD_TEST( in_idx<MAX_IN );
 
-  switch( ctx->in_kind[ in_idx ] ) {
-    case FD_TOPO_LINK_KIND_SHRED_TO_SIGN: {
+  switch( ctx->in_role[ in_idx ] ) {
+    case FD_KEYGUARD_ROLE_LEADER: {
       if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 32UL, FD_KEYGUARD_ROLE_LEADER ) ) ) {
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
       }
       fd_ed25519_sign( ctx->out[ in_idx ].data, ctx->_data, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
       break;
     }
-    case FD_TOPO_LINK_KIND_QUIC_TO_SIGN: {
+    case FD_KEYGUARD_ROLE_TLS: {
       if( FD_UNLIKELY( !fd_keyguard_payload_authorize( ctx->_data, 130UL, FD_KEYGUARD_ROLE_TLS ) ) ) {
         FD_LOG_EMERG(( "fd_keyguard_payload_authorize failed" ));
       }
@@ -119,7 +119,7 @@ after_frag( void *             _ctx,
       break;
     }
     default:
-      FD_LOG_CRIT(( "unexpected link kind %lu", ctx->in_kind[ in_idx ] ));
+      FD_LOG_CRIT(( "unexpected link role %lu", ctx->in_role[ in_idx ] ));
   }
 
   fd_mcache_publish( ctx->out[ in_idx ].mcache, 128UL, ctx->out[ in_idx ].seq, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -151,32 +151,30 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
-  for( ulong i=0; i<MAX_IN; i++ ) ctx->in_kind[ i ] = ULONG_MAX;
+  for( ulong i=0; i<MAX_IN; i++ ) ctx->in_role[ i ] = ULONG_MAX;
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
     ctx->in_data[ i ] = in_link->dcache;
-    ctx->in_kind[ i ] = in_link->kind;
 
     ctx->out[ i ].mcache = out_link->mcache;
     ctx->out[ i ].data   = out_link->dcache;
     ctx->out[ i ].seq    = 0UL;
 
-    switch( in_link->kind ) {
-      case FD_TOPO_LINK_KIND_SHRED_TO_SIGN:
-        FD_TEST( out_link->kind==FD_TOPO_LINK_KIND_SIGN_TO_SHRED );
-        FD_TEST( in_link->mtu==32UL );
-        FD_TEST( out_link->mtu==64UL );
-        break;
-      case FD_TOPO_LINK_KIND_QUIC_TO_SIGN:
-        FD_TEST( out_link->kind==FD_TOPO_LINK_KIND_SIGN_TO_QUIC );
-        FD_TEST( in_link->mtu==130UL );
-        FD_TEST( out_link->mtu==64UL );
-        break;
-      default:
-        FD_LOG_CRIT(( "unexpected link kind %lu", in_link->kind ));
+    if( !strcmp( in_link->name, "shred_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_LEADER;
+      FD_TEST( !strcmp( out_link->name, "sign_shred" ) );
+      FD_TEST( in_link->mtu==32UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else if( !strcmp( in_link->name, "quic_sign" ) ) {
+      ctx->in_role[ i ] = FD_KEYGUARD_ROLE_TLS;
+      FD_TEST( !strcmp( out_link->name, "sign_quic" ) );
+      FD_TEST( in_link->mtu==130UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else {
+      FD_LOG_CRIT(( "unexpected link %s", in_link->name ));
     }
   }
 
