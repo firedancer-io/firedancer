@@ -2,7 +2,7 @@ topology = "firedancer"
 
 [layout]
     affinity = "0-26"
-    net_tile_count = 1
+    net_tile_count = 4
     verify_tile_count = 1
     bank_tile_count = 1
 
@@ -23,7 +23,8 @@ topology = "firedancer"
     tvu_fwd_port       = 9004
 
 [tiles.gossip]
-    gossip_peer_addr = "147.75.87.77:8020"
+#    gossip_peer_addr = "147.75.87.77:8020"
+    gossip_peer_addr = "147.75.102.241:8020"
     gossip_my_addr = "147.75.87.77:8010"
     gossip_listen_port = 8010
 

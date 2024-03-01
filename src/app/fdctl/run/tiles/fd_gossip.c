@@ -91,6 +91,9 @@ struct fd_gossip_tile_ctx {
   ulong       repair_contact_out_chunk0;
   ulong       repair_contact_out_wmark;
   ulong       repair_contact_out_chunk;
+
+  long last_spam_time;
+  fd_rng_t rng[1];
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -394,7 +397,7 @@ after_frag( void *             _ctx,
 }
 
 static void
-during_housekeeping( void * _ctx ) {
+after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -478,6 +481,27 @@ during_housekeeping( void * _ctx ) {
 
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
+
+ 
+  if( now - ctx->last_shred_dest_push_time > (long)1e6 ) {
+    ctx->last_shred_dest_push_time = now;
+    if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
+      fd_slot_hash_t slot_hashes[16];
+      for( ulong i = 0; i < 16; i++ ) {
+        slot_hashes[i].slot = fd_rng_ulong(ctx->rng);
+        memset(slot_hashes[i].hash.uc, 0, sizeof(fd_hash_t));
+      }
+      
+      fd_crds_data_t crds_data;
+      fd_crds_data_new_disc( &crds_data, fd_crds_data_enum_accounts_hashes );
+      memcpy( crds_data.inner.accounts_hashes.from.key, ctx->gossip_config.public_key, sizeof(fd_pubkey_t) );
+      crds_data.inner.accounts_hashes.hashes_len = 16;
+      crds_data.inner.accounts_hashes.hashes = slot_hashes;
+      crds_data.inner.accounts_hashes.wallclock =  (ulong)fd_log_wallclock( ) / (ulong)1000000;
+
+      fd_gossip_push_value( ctx->gossip, &crds_data, NULL );
+    }
+  }
 }
 
 static void
@@ -559,6 +583,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   
   ctx->last_shred_dest_push_time = 0;
+  ctx->last_spam_time = 0;
 
   /* Set up shred contact info tile output */
   fd_topo_link_t * shred_contact_out = &topo->links[ tile->out_link_id[ 0 ] ];
@@ -631,6 +656,8 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "error parsing tvu fwd addr" ) );
   }
 
+  fd_rng_join( fd_rng_new( ctx->rng, 42, 0UL ) );
+
   fd_gossip_update_tvu_addr( ctx->gossip, &tvu_my_addr, &tvu_my_fwd_addr );
   fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
   fd_gossip_start( ctx->gossip );
@@ -675,5 +702,6 @@ fd_tile_config_t fd_tile_gossip = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .mux_during_housekeeping  = during_housekeeping,
+  .mux_after_credit        = after_credit,
+  // .mux_during_housekeeping  = during_housekeeping,
 };
