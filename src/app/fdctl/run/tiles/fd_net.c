@@ -506,7 +506,7 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_tile_config_t fd_tile_net = {
+fd_topo_run_tile_t fd_tile_net = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

@@ -5,6 +5,7 @@
 
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../util/tile/fd_tile_private.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -475,6 +476,8 @@ static void
 topo_initialize( config_t * config ) {
   fd_topo_t * topo = &config->topo;
 
+  strncpy( topo->app_name, config->name, sizeof( topo->app_name ) );
+
   /* Static configuration of all workspaces in the topology.  Workspace
      sizing will be determined dynamically at runtime based on how much
      space will be allocated from it. */
@@ -560,40 +563,53 @@ topo_initialize( config_t * config ) {
 
   topo->link_cnt = link_cnt;
 
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
+
   ulong tile_cnt = 0UL;
 
-#define TILE( cnt, name1, wksp, is_labs1, out_link_id_primary1 ) do {                          \
-    ulong wksp_id = fd_topo_find_wksp( topo, wksp );                                           \
-    if( FD_UNLIKELY( wksp_id==ULONG_MAX ) )                                                    \
-      FD_LOG_ERR(( "could not find workspace %s", wksp ));                                     \
-    for( ulong i=0; i<cnt; i++ ) {                                                             \
-      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,             \
-                                                  .kind_id             = i,                    \
-                                                  .wksp_id             = wksp_id,              \
-                                                  .in_cnt              = 0,                    \
-                                                  .is_labs             = is_labs1,             \
-                                                  .out_link_id_primary = out_link_id_primary1, \
-                                                  .out_cnt             = 0 };                  \
-      FD_TEST( strlen( name1 ) < sizeof( topo->tiles[ tile_cnt ].name ) );                     \
-      strncpy( topo->tiles[ tile_cnt ].name, name1, sizeof( topo->tiles[ tile_cnt ].name ) );  \
-      tile_cnt++;                                                                              \
-    }                                                                                          \
+#define TILE( cnt, name1, wksp, is_labs1, tile_to_cpu, out_link_id_primary1 ) do {                \
+    ulong wksp_id = fd_topo_find_wksp( topo, wksp );                                              \
+    if( FD_UNLIKELY( wksp_id==ULONG_MAX ) )                                                       \
+      FD_LOG_ERR(( "could not find workspace %s", wksp ));                                        \
+    for( ulong i=0; i<cnt; i++ ) {                                                                \
+      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,                \
+                                                  .kind_id             = i,                       \
+                                                  .wksp_id             = wksp_id,                 \
+                                                  .in_cnt              = 0,                       \
+                                                  .is_labs             = is_labs1,                \
+                                                  .cpu_idx             = tile_to_cpu[ tile_cnt ], \
+                                                  .out_link_id_primary = out_link_id_primary1,    \
+                                                  .out_cnt             = 0 };                     \
+      FD_TEST( strlen( name1 ) < sizeof( topo->tiles[ tile_cnt ].name ) );                        \
+      strncpy( topo->tiles[ tile_cnt ].name, name1, sizeof( topo->tiles[ tile_cnt ].name ) );     \
+      tile_cnt++;                                                                                 \
+    }                                                                                             \
   } while(0)
 
-  TILE( config->layout.net_tile_count,    "net",    "net",    0, fd_topo_find_link( topo, "net_netmux",   i ) );
-  TILE( 1,                                "netmux", "netmux", 0, fd_topo_find_link( topo, "netmux_out",   i ) );
-  TILE( config->layout.verify_tile_count, "quic",   "quic",   0, fd_topo_find_link( topo, "quic_verify",  i ) );
-  TILE( config->layout.verify_tile_count, "verify", "verify", 0, fd_topo_find_link( topo, "verify_dedup", i ) );
-  TILE( 1,                                "dedup",  "dedup",  0, fd_topo_find_link( topo, "dedup_pack",   i ) );
-  TILE( 1,                                "pack",   "pack",   0, fd_topo_find_link( topo, "pack_bank",    i ) );
-  TILE( config->layout.bank_tile_count,   "bank",   "bank",   1, fd_topo_find_link( topo, "bank_poh",     i ) );
-  TILE( 1,                                "poh",    "poh",    1, fd_topo_find_link( topo, "poh_shred",    i ) );
-  TILE( 1,                                "shred",  "shred",  0, fd_topo_find_link( topo, "shred_store",  i ) );
-  TILE( 1,                                "store",  "store",  1, ULONG_MAX                                    );
-  TILE( 1,                                "sign",   "sign",   0, ULONG_MAX                                    );
-  TILE( 1,                                "metric", "metric", 0, ULONG_MAX                                    );
+  TILE( config->layout.net_tile_count,    "net",    "net",    0, tile_to_cpu, fd_topo_find_link( topo, "net_netmux",   i ) );
+  TILE( 1,                                "netmux", "netmux", 0, tile_to_cpu, fd_topo_find_link( topo, "netmux_out",   i ) );
+  TILE( config->layout.verify_tile_count, "quic",   "quic",   0, tile_to_cpu, fd_topo_find_link( topo, "quic_verify",  i ) );
+  TILE( config->layout.verify_tile_count, "verify", "verify", 0, tile_to_cpu, fd_topo_find_link( topo, "verify_dedup", i ) );
+  TILE( 1,                                "dedup",  "dedup",  0, tile_to_cpu, fd_topo_find_link( topo, "dedup_pack",   i ) );
+  TILE( 1,                                "pack",   "pack",   0, tile_to_cpu, fd_topo_find_link( topo, "pack_bank",    i ) );
+  TILE( config->layout.bank_tile_count,   "bank",   "bank",   1, tile_to_cpu, fd_topo_find_link( topo, "bank_poh",     i ) );
+  TILE( 1,                                "poh",    "poh",    1, tile_to_cpu, fd_topo_find_link( topo, "poh_shred",    i ) );
+  TILE( 1,                                "shred",  "shred",  0, tile_to_cpu, fd_topo_find_link( topo, "shred_store",  i ) );
+  TILE( 1,                                "store",  "store",  1, tile_to_cpu, ULONG_MAX                                    );
+  TILE( 1,                                "sign",   "sign",   0, tile_to_cpu, ULONG_MAX                                    );
+  TILE( 1,                                "metric", "metric", 0, tile_to_cpu, ULONG_MAX                                    );
 
   topo->tile_cnt = tile_cnt;
+
+  if( FD_UNLIKELY( affinity_tile_cnt<config->topo.tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                                                                            "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                                                                            "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                                                                            config->topo.tile_cnt, affinity_tile_cnt ));
+  if( FD_UNLIKELY( affinity_tile_cnt>config->topo.tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                                                                                "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                                                                                "individual tile counts in the [layout] section of the configuration file.",
+                                                                                 config->topo.tile_cnt, affinity_tile_cnt ));
 
 #define TILE_IN( name, kind_id, link, link_id, reliable, poll ) do {                        \
     ulong tile_id = fd_topo_find_tile( topo, name, kind_id );                               \

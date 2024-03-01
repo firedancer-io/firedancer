@@ -332,7 +332,7 @@ bench_cmd_fn( args_t *         args,
   printf( "\n             link |  ovrnp cnt |  ovrnr cnt |   slow cnt |     tx seq |     rx seq\n" );
   printf(   "------------------+------------+------------+------------+------------+-----------\n" );
 
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN, fdctl_tile_align, fdctl_tile_footprint );
 
   fd_topo_t * topo = &config->topo;

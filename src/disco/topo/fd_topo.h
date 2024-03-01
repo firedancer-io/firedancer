@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_disco_topo_fd_topo_h
 #define HEADER_fd_src_disco_topo_fd_topo_h
 
+#include "../mux/fd_mux.h"
 #include "../../tango/fd_tango.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -84,10 +85,7 @@ typedef struct {
   ulong wksp_id;                /* The workspace that this tile belongs to.  Each tile belongs to exactly one workspace. */
   int   is_labs;                /* If the tile needs to run in the Solana Labs (Anza) address space or not. */
 
-  ulong burst;                  /* The maximum number of fragments this tile can produce on its primary output link in response
-                                   to a fragment being received from an input link.  This is used to do flow control, as we do
-                                   not let the tile receive fragments (propagate the backpressure) while it could not potentially
-                                   burst this amount to downstream consumers. */
+  ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of USHORT_MAX or more indicates the tile should be floating and not pinned to a core. */
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
@@ -110,8 +108,8 @@ typedef struct {
 
     ulong      user_mem_offset;    /* Offset in bytes from the workspace base for memory region that has been
                                       reserved for this tile. The footprint and alignment will match those
-                                      provided by the workspace_footprint and workspace_align functions in the
-                                      corresponding fd_tile_config_t */
+                                      provided by the footprint and align functions in the corresponding
+                                      fd_topo_run_tile_t */
 
     void *     extra[ 32 ];         /* Hack for stashing extra shared tango objects. */
   };
@@ -186,6 +184,8 @@ typedef struct {
    configuration, describing all the workspaces, tiles, and links
    between them. */
 typedef struct fd_topo_t {
+  char           app_name[ 256UL ];
+
   ulong          wksp_cnt;
   ulong          link_cnt;
   ulong          tile_cnt;
@@ -194,6 +194,29 @@ typedef struct fd_topo_t {
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
 } fd_topo_t;
+
+typedef struct {
+  ulong                         mux_flags;
+  ulong                         burst;
+  ulong                         rlimit_file_cnt;
+  void * (*mux_ctx           )( void * scratch );
+
+  fd_mux_during_housekeeping_fn * mux_during_housekeeping;
+  fd_mux_before_credit_fn       * mux_before_credit;
+  fd_mux_after_credit_fn        * mux_after_credit;
+  fd_mux_before_frag_fn         * mux_before_frag;
+  fd_mux_during_frag_fn         * mux_during_frag;
+  fd_mux_after_frag_fn          * mux_after_frag;
+  fd_mux_metrics_write_fn       * mux_metrics_write;
+
+  long  (*lazy                    )( fd_topo_tile_t * tile );
+  ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
+  ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
+  ulong (*scratch_align           )( void );
+  ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
+  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
+  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
+} fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -306,8 +329,7 @@ fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
    This is needed to play nicely with the sandbox.  Once a process is
    sandboxed we can no longer map any memory. */
 void
-fd_topo_join_tile_workspaces( char * const     app_name,
-                              fd_topo_t *      topo,
+fd_topo_join_tile_workspaces( fd_topo_t *      topo,
                               fd_topo_tile_t * tile );
 
 /* Join (map into the process) the shared memory (huge/gigantic pages)
@@ -316,7 +338,7 @@ fd_topo_join_tile_workspaces( char * const     app_name,
    determines the prot argument that will be passed to mmap when mapping
    the pages in (PROT_WRITE or PROT_READ respectively). */
 void
-fd_topo_join_workspace( char * const     app_name,
+fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         int              mode );
 
@@ -326,8 +348,7 @@ fd_topo_join_workspace( char * const     app_name,
    determines the prot argument that will be passed to mmap when
    mapping the pages in (PROT_WRITE or PROT_READ respectively). */
 void
-fd_topo_join_workspaces( char * const app_name,
-                         fd_topo_t *  topo,
+fd_topo_join_workspaces( fd_topo_t *  topo,
                          int          mode );
 
 /* Leave (unmap from the process) all shared memory needed by all
@@ -340,8 +361,7 @@ fd_topo_leave_workspaces( fd_topo_t *  topo );
    but only creates the .wksp files and formats them correctly as
    workspaces. */
 void
-fd_topo_create_workspaces( char *      app_name,
-                           fd_topo_t * topo );
+fd_topo_create_workspaces( fd_topo_t * topo );
 
 /* Populate all IPC objects needed by the topology of this particular
    tile, or just calculate the footprint needed to store them depending
@@ -392,6 +412,83 @@ fd_topo_fill( fd_topo_t * topo,
               ulong       mode,
               ulong (* tile_align )( fd_topo_tile_t const * tile ),
               ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
+
+/* fd_topo_run_single_process runs all the tiles in a single process
+   (the calling process).  This spawns a thread for each tile, switches
+   that thread to the given UID and GID and then runs the tile in it.
+   Each thread will never exit, as tiles are expected to run forever.
+   An error is logged and the application will exit if a tile exits.
+   The function itself does return after spawning all the threads.
+
+   The threads will not be sandboxed in any way, except switching to the
+   provided UID and GID, so they will share the same address space, and
+   not have any seccomp restrictions or use any Linux namespaces.  The
+   calling thread will also switch to the provided UID and GID before
+   it returns.
+
+   In production, when running with a Solana Labs child process this is
+   used for spawning certain tiles inside the Solana Labs address space.
+   It's also useful for tooling and debugging, but is not how the main
+   production Firedancer process runs.  For production, each tile is run
+   in its own address space with a separate process and full security
+   sandbox.
+   
+   The solana_labs argument determines which tiles are started.  If the
+   argument is 0 or 1, only non-labs (or only labs) tiles are started.
+   If the argument is any other value, all tiles in the topology are
+   started regardless of if they are Solana Labs tiles or not. */
+
+void
+fd_topo_run_single_process( fd_topo_t * topo,
+                            int         solana_labs,
+                            uint        uid,
+                            uint        gid,
+                            fd_topo_run_tile_t (* tile_run       )( fd_topo_tile_t * tile ),
+                            ulong              (* tile_align     )( fd_topo_tile_t const * tile ),
+                            ulong              (* tile_footprint )( fd_topo_tile_t const * tile ) );
+
+/* fd_topo_run_tile runs the given tile directly within the current
+   process (and thread).  The function will never return, as tiles are
+   expected to run forever.  An error is logged and the application will
+   exit if the tile exits.
+   
+   The sandbox argument determines if the current process will be
+   sandboxed fully before starting the tile.  The thread will switch to
+   the UID and GID provided before starting the tile, even if the thread
+   is not being sandboxed.  Although POSIX specifies that all threads in
+   a process must share a UID and GID, this is not the case on Linux.
+   The thread will switch to the provided UID and GID without switching
+   the other threads in the process.
+   
+   The allow_fd argument is only used if sandbox is true, and is a file
+   descriptor which will be allowed to exist in the process.  Normally
+   the sandbox code rejects and aborts if there is an unexpected file
+   descriptor present on boot.  This is helpful to allow a parent
+   process to be notified on termination of the tile by waiting for a
+   pipe file descriptor to get closed.
+   
+   wait and debugger are both used in debugging.  If wait is non-NULL,
+   the runner will wait until the value pointed to by wait is non-zero
+   before launching the tile.  Likewise, if debugger is non-NULL, the
+   runner will wait until a debugger is attached before setting the
+   value pointed to by debugger to non-zero.  These are intended to be
+   used as a pair, where many tiles share a waiting reference, and then
+   one of the tiles (a tile you want to attach the debugger to) has the
+   same reference provided as the debugger, so all tiles will stop and
+   wait for the debugger to attach to it before proceeding. */
+
+void
+fd_topo_run_tile( fd_topo_t *          topo,
+                  fd_topo_tile_t *     tile,
+                  int                  sandbox,
+                  uint                 uid,
+                  uint                 gid,
+                  int                  allow_fd,
+                  volatile int *       wait,
+                  volatile int *       debugger,
+                  fd_topo_run_tile_t * tile_run,
+                  ulong (* tile_align     )( fd_topo_tile_t const * tile ),
+                  ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to
    successfully run all tiles in separate processes.  The value returned

@@ -408,7 +408,7 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
 
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;

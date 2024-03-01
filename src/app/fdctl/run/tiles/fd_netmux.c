@@ -26,7 +26,7 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_tile_config_t fd_tile_netmux = {
+fd_topo_run_tile_t fd_tile_netmux = {
   .mux_flags                = FD_MUX_FLAG_DEFAULT,
   .burst                    = 1UL,
   .mux_ctx                  = NULL,
