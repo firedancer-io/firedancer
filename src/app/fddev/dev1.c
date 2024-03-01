@@ -51,7 +51,7 @@ dev1_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int result;
+  int result = 0;
   if( !strcmp( args->dev1.tile_name, "solana" ) ||
       !strcmp( args->dev1.tile_name, "labs" ) ||
       !strcmp( args->dev1.tile_name, "solana-labs" ) ) {
@@ -60,13 +60,9 @@ dev1_cmd_fn( args_t *         args,
     ulong tile_id = fd_topo_find_tile( &config->topo, args->dev1.tile_name, 0UL );
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
 
-    tile_main_args_t args = {
-      .config   = config,
-      .tile     = &config->topo.tiles[ tile_id ],
-      .pipefd   = -1, /* no parent process to notify about termination */
-      .no_shmem = 0,
-    };
-    result = tile_main( &args );
+    fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
+    fd_topo_run_tile_t run_tile = fdctl_tile_run( tile );
+    fd_topo_run_tile( &config->topo, tile, config->development.sandbox, config->uid, config->gid, -1, NULL, NULL, &run_tile, fdctl_tile_align, fdctl_tile_footprint );
   }
 
   /* main functions should exit_group and never return, but just in case */

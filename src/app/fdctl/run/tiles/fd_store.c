@@ -124,7 +124,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-fd_tile_config_t fd_tile_store = {
+fd_topo_run_tile_t fd_tile_store = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

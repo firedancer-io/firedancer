@@ -183,7 +183,7 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
-fd_tile_config_t fd_tile_verify = {
+fd_topo_run_tile_t fd_tile_verify = {
   .mux_flags                = FD_MUX_FLAG_COPY, /* must copy frags for tile isolation and security */
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

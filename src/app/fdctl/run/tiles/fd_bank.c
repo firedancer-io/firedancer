@@ -322,7 +322,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
 }
 
-fd_tile_config_t fd_tile_bank = {
+fd_topo_run_tile_t fd_tile_bank = {
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

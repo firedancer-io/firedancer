@@ -14,38 +14,13 @@ extern void fd_ext_validator_main( const char ** args );
 
 extern int * fd_log_private_shared_lock;
 
-static void *
-tile_main1( void * args ) {
-  return (void*)(ulong)tile_main( args );
-}
-
 static void
 clone_labs_memory_space_tiles( config_t * const config ) {
-  /* Save the current affinity, it will be restored after creating any child tiles */
-  FD_CPUSET_DECL( floating_cpu_set );
-  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
-    FD_LOG_ERR(( "fd_cpuset_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  errno = 0;
-  int floating_priority = getpriority( PRIO_PROCESS, 0 );
-  if( FD_UNLIKELY( -1==floating_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
-  if( FD_UNLIKELY( affinity_tile_cnt<config->topo.tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                                                                            "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                                                                            "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                                                                            config->topo.tile_cnt, affinity_tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>config->topo.tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                                                                                "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                                                                                "individual tile counts in the [layout] section of the configuration file.",
-                                                                                 config->topo.tile_cnt, affinity_tile_cnt ));
-
   /* preload shared memory for all the solana tiles at once */
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
     if( FD_LIKELY( !strcmp( wksp->name, "pack_bank" ) ) ) {
-      fd_topo_join_workspace( config->name, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
     } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
                           !strcmp( wksp->name, "poh_shred" ) ||
@@ -56,72 +31,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
                           !strcmp( wksp->name, "bank" ) ||
                           !strcmp( wksp->name, "poh" ) ||
                           !strcmp( wksp->name, "store" ) ) ) {
-      fd_topo_join_workspace( config->name, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
   }
 
-  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_LIKELY( !tile->is_labs ) ) continue;
-
-    ushort cpu_idx = tile_to_cpu[ i ];
-
-    FD_CPUSET_DECL( cpu_set );
-    if( FD_LIKELY( cpu_idx<65535UL ) ) {
-      /* set the thread affinity before we clone the new process to ensure
-          kernel first touch happens on the desired thread. */
-      fd_cpuset_null( cpu_set );
-      fd_cpuset_insert( cpu_set, cpu_idx );
-      if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, -19 ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      fd_memcpy( cpu_set, floating_cpu_set, fd_cpuset_footprint() );
-      if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    }
-
-    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-      FD_LOG_WARNING(( "unable to pin tile to cpu with fd_cpuset_setaffinity (%i-%s). "
-                      "Unable to set the thread affinity for tile %lu on cpu %hu. Attempting to "
-                      "continue without explicitly specifying this cpu's thread affinity but it "
-                      "is likely this thread group's performance and stability are compromised "
-                      "(possibly catastrophically so). Update [layout.affinity] in the configuration "
-                      "to specify a set of allowed cpus that have been reserved for this thread "
-                      "group on this host to eliminate this warning.",
-                      errno, fd_io_strerror( errno ), tile->id, cpu_idx ));
-    }
-
-    /* We have to use pthread_create here to get a new thread-local
-       storage area, otherwise it would be nice to use clone(3).
-
-       The args we pass must outlive the local stack creating the
-       thread, so keep a local static buffer here. */
-    static tile_main_args_t args[ FD_TILE_MAX ];
-
-    void * stack = fd_tile_private_stack_new( 1, cpu_idx );
-    args[ i ] = (tile_main_args_t){
-      .config      = config,
-      .tile        = tile,
-      .pipefd      = -1,
-      .no_shmem    = 1,
-    };
-    config->development.sandbox = 0; /* Disable sandbox in Solana Labs threads */
-
-    /* Switch UID and GID to the target ones before creating threads.
-       Otherwise each thread tries to switch and GLIBC can hang. */
-    fd_sandbox( 0, config->uid, config->gid, 0UL, 0, NULL, 0, NULL );
-
-    pthread_attr_t attr[1];
-    FD_TEST( !pthread_attr_init( attr ) );
-    FD_TEST( !pthread_attr_setstack( attr, stack, FD_TILE_PRIVATE_STACK_SZ ) );
-
-    pthread_t thread[1];
-    FD_TEST( !pthread_create( thread, attr, tile_main1, &args[ i ] ) );
-  }
-
-  /* Restore the original affinity */
-  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
-    FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) )
-    FD_LOG_ERR(( "fd_setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, fdctl_tile_align, fdctl_tile_footprint );
 }
 
 void

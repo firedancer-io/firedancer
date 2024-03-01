@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-FD_FN_CONST fd_tile_config_t *
+FD_FN_CONST fd_topo_run_tile_t *
 fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( !strcmp( tile->name, "net"          ) ) ) return &fd_tile_net;
   else if ( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) return &fd_tile_netmux;

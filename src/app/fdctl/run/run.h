@@ -6,21 +6,11 @@
 
 #include "../../../waltz/xdp/fd_xsk.h"
 
-typedef struct {
-  config_t *       config;
-  fd_topo_tile_t * tile;
-  int              pipefd;
-  int              no_shmem;
-} tile_main_args_t;
-
 void
 solana_labs_boot( config_t * config );
 
 int
 solana_labs_main( void * args );
-
-int
-tile_main( void * _args );
 
 int
 clone_firedancer( config_t * const config,

@@ -43,8 +43,8 @@ init( config_t * const config ) {
   if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_topo_create_workspaces( config->name, &config->topo );
-  fd_topo_join_workspaces( config->name, &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topo_create_workspaces( &config->topo );
+  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_NEW, fdctl_tile_align, fdctl_tile_footprint );
   fd_topo_leave_workspaces( &config->topo );
 

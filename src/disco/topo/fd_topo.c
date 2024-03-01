@@ -22,11 +22,11 @@ fd_topo_workspace_align( void ) {
 }
 
 void
-fd_topo_join_workspace( char * const     app_name,
+fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         int              mode ) {
   char name[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, wksp->name ) );
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
   wksp->wksp = fd_wksp_join( fd_shmem_join( name, mode, NULL, NULL, NULL ) );
   if( FD_UNLIKELY( !wksp->wksp ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
@@ -72,23 +72,21 @@ tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t * tile, ulong wksp_id ) 
 }
 
 void
-fd_topo_join_tile_workspaces( char * const     app_name,
-                              fd_topo_t *      topo,
+fd_topo_join_tile_workspaces( fd_topo_t *      topo,
                               fd_topo_tile_t * tile ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     int needs_wksp = tile_needs_wksp( topo, tile, i );
     if( FD_LIKELY( -1!=needs_wksp ) ) {
-      fd_topo_join_workspace( app_name, &topo->workspaces[ i ], needs_wksp );
+      fd_topo_join_workspace( topo, &topo->workspaces[ i ], needs_wksp );
     }
   }
 }
 
 void
-fd_topo_join_workspaces( char * const app_name,
-                         fd_topo_t *  topo,
+fd_topo_join_workspaces( fd_topo_t *  topo,
                          int          mode ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_join_workspace( app_name, &topo->workspaces[ i ], mode );
+    fd_topo_join_workspace( topo, &topo->workspaces[ i ], mode );
   }
 }
 
@@ -109,13 +107,12 @@ fd_topo_leave_workspaces( fd_topo_t * topo ) {
 extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
 
 void
-fd_topo_create_workspaces( char *      app_name,
-                           fd_topo_t * topo ) {
+fd_topo_create_workspaces( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
 
     char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", app_name, wksp->name ) );
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
     ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
     ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
