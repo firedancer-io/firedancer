@@ -1038,6 +1038,8 @@ get_stake_status( fd_exec_instr_ctx_t *          invoke_context,
                                          clock->epoch,
                                          &stake_history,
                                          fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
+  fd_bincode_destroy_ctx_t destroy = { .valloc = invoke_context->slot_ctx->valloc };
+  fd_stake_history_destroy( &stake_history, &destroy );
   return FD_PROGRAM_OK;
 }
 
@@ -1878,6 +1880,9 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
                                            &stake_history,
                                            fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
 
+    fd_bincode_destroy_ctx_t destroy = { .valloc = invoke_context->slot_ctx->valloc };
+    fd_stake_history_destroy( &stake_history, &destroy );
+
     if( FD_UNLIKELY( status.effective == 0 || status.activating != 0 ||
                       status.deactivating != 0 ) ) {
       FD_DEBUG( FD_LOG_WARNING(( "stake is not active" )) );
@@ -2497,6 +2502,11 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                    &stake_history,
                    signers,
                    &ctx.valloc );
+    
+    // TODO: use scratch allocator instead to avoid leaks
+    fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.slot_ctx->valloc };
+    fd_stake_history_destroy( &stake_history, &destroy );
+
     break;
   }
 

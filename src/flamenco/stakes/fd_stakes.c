@@ -173,58 +173,81 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   } FD_SCRATCH_SCOPE_END;
 }
 
+/* 
+Refresh vote accounts.
+
+This updates the epoch bank stakes vote_accounts cache - that is, the total amount 
+of delegated stake each vote account has, using the current delegation values from inside each
+stake account.
+
+https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
 void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t * history ) {
   fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
 
   FD_SCRATCH_SCOPE_BEGIN {
 
+    // Create a map of <pubkey, stake> to store the total stake of each vote account.
     static const ulong maplen = 10000;
     void * mem = fd_scratch_alloc( fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint(maplen));
     fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join(fd_stake_weight_t_map_new(mem, maplen));
     fd_stake_weight_t_mapnode_t * root = NULL;
     ulong * new_rate_activation_epoch = NULL;
 
-    for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
-      FD_BORROWED_ACCOUNT_DECL(acc);
-      int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, acc);
-      if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports == 0 ) ) {
-        continue;
-      }
+    // Iterate over each stake delegation and accumulate the stake amount associated with the given vote account.
+    for ( 
+      fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root);
+      n;
+      n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
 
-      fd_stake_state_v2_t stake_state;
-      rc = fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state );
-      if ( FD_UNLIKELY( rc != 0) ) {
-        continue;
-      }
+        // Get the stake account
+        FD_BORROWED_ACCOUNT_DECL(stake_acc);
+        int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, stake_acc);
+        if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS || stake_acc->const_meta->info.lamports == 0 ) ) {
+          continue;
+        }
 
-      fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-      fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
+        fd_stake_state_v2_t stake_state;
+        rc = fd_stake_get_state( stake_acc, &slot_ctx->valloc, &stake_state );
+        if ( FD_UNLIKELY( rc != 0) ) {
+          continue;
+        }
 
-      ulong delegation_stake = new_entry.effective;
-      fd_stake_weight_t_mapnode_t temp;
-      fd_memcpy(&temp.elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-      fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
-      if (entry != NULL) {
-        entry->elem.stake += delegation_stake;
-      } else {
-        entry = fd_stake_weight_t_map_acquire( pool );
-        fd_memcpy( &entry->elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-        entry->elem.stake = delegation_stake;
-        fd_stake_weight_t_map_insert( pool, &root, entry );
-      }
+        // Fetch the delegation associated with this stake account
+        fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
+        fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( 
+          delegation, stakes->epoch, history, new_rate_activation_epoch );
+
+        // Add this delegation amount to the total stake of the vote account
+        ulong delegation_stake = new_entry.effective;
+        fd_stake_weight_t_mapnode_t temp;
+        fd_memcpy(&temp.elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
+        fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
+        if (entry != NULL) {
+          entry->elem.stake += delegation_stake;
+        } else {
+          entry = fd_stake_weight_t_map_acquire( pool );
+          fd_memcpy( &entry->elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
+          entry->elem.stake = delegation_stake;
+          fd_stake_weight_t_map_insert( pool, &root, entry );
+        }
     }
 
-    for ( fd_stake_accounts_pair_t_mapnode_t * n = fd_stake_accounts_pair_t_map_minimum( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root);
+    // Also include delegations from the stake accounts in the current slot context's 
+    // slot_ctx->slot_bank.stake_account_keys (a set of the stake accounts which we have
+    // from this epoch).
+    for ( fd_stake_accounts_pair_t_mapnode_t * n = fd_stake_accounts_pair_t_map_minimum( 
+      slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool,
+      slot_ctx->slot_bank.stake_account_keys.stake_accounts_root);
           n;
           n = fd_stake_accounts_pair_t_map_successor( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, n ) ) {
-      FD_BORROWED_ACCOUNT_DECL(acc);
-      int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.key, acc);
-      if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports == 0 ) ) {
+      FD_BORROWED_ACCOUNT_DECL(stake_acc);
+      int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.key, stake_acc);
+      if ( FD_UNLIKELY( rc != FD_ACC_MGR_SUCCESS || stake_acc->const_meta->info.lamports == 0 ) ) {
         continue;
       }
 
       fd_stake_state_v2_t stake_state;
-      rc = fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state );
+      rc = fd_stake_get_state( stake_acc, &slot_ctx->valloc, &stake_state );
       if ( FD_UNLIKELY( rc != 0) ) {
         continue;
       }
@@ -246,13 +269,19 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
       }
     }
 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(stakes->vote_accounts.vote_accounts_pool, n) ) {
+    // Copy the delegated stake values calculated above to the epoch bank stakes vote_accounts 
+    for ( fd_vote_accounts_pair_t_mapnode_t * n = 
+        fd_vote_accounts_pair_t_map_minimum(
+          stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root);
+          n;
+          n = fd_vote_accounts_pair_t_map_successor(stakes->vote_accounts.vote_accounts_pool, n) ) {
       fd_stake_weight_t_mapnode_t temp;
       memcpy(&temp.elem.key, &n->elem.key, sizeof(fd_pubkey_t));
       fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find(pool, root, &temp);
       n->elem.stake = (entry == NULL) ? 0 : entry->elem.stake;
     }
 
+    // Copy the delegated stake values calculated above to the slot bank stakes vote_accounts
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
           n;
           n = fd_vote_accounts_pair_t_map_successor( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n )) {
@@ -372,10 +401,13 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   fd_valloc_free( slot_ctx->valloc, 
     fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
+
+  // Update the list of vote accounts in the epoch stake cache
+  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L314
+  // refresh_vote_accounts( slot_ctx, &history );
   fd_sysvar_stake_history_destroy( &history, slot_ctx );
 
   // TODO: Update epoch stakes?
-  // fd_sysvar_stake_history_read( slot_ctx, &history );
   // refresh_vote_accounts( slot_ctx, &history );
 
   // ulong sz = fd_vote_accounts_pair_t_map_size( slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool, slot_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );

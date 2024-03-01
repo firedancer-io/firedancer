@@ -66,13 +66,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, secp256k1_program_enabled)>>3,
     .id     = {"\xc1\xc4\x49\x57\x9c\x05\x24\xd9\xe1\x68\xa6\x5a\x60\xd6\x93\x3f\x7a\xfc\x55\x08\x10\xf6\x46\x64\x97\x01\xc4\x7e\x18\x6d\x5b\x35"}
               /* E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, spl_token_v2_multisig_fix)>>3,
     .id     = {"\xc2\x42\x47\x80\xbd\x67\x99\x15\xf7\x8a\x1c\x2d\xbb\x79\x78\x72\x57\x8d\x17\xc3\x31\x54\x76\x9b\x95\x50\x53\x22\x88\x28\x61\x83"}
               /* E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, no_overflow_rent_distribution)>>3,
@@ -84,7 +84,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, filter_stake_delegation_accounts)>>3,
     .id     = {"\xe2\x3b\x63\x48\xdf\xee\xd8\xa6\xb1\xa0\x60\x8e\x76\xaf\x9e\xac\x8f\x04\x44\xb4\xc5\x26\xcb\x0d\x0e\xaf\xf2\xa6\x51\xbb\xd6\x5b"}
               /* GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, require_custodian_for_locked_stake_authorize)>>3,
@@ -96,7 +96,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, spl_token_v2_self_transfer_fix)>>3,
     .id     = {"\x99\x7c\x1c\x87\xf2\x9a\x94\x51\x7f\x02\x2a\x51\x9c\xb9\xee\xd4\xac\xd0\x86\xdf\xad\x15\xee\xce\xbb\x56\x25\xd7\x26\x2e\xf8\x28"}
               /* BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, warp_timestamp_again)>>3,
@@ -108,13 +108,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, check_init_vote_data)>>3,
     .id     = {"\x26\xd6\xbf\x1a\x22\x53\xab\x30\xc7\xee\x40\x65\x9c\xa3\x5d\xd9\x95\x33\x6d\x11\x41\x80\x06\x9c\x93\xce\xf1\xf6\xa0\x90\x19\xee"}
               /* 3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, secp256k1_recover_syscall_enabled)>>3,
     .id     = {"\x50\xad\x03\x00\xb1\xb2\xb8\x4a\x95\x65\xa6\x37\x8b\x00\x7a\x9b\x20\xae\xd5\x18\x05\xfc\xaf\x8f\xfa\x0e\x59\x87\x5e\x6c\x15\xb5"}
               /* 6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, system_transfer_zero_check)>>3,
@@ -138,7 +138,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, verify_tx_signatures_len)>>3,
     .id     = {"\xc8\x75\x24\x77\x9e\x25\xeb\xc6\xc2\x06\x09\x6b\xf5\x53\xcf\x2f\x25\x71\x64\x39\xad\xd0\xa4\x0d\x97\xc8\xc1\x6d\x53\x94\x30\xbd"}
               /* EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, vote_stake_checked_instructions)>>3,
@@ -150,7 +150,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, rent_for_sysvars)>>3,
     .id     = {"\x99\x3e\x31\xa6\xc4\x08\xb5\xb5\x8f\xcf\x29\x40\xbb\x18\x48\xd6\xb9\x5f\xdd\x02\xf5\x82\x52\x1d\x7f\x4c\x29\xb4\xdd\x9b\x2d\x20"}
               /* BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, libsecp256k1_0_5_upgrade_enabled)>>3,
@@ -162,19 +162,19 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, tx_wide_compute_cap)>>3,
     .id     = {"\x45\x1a\x12\x50\x21\xe1\x52\xa9\xef\xa5\xf0\xf1\x60\xbb\x15\x33\x4f\x3b\xc0\x13\x88\x23\x17\xa3\x84\x55\xf3\xd5\x61\x09\x27\xd4"}
               /* 5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, spl_token_v2_set_authority_fix)>>3,
     .id     = {"\xd6\xe1\x16\xa1\x46\x5c\x88\x62\xb2\x99\x24\x9c\x29\xf0\x9d\x10\x50\x27\x40\xb8\xa7\x13\x6d\xde\x12\xef\x53\x75\x0e\x3a\xe7\xc2"}
               /* FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, merge_nonce_error_into_system_error)>>3,
     .id     = {"\x0e\xe6\x6e\xd3\x90\x03\x83\xd5\xa5\xb2\xec\xe6\xd8\xad\xa3\x60\x5f\x4d\x2a\xb0\xdb\xab\xee\x2e\x9a\x94\x66\x54\x46\xd1\x62\x36"}
               /* 21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_fees_sysvar)>>3,
@@ -204,7 +204,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, versioned_tx_message_enabled)>>3,
     .id     = {"\x22\x78\xa2\xf5\x73\x65\xa4\x7c\x62\x3b\xfa\x86\xf3\x78\x94\xac\x71\x21\xbc\x8c\x18\x53\xe7\xd5\xed\xee\xda\xec\xa7\x1f\x59\xe7"}
               /* 3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, libsecp256k1_fail_on_bad_count)>>3,
@@ -222,151 +222,151 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, instructions_sysvar_owned_by_sysvar)>>3,
     .id     = {"\xee\x6e\xf9\xea\xd9\x55\x5c\x4b\x5b\x67\xec\x20\x84\x44\xe4\xfb\x95\x77\xbc\x1e\x0e\xb2\xba\x54\x3f\xe7\x19\x5e\x90\xb3\x10\x9a"}
               /* H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stake_program_advance_activating_credits_observed)>>3,
     .id     = {"\x06\x72\x68\x6a\x60\xe5\x62\xf1\x9c\x80\x56\xf7\x31\x18\x56\x52\x03\x26\x9d\x1a\x9c\x5e\x42\xb7\x76\x73\x32\x21\xe7\x2c\x86\xfe"}
               /* SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, credits_auto_rewind)>>3,
     .id     = {"\x9b\x9b\xd1\xb9\xd4\x1e\xdd\x35\x8b\xcf\x42\x55\x5f\xc4\x5c\xd0\x84\xfb\xa8\x2c\x6a\x16\xa5\x5e\x77\xb4\x86\xaf\x50\xa4\x60\xbb"}
               /* BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, demote_program_write_locks)>>3,
     .id     = {"\x21\x0f\x03\x96\x77\x13\xbf\x30\x1d\xb3\xfc\x8a\x64\xe0\xc6\x24\x2c\xca\x69\x56\x80\x86\x96\x61\xfb\x6a\xe6\xba\xd8\x02\x7a\x3d"}
               /* 3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, ed25519_program_enabled)>>3,
     .id     = {"\x56\x8a\x46\x9d\x0c\xe9\xec\xa5\xc0\x60\x9f\xa0\xf5\xe8\xc8\xb3\xc1\xfb\xd8\xca\x84\xf9\xfa\xcd\x68\xcf\xba\xf1\xc7\x18\x57\xb4"}
               /* 6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, return_data_syscall_enabled)>>3,
     .id     = {"\xc0\x3e\x8f\x61\x16\x40\x08\xf1\xfd\xa9\x49\x58\x8a\x4a\x53\x0c\xb0\x4b\xb1\x0b\x46\xa7\x1e\x77\x15\xd5\x74\xcd\xf2\x3d\xfc\x3c"}
               /* DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, reduce_required_deploy_balance)>>3,
     .id     = {"\xc3\xe2\xb3\x5c\xd6\x3c\xbe\x92\x36\xe4\xbb\x17\x1e\xd7\x1a\x11\x85\x1d\xeb\x1f\x6e\xec\x3c\x75\x98\x3c\xc1\x7d\x3c\x1c\xf3\x3a"}
               /* EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, sol_log_data_syscall_enabled)>>3,
     .id     = {"\x57\xc2\x46\x11\xf5\xd2\x02\xbd\xd6\xe0\x83\x46\xe7\x7d\xc9\x21\x47\x32\x1b\x9f\xac\x5f\xf4\xf1\x68\x37\x3c\x07\x9a\xb7\x8f\xcc"}
               /* 6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stakes_remove_delegation_if_inactive)>>3,
     .id     = {"\xf1\x86\xf8\x9c\x94\xef\xd1\xfc\x05\x66\x9f\x41\xf1\x9e\x48\xa4\x47\xb6\xf8\xd1\x26\xb6\x77\x7d\x87\xde\x1c\x74\xe0\x93\xff\x11"}
               /* HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, do_support_realloc)>>3,
     .id     = {"\x5a\x5e\x4f\xf5\xe1\x44\x2a\xee\xd4\xd2\xd4\x9e\x6c\x79\x96\x42\x36\xd3\x54\x59\xc0\x34\x49\x13\xd5\xb6\xed\xb1\xdd\x17\x55\xc8"}
               /* 75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, prevent_calling_precompiles_as_programs)>>3,
     .id     = {"\x2f\x17\x33\x1d\xb1\xc6\x48\xc5\xae\xfd\x61\x48\xb0\xca\xc9\xf0\x3e\x42\xd4\x6f\x80\x44\x47\x92\xda\x04\x00\x72\xd1\xe8\x0b\xaa"}
               /* 4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, optimize_epoch_boundary_updates)>>3,
     .id     = {"\x10\x28\xe6\xaf\xee\x77\xd2\xf1\x33\x5c\x08\x51\xf2\x30\x66\x91\x71\x7e\x84\x6f\x76\xa3\x94\xaf\x67\xb1\x8c\x86\xf1\x40\x4c\x40"}
               /* 265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, remove_native_loader)>>3,
     .id     = {"\xf4\x82\x43\xf9\xcd\x6a\xb8\xbd\x79\xb6\x7e\x15\x77\x72\x05\xd6\xff\xb9\xef\x89\xf9\x64\xc1\xdc\x8c\xdb\xc7\xc3\x11\x03\x40\x2c"}
               /* HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, send_to_tpu_vote_port)>>3,
     .id     = {"\xa4\xa2\xa0\xaf\xed\x4a\x65\xa7\x9d\xa8\x3c\xf1\xc7\x77\xe0\xd7\x25\xc6\x08\x60\x7c\x5b\xbb\xe3\x12\x19\xd8\x49\xad\xbc\x86\xb4"}
               /* C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, requestable_heap_size)>>3,
     .id     = {"\xa6\x7c\xcf\xd5\xf5\x8e\xb2\x3a\x0c\xcc\xa6\xc3\x5b\x15\x41\x3b\x89\x47\xa2\xd7\x0e\x67\x2d\x02\xa3\x2a\x6a\xf1\x58\x9e\x6f\xa2"}
               /* CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_fee_calculator)>>3,
     .id     = {"\x19\xc1\x13\x2c\x6a\xd5\x21\x90\x8f\x76\x04\xb4\xeb\x7e\x74\xf4\xf0\x22\x7e\x6c\xe6\x35\xf2\xa9\xa9\xc7\xbb\x97\x0e\x99\xe0\x66"}
               /* 2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, add_compute_budget_program)>>3,
     .id     = {"\x35\xd0\xac\xad\xb3\x34\x81\x2b\xc2\x6f\x22\x22\x73\xad\x66\x01\xbb\xc9\x5e\x9b\xa8\x4f\x17\x8f\x46\x5d\xf2\x28\xa4\x04\xf0\x6b"}
               /* 4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, nonce_must_be_writable)>>3,
     .id     = {"\x9f\x22\xa6\x0f\x43\x25\xec\x1c\x13\x1d\xfc\x40\x8a\x79\x56\xd8\x87\x16\x30\x5c\xc8\xb8\xc0\x9b\x2d\x8d\xb7\x55\x7d\x84\xc5\x7d"}
               /* BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, spl_token_v3_3_0_release)>>3,
     .id     = {"\xdd\x49\x16\xe6\xf1\xc4\x8d\x4c\x6b\x98\xd4\x11\xea\x18\x15\xbc\xef\x97\x90\x40\x59\xd7\x3d\x5a\xb9\xe9\x9a\x22\xf5\x12\xe8\x55"}
               /* Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, leave_nonce_on_success)>>3,
     .id     = {"\xc3\x0a\x76\x46\x54\x06\x9e\xe7\xfd\xe2\x47\xed\xe9\x44\x6b\x05\x85\xe0\x92\x21\x63\x31\x88\xe4\x8c\x5a\x29\x0d\xe6\x01\x10\x33"}
               /* E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, reject_empty_instruction_without_program)>>3,
     .id     = {"\x82\x0b\x2c\xb4\x44\xcd\x63\x7a\x12\x05\x77\x50\xa2\x72\x55\x41\x5e\x5f\x34\x66\xab\xbc\x0d\x72\x6e\x1e\x2b\x78\x5f\xec\x19\xdb"}
               /* 9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, fixed_memcpy_nonoverlapping_check)>>3,
     .id     = {"\x1f\x18\xa1\x64\x25\xc5\x8b\x16\x22\xe0\x41\xcf\xbe\x3b\xbc\x24\xfe\x3b\xc5\xea\x7d\xe5\x1d\x35\x34\x3c\xb6\x3d\xe8\x32\xb4\xfc"}
               /* 36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, reject_non_rent_exempt_vote_withdraws)>>3,
     .id     = {"\x66\x75\x86\xfd\xae\x10\xf0\xe4\xe7\x44\x72\x25\xed\x6a\x21\xf1\xc3\x9f\x3f\xcf\x58\xf0\x54\xbc\x98\x45\xbc\xf5\x37\x15\x74\x7e"}
               /* 7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, evict_invalid_stakes_cache_entries)>>3,
     .id     = {"\xc6\x69\xa1\x8d\x1d\x65\x5d\xa8\x4f\x4c\x6b\x6b\x4b\xa2\x16\x11\x68\x2b\xdf\x04\x2d\xb7\x92\xe0\xbd\x76\x7c\x55\x1a\x69\xc2\xb2"}
               /* EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, allow_votes_to_directly_update_vote_state)>>3,
     .id     = {"\xd9\xc8\x44\x04\x08\x9a\xc9\x7b\x21\x9b\x5e\x12\x1b\x56\x70\xc5\xc4\xe2\x73\x67\x87\x69\x92\x78\x1e\xd0\xda\x67\xc6\x2e\x6c\xf6"}
               /* Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, cap_accounts_data_len)>>3,
@@ -378,31 +378,31 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, max_tx_account_locks)>>3,
     .id     = {"\xa6\x31\x3c\x36\xed\x67\x8f\x7e\xef\xc9\x44\x42\xce\x35\x41\x3c\x52\xba\x5b\xac\x0f\x39\x32\x63\x68\xae\x73\xed\x85\x07\xc1\x9b"}
               /* CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, require_rent_exempt_accounts)>>3,
     .id     = {"\x9f\xa8\xed\x33\x9c\x59\x8b\xf2\x53\x9b\xa2\x71\x37\xcd\x3d\xd2\x01\x2c\x35\xa5\x17\x22\xc2\xec\x0e\x31\xe9\xa5\x67\xcd\xa0\xcc"}
               /* BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, filter_votes_outside_slot_hashes)>>3,
     .id     = {"\x27\xef\x52\xa3\x5a\x38\xed\xff\xf1\x6f\xe8\xd3\x7a\x86\x20\x86\xce\x9e\x4c\xba\xac\x9a\xc7\x23\xdb\x4b\xe2\xaa\x59\x27\x29\x0a"}
               /* 3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, update_syscall_base_costs)>>3,
     .id     = {"\x19\x20\xa1\x02\xee\xec\xad\x06\xa7\x5e\x1d\xde\x0a\xcf\xef\xd1\xdb\x39\x73\x65\x8a\xa2\x8e\x23\x01\x75\x83\xeb\x6d\xb7\xa2\x3c"}
               /* 2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stake_deactivate_delinquent_instruction)>>3,
     .id     = {"\x2d\x1d\xf6\xab\xa3\x87\x99\xd7\x59\x0a\x3e\x32\x5e\x95\xd2\x09\x38\xfc\xde\x62\x68\x65\xe7\xd3\x6d\x58\xd3\x51\x2f\xaa\x35\x1d"}
               /* 437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stake_redelegate_instruction)>>3,
@@ -414,73 +414,73 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, vote_withdraw_authority_may_change_authorized_voter)>>3,
     .id     = {"\x8d\x0a\x1d\xa1\x3d\x86\x7a\x31\x73\x4d\xc2\x6f\xbd\x80\x15\x55\x52\x82\x02\xd2\x57\x22\x82\x78\x99\xc6\xfe\x95\xf3\x51\x7f\x7d"}
               /* AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, spl_associated_token_account_v1_0_4)>>3,
     .id     = {"\xd8\x95\xd3\x92\x53\x47\xac\x96\x6d\x66\x87\x42\x26\xb1\x5b\xa5\xa6\x9d\x36\x8c\x06\xd2\x22\x9c\x5e\xe4\x57\xff\x5d\x01\x59\xc2"}
               /* FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, reject_vote_account_close_unless_zero_credit_epoch)>>3,
     .id     = {"\x8a\xa3\x5d\x20\x73\xe2\x79\x94\x19\x3e\xf5\x2e\xad\xbf\x80\x94\xd2\x35\x09\x3a\xbb\x3f\x8b\xd7\xf6\x30\x5b\x78\x14\xda\x00\xe0"}
               /* ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, add_get_processed_sibling_instruction_syscall)>>3,
     .id     = {"\xa7\x1b\x0d\xc3\xa8\xf3\x9e\xd8\x70\xe5\xd0\xbe\xa7\xee\x4c\x46\xe6\x0b\x12\x14\x90\x14\x1b\x3c\x55\x32\x1e\x07\xc1\x10\xda\xd3"}
               /* CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, bank_transaction_count_fix)>>3,
     .id     = {"\x07\x60\x5e\xbb\x59\x63\x27\xe2\xef\x50\xf5\xc8\x99\xc3\x09\xa6\xce\xf3\x0c\x41\x7c\xc6\x8e\xe4\xf0\xfd\xbd\xd8\x83\xfc\x60\xe5"}
               /* Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_bpf_deprecated_load_instructions)>>3,
     .id     = {"\x25\x93\x52\x9b\xc1\x85\x23\xf0\x0b\xe7\x62\x26\xce\x45\xc6\x2e\xcf\x5f\x8c\xf8\x25\x10\x00\xae\xbf\x40\xbe\xd7\x81\x5b\x8a\x29"}
               /* 3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_bpf_unresolved_symbols_at_runtime)>>3,
     .id     = {"\x3b\x27\x09\x56\xe4\x2a\x76\xf1\x7a\xbd\xf9\x24\x8a\x04\xe7\xff\x6b\x3c\x1d\x0d\xa0\x75\xc1\x8c\x62\x42\x4e\x25\xbd\x62\x6b\x47"}
               /* 4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, record_instruction_in_transaction_context_push)>>3,
     .id     = {"\x26\x3f\x79\xed\xbf\x52\xf4\xbf\x46\x8e\x6a\xfa\xc1\xd9\xe2\x56\x9e\x5b\x68\x8d\x9a\xbf\x3d\xaf\x55\xd8\x5d\x34\xbb\x4d\xd0\xd2"}
               /* 3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, syscall_saturated_math)>>3,
     .id     = {"\xfc\x4b\x96\xf7\x1d\xbd\x05\xe5\x16\xa8\x69\xd1\xb5\xfe\x2f\xff\x89\x07\x77\x53\xc4\xe8\xaf\xc0\x7e\x30\x12\x7a\x35\x09\x4b\x57"}
               /* HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, check_physical_overlapping)>>3,
     .id     = {"\x0b\xa8\x23\x5d\x64\x8c\x28\x80\xec\x2d\xf5\x0a\x24\xaf\xfa\x9f\xdf\xa8\x89\x04\x0c\xaf\x8c\x03\xcd\x21\xfe\x9e\x66\x53\xa2\xec"}
               /* nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, limit_secp256k1_recovery_id)>>3,
     .id     = {"\x63\x2d\x14\xe1\x8f\xb7\x9a\x49\xfc\x41\xbc\x56\xfe\xed\xac\xc0\xa1\xcd\x00\x95\x52\x83\x9a\x6f\xb0\x62\x8f\xc7\x11\x1d\xaa\x75"}
               /* 7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_deprecated_loader)>>3,
     .id     = {"\xe5\xa7\x53\xe4\xca\xd6\x43\x9f\x64\x39\x5a\xd3\xc1\x4d\x38\xe2\x1d\xc7\x04\xf1\xe7\xd8\x80\xf4\x0a\xbc\x86\x38\x5b\xf8\x24\x5b"}
               /* GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, check_slice_translation_size)>>3,
@@ -492,13 +492,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, stake_split_uses_rent_sysvar)>>3,
     .id     = {"\xd6\x1b\x8a\xaf\x1d\xe7\x0a\xf7\x21\x06\xb5\x2b\x4b\x9b\x69\xfd\x8d\x3b\x8a\x04\x45\xc3\xeb\xfc\x94\x08\x8a\xa2\xa4\xc7\x91\xa6"}
               /* FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, add_get_minimum_delegation_instruction_to_stake_program)>>3,
     .id     = {"\x06\xa1\x56\x4a\xbf\x71\x63\x7f\x4a\x66\x67\x62\x89\x18\x9b\xd0\x9e\x04\x9b\x64\x09\xb6\xf0\x8a\x44\xd1\xf7\x57\xe6\x33\x38\xea"}
               /* St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, error_on_syscall_bpf_function_hash_collisions)>>3,
@@ -516,25 +516,25 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, drop_redundant_turbine_path)>>3,
     .id     = {"\x2f\xd4\x72\x78\xb4\x96\xc4\xff\x58\x4b\x74\x4b\xfc\xec\x33\x90\x63\xd1\x91\xe8\xd1\xa7\xad\x65\xd2\xe2\x5d\xb1\x03\x6f\xd7\x8f"}
               /* 4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, executables_incur_cpi_data_cost)>>3,
     .id     = {"\x5d\x1d\x0e\x3f\xf1\x9b\xf2\x2b\x12\x4f\x82\xca\xb7\x35\x84\x0f\x1f\x05\xfe\x3e\x75\x6d\x54\x84\x0a\x12\xc4\xa2\xb8\x85\x18\x7e"}
               /* 7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, fix_recent_blockhashes)>>3,
     .id     = {"\x55\x0b\x57\x3f\x7d\x0a\x3a\x07\xc2\x58\x63\xc5\xbc\xda\x43\x2c\x02\xa0\x84\x0b\x1e\x1a\x2d\xc5\x91\x1f\xa4\xe2\xb8\x7e\x19\xda"}
               /* 6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, update_rewards_from_cached_accounts)>>3,
     .id     = {"\x10\xdf\x6b\x25\x2c\xe0\x6a\x4d\x0d\x81\x8a\xa7\xe1\x32\x72\x78\x30\x7b\x44\x13\x29\x55\xff\x2c\x79\xa2\xca\x9d\xd3\x20\xf3\x08"}
               /* 28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, enable_partitioned_epoch_reward)>>3,
@@ -546,31 +546,31 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, spl_token_v3_4_0)>>3,
     .id     = {"\xdd\x49\x17\x14\x26\x0f\xf1\xe8\xa1\x87\xe0\x3b\x4b\x80\x5d\xde\xd4\x52\xd3\x90\x4e\x14\x4c\xa2\xc5\x99\x39\x3f\x15\xf2\x37\x85"}
               /* Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, spl_associated_token_account_v1_1_0)>>3,
     .id     = {"\xd8\x95\xd3\x48\xf8\xc5\x2a\xe0\x2d\x94\xe2\xa0\xb7\x01\xe6\xc8\x08\x15\xce\x93\x17\x76\x53\xa5\x4a\x7f\x1d\xc3\x19\xe2\xfc\x7b"}
               /* FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, default_units_per_instruction)>>3,
     .id     = {"\xfc\xf2\xfa\x30\x04\x5d\x28\x7b\x6c\xdc\x72\xa5\x33\xff\xa4\x48\x5f\xe4\x00\x16\x31\x6c\x9a\x57\x33\x61\xcf\x2e\x29\x8d\xbe\x57"}
               /* J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stake_allow_zero_undelegated_amount)>>3,
     .id     = {"\x0c\xec\xcf\x0f\x3b\x1d\xee\xf3\xfc\xd1\xac\x00\xdc\x3f\x98\x31\xae\x6b\xa7\x87\x16\x47\x94\xa5\x77\xba\x87\x40\xf3\x28\x84\x16"}
               /* sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, require_static_program_ids_in_transaction)>>3,
     .id     = {"\x6b\xc1\xb6\x17\xc3\xb9\x0f\xfc\xe7\x7d\x80\xcb\x58\x53\x93\xc8\xc5\x81\xd1\xbf\x89\xb2\xc7\x16\x31\x03\xc3\x63\x2f\x02\xab\x89"}
               /* 8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, stake_raise_minimum_delegation_to_1_sol)>>3,
@@ -588,7 +588,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, add_set_compute_unit_price_ix)>>3,
     .id     = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"}
               /* 98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, disable_deploy_of_alloc_free_syscall)>>3,
@@ -600,73 +600,73 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, include_account_index_in_rent_error)>>3,
     .id     = {"\x15\x08\x72\xd0\x0b\x30\xdc\x2f\x0a\xe0\x27\x5b\x00\xb9\x34\x35\x76\xf1\x2e\xe5\x53\x23\x9e\xf1\x7e\x55\xe1\xbd\x4a\x1e\x56\x23"}
               /* 2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, add_shred_type_to_shred_seed)>>3,
     .id     = {"\xbf\x23\x52\x59\xab\x2e\x5c\x5a\x43\xb4\x18\xdc\x05\x95\x16\xa5\xc8\x3d\xa3\x9e\x9e\x88\xca\x6d\x8e\xc7\x1c\x40\x7c\x3d\x5c\x73"}
               /* Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, warp_timestamp_with_a_vengeance)>>3,
     .id     = {"\x20\x69\x35\x80\x69\xe5\xa7\xdd\xf5\x01\xa4\xd3\x37\x7f\xa7\xa6\x8a\xe9\x93\xe6\x74\x0b\x8d\xfd\x06\xfe\x26\xb0\x9e\xf4\x76\xd9"}
               /* 3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, separate_nonce_from_blockhash)>>3,
     .id     = {"\xe8\x7f\x28\x34\x34\x97\x58\xc3\xd5\x36\xdd\x4f\x3c\xf7\xd8\x91\x44\x51\x30\x6d\x32\x78\x42\x21\x40\x11\xb5\xd4\x8b\xf0\xe5\xfb"}
               /* Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, enable_durable_nonce)>>3,
     .id     = {"\x2f\xfb\x4c\x82\x5c\x65\x10\xe2\x50\x4f\x90\x65\x48\x8d\xe2\x2b\x09\x14\x62\x13\xc9\x6e\x14\x9c\x7b\xce\x06\x85\x91\xf9\x90\xbc"}
               /* 4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, vote_state_update_credit_per_dequeue)>>3,
     .id     = {"\xb1\x2e\xea\x6e\xdc\x3b\xcc\xc3\xcd\x65\x39\xa6\xbc\x49\x71\x55\xd7\x36\xc5\xa3\xc2\xd9\x2f\x0d\x60\x9d\xcd\x37\xa5\x25\x32\x3b"}
               /* CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, quick_bail_on_panic)>>3,
     .id     = {"\xbe\x6a\x3c\x48\xaf\xd3\x58\x27\xf9\x55\x7f\x90\x79\xad\xad\x74\x63\x47\x6f\x89\xe2\xd9\x43\x3a\xfb\x7f\x55\x53\xdc\xfc\x44\x1c"}
               /* DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, nonce_must_be_authorized)>>3,
     .id     = {"\xfc\x09\x9c\x57\xb1\x71\xe5\xb0\x13\x0d\xe7\xa4\x9b\x54\x05\x3b\x8a\x0a\x7f\x93\xdb\xcc\x8f\x9f\x25\x7e\x27\xaf\xc1\xff\x7d\xc3"}
               /* HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, nonce_must_be_advanceable)>>3,
     .id     = {"\x2b\x0c\x1b\x75\x79\x07\x5d\xcb\x30\xc4\xca\x00\x3c\x94\xa9\x5f\x14\xd9\x92\x5d\x87\xce\xba\x7e\x1f\xd5\xde\xb0\xe0\x90\x50\x34"}
               /* 3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, vote_authorize_with_seed)>>3,
     .id     = {"\x57\x77\x45\x01\x4d\x65\x95\x57\x36\xf5\x6c\xdb\x68\x88\x1a\x5f\x8a\x3e\xa7\xbb\xd2\xfb\x18\x68\x7f\xd8\xfc\xdd\x9b\xf2\x18\xb8"}
               /* 6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, cap_accounts_data_size_per_block)>>3,
     .id     = {"\x0c\x8c\x43\xcc\xfb\xd3\x99\x67\xa0\x32\x30\xa0\x84\x7b\xfb\x91\xed\xe2\x57\x36\xcb\xaf\xc0\x6a\x1c\x7a\x87\x88\xf5\x81\xbb\x39"}
               /* qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, preserve_rent_epoch_for_rent_exempt_accounts)>>3,
     .id     = {"\xf1\xd6\xf1\xbf\x8e\x54\x39\x44\x3d\x29\x52\xb0\xc4\x04\x6d\xf4\x2f\x03\xeb\x95\xc3\x13\xbc\xad\x6c\x1b\x91\x0d\xe3\xbd\x7c\x82"}
               /* HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, enable_bpf_loader_extend_program_ix)>>3,
@@ -690,7 +690,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, prevent_crediting_accounts_that_end_rent_paying)>>3,
     .id     = {"\x68\x03\xcb\x34\xee\x14\xb9\x41\xe4\x82\x55\xaa\xae\x45\x50\x80\x27\x51\x46\x7f\xc4\x71\xf3\x5a\xf3\x82\x49\xe4\xe9\xfb\xb2\x55"}
               /* 812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, cap_bpf_program_instruction_accounts)>>3,
@@ -708,13 +708,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, use_default_units_in_fee_calculation)>>3,
     .id     = {"\x74\xe5\xaa\xa4\x92\x70\x1e\x6d\xdb\xdf\x4d\x06\xd3\x76\x96\x33\x65\x34\xbb\x39\x35\x04\x40\xed\x47\xc9\x90\x52\xd6\xcc\xed\x36"}
               /* 8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, compact_vote_state_updates)>>3,
     .id     = {"\x69\x5c\xba\x36\x37\x83\xa5\x2c\x1b\xb5\x28\x3d\x3b\xc4\x4b\xc6\x19\xb6\xb5\x14\x1e\x14\xa7\x6a\xf1\xf6\xb8\xb5\x96\xef\xc8\x69"}
               /* 86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, incremental_snapshot_only_incremental_hash_calculation)>>3,
@@ -732,7 +732,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, on_load_preserve_rent_epoch_for_rent_exempt_accounts)>>3,
     .id     = {"\xaf\xac\x2f\x2c\xdb\xbe\xf1\x80\x0b\x83\x1b\x72\xcd\x82\x2a\x2a\xc2\x80\x87\x59\x79\xca\xd3\xc1\x87\x07\xe9\x67\x10\x2f\x32\x1a"}
               /* CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, account_hash_ignore_slot)>>3,
@@ -762,13 +762,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, vote_state_update_root_fix)>>3,
     .id     = {"\xe0\x6c\x63\xf3\x55\x30\xb0\x91\xaf\xff\x39\x26\x67\xcb\x54\x16\x02\x4b\x9a\xc7\x1b\x61\xb8\x99\xc6\x41\x30\xe4\xc1\x0b\xac\x79"}
               /* G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, cap_accounts_data_allocations_per_transaction)>>3,
     .id     = {"\x81\x1a\x5a\x0d\xf1\x24\x2c\x5b\xa0\x2a\x65\x74\xdb\x64\x82\xa1\x77\x98\x85\x5e\x4a\xb0\xe6\x08\xb4\xf7\x34\x9e\xc4\x67\x31\x52"}
               /* 9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, epoch_accounts_hash)>>3,
@@ -786,7 +786,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, disable_rehash_for_rent_epoch)>>3,
     .id     = {"\xb9\x15\x86\x82\xd3\x57\x8a\x0d\xd0\xe3\x80\x58\x5a\x23\x9f\x0a\x62\x00\xe7\xf3\x10\xc5\x21\x6c\xd8\xc7\x7f\xb2\xf1\x94\x76\x96"}
               /* DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, increase_tx_account_lock_limit)>>3,
@@ -804,7 +804,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, check_syscall_outputs_do_not_overlap)>>3,
     .id     = {"\x2b\x25\x44\x20\xcb\x2b\x86\xa6\xf2\x48\x28\x8b\xc6\x3a\xc5\xd1\x38\x59\x45\xf3\xb3\x68\xcc\xe9\x1b\x2e\x60\x59\x61\xd1\x78\xc2"}
               /* 3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, enable_bpf_loader_set_authority_checked_ix)>>3,
@@ -888,13 +888,13 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, remove_congestion_multiplier_from_fee_calculation)>>3,
     .id     = {"\x87\xc3\x89\x04\xe8\xc4\x22\x8a\x27\x67\xda\xd1\x7b\xe7\x83\xd3\x4e\x0c\x77\xe2\xe2\x94\x79\xbf\x73\xe4\x32\xa6\x91\x44\x90\x6e"}
               /* A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, enable_request_heap_frame_ix)>>3,
     .id     = {"\xfa\x49\x56\x3c\xc1\xbc\x82\xce\x81\x12\x31\x04\x9a\xe1\x37\xce\xbe\x3a\xb5\xad\x0d\xd1\xd7\x70\xb8\x8c\x90\xbb\x45\xd3\xc9\xf7"}
               /* Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86 */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, prevent_rent_paying_rent_recipients)>>3,
@@ -936,7 +936,7 @@ fd_feature_id_t const ids[] = {
   { .index  = offsetof(fd_features_t, round_up_heap_size)>>3,
     .id     = {"\xa6\xc6\xf9\xd5\x39\x30\xd1\xe2\xaa\xfa\xc5\x3d\xd9\x8e\xeb\xc2\xf3\xdb\x6c\x9a\xde\xeb\xf2\x61\x38\x73\x42\x7d\x71\x86\xb9\xb4"}
               /* CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y */ ,
-    .default_activated = 0
+    .default_activated = 1
               },
 
   { .index  = offsetof(fd_features_t, remove_bpf_loader_incorrect_program_id)>>3,

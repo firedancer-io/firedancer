@@ -37,6 +37,9 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
 /* TODO: move this somewhere more appropiate */
 void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
+  // really?! really!?
+  if (slot_ctx->epoch_ctx->epoch_bank.cluster_type != 3)
+    return;
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funk_txn_t *     txn     = slot_ctx->funk_txn;
@@ -83,13 +86,8 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key,   "address_lookup_table_program",          28UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
 
-  if (slot_ctx->epoch_ctx->features.vote_state_add_vote_latency == ULONG_MAX) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program_with_jit",             34UL );
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program_with_jit", 46UL );
-  } else {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program", 37UL );
-  }
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
+  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program", 37UL );
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
 

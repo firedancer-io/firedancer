@@ -49,6 +49,18 @@
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/clock.rs#L114
 #define SLOT_MAX ULONG_MAX
 
+// https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L697
+#define VERSION_OFFSET (4UL)
+
+// https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L698
+#define DEFAULT_PRIOR_VOTERS_END (118)
+
+// https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L4
+#define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
+
+// https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L53
+#define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
+
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 #define SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
 
@@ -2022,26 +2034,26 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   }
 }
 
-/*  */
-uint vote_state_versions_is_correct_and_initialized( fd_vote_state_versioned_t * vote_state, fd_borrowed_account_t * vote_account ) {
-  // TODO: replace magic numbers
-  switch ( vote_state->discriminant ) {
-    case fd_vote_state_versioned_enum_current: {
-      uint data_len_check = vote_account->const_meta->dlen == 3762;
-      uchar test_data[114] = {0};
-      uint data_check = memcmp(((uchar*)vote_account->const_data + 4), test_data, 114) != 0;
-      return data_check && data_len_check;
-    }
-    case fd_vote_state_versioned_enum_v1_14_11: {
-      uint data_len_check = vote_account->const_meta->dlen == 3731;
-      uchar test_data[82] = {0};
-      uint data_check = memcmp(((uchar*)vote_account->const_data + 4), test_data, 82) != 0;
-      return data_check && data_len_check;
-    }
-    default:
-      return 0;
+/* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_versions.rs#L88 */
+uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vote_account ) {
+  // VoteState::is_correct_size_and_initialized
+  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L696
+
+  uint data_len_check = vote_account->const_meta->dlen == size_of();
+  uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
+  uint data_check = memcmp((
+    (uchar*)vote_account->const_data + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
+  if (data_check && data_len_check) {
+    return 1;
   }
-  return 0;
+
+  // VoteState1_14_11::is_correct_size_and_initialized
+  // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L51
+  data_len_check = vote_account->const_meta->dlen == size_of_1_14_11();
+  uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
+  data_check = memcmp(
+    ((uchar*)vote_account->const_data + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
+  return data_check && data_len_check;
 }
 
 // TODO: Make this thread safe by pushing updates to the txn ctx which are then propagated to the slot ctx
@@ -2064,7 +2076,8 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
       return;
     }
 
-    if ( vote_state_versions_is_correct_and_initialized( vote_state, vote_account ) ) {
+
+    if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
       fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
 
       fd_vote_accounts_pair_t_mapnode_t key;
@@ -2075,7 +2088,7 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
         return;
       }
 
-      if ( vote_state_versions_is_correct_and_initialized( vote_state, vote_account ) ) {
+      if ( vote_state_versions_is_correct_and_initialized( vote_account ) ) {
         fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
 
         fd_vote_accounts_pair_t_mapnode_t key;
@@ -2099,6 +2112,11 @@ upsert_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
             }
             fd_memcpy( &new_node->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
             new_node->elem.value.lamports = vote_account->const_meta->info.lamports;
+            new_node->elem.value.data = NULL;
+            new_node->elem.value.data_len = 0;
+            fd_memcpy( &new_node->elem.value.owner, vote_account->const_meta->info.owner, sizeof(fd_pubkey_t) );
+            new_node->elem.value.executable = (uchar)vote_account->const_meta->info.executable;
+            new_node->elem.value.rent_epoch = vote_account->const_meta->info.rent_epoch;
             fd_vote_accounts_pair_t_map_insert( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, &slot_ctx->slot_bank.vote_account_keys.vote_accounts_root, new_node );
           } else {
             existing->elem.value.lamports = vote_account->const_meta->info.lamports;

@@ -19,22 +19,11 @@
   */
 #define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / DEFAULT_TICKS_PER_SECOND )
 
-/* Calculates the target duration of a slot, in nanoseconds.
-   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/genesis_config.rs#L222
-
-   ticks_per_slot is found in the genesis block. The default value is 64, for a target slot duration of 400ms:
-   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L22
-*/
-static uint128
-ns_per_slot( ulong ticks_per_slot ) {
-  return DEFAULT_TARGET_TICK_DURATION_NS * ticks_per_slot;
-}
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 static long
 timestamp_from_genesis( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: maybe make types of timestamps the same throughout the runtime codebase. as Solana uses a signed representation */
-  return (long)( slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time + ( ( slot_ctx->slot_bank.slot * ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot ) ) / NS_IN_S ) );
+  return (long)( slot_ctx->epoch_ctx->epoch_bank.genesis_creation_time + ( ( slot_ctx->slot_bank.slot * slot_ctx->epoch_ctx->epoch_bank.ns_per_slot ) / NS_IN_S ) );
 }
 
 static void
@@ -95,7 +84,7 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Determine offsets from start of epoch */
   /* TODO: handle epoch boundary case */
-  uint128 poh_estimate_offset = ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot ) * slot_ctx->slot_bank.slot;
+  uint128 poh_estimate_offset = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slot_ctx->slot_bank.slot;
   uint128 estimate_offset = (uint128)( ( estimate - epoch_start_timestamp ) * NS_IN_S );
 
   uint128 max_delta_fast = ( poh_estimate_offset * MAX_ALLOWABLE_DRIFT_FAST ) / 100;
@@ -119,7 +108,7 @@ bound_timestamp_estimate( fd_exec_slot_ctx_t * slot_ctx,
     timestamp = (stake-weighted median of vote timestamps) + ((target slot duration) * (slots since median timestamp vote was received))
  */
 static long
-estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx, uint128 ns_per_slot ) {
+estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   /* TODO: bound the estimate to ensure it stays within a certain range of the expected PoH clock:
   https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L13 */
 
@@ -130,17 +119,18 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx, uint128 ns_per_slot ) {
   /* TODO: actually take the stake-weighted median. For now, just use the root node. */
   fd_clock_timestamp_vote_t * head = &votes->elem;
   ulong slots = slot_ctx->slot_bank.slot - head->slot;
-  uint128 ns_correction = ns_per_slot * slots;
+  uint128 ns_correction = slot_ctx->epoch_ctx->epoch_bank.ns_per_slot * slots;
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
+/* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
 static void
 fd_calculate_stake_weighted_timestamp(
   fd_exec_slot_ctx_t * slot_ctx,
   long * result_timestamp,
   uint fix_estimate_into_u64
  ) {
-  ulong slot_duration = (ulong)ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot );
+  ulong slot_duration = (ulong)( slot_ctx->epoch_ctx->epoch_bank.ns_per_slot );
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
@@ -162,7 +152,6 @@ fd_calculate_stake_weighted_timestamp(
     n = fd_vote_accounts_pair_t_map_successor(vote_acc_pool, n)
   ) {
 
- 
   // for (
   //   fd_clock_timestamp_vote_t_mapnode_t * n = fd_clock_timestamp_vote_t_map_minimum(timestamp_votes_pool, timestamp_votes_root);
   //   n;
@@ -330,13 +319,11 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   if (slot_ctx->slot_bank.slot != 0) {
     fd_calculate_stake_weighted_timestamp(slot_ctx, &clock.unix_timestamp, FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ) );
-  } else {
-    FD_LOG_DEBUG(("SLOT IS ZERO!"));
   }
 
   if (0 == clock.unix_timestamp) {
     /* generate timestamp for genesis */
-    long timestamp_estimate         = estimate_timestamp( slot_ctx, ns_per_slot( slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot ) );
+    long timestamp_estimate         = estimate_timestamp( slot_ctx );
     long bounded_timestamp_estimate = bound_timestamp_estimate( slot_ctx, timestamp_estimate, clock.epoch_start_timestamp );
     if ( timestamp_estimate != bounded_timestamp_estimate ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));

@@ -504,6 +504,7 @@ main( int     argc,
 
   if (backup) {
     /* Copy the entire workspace into a file in the most naive way */
+    FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_epoch_bank( slot_ctx ) );
     FD_TEST( FD_RUNTIME_EXECUTE_SUCCESS == fd_runtime_save_slot_bank( slot_ctx ) );
     FD_LOG_NOTICE(("writing %s", backup));
     unlink(backup);
