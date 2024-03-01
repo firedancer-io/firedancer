@@ -290,10 +290,13 @@ fd_r43x6_add_fast_ref( fd_r43x6_t x,
 FD_FN_CONST static fd_r43x6_t
 fd_r43x6_sub_fast_ref( fd_r43x6_t x,
                        fd_r43x6_t y ) {
-  union { __m512i v; long lane[8]; } xx, yy, zz;
+  union { __m512i v; long lane[8]; } xx, yy, zz, pp;
   xx.v = x; /* Arb */
   yy.v = y; /* Arb */
-  for( ulong i=0UL; i<8UL; i++ ) zz.lane[i] = xx.lane[i] - yy.lane[i];
+  pp.v = fd_r43x6_p();
+  for( ulong i=0UL; i<8UL; i++ ) {
+    zz.lane[i] = xx.lane[i] + ( pp.lane[i] - yy.lane[i] );
+  }
   return zz.v; /* Arb */
 }
 
@@ -649,9 +652,8 @@ main( int     argc,
 
       FD_R43X6_QUAD_LANE_SUB_FAST( Z, X, p0,p1,p2,p3, X, Y );
       FD_R43X6_QUAD_UNPACK( z0,z1,z2,z3, Z );
-      fd_r43x6_t pmod = fd_r43x6_p();
-      FD_TEST( fd_r43x6_eq( p0?fd_r43x6_add_fast(x0,fd_r43x6_sub_fast(pmod,y0)):x0, z0 ) ); FD_TEST( fd_r43x6_eq( p1?fd_r43x6_add_fast(x1,fd_r43x6_sub_fast(pmod,y1)):x1, z1 ) );
-      FD_TEST( fd_r43x6_eq( p2?fd_r43x6_add_fast(x2,fd_r43x6_sub_fast(pmod,y2)):x2, z2 ) ); FD_TEST( fd_r43x6_eq( p3?fd_r43x6_add_fast(x3,fd_r43x6_sub_fast(pmod,y3)):x3, z3 ) );
+      FD_TEST( fd_r43x6_eq( p0?fd_r43x6_sub_fast(x0,y0):x0, z0 ) ); FD_TEST( fd_r43x6_eq( p1?fd_r43x6_sub_fast(x1,y1):x1, z1 ) );
+      FD_TEST( fd_r43x6_eq( p2?fd_r43x6_sub_fast(x2,y2):x2, z2 ) ); FD_TEST( fd_r43x6_eq( p3?fd_r43x6_sub_fast(x3,y3):x3, z3 ) );
 
       /* Test FOLD inlines */
 
