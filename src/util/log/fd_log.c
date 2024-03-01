@@ -1464,10 +1464,10 @@ fd_log_private_stack_discover( ulong   stack_sz,
   }
 
   char filebuf[1<<16];
-  size_t filelen = 0;
+  ulong filelen = 0;
   for(;;) {
     ssize_t tlen;
-    if( FD_UNLIKELY( ( tlen = read( filefd, filebuf + filelen, sizeof(filebuf)-1U-filelen ) ) < 0 ) ) {
+    if( FD_UNLIKELY( ( tlen = read( filefd, filebuf + filelen, sizeof(filebuf)-filelen ) ) < 0 ) ) {
       FD_LOG_WARNING(( "read( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       close(filefd);
       *_stack0 = 0UL;
@@ -1480,7 +1480,8 @@ fd_log_private_stack_discover( ulong   stack_sz,
   }
 
   close(filefd);
-  
+
+  FD_TEST( filelen < sizeof(filebuf) );
   filebuf[filelen] = '\0';
 
   char * p = filebuf;
