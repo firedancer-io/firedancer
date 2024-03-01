@@ -1,0 +1,8 @@
+topology = "tvu"
+[tiles.tvu]
+  repair_peer_addr = ":1032"
+  repair_peer_id = "6X6uMnbW3TcCFSH9Z2x1Rtfe3xfAniTAKVs9JNqhp8b7"
+  gossip_peer_addr = ":1024"
+  snapshot = "snapshot-1200-29sZMnw5iYj5SejWZEDCMEfHUMgp8okyp63sUvAhHcYW.tar.zst"
+  rpc_listen_port = 5123
+  page_cnt = 32

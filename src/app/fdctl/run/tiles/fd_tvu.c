@@ -301,7 +301,7 @@ during_housekeeping( void * ctx ) {
 
 #include "../../../../util/tile/fd_tile_private.h"
 /* Temporary hack until we get the tiles right */
-void cpuset_hack() {
+void cpuset_hack( void ) {
   FD_CPUSET_DECL( cpu_set );
   fd_cpuset_insert( cpu_set, 25 );
   fd_cpuset_insert( cpu_set, 26 );

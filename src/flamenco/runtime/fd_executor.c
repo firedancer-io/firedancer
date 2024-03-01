@@ -290,6 +290,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     /* TODO: allow instructions to be failed, and the transaction to be reverted */
     fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
+
+    /* TODO: inject replay vote sending somewhere around here */
+
     fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
 #ifdef VLOG

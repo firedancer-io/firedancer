@@ -1,4 +1,5 @@
 #include "fd_replay.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
@@ -359,6 +360,7 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   fd_block_t * block_ = fd_blockstore_block_query( replay->blockstore, slot );
   if( FD_LIKELY( block_ ) ) {
     block_->flags = fd_uint_set_bit( block_->flags, FD_BLOCK_FLAG_EXECUTED );
+    memcpy( &block_->bank_hash, &parent->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
   }
 
   fd_blockstore_end_write( replay->blockstore );
@@ -383,6 +385,9 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                    replay->curr_turbine_slot,
                    replay->curr_turbine_slot - slot ) );
   FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
+
+  fd_vote_bank_match_check( child->slot_ctx.epoch_ctx->bank_matches, slot, &child->slot_ctx.slot_bank.banks_hash, 1 );
+  
 
   //   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
   //   bank->epoch_stakes.vote_accounts_pool; fd_vote_accounts_pair_t_mapnode_t *

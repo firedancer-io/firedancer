@@ -1143,6 +1143,17 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     replay_setup_out.replay->funk        = funk_setup_out.funk;
     replay_setup_out.replay->acc_mgr     = runtime_ctx->_acc_mgr;
     replay_setup_out.replay->epoch_ctx   = slot_ctx_setup_out.exec_epoch_ctx;
+
+    int bank_matches_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
+    void * bank_matches_mem =
+        fd_wksp_alloc_laddr( wksp,
+                             fd_bank_match_map_align(),
+                             fd_bank_match_map_footprint( bank_matches_lg_slot_cnt ),
+                             42UL );
+    fd_memset( bank_matches_mem, 0, fd_bank_match_map_footprint( bank_matches_lg_slot_cnt ) );
+    replay_setup_out.replay->epoch_ctx->bank_matches = fd_bank_match_map_join(
+        fd_bank_match_map_new( bank_matches_mem, bank_matches_lg_slot_cnt ) );
+
     replay_setup_out.replay->tpool       = tpool;
     replay_setup_out.replay->max_workers = args->tcnt;
     replay_setup_out.replay->repair      = repair;

@@ -1763,6 +1763,13 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   rc = verify_and_get_vote_state( vote_account, clock, signers, ctx, &vote_state );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
+  /* All the validation should have happened already, if it made it here. */
+  fd_vote_lockout_t * last_vote = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
+  if( FD_LIKELY( last_vote ) ) {
+    fd_vote_bank_match_check(
+        ctx.epoch_ctx->bank_matches, last_vote->slot, &vote_state_update->hash, 0 );
+  }
+
   rc = do_process_vote_state_update(
       &vote_state, slot_hashes, clock->epoch, clock->slot, vote_state_update, ctx );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
@@ -2685,4 +2692,53 @@ fd_vote_get_state( fd_borrowed_account_t const * self,
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) {
   convert_to_current( self, ctx );
+}
+
+void
+fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t const * bank_hash, int ours ) {
+  if( FD_UNLIKELY( bank_matches ) ) {
+
+    fd_bank_match_t * bank_match = fd_bank_match_map_query( bank_matches, slot, NULL );
+    if( FD_LIKELY( !bank_match ) ) {
+      if( FD_UNLIKELY( fd_bank_match_map_key_cnt( bank_matches ) ==
+                       fd_bank_match_map_key_max( bank_matches ) ) ) {
+        fd_bank_match_map_clear( bank_matches );
+      }
+      bank_match = fd_bank_match_map_insert( bank_matches, slot );
+    }
+    fd_hash_t null_hash = { 0 };
+    if (ours) bank_match->ours    = *bank_hash;
+    else {
+      if( FD_UNLIKELY(
+              ( 0 != memcmp( &bank_match->theirs, &null_hash, sizeof( fd_hash_t ) ) ) &&
+              ( 0 != memcmp( &bank_match->theirs, bank_hash->hash, sizeof( fd_hash_t ) ) ) ) ) {
+        // TODO support equivocating hashes
+        FD_LOG_WARNING( ( "ignoring equivocating hash %32J vs. %32J",
+                          bank_match->theirs.hash,
+                          bank_hash->hash ) );
+      } else {
+        bank_match->theirs = *bank_hash;
+      }
+    }
+
+    /* if the other bank hash is ready now too (ours -> theirs or theirs -> ours), check for mismatch*/
+    fd_hash_t * other = fd_ptr_if( ours, &bank_match->theirs, &bank_match->ours );
+    if( FD_UNLIKELY( 0 != memcmp( other, &null_hash, sizeof( fd_hash_t ) ) ) ) {
+      if( FD_UNLIKELY( 0 !=
+                       memcmp( &bank_match->ours, &bank_match->theirs, sizeof( fd_hash_t ) ) ) ) {
+        FD_LOG_WARNING( ( "Bank hash mismatch on slot: %lu. ours: %32J, theirs: %32J",
+                          slot,
+                          bank_match->ours.hash,
+                          bank_match->theirs.hash ) );
+      } else {
+        FD_LOG_NOTICE( ( "Bank hashes matched on slot: %lu. ours: %32J, theirs: %32J",
+                         slot,
+                         bank_match->ours.hash,
+                         bank_match->theirs.hash ) );
+      }
+      fd_bank_match_map_remove( bank_matches, bank_match );
+    } else {
+      FD_LOG_DEBUG( ( "other bank hash is not ready: %lu", slot ) );
+    }
+  }
 }
