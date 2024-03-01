@@ -503,7 +503,7 @@ fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot 
   if( blockstore->min >= min_slot ) return FD_BLOCKSTORE_OK;
 
   /* Find next minimum that exists */
-  fd_wksp_t *                wksp     = fd_wksp_containing( blockstore );
+  fd_wksp_t *                wksp     = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_map_t * slot_map = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   while( min_slot < blockstore->max && !fd_blockstore_slot_map_query( slot_map, min_slot, NULL ) )
     ++min_slot;
@@ -843,7 +843,7 @@ fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[FD_ED2551
   fd_blockstore_txn_key_t key;
   fd_memcpy( &key, sig, sizeof( key ) );
   return fd_blockstore_txn_map_query(
-      fd_wksp_laddr_fast( fd_wksp_containing( blockstore ), blockstore->txn_map_gaddr ),
+      fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->txn_map_gaddr ),
       key,
       NULL );
 }

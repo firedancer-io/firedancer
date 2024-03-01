@@ -1,0 +1,16 @@
+build/native/gcc/bin/fd_shmem_cfg alloc 256 gigantic 0
+
+rm -f *.zst && wget --trust-server-names http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2
+
+build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 200 --backup /data/asiegel/test_backup --slothistory 1000
+
+echo "topology = \"tvu\"
+[tiles.tvu]
+  gossip_peer_addr = \"204.16.244.150:8001\"
+  incremental_snapshot = \"https://api.mainnet-beta.solana.com/incremental-snapshot.tar.bz2\"
+  load = \"/data/chali/funk\"
+  rpc_listen_port = 8123
+  page_cnt = 364
+" > mainnet.toml
+
+build/native/gcc/bin/fddev --no-clone --no-sandbox --no-solana-labs --config testnet.toml

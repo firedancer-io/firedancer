@@ -1,33 +1,17 @@
-/**
-
-   export RUST_LOG=solana_repair=TRACE
-   cargo run --bin solana-test-validator
-
-   wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
-   wget --trust-server-names http://localhost:8899/incremental-snapshot.tar.bz2
-   build/native/gcc/unit-test/test_tvu --peer_addr :8000 --repair-peer-identity F7SW17yGN7UUPQ519nxaDt26UMtvwJPSFVu9kBMBQpW --snapshotfile snapshot-2402* --incremental incremental-snapshot-2402* --repair-peer-addr :8008 --rpc-port 8123
-
-   curl http://localhost:8123 -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getAccountInfo", "params":["CsE3MdkQXYwEFuNsEkLajgqSEiLqN6aH7eBzhCdJecar",{"encoding":"base58"}]}'
-   curl http://localhost:8123 -H 'content-type: application/json' --data '{"jsonrpc":"2.0", "id":1234, "method":"getBalance", "params":["CsE3MdkQXYwEFuNsEkLajgqSEiLqN6aH7eBzhCdJecar"]}'
-   curl http://localhost:8123 -H 'content-type: application/json' --data '{"jsonrpc": "2.0","id":1,"method":"getBlock","params": [240442025,{"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]}'
-   curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{"jsonrpc": "2.0","id": 1,"method": "getTransaction","params": ["4NYPPxzQgcMD26nwBNDmZ1Po4LFC21ceo767Li3rqpqVeCVSkcBwXY8V65TfVeuDDJKnC9zVuSCzyFnSzm95rgme","json"]}'
-
- **/
-
 #include "fd_rpc_service.h"
 #include <microhttpd.h>
 #include "../../tango/webserver/fd_methods.h"
 #include "../../tango/webserver/fd_webserver.h"
-#include "../types/fd_types.h"
-#include "../types/fd_solana_block.pb.h"
-#include "../runtime/fd_runtime.h"
-#include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_blockstore.h"
-#include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "keywords.h"
 #include "fd_block_to_json.h"
-#include "../rewards/fd_rewards.h"
+#include "../../flamenco/rewards/fd_rewards.h"
 
 #define API_VERSION "1.17.6"
 
@@ -36,14 +20,27 @@
 
 struct fd_rpc_ctx {
   fd_webserver_t ws;
-  fd_funk_t * funk;
-  fd_blockstore_t * blks;
+  fd_replay_t * replay;
   fd_pubkey_t * identity;
-  fd_exec_slot_ctx_t * slot_ctx;
   long call_id;
 };
 
+static fd_exec_slot_ctx_t *
+get_slot_ctx( fd_rpc_ctx_t * ctx ) {
+  fd_exec_slot_ctx_t * result = NULL;
+  for( fd_replay_frontier_iter_t iter = fd_replay_frontier_iter_init( ctx->replay->frontier, ctx->replay->pool );
+       !fd_replay_frontier_iter_done( iter, ctx->replay->frontier, ctx->replay->pool );
+       iter = fd_replay_frontier_iter_next( iter, ctx->replay->frontier, ctx->replay->pool ) ) {
+    fd_exec_slot_ctx_t * t = &fd_replay_frontier_iter_ele( iter, ctx->replay->frontier, ctx->replay->pool )->slot_ctx;
+    if ( !result || t->slot_bank.slot > result->slot_bank.slot )
+      result = t;
+  }
+  return result;
+}
+
 // Implementation of the "getAccountInfo" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
+
 static int
 method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   // Path to argument
@@ -61,17 +58,17 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   fd_pubkey_t acct;
   fd_base58_decode_32((const char *)arg, acct.uc);
   fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->replay->funk, NULL, &recid);
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (rec == NULL) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%lu}" CRLF,
-                          ctx->slot_ctx->slot_bank.slot, ctx->call_id);
+                          get_slot_ctx(ctx)->slot_bank.slot, ctx->call_id);
     fd_web_replier_done(replier);
     return 0;
   }
 
-  fd_wksp_t * wksp = fd_funk_wksp(ctx->funk);
+  fd_wksp_t * wksp = fd_funk_wksp(ctx->replay->funk);
   void * val = fd_funk_val(rec, wksp);
   ulong val_sz = fd_funk_val_sz(rec);
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
@@ -144,7 +141,7 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
   }
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"data\":[\"",
-                        ctx->slot_ctx->slot_bank.slot);
+                        get_slot_ctx(ctx)->slot_bank.slot);
 
   if (val_sz) {
     switch (enc) {
@@ -182,6 +179,8 @@ method_getAccountInfo(struct fd_web_replier* replier, struct json_values* values
 }
 
 // Implementation of the "getBalance" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [ "6s5gDyLyfNXP6WHUEn4YSMQJVcGETpKze7FCPeg9wxYT" ] }'
+
 static int
 method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   // Path to argument
@@ -199,21 +198,23 @@ method_getBalance(struct fd_web_replier* replier, struct json_values* values, fd
   fd_pubkey_t acct;
   fd_base58_decode_32((const char *)arg, acct.uc);
   fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->replay->funk, NULL, &recid);
   if (rec == NULL) {
     fd_web_replier_error(replier, "failed to load account data for %s", (const char*)arg);
     return 0;
   }
-  void * val = fd_funk_val(rec, fd_funk_wksp(ctx->funk));
+  void * val = fd_funk_val(rec, fd_funk_wksp(ctx->replay->funk));
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->slot_bank.slot, metadata->info.lamports, ctx->call_id);
+                        get_slot_ctx(ctx)->slot_bank.slot, metadata->info.lamports, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getBlock" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0","id":1, "method":"getBlock", "params": [255389538, {"encoding": "json", "maxSupportedTransactionVersion":0, "transactionDetails":"full", "rewards":false}]} '
+
 static int
 method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint PATH_SLOT[3] = {
@@ -295,7 +296,7 @@ method_getBlock(struct fd_web_replier* replier, struct json_values* values, fd_r
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   if (fd_block_to_json(ts,
                        ctx->call_id,
-                       ctx->blks,
+                       ctx->replay->blockstore,
                        slotn,
                        enc,
                        (maxvers == NULL ? 0 : *(const long*)maxvers),
@@ -323,7 +324,7 @@ method_getBlockHeight(struct fd_web_replier* replier, struct json_values* values
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->slot_bank.block_height,
+                        get_slot_ctx(ctx)->slot_bank.block_height,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -339,6 +340,8 @@ method_getBlockProduction(struct fd_web_replier* replier, struct json_values* va
 }
 
 // Implementation of the "getBlocks" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getBlocks", "params": [255392051, 255392061]} '
+
 static int
 method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint PATH_STARTSLOT[3] = {
@@ -360,32 +363,35 @@ method_getBlocks(struct fd_web_replier* replier, struct json_values* values, fd_
   };
   ulong endslot_sz = 0;
   const void* endslot = json_get_value(values, PATH_ENDSLOT, 3, &endslot_sz);
-  ulong endslotn = (endslot == NULL ? ctx->slot_ctx->slot_bank.slot : (ulong)(*(long*)endslot));
+  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
+  ulong endslotn = (endslot == NULL ? slot_ctx->slot_bank.slot : (ulong)(*(long*)endslot));
 
-  if (startslotn < ctx->blks->min)
-    startslotn = ctx->blks->min;
-  if (endslotn > ctx->slot_ctx->slot_bank.slot)
-    endslotn = ctx->slot_ctx->slot_bank.slot;
+  if (startslotn < ctx->replay->blockstore->min)
+    startslotn = ctx->replay->blockstore->min;
+  if (endslotn > slot_ctx->slot_bank.slot)
+    endslotn = slot_ctx->slot_bank.slot;
 
-  fd_blockstore_start_read( ctx->blks );
+  fd_blockstore_start_read( ctx->replay->blockstore );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
+    fd_block_t * blk = fd_blockstore_block_query(ctx->replay->blockstore, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
     }
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
-  fd_blockstore_end_read( ctx->blks );
+  fd_blockstore_end_read( ctx->replay->blockstore );
 
   fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getBlocksWithLimit" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id":1, "method":"getBlocksWithLimit", "params":[255571764, 3]} '
+
 static int
 method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint PATH_SLOT[3] = {
@@ -413,24 +419,25 @@ method_getBlocksWithLimit(struct fd_web_replier* replier, struct json_values* va
   }
   ulong limitn = (ulong)(*(long*)limit);
 
-  if (startslotn < ctx->blks->min)
-    startslotn = ctx->blks->min;
+  if (startslotn < ctx->replay->blockstore->min)
+    startslotn = ctx->replay->blockstore->min;
   if (limitn > 500000)
     limitn = 500000;
 
-  fd_blockstore_start_read( ctx->blks );
+  fd_blockstore_start_read( ctx->replay->blockstore );
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
-  for ( ulong i = startslotn; i <= ctx->slot_ctx->slot_bank.slot && cnt < limitn; ++i ) {
-    fd_block_t * blk = fd_blockstore_block_query(ctx->blks, i);
+  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
+  for ( ulong i = startslotn; i <= slot_ctx->slot_bank.slot && cnt < limitn; ++i ) {
+    fd_block_t * blk = fd_blockstore_block_query(ctx->replay->blockstore, i);
     if (blk != NULL) {
       fd_textstream_sprintf(ts, "%s%lu", (cnt==0 ? "" : ","), i);
       ++cnt;
     }
   }
   fd_textstream_sprintf(ts, "],\"id\":%lu}" CRLF, ctx->call_id);
-  fd_blockstore_end_read( ctx->blks );
+  fd_blockstore_end_read( ctx->replay->blockstore );
 
   fd_web_replier_done(replier);
   return 0;
@@ -500,37 +507,41 @@ method_getConfirmedTransaction(struct fd_web_replier* replier, struct json_value
 }
 
 // Implementation of the "getEpochInfo" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getEpochInfo"} '
+
 static int
 method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
-  fd_exec_slot_ctx_t * slot_ctx = ctx->slot_ctx;
+  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
   ulong slot_idx = 0;
-  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, epoch );
+  ulong epoch = fd_slot_to_epoch( &ctx->replay->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &ctx->replay->epoch_ctx->epoch_bank.epoch_schedule, epoch );
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->slot_bank.slot,
-                        ctx->slot_ctx->slot_bank.block_height,
+                        slot_ctx->slot_bank.slot,
+                        slot_ctx->slot_bank.block_height,
                         epoch,
                         slot_idx,
                         slots_per_epoch,
-                        ctx->slot_ctx->slot_bank.transaction_count,
+                        slot_ctx->slot_bank.transaction_count,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getEpochSchedule" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getEpochSchedule"} '
+
 static int
 method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.first_normal_epoch,
-                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.first_normal_slot,
-                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.leader_schedule_slot_offset,
-                        ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch,
-                        (ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.warmup ? "true" : "false"),
+                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.first_normal_epoch,
+                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.first_normal_slot,
+                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.leader_schedule_slot_offset,
+                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch,
+                        (ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.warmup ? "true" : "false"),
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -582,12 +593,14 @@ method_getFirstAvailableBlock(struct fd_web_replier* replier, struct json_values
 }
 
 // Implementation of the "getGenesisHash" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getGenesisHash"} '
+
 static int
 method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_textstream_encode_base58(ts, ctx->slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_pubkey_t));
+  fd_textstream_encode_base58(ts, ctx->replay->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -613,6 +626,8 @@ method_getHighestSnapshotSlot(struct fd_web_replier* replier, struct json_values
 }
 
 // Implementation of the "getIdentity" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getIdentity"} '
+
 static int
 method_getIdentity(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
@@ -633,12 +648,14 @@ method_getInflationGovernor(struct fd_web_replier* replier, struct json_values* 
 }
 
 // Implementation of the "getInflationRate" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getInflationRate"} '
+
 static int
 method_getInflationRate(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_inflation_rates_t rates;
-  calculate_inflation_rates( ctx->slot_ctx, &rates );
+  calculate_inflation_rates( get_slot_ctx(ctx), &rates );
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"epoch\":%lu,\"foundation\":%.18f,\"total\":%.18f,\"validator\":%.18f},\"id\":%lu}" CRLF,
                         rates.epoch,
                         rates.foundation,
@@ -668,15 +685,18 @@ method_getLargestAccounts(struct fd_web_replier* replier, struct json_values* va
 }
 
 // Implementation of the "getLatestBlockhash" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getLatestBlockhash"} '
+
 static int
 method_getLatestBlockhash(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":{\"blockhash\":\"",
-                        ctx->slot_ctx->slot_bank.slot);
-  fd_textstream_encode_base58(ts, ctx->slot_ctx->slot_bank.poh.uc, sizeof(fd_pubkey_t));
+                        slot_ctx->slot_bank.slot);
+  fd_textstream_encode_base58(ts, slot_ctx->slot_bank.poh.uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"lastValidBlockHeight\":%lu}},\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->slot_bank.block_height,
+                        slot_ctx->slot_bank.block_height,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -711,6 +731,8 @@ method_getMaxShredInsertSlot(struct fd_web_replier* replier, struct json_values*
 }
 
 // Implementation of the "getMinimumBalanceForRentExemption" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getMinimumBalanceForRentExemption", "params": [50]} '
+
 static int
 method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint PATH_SIZE[3] = {
@@ -721,7 +743,7 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
   ulong size_sz = 0;
   const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
   ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
-  ulong min_balance = fd_rent_exempt_minimum_balance2(&ctx->slot_ctx->epoch_ctx->epoch_bank.rent, sizen);
+  ulong min_balance = fd_rent_exempt_minimum_balance2(&ctx->replay->epoch_ctx->epoch_bank.rent, sizen);
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
@@ -732,6 +754,8 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
 }
 
 // Implementation of the "getMultipleAccounts" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getMultipleAccounts", "params": [["Cwg1f6m4m3DGwMEbmsbAfDtUToUf5jRdKrJSGD7GfZCB", "Cwg1f6m4m3DGwMEbmsbAfDtUToUf5jRdKrJSGD7GfZCB", "7935owQYeYk1H6HjzKRYnT1aZpf1uXcpZNYjgTZ8q7VR"], {"encoding": "base64"}]} '
+
 static int
 method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint ENC_PATH[4] = {
@@ -758,7 +782,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        ctx->slot_ctx->slot_bank.slot);
+                        get_slot_ctx(ctx)->slot_bank.slot);
 
   // Iterate through account ids
   for ( ulong i = 0; ; ++i ) {
@@ -780,7 +804,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
     fd_pubkey_t acct;
     fd_base58_decode_32((const char *)arg, acct.uc);
     fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->funk, NULL, &recid);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(ctx->replay->funk, NULL, &recid);
     if (rec == NULL) {
       fd_textstream_sprintf(ts, "null");
       continue;
@@ -788,7 +812,7 @@ method_getMultipleAccounts(struct fd_web_replier* replier, struct json_values* v
 
     fd_textstream_sprintf(ts, "{\"data\":[\"");
 
-    fd_wksp_t * wksp = fd_funk_wksp(ctx->funk);
+    fd_wksp_t * wksp = fd_funk_wksp(ctx->replay->funk);
     void * val = fd_funk_val(rec, wksp);
     ulong val_sz = fd_funk_val_sz(rec);
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
@@ -884,14 +908,16 @@ method_getSignaturesForAddress(struct fd_web_replier* replier, struct json_value
 }
 
 // Implementation of the "getSignatureStatuses" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getSignatureStatuses", "params": [["5drbPbSkXkuVJane6FN5ghEBDrHvmUGq9ffdRripUc9nbik5VSFtTGqfdmEsbW4HkSKRv8QKefg996EhASpae3Hp"], {"searchTransactionHistory": true}]} '
+
 static int
 method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"value\":[",
-                        ctx->slot_ctx->slot_bank.slot);
+                        get_slot_ctx(ctx)->slot_bank.slot);
 
   // Iterate through account ids
-  fd_blockstore_start_read( ctx->blks );
+  fd_blockstore_start_read( ctx->replay->blockstore );
   for ( ulong i = 0; ; ++i ) {
     // Path to argument
     uint path[4];
@@ -909,11 +935,11 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
       fd_textstream_append(ts, ",", 1);
 
     uchar key[FD_ED25519_SIG_SZ];
-    if ( fd_base58_decode_64( sig, key) == NULL ) {
+    if ( fd_base58_decode_64( sig, key ) == NULL ) {
       fd_textstream_sprintf(ts, "null");
       continue;
     }
-    fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->blks, key );
+    fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->replay->blockstore, key );
     if ( FD_UNLIKELY( NULL == elem ) ) {
       fd_textstream_sprintf(ts, "null");
       continue;
@@ -923,7 +949,7 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
     fd_textstream_sprintf(ts, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}",
                          elem->slot);
   }
-  fd_blockstore_end_read( ctx->blks );
+  fd_blockstore_end_read( ctx->replay->blockstore );
 
   fd_textstream_sprintf(ts, "]},\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
@@ -931,24 +957,28 @@ method_getSignatureStatuses(struct fd_web_replier* replier, struct json_values* 
 }
 
 // Implementation of the "getSlot" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getSlot"} '
+
 static int
 method_getSlot(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
-                        ctx->slot_ctx->slot_bank.slot,
+                        get_slot_ctx(ctx)->slot_bank.slot,
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
 }
 
 // Implementation of the "getSlotLeader" methods
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getSlotLeader"} '
+
 static int
 method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_pubkey_t const * leader = fd_epoch_leaders_get(ctx->slot_ctx->epoch_ctx->leaders, ctx->slot_ctx->slot_bank.slot);
+  fd_pubkey_t const * leader = fd_epoch_leaders_get(ctx->replay->epoch_ctx->leaders, get_slot_ctx(ctx)->slot_bank.slot);
   fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
@@ -1047,6 +1077,8 @@ method_getTokenSupply(struct fd_web_replier* replier, struct json_values* values
 }
 
 // Implementation of the "getTransaction" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc": "2.0", "id": 1, "method": "getTransaction", "params": ["2ksfn7BNHFTeKNTJ3U5NHd8aHM8yMtsGvQ7UiNpGNyekJ4cd3RbnxuJtsUC11tkqdTr2xzxtV6kHfg34ri6CE4cS", "json"]} '
+
 static int
 method_getTransaction(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   static const uint PATH_SIG[3] = {
@@ -1091,40 +1123,40 @@ method_getTransaction(struct fd_web_replier* replier, struct json_values* values
     fd_web_replier_done(replier);
     return 0;
   }
-  fd_blockstore_start_read( ctx->blks );
-  fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->blks, key );
+  fd_blockstore_start_read( ctx->replay->blockstore );
+  fd_blockstore_txn_map_t * elem = fd_blockstore_txn_query( ctx->replay->blockstore, key );
   if ( FD_UNLIKELY( NULL == elem ) ) {
     fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%lu}" CRLF, ctx->call_id);
     fd_web_replier_done(replier);
-    fd_blockstore_end_read( ctx->blks );
+    fd_blockstore_end_read( ctx->replay->blockstore );
     return 0;
   }
 
-  fd_block_t * blk = fd_blockstore_block_query( ctx->blks, elem->slot );
+  fd_block_t * blk = fd_blockstore_block_query( ctx->replay->blockstore, elem->slot );
   if (blk == NULL) {
     fd_web_replier_error(replier, "failed to load block for slot %lu", elem->slot);
-    fd_blockstore_end_read( ctx->blks );
+    fd_blockstore_end_read( ctx->replay->blockstore );
     return 0;
   }
 
   uchar txn_out[FD_TXN_MAX_SZ];
   ulong pay_sz = 0;
-  const uchar* raw = (const uchar *)fd_blockstore_block_data_laddr(ctx->blks, blk) + elem->offset;
+  const uchar* raw = (const uchar *)fd_blockstore_block_data_laddr(ctx->replay->blockstore, blk) + elem->offset;
   ulong txn_sz = fd_txn_parse_core(raw, elem->sz, txn_out, NULL, &pay_sz, 0);
   if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ )
     FD_LOG_ERR(("failed to parse transaction"));
 
   ulong meta_gaddr = elem->meta_gaddr;
   ulong meta_sz = elem->meta_sz;
-  void * meta = (meta_gaddr ? fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->blks ), meta_gaddr ) : NULL);
+  void * meta = (meta_gaddr ? fd_wksp_laddr_fast( fd_blockstore_wksp( ctx->replay->blockstore ), meta_gaddr ) : NULL);
 
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" API_VERSION "\",\"slot\":%lu},\"blockTime\":%ld,\"slot\":%lu,",
-                        ctx->slot_ctx->slot_bank.slot, blk->ts/(long)1e9, elem->slot);
+                        get_slot_ctx(ctx)->slot_bank.slot, blk->ts/(long)1e9, elem->slot);
   fd_txn_to_json( ts, (fd_txn_t *)txn_out, raw, meta, meta_sz, enc, 0, FD_BLOCK_DETAIL_FULL, 0 );
   fd_textstream_sprintf(ts, "},\"id\":%lu}" CRLF, ctx->call_id);
 
   fd_web_replier_done(replier);
-  fd_blockstore_end_read( ctx->blks );
+  fd_blockstore_end_read( ctx->replay->blockstore );
   return 0;
 }
 
@@ -1138,6 +1170,8 @@ method_getTransactionCount(struct fd_web_replier* replier, struct json_values* v
 }
 
 // Implementation of the "getVersion" method
+// curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d ' {"jsonrpc":"2.0","id":1, "method":"getVersion"} '
+
 static int
 method_getVersion(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void) values;
@@ -1520,13 +1554,11 @@ fd_webserver_method_generic(struct fd_web_replier* replier, struct json_values* 
 }
 
 fd_rpc_ctx_t *
-fd_rpc_alloc_ctx(fd_funk_t * funk, fd_blockstore_t * blks, fd_pubkey_t * identity, fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc) {
-  fd_rpc_ctx_t * ctx = (fd_rpc_ctx_t *)fd_valloc_malloc( valloc, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t));
+fd_rpc_alloc_ctx(fd_replay_t * replay, fd_pubkey_t * identity) {
+  fd_rpc_ctx_t * ctx = (fd_rpc_ctx_t *)fd_valloc_malloc( replay->valloc, alignof(fd_rpc_ctx_t), sizeof(fd_rpc_ctx_t));
   fd_memset(ctx, 0, sizeof(fd_rpc_ctx_t));
-  ctx->funk = funk;
-  ctx->blks = blks;
+  ctx->replay = replay;
   ctx->identity = identity;
-  ctx->slot_ctx = slot_ctx;
   return ctx;
 }
 

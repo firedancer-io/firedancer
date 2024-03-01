@@ -25,7 +25,8 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   fd_replay_t * replay      = (void *)laddr;
   replay->smr               = FD_SLOT_NULL;
   replay->snapshot_slot     = FD_SLOT_NULL;
-  replay->turbine_slot      = FD_SLOT_NULL;
+  replay->first_turbine_slot = FD_SLOT_NULL;
+  replay->curr_turbine_slot  = 0;
 
   laddr += sizeof( fd_replay_t );
 
@@ -377,6 +378,10 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   child->slot_ctx.slot_bank.collected_rent = 0;
 
   FD_LOG_NOTICE( ( "slot: %lu", slot ) );
+  FD_LOG_NOTICE( ( "first turbine: %lu, curr turbine: %lu, behind: %lu",
+                   replay->first_turbine_slot,
+                   replay->curr_turbine_slot,
+                   replay->curr_turbine_slot - slot ) );
   FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
 
   //   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
@@ -575,8 +580,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
   int                  rc          = fd_fec_resolver_add_shred(
       replay->fec_resolver, shred, shred_sz, leader->uc, &out_fec_set, &out_shred );
   if( rc == FD_FEC_RESOLVER_SHRED_COMPLETES ) {
-    if( FD_UNLIKELY( replay->turbine_slot == FD_SLOT_NULL ) ) {
-      replay->turbine_slot = shred->slot;
+    if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) {
+      replay->first_turbine_slot = shred->slot;
     }
     fd_shred_t * parity_shred = (fd_shred_t *)fd_type_pun( out_fec_set->parity_shreds[0] );
     FD_LOG_DEBUG( ( "slot: %lu. parity: %lu. data: %lu",
@@ -602,6 +607,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
           ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
       int rc = fd_blockstore_shred_insert( blockstore, data_shred );
       if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
+        if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) { replay->first_turbine_slot = slot; }
+        replay->curr_turbine_slot = fd_ulong_max(slot, replay->curr_turbine_slot);
         FD_LOG_NOTICE(( "[turbine] slot %lu complete", slot ));
         
         fd_blockstore_end_write( blockstore );

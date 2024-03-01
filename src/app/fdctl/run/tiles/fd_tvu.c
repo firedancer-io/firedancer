@@ -299,11 +299,26 @@ during_housekeeping( void * ctx ) {
   // repair_housekeeping();
 }
 
+#include "../../../../util/tile/fd_tile_private.h"
+/* Temporary hack until we get the tiles right */
+void cpuset_hack() {
+  FD_CPUSET_DECL( cpu_set );
+  fd_cpuset_insert( cpu_set, 25 );
+  fd_cpuset_insert( cpu_set, 26 );
+  fd_cpuset_insert( cpu_set, 27 );
+  fd_cpuset_insert( cpu_set, 28 );
+
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+    FD_LOG_ERR(( "fd_cpuset_setaffinity failed" ));
+  }
+}
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
   g_wksp = topo->workspaces[ tile->wksp_id ].wksp;
+  // cpuset_hack();
   
   strncpy( g_repair_peer_id, tile->tvu.repair_peer_id, sizeof(g_repair_peer_id) );
   strncpy( g_repair_peer_addr, tile->tvu.repair_peer_addr, sizeof(g_repair_peer_addr) );

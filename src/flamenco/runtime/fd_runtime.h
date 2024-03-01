@@ -17,7 +17,6 @@
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
-#include "../rpc/fd_rpc_service.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -68,9 +67,6 @@ struct fd_runtime_ctx {
   fd_gossip_t *         gossip;
   fd_repair_t *         repair;
   volatile int          stopflag;
-#ifdef FD_HAS_LIBMICROHTTP
-  fd_rpc_ctx_t *        rpc_ctx;
-#endif
 
   // random crap
   FILE *                 capture_file;

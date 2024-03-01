@@ -23,6 +23,10 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 
+#ifdef FD_HAS_LIBMICROHTTP
+typedef struct fd_rpc_ctx fd_rpc_ctx_t;
+#endif
+
 #define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
 #define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
 #define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
@@ -69,7 +73,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
   /* metadata */
   ulong smr;           /* super-majority root */
   ulong snapshot_slot; /* the snapshot slot */
-  ulong turbine_slot;  /* the first turbine slot we received on startup */
+  ulong first_turbine_slot;  /* the first turbine slot we received on startup */
+  ulong curr_turbine_slot;
 
   /* internal joins */
   fd_replay_slot_ctx_t *     pool;     /* memory pool of slot_ctxs */
@@ -99,6 +104,10 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_tpool_t *          tpool;
   ulong                 max_workers;
   fd_valloc_t           valloc;
+
+#ifdef FD_HAS_LIBMICROHTTP
+  fd_rpc_ctx_t *        rpc_ctx;
+#endif
 };
 typedef struct fd_replay fd_replay_t;
 /* clang-format on */

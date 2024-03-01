@@ -1,14 +1,14 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "../../util/fd_util.h"
-#include "../nanopb/pb_decode.h"
+#include "../../flamenco/nanopb/pb_decode.h"
 #include "../../tango/webserver/fd_webserver.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../types/fd_types.h"
-#include "../types/fd_solana_block.pb.h"
-#include "../runtime/fd_blockstore.h"
+#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_solana_block.pb.h"
+#include "../tvu/fd_replay.h"
 #include "fd_block_to_json.h"
 
 #define EMIT_SIMPLE(_str_) fd_textstream_append(ts, _str_, sizeof(_str_)-1)

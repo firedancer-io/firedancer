@@ -76,7 +76,7 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #ifdef FD_HAS_LIBMICROHTTP
-#include "../../flamenco/rpc/fd_rpc_service.h"
+#include "../rpc/fd_rpc_service.h"
 #endif
 #include <arpa/inet.h>
 #include <errno.h>
@@ -435,6 +435,8 @@ fd_tvu_main( fd_gossip_t *         gossip,
         fd_replay_slot_prepare( replay_tmp, i, &block, &block_sz );
       if( FD_LIKELY( parent_slot_ctx ) ) {
         fd_replay_slot_execute( replay_tmp, i, parent_slot_ctx, block, block_sz );
+        if( i > 64U )
+          replay->smr = fd_ulong_max( replay->smr, i - 64U );
       }
     }
 
@@ -704,7 +706,7 @@ void blockstore_setup( fd_wksp_t * wksp, ulong hashseed, blockstore_setup_t * ou
     // - 1mb of txns
     ulong tmp_shred_max    = 1UL << 20;
     ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
-    int   lg_txn_max       = 20;
+    int   lg_txn_max       = 25;
     out->blockstore             = fd_blockstore_join(
         fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
     if( out->blockstore == NULL ) {
@@ -1074,9 +1076,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /**********************************************************************/
     /* rpc service                                                        */
     /**********************************************************************/
-    runtime_ctx->rpc_ctx =
-        fd_rpc_alloc_ctx( funk_setup_out.funk, blockstore_setup_out.blockstore, &runtime_ctx->public_key, slot_ctx_setup_out.exec_slot_ctx, valloc );
-    fd_rpc_start_service( args->rpc_port, runtime_ctx->rpc_ctx );
+    (*replay)->rpc_ctx =
+        fd_rpc_alloc_ctx( *replay, &runtime_ctx->public_key );
+    fd_rpc_start_service( args->rpc_port, (*replay)->rpc_ctx );
 #endif
 
     /**********************************************************************/
@@ -1163,7 +1165,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   }
 
   slot_ctx_setup_out.replay_slot_ctx->slot    = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
-  replay_setup_out.replay->turbine_slot = FD_SLOT_NULL;
 
   /* FIXME epoch boundary stuff when replaying */
   fd_features_restore( slot_ctx_setup_out.exec_slot_ctx );
@@ -1237,19 +1238,17 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
 
 void
 fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
-#ifdef FD_HAS_LIBMICROHTTP
-  if( tvu_args->rpc_ctx ) fd_rpc_stop_service( tvu_args->rpc_ctx );
-#endif
-
   if( tvu_args->capture_file != NULL) {
     fd_solcap_writer_fini( tvu_args->capture_ctx->capture );
     fd_valloc_free( tvu_args->slot_ctx->valloc, fd_capture_ctx_delete( tvu_args->capture_ctx ) );
     fclose( tvu_args->capture_file );
   }
 
-  fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
-
   if ( NULL != replay ) {
+#ifdef FD_HAS_LIBMICROHTTP
+    if( replay->rpc_ctx ) fd_rpc_stop_service( replay->rpc_ctx );
+#endif
+
     for( fd_replay_frontier_iter_t iter =
              fd_replay_frontier_iter_init( replay->frontier, replay->pool );
          !fd_replay_frontier_iter_done( iter, replay->frontier, replay->pool );
@@ -1267,4 +1266,6 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
 
   /* Some replay paths don't use frontiers */
   if( tvu_args->slot_ctx ) fd_exec_slot_ctx_free( tvu_args->slot_ctx );
+
+  fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
 }

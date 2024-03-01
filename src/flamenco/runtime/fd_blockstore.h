@@ -23,7 +23,7 @@
 
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
-#define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 16384UL )
+#define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 1UL << 13UL )
 #define FD_BLOCKSTORE_DUP_SHREDS_MAX   ( 32UL ) /* TODO think more about this */
 #define FD_BLOCKSTORE_BLOCK_SZ_MAX     ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
 

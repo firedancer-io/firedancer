@@ -1,0 +1,8 @@
+topology = "tvu"
+[tiles.tvu]
+  gossip_peer_addr = "204.16.244.150:8001"
+  incremental_snapshot = "https://api.mainnet-beta.solana.com/incremental-snapshot.tar.bz2"
+  load = "/data/chali/funk"
+  rpc_listen_port = 8123
+  page_cnt = 364
+
