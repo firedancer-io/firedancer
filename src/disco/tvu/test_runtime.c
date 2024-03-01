@@ -103,7 +103,10 @@ main( int     argc,
 
   if (strcmp(args.cmd, "replay") == 0) {
     int err = fd_runtime_replay(&state, &args);
-    if( err!=0 ) return err;
+    if( err!=0 ) {
+      fd_tvu_main_teardown(&state, NULL);
+      return err;
+    }
   }
 
   fd_tvu_main_teardown(&state, NULL);

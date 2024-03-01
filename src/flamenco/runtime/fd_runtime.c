@@ -1413,7 +1413,8 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
 int fd_runtime_block_execute(fd_exec_slot_ctx_t *slot_ctx,
                              fd_capture_ctx_t *capture_ctx,
                              fd_block_info_t const *block_info) {
-  // fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
+  if (NULL != capture_ctx)
+    fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
   int res = fd_runtime_block_execute_prepare(slot_ctx);
   if (res != FD_RUNTIME_EXECUTE_SUCCESS) {
     return res;
@@ -1440,6 +1441,9 @@ int fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                     fd_block_info_t const * block_info,
                                     fd_tpool_t * tpool,
                                     ulong max_workers ) {
+  if (NULL != capture_ctx)
+    fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
+
   long block_execute_time = -fd_log_wallclock();
 
   int res = fd_runtime_block_execute_prepare( slot_ctx );
@@ -1474,6 +1478,9 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_tpool_t * tpool,
                                        ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
+    if (NULL != capture_ctx)
+      fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
+
     long block_execute_time = -fd_log_wallclock();
 
     int res = fd_runtime_block_execute_prepare( slot_ctx );
@@ -3180,9 +3187,9 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
   // TODO: do we need to update the vote accounts as well? Trying to update them breaks things
 
   // TODO: is this size correct if the same stake account is in both the slot and epoch cache? Is this possible?
-  ulong stake_delegations_size = fd_delegation_pair_t_map_size( 
+  ulong stake_delegations_size = fd_delegation_pair_t_map_size(
     stakes->stake_delegations_pool, stakes->stake_delegations_root );
-  stake_delegations_size += fd_stake_accounts_pair_t_map_size( 
+  stake_delegations_size += fd_stake_accounts_pair_t_map_size(
     slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
 
   // Create a new epoch stake delegations cache, which will hold the union of the slot and epoch caches.
@@ -3232,7 +3239,7 @@ void fd_update_stake_delegations(fd_exec_slot_ctx_t * slot_ctx ) {
 
   // Update the epoch bank vote_accounts with the latest values from the slot bank
   // FIXME: resize the vote_accounts_pool if necessary
-  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum( 
+  for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
     slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, slot_ctx->slot_bank.vote_account_keys.vote_accounts_root );
         n;
         n = fd_vote_accounts_pair_t_map_successor( slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool, n ) ) {
@@ -3550,7 +3557,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.poh.hash ) );
       if( state->abort_on_mismatch ) {
-        __asm__( "int $3" );
+        //__asm__( "int $3" );
         fd_blockstore_end_read( blockstore );
         return 1;
       }
@@ -3567,7 +3574,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
                         expected->hash,
                         state->slot_ctx->slot_bank.banks_hash.hash ) );
       if( state->abort_on_mismatch ) {
-        __asm__( "int $3" );
+        //__asm__( "int $3" );
         fd_blockstore_end_read( blockstore );
         return 1;
       }
