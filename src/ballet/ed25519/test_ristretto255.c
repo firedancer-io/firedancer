@@ -2,8 +2,7 @@
 
 #include "../fd_ballet.h"
 #include "../hex/fd_hex.h"
-#include "fd_ristretto255_ge.h"
-#include "fd_ristretto255_ge_private.h"
+#include "fd_ristretto255.h"
 
 /* base_point_multiples was imported from
    draft-irtf-cfrg-ristretto255-decaf448-08 Appendix A.1 */
@@ -77,29 +76,24 @@ log_bench( char const * descr,
 }
 
 static void
-fd_ed25519_fe_print (fd_ed25519_fe_t * f) {
+fd_f25519_print (fd_f25519_t * f) {
   uchar s[32];
-  fd_ed25519_fe_tobytes(s, f);
+  fd_f25519_tobytes(s, f);
   for ( int i=0; i<32; i++ ) { printf("%02x", s[i]); } printf("\n");
 }
 
 FD_FN_UNUSED static void
-fd_ed25519_ge_print (fd_ed25519_point_t * _p) {
-  fd_ed25519_ge_p3_t * p = (fd_ed25519_ge_p3_t *)_p;
-  printf("X = "); fd_ed25519_fe_print(p->X);
-  printf("Y = "); fd_ed25519_fe_print(p->Y);
-  printf("Z = "); fd_ed25519_fe_print(p->Z);
-  printf("T = "); fd_ed25519_fe_print(p->T);
+fd_ed25519_ge_print (fd_ed25519_point_t * p) {
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_to( x, y, z, t, p );
+
+  printf("X = "); fd_f25519_print(x);
+  printf("Y = "); fd_f25519_print(y);
+  printf("Z = "); fd_f25519_print(z);
+  printf("T = "); fd_f25519_print(t);
 }
 
-FD_FN_UNUSED static int
-fd_ed25519_point_eq (fd_ed25519_point_t * _p, fd_ed25519_point_t * _q) {
-  fd_ed25519_ge_p3_t * p = (fd_ed25519_ge_p3_t *)_p;
-  fd_ed25519_ge_p3_t * q = (fd_ed25519_ge_p3_t *)_q;
-  return fd_ed25519_ge_eq(p, q);
-}
-
-static void
+void
 test_point_decompress( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar                   _s[32]; uchar *                   s = _s;
   fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
@@ -139,7 +133,7 @@ test_point_decompress( FD_FN_UNUSED fd_rng_t * rng ) {
   log_bench( "fd_ristretto255_point_decompress", iter, dt );
 }
 
-static void
+void
 test_point_compress( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar                   _s[32]; uchar *                   s = _s;
   fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
@@ -167,13 +161,15 @@ test_point_compress( FD_FN_UNUSED fd_rng_t * rng ) {
     }
 
     /* Multiply all coordinates by const c */
-    fd_ed25519_ge_p3_t * p = fd_type_pun(h);
-    fd_ed25519_fe_t _c[1]; fd_ed25519_fe_t * c = _c;
-    fd_ed25519_fe_rng(c, rng);
-    fd_ed25519_fe_mul(p->X, p->X, c);
-    fd_ed25519_fe_mul(p->Y, p->Y, c);
-    fd_ed25519_fe_mul(p->Z, p->Z, c);
-    fd_ed25519_fe_mul(p->T, p->T, c);
+    fd_f25519_t _c[1]; fd_f25519_t * c = _c;
+    fd_f25519_rng_unsafe(c, rng);
+    fd_f25519_t _x[1], _y[1], _z[1], _t[1];
+    fd_ed25519_point_to( _x, _y, _z, _t, h );
+    fd_f25519_mul( _x, _x, c );
+    fd_f25519_mul( _y, _y, c );
+    fd_f25519_mul( _z, _z, c );
+    fd_f25519_mul( _t, _t, c );
+    fd_ed25519_point_from( h, _x, _y, _z, _t );
 
     fd_ristretto255_point_compress( t, h );
     if( FD_UNLIKELY( !!memcmp( s, t, 32 ) ) ) {
@@ -195,31 +191,7 @@ test_point_compress( FD_FN_UNUSED fd_rng_t * rng ) {
   log_bench( "fd_ristretto255_point_compress", iter, dt );
 }
 
-static void
-test_extended_bytes( FD_FN_UNUSED fd_rng_t * rng ) {
-  uchar                   _s[32*4]; uchar *                   s = _s;
-  fd_ristretto255_point_t _h[1];    fd_ristretto255_point_t * h = _h;
-
-  /* Benchmarks */
-  fd_ristretto255_point_decompress( h, base_point_multiples[5] );
-  ulong iter = 100000UL;
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_extended_tobytes( s, h ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_extended_tobytes", iter, dt );
-  }
-
-  {
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( s ); FD_COMPILER_FORGET( h ); fd_ristretto255_extended_frombytes( h, s ); }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_extended_frombytes", iter, dt );
-  }
-}
-
-static void
+void
 test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
   uchar                   _s[64]; uchar *                   s = _s;
   uchar                   _e[32]; uchar *                   e = _e;
@@ -262,31 +234,6 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_ristretto255_map_to_curve", iter, dt );
   }
-
-  {
-    fd_ristretto255_point_t _ha[1]; fd_ristretto255_point_t * ha = _ha;
-    fd_ristretto255_point_t _hb[1]; fd_ristretto255_point_t * hb = _hb;
-    fd_ristretto255_point_t _hc[1]; fd_ristretto255_point_t * hc = _hc;
-    fd_ristretto255_point_t _hd[1]; fd_ristretto255_point_t * hd = _hd;
-
-    fd_ristretto255_map_to_curve  ( h,s );
-    fd_ristretto255_map_to_curve_4( ha,s, hb,s, hc,s, hd,s );
-    FD_TEST( fd_ristretto255_point_eq( h, ha ) );
-    FD_TEST( fd_ristretto255_point_eq( h, hb ) );
-    FD_TEST( fd_ristretto255_point_eq( h, hc ) );
-    FD_TEST( fd_ristretto255_point_eq( h, hd ) );
-
-    long dt = fd_log_wallclock();
-    for( ulong rem=iter; rem; rem-- ) {
-      FD_COMPILER_FORGET( s );
-      FD_COMPILER_FORGET( ha ); FD_COMPILER_FORGET( hb );
-      FD_COMPILER_FORGET( hc ); FD_COMPILER_FORGET( hd );
-      fd_ristretto255_map_to_curve_4( ha,s, hb,s, hc,s, hd,s );
-    }
-    dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_map_to_curve_4", iter, dt );
-  }
-
 }
 
 static void
@@ -319,6 +266,7 @@ test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_ristretto255_point_decompress( f, base_point_multiples[i] );
       fd_ristretto255_point_decompress( g, base_point_multiples[j] );
       fd_ristretto255_point_decompress( t, base_point_multiples[i+j] );
+
       fd_ristretto255_point_add( h, f, g ); /* (i+j)P = iP + jP */
       FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
@@ -359,22 +307,22 @@ test_scalar_validate( FD_FN_UNUSED fd_rng_t * rng ) {
 
   // curve25519 r reduces to 0, hence invalid
   fd_hex_decode( a, "EDD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
-  FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
+  FD_TEST( fd_curve25519_scalar_validate( a )==NULL );
 
   fd_hex_decode( a, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 32 );
-  FD_TEST( fd_ed25519_scalar_validate( a )==NULL );
+  FD_TEST( fd_curve25519_scalar_validate( a )==NULL );
 
   // valid
 
   fd_hex_decode( a, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
-  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+  FD_TEST( fd_curve25519_scalar_validate( a )==a );
 
   fd_hex_decode( a, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
-  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+  FD_TEST( fd_curve25519_scalar_validate( a )==a );
 
   // r-1
   fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
-  FD_TEST( fd_ed25519_scalar_validate( a )==a );
+  FD_TEST( fd_curve25519_scalar_validate( a )==a );
 
   /* Benchmarks */
   ulong iter = 1000000UL;
@@ -402,13 +350,13 @@ test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_decompress( t, base_point_multiples[13] );
   memset( a, 0, 32 );
   a[0] = 13;
-  FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
+  FD_TEST( fd_ristretto255_scalar_mul( h, a, f )==h );
   FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
   fd_hex_decode( a, "ECD3F55C1A631258D69CF7A2DEF9DE1400000000000000000000000000000010", 32 );
   fd_ristretto255_point_decompress( t, base_point_multiples[0] );
   fd_ristretto255_point_sub( t, t, f ); // -P
-  FD_TEST( fd_ristretto255_point_scalarmult( h, a, f )==h );
+  FD_TEST( fd_ristretto255_scalar_mul( h, a, f )==h );
   FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
   /* Benchmarks */
@@ -418,10 +366,10 @@ test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
       FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( a ); FD_COMPILER_FORGET( h );
-      fd_ristretto255_point_scalarmult( h, a, f );
+      fd_ristretto255_scalar_mul( h, a, f );
     }
     dt = fd_log_wallclock() - dt;
-    log_bench( "fd_ristretto255_point_scalarmult", iter, dt );
+    log_bench( "fd_ristretto255_scalar_mul", iter, dt );
   }
 }
 
@@ -438,7 +386,7 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _h[1];       fd_ristretto255_point_t * h = _h;
 
   /* Correctness */
-#define MSM_N 6
+#define MSM_N 126
   {
     fd_ristretto255_point_t _f[MSM_N]; fd_ristretto255_point_t * f = _f;
     uchar _a[MSM_N][32];               uchar * a = (uchar *)_a;
@@ -452,11 +400,15 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
       fd_ristretto255_point_decompress( &_f[2*i+1], base_point_multiples[1] );
     }
     fd_ristretto255_point_t _t[1]; fd_ristretto255_point_t * t = _t;
-    fd_ristretto255_point_decompress( t, base_point_multiples[MSM_N/2] ); /* expected n/2 P */
+    fd_ristretto255_point_decompress( t, base_point_multiples[1] );
 
-    FD_TEST( fd_ristretto255_multiscalar_mul( h, a, f, MSM_N )==h );
+    uchar n[32];
+    fd_hex_decode( n, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+    n[0] = MSM_N / 2;
+    fd_ristretto255_scalar_mul( t, n, t ); /* expected n/2 P */
+
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, a, f, MSM_N )==h );
     FD_TEST( fd_ristretto255_point_eq( h, t ) );
-
   }
 
   {
@@ -477,8 +429,8 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
     FD_TEST( fd_ristretto255_point_decompress( f, point )==f );
     FD_TEST( !!fd_ristretto255_scalar_validate( scalar ) );
 
-    FD_TEST( fd_ristretto255_multiscalar_mul( h, scalar, f, 1 )==h );
-    FD_TEST( fd_ristretto255_point_scalarmult( t, scalar, f )==t );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, scalar, f, 1 )==h );
+    FD_TEST( fd_ristretto255_scalar_mul( t, scalar, f )==t );
     FD_TEST( fd_ristretto255_point_eq( h, t ) );
 
     uchar _scalars[ 64 ] = {
@@ -505,9 +457,9 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
     FD_TEST( !!fd_ristretto255_scalar_validate( scalar_a ) );
     FD_TEST( !!fd_ristretto255_scalar_validate( scalar_b ) );
 
-    FD_TEST( fd_ristretto255_multiscalar_mul( h, scalars, x, 2 )==h );
-    FD_TEST( fd_ristretto255_point_scalarmult( t, scalar_a, &x[0] )==t );
-    FD_TEST( fd_ristretto255_point_scalarmult( &x[1], scalar_b, &x[1] )==&x[1] );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, scalars, x, 2 )==h );
+    FD_TEST( fd_ristretto255_scalar_mul( t, scalar_a, &x[0] )==t );
+    FD_TEST( fd_ristretto255_scalar_mul( &x[1], scalar_b, &x[1] )==&x[1] );
     FD_TEST( fd_ristretto255_point_add( t, t, &x[1] )==t );
     FD_TEST( fd_ristretto255_point_eq( h, t ) );
   }
@@ -526,16 +478,16 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
     else if (i % 15 == 0) { memcpy( &f[i], &f[0], sizeof(fd_ristretto255_point_t)*15 ); }
   }
 
-  for( ulong sz=10; sz<=1000; sz*=10 )
+  for( ulong sz=32; sz<=1024; sz*=2 )
   {
     long dt = fd_log_wallclock();
     for( ulong rem=iter/sz; rem; rem-- ) {
       FD_COMPILER_FORGET( f ); FD_COMPILER_FORGET( a ); FD_COMPILER_FORGET( h );
-      fd_ristretto255_multiscalar_mul( h, a, f, sz );
+      fd_ristretto255_multi_scalar_mul( h, a, f, sz );
     }
     dt = fd_log_wallclock() - dt;
     char cstr[128];
-    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ristretto255_multiscalar_mul(%lu)", sz ), iter/sz, dt );
+    log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ristretto255_multi_scalar_mul(%lu)", sz ), iter/sz, dt );
   }
 
   free(f);
@@ -549,7 +501,6 @@ main( int     argc,
 
   test_point_decompress ( rng );
   test_point_compress   ( rng );
-  test_extended_bytes   ( rng );
 
   test_hash_to_curve    ( rng );
 

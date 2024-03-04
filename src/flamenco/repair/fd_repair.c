@@ -350,10 +350,10 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
   fd_memcpy(buf + 64U, buf, 4U);
   fd_sha512_t sha[1];
   fd_signature_t sig;
-  fd_ed25519_sign( /* sig */ &sig,
+  fd_ed25519_sign( /* sig */ sig.uc,
                    /* msg */ buf + 64U,
                    /* sz  */ buflen - 64U,
-                   /* public_key  */ glob->public_key,
+                   /* public_key  */ glob->public_key->key,
                    /* private_key */ glob->private_key,
                    sha );
   fd_memcpy(buf + 4U, &sig, 64U);
@@ -517,7 +517,7 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   fd_ed25519_sign( /* sig */ pong->signature.uc,
                    /* msg */ pong->token.uc,
                    /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->uc,
+                   /* public_key  */ glob->public_key->key,
                    /* private_key */ glob->private_key,
                    sha2 );
 

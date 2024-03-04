@@ -80,8 +80,8 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   fd_ristretto255_point_t points[12];
   fd_ristretto255_point_t y0[1];
   fd_ristretto255_point_t res[1];
-  fd_ristretto255_point_copy( &points[0], fd_zktpp_basepoint_G );
-  fd_ristretto255_point_copy( &points[1], fd_zktpp_basepoint_H );
+  fd_ristretto255_point_set( &points[0], fd_zktpp_basepoint_G );
+  fd_ristretto255_point_set( &points[1], fd_zktpp_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( y0, proof->y0 )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -161,27 +161,27 @@ fd_zktpp_verify_proof_batched_grouped_ciphertext_validity(
   /* Compute scalars */
   fd_memcpy( &scalars[ 0*32 ], proof->zx, 32 );                          // z_x
   fd_memcpy( &scalars[ 1*32 ], proof->zr, 32 );                          // z_r
-  fd_ed25519_sc_neg( &scalars[ 2*32 ], w );                              // -w
-  fd_ed25519_sc_mul( &scalars[ 3*32 ], &scalars[ 2*32 ], w );            // -w^2
-  fd_ed25519_sc_mul( &scalars[ 4*32 ], proof->zr, w );                   // z_r w
-  fd_ed25519_sc_neg( &scalars[ 5*32 ], c );                              // -c
-  fd_ed25519_sc_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], w );            // -c w
+  fd_curve25519_scalar_neg( &scalars[ 2*32 ], w );                              // -w
+  fd_curve25519_scalar_mul( &scalars[ 3*32 ], &scalars[ 2*32 ], w );            // -w^2
+  fd_curve25519_scalar_mul( &scalars[ 4*32 ], proof->zr, w );                   // z_r w
+  fd_curve25519_scalar_neg( &scalars[ 5*32 ], c );                              // -c
+  fd_curve25519_scalar_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], w );            // -c w
   idx = 7;
   if (batched) {
-    fd_ed25519_sc_mul( &scalars[ (idx++)*32 ], &scalars[ 5*32 ], t );    // -c t
-    fd_ed25519_sc_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], t );    // -c w t
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 5*32 ], t );    // -c t
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], t );    // -c w t
   }
   if (auditor) {
-    fd_ed25519_sc_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w );    // z_r w^2
-    fd_ed25519_sc_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w );    // -c w^2
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w );    // z_r w^2
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w );    // -c w^2
   }
   if (batched && auditor) {
     ulong last = idx - 1;
-    fd_ed25519_sc_mul( &scalars[ (idx++)*32 ], &scalars[ last*32 ], w ); // -c w^2 t
+    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ last*32 ], w ); // -c w^2 t
   }
 
   /* Compute the final MSM */
-  fd_ristretto255_multiscalar_mul( res, scalars, points, idx );
+  fd_ristretto255_multi_scalar_mul( res, scalars, points, idx );
 
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y0 ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;

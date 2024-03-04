@@ -55,5 +55,6 @@ $(info Using EXTRAS=$(EXTRAS))
 all:
 
 include config/machine/$(MACHINE).mk
+$(info Using CC=$(shell $(CC) --version | head -1))
 include $(addprefix config/extra/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk

@@ -39,25 +39,6 @@ fd_r43x6_repsqr_mul2( fd_r43x6_t * _za, fd_r43x6_t xa, fd_r43x6_t ya,
   *_za = xa; *_zb = xb;
 }
 
-/* fd_r43x6_repsqr_mul2 does:
-     *_za = fd_r43x6_repsqr_mul( xa, ya, n );
-     *_zb = fd_r43x6_repsqr_mul( xb, yb, n );
-   but faster. */
-
-static void
-fd_r43x6_repsqr_mul4( fd_r43x6_t * _za, fd_r43x6_t xa, fd_r43x6_t ya,
-                      fd_r43x6_t * _zb, fd_r43x6_t xb, fd_r43x6_t yb,
-                      fd_r43x6_t * _zc, fd_r43x6_t xc, fd_r43x6_t yc,
-                      fd_r43x6_t * _zd, fd_r43x6_t xd, fd_r43x6_t yd,
-                      ulong        n ) {
-
-  /* Similar considerations as repsqr_mul */
-
-  for( ; n; n-- ) FD_R43X6_SQR4_INL( xa, xa,  xb, xb,  xc, xc,  xd, xd );
-  FD_R43X6_MUL4_INL( xa, xa, ya,  xb, xb, yb,  xc, xc, yc,  xd, xd, yd );
-  *_za = xa; *_zb = xb; *_zc = xc; *_zd = xd;
-}
-
 fd_r43x6_t
 fd_r43x6_invert( fd_r43x6_t z ) {
 
@@ -164,38 +145,4 @@ fd_r43x6_pow22523_2( fd_r43x6_t * _za, fd_r43x6_t za,
   fd_r43x6_t z2e250m1a, z2e250m1b; fd_r43x6_repsqr_mul2( &z2e250m1a,z2e200m1a,z2e50m1a,  &z2e250m1b,z2e200m1b,z2e50m1b,   50UL );
 
   /**/                             fd_r43x6_repsqr_mul2( _za,       z2e250m1a,za,        _zb,       z2e250m1b,zb,          2UL );
-}
-
-void
-fd_r43x6_pow22523_4( fd_r43x6_t * _za, fd_r43x6_t za,
-                     fd_r43x6_t * _zb, fd_r43x6_t zb,
-                     fd_r43x6_t * _zc, fd_r43x6_t zc,
-                     fd_r43x6_t * _zd, fd_r43x6_t zd ) {
-
-  /* This is identical to the above but runs two calculations at the
-     same time for lots of ILP. */
-
-  fd_r43x6_t z2a,       z2b,       z2c,       z2d;       FD_R43X6_SQR4_INL   ( z2a,za, z2b,zb, z2c,zc, z2d,zd );
-  fd_r43x6_t z9a,       z9b,       z9c,       z9d;       fd_r43x6_repsqr_mul4( &z9a,      z2a,      za,        &z9b,      z2b,      zb,
-                                                                               &z9c,      z2c,      zc,        &z9d,      z2d,      zd,          2UL );
-  fd_r43x6_t z11a,      z11b,      z11c,      z11d;      fd_r43x6_repsqr_mul4( &z11a,     z9a,      z2a,       &z11b,     z9b,      z2b,
-                                                                               &z11c,     z9c,      z2c,       &z11d,     z9d,      z2d,         0UL );
-  fd_r43x6_t z2e5m1a,   z2e5m1b,   z2e5m1c,   z2e5m1d;   fd_r43x6_repsqr_mul4( &z2e5m1a,  z11a,     z9a,       &z2e5m1b,  z11b,     z9b,
-                                                                               &z2e5m1c,  z11c,     z9c,       &z2e5m1d,  z11d,     z9d,         1UL );
-  fd_r43x6_t z2e10m1a,  z2e10m1b,  z2e10m1c,  z2e10m1d;  fd_r43x6_repsqr_mul4( &z2e10m1a, z2e5m1a,  z2e5m1a,   &z2e10m1b, z2e5m1b,  z2e5m1b,
-                                                                               &z2e10m1c, z2e5m1c,  z2e5m1c,   &z2e10m1d, z2e5m1d,  z2e5m1d,     5UL );
-  fd_r43x6_t z2e20m1a,  z2e20m1b,  z2e20m1c,  z2e20m1d;  fd_r43x6_repsqr_mul4( &z2e20m1a, z2e10m1a, z2e10m1a,  &z2e20m1b, z2e10m1b, z2e10m1b,
-                                                                               &z2e20m1c, z2e10m1c, z2e10m1c,  &z2e20m1d, z2e10m1d, z2e10m1d,   10UL );
-  fd_r43x6_t z2e40m1a,  z2e40m1b,  z2e40m1c,  z2e40m1d;  fd_r43x6_repsqr_mul4( &z2e40m1a, z2e20m1a, z2e20m1a,  &z2e40m1b, z2e20m1b, z2e20m1b,
-                                                                               &z2e40m1c, z2e20m1c, z2e20m1c,  &z2e40m1d, z2e20m1d, z2e20m1d,   20UL );
-  fd_r43x6_t z2e50m1a,  z2e50m1b,  z2e50m1c,  z2e50m1d;  fd_r43x6_repsqr_mul4( &z2e50m1a, z2e40m1a, z2e10m1a,  &z2e50m1b, z2e40m1b, z2e10m1b,
-                                                                               &z2e50m1c, z2e40m1c, z2e10m1c,  &z2e50m1d, z2e40m1d, z2e10m1d,   10UL );
-  fd_r43x6_t z2e100m1a, z2e100m1b, z2e100m1c, z2e100m1d; fd_r43x6_repsqr_mul4( &z2e100m1a,z2e50m1a, z2e50m1a,  &z2e100m1b,z2e50m1b, z2e50m1b,
-                                                                               &z2e100m1c,z2e50m1c, z2e50m1c,  &z2e100m1d,z2e50m1d, z2e50m1d,   50UL );
-  fd_r43x6_t z2e200m1a, z2e200m1b, z2e200m1c, z2e200m1d; fd_r43x6_repsqr_mul4( &z2e200m1a,z2e100m1a,z2e100m1a, &z2e200m1b,z2e100m1b,z2e100m1b,
-                                                                               &z2e200m1c,z2e100m1c,z2e100m1c, &z2e200m1d,z2e100m1d,z2e100m1d, 100UL );
-  fd_r43x6_t z2e250m1a, z2e250m1b, z2e250m1c, z2e250m1d; fd_r43x6_repsqr_mul4( &z2e250m1a,z2e200m1a,z2e50m1a,  &z2e250m1b,z2e200m1b,z2e50m1b,
-                                                                               &z2e250m1c,z2e200m1c,z2e50m1c,  &z2e250m1d,z2e200m1d,z2e50m1d,   50UL );
-
-  /**/ fd_r43x6_repsqr_mul4( _za,z2e250m1a,za, _zb,z2e250m1b,zb, _zc,z2e250m1c,zc, _zd,z2e250m1d,zd, 2UL );
 }

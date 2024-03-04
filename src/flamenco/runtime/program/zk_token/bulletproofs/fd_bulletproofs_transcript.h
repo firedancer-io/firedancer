@@ -6,7 +6,7 @@
 
 #include "../../../../fd_flamenco_base.h"
 #include "../merlin/fd_merlin.h"
-#include "../../../../../ballet/ed25519/fd_ristretto255_ge.h"
+#include "../../../../../ballet/ed25519/fd_ristretto255.h"
 
 #define FD_TRANSCRIPT_SUCCESS 0
 #define FD_TRANSCRIPT_ERROR  -1
@@ -71,7 +71,7 @@ fd_bulletproofs_transcript_challenge_scalar( uchar                    scalar[ st
                                              uint const               label_len ) {
   uchar unreduced[ 64 ];
   fd_merlin_transcript_challenge_bytes( transcript, label, label_len, unreduced, 64 );
-  return fd_ed25519_sc_reduce(scalar, unreduced);
+  return fd_curve25519_scalar_reduce(scalar, unreduced);
 }
 
 FD_PROTOTYPES_END

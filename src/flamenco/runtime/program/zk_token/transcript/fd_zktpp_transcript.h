@@ -6,7 +6,7 @@
 #include "../../../../fd_flamenco_base.h"
 #include "../merlin/fd_merlin.h"
 #include "../bulletproofs/fd_bulletproofs.h"
-#include "../../../../../ballet/ed25519/fd_ristretto255_ge.h"
+#include "../../../../../ballet/ed25519/fd_ristretto255.h"
 
 #define fd_zktpp_transcript_t fd_merlin_transcript_t
 #define FD_TRANSCRIPT_LITERAL FD_MERLIN_LITERAL

@@ -23,7 +23,7 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_ristretto255_point_t points[2];
   fd_ristretto255_point_t y[1];
   fd_ristretto255_point_t res[1];
-  fd_ristretto255_point_copy( &points[0], fd_zktpp_basepoint_H );
+  fd_ristretto255_point_set( &points[0], fd_zktpp_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[1], pubkey )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
@@ -32,7 +32,7 @@ fd_zktpp_verify_proof_pubkey_validity(
   }
 
   uchar scalars[ 2 * 32 ];
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( proof->z )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( proof->z )==NULL ) ) {
     return FD_ZKTPP_VERIFY_PROOF_ERROR;
   }
 
@@ -48,11 +48,11 @@ fd_zktpp_verify_proof_pubkey_validity(
   fd_zktpp_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
   /* Compute scalars */
-  fd_memcpy( &scalars[ 0*32 ], proof->z, 32 ); // z
-  fd_ed25519_sc_neg( &scalars[ 1*32 ], c );    // -c
+  fd_memcpy( &scalars[ 0*32 ], proof->z, 32 );     // z
+  fd_curve25519_scalar_neg( &scalars[ 1*32 ], c ); // -c
 
   /* Compute the final MSM */
-  fd_ristretto255_multiscalar_mul( res, scalars, points, 2 );
+  fd_ristretto255_multi_scalar_mul( res, scalars, points, 2 );
 
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;

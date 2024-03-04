@@ -53,9 +53,7 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../ballet/ed25519/fd_ed25519_private.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../ballet/sha512/fd_sha512.h"
 #include "../c/wd_f1.h"
 #include "wd_f1_mon.h"
 #include <pthread.h>
@@ -187,7 +185,7 @@ sha512_modq_lsB(  void const *  msg,
   uchar h[64];
   fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( sha ),
                   r, 32UL ), public_key, 32UL ), msg, sz ), h );
-  fd_ed25519_sc_reduce( h, h );
+  fd_curve25519_scalar_reduce( h, h );
   return (int)h[0];
 }
 

@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/ed25519/fd_ristretto255_ge.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 #include "fd_account.h"

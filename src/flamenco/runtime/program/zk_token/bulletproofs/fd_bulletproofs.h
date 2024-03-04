@@ -2,8 +2,21 @@
 #define HEADER_fd_src_flamenco_runtime_program_zk_token_fd_bulletproofs_h
 
 #include "../../../../fd_flamenco_base.h"
-#include "./fd_bulletproofs_generators.h"
 #include "./fd_bulletproofs_transcript.h"
+
+#if FD_HAS_AVX512
+#include "../../../../../ballet/ed25519/table/fd_bulletproofs_table_avx512.c"
+#else
+#include "../../../../../ballet/ed25519/table/fd_bulletproofs_table_ref.c"
+#endif
+
+/* bulletproofs constants. these are imported from table/fd_bulletproofs_table_{arch}.c.
+   they are (re)defined here to avoid breaking compilation when the table needs
+   to be rebuilt. */
+static const fd_ristretto255_point_t fd_bulletproofs_basepoint_G[1];
+static const fd_ristretto255_point_t fd_bulletproofs_basepoint_H[1];
+static const fd_ristretto255_point_t fd_bulletproofs_generators_G[256];
+static const fd_ristretto255_point_t fd_bulletproofs_generators_H[256];
 
 #define FD_BULLETPROOFS_SUCCESS 0
 #define FD_BULLETPROOFS_ERROR  -1

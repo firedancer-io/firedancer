@@ -144,7 +144,8 @@ run_quic_client(
       ref_msg_mem += fd_ulong_align_up( msg_sz + 96UL, 128UL );
 
       /* Generate a public_key / private_key pair for this message */
-      ulong private_key[4]; for( ulong i=0UL; i<4UL; i++ ) private_key[i] = fd_rng_ulong( rng );
+      ulong _private_key[4]; for( ulong i=0UL; i<4UL; i++ ) _private_key[i] = fd_rng_ulong( rng );
+      uchar * private_key = (uchar *)_private_key;
       fd_ed25519_public_from_private( public_key, private_key, sha );
 
       /* Make a random message */

@@ -290,10 +290,13 @@ fd_r43x6_add_fast_ref( fd_r43x6_t x,
 FD_FN_CONST static fd_r43x6_t
 fd_r43x6_sub_fast_ref( fd_r43x6_t x,
                        fd_r43x6_t y ) {
-  union { __m512i v; long lane[8]; } xx, yy, zz;
+  union { __m512i v; long lane[8]; } xx, yy, zz, pp;
   xx.v = x; /* Arb */
   yy.v = y; /* Arb */
-  for( ulong i=0UL; i<8UL; i++ ) zz.lane[i] = xx.lane[i] - yy.lane[i];
+  pp.v = fd_r43x6_p();
+  for( ulong i=0UL; i<8UL; i++ ) {
+    zz.lane[i] = xx.lane[i] + ( pp.lane[i] - yy.lane[i] );
+  }
   return zz.v; /* Arb */
 }
 
@@ -776,8 +779,6 @@ main( int     argc,
     fd_r43x6_t y = fd_r43x6_pow22523( x );
     fd_r43x6_t z; FD_R43X6_POW22523_1_INL( z,x      ); FD_TEST( fd_r43x6_eq( z,y ) );
     fd_r43x6_t w; FD_R43X6_POW22523_2_INL( z,x, w,x ); FD_TEST( fd_r43x6_eq( z,y ) ); FD_TEST( fd_r43x6_eq( w,y ) );
-    fd_r43x6_t zz; fd_r43x6_t ww;
-    FD_R43X6_POW22523_4_INL( z,x, w,x, zz,x, ww,x ); FD_TEST( fd_r43x6_eq( z,y ) ); FD_TEST( fd_r43x6_eq( w,y ) ); FD_TEST( fd_r43x6_eq( zz,y ) ); FD_TEST( fd_r43x6_eq( ww,y ) );
   }
 
   FD_LOG_NOTICE(( "Benchmarking" ));
@@ -866,7 +867,6 @@ main( int     argc,
     BENCH( x = fd_r43x6_pow22523( x ) );
     BENCH( FD_R43X6_POW22523_1_INL( x0,x0 ) );
     BENCH( FD_R43X6_POW22523_2_INL( x0,x0, x1,x1 ) );
-    BENCH( FD_R43X6_POW22523_4_INL( x0,x0, x1,x1, x2,x2, x3,x3 ) );
 
     /* Prevent compiler from optimizing away */
     dummy[0] = x0; dummy[0] = x1; dummy[0] = x2; dummy[0] = x3;

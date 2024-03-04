@@ -411,7 +411,7 @@ fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
     /* Configure temp identity needed to retrieve shred version */
     FD_TEST( 32UL == getrandom( glob->tmp_private_key, 32UL, 0 ) );
     fd_sha512_t sha[1];
-    fd_ed25519_public_from_private(&glob->tmp_contact_info.id, glob->tmp_private_key, sha);
+    fd_ed25519_public_from_private(glob->tmp_contact_info.id.key, glob->tmp_private_key, sha);
     fd_gossip_to_soladdr(&glob->tmp_contact_info.gossip, &config->my_addr);
 
     fd_base58_encode_32( glob->tmp_contact_info.id.uc, NULL, keystr );
@@ -560,7 +560,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_ed25519_sign( /* sig */ ping->signature.uc,
                     /* msg */ ping->token.uc,
                     /* sz  */ 32UL,
-                    /* public_key  */ public_key,
+                    /* public_key  */ public_key->key,
                     /* private_key */ private_key,
                     sha );
   } else {
@@ -606,7 +606,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     fd_ed25519_sign( /* sig */ pong->signature.uc,
                      /* msg */ pong->token.uc,
                      /* sz  */ 32UL,
-                     /* public_key  */ public_key,
+                     /* public_key  */ public_key->key,
                      /* private_key */ private_key,
                      sha2 );
   } else {
@@ -690,7 +690,7 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
     fd_ed25519_sign( /* sig */ crd->signature.uc,
                    /* msg */ buf,
                    /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                   /* public_key  */ public_key,
+                   /* public_key  */ public_key->key,
                    /* private_key */ private_key,
                    sha );
   } else {

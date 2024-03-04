@@ -24,23 +24,23 @@ fd_bulletproofs_delta(
   uchar exp_y[ 32 ];
   uchar sum_of_powers_y[ 32 ];
   fd_memcpy( exp_y, y, 32 );
-  fd_ed25519_sc_add( sum_of_powers_y, y, fd_ed25519_scalar_one );
+  fd_curve25519_scalar_add( sum_of_powers_y, y, fd_curve25519_scalar_one );
   for( ulong i=nm; i>2; i/=2 ) {
-    fd_ed25519_sc_mul   ( exp_y, exp_y, exp_y );
-    fd_ed25519_sc_muladd( sum_of_powers_y, exp_y, sum_of_powers_y, sum_of_powers_y );
+    fd_curve25519_scalar_mul   ( exp_y, exp_y, exp_y );
+    fd_curve25519_scalar_muladd( sum_of_powers_y, exp_y, sum_of_powers_y, sum_of_powers_y );
   }
-  fd_ed25519_sc_sub( delta, z, zz );
-  fd_ed25519_sc_mul( delta, delta, sum_of_powers_y );
+  fd_curve25519_scalar_sub( delta, z, zz );
+  fd_curve25519_scalar_mul( delta, delta, sum_of_powers_y );
 
   uchar neg_exp_z[ 32 ];
   uchar sum_2[ 32 ];
-  fd_ed25519_sc_neg( neg_exp_z, zz );
+  fd_curve25519_scalar_neg( neg_exp_z, zz );
   for( ulong i=0; i<batch_len; i++ ) {
     fd_memset( sum_2, 0, 32 );
     //TODO currently assuming that bit_length[i] is multiple of 8 - need to fix cases: 1, 2, 4
     fd_memset( sum_2, 0xFF, bit_lengths[i] / 8 );
-    fd_ed25519_sc_mul   ( neg_exp_z, neg_exp_z, z );
-    fd_ed25519_sc_muladd( delta, neg_exp_z, sum_2, delta );
+    fd_curve25519_scalar_mul   ( neg_exp_z, neg_exp_z, z );
+    fd_curve25519_scalar_muladd( delta, neg_exp_z, sum_2, delta );
   }
 }
 
@@ -151,8 +151,8 @@ fd_bulletproofs_range_proof_verify(
   fd_ristretto255_point_t points[ MAX ];
   fd_ristretto255_point_t a_res[ 1 ];
   fd_ristretto255_point_t res[ 1 ];
-  fd_ristretto255_point_copy( &points[0], fd_bulletproofs_basepoint_G );
-  fd_ristretto255_point_copy( &points[1], fd_bulletproofs_basepoint_H );
+  fd_ristretto255_point_set( &points[0], fd_bulletproofs_basepoint_G );
+  fd_ristretto255_point_set( &points[1], fd_bulletproofs_basepoint_H );
   if( FD_UNLIKELY( fd_ristretto255_point_decompress( a_res, range_proof->a )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
@@ -184,19 +184,19 @@ fd_bulletproofs_range_proof_verify(
   fd_memcpy( &points[ idx ],   fd_bulletproofs_generators_H, n*sizeof(fd_ristretto255_point_t) );
   fd_memcpy( &points[ idx+n ], fd_bulletproofs_generators_G, n*sizeof(fd_ristretto255_point_t) );
 
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( range_proof->tx )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( range_proof->tx_blinding )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->tx_blinding )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( range_proof->e_blinding )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( range_proof->e_blinding )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( ipp_proof->a )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->a )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
-  if( FD_UNLIKELY( fd_ed25519_scalar_validate( ipp_proof->b )==NULL ) ) {
+  if( FD_UNLIKELY( fd_curve25519_scalar_validate( ipp_proof->b )==NULL ) ) {
     return FD_BULLETPROOFS_ERROR;
   }
 
@@ -246,51 +246,51 @@ fd_bulletproofs_range_proof_verify(
     }
     fd_bulletproofs_transcript_challenge_scalar( &u[ i*32 ], transcript, FD_TRANSCRIPT_LITERAL("u") );
   }
-  fd_ed25519_sc_batch_inv( batchinv_out, allinv, batchinv_in, logn+1 );
+  fd_curve25519_scalar_batch_inv( batchinv_out, allinv, batchinv_in, logn+1 );
 
   /* Compute scalars */
 
   // H: - ( eb + c t_xb )
   uchar const *eb = range_proof->e_blinding;
   uchar const *txb = range_proof->tx_blinding;
-  fd_ed25519_sc_muladd( &scalars[ 1*32 ], c, txb, eb );
-  fd_ed25519_sc_neg(    &scalars[ 1*32 ], &scalars[ 1*32 ] );
+  fd_curve25519_scalar_muladd( &scalars[ 1*32 ], c, txb, eb );
+  fd_curve25519_scalar_neg(    &scalars[ 1*32 ], &scalars[ 1*32 ] );
 
   // S:   x
   // T_1: c x
   // T_2: c x^2
   fd_memcpy(            &scalars[ 2*32 ], x, 32 );
-  fd_ed25519_sc_mul(    &scalars[ 3*32 ], c, x );
-  fd_ed25519_sc_mul(    &scalars[ 4*32 ], &scalars[ 3*32 ], x );
+  fd_curve25519_scalar_mul(    &scalars[ 3*32 ], c, x );
+  fd_curve25519_scalar_mul(    &scalars[ 4*32 ], &scalars[ 3*32 ], x );
 
   // commitments: c z^2, c z^3 ...
   uchar zz[ 32 ];
-  fd_ed25519_sc_mul(    zz, z, z );
-  fd_ed25519_sc_mul(    &scalars[ 5*32 ], zz, c );
+  fd_curve25519_scalar_mul(    zz, z, z );
+  fd_curve25519_scalar_mul(    &scalars[ 5*32 ], zz, c );
   idx = 6;
   for( ulong i=1; i<batch_len; i++, idx++ ) {
-    fd_ed25519_sc_mul(  &scalars[ idx*32 ], &scalars[ (idx-1)*32 ], z );
+    fd_curve25519_scalar_mul(  &scalars[ idx*32 ], &scalars[ (idx-1)*32 ], z );
   }
 
   // L_vec: u0^2, u1^2...
   // R_vec: 1/u0^2, 1/u1^2...
   uchar *u_sq = &scalars[ idx*32 ];
   for( ulong i=0; i<logn; i++, idx++ ) {
-    fd_ed25519_sc_mul(  &scalars[ idx*32 ], &u[ i*32 ], &u[ i*32 ] );
+    fd_curve25519_scalar_mul(  &scalars[ idx*32 ], &u[ i*32 ], &u[ i*32 ] );
   }
   for( ulong i=0; i<logn; i++, idx++ ) {
-    fd_ed25519_sc_mul(  &scalars[ idx*32 ], &u_inv[ i*32 ], &u_inv[ i*32 ] );
+    fd_curve25519_scalar_mul(  &scalars[ idx*32 ], &u_inv[ i*32 ], &u_inv[ i*32 ] );
   }
 
   // s_i for generators_G, generators_H
   uchar *s = &scalars[ (idx+n)*32 ];
-  fd_ed25519_sc_mul( &s[ 0*32 ], allinv, y ); // allinv also contains 1/y
+  fd_curve25519_scalar_mul( &s[ 0*32 ], allinv, y ); // allinv also contains 1/y
   // s[i] = s[ i-k ] * u[ k+1 ]^2   (k the "next power of 2" wrt i)
   for( ulong k=0; k<logn; k++ ) {
     ulong powk = (1UL << k);
     for( ulong j=0; j<powk; j++ ) {
       ulong i = powk + j;
-      fd_ed25519_sc_mul( &s[ i*32 ], &s[ j*32 ], &u_sq[ (logn-1-k)*32 ] );
+      fd_curve25519_scalar_mul( &s[ i*32 ], &s[ j*32 ], &u_sq[ (logn-1-k)*32 ] );
     }
   }
 
@@ -301,7 +301,7 @@ fd_bulletproofs_range_proof_verify(
   uchar exp_z[ 32 ];
   uchar exp_y_inv[ 32 ];
   uchar z_and_2[ 32 ];
-  fd_ed25519_sc_neg( minus_b, b );
+  fd_curve25519_scalar_neg( minus_b, b );
   fd_memcpy( exp_z, zz, 32 );
   fd_memcpy( z_and_2, exp_z, 32 );
   fd_memcpy( exp_y_inv, y, 32 ); //TODO: remove 2 unnecessary muls
@@ -309,37 +309,37 @@ fd_bulletproofs_range_proof_verify(
     if( j == bit_lengths[m] ) {
       j = 0;
       m++;
-      fd_ed25519_sc_mul ( exp_z, exp_z, z );
+      fd_curve25519_scalar_mul ( exp_z, exp_z, z );
       fd_memcpy( z_and_2, exp_z, 32 );
     }
     if( j != 0 ) {
-      fd_ed25519_sc_add ( z_and_2, z_and_2, z_and_2 );
+      fd_curve25519_scalar_add ( z_and_2, z_and_2, z_and_2 );
     }
-    fd_ed25519_sc_mul   ( exp_y_inv, exp_y_inv, y_inv );
-    fd_ed25519_sc_muladd( &scalars[ idx*32 ], &s[ (n-1-i)*32 ], minus_b, z_and_2 );
-    fd_ed25519_sc_muladd( &scalars[ idx*32 ], &scalars[ idx*32 ], exp_y_inv, z );
+    fd_curve25519_scalar_mul   ( exp_y_inv, exp_y_inv, y_inv );
+    fd_curve25519_scalar_muladd( &scalars[ idx*32 ], &s[ (n-1-i)*32 ], minus_b, z_and_2 );
+    fd_curve25519_scalar_muladd( &scalars[ idx*32 ], &scalars[ idx*32 ], exp_y_inv, z );
   }
 
   // generators_G: (-a * s_i) + (-z)
   uchar minus_z[ 32 ];
   uchar minus_a[ 32 ];
-  fd_ed25519_sc_neg( minus_z, z );
-  fd_ed25519_sc_neg( minus_a, a );
+  fd_curve25519_scalar_neg( minus_z, z );
+  fd_curve25519_scalar_neg( minus_a, a );
   for( ulong i=0; i<n; i++, idx++ ) {
-    fd_ed25519_sc_muladd( &scalars[ idx*32 ], &s[ i*32 ], minus_a, minus_z );
+    fd_curve25519_scalar_muladd( &scalars[ idx*32 ], &s[ i*32 ], minus_a, minus_z );
   }
 
   // G
   // w * (self.t_x - a * b) + c * (delta(&bit_lengths, &y, &z) - self.t_x)
   uchar delta[ 32 ];
   fd_bulletproofs_delta( delta, nm, y, z, zz, bit_lengths, batch_len );
-  fd_ed25519_sc_muladd(  &scalars[ 0 ], minus_a, b, range_proof->tx );
-  fd_ed25519_sc_sub(     delta, delta, range_proof->tx );
-  fd_ed25519_sc_mul(     delta, delta, c );
-  fd_ed25519_sc_muladd(  &scalars[ 0 ], &scalars[ 0 ], w, delta );
+  fd_curve25519_scalar_muladd(  &scalars[ 0 ], minus_a, b, range_proof->tx );
+  fd_curve25519_scalar_sub(     delta, delta, range_proof->tx );
+  fd_curve25519_scalar_mul(     delta, delta, c );
+  fd_curve25519_scalar_muladd(  &scalars[ 0 ], &scalars[ 0 ], w, delta );
 
   /* Compute the final MSM */
-  fd_ristretto255_multiscalar_mul( res, scalars, points, idx );
+  fd_ristretto255_multi_scalar_mul( res, scalars, points, idx );
 
   if( FD_LIKELY( fd_ristretto255_point_eq_neg( res, a_res ) ) ) {
     return FD_BULLETPROOFS_SUCCESS;

@@ -152,12 +152,18 @@ FD_PROTOTYPES_BEGIN
 /* FD_R43X6_QUAD_LANE_SUB_FAST does:
      D = [ (imm0 ? (PX-QX) : SX) (imm1 ? (PY-QY) : SY) (imm2 ? (PZ-QZ) : SZ) (imm3 ? (PT-QT) : ST) ]
    imm* should be in [0,1]. */
-
 #define FD_R43X6_QUAD_LANE_SUB_FAST( D, S, imm0,imm1,imm2,imm3, P, Q ) do { \
-    int _mask = 17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3);             \
-    D##03 = wwv_sub_if( _mask, P##03, Q##03, S##03 );                       \
-    D##14 = wwv_sub_if( _mask, P##14, Q##14, S##14 );                       \
-    D##25 = wwv_sub_if( _mask, P##25, Q##25, S##25 );                       \
+    int _mask = 17*(imm0) + 34*(imm1) + 68*(imm2) + 136*(imm3); \
+    FD_R43X6_QUAD_DECL( M );                                    \
+    M##03 = wwl( 8796093022189L, 8796093022189L, 8796093022189L, 8796093022189L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L ); \
+    M##14 = wwl( 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L ); \
+    M##25 = wwl( 8796093022207L, 8796093022207L, 8796093022207L, 8796093022207L, 1099511627775L, 1099511627775L, 1099511627775L, 1099511627775L ); \
+    M##03 = wwv_sub( M##03, Q##03 );                            \
+    M##14 = wwv_sub( M##14, Q##14 );                            \
+    M##25 = wwv_sub( M##25, Q##25 );                            \
+    D##03 = wwv_add_if( _mask, P##03, M##03, S##03 );           \
+    D##14 = wwv_add_if( _mask, P##14, M##14, S##14 );           \
+    D##25 = wwv_add_if( _mask, P##25, M##25, S##25 );           \
   } while(0)
 
 /* FD_R43X6_QUAD_FOLD_UNSIGNED(R,P) does:
@@ -183,7 +189,6 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_R43X6_QUAD_FOLD_SIGNED(R,P) does:
      R = [ fd_r43x6_fold_signed(PX) fd_r43x6_fold_signed(PY) fd_r43x6_fold_signed(PZ) fd_r43x6_fold_signed(PT) ] */
-
 #define FD_R43X6_QUAD_FOLD_SIGNED( R, P ) do {                                                                \
     long const _b0  = 19L<<23;                                                                                \
     long const _bb  =  1L<<20;                                                                                \
@@ -715,20 +720,8 @@ fd_r43x6_quad_sqr_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
   } while(0)
 
 void
-fd_r43x6_pow22523_2( fd_r43x6_t * _za, fd_r43x6_t xa,
-                     fd_r43x6_t * _zb, fd_r43x6_t xb );
-
-#define FD_R43X6_POW22523_4_INL( za,xa, zb,xb, zc,xc, zd,xd ) do {     \
-    fd_r43x6_t _za; fd_r43x6_t _zb; fd_r43x6_t _zc; fd_r43x6_t _zd;    \
-    fd_r43x6_pow22523_4( &_za,(xa), &_zb,(xb), &_zc,(xc), &_zd,(xd) ); \
-    (za) = _za; (zb) = _zb; (zc) = _zc; (zd) = _zd;                    \
-  } while(0)
-
-void
-fd_r43x6_pow22523_4( fd_r43x6_t * _za, fd_r43x6_t xa,
-                     fd_r43x6_t * _zb, fd_r43x6_t xb,
-                     fd_r43x6_t * _zc, fd_r43x6_t xc,
-                     fd_r43x6_t * _zd, fd_r43x6_t xd );
+fd_r43x6_pow22523_2( fd_r43x6_t * _za, fd_r43x6_t za,
+                     fd_r43x6_t * _zb, fd_r43x6_t zb );
 
 #endif /* HPC implementation */
 

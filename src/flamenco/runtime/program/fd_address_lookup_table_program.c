@@ -9,7 +9,7 @@
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include <string.h>
-#include "../../../ballet/ed25519/fd_ed25519_ge.h"
+#include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../vm/fd_vm_syscalls.h"
 #include "../../vm/fd_vm_cpi.h"
 
