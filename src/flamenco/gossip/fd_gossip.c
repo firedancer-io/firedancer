@@ -473,8 +473,9 @@ static void
 fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void * data, size_t sz) {
   if ( sz > PACKET_DATA_SIZE )
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
+
   fd_gossip_unlock( glob );
-  for(ulong i = 0; i < 1000; i++) {
+  for(ulong i = 0; i < 5000; i++) {
     (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   }
   fd_gossip_lock( glob );
@@ -1067,28 +1068,35 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
     fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
-    if (info->gossip.port != 0) {
-      /* Remember the peer */
-      fd_gossip_peer_addr_t pkey;
-      fd_memset(&pkey, 0, sizeof(pkey));
-      fd_gossip_from_soladdr(&pkey, &info->gossip);
-      fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
-      if (val == NULL) {
-        if (fd_peer_table_is_full(glob->peers)) {
-          FD_LOG_DEBUG(("too many peers"));
-        } else {
-          val = fd_peer_table_insert(glob->peers, &pkey);
-          if (glob->inactives_cnt < INACTIVES_MAX &&
-              fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
-            /* Queue this peer for later pinging */
-            fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+    /* Add the peer if the port is not weird and the peer is not us */
+    if (info->gossip.port != 0 ) {
+      if( memcmp( info->id.key, glob->my_contact_info.id.key, sizeof(fd_pubkey_t) ) == 0
+        || ( fd_gossip_ip_addr_is_ip4( &info->gossip.addr ) && fd_gossip_ip_addr_is_ip4( &glob->my_contact_info.gossip.addr ) 
+            && ( info->gossip.addr.inner.ip4 == glob->my_contact_info.gossip.addr.inner.ip4 || info->gossip.port == glob->my_contact_info.gossip.port ) ) ) {
+        /* gossip only supporting ipv4 here */
+      } else {  
+        /* Remember the peer */
+        fd_gossip_peer_addr_t pkey;
+        fd_memset(&pkey, 0, sizeof(pkey));
+        fd_gossip_from_soladdr(&pkey, &info->gossip);
+        fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
+        if (val == NULL) {
+          if (fd_peer_table_is_full(glob->peers)) {
+            FD_LOG_DEBUG(("too many peers"));
+          } else {
+            val = fd_peer_table_insert(glob->peers, &pkey);
+            if (glob->inactives_cnt < INACTIVES_MAX &&
+                fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+              /* Queue this peer for later pinging */
+              fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+            }
           }
         }
-      }
-      if (val != NULL) {
-        val->wallclock = wallclock;
-        val->stake = 0;
-        fd_hash_copy(&val->id, &info->id);
+        if (val != NULL) {
+          val->wallclock = wallclock;
+          val->stake = 0;
+          fd_hash_copy(&val->id, &info->id);
+        }
       }
     }
     if (glob->my_contact_info.shred_version == 0U) {
@@ -1756,11 +1764,13 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   ctx.valloc  = glob->valloc;
   if (fd_gossip_msg_decode(&gmsg, &ctx)) {
     FD_LOG_WARNING(("corrupt gossip message"));
+    FD_LOG_HEXDUMP_WARNING(("CGM1", msg, msglen));
     fd_gossip_unlock( glob );
     return -1;
   }
   if (ctx.data != ctx.dataend) {
     FD_LOG_WARNING(("corrupt gossip message"));
+    FD_LOG_HEXDUMP_WARNING(("CGM2", msg, msglen));
     fd_gossip_unlock( glob );
     return -1;
   }

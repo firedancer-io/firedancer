@@ -702,6 +702,5 @@ fd_tile_config_t fd_tile_gossip = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .mux_after_credit        = after_credit,
-  // .mux_during_housekeeping  = during_housekeeping,
+  .mux_after_credit         = after_credit,
 };
