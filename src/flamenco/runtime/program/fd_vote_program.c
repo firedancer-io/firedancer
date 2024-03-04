@@ -2707,23 +2707,33 @@ fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t 
       bank_match = fd_bank_match_map_insert( bank_matches, slot );
     }
     fd_hash_t null_hash = { 0 };
-    if (ours) bank_match->ours    = *bank_hash;
-    else {
-      if( FD_UNLIKELY(
-              ( 0 != memcmp( &bank_match->theirs, &null_hash, sizeof( fd_hash_t ) ) ) &&
-              ( 0 != memcmp( &bank_match->theirs, bank_hash->hash, sizeof( fd_hash_t ) ) ) ) ) {
-        // TODO support equivocating hashes
-        FD_LOG_WARNING( ( "ignoring equivocating hash %32J vs. %32J",
-                          bank_match->theirs.hash,
-                          bank_hash->hash ) );
+    int log_bank_match = 0;
+
+    /* if it's our bank hash, log it */
+    if( ours ) {
+      log_bank_match   = 1;
+      bank_match->ours = *bank_hash;
+
+    /* if it's their bank hash, only log the first time, because these are votes. */
+    // TODO make this log on "duplicate confirmed = 52%" once ghost is plumbed through
+    } else {
+      if( FD_LIKELY( ( 0 != memcmp( &bank_match->theirs, &null_hash, sizeof( fd_hash_t ) ) ) ) ) {
+        if( FD_UNLIKELY(
+                ( 0 != memcmp( &bank_match->theirs, bank_hash->hash, sizeof( fd_hash_t ) ) ) ) ) {
+          // TODO support equivocating hashes
+          FD_LOG_WARNING( ( "ignoring equivocating hash %32J vs. %32J",
+                            bank_match->theirs.hash,
+                            bank_hash->hash ) );
+        }
       } else {
+        log_bank_match     = 1;
         bank_match->theirs = *bank_hash;
       }
     }
 
-    /* if the other bank hash is ready now too (ours -> theirs or theirs -> ours), check for mismatch*/
+    /* if the other bank hash is ready now too (ours -> theirs or theirs -> ours), check for mismatch */
     fd_hash_t * other = fd_ptr_if( ours, &bank_match->theirs, &bank_match->ours );
-    if( FD_UNLIKELY( 0 != memcmp( other, &null_hash, sizeof( fd_hash_t ) ) ) ) {
+    if( FD_UNLIKELY( log_bank_match && 0 != memcmp( other, &null_hash, sizeof( fd_hash_t ) ) ) ) {
       if( FD_UNLIKELY( 0 !=
                        memcmp( &bank_match->ours, &bank_match->theirs, sizeof( fd_hash_t ) ) ) ) {
         FD_LOG_WARNING( ( "Bank hash mismatch on slot: %lu. ours: %32J, theirs: %32J",
