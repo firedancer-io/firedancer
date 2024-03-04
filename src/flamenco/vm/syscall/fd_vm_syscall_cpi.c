@@ -235,7 +235,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
    limiting the number of unique accounts. 128 was chosen to match the max
    number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS). */
 
-#define FD_CPI_MAX_ACCOUNT_INFOS           (FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit) ? 128UL : 64UL)
+#define FD_CPI_MAX_ACCOUNT_INFOS           ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
    instructions are not more limited than transaction instructions if the size
@@ -1092,7 +1092,9 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
-    fd_vm_consume_compute( vm, FD_VM_CPI_BYTES_PER_UNIT ? instruction->data.len/FD_VM_CPI_BYTES_PER_UNIT : ULONG_MAX );
+    fd_vm_consume_compute( vm,
+     fd_ulong_if( FD_VM_CPI_BYTES_PER_UNIT, 
+      instruction->data.len/FD_VM_CPI_BYTES_PER_UNIT, ULONG_MAX ) );
 
   /* Translate signers ************************************************/
 
