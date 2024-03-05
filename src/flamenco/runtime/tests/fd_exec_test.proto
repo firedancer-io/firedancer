@@ -1,9 +1,10 @@
 syntax = "proto2";
-package io.firedancer.runtime.test;
+package org.solana.sealevel.v1;
 
-// Regenerate with:
-//
-//    nanopb_generator.py -I ../.. -I . -L "" -C fd_exec_test.proto
+// Source:
+// https://github.com/solana-foundation/specs/blob/main/runtime/compat/v1/context.proto
+
+// Regenerate: "make -C src/flamenco/runtime/tests" (requires nanopb)
 
 import "nanopb.proto";
 option (nanopb_fileopt).package = "fd_exec_test";
@@ -33,6 +34,18 @@ message AcctState {
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 }
 
+// EpochContext includes context scoped to an epoch.
+// On "real" ledgers, it is created during the epoch boundary.
+message EpochContext {
+  required FeatureSet features = 1;
+}
+
+// SlotContext includes context scoped to a block.
+// On "real" ledgers, it is created during the slot boundary.
+message SlotContext {}
+
+message TxnContext {}
+
 message InstrAcct {
     // Selects an account in an external list
     required uint32 index = 1;
@@ -40,30 +53,36 @@ message InstrAcct {
     required bool is_signer = 3;
 }
 
-// The execution context of an instruction.  Contains all required
-// information to independently replay an instruction.
+// The execution context of a program invocation (aka instruction).
+// Contains all required information to independently replay an instruction.
+// Also includes partial transaction context.
 message InstrContext {
-    // The program invoked.
+    // The address of the program invoked.  (32 bytes)
     required bytes program_id = 1
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
-    // The BPF loader ID if the program_id is a user deployed program.
+    // The address of the program loader if the invoked program is a user
+    // deployed program.
     optional bytes loader_id = 2
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
-    required FeatureSet feature_set = 3;
-
     // Account state accessed by the instruction.
-    repeated AcctState accounts = 4
+    repeated AcctState accounts = 3
         [(nanopb).type = FT_POINTER];
 
     // Account access list for this instruction (refers to above accounts list)
-    repeated InstrAcct instr_accounts = 5
+    repeated InstrAcct instr_accounts = 4
         [(nanopb).type = FT_POINTER];
 
     // The input data passed to program execution.
-    required bytes data = 6
+    required bytes data = 5
         [(nanopb).type = FT_POINTER];
+
+    required uint64 cu_avail = 6;
+
+    required TxnContext txn_context = 7;
+    required SlotContext slot_context = 8;
+    required EpochContext epoch_context = 9;
 }
 
 // The results of executing an InstrContext.
@@ -83,6 +102,8 @@ message InstrEffects {
     // InstrContext.
     repeated AcctState modified_accounts = 3
         [(nanopb).type = FT_POINTER];
+
+    required uint64 cu_avail = 4;
 }
 
 // An instruction processing test fixture.
