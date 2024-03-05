@@ -426,7 +426,7 @@ monitor_cmd_fn( args_t *         args,
               sock_filter_policy_monitor_instr_cnt,
               seccomp_filter );
 
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_JOIN, fdctl_tile_align, fdctl_tile_footprint );
+  fd_topo_fill( &config->topo );
 
   run_monitor( config,
                args->monitor.drain_output_fd,

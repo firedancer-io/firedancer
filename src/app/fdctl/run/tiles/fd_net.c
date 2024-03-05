@@ -450,15 +450,15 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=1; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if( FD_UNLIKELY( link0->wksp_id != link->wksp_id ) ) FD_LOG_ERR(( "net tile reads input from multiple workspaces" ));
-    if( FD_UNLIKELY( link0->mtu != link->mtu         ) ) FD_LOG_ERR(( "net tile reads input from multiple links with different MTUs" ));
+    if( FD_UNLIKELY( topo->objs[ link0->dcache_obj_id ].wksp_id!=topo->objs[ link->dcache_obj_id ].wksp_id ) ) FD_LOG_ERR(( "net tile reads input from multiple workspaces" ));
+    if( FD_UNLIKELY( link0->mtu!=link->mtu         ) ) FD_LOG_ERR(( "net tile reads input from multiple links with different MTUs" ));
   }
 
-  ctx->in_mem    = topo->workspaces[ link0->wksp_id ].wksp;
+  ctx->in_mem    = topo->workspaces[ topo->objs[ link0->dcache_obj_id ].wksp_id ].wksp;
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
 
-  ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;

@@ -636,7 +636,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong shred_store_mcache_depth = tile->shred.depth;
   if( topo->links[ tile->out_link_id_primary ].depth != shred_store_mcache_depth )
-    FD_LOG_ERR(( "shred tile in depths are not equal" ));
+    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
+                 topo->links[ tile->out_link_id_primary ].depth, shred_store_mcache_depth ));
 
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
@@ -700,11 +701,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong expected_shred_version = tile->shred.expected_shred_version;
   if( FD_LIKELY( !expected_shred_version ) ) {
-    ulong * gossip_shred_version = (ulong*)tile->extra[0];
+    ulong busy_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ulong * gossip_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     FD_LOG_INFO(( "Waiting for shred version to be determined via gossip." ));
-    while( !expected_shred_version ) {
+    do {
       expected_shred_version = FD_VOLATILE_CONST( *gossip_shred_version );
-    }
+    } while( expected_shred_version==ULONG_MAX );
   }
 
   if( FD_UNLIKELY( expected_shred_version > USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
@@ -742,19 +745,19 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* The networking in mcache contains frags from several dcaches, so
      use the entire wksp data region as the chunk bounds. */
-  ctx->net_in_mem    = topo->workspaces[ netmux_shred_link->wksp_id ].wksp;
+  ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_shred_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_in_chunk0 = fd_disco_compact_chunk0( ctx->net_in_mem );
   ctx->net_in_wmark  = fd_disco_compact_wmark ( ctx->net_in_mem, netmux_shred_link->mtu );
 
-  ctx->poh_in_mem    = topo->workspaces[ poh_shred_link->wksp_id ].wksp;
+  ctx->poh_in_mem    = topo->workspaces[ topo->objs[ poh_shred_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, poh_shred_link->dcache );
   ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, poh_shred_link->dcache, poh_shred_link->mtu );
 
-  ctx->stake_in_mem    = topo->workspaces[ stake_in_link->wksp_id ].wksp;
+  ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
   ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
 
-  ctx->contact_in_mem    = topo->workspaces[ contact_in_link->wksp_id ].wksp;
+  ctx->contact_in_mem    = topo->workspaces[ topo->objs[ contact_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->contact_in_mem, contact_in_link->dcache );
   ctx->contact_in_wmark  = fd_dcache_compact_wmark ( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
@@ -765,13 +768,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
   fd_topo_link_t * store_out = &topo->links[ tile->out_link_id_primary ];
 
-  ctx->store_out_mem    = topo->workspaces[ store_out->wksp_id ].wksp;
+  ctx->store_out_mem    = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;

@@ -2,6 +2,7 @@
 
 #include "../../../../ballet/pack/fd_pack.h"
 #include "../../../../ballet/blake3/fd_blake3.h"
+#include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/metrics/generated/fd_metrics_bank.h"
 
@@ -303,20 +304,22 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->kind_id = tile->kind_id;
   ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
-  ctx->bank_busy = tile->extra[ 0 ];
+  ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
+  FD_TEST( busy_obj_id!=ULONG_MAX );
+  ctx->bank_busy = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
   if( FD_UNLIKELY( !ctx->bank_busy ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", tile->kind_id ));
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
 
-  ctx->pack_in_mem = topo->workspaces[ topo->links[ tile->in_link_id[ 0UL ] ].wksp_id ].wksp;
+  ctx->pack_in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0 = fd_dcache_compact_chunk0( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->pack_in_wmark  = fd_dcache_compact_wmark ( ctx->pack_in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
-  ctx->poh_in_mem = topo->workspaces[ topo->links[ tile->in_link_id[ 1UL ] ].wksp_id ].wksp;
+  ctx->poh_in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 1UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, topo->links[ tile->in_link_id[ 1UL ] ].dcache );
   ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, topo->links[ tile->in_link_id[ 1UL ] ].dcache, topo->links[ tile->in_link_id[ 1UL ] ].mtu );
 
-  ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;

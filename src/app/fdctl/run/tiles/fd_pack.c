@@ -1,8 +1,9 @@
 #include "tiles.h"
 
 #include "generated/pack_seccomp.h"
-#include "../../../../disco/shred/fd_shredder.h"
 
+#include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../ballet/pack/fd_pack.h"
 
 #include <linux/unistd.h>
@@ -363,25 +364,27 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->cur_spot = NULL;
   ctx->leader_slot = ULONG_MAX;
 
-  ctx->out_cnt  = out_cnt;
-  for( ulong i=0; i<out_cnt; i++ ) {
-    ctx->out_current[ i ] = tile->extra[ i ];
+  ctx->out_cnt = out_cnt;
+  for( ulong i=0UL; i<out_cnt; i++ ) {
+    ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ctx->out_current[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     ctx->out_expect[ i ] = ULONG_MAX;
     if( FD_UNLIKELY( !ctx->out_current[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
     ctx->out_ready_at[ i ] = 0L;
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->out_current[ i ] ) );
   }
 
-  for( ulong i=0; i<tile->in_cnt; i++ ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
     ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;

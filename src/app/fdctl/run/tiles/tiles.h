@@ -75,44 +75,4 @@ struct fd_microblock_trailer {
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
-FD_FN_CONST fd_topo_run_tile_t *
-fd_topo_tile_to_config( fd_topo_tile_t const * tile );
-
-static inline ulong
-fdctl_tile_align( fd_topo_tile_t const * tile ) {
-  fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
-  if( FD_LIKELY( config->scratch_align ) ) return config->scratch_align();
-  return 1UL;
-}
-
-static inline ulong
-fdctl_tile_footprint( fd_topo_tile_t const * tile ) {
-  fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
-  if( FD_LIKELY( config->scratch_footprint ) ) return config->scratch_footprint( tile );
-  return 0UL;
-}
-
-static inline fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile ) {
-  return *fd_topo_tile_to_config( tile );
-}
-
-extern fd_topo_run_tile_t fd_tile_net;
-extern fd_topo_run_tile_t fd_tile_netmux;
-extern fd_topo_run_tile_t fd_tile_quic;
-extern fd_topo_run_tile_t fd_tile_verify;
-extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_pack;
-extern fd_topo_run_tile_t fd_tile_bank;
-extern fd_topo_run_tile_t fd_tile_poh;
-extern fd_topo_run_tile_t fd_tile_shred;
-extern fd_topo_run_tile_t fd_tile_store;
-extern fd_topo_run_tile_t fd_tile_sign;
-extern fd_topo_run_tile_t fd_tile_metric;
-
-void *
-fd_wksp_pod_map1( uchar const * pod,
-                  char const *  format,
-                  ... );
-
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */
