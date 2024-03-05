@@ -632,7 +632,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip_config.fun_arg = ctx;
   ctx->gossip_config.deliver_fun = gossip_deliver_fun;
   ctx->gossip_config.send_fun = gossip_send_packet;
+#ifdef FD_GOSSIP_DEMO
+  ctx->gossip_config.shred_version = 4242;
+#else
   ctx->gossip_config.shred_version = 0;
+#endif
 
   if( fd_gossip_set_config( ctx->gossip, &ctx->gossip_config ) ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );

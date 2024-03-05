@@ -475,9 +475,10 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
 
   fd_gossip_unlock( glob );
-  for(ulong i = 0; i < 5000; i++) {
-    (*glob->send_fun)(data, sz, dest, glob->fun_arg);
-  }
+#ifdef FD_GOSSIP_DEMO
+  for(ulong i = 0; i < 5000; i++)
+#endif
+  (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
 }
 
@@ -516,7 +517,11 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (val->pongtime != 0)
       /* Success */
       return;
+#ifdef FD_GOSSIP_DEMO 
     if (val->pingcount++ >= 1000000U) {
+#else
+    if (val->pingcount++ >= 50U) {
+#endif
       /* Give up. This is a bad peer. */
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
@@ -531,7 +536,11 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   }
 
   /* Keep pinging until we succeed */
+#ifdef FD_GOSSIP_DEMO
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)1e1 /* 200 ms */ );
+#else
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
+#endif
   if (ev != NULL) {
     ev->fun = fd_gossip_make_ping;
     fd_gossip_peer_addr_copy(&ev->fun_arg.key, key);
@@ -854,7 +863,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   if (fd_ed25519_verify( /* msg */ pong->token.uc,
                          /* sz */ 32UL,
                          /* sig */ pong->signature.uc,
-                         /* public_key ß*/ pong->from.uc,
+                         /* public_key */ pong->from.uc,
                          sha2 )) {
     FD_LOG_WARNING(("received pong with invalid signature"));
     return;
@@ -868,7 +877,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   if (peerval == NULL) {
     if (fd_peer_table_is_full(glob->peers)) {
       FD_LOG_DEBUG(("too many peers"));
-      return;
+      return; 
     }
     peerval = fd_peer_table_insert(glob->peers, from);
     peerval->stake = 0;
@@ -884,7 +893,11 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 1 sec */
+#ifdef FD_GOSSIP_DEMO
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e1);
+#else
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
+#endif
   if (ev) {
     ev->fun = fd_gossip_random_ping;
   }
@@ -1058,13 +1071,17 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
+#ifdef FD_GOSSIP_DEMO
   for(ulong l = 0; l < 100; l++ ) {
+#endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
       ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
       fd_hash_copy(glob->need_push + i, &key);
     }
+#ifdef FD_GOSSIP_DEMO
   }
+#endif
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
     fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
@@ -1444,7 +1461,11 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 100 msec */
+#ifdef FD_GOSSIP_DEMO
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e1);
+#else
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
+#endif
   if (ev) {
     ev->fun = fd_gossip_push;
   }
