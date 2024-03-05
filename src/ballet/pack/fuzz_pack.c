@@ -34,9 +34,9 @@ struct pack_outcome {
   fd_txn_p_t results[1024];
 };
 typedef struct pack_outcome pack_outcome_t;
-pack_outcome_t *outcome;
-fd_pack_t * pack;
 
+pack_outcome_t outcome;
+fd_pack_t * pack;
 
 /* Makes enough of a transaction to schedule that reads one account for
    each character in reads and writes one account for each character in
@@ -224,6 +224,7 @@ LLVMFuzzerInitialize( int  *   pargc,
     putenv( "FD_LOG_BACKTRACE=0" );
     fd_boot( pargc, pargv );
     fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+    fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
     ulong pack_depth = 1024UL;
     ulong gap = 1UL;
     ulong max_txn_per_microblock = 2UL;
@@ -235,16 +236,17 @@ LLVMFuzzerInitialize( int  *   pargc,
 #endif
 
   void* _mem = fd_pack_new( pack_scratch, pack_depth, gap, max_txn_per_microblock, MAX_TEST_TXNS, rng );
+  assert(_mem != NULL);
   pack = fd_pack_join(_mem);
   assert(pack);
 fd_rng_delete( fd_rng_leave( rng ) );
 
 #define MAX_BANKING_THREADS 1
 
-  outcome->microblock_cnt = 0UL;
+  outcome.microblock_cnt = 0UL;
   for( ulong i=0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
-    outcome->r_accts_in_use[ i ] = aset_null( );
-    outcome->w_accts_in_use[ i ] = aset_null( );
+    outcome.r_accts_in_use[ i ] = aset_null( );
+    outcome.w_accts_in_use[ i ] = aset_null( );
   }
 
   //init_all inlined :) 
@@ -283,7 +285,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 //                               ulong min_rewards,
 //                               ulong bank_tile,
 //                               pack_outcome_t * outcome ) 
-schedule_validate_microblock(pack, 30000UL, 0.0f, 3UL, rewards, 0UL, outcome );
+schedule_validate_microblock(pack, 30000UL, 0.0f, 3UL, rewards, 0UL, &outcome );
 
 
   return 0;
