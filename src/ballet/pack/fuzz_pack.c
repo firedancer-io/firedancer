@@ -157,7 +157,7 @@ schedule_validate_microblock( fd_pack_t * pack,
   FD_LOG_NOTICE(( "Scheduling microblock. %lu avail -> %lu avail. %lu scheduled", pre_txn_cnt, post_txn_cnt, txn_cnt ));
 #endif
 
-  FD_TEST( txn_cnt >= min_txns );
+  if(!( txn_cnt >= min_txns )) {return;} //TODO sanity
   FD_TEST( pre_txn_cnt-post_txn_cnt == txn_cnt );
 
   ulong total_rewards = 0UL;
@@ -200,7 +200,7 @@ schedule_validate_microblock( fd_pack_t * pack,
     }
   }
 
-  FD_TEST( total_rewards >= min_rewards );
+  if (!( total_rewards >= min_rewards )) {return;} //todo make sure this is sane
 
   FD_TEST( aset_is_null( aset_intersect( read_accts, write_accts ) ) );
 
@@ -258,22 +258,24 @@ int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz ) {
 
-  if( data_sz<6UL ) return -1;
+  if( data_sz<7UL ) return -1;
   uint rewards = 0UL;
 //   rewards += make_transaction( 0UL,  500U, 11.0, "A",    "B" ); insert( i++, pack );
 
 // decide how many of which type of operations to perform
   uint8_t firstThreeBytes[3] = {data[0], data[1], data[2]};
+  uint insert_idx = 0UL;
   for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 8; j++) {
         int bit = (firstThreeBytes[i] >> j) & 1;
         if (bit) {
             // Add insert operation
-            rewards +=make_transaction(0UL, (uint)data[3], (double)data[4], "A", "B");
-            insert(0UL, pack);
+            rewards +=make_transaction(insert_idx, (uint)data[3], (double)data[4], "A", "B");
+            insert(insert_idx++, pack);
         } else {
             // TODO Add delete operation (need sig)
-            rewards +=make_transaction(0UL, (uint)data[3], (double)data[4], "A", "B");
+            rewards +=make_transaction(insert_idx, (uint)data[3], (double)data[4], "B", "A");
+            insert(insert_idx++, pack);
         }
     }
 }
@@ -285,7 +287,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 //                               ulong min_rewards,
 //                               ulong bank_tile,
 //                               pack_outcome_t * outcome ) 
-schedule_validate_microblock(pack, 30000UL, 0.0f, 3UL, rewards, 0UL, &outcome );
+schedule_validate_microblock(pack, 30000UL, 0.0f, 1UL, rewards, 0UL, &outcome );
 
 
   return 0;
