@@ -476,7 +476,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 5000; i++)
+  for(ulong i = 0; i < 1000; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
@@ -1002,6 +1002,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     FD_LOG_ERR(("fd_crds_data_encode failed"));
     return;
   }
+
+#ifdef FD_GOSSIP_DEMO
   fd_sha512_t sha[1];
   if (fd_ed25519_verify( /* msg */ buf,
                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
@@ -1011,6 +1013,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     FD_LOG_DEBUG(("received crds_value with invalid signature"));
     return;
   }
+#endif
 
   /* Perform the value hash to get the value table key */
   ctx.data = buf;
@@ -1153,6 +1156,8 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
     return;
   }
+
+#ifdef FD_GOSSIP_DEMO
   fd_sha512_t sha[1];
   if (fd_ed25519_verify( /* msg */ buf,
                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
@@ -1162,6 +1167,7 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     FD_LOG_WARNING(("received prune_msg with invalid signature"));
     return;
   }
+#endif
 
   /* Find the active push state which needs to be pruned */
   fd_push_state_t* ps = NULL;
