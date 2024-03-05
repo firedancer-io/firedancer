@@ -226,26 +226,34 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
  **********************************************************************/
 
 /* FD_CPI_MAX_SIGNER_CNT is the max amount of PDA signer addresses that
-   a cross-program invocation can include in an instruction. */
+   a cross-program invocation can include in an instruction.
+
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/mod.rs#L80 */
 
 #define FD_CPI_MAX_SIGNER_CNT              (16UL)
 
 /* Maximum number of account info structs that can be used in a single CPI
    invocation. A limit on account info structs is effectively the same as
    limiting the number of unique accounts. 128 was chosen to match the max
-   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS). */
+   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS).
+   
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25 */
 
 #define FD_CPI_MAX_ACCOUNT_INFOS           ( fd_ulong_if( FD_FEATURE_ACTIVE(slot_ctx, increase_tx_account_lock_limit), 128UL, 64UL ) )
 
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that CPI
    instructions are not more limited than transaction instructions if the size
-   of transactions is doubled in the future. */
+   of transactions is doubled in the future.
+   
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L14 */
 
 #define FD_CPI_MAX_INSTRUCTION_DATA_LEN    (10240UL)
 
 /* Maximum CPI instruction accounts. 255 was chosen to ensure that instruction
    accounts are always within the maximum instruction account limit for BPF
-   program instructions. */
+   program instructions.
+   
+   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/serialization.rs#L26 */
 
 #define FD_CPI_MAX_INSTRUCTION_ACCOUNTS    (255UL)
 
@@ -262,7 +270,9 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
                                    ulong acct_info_cnt,
                                    fd_exec_slot_ctx_t const * slot_ctx ) {
 
+  // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
+    // TODO: return SyscallError::TooManySigners
     FD_LOG_WARNING(("TODO: return too many signers" ));
     return FD_VM_ERR_INVAL;
   }
@@ -270,6 +280,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
   /* https://github.com/solana-labs/solana/blob/eb35a5ac1e7b6abe81947e22417f34508f89f091/programs/bpf_loader/src/syscalls/cpi.rs#L996-L997 */
   if( FD_FEATURE_ACTIVE( slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( acct_info_cnt > FD_CPI_MAX_ACCOUNT_INFOS  ) ) {
+      // TODO: return SyscallError::MaxInstructionAccountInfosExceeded
       FD_LOG_WARNING(( "TODO: return max instruction account infos exceeded" ));
       return FD_VM_ERR_INVAL;
     }
@@ -278,7 +289,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     if ( FD_UNLIKELY( adjusted_len > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       // Cap the number of account_infos a caller can pass to approximate
       // maximum that accounts that could be passed in an instruction
-      // todo: correct return code type. Too many accounts passed to inner instruction.
+      // TODO: return SyscallError::TooManyAccounts
       return FD_VM_ERR_INVAL;
     }
   }
@@ -444,10 +455,12 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( data_sz > FD_CPI_MAX_INSTRUCTION_DATA_LEN ) ) {
       FD_LOG_WARNING(( "cpi: data too long (%#lx)", data_sz ));
+      // SyscallError::MaxInstructionDataLenExceeded
       return FD_VM_ERR_INVAL;
     }
     if( FD_UNLIKELY( acct_cnt > FD_CPI_MAX_INSTRUCTION_ACCOUNTS ) ) {
       FD_LOG_WARNING(( "cpi: too many accounts (%#lx)", acct_cnt ));
+      // SyscallError::MaxInstructionAccountsExceeded
       return FD_VM_ERR_INVAL;
     }
   } else {
@@ -724,6 +737,7 @@ fd_vm_cpi_update_caller_account_c( fd_vm_t *         vm,
   return 0;
 }
 
+/* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1319 */
 static ulong
 fd_vm_cpi_update_callee_account( fd_vm_t * vm,
                                  fd_caller_account_t const * caller_account,
@@ -874,6 +888,7 @@ from_account_info_c( fd_vm_t * vm,
 }
 
 /* FIXME: PREFIX */
+/* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L971 */
 static int
 translate_and_update_accounts( fd_vm_t *       vm,
                                fd_instruction_account_t *   instruction_accounts,
