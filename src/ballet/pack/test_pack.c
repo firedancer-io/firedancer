@@ -17,6 +17,7 @@ ulong payload_sz[ MAX_TEST_TXNS ];
 
 #define PACK_SCRATCH_SZ (272UL*1024UL*1024UL)
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
+uchar pack_verify_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
@@ -25,6 +26,7 @@ const char WORK_PROGRAM_ID[ FD_TXN_ACCT_ADDR_SZ ] = "Work Program Id Consumes 1<
 
 fd_rng_t _rng[1];
 fd_rng_t * rng;
+int extra_verify;
 
 #define SET_NAME aset
 #include "../../util/tmpl/fd_smallset.c"
@@ -261,6 +263,7 @@ schedule_validate_microblock( fd_pack_t * pack,
   outcome->w_accts_in_use[ bank_tile ] = write_accts;
 
   outcome->microblock_cnt++;
+  if( extra_verify ) FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
 void test0( void ) {
@@ -922,6 +925,7 @@ main( int     argc,
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
   int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
+  extra_verify = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-verify" );
 
   test0();
   test1();
