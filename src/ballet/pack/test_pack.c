@@ -452,6 +452,80 @@ test_expiration( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
+static void
+performance_test2( void ) {
+  FD_LOG_NOTICE(( "TEST INDEPENDENT PERFORMANCE" ));
+  /* Make 1024 transaction with different fee payers, no instructions,
+     no other accounts. */
+  for( ulong i=0UL; i<MAX_TEST_TXNS; i++ ) {
+    uchar    * p      = payload_scratch[ i ];
+    uchar    * p_base = p;
+    fd_txn_t * t      = (fd_txn_t*) txn_scratch[ i ];
+
+    *(p++) = (uchar)1;
+    fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
+    fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
+
+    /* Just enough of a transaction to satisfy pack */
+    p += FD_TXN_SIGNATURE_SZ;
+    t->transaction_version   = FD_TXN_VLEGACY;
+    t->signature_cnt         = 1;
+    t->signature_off         = 1;
+    t->message_off           = FD_TXN_SIGNATURE_SZ+1UL;
+    t->readonly_signed_cnt   = 0;
+    t->readonly_unsigned_cnt = 0;
+    t->acct_addr_cnt         = 1;
+    t->acct_addr_off         = FD_TXN_SIGNATURE_SZ+1UL;
+
+    t->recent_blockhash_off         = 0;
+    t->addr_table_lookup_cnt        = 0;
+    t->addr_table_adtl_writable_cnt = 0;
+    t->addr_table_adtl_cnt          = 0;
+    t->instr_cnt                    = 0;
+
+    /* Add the signer */
+    *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', 32-9 ); p += FD_TXN_ACCT_ADDR_SZ;
+
+    payload_sz[ i ] = (ulong)(p-p_base);
+  }
+  FD_TEST( fd_pack_footprint( 1024UL, 4UL, MAX_TXN_PER_MICROBLOCK )<PACK_SCRATCH_SZ );
+#define INNER_ROUNDS (FD_PACK_MAX_COST_PER_BLOCK/(1020UL * 1024UL))
+#define OUTER_ROUNDS 88
+  long elapsed = 0L;
+
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 4UL, MAX_TXN_PER_MICROBLOCK,
+                                                              INNER_ROUNDS*(1024UL/MAX_TXN_PER_MICROBLOCK+1UL), rng ) );
+
+  for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
+    elapsed -= fd_log_wallclock();
+    for( ulong j=0UL; j<INNER_ROUNDS; j++ ) {
+      for( ulong i=0UL; i<1024UL; i++ ) {
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
+        slot->payload_sz        = payload_sz[ i ];
+        fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
+        fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
+      }
+      ulong scheduled = 0UL;
+      for( ulong i=0UL; i<1024UL/MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
+        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*1200UL, 0.0f, i&3UL, outcome.results );
+        fd_pack_microblock_complete( pack, i&3UL );
+      }
+      FD_TEST( scheduled==1024UL );
+    }
+    elapsed += fd_log_wallclock();
+    fd_pack_end_block( pack );
+  }
+
+  ulong txns = OUTER_ROUNDS*INNER_ROUNDS*1024UL;
+  FD_LOG_NOTICE(( "Inserted and scheduled %lu minimal transactions in %li ns. %f ns/txn", txns, elapsed,
+                                                                                          (double)elapsed/(double)txns ));
+#undef OUTER_ROUNDS
+#undef INNER_ROUNDS
+}
+
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
@@ -860,6 +934,7 @@ main( int     argc,
   test_limits();
   test_reject_writes_to_sysvars();
   performance_test( extra_benchmark );
+  performance_test2();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
