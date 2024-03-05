@@ -31,19 +31,20 @@
    provide full coverage of Lab SyscallErrors) */
 
 #define FD_VM_SUCCESS                          (  0) /* Request completed normally */
-#define FD_VM_ERR_INVAL                        ( -1) /* Request failed because did not make sense */
-#define FD_VM_ERR_UNSUP                        ( -2) /* Request failed because it is not supported on this target (yet) */
-#define FD_VM_ERR_FULL                         ( -3) /* Request failed because no free resources */
-#define FD_VM_ERR_EMPTY                        ( -4) /* Request failed because no used resources */
-#define FD_VM_ERR_PERM                         ( -5) /* Request failed because requestor does not have permission */
-#define FD_VM_ERR_BUDGET                       ( -6) /* Request failed because compute budget exceeded */
+#define FD_VM_ERR_INVAL                        ( -1) /* Request failed because it did not make sense */
+#define FD_VM_ERR_UNSUP                        ( -2) /* Request failed because it is not supported on this target currently */
+#define FD_VM_ERR_FULL                         ( -3) /* Request failed because there is no space available for the request */
+#define FD_VM_ERR_EMPTY                        ( -4) /* Request failed because there is no resource for the request */
+#define FD_VM_ERR_PERM                         ( -5) /* Request failed because the requestor does not have permission */
+#define FD_VM_ERR_IO                           ( -6) /* Request failed because an I/O error occurred */
 
-#define FD_VM_ERR_ABORT                        ( -7)
-#define FD_VM_ERR_PANIC                        ( -8)
-#define FD_VM_ERR_MEM_OVERLAP                  ( -9)
-#define FD_VM_ERR_INSTR_ERR                    (-10)
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-11)
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-12)
+#define FD_VM_ERR_BUDGET                       ( -7) /* Request failed because the compute budget was exceeded */
+#define FD_VM_ERR_ABORT                        ( -8)
+#define FD_VM_ERR_PANIC                        ( -9)
+#define FD_VM_ERR_MEM_OVERLAP                  (-10)
+#define FD_VM_ERR_INSTR_ERR                    (-11)
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-12)
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-13)
 
 /* fd_vm_log_collector API ********************************************/
 
@@ -234,6 +235,61 @@ FD_FN_CONST static inline void * fd_vm_stack_data( fd_vm_stack_t * stack ) { ret
    Assumes stack is valid. */
 
 FD_FN_PURE static inline int fd_vm_stack_is_empty( fd_vm_stack_t const * stack ) { return !stack->depth; }
+
+FD_PROTOTYPES_END
+
+/* fd_vm_disasm API ***************************************************/
+
+/* FIXME: pretty good case these actually belongs in ballet/sbpf */
+/* FIXME: fd_sbpf_instr_t is nominally a ulong but implemented using]
+   bit-fields.  Compilers tend to generate notoriously poor asm for bit
+   fields ... check ASM here. */
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_vm_disasm_{instr,program} appends to the *_out_len (in strlen
+   sense) cstr in the out_max byte buffer out a pretty printed cstr of
+   the {instruction,program}.  On input, *_out_len should be strlen(out)
+   and in [0,out_max).  For instr, pc is the program counter
+   corresponding to instr[0] (as such instr_cnt should be positive) and
+   instr_cnt is the number of instruction words available at instr to
+   support safely printing multiword instructions.  Given a valid out on
+   input, on output, *_out_len will be strlen(out) and in [0,out_max),
+   even if there was an error.
+
+   Returns:
+
+   FD_VM_SUCCESS - out buffer and *_out_len updated.
+
+   FD_VM_ERR_INVAL - Invalid input.  For instr, out buffer and *_out_len
+   are unchanged.  For program, out buffer and *_out_len will have been
+   updated up to the point where the error occurred.
+
+   FD_VM_ERR_FULL - Not enough room in out to hold the result so output
+   was truncated.  out buffer and *_out_len updated.
+
+   FD_VM_ERR_IO - An error occured formatting the string to append.  For
+   instr, out_buffer and *_out_len unchanged.  For program, out buffer
+   and *_out_len will have been updated up to the point where the error
+   occurred.  In both cases, trailing bytes of out might have been
+   clobbered. */
+
+int
+fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,     /* Indexed [0,instr_cnt) */
+                    ulong                      instr_cnt,
+                    ulong                      pc,
+                    fd_sbpf_syscalls_t const * syscalls,
+                    char *                     out,       /* Indexed [0,out_max) */
+                    ulong                      out_max,
+                    ulong *                    _out_len );
+
+int
+fd_vm_disasm_program( fd_sbpf_instr_t const *    program,     /* Indexed [0,program_cnt) */
+                      ulong                      program_cnt,
+                      fd_sbpf_syscalls_t const * syscalls,
+                      char *                     out,         /* Indexed [0,out_max) */
+                      ulong                      out_max,
+                      ulong *                    _out_len );
 
 FD_PROTOTYPES_END
 
