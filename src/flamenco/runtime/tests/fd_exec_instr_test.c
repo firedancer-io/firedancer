@@ -158,12 +158,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Restore feature flags */
 
+  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
+
   fd_features_disable_all( &epoch_ctx->features );
-  for( ulong j=0UL; j < test_ctx->feature_set.features_count; j++ ) {
-    ulong                   prefix = test_ctx->feature_set.features[j];
+  for( ulong j=0UL; j < feature_set->features_count; j++ ) {
+    ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      REPORTV( NOTICE, "unsupported feature ID 0x%16lx", prefix );
+      REPORTV( NOTICE, "unsupported feature ID 0x%016lx", prefix );
       return 0;
     }
     /* Enabled since genesis */
@@ -521,11 +523,47 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         ulong                                output_bufsz ) {
 
   fd_exec_instr_ctx_t ctx[1];
-  _context_create( runner, ctx, input );
+  if( !_context_create( runner, ctx, input ) )
+    return 0;
 
-  FD_LOG_WARNING(( "TODO" ));
-  (void)output; (void)output_buf; (void)output_bufsz;
+  fd_pubkey_t program_id[1];  memcpy( program_id, input->program_id, sizeof(fd_pubkey_t) );
+  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
 
+  if( FD_UNLIKELY( !native_prog_fn ) ) {
+    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
+    REPORTV( NOTICE, "execution failed (program %s not found)",
+             fd_acct_addr_cstr( program_id_cstr, input->program_id ) );
+    _context_destroy( runner, ctx );
+    return 0;
+  }
+
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+
+  fd_exec_test_instr_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
+                                sizeof (fd_exec_test_instr_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    REPORT( NOTICE, "output buffer too small" );
+    _context_destroy( runner, ctx );
+    return 0;
+  }
+  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  int exec_result = native_prog_fn( *ctx );
+  effects->result = exec_result;
+
+  if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+    effects->has_custom_err = 1;
+    effects->custom_err     = ctx->txn_ctx->custom_err;
+  }
+
+  *output = effects;
+
+  /* TODO capture CUs consumed */
+  /* TODO capture changed accounts */
+
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   _context_destroy( runner, ctx );
-  return 0UL;
+  return actual_end - (ulong)output_buf;
 }

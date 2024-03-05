@@ -12,6 +12,15 @@ PB_BIND(FD_EXEC_TEST_FEATURE_SET, fd_exec_test_feature_set_t, AUTO)
 PB_BIND(FD_EXEC_TEST_ACCT_STATE, fd_exec_test_acct_state_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_EPOCH_CONTEXT, fd_exec_test_epoch_context_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_TXN_CONTEXT, fd_exec_test_txn_context_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_INSTR_ACCT, fd_exec_test_instr_acct_t, AUTO)
 
 
