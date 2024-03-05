@@ -223,23 +223,10 @@ LLVMFuzzerInitialize( int  *   pargc,
   /* Set up shell without signal handlers */
     putenv( "FD_LOG_BACKTRACE=0" );
     fd_boot( pargc, pargv );
-    fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+    // init_all from test_pack.c
+    // metrics! need your metrics!
     fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
-    ulong pack_depth = 1024UL;
-    ulong gap = 1UL;
-    ulong max_txn_per_microblock = 2UL;
-    ulong footprint = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
 
-  if( footprint>PACK_SCRATCH_SZ ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, PACK_SCRATCH_SZ ));
-#if DETAILED_STATUS_MESSAGES
-  else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
-#endif
-
-  void* _mem = fd_pack_new( pack_scratch, pack_depth, gap, max_txn_per_microblock, MAX_TEST_TXNS, rng );
-  assert(_mem != NULL);
-  pack = fd_pack_join(_mem);
-  assert(pack);
-fd_rng_delete( fd_rng_leave( rng ) );
 
 #define MAX_BANKING_THREADS 1
 
@@ -259,9 +246,25 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz ) {
 
   if( data_sz<7UL ) return -1;
+    ulong pack_depth = 1024UL;
+    ulong gap = 1UL;
+    ulong max_txn_per_microblock = 2UL;
+    ulong footprint = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
+
+      fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  if( footprint>PACK_SCRATCH_SZ ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, PACK_SCRATCH_SZ ));
+#if DETAILED_STATUS_MESSAGES
+  else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
+#endif
+
+  void* _mem = fd_pack_new( pack_scratch, pack_depth, gap, max_txn_per_microblock, MAX_TEST_TXNS, rng );
+  fd_rng_delete( fd_rng_leave( rng ) );
+  assert(_mem != NULL);
+  pack = fd_pack_join(_mem);
+  assert(pack);
   uint rewards = 0UL;
 //   rewards += make_transaction( 0UL,  500U, 11.0, "A",    "B" ); insert( i++, pack );
-
 // decide how many of which type of operations to perform
   uint8_t firstThreeBytes[3] = {data[0], data[1], data[2]};
   uint insert_idx = 0UL;
@@ -287,9 +290,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
 //                               ulong min_rewards,
 //                               ulong bank_tile,
 //                               pack_outcome_t * outcome ) 
-schedule_validate_microblock(pack, 30000UL, 0.0f, 1UL, rewards, 0UL, &outcome );
+schedule_validate_microblock(pack, 30000UL, 0.0f, 24UL, rewards, 0UL, &outcome );
 
-
+  // rewards = 0UL;
   return 0;
 }
 
