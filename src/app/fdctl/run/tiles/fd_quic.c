@@ -645,11 +645,11 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
 
-    if( FD_UNLIKELY( link0->wksp_id != link->wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
-    if( FD_UNLIKELY( link0->mtu != link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
+    if( FD_UNLIKELY( topo->objs[ link0->dcache_obj_id ].wksp_id!=topo->objs[ link->dcache_obj_id ].wksp_id ) ) FD_LOG_ERR(( "quic tile reads input from multiple workspaces" ));
+    if( FD_UNLIKELY( link0->mtu!=link->mtu         ) ) FD_LOG_ERR(( "quic tile reads input from multiple links with different MTUs" ));
   }
 
-  ctx->in_mem    = topo->workspaces[ link0->wksp_id ].wksp;
+  ctx->in_mem    = topo->workspaces[ topo->objs[ link0->dcache_obj_id ].wksp_id ].wksp;
   ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
   ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
 
@@ -660,18 +660,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
+  if( FD_UNLIKELY( tile->out_link_id_primary==ULONG_MAX ) )
     FD_LOG_ERR(( "quic tile has no primary output link" ));
 
   fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id_primary ];
 
-  ctx->verify_out_mem    = topo->workspaces[ verify_out->wksp_id ].wksp;
+  ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->reasm_obj_id ].wksp_id ].wksp;
 
-  ctx->reasm = verify_out->dcache;
+  ctx->reasm = verify_out->reasm;
   if( FD_UNLIKELY( !ctx->reasm ) )
     FD_LOG_ERR(( "invalid tpu_reasm parameters" ));
 

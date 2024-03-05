@@ -226,4 +226,7 @@ config_parse( int *      pargc,
 int
 config_write_memfd( config_t * config );
 
+fd_topo_run_tile_t
+fdctl_tile_run( fd_topo_tile_t * tile );
+
 #endif /* HEADER_fd_src_app_fdctl_config_h */

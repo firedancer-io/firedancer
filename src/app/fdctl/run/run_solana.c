@@ -35,7 +35,7 @@ clone_labs_memory_space_tiles( config_t * const config ) {
     }
   }
 
-  fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, fdctl_tile_align, fdctl_tile_footprint );
+  fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run );
 }
 
 void

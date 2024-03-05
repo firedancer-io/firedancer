@@ -49,9 +49,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   int                  allow_fd,
                   volatile int *       wait,
                   volatile int *       debugger,
-                  fd_topo_run_tile_t * tile_run,
-                  ulong (* tile_align     )( fd_topo_tile_t const * tile ),
-                  ulong (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
+                  fd_topo_run_tile_t * tile_run ) {
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
 
   check_wait_debugger( pid, wait, debugger );
@@ -60,7 +58,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
 
-  void * tile_mem = (uchar*)topo->workspaces[ tile->wksp_id ].wksp + tile->user_mem_offset;
+  void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile, tile_mem );
 
@@ -96,7 +95,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
               seccomp_filter );
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
-  fd_topo_fill_tile( topo, tile, FD_TOPO_FILL_MODE_JOIN, tile_align, tile_footprint );
+  fd_topo_fill_tile( topo, tile );
 
   FD_TEST( tile->cnc );
   FD_TEST( tile->metrics );
@@ -177,8 +176,6 @@ typedef struct {
   fd_topo_t *        topo;
   fd_topo_tile_t *   tile;
   fd_topo_run_tile_t tile_run;
-  ulong (* tile_align     )( fd_topo_tile_t const * tile );
-  ulong (* tile_footprint )( fd_topo_tile_t const * tile );
   uint               uid;
   uint               gid;
   volatile int       copied;
@@ -194,7 +191,7 @@ run_tile_thread_main( void * _args ) {
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", args.tile->name, args.tile->kind_id ) );
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run, args.tile_align, args.tile_footprint );
+  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   FD_LOG_ERR(( "fd_topo_run_tile() returned" ));
   return NULL;
 }
@@ -203,8 +200,6 @@ static inline pthread_t
 run_tile_thread( fd_topo_t *         topo,
                  fd_topo_tile_t *    tile,
                  fd_topo_run_tile_t  tile_run,
-                 ulong (* tile_align     )( fd_topo_tile_t const * tile ),
-                 ulong (* tile_footprint )( fd_topo_tile_t const * tile ),
                  uint                uid,
                  uint                gid,
                  fd_cpuset_t const * floating_cpu_set,
@@ -232,8 +227,6 @@ run_tile_thread( fd_topo_t *         topo,
     .topo           = topo,
     .tile           = tile,
     .tile_run       = tile_run,
-    .tile_align     = tile_align,
-    .tile_footprint = tile_footprint,
     .uid            = uid,
     .gid            = gid,
     .copied         = 0,
@@ -251,9 +244,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
                             int         solana_labs,
                             uint        uid,
                             uint        gid,
-                            fd_topo_run_tile_t (* tile_run       )( fd_topo_tile_t * tile ),
-                            ulong              (* tile_align     )( fd_topo_tile_t const * tile ),
-                            ulong              (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ) ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
@@ -269,7 +260,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
     if( solana_labs==1 && !tile->is_labs ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
-    run_tile_thread( topo, tile, run_tile, tile_align, tile_footprint, uid, gid, floating_cpu_set, save_priority );
+    run_tile_thread( topo, tile, run_tile, uid, gid, floating_cpu_set, save_priority );
   }
 
   fd_sandbox( 0, uid, gid, 0, 0, NULL, 0, NULL );
