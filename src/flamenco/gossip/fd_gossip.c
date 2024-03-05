@@ -849,16 +849,16 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
   }
 
-  // /* Verify the signature */
-  // fd_sha512_t sha2[1];
-  // if (fd_ed25519_verify( /* msg */ pong->token.uc,
-  //                        /* sz */ 32UL,
-  //                        /* sig */ pong->signature.uc,
-  //                        /* public_key */ pong->from.uc,
-  //                        sha2 )) {
-  //   FD_LOG_WARNING(("received pong with invalid signature"));
-  //   return;
-  // }
+  /* Verify the signature */
+  fd_sha512_t sha2[1];
+  if (fd_ed25519_verify( /* msg */ pong->token.uc,
+                         /* sz */ 32UL,
+                         /* sig */ pong->signature.uc,
+                         /* public_key ß*/ pong->from.uc,
+                         sha2 )) {
+    FD_LOG_WARNING(("received pong with invalid signature"));
+    return;
+  }
 
   val->pongtime = glob->now;
   fd_hash_copy(&val->id, &pong->from);
