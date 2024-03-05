@@ -1072,7 +1072,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->datalen = datalen;
 
 #ifdef FD_GOSSIP_DEMO
-  for(ulong l = 0; l < 100; l++ ) {
+  for(ulong l = 0; l < 1000; l++ ) {
 #endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
