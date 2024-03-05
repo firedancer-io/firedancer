@@ -1463,41 +1463,44 @@ fd_log_private_stack_discover( ulong   stack_sz,
     return;
   }
 
-  char filebuf[1<<16];
+  char filebuf[1<<12];
   ulong filelen = 0;
-  for(;;) {
-    ssize_t tlen;
-    if( FD_UNLIKELY( ( tlen = read( filefd, filebuf + filelen, sizeof(filebuf)-filelen ) ) < 0 ) ) {
-      FD_LOG_WARNING(( "read( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      close(filefd);
-      *_stack0 = 0UL;
-      *_stack1 = 0UL;
-      return;
-    }
-    if( tlen == 0 )
-      break;
-    filelen += (ulong)tlen;
-  }
-
-  close(filefd);
-
-  FD_TEST( filelen < sizeof(filebuf) );
-  filebuf[filelen] = '\0';
-
   char * p = filebuf;
   int found = 0;
-  while( p < filebuf + filelen ) {
-
+  while( !found ) {
+    
     /* Scan a line */
+
+    int full_line = 0;
+    char * nextp;
+    for( nextp = p; nextp < filebuf + filelen; ) {
+      if( *(nextp++) == '\n' ) {
+        full_line = 1;
+        break;
+      }
+    }
+    if( !full_line ) {
+      /* We need to read more data. First shift the old data down. */
+      filelen = (ulong)((filebuf + filelen) - p);
+      if( filelen )
+        memmove( filebuf, p, filelen );
+      p = filebuf;
+      /* Now read data */
+      ssize_t tlen;
+      if( FD_UNLIKELY( ( tlen = read( filefd, filebuf + filelen, sizeof(filebuf)-1U-filelen ) ) < 0 ) ) {
+        FD_LOG_WARNING(( "read( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        break;
+      }
+      if( tlen == 0 ) break; /* End of file */
+      filelen += (ulong)tlen;
+      filebuf[filelen] = '\0'; /* For sscanf */
+      continue;
+    }
 
     ulong m0;
     ulong m1;
     int r = sscanf( p, "%lx-%lx", &m0, &m1 );
-    while( p < filebuf + filelen ) {
-      if( *(p++) == '\n' )
-        break;
-    }
-      
+    p = nextp;
     if( FD_UNLIKELY( r !=2 ) ) continue;
 
     /* Test if the stack allocation is in the discovered region */
@@ -1529,6 +1532,8 @@ fd_log_private_stack_discover( ulong   stack_sz,
   if( !found )
     FD_LOG_WARNING(( "unable to find stack size around address 0x%lx", stack_addr ));
 
+  close(filefd);
+  
   *_stack0 = stack0;
   *_stack1 = stack1;
 }
