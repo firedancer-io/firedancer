@@ -483,6 +483,7 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
   fd_gossip_continue( ctx->gossip );
 
  
+#ifdef FD_GOSSIP_DEMO
   if( now - ctx->last_shred_dest_push_time > (long)1e6 ) {
     ctx->last_shred_dest_push_time = now;
     if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
@@ -502,6 +503,7 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
       fd_gossip_push_value( ctx->gossip, &crds_data, NULL );
     }
   }
+#endif
 }
 
 static void
