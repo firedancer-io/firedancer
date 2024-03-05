@@ -476,7 +476,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 1000; i++)
+  for(ulong i = 0; i < 100; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
