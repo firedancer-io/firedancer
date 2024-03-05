@@ -1,6 +1,6 @@
 #include "fd_vm_syscall.h"
 
-#include "../../../ballet/ed25519/fd_ed25519_ge.h"
+#include "../../../ballet/ed25519/fd_curve25519.h"
 
 /* fd_vm_partial_derive_address does the initial appends to a SHA
    calculation for a program derived account address.  sha is an current

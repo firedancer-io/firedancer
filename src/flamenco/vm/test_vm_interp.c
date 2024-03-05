@@ -53,10 +53,10 @@ test_program_success( char *            test_case_name,
 
   free( syscalls );
   if (expected_result != ctx.register_file[0]) {
-    FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
-    FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
-    FD_LOG_WARNING(( "Cond fault: %lu 0x%lx", ctx.cond_fault, ctx.cond_fault));
-    FD_LOG_WARNING(( "IC: %lu 0x%lx", ctx.instruction_counter, ctx.instruction_counter));
+    // FD_LOG_WARNING(( "RET: %lu 0x%lx", ctx.register_file[0], ctx.register_file[0] ));
+    // FD_LOG_WARNING(( "PC: %lu 0x%lx", ctx.program_counter, ctx.program_counter ));
+    // FD_LOG_WARNING(( "Cond fault: %d", ctx.cond_fault));
+    // FD_LOG_WARNING(( "IC: %lu 0x%lx", ctx.instruction_counter, ctx.instruction_counter));
   }
   FD_TEST( ctx.register_file[0]==expected_result );
 //FD_LOG_NOTICE(( "Instr counter: %lu", ctx.instruction_counter ));

@@ -1,5 +1,4 @@
-#include "fd_vm_interp.h"    /* FIXME: COMBINE FD_VM_INTERP / DISASM / SYSCALLS INTO SINGLE HEADER? */
-#include "fd_vm_disasm.h"
+#include "fd_vm_interp.h"    /* FIXME: COMBINE FD_VM_INTERP / SYSCALLS INTO SINGLE HEADER? */
 #include "syscall/fd_vm_syscall.h"
 
 #include <errno.h>
@@ -87,9 +86,8 @@ fd_vm_tool_prog_free( fd_vm_tool_prog_t * prog ) {
 
 int
 cmd_disasm( char const * bin_path ) {
-
   fd_vm_tool_prog_t tool_prog;
-  fd_vm_tool_prog_create( &tool_prog, bin_path );
+  fd_vm_tool_prog_create( &tool_prog, bin_path ); /* FIXME: RENAME INIT? */
   FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
   fd_vm_exec_context_t ctx = {
@@ -102,15 +100,22 @@ cmd_disasm( char const * bin_path ) {
     .calldests           = tool_prog.prog->calldests,
     .syscall_map         = tool_prog.syscalls,
   };
-  char * out = malloc( 128 * tool_prog.prog->text_cnt );
-  int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, out );
+
+  ulong  out_max = 128UL*tool_prog.prog->text_cnt; /* FIXME: OVERFLOW */
+  ulong  out_len = 0UL;
+  char * out     = (char *)malloc( out_max ); /* FIXME: GROSS */
+  if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "malloc failed" ));
+  out[0] = '\0';
+
+  int err = fd_vm_disasm_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, out, out_max, &out_len );
+
   puts( out );
 
-  fd_vm_tool_prog_free( &tool_prog );
+  free( out ); /* FIXME: GROSS */
 
-  free( out );
+  fd_vm_tool_prog_free( &tool_prog ); /* FIXME: RENAME DESTROY (OR MAYBE FINI)*/
 
-  return res;
+  return err;
 }
 
 int
@@ -235,8 +240,13 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
         trace_ent.register_file[10],
         trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
       );
-    char out[100];
-    fd_vm_disassemble_instr(&ctx.instrs[trace[i].pc], trace[i].pc, ctx.syscall_map, out, 0);
+
+    ulong out_len = 0UL;
+    char  out[128];
+    out[0] = '\0';
+    int err = fd_vm_disasm_instr( ctx.instrs + trace[i].pc, ctx.instrs_sz - trace[i].pc, trace[i].pc, ctx.syscall_map,
+                                  out, 128UL, &out_len );
+    if( FD_UNLIKELY( err ) ) printf( "# fd_vm_disasm_instr error %i", err ); /* FIXME: STRING PRETTY PRINT */
     puts( out );
   }
 
@@ -312,9 +322,9 @@ main( int     argc,
       FD_LOG_ERR(( "Please specify a --program-file" ));
     }
 
-    if( FD_UNLIKELY( !cmd_disasm( program_file ) ) ) {
-      FD_LOG_ERR(( "error during disassembly" ));
-    }
+    int err = cmd_disasm( program_file );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "error during disassembly (%i)", err )); /* FIXME: ERR CSTR */
+
   } else if( !strcmp( cmd, "validate" ) ) {
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
 
