@@ -1251,6 +1251,143 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   return 1;
 }
 
+int
+fd_pack_verify( fd_pack_t * pack ) {
+  /* Invariants:
+     sig2txn_query has exact same contents as all treaps combined
+     root matches treap
+     Keys of acct_to_bitset is exactly union of all accounts in all
+            transactions in treaps, with ref counted appropriately
+     bits in bitset_avail is complement of bits allocated in
+            acct_to_bitset
+     expires_at consistent between treap, prq */
+#define VERIFY_TEST( cond, ... ) do {   \
+    if( FD_UNLIKELY( !(cond) ) ) {      \
+      FD_LOG_WARNING(( __VA_ARGS__ ));  \
+      return -(__LINE__);               \
+    }                                   \
+  } while( 0 )
+
+  ulong max_acct_in_treap  = pack->pack_depth * FD_TXN_ACCT_ADDR_MAX;
+  int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
+  void * _bitset_map_copy = aligned_alloc( 32UL, bitset_map_footprint( lg_acct_in_trp ) );
+  void * _bitset_map_orig = bitset_map_leave( pack->acct_to_bitset );
+  fd_memcpy( _bitset_map_copy, _bitset_map_orig, bitset_map_footprint( lg_acct_in_trp ) );
+
+  fd_pack_bitset_acct_mapping_t * bitset_copy = bitset_map_join( _bitset_map_copy );
+
+  /* Check that each bit is in exactly one place */
+  FD_PACK_BITSET_DECLARE( processed ); FD_PACK_BITSET_CLEAR( processed );
+  FD_PACK_BITSET_DECLARE( bit       ); FD_PACK_BITSET_CLEAR( bit       );
+  FD_PACK_BITSET_DECLARE( full      ); FD_PACK_BITSET_CLEAR( full      );
+
+  if( FD_UNLIKELY( pack->bitset_avail[0]!=FD_PACK_BITSET_SLOWPATH ) ) return -1;
+  for( ulong i=1UL; i<=pack->bitset_avail_cnt; i++ ) {
+    FD_PACK_BITSET_CLEAR( bit );
+    FD_PACK_BITSET_SETN( bit, pack->bitset_avail[ i ] );
+    VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, processed, processed ),
+        "bit %hu in avail set twice", pack->bitset_avail[ i ] );
+    FD_PACK_BITSET_OR( processed, bit );
+  }
+
+  ulong total_references = 0UL;
+  for( ulong i=0UL; i<bitset_map_slot_cnt( bitset_copy ); i++ ) {
+    if( !bitset_map_key_inval( bitset_copy[ i ].key ) ) {
+      VERIFY_TEST( bitset_copy[ i ].ref_cnt>0UL, "account address in table with 0 ref count" );
+
+      total_references += bitset_copy[ i ].ref_cnt;
+
+      FD_PACK_BITSET_CLEAR( bit );
+      FD_PACK_BITSET_SETN( bit, bitset_copy[ i ].bit );
+      VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, processed, processed ), "bit %hu used twice", bitset_copy[ i ].bit );
+      FD_PACK_BITSET_OR( processed, bit );
+    }
+  }
+  for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) {
+    FD_PACK_BITSET_CLEAR( bit );
+    FD_PACK_BITSET_SETN( bit, i );
+    VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, processed, processed ), "bit %lu missing", i );
+    FD_PACK_BITSET_SETN( full, i );
+  }
+
+
+  fd_pack_ord_txn_t  * pool = pack->pool;
+  treap_t * treaps[ 3 ] = { pack->pending, pack->pending_votes, pack->delay_end_block };
+  ulong txn_cnt = 0UL;
+
+  for( ulong k=0UL; k<3; k++ ) {
+    treap_t * treap = treaps[ k ];
+
+    for( treap_rev_iter_t _cur=treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( _cur );
+        _cur=treap_rev_iter_next( _cur, pool ) ) {
+      txn_cnt++;
+      fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+      fd_txn_t const * txn = TXN(cur->txn);
+      fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( txn, cur->txn->payload );
+
+      fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
+
+      fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
+      VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
+      VERIFY_TEST( in_tbl->key==sig0, "signature in sig2txn inconsistent" );
+      VERIFY_TEST( (ulong)(cur->root)==k+1, "treap element had bad root" );
+      VERIFY_TEST( cur->expires_at>=pack->expire_before, "treap element expired" );
+
+      fd_pack_expq_t const * eq = pack->expiration_q + cur->expq_idx;
+      VERIFY_TEST( eq->txn==cur, "expq inconsistent" );
+      VERIFY_TEST( eq->expires_at==cur->expires_at, "expq expires_at inconsistent" );
+
+      FD_PACK_BITSET_DECLARE( complement );
+      FD_PACK_BITSET_COPY( complement, full );
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( bitset_copy, acct, NULL );
+        VERIFY_TEST( q, "account in transaction missing from bitset mapping" );
+        VERIFY_TEST( q->ref_cnt>0UL, "account in transaction ref_cnt already 0" );
+        q->ref_cnt--;
+        total_references--;
+
+        FD_PACK_BITSET_CLEAR( bit );
+        FD_PACK_BITSET_SETN( bit, q->bit );
+        if( q->bit<FD_PACK_BITSET_MAX ) {
+          VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, cur->rw_bitset, cur->rw_bitset ), "missing from rw bitset" );
+          VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, cur->w_bitset,  cur->w_bitset ), "missing from w bitset" );
+        }
+        FD_PACK_BITSET_CLEARN( complement, q->bit );
+      }
+      VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( complement, complement, cur->w_bitset,  cur->w_bitset ), "extra in w bitset" );
+
+      for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+          iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+
+        fd_acct_addr_t acct = accts[fd_txn_acct_iter_idx( iter )];
+        if( FD_UNLIKELY( fd_pack_unwritable_contains( &acct ) ) ) continue;
+        fd_pack_bitset_acct_mapping_t * q = bitset_map_query( bitset_copy, acct, NULL );
+        VERIFY_TEST( q, "account in transaction missing from bitset mapping" );
+        VERIFY_TEST( q->ref_cnt>0UL, "account in transaction ref_cnt already 0" );
+        q->ref_cnt--;
+        total_references--;
+
+        FD_PACK_BITSET_CLEAR( bit );
+        FD_PACK_BITSET_SETN( bit, q->bit );
+        if( q->bit<FD_PACK_BITSET_MAX ) {
+          VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, cur->rw_bitset, cur->rw_bitset ), "missing from rw bitset" );
+        }
+        FD_PACK_BITSET_CLEARN( complement, q->bit );
+      }
+      VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( complement, complement, cur->rw_bitset,  cur->rw_bitset ), "extra in rw bitset" );
+    }
+  }
+
+  VERIFY_TEST( total_references==0UL, "extra references in bitset mapping" );
+  VERIFY_TEST( txn_cnt==sig2txn_key_cnt( pack->signature_map ), "extra signatures in sig2txn" );
+
+  free( _bitset_map_copy );
+  bitset_map_join( _bitset_map_orig );
+  return 0;
+}
 
 void * fd_pack_leave ( fd_pack_t * pack ) { FD_COMPILER_MFENCE(); return (void *)pack; }
 void * fd_pack_delete( void      * mem  ) { FD_COMPILER_MFENCE(); return mem;          }

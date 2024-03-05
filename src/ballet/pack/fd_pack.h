@@ -241,5 +241,10 @@ void fd_pack_clear_all( fd_pack_t * pack );
 void * fd_pack_leave(  fd_pack_t * pack );
 void * fd_pack_delete( void      * mem  );
 
+/* fd_pack_verify (for debugging use primarily) checks to ensure several
+   invariants are satisfied.  Returns 0 on success and a negative value
+   on failure (logging a warning with details). */
+int fd_pack_verify( fd_pack_t * pack );
+
 FD_PROTOTYPES_END
 #endif /*HEADER_fd_src_ballet_pack_fd_pack_h*/
