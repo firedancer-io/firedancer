@@ -6,7 +6,6 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../vm/fd_vm_interp.h"
-#include "../../vm/fd_vm_disasm.h"
 #include "fd_bpf_loader_serialization.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../context/fd_exec_instr_ctx.h"
