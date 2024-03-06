@@ -470,9 +470,20 @@ fd_gossip_add_pending( fd_gossip_t * glob, long when ) {
 
 /* Send raw data as a UDP packet to an address */
 static void
-fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void * data, size_t sz) {
+fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void * data, ulong sz) {
   if ( sz > PACKET_DATA_SIZE )
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
+
+  fd_gossip_msg_t gmsg;
+  fd_bincode_decode_ctx_t ctx;
+  ctx.data    = data;
+  ctx.dataend = (uchar*)data + sz;
+  ctx.valloc  = glob->valloc;
+
+  int decode_err = fd_gossip_msg_decode(&gmsg, &ctx);
+  if( decode_err != FD_BINCODE_SUCCESS ) {
+    __asm__ __volatile__("int $3");
+  }
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
@@ -1520,7 +1531,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
         ulong sz = (ulong)(s->packet_end - s->packet);
         fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
         char tmp[100];
-        FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+        FD_LOG_DEBUG(("push to %s size=%lu (flush)", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
         s->packet_end = s->packet_end_init;
         *crds_len = 0;
       }
@@ -1789,14 +1800,17 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   ctx.data    = msg;
   ctx.dataend = msg + msglen;
   ctx.valloc  = glob->valloc;
-  if (fd_gossip_msg_decode(&gmsg, &ctx)) {
-    FD_LOG_WARNING(("corrupt gossip message"));
+
+  int decode_err = fd_gossip_msg_decode(&gmsg, &ctx);
+  if( decode_err != FD_BINCODE_SUCCESS ) {
+    FD_LOG_DEBUG(("corrupt gossip message - err: %d", decode_err ));
     FD_LOG_HEXDUMP_WARNING(("CGM1", msg, msglen));
     fd_gossip_unlock( glob );
     return -1;
   }
+  
   if (ctx.data != ctx.dataend) {
-    FD_LOG_WARNING(("corrupt gossip message"));
+    FD_LOG_DEBUG(("corrupt gossip message"));
     FD_LOG_HEXDUMP_WARNING(("CGM2", msg, msglen));
     fd_gossip_unlock( glob );
     return -1;
