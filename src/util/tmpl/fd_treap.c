@@ -1410,7 +1410,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
        all elements less than i and l is the last element we visited (or
        NULL if i is the first element we are visiting. */
 
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( !TREAP_(lt)( pool + i, pool + l ) ); /* Make sure ordering valid */
 #if TREAP_OPTIMIZE_ITERATION
     /* Check the l <-> i link */
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );

@@ -394,6 +394,14 @@ struct fd_pack_private {
 
 typedef struct fd_pack_private fd_pack_t;
 
+static inline int
+debug_verify_heaps( fd_pack_t * pack ) {
+  if( treap_verify( pack->pending,       pack->pool ) ) return -1;
+  if( treap_verify( pack->pending_votes, pack->pool ) ) return -2;
+  for( ulong i=0UL; i<pack->pack_depth; i++ ) if( pack->pool[i].prio==0UL ) return -3;
+  return 0;
+}
+
 ulong
 fd_pack_footprint( ulong pack_depth,
                    ulong bank_tile_cnt,
@@ -473,10 +481,10 @@ fd_pack_new( void *     mem,
   (void)trp_pool_leave( pool );
 
 
-  treap_new( (void*)pack->pending,         pack_depth );
-  treap_new( (void*)pack->pending_votes,   pack_depth );
-  treap_new( (void*)pack->delay_end_block, pack_depth );
-  for( ulong i=0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) treap_new( (void*)(pack->conflicting_with+i), pack_depth );
+  treap_new( (void*)pack->pending,         pack_depth+1UL );
+  treap_new( (void*)pack->pending_votes,   pack_depth+1UL );
+  treap_new( (void*)pack->delay_end_block, pack_depth+1UL );
+  for( ulong i=0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) treap_new( (void*)(pack->conflicting_with+i), pack_depth+1UL );
 
   expq_new( _expq, pack_depth+1UL );
 
@@ -601,6 +609,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn ) { t
 
 #define REJECT( reason ) do {                                       \
                            trp_pool_ele_release( pack->pool, ord ); \
+                           FD_TEST( !debug_verify_heaps( pack ) );  \
                            return FD_PACK_INSERT_REJECT_ ## reason; \
                          } while( 0 )
 
@@ -609,6 +618,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_p_t * txnp,
                          ulong        expires_at ) {
 
+  FD_TEST( !debug_verify_heaps( pack ) );
   fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txnp;
 
   fd_txn_t * txn   = TXN(txnp);
@@ -724,9 +734,11 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   if( FD_LIKELY( ord->root == FD_ORD_TXN_ROOT_PENDING_VOTE ) ) {
     treap_ele_insert( pack->pending_votes, ord, pack->pool );
+    FD_TEST( !debug_verify_heaps( pack ) );
     return replaces ? FD_PACK_INSERT_ACCEPT_VOTE_REPLACE : FD_PACK_INSERT_ACCEPT_VOTE_ADD;
   } else {
     treap_ele_insert( pack->pending,       ord, pack->pool );
+    FD_TEST( !debug_verify_heaps( pack ) );
     return replaces ? FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE : FD_PACK_INSERT_ACCEPT_NONVOTE_ADD;
   }
 }
@@ -1027,6 +1039,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   ulong        bank_tile,
                                   fd_txn_p_t * out ) {
 
+  FD_TEST( !debug_verify_heaps( pack ) );
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, FD_PACK_MAX_COST_PER_BLOCK - pack->cumulative_block_cost );
   ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction), FD_PACK_MAX_VOTE_COST_PER_BLOCK - pack->cumulative_vote_cost );
@@ -1080,6 +1093,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
+  FD_TEST( !debug_verify_heaps( pack ) );
   return scheduled;
 }
 
@@ -1089,6 +1103,7 @@ ulong fd_pack_bank_tile_cnt( fd_pack_t * pack ) { return pack->bank_tile_cnt;   
 ulong
 fd_pack_expire_before( fd_pack_t * pack,
                        ulong       expire_before ) {
+  FD_TEST( !debug_verify_heaps( pack ) );
   expire_before = fd_ulong_max( expire_before, pack->expire_before );
   ulong deleted_cnt = 0UL;
   fd_pack_expq_t * prq = pack->expiration_q;
@@ -1102,6 +1117,7 @@ fd_pack_expire_before( fd_pack_t * pack,
   }
 
   pack->expire_before = expire_before;
+  FD_TEST( !debug_verify_heaps( pack ) );
   return deleted_cnt;
 }
 
@@ -1110,6 +1126,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->microblock_cnt        = 0UL;
   pack->cumulative_block_cost = 0UL;
   pack->cumulative_vote_cost  = 0UL;
+  FD_TEST( !debug_verify_heaps( pack ) );
 
   for( ulong i=0UL; i<pack->bank_tile_cnt; i++ ) treap_merge( pack->pending, pack->conflicting_with+i, pack->pool );
   treap_merge( pack->pending, pack->delay_end_block, pack->pool );
@@ -1129,6 +1146,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
      good place to copy them. */
   FD_MHIST_COPY( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT, pack->txn_per_microblock  );
   FD_MHIST_COPY( PACK, VOTES_PER_MICROBLOCK_COUNT,              pack->vote_per_microblock );
+  FD_TEST( !debug_verify_heaps( pack ) );
 }
 
 static void
@@ -1175,6 +1193,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 int
 fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * txn ) {
+  FD_TEST( !debug_verify_heaps( pack ) );
   fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, txn, NULL );
 
   if( !in_tbl )
@@ -1244,6 +1263,7 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
   sig2txn_remove( pack->signature_map, in_tbl );
   pack->pending_txn_cnt--;
 
+  FD_TEST( !debug_verify_heaps( pack ) );
   return 1;
 }
 
