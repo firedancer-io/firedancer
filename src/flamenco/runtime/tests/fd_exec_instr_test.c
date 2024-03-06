@@ -185,6 +185,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* TODO: Restore slot_bank */
 
+  fd_slot_bank_new( &slot_ctx->slot_bank );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc );
+
   /* Set up txn context */
 
   txn_ctx->epoch_ctx = epoch_ctx;
