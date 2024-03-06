@@ -23,6 +23,7 @@
 
 #define SHRED_OUT_IDX   0
 #define REPAIR_OUT_IDX  1
+#define NET_OUT_IDX     2
 
 struct __attribute__((packed)) fd_shred_dest_wire {
   uchar  pubkey[32];
@@ -123,7 +124,6 @@ static fd_pubkey_t   g_identity_public_key;
 static uchar              g_src_mac_addr[6];
 
 /* Includes Ethernet, IP, UDP headers */
-static ulong g_gossip_buffer_sz;
 static uchar g_gossip_buffer[ FD_NET_MTU ];
 
 static fd_gossip_peer_addr_t *
@@ -333,20 +333,15 @@ during_frag( void * ctx,
   ushort port = fd_disco_netmux_sig_port( sig );
   FD_TEST( hdr_sz < sz ); /* Should be ensured by the net tile */
   uchar * pkt;
-  ulong * pkt_sz;
   if( FD_UNLIKELY( port==g_gossip_listen_port ) ) {
     pkt = g_gossip_buffer;
-    pkt_sz = &g_gossip_buffer_sz;
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
     *opt_filter = 1;
     return;
   }
 
-  *pkt_sz = sz;
-  fd_memcpy( pkt, dcache_entry, *pkt_sz );
-  // fd_memcpy( pkt, dcache_entry+hdr_sz, sz-hdr_sz );
-  // g_shred_buffer_sz = sz-hdr_sz;
+  fd_memcpy( pkt, dcache_entry, sz );
   *opt_filter = 0;
 
   return;
@@ -364,7 +359,6 @@ after_frag( void *             _ctx,
             fd_mux_context_t * mux ) {
   (void)in_idx;
   (void)opt_chunk;
-  (void)opt_sz;
   (void)opt_filter;
   (void)mux;
   (void)seq;
@@ -388,7 +382,7 @@ after_frag( void *             _ctx,
 
     fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
     fd_gossip_continue( ctx->gossip );
-    fd_gossip_recv_packet( ctx->gossip, g_gossip_buffer + hdr_sz, g_gossip_buffer_sz - hdr_sz, &peer_addr );
+    fd_gossip_recv_packet( ctx->gossip, g_gossip_buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
     *opt_filter = 1;
@@ -546,17 +540,18 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+  if( FD_UNLIKELY( tile->out_cnt != 3 ||
                    topo->links[ tile->out_link_id[ SHRED_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED ||
-                   topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ) ) {
+                   topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ||
+                   topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %lu %lu",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
   }
 
-  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
-    FD_LOG_ERR(( "gossip tile has no primary output link" ));
+  if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
+    FD_LOG_ERR(( "gossip tile has a primary output link" ));
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
 
   g_net_out_mcache = net_out->mcache;
   g_net_out_sync   = fd_mcache_seq_laddr( g_net_out_mcache );
