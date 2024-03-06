@@ -3,9 +3,11 @@
 #include "context/fd_exec_instr_ctx.h"
 #include "fd_system_ids.h"
 
+#include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_loader_v1_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_config_program.h"
+#include "program/fd_ed25519_program.h"
 #include "program/fd_system_program.h"
 
 #include <assert.h>
@@ -15,10 +17,14 @@ fd_executor_lookup_native_program( fd_pubkey_t const * program_id ) {
 
   /* TODO: Move this to fd_system_ids and use fd_map_perfect */
 
+  if( 0==memcmp( program_id, &fd_solana_address_lookup_table_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_address_lookup_table_program_execute;
   if( 0==memcmp( program_id, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) ) )
     return fd_bpf_loader_v1_program_execute;
   if( 0==memcmp( program_id, &fd_solana_bpf_loader_v4_program_id, sizeof(fd_pubkey_t) ) )
     return fd_bpf_loader_v4_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_ed25519_sig_verify_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_ed25519_program_execute;
   if( 0==memcmp( program_id, &fd_solana_config_program_id, sizeof(fd_pubkey_t) ) )
     return fd_config_program_execute;
   if( 0==memcmp( program_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) )
