@@ -37,7 +37,7 @@ fd_io_istream_zstd_read( void *  _this,
     ulong in_sz = 0UL;
     int read_err = fd_io_istream_obj_read( &this->src, this->in_buf, FD_IO_ISTREAM_ZSTD_BUFSZ, &in_sz );
     if( FD_LIKELY( read_err==0 ) ) { /* ok */ }
-    else if( read_err<0 ) { /* EOF */ return 0; /* TODO handle unexpected EOF case */ }
+    else if( read_err<0 ) { /* EOF */ return -1; /* TODO handle unexpected EOF case */ }
     else {
       FD_LOG_DEBUG(( "failed to read from source (%d-%s)", read_err, fd_io_strerror( read_err ) ));
       return read_err;

@@ -539,7 +539,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L308 */
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
-    int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
