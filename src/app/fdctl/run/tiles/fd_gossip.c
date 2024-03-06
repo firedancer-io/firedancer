@@ -253,23 +253,9 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
                                       (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ), 
                                       packet + sizeof(eth_ip_udp_t) );
 
+  FD_LOG_HEXDUMP_WARNING(("asdf", packet, packet_sz));
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( ip, port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_GOSSIP, (ushort)0 );
-
-  fd_gossip_msg_t gmsg;
-  fd_bincode_decode_ctx_t dctx;
-  dctx.data    = (uchar*)packet+sizeof(eth_ip_udp_t);
-  dctx.dataend = (uchar*)packet+sizeof(eth_ip_udp_t) + payload_sz;
-  dctx.valloc  = fd_libc_alloc_virtual();
-
-  int decode_err = fd_gossip_msg_decode(&gmsg, &dctx);
-  if( decode_err != FD_BINCODE_SUCCESS ) {
-    __asm__ __volatile__("int $3");
-  }
-  
-  if (dctx.data != dctx.dataend) {
-    __asm__ __volatile__("int $3");
-  }
   fd_mcache_publish( g_net_out_mcache, g_net_out_depth, g_net_out_seq, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   g_net_out_seq   = fd_seq_inc( g_net_out_seq, 1UL );
   g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
@@ -397,6 +383,7 @@ after_frag( void *             _ctx,
 
     fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
     fd_gossip_continue( ctx->gossip );
+    FD_LOG_WARNING(("W: %lu", *opt_sz));
     fd_gossip_recv_packet( ctx->gossip, g_gossip_buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
