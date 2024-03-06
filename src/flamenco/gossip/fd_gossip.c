@@ -1801,6 +1801,9 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   ctx.dataend = msg + msglen;
   ctx.valloc  = glob->valloc;
 
+  fd_bincode_destroy_ctx_t ctx2;
+  ctx2.valloc = glob->valloc;
+
   int decode_err = fd_gossip_msg_decode(&gmsg, &ctx);
   if( decode_err != FD_BINCODE_SUCCESS ) {
     FD_LOG_DEBUG(("corrupt gossip message - err: %d", decode_err ));
@@ -1821,8 +1824,6 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   FD_LOG_DEBUG(("recv msg type %d from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
   fd_gossip_recv(glob, from, &gmsg);
 
-  fd_bincode_destroy_ctx_t ctx2;
-  ctx2.valloc = glob->valloc;
   fd_gossip_msg_destroy(&gmsg, &ctx2);
 
   fd_gossip_unlock( glob );
