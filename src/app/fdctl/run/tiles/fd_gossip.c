@@ -260,7 +260,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   fd_bincode_decode_ctx_t dctx;
   dctx.data    = (uchar*)packet+sizeof(eth_ip_udp_t);
   dctx.dataend = (uchar*)packet+sizeof(eth_ip_udp_t) + payload_sz;
-  dctx.valloc  = fd_scratch_virtual();
+  dctx.valloc  = fd_libc_alloc_virtual();
 
   int decode_err = fd_gossip_msg_decode(&gmsg, &dctx);
   if( decode_err != FD_BINCODE_SUCCESS ) {
