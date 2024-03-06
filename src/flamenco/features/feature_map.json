@@ -186,5 +186,6 @@
   {"name":"deprecate_executable_meta_update_in_bpf_loader","pubkey":"k6uR1J9VtKJnTukBV2Eo15BEy434MBg8bT6hHQgmU8v"},
   {"name":"enable_zk_proof_from_account","pubkey":"zkiTNuzBKxrCLMKehzuQeKZyLtX2yvFcEKMML8nExU8"},
   {"name":"cost_model_requested_write_lock_cost","pubkey":"wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn"},
-  {"name":"enable_gossip_duplicate_proof_ingestion","pubkey":"FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG"}
+  {"name":"enable_gossip_duplicate_proof_ingestion","pubkey":"FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG"},
+  {"name":"enable_chained_merkle_shreds","pubkey":"7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier"}
 ]

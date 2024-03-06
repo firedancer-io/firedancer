@@ -1161,6 +1161,12 @@ fd_feature_id_t const ids[] = {
     .default_activated = 0
               },
 
+  { .index  = offsetof(fd_features_t, enable_chained_merkle_shreds)>>3,
+    .id     = {"\x66\x9c\xb7\x34\xc4\x79\x40\x81\x18\x88\x23\x16\x03\xdb\xe2\xb4\xb9\x82\x50\x3a\x99\x0e\xcd\xb5\x1f\x4e\xa0\xeb\xac\xd3\xef\x1f"}
+              /* 7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier */ ,
+    .default_activated = 0
+              },
+
   { .index = ULONG_MAX }
 };
 
@@ -1358,6 +1364,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xf423d4e1d688cb0e: return &ids[ 185 ];
   case 0xa1518043438beb0d: return &ids[ 186 ];
   case 0xdb27ab6a4a6379d5: return &ids[ 187 ];
+  case 0x814079c434b79c66: return &ids[ 188 ];
   default: break;
   }
 
@@ -1554,5 +1561,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_executable_meta_update_in_b
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_zk_proof_from_account                            )>>3==185UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, cost_model_requested_write_lock_cost                    )>>3==186UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_gossip_duplicate_proof_ingestion                 )>>3==187UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_chained_merkle_shreds                            )>>3==188UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

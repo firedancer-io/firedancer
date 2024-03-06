@@ -31,7 +31,7 @@ ulong
 fd_sbpf_validated_program_align( void );
 
 ulong
-fd_sbpf_validated_program_footprint( ulong rodata_sz );
+fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info );
 
 uchar *
 fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog );

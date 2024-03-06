@@ -17,19 +17,24 @@ fd_sbpf_validated_program_align( void ) {
 }
 
 ulong
-fd_sbpf_validated_program_footprint( ulong rodata_sz ) {
+fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
   assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(),            fd_sbpf_calldests_footprint(rodata_sz/8UL) );
-  l = FD_LAYOUT_APPEND( l, 8UL,                                  rodata_sz );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
   l = FD_LAYOUT_FINI( l, 128UL );
   return l;
 }
 
 uchar *
 fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog ) {
-  return (uchar *)fd_type_pun(prog) + (4096*sizeof(fd_sbpf_calldests_t));
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sbpf_validated_program_t), sizeof(fd_sbpf_validated_program_t) );
+  assert( l==offsetof(fd_sbpf_validated_program_t, calldests) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(prog->rodata_sz/8UL) );
+  l = FD_LAYOUT_FINI( l, 8UL );
+  return (uchar *)fd_type_pun(prog) + l;
 }
 
 int
@@ -134,13 +139,14 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     int funk_err = FD_FUNK_SUCCESS;
-    fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( program_data_len ), 1, NULL, &funk_err );
-    if( funk_err != FD_FUNK_SUCCESS ) {
+    fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, NULL, &funk_err );
+    if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       return -1;
     }
 
     uchar * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
     fd_sbpf_validated_program_t * validated_prog = (fd_sbpf_validated_program_t *)val;
+    validated_prog->rodata_sz = elf_info.rodata_sz;
     uchar * rodata = fd_sbpf_validated_program_rodata( validated_prog );
 
     ulong  prog_align     = fd_sbpf_program_align();
@@ -179,9 +185,26 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_funk_txn_t * funk_txn ) {
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   ulong cnt = 0;
+
+  /* Use random-ish xid to avoid concurrency issues */
+  fd_funk_txn_xid_t cache_xid;
+  cache_xid.ul[0] = fd_log_cpu_id() + 1;
+  cache_xid.ul[1] = fd_log_cpu_id() + 1;
+  cache_xid.ul[2] = fd_log_app_id() + 1;
+  cache_xid.ul[3] = fd_log_thread_id() + 1;
+
+  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
+  if( !cache_txn ) {
+    FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
+    return -1;
+  }
+
+  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  slot_ctx->funk_txn = cache_txn;
+
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
-        NULL != rec;
-        rec = fd_funk_txn_next_rec( funk, rec )) {
+       NULL != rec;
+       rec = fd_funk_txn_next_rec( funk, rec )) {
     if( !fd_funk_key_is_acc( rec->pair.key ) ) {
       continue;
     }
@@ -198,7 +221,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0
-        || fd_executor_bpf_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0 ) {
+      || fd_executor_bpf_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0 ) {
       if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, program_pubkey ) != 0 ) {
         FD_LOG_WARNING(( "failed to load program %32J", program_pubkey->key ));
         continue;
@@ -212,6 +235,12 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
+  if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
+    FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
+    return -1;
+  }
+
+  slot_ctx->funk_txn = parent_txn;
   return 0;
 }
 

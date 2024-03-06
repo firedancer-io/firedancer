@@ -173,7 +173,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
     .program_counter     = 0,
     .instruction_counter = 0,
     .compute_meter       = ctx.txn_ctx->compute_meter,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( fd_sbpf_validated_program_rodata( prog ) + (prog->text_off * 8) ),
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( fd_sbpf_validated_program_rodata( prog ) + (prog->text_off) ),
     .instrs_sz           = prog->text_cnt,
     .instrs_offset       = prog->text_off,
     .syscall_map         = syscalls,
@@ -201,7 +201,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
 
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64("mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig);
+fd_base58_decode_64("4WXg62VFzRTT5ixeYmH7U8ucEXHvWSVkpbPkieDgnFNiUovnfseyaVt1wiHFG6KSE2fcepscDkun6pEGukd1kApi", sig);
 if (memcmp(signature, sig, 64) == 0) {
 
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -262,10 +262,10 @@ if (memcmp(signature, sig, 64) == 0) {
       trace_ent.register_file[8],
       trace_ent.register_file[9],
       trace_ent.register_file[10],
-      trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
+      trace_ent.pc
     );
     ulong out_len = 0;
-    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, trace_buf_out, &out_len);
+    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, trace_buf_out, &out_len);
     trace_buf_out += out_len;
     trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
     prev_cus = trace[i].cus;
@@ -331,12 +331,14 @@ if (memcmp(signature, sig, 64) == 0) {
 
   if( vm_ctx.register_file[0]!=0 ) {
     fd_valloc_free( ctx.valloc, input);
+    //FD_LOG_WARNING((" register_file[0] fail "));
     // TODO: vm should report this error
     return -1;
   }
 
   if( vm_ctx.cond_fault ) {
     fd_valloc_free( ctx.valloc, input);
+    //FD_LOG_WARNING(("cond_fault fail"));
     // TODO: vm should report this error
     return -1;
   }

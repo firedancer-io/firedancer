@@ -821,7 +821,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t b3[1];
+  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &slot,       sizeof( ulong ) );
@@ -846,7 +846,7 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t b3[1];
+  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );

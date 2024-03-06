@@ -381,7 +381,7 @@ fd_rng_b256( fd_rng_t * rng,
   return r;
 }
 
-static void
+static void FD_FN_NO_ASAN
 test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _h[1];       fd_ristretto255_point_t * h = _h;
 
@@ -456,7 +456,6 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
     FD_TEST( fd_ristretto255_point_decompress( &x[1], point_y )==&x[1] );
     FD_TEST( !!fd_ristretto255_scalar_validate( scalar_a ) );
     FD_TEST( !!fd_ristretto255_scalar_validate( scalar_b ) );
-
     FD_TEST( fd_ristretto255_multi_scalar_mul( h, scalars, x, 2 )==h );
     FD_TEST( fd_ristretto255_scalar_mul( t, scalar_a, &x[0] )==t );
     FD_TEST( fd_ristretto255_scalar_mul( &x[1], scalar_b, &x[1] )==&x[1] );
@@ -467,10 +466,14 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
   /* Benchmarks */
   ulong iter = 10000UL;
 
-  fd_ristretto255_point_t *   f = aligned_alloc( 64, 1015 * sizeof(fd_ristretto255_point_t) );
-  uchar _a[1000][32]; uchar * a = (uchar *)_a;
+#undef MSM_N
+#define MSM_N 1024
+// to speed up decompression, we copy 15 points at a time, so we need to alloc a multiple of 15
+#define MSM_N_MALLOC (MSM_N/15+1)*15
+  fd_ristretto255_point_t *   f = aligned_alloc( alignof(fd_ristretto255_point_t), MSM_N_MALLOC * sizeof(fd_ristretto255_point_t) );
+  uchar _a[MSM_N][32]; uchar * a = (uchar *)_a;
 
-  for( ulong i=0; i<1000; i++ )
+  for( ulong i=0; i<MSM_N; i++ )
   {
     /* scalars must be random to get meaningful bench */
     fd_rng_b256(rng, _a[i]); _a[i][31] &= 0x01;
@@ -478,7 +481,7 @@ test_multiscalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
     else if (i % 15 == 0) { memcpy( &f[i], &f[0], sizeof(fd_ristretto255_point_t)*15 ); }
   }
 
-  for( ulong sz=32; sz<=1024; sz*=2 )
+  for( ulong sz=32; sz<=MSM_N; sz*=2 )
   {
     long dt = fd_log_wallclock();
     for( ulong rem=iter/sz; rem; rem-- ) {

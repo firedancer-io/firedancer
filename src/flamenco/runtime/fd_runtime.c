@@ -20,6 +20,7 @@
 #include "program/fd_builtin_programs.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
+#include "program/fd_bpf_program_util.h"
 
 #include "fd_system_ids.h"
 #include "../vm/fd_vm_context.h"
@@ -1343,7 +1344,13 @@ int fd_runtime_block_execute_finalize(fd_exec_slot_ctx_t *slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_update_hash_bank(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt);
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
+  if( result != 0 ) {
+    FD_LOG_WARNING(("update bpf program cache failed"));
+    return result;
+  }
+
+  result = fd_update_hash_bank(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt);
   if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
     return result;
@@ -1382,7 +1389,14 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   // this slot is frozen... and cannot change anymore...
   fd_runtime_freeze(slot_ctx);
 
-  int result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
+
+  int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
+  if( result != 0 ) {
+    FD_LOG_WARNING(("update bpf program cache failed"));
+    return result;
+  }
+
+  result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
   if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
     return result;
@@ -2383,9 +2397,10 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
     }
 
     /* Filter accounts that we've already visited */
-    if (rec->const_meta->info.rent_epoch <= epoch)
+    if (rec->const_meta->info.rent_epoch <= epoch || FD_FEATURE_ACTIVE(slot_ctx, set_exempt_rent_epoch_max)) {
       /* Actually invoke rent collection */
       (void)fd_runtime_collect_rent_account(slot_ctx, rec->meta, key, epoch);
+    }
   }
 }
 

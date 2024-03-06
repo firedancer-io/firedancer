@@ -403,7 +403,7 @@ typedef struct fd_solana_account_meta_off fd_solana_account_meta_off_t;
 #define FD_SOLANA_ACCOUNT_META_OFF_ALIGN (8UL)
 
 /* Encoded Size: Dynamic */
-struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
+struct __attribute__((packed)) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
   fd_hash_t hash;
@@ -412,7 +412,7 @@ typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_FOOTPRINT sizeof(fd_solana_account_hdr_t)
 #define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
 
-struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr_off {
+struct __attribute__((packed)) fd_solana_account_hdr_off {
   uint meta_off;
   uint info_off;
   uint hash_off;

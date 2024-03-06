@@ -26,11 +26,7 @@
 /* FD_CHACHA20RNG_BUFSZ is the internal buffer size of pre-generated
    ChaCha20 blocks.  Multiple of block size (64 bytes) and a power of 2. */
 
-#if FD_HAS_AVX
-#define FD_CHACHA20RNG_BUFSZ (8*FD_CHACHA20_BLOCK_SZ)
-#else
-#define FD_CHACHA20RNG_BUFSZ (256UL)
-#endif
+#define FD_CHACHA20RNG_BUFSZ (512UL)
 
 struct __attribute__((aligned(64UL))) fd_chacha20rng_private {
   /* ChaCha20 encryption key */

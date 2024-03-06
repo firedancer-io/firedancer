@@ -61,6 +61,8 @@ fd_chacha20rng_delete( void * shrng ) {
 fd_chacha20rng_t *
 fd_chacha20rng_init( fd_chacha20rng_t * rng,
                      void const *       key ) {
+  if (FD_UNLIKELY((NULL == key) || (NULL == rng)))
+    FD_LOG_WARNING(( "NULL key/rng" ));
   memcpy( rng->key, key, FD_CHACHA20_KEY_SZ );
   rng->buf_off  = 0UL;
   rng->buf_fill = 0UL;

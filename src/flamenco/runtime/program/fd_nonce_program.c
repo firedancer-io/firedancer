@@ -61,17 +61,22 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
     .dataend = &data[instr.data_sz],
     .valloc  = txn_ctx->valloc
   };
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = txn_ctx->valloc };
   if ( fd_system_program_instruction_decode( &instruction, &ctx2 ) ) {
+    // This will get removed when we merge in richie's system program re-write
     FD_LOG_WARNING(("fd_system_program_instruction_decode failed"));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return 0;
   }
 
-  if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant)
+  if (fd_system_program_instruction_enum_advance_nonce_account != instruction.discriminant) {
+    fd_system_program_instruction_destroy( &instruction, &destroy_ctx );
     return 0;
+  }
 
   err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, 3);
   if (FD_UNLIKELY(FD_EXECUTOR_INSTR_SUCCESS != err)) {
+    fd_system_program_instruction_destroy( &instruction, &destroy_ctx );
     *opt_err = err;
     return 0;
   }
@@ -85,6 +90,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   FD_BORROWED_ACCOUNT_DECL(me_rec);
   err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) me, me_rec);
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    fd_system_program_instruction_destroy( &instruction, &destroy_ctx );
     *opt_err = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     return 0;
   }
@@ -96,11 +102,13 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
   };
 
   if ( fd_nonce_state_versions_decode( state, &ctx ) ) {
+    fd_system_program_instruction_destroy( &instruction, &destroy_ctx );
     FD_LOG_WARNING(("fd_nonce_state_versions_decode failed"));
     *opt_err = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     return 0;
   }
 
+  fd_system_program_instruction_destroy( &instruction, &destroy_ctx );
   return 1;
 }
 

@@ -14,7 +14,7 @@
 static char * trace_buf;
 
 static void __attribute__((constructor)) make_buf(void) {
-  trace_buf = (char*)malloc(16*1024);
+  trace_buf = (char*)malloc(256*1024);
 }
 
 static void __attribute__((destructor)) free_buf(void) {
@@ -187,7 +187,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
     .alloc               = {.offset = 0}
   };
 
-  ulong trace_sz = 1 * 1024 * 1024;
+  ulong trace_sz = 4 * 1024 * 1024;
   fd_vm_trace_entry_t * trace = NULL;
   fd_vm_trace_context_t trace_ctx;
   (void) trace_sz;
@@ -197,7 +197,7 @@ int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ct
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64( "mu7GV8tiEU58hnugxCcuuGh11MvM5tb2ib2qqYu9WYKHhc9Jsm187S31nEX1fg9RYM1NwWJiJkfXNNK21M6Yd8u", sig);
+fd_base58_decode_64( "4WXg62VFzRTT5ixeYmH7U8ucEXHvWSVkpbPkieDgnFNiUovnfseyaVt1wiHFG6KSE2fcepscDkun6pEGukd1kApi", sig);
 if (memcmp(signature, sig, 64) == 0) {
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   // trace = (fd_vm_trace_entry_t *)malloc( trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -254,11 +254,11 @@ if (memcmp(signature, sig, 64) == 0) {
       trace_ent.register_file[8],
       trace_ent.register_file[9],
       trace_ent.register_file[10],
-      trace_ent.pc+29 // FIXME: THIS OFFSET IS FOR TESTING ONLY
+      trace_ent.pc
     );
 
     ulong out_len = 0;
-    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, vm_ctx.local_call_map, trace_buf_out, &out_len);
+    fd_vm_disassemble_instr(&vm_ctx.instrs[trace[i].pc], trace[i].pc, vm_ctx.syscall_map, trace_buf_out, &out_len);
     trace_buf_out += out_len;
     trace_buf_out += sprintf(trace_buf_out, " %lu %lu\n", trace[i].cus, prev_cus - trace[i].cus);
     prev_cus = trace[i].cus;
@@ -303,10 +303,10 @@ if (memcmp(signature, sig, 64) == 0) {
       trace_buf_out += sprintf(trace_buf_out, "\n");
       mem_ent = mem_ent->next;
     }
+
+    }
     trace_buf_out += sprintf(trace_buf_out, "\0");
     fputs(trace_buf, stderr);
-    }
-
   // fclose(trace_fd);
   // free(trace);
   }

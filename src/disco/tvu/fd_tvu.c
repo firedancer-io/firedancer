@@ -75,6 +75,7 @@
 #include "../../util/net/fd_eth.h"
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
+#include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #ifdef FD_HAS_LIBMICROHTTP
 #include "../rpc/fd_rpc_service.h"
 #endif
@@ -839,7 +840,7 @@ void snapshot_setup( char const * snapshot,
   char snapshot_out[128];
   if( snapshot && snapshot[0] != '\0' && strncmp( snapshot, "http", 4 ) == 0 ) {
     FILE * fp;
-    
+
     /* Open the command for reading. */
     char   cmd[128];
     snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", snapshot );
@@ -849,22 +850,22 @@ void snapshot_setup( char const * snapshot,
       printf( "Failed to run command\n" );
       exit( 1 );
     }
-    
+
     /* Read the output a line at a time - output it. */
     if( !fgets( snapshot_out, sizeof( snapshot_out ) - 1, fp ) ) {
         FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
     }
     snapshot_out[strcspn( snapshot_out, "\n" )]  = '\0';
     snapshot = snapshot_out;
-    
+
     /* close */
     pclose( fp );
   }
-  
+
   char incremental_snapshot_out[128];
   if( incremental_snapshot && incremental_snapshot[0] != '\0' && strncmp( incremental_snapshot, "http", 4 ) == 0 ) {
     FILE * fp;
-    
+
     /* Open the command for reading. */
     char   cmd[128];
     snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
@@ -874,18 +875,18 @@ void snapshot_setup( char const * snapshot,
       printf( "Failed to run command\n" );
       exit( 1 );
     }
-    
+
     /* Read the output a line at a time - output it. */
     if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
         FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
     }
     incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )]  = '\0';
     incremental_snapshot = incremental_snapshot_out;
-    
+
     /* close */
     pclose( fp );
   }
-  
+
   if( snapshot && snapshot[0] != '\0' ) {
     if( !incremental_snapshot || incremental_snapshot[0] == '\0' ) {
       FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
@@ -990,7 +991,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                                   fd_shmem_cpu_idx( numa_idx ),
                                   "wksp",
                                   0UL );
-
   } else {
     wksp = _wksp;
   }
@@ -1005,7 +1005,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
   solcap_setup_t solcap_setup_out = {0};
   if( args->capture_fpath ) {
-    solcap_setup( args->capture_fpath, valloc, &solcap_setup_out ); 
+    solcap_setup( args->capture_fpath, valloc, &solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out.capture_file;
     runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
   }
@@ -1181,6 +1181,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_features_restore( slot_ctx_setup_out.exec_slot_ctx );
   fd_runtime_update_leaders( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot );
   fd_calculate_epoch_accounts_hash_values( slot_ctx_setup_out.exec_slot_ctx );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx_setup_out.exec_slot_ctx, slot_ctx_setup_out.exec_slot_ctx->funk_txn );
 
   if( FD_LIKELY( snapshot_setup_out.snapshot_slot != 0 ) ) {
     blockstore_setup_out.blockstore->root = snapshot_setup_out.snapshot_slot;

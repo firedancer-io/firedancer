@@ -341,7 +341,7 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       REQUIRE( (info->shndx_symtab)<0 );
       info->shndx_symtab = (int)i;
     }
-    else if( 0==memcmp( name, ".strtab",   8UL /* equals     */ ) ) {
+    else if( 0==memcmp( name, ".st2rtab",   8UL /* equals     */ ) ) {
       REQUIRE( (info->shndx_strtab)<0 );
       info->shndx_strtab = (int)i;
     }
@@ -545,6 +545,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     .rodata    = rodata,
     .rodata_sz = elf_info->rodata_sz,
     .text      = (ulong *)((ulong)rodata + elf_info->text_off),
+    .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
     .entry_pc  = elf_info->entry_pc
   };

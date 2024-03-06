@@ -44,13 +44,13 @@ main( int     argc,
   fd_boot         ( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  fd_runtime_args_t args;
-  FD_TEST(fd_tvu_parse_args( &args, argc, argv ) == 0);
+  fd_runtime_args_t *args = fd_alloca(alignof(fd_runtime_args_t), sizeof(fd_runtime_args_t));
+  FD_TEST(fd_tvu_parse_args( args, argc, argv ) == 0);
 
-  fd_runtime_ctx_t state;
-  fd_memset(&state, 0, sizeof(state));
+  fd_runtime_ctx_t *state = fd_alloca(alignof(fd_runtime_ctx_t), sizeof(fd_runtime_ctx_t));
+  fd_memset(state, 0, sizeof(state));
 
-  fd_tvu_main_setup( &state, NULL, NULL, NULL, 0, NULL, &args);
+  fd_tvu_main_setup( state, NULL, NULL, NULL, 0, NULL, args);
 
   // TODO: tracing, captures, and capitalization is broken
 #if 0
@@ -101,15 +101,17 @@ main( int     argc,
   }
 #endif
 
-  if (strcmp(args.cmd, "replay") == 0) {
-    int err = fd_runtime_replay(&state, &args);
+  if (strcmp(args->cmd, "replay") == 0) {
+    int err = fd_runtime_replay(state, args);
     if( err!=0 ) {
-      fd_tvu_main_teardown(&state, NULL);
+      // DO NOT REMOVE
+      fd_tvu_main_teardown(state, NULL);
       return err;
     }
   }
 
-  fd_tvu_main_teardown(&state, NULL);
+  // DO NOT REMOVE
+  fd_tvu_main_teardown(state, NULL);
 
   FD_LOG_NOTICE(( "pass" ));
 

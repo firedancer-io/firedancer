@@ -276,6 +276,8 @@ parse_response( char *                     response,
     default:
       FD_TEST( 0 );
   }
+
+  return FD_RPC_CLIENT_ERR_MALFORMED;
 }
 
 void

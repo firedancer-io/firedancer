@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
-#include <signal.h>
 #include "../../types/fd_types_yaml.h"
 #include "../fd_system_ids.h"
 #include "../fd_blockstore.h"
@@ -178,7 +177,7 @@ log_test_fail( fd_executor_test_t *             test,
         fclose(fp);
       }
       if (in_gdb)
-        kill(getpid(), SIGTRAP);
+        __asm__("int $3");
     }
   }
 }
@@ -399,7 +398,7 @@ int fd_executor_run_test(
     fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instr );
 
     if (fail_before == test->test_number)
-      kill(getpid(), SIGTRAP);
+      __asm__("int $3");
 
     int exec_result = fd_execute_instr( &txn_ctx, &instr );
     fd_execute_txn_finalize( slot_ctx, &txn_ctx, exec_result );

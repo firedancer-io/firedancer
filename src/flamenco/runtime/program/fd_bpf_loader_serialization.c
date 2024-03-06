@@ -25,8 +25,8 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
 
-    // fd_pubkey_t * acc = &txn_accs[acc_idx];
-    // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
+  // fd_pubkey_t * acc = &txn_accs[acc_idx];
+  // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
 
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -92,7 +92,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
 
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
-      if (FD_UNLIKELY(read_result != FD_ACC_MGR_SUCCESS)) {
+      if (FD_UNLIKELY(read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT)) {
         // FD_LOG_DEBUG(( "SERIAL OF ACC4: %32J UNK", acc ));
 
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
@@ -103,11 +103,11 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
         FD_STORE( uchar, serialized_params, is_writable );
         serialized_params += sizeof(uchar);
 
-        fd_memset( serialized_params, 0, //sizeof(uchar)    // is_writable
+        fd_memset( serialized_params, 0,
           sizeof(uchar)                                 // is_executable
           + sizeof(uint));                                // original_data_len
 
-        serialized_params += //sizeof(uchar)    // is_writable
+        serialized_params +=
           sizeof(uchar)                     // is_executable
           + sizeof(uint);                     // original_data_len
 
@@ -125,8 +125,11 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
           + sizeof(ulong)                           // lamports
           + sizeof(ulong)                           // data_len
           + 0                                       // data
-          + MAX_PERMITTED_DATA_INCREASE
-          + sizeof(ulong);                          // rent_epoch
+          + MAX_PERMITTED_DATA_INCREASE;
+        if (FD_FEATURE_ACTIVE( ctx.slot_ctx, set_exempt_rent_epoch_max)) {
+          FD_STORE( ulong, serialized_params, ULONG_MAX );
+        }
+        serialized_params += sizeof(ulong);                     // rent_epoch
         pre_lens[i] = 0;
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
@@ -200,7 +203,6 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
 
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx.instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
-
   FD_TEST( serialized_params == serialized_params_start + serialized_size );
 
   // FD_LOG_DEBUG(( "SERIALIZE - sz: %lu, diff: %lu", serialized_size, serialized_params - serialized_params_start ));
@@ -240,7 +242,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           + sizeof(uchar)           // executable
           + sizeof(uint)            // original_data_len
           + sizeof(fd_pubkey_t);    // key
-      
+
       if ( view_acc->const_meta ) {
         if (view_acc->const_meta->info.executable && memcmp( view_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0) {
           // no-op
@@ -260,7 +262,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           continue;
         }
       }
-      
+
 
       fd_pubkey_t * owner = (fd_pubkey_t *)input_cursor;
       input_cursor += sizeof(fd_pubkey_t);
@@ -476,6 +478,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t ctx,
           + sizeof(fd_pubkey_t)         // owner
           + sizeof(uchar)               // is_executable
           + sizeof(ulong);              // rent_epoch
+
+          // FIXME: rent epoch = ULONG_MAX for active feature
         continue;
       } else if ( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_DEBUG(( "failed to read account data - pubkey: %32J, err: %d", acc, read_result ));

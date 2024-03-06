@@ -100,6 +100,8 @@ struct fd_solcap_writer {
 static int
 _skip_file( FILE * file,
             ulong  skip ) {
+  if (skip == 0) return 0;
+
   uchar zero[ skip ];
   fd_memset( zero, 0, skip );
 

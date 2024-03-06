@@ -2559,6 +2559,9 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc = merge(
         &ctx, transaction_context, instruction_context, 0, 1, &clock, &stake_history, signers );
 
+    fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.slot_ctx->valloc };
+    fd_stake_history_destroy( &stake_history, &destroy );
+
     break;
   }
 

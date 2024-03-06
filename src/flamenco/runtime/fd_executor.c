@@ -296,7 +296,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
 #ifdef VLOG
-    FD_LOG_WARNING(( "%32J", program_id_acc ));
+    FD_LOG_WARNING(( "program_id_acc %32J", program_id_acc ));
 #endif
 
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
@@ -332,11 +332,13 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       }
     }
 
-  //  if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-  //    FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-  //  } else {
-  //    FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-  //  }
+#ifdef VLOG
+   if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+     FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+   } else {
+     FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+   }
+#endif
 
     txn_ctx->instr_stack_sz--;
 
@@ -595,9 +597,11 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
-    // fd_txn_t const *txn = txn_ctx->txn_descriptor;
-    // fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
-    // uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+#ifdef VLOG
+    fd_txn_t const *txn = txn_ctx->txn_descriptor;
+    fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
+    uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+#endif
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -612,9 +616,13 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
         if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
-          // FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
+#ifdef VLOG
+          FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
+#endif
         } else {
-          // FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
+#ifdef VLOG
+          FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
+#endif
         }
         if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
@@ -738,6 +746,7 @@ int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *tx
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+#undef VLOG
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err ) {

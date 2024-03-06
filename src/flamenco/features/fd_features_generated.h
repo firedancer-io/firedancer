@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (188UL)
+#define FD_FEATURE_ID_CNT (189UL)
 
 union fd_features {
 
@@ -201,6 +201,7 @@ union fd_features {
     ulong enable_zk_proof_from_account;
     ulong cost_model_requested_write_lock_cost;
     ulong enable_gossip_duplicate_proof_ingestion;
+    ulong enable_chained_merkle_shreds;
   };
 
 };

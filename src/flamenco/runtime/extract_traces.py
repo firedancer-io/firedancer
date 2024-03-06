@@ -125,7 +125,7 @@ def traces_diff(fd_traces, sl_traces):
 def cache_sl(sl_traces):
     for i,trace in enumerate(sl_traces):
         with open(f'traces/sl_trace_{i}.log', 'w+') as f:
-            f.write('\n'.join([x[0] for x in trace]))
+            f.write(''.join([x[0] for x in trace]))
 
 def main():
     arg_parser = argparse.ArgumentParser()
@@ -138,7 +138,7 @@ def main():
     fd_traces = read_traces_from_file(args.fd_log_path, args.max_traces)
     print("FD traces:", len(fd_traces))
     sl_traces = read_traces_from_file(args.sl_log_path, args.max_traces)
-    # cache_sl(sl_traces)
+    cache_sl(sl_traces)
     print("SL traces:", len(sl_traces))
 
     traces_diff(fd_traces, sl_traces)

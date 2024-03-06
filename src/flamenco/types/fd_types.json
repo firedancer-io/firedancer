@@ -215,7 +215,7 @@
     },
     {
       "name": "solana_account_hdr",
-      "attribute": "((packed, aligned(8UL)))",
+      "attribute": "((packed))",
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
