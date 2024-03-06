@@ -253,7 +253,6 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
                                       (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ), 
                                       packet + sizeof(eth_ip_udp_t) );
 
-  FD_LOG_HEXDUMP_WARNING(("asdf", packet, packet_sz));
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( ip, port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_GOSSIP, (ushort)0 );
   fd_mcache_publish( g_net_out_mcache, g_net_out_depth, g_net_out_seq, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
