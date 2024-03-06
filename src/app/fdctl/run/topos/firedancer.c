@@ -53,7 +53,7 @@ fd_topo_firedancer( config_t * config ) {
   ulong link_cnt = 0;
 
   LINK( config->layout.net_tile_count,    FD_TOPO_LINK_KIND_NET_TO_NETMUX,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       0UL,                    1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_VERIFY,  FD_TOPO_WKSP_KIND_QUIC_VERIFY,  config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
@@ -71,7 +71,7 @@ fd_topo_firedancer( config_t * config ) {
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
   LINK( 1,                                FD_TOPO_LINK_KIND_SHRED_TO_STORE,   FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   LINK( 1,                                FD_TOPO_LINK_KIND_REPAIR_TO_STORE,  FD_TOPO_WKSP_KIND_SHRED_STORE,  128UL,                                    FD_SHRED_MAX_SZ, 128UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       4096*FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
 
   LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_QUIC_TO_SIGN,    FD_TOPO_WKSP_KIND_QUIC_SIGN,    128UL,                                    130UL,                  1UL );
