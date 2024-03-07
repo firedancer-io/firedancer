@@ -1323,7 +1323,7 @@ poh_link_init( poh_link_t *     link,
 void
 fd_ext_poh_publish_gossip_vote( uchar * data,
                                 ulong   data_len ) {
-  poh_link_publish( &gossip_pack, 0UL, data, data_len );
+  poh_link_publish( &gossip_pack, 1UL, data, data_len );
 }
 
 void
