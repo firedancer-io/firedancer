@@ -291,11 +291,11 @@ after_frag( void *             _ctx,
 
     /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
         branch */
-    FD_LOG_WARNING(("A: %lu %lu %lu", *opt_sz, *opt_sig, in_idx ));
+    FD_LOG_WARNING(("A: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
 
     uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
     if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-      FD_LOG_WARNING(("B: %lu %lu %lu", *opt_sz, *opt_sig, in_idx ));
+      FD_LOG_WARNING(("B: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
       FD_LOG_HEXDUMP_WARNING(("HEY", packet, *opt_sz));
       FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                     "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
