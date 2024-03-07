@@ -1136,7 +1136,7 @@ after_frag( void *             _ctx,
     if     ( FD_LIKELY( target_slot<current_slot ) ) FD_MCNT_INC( POH_TILE, MICROBLOCK_TOO_EARLY, 1UL );
     else if( FD_LIKELY( target_slot>current_slot ) ) FD_MCNT_INC( POH_TILE, MICROBLOCK_TOO_LATE, 1UL );
     else                                             FD_MCNT_INC( POH_TILE, MICROBLOCK_NO_LONGER_LEADER, 1UL );
-    FD_LOG_WARNING(( "packed too early or late for slot %lu", target_slot ));
+    FD_LOG_WARNING(( "packed too early or late target_slot=%lu, current_slot=%lu", target_slot, current_slot ));
     *opt_filter = 1;
     return;
   }
@@ -1429,6 +1429,7 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_poh = {
+  .name                     = "poh",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 3UL, /* One tick, one microblock, and one leader update. */
   .mux_ctx                  = mux_ctx,

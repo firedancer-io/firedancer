@@ -326,6 +326,7 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_bank = {
+  .name                     = "bank",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

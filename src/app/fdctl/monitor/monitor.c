@@ -127,8 +127,11 @@ link_snap( link_snap_t * snap_cur,
       ulong const * fseq = topo->tiles[ tile_idx ].in_link_fseq[ in_idx ];
       snap->fseq_seq = fd_fseq_query( fseq );
 
-      ulong const * in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
-
+      ulong const * in_metrics = NULL;
+      if( FD_LIKELY( topo->tiles[ tile_idx ].in_link_poll[ in_idx ] ) ) {
+        in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
+      }
+      
       fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
       ulong producer_id = fd_topo_find_link_producer( topo, link );
       ulong const * out_metrics = NULL;
@@ -141,12 +144,21 @@ link_snap( link_snap_t * snap_cur,
         out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
       }
       FD_COMPILER_MFENCE();
-      snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF ];
-      snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_SIZE_BYTES_OFF ];
-      snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
-      snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
-      snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
-      snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
+      if( FD_LIKELY( in_metrics ) ) {
+        snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_COUNT_OFF ];
+        snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_PUBLISHED_SIZE_BYTES_OFF ];
+        snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
+        snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
+        snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
+      } else {
+        snap->fseq_diag_tot_cnt   = 0UL;
+        snap->fseq_diag_tot_sz    = 0UL;
+        snap->fseq_diag_filt_cnt  = 0UL;
+        snap->fseq_diag_filt_sz   = 0UL;
+        snap->fseq_diag_ovrnp_cnt = 0UL;
+        snap->fseq_diag_ovrnr_cnt = 0UL;
+      }
 
       if( FD_LIKELY( out_metrics ) )
         snap->fseq_diag_slow_cnt  = out_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
