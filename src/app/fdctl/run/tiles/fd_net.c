@@ -281,6 +281,40 @@ after_frag( void *             _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
+  
+  {
+    uchar const * packet = aio_buf.buf;
+    if( FD_UNLIKELY( aio_buf.buf_sz > FD_NET_MTU ) )
+      FD_LOG_ERR(( "received a UDP packet with a too large payload (%u)", aio_buf.buf_sz ));
+
+    uchar const * iphdr = packet + 14U;
+
+    /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
+        branch */
+    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+    if( FD_UNLIKELY( test_ethip!=0x080011 ) )
+      FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+                    "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+                    "is not configured correctly." ));
+
+    /* IPv4 is variable-length, so lookup IHL to find start of UDP */
+    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+    uchar const * udp = iphdr + iplen;
+
+    ushort ip_len = fd_ushort_bswap(((ushort *)iphdr)[1]);
+    ushort udp_len = fd_ushort_bswap(((ushort *) udp)[2]);
+    (void)udp_len;
+    if(ip_len+14!=*opt_sz) {
+      FD_LOG_NOTICE(("o: %u %u", ip_len+14, *opt_sz));
+    }
+
+    if(ip_len+14!=udp_len+14+20) {
+      FD_LOG_NOTICE(("n: %u %u", ip_len+14==udp_len+14+20));
+    }
+    FD_TEST(ip_len+14==*opt_sz);
+    FD_TEST(ip_len+14==udp_len+14+20);
+  }
+
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
     ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
   } else {

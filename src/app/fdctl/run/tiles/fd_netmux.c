@@ -81,8 +81,8 @@ after_frag( void *             _ctx,
     fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
 
   if( fd_disco_netmux_sig_src_tile( *opt_sig ) == SRC_TILE_GOSSIP ) {
-    FD_LOG_NOTICE(("Q: %lu %lu %lu", seq, *opt_sig, *opt_sz));
-    FD_LOG_HEXDUMP_NOTICE(("R", (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), *opt_sz ));
+    // FD_LOG_NOTICE(("Q: %lu %lu %lu", seq, *opt_sig, *opt_sz));
+    // FD_LOG_HEXDUMP_NOTICE(("R", (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), *opt_sz ));
   }
 
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
