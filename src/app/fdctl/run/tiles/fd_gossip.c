@@ -22,8 +22,8 @@
 #define NET_IN_IDX      0
 
 #define SHRED_OUT_IDX   0
-#define REPAIR_OUT_IDX  1
-#define NET_OUT_IDX     2
+#define REPAIR_OUT_IDX  0
+#define NET_OUT_IDX     0
 
 struct __attribute__((packed)) fd_shred_dest_wire {
   uchar  pubkey[32];
@@ -398,82 +398,8 @@ after_frag( void *             _ctx,
 static void
 after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   long now = fd_log_wallclock();
-  if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
-    ctx->last_shred_dest_push_time = now;
-
-    ulong tvu_peer_cnt = 0;
-    ulong repair_peers_cnt = 0;
-
-    ulong * shred_dest_msg = fd_chunk_to_laddr( ctx->shred_contact_out_mem, ctx->shred_contact_out_chunk );
-    fd_shred_dest_wire_t * tvu_peers = (fd_shred_dest_wire_t *)(shred_dest_msg+1);
-
-    ulong * repair_dest_msg = fd_chunk_to_laddr( ctx->repair_contact_out_mem, ctx->repair_contact_out_chunk );
-    fd_shred_dest_wire_t * repair_peers = (fd_shred_dest_wire_t *)(repair_dest_msg+1);
-    for( fd_contact_info_table_iter_t iter = fd_contact_info_table_iter_init( ctx->contact_info_table );
-         !fd_contact_info_table_iter_done( ctx->contact_info_table, iter );
-         iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
-      fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
-
-      if( ele->contact_info.shred_version != fd_gossip_get_shred_version( ctx->gossip ) ) {
-        continue;
-      }
-
-      {
-        if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.tvu.addr ) ) {
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tvu.addr.inner.ip4 == 0 ) {
-          continue;
-        }
-
-        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.addr.inner.ip4;
-        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.port;
-        memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
-        
-        tvu_peer_cnt++;
-      }
-
-      {
-        if( !fd_gossip_ip_addr_is_ip4( &ele->contact_info.repair.addr ) ) {
-          continue;
-        }
-
-        // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.serve_repair.addr.inner.ip4 == 0 ) {
-          continue;
-        }
-
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.addr.inner.ip4;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.port;
-        memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
-        
-        repair_peers_cnt++;
-      }
-    }
-
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-
-    *shred_dest_msg = tvu_peer_cnt;
-    ulong shred_contact_sz = sizeof(ulong) + (tvu_peer_cnt * sizeof(fd_shred_dest_wire_t));
-    ulong shred_contact_sig = 2UL;
-    fd_mcache_publish( ctx->shred_contact_out_mcache, ctx->shred_contact_out_depth, ctx->shred_contact_out_seq, shred_contact_sig, ctx->shred_contact_out_chunk,
-      shred_contact_sz, 0UL, tsorig, tspub );
-    ctx->shred_contact_out_seq   = fd_seq_inc( ctx->shred_contact_out_seq, 1UL );
-    ctx->shred_contact_out_chunk = fd_dcache_compact_next( ctx->shred_contact_out_chunk, shred_contact_sz, ctx->shred_contact_out_chunk0, ctx->shred_contact_out_wmark );
-
-    *repair_dest_msg = repair_peers_cnt;
-    ulong repair_contact_sz = sizeof(ulong) + (repair_peers_cnt * sizeof(fd_shred_dest_wire_t));
-    ulong repair_contact_sig = 3UL;
-    fd_mcache_publish( ctx->repair_contact_out_mcache, ctx->repair_contact_out_depth, ctx->repair_contact_out_seq, repair_contact_sig, ctx->repair_contact_out_chunk,
-      repair_contact_sz, 0UL, tsorig, tspub );
-    ctx->repair_contact_out_seq   = fd_seq_inc( ctx->repair_contact_out_seq, 1UL );
-    ctx->repair_contact_out_chunk = fd_dcache_compact_next( ctx->repair_contact_out_chunk, repair_contact_sz, ctx->repair_contact_out_chunk0, ctx->repair_contact_out_wmark );
-  }
 
   g_num_packets_sent = 0;
   fd_gossip_settime( ctx->gossip, now );
@@ -552,9 +478,7 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 3 ||
-                   topo->links[ tile->out_link_id[ SHRED_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED ||
-                   topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ||
+  if( FD_UNLIKELY( tile->out_cnt != 1 ||
                    topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %lu %lu",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));

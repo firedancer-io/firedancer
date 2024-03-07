@@ -135,19 +135,22 @@ update_config_for_dev( config_t * const config ) {
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
   ulong shred_id = fd_topo_find_tile( &config->topo, FD_TOPO_TILE_KIND_SHRED, 0UL );
-  if( FD_UNLIKELY( shred_id == ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile" ));
-  fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
-  if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
-    char genesis_path[ PATH_MAX ];
-    snprintf1( genesis_path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
-    shred->shred.expected_shred_version = compute_shred_version( genesis_path );
+  if( FD_UNLIKELY( shred_id == ULONG_MAX ) ) {
+    FD_LOG_WARNING(( "could not find shred tile, not setting shred version" ));
+  } else {
+    fd_topo_tile_t * shred = &config->topo.tiles[ shred_id ];
+    if( FD_LIKELY( shred->shred.expected_shred_version==(ushort)0 ) ) {
+      char genesis_path[ PATH_MAX ];
+      snprintf1( genesis_path, PATH_MAX, "%s/genesis.bin", config->ledger.path );
+      shred->shred.expected_shred_version = compute_shred_version( genesis_path );
+    }
   }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
     snprintf1( config->consensus.vote_account_path,
-               sizeof( config->consensus.vote_account_path ),
-               "%s/vote-account.json",
-               config->scratch_directory );
+              sizeof( config->consensus.vote_account_path ),
+              "%s/vote-account.json",
+              config->scratch_directory );
 }
 
 static void *
