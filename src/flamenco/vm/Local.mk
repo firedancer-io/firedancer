@@ -4,7 +4,7 @@ $(call add-objs,fd_vm_context fd_vm_interp fd_vm_trace,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
-$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS))
+$(call make-bin,fd_vm_tool,fd_vm_tool fd_vm_disasm,fd_flamenco fd_funk fd_ballet fd_util,$(SECP256K1_LIBS))
 endif
 endif
 
