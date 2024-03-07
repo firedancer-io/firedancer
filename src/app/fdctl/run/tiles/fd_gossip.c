@@ -387,8 +387,6 @@ after_frag( void *             _ctx,
     peer_addr.addr = ip;
     peer_addr.port = hdr->udp->net_sport;
 
-    fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
-    fd_gossip_continue( ctx->gossip );
     fd_gossip_recv_packet( ctx->gossip, g_gossip_buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
