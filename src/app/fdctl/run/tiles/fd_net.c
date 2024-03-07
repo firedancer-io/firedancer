@@ -292,11 +292,13 @@ after_frag( void *             _ctx,
     /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
         branch */
     uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    if( FD_UNLIKELY( test_ethip!=0x080011 ) )
+    if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+      FD_LOG_HEXDUMP_WARNING(("HEY", packet, *opt_sz));
       FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                     "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
                     "is not configured correctly." ));
-
+      
+    }
     /* IPv4 is variable-length, so lookup IHL to find start of UDP */
     uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
     uchar const * udp = iphdr + iplen;
