@@ -1290,7 +1290,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
       /* Early check: Is conn free? */
 
-      if( !state->conns ) {
+      if( FD_UNLIKELY( !state->conns ) ) {
+        /* A call to fd_quic_service here may free up a connection */
+        fd_quic_service( quic );
+      }
+
+      if( FD_UNLIKELY( !state->conns ) ) {
         FD_DEBUG( FD_LOG_DEBUG(( "ignoring conn request: no free conn slots" )) );
         quic->metrics.conn_err_no_slots_cnt++;
         return FD_QUIC_PARSE_FAIL; /* FIXME better error code? */
@@ -3143,7 +3148,7 @@ fd_quic_service( fd_quic_t * quic ) {
     /* unset "in service queue" */
     conn->in_service = 0;
 
-    if( conn->state == FD_QUIC_CONN_STATE_INVALID ) {
+    if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
       /* connection shouldn't have been scheduled,
          and is now removed, so just continue */
       continue;
@@ -3157,22 +3162,33 @@ fd_quic_service( fd_quic_t * quic ) {
       FD_DEBUG( FD_LOG_WARNING(( "conn %p closing due to idle timeout (%g ms)", (void *)conn, (double)conn->idle_timeout / 1e6 )); )
       conn->state = FD_QUIC_CONN_STATE_DEAD;
       quic->metrics.conn_aborted_cnt++;
-    } else {
-      fd_quic_conn_service( quic, conn, now );
     }
+
+    if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_DEAD ) ) {
+      fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
+      fd_quic_conn_free( quic, conn );
+      continue; /* do NOT reschedule freed connection */
+    }
+
+    /* state cannot be DEAD here */
+    fd_quic_conn_service( quic, conn, now );
 
     /* dead? don't reinsert, just clean up */
     switch( conn->state ) {
-      case FD_QUIC_CONN_STATE_DEAD:
-        fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
-        fd_quic_conn_free( quic, conn );
-        break;
-
       case FD_QUIC_CONN_STATE_INVALID:
         /* skip entirely */
         break;
 
+      case FD_QUIC_CONN_STATE_DEAD:
+      /* if DEAD here, it's because it transitioned to DEAD during the call to service
+         it may also have been rescheduled, so ensure it is rescheduled and allow the
+         usual cleanup to occur */
+
+      __attribute__((fallthrough));
+
+
       default:
+        /* only schedule if not already scheduled */
         if( !conn->in_service ) {
           fd_quic_schedule_conn( conn );
         }
@@ -4636,42 +4652,49 @@ fd_quic_conn_free( fd_quic_t *      quic,
     }
   }
 
-  /* find conn in events, then remove */
-  /* FIXME O(n) scales badly with number of conns (#266) */
-  ulong             event_idx = 0;
-  ulong             cnt   = service_queue_cnt( state->service_queue );
-  for( ulong j = 0; j < cnt; ++j ) {
-    fd_quic_event_t * cur_event = state->service_queue + j;
-    if( cur_event->conn == conn ) {
-      /* remove */
-      service_queue_remove( state->service_queue, event_idx );
-    }
-  }
+  /* no need to remove this connection from the events queue
+     free is called from two places:
+       fini    - service will never be called again. All events are destroyed
+       service - removes event before calling free. Event only allowed to be
+       enqueued once */
 
   /* remove all stream ids from map, and free stream */
-  ulong tot_num_streams = conn->tot_num_streams;
-  for( ulong j = 0; j < tot_num_streams; ++j ) {
-    fd_quic_stream_t * stream = conn->streams[j];
-    if( stream->stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
-      fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream->stream_id, NULL );
-      if( stream_entry ) {
-        /* fd_quic_stream_free calls fd_quic_stream_map_remove */
-        /* TODO we seem to be freeing more streams than expected here */
-        if( stream_entry->stream &&
-            ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) {
-          fd_quic_cb_stream_notify( quic, stream, stream->context, FD_QUIC_NOTIFY_ABORT );
-        }
 
-        conn->num_streams[stream->stream_id&3]--;
+  /* remove used streams */
+  fd_quic_stream_t * used_sentinel = conn->used_streams;
+  while( 1 ) {
+    fd_quic_stream_t * stream = used_sentinel->next;
 
-        fd_quic_stream_map_remove( conn->stream_map, stream_entry );
-        stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
-        stream->stream_flags = 0;
-        FD_QUIC_STREAM_LIST_REMOVE( stream );
-        FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
-      } else {
-        FD_LOG_WARNING(( "stream %lu not in stream_map", (ulong)stream->stream_id ));
-      }
+    if( stream == used_sentinel ) break;
+
+    fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+  }
+
+  /* remove send streams */
+  fd_quic_stream_t * send_sentinel = conn->send_streams;
+  while( 1 ) {
+    fd_quic_stream_t * stream = send_sentinel->next;
+
+    if( stream == send_sentinel ) break;
+
+    fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
+  }
+
+  /* deallocate unused streams */
+  for( ulong j = 0UL; j < 4UL; ++j ) {
+    fd_quic_stream_t * unused_sentinel = conn->unused_streams[j];
+    while( 1 ) {
+      fd_quic_stream_t * stream = unused_sentinel->next;
+
+      if( stream == unused_sentinel ) break;
+
+      /* remove from list */
+      FD_QUIC_STREAM_LIST_REMOVE( stream );
+      stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_NONE;
+      stream->flags     = 0u;
+
+      /* return to pool */
+      fd_quic_stream_pool_free( state->stream_pool, stream );
     }
   }
 
@@ -4680,6 +4703,11 @@ fd_quic_conn_free( fd_quic_t *      quic,
      but if a stream doesn't get cleaned up properly, this fixes
      the stream map */
   if( fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) {
+#if 1
+    /* FIXME this is test code
+     * should be replaced with other branch of #if 1 */
+    FD_LOG_ERR(( "fd_quic_conn_free, stream_map not empty" ));
+#else
     FD_LOG_WARNING(( "stream_map not empty. cnt: %lu",
           (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
     while( fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) {
@@ -4697,6 +4725,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
         break;
       }
     }
+#endif
   }
 
   /* destroy keys */
