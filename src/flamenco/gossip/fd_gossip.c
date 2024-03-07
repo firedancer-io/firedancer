@@ -474,17 +474,6 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
   if ( sz > PACKET_DATA_SIZE )
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
 
-  fd_gossip_msg_t gmsg;
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = data;
-  ctx.dataend = (uchar*)data + sz;
-  ctx.valloc  = glob->valloc;
-
-  int decode_err = fd_gossip_msg_decode(&gmsg, &ctx);
-  if( decode_err != FD_BINCODE_SUCCESS ) {
-    __asm__ __volatile__("int $3");
-  }
-
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
   for(ulong i = 0; i < 100; i++)
@@ -1086,7 +1075,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->datalen = datalen;
 
 #ifdef FD_GOSSIP_DEMO
-  for(ulong l = 0; l < 1000; l++ ) {
+  for(ulong l = 0; l < 100; l++ ) {
 #endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
