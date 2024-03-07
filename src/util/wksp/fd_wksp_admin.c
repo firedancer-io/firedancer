@@ -204,10 +204,13 @@ fd_wksp_new( void *       shmem,
     return NULL;
   }
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   /* Populate entire wksp with human-readable junk bytes to assist with debugging. */
-  void * laddr_lo = fd_wksp_laddr_fast( wksp, wksp->gaddr_lo );
-  fd_memset( laddr_lo, 'A', wksp->data_max );
+
+  void * laddr_lo = fd_wksp_laddr_fast( wksp, wksp->gaddr_lo + sizeof(fd_wksp_t) );
+  //fd_memset( laddr_lo, 'A', wksp->data_max );
+  FD_LOG_NOTICE((" laddr_lo=%lx, sz=%lu", laddr_lo, footprint - sizeof(fd_wksp_t)));
+  fd_asan_poison(laddr_lo, footprint - sizeof(fd_wksp_t) );
   #endif 
 
   fd_wksp_private_unlock( wksp );
@@ -272,7 +275,7 @@ fd_wksp_delete( void * shwksp ) {
   FD_VOLATILE( wksp->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   /* Unpoison everything in case region of memory is reallocated at some point.
      Fill wksp bytes with human readable junk for debugging. */
   ulong wksp_footprint = fd_wksp_footprint( wksp->part_max, wksp->data_max );

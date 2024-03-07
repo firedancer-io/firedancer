@@ -92,7 +92,7 @@ main( int     argc,
   ulong frame[ DEPTH  ]; ulong frame_cnt = 0UL;
 
   /* Make sure that the entire region is poisoned */
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   FD_TEST( fd_asan_query( smem, SMAX ) );
   FD_TEST( fd_asan_test( smem ));
   FD_TEST( fd_asan_test( smem + SMAX ));
@@ -107,7 +107,7 @@ main( int     argc,
       alloc_cnt = 0UL;
       frame_cnt = 0UL;
       /* Entire region gets poisoned on a reset */
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       FD_TEST( fd_asan_query( smem, SMAX ) );
       FD_TEST( fd_asan_test( smem ));
       FD_TEST( fd_asan_test( smem + SMAX ));
@@ -156,7 +156,7 @@ main( int     argc,
       mem[ 0 ] = 1;
       mem[ sz / 2 ] = 1;
       mem[ sz - 1 ] = 1;
-      # if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       FD_TEST( fd_asan_query( mem, sz) == NULL );
       FD_TEST( fd_asan_test( mem ) == 0 );
       FD_TEST( fd_asan_test( mem + sz - 1 ) == 0 );
@@ -182,7 +182,7 @@ main( int     argc,
        boundary to make sure that it is poisoned, check the boundary itself to 
        see if it either is poisoned or has a junk byte, and check the oriignal memory
        itself. Note: 187 maps to the char 0xBB which is populated. */
-    #if FD_HAS_DEEPCLEAN
+    #if FD_HAS_DEEPASAN
     if ( sz ) {
       FD_TEST( fd_asan_test( mem ) == 0 );
       FD_TEST( fd_asan_test( mem + sz - 1 ) == 0 );

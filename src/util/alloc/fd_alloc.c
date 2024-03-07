@@ -618,7 +618,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
  
   align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   /* The header is prepended and needs to be unpoisoned. Ensure that
      there is padding for the alloc_hdr to be properly aligned. We
      want to exit silently if the sz passed in is 0. The alignment must be 
@@ -721,7 +721,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
         }
 
         superblock_gaddr = fd_ulong_align_up( wksp_gaddr + fd_alloc_hdr_footprint, FD_ALLOC_SUPERBLOCK_ALIGN );
-        #if FD_HAS_DEEPCLEAN
+        #if FD_HAS_DEEPASAN
         /* At this point, a new superblock is allocated from the wksp and the header
            is prepended. The alignment needs to be taken into account: the padding 
            should also be unpoisoned. 
@@ -862,7 +862,7 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
   ulong block_laddr     = (ulong)superblock + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
   ulong alloc_laddr     = fd_ulong_align_up( block_laddr + fd_alloc_hdr_footprint, align );
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   /* The block and the header must be unpoisoned to accomodate the block
      footprint. The block footprint is determined by the sizeclass which
      provides the minimum size that accomodates the footprint which is the 
@@ -918,7 +918,7 @@ fd_alloc_free( fd_alloc_t * join,
   fd_alloc_block_set_t    free_blocks = fd_alloc_block_set_add( &superblock->free_blocks, block );
 
   
-  #ifdef FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   /* The portion of the block which is used for the header and the allocation 
      should get poisoned. The alloc's laddr is already at least 8 byte aligned.
      The 8 bytes prior to the start of the laddr are used by the fd_alloc_hdr_t.

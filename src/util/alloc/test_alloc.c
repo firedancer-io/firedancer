@@ -62,7 +62,7 @@ test_main( int     argc,
 
   for( ulong i=0UL; i<2UL*alloc_cnt; i++ ) {
 
-    #if !FD_HAS_DEEPCLEAN
+    #if !FD_HAS_DEEPASAN
     if( (i & print_mask)==print_interval )  {
       char * info    = NULL;
       ulong  info_sz = 0UL;
@@ -96,7 +96,7 @@ test_main( int     argc,
       ulong align    = fd_ulong_if( lg_align==lg_align_max+1, 0UL, 1UL<<lg_align );
 
       sz[j] = fd_rng_ulong_roll( rng, sz_max+1UL );
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       /* Enforce 8 byte alignment requirements */
       align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
       sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] ); 
@@ -107,7 +107,7 @@ test_main( int     argc,
       ulong max;
       mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
 
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       if ( mem[j] && sz[j] )
         FD_TEST( fd_asan_query( mem[j], sz[j] ) == NULL );
       #endif
@@ -154,9 +154,9 @@ test_main( int     argc,
 
       fd_alloc_free( alloc, mem[k] );
 
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       if ( mem[k] && sz[k] )
-          FD_TEST( fd_asan_query( mem[k], sz[k] ) != NULL );
+        FD_TEST( fd_asan_query( mem[k], sz[k] ) != NULL );
       #endif
 
       /* Remove from outstanding allocations */

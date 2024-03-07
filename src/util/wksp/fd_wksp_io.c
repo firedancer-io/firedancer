@@ -122,7 +122,7 @@ fd_wksp_checkpt( fd_wksp_t *  wksp,
         ulong sz = gaddr_hi - gaddr_lo;
         void * laddr_lo = fd_wksp_laddr_fast( wksp, gaddr_lo );
         
-        #if FD_HAS_DEEPCLEAN
+        #if FD_HAS_DEEPASAN
         /* Copy the entire wksp over. This includes regions that may have been
            poisoned at one point. */
         fd_asan_unpoison( laddr_lo, sz );
@@ -404,6 +404,10 @@ fd_wksp_restore( fd_wksp_t *  wksp,
          allocation in the wksp */
 
       wksp_dirty = 1;
+
+      #if FD_HAS_DEEPASAN
+      fd_asan_unpoison( fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
+      #endif
 
       err = fd_io_buffered_istream_read( restore, fd_wksp_laddr_fast( wksp, gaddr_lo ), sz );
       if( FD_UNLIKELY( err ) ) {

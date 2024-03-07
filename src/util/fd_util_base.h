@@ -208,11 +208,11 @@
 #define FD_HAS_UBSAN 0
 #endif
 
-/* FD_HAS_DEEPCLEAN indicates that the build target is using ASAN with manual
+/* FD_HAS_DEEPASAN indicates that the build target is using ASAN with manual
    memory poisoning for fd_alloc, fd_wksp, and fd_scratch. */
 
-#ifndef FD_HAS_DEEPCLEAN
-#define FD_HAS_DEEPCLEAN 0
+#ifndef FD_HAS_DEEPASAN
+#define FD_HAS_DEEPASAN 0
 #endif
 
 /* Base development environment ***************************************/
@@ -929,7 +929,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPCLEAN && !FD_HAS_MSAN
+#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -963,7 +963,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 1
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPCLEAN && !FD_HAS_MSAN
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memset( void  * d,
@@ -998,7 +998,7 @@ fd_memset( void  * d,
 #endif
 
 #if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && \
-    __STDC_VERSION__>=199901L && !FD_HAS_DEEPCLEAN
+    __STDC_VERSION__>=199901L && !FD_HAS_DEEPASAN
 
 FD_FN_PURE static inline int
 fd_memeq( void const * s0,

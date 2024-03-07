@@ -228,7 +228,7 @@ fd_wksp_alloc_at_least( fd_wksp_t * wksp,
   if( FD_UNLIKELY( !fd_ulong_is_pow2( align ) ) ) { FD_LOG_WARNING(( "bad align"   )); goto fail; }
   if( FD_UNLIKELY( !tag                       ) ) { FD_LOG_WARNING(( "bad tag"     )); goto fail; }
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
     /* ASan requires 8 byte alignment for poisoning because memory is mapped in
        8 byte intervals to ASan shadow bytes. */
     align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
@@ -323,7 +323,7 @@ trimmed:
   FD_VOLATILE( pinfo[ i ].tag ) = tag;
   FD_COMPILER_MFENCE();
 
-  #if FD_HAS_DEEPCLEAN
+  #if FD_HAS_DEEPASAN
   fd_asan_unpoison( fd_wksp_laddr_fast( wksp, lo ), hi - lo );
   #endif 
 
@@ -357,7 +357,7 @@ fd_wksp_free( fd_wksp_t * wksp,
 
   if( FD_UNLIKELY( i>=part_max ) ) FD_LOG_WARNING(( "gaddr does not appear to be a current wksp allocation" ));
   else {
-    #if FD_HAS_DEEPCLEAN
+    #if FD_HAS_DEEPASAN
     fd_asan_poison( fd_wksp_laddr_fast( wksp, pinfo[ i ].gaddr_lo ), pinfo[ i ].gaddr_hi - pinfo[ i ].gaddr_lo );
     #endif 
   }

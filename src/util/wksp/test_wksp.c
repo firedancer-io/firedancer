@@ -88,7 +88,7 @@ test_main( int     argc,
       ulong align = fd_ulong_if( itmp==lg_align_max+1, 0UL, 1UL<<itmp );
 
       sz[j]  = fd_rng_ulong_roll( rng, sz_max+1UL );
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
         /* Due to manual asan poisoning requirements, must have a byte alignment must be 
            8. For the same reason the size must also be at least 8. */
         sz[j] = fd_ulong_align_up( sz[j], FD_ASAN_ALIGN );
@@ -127,7 +127,7 @@ test_main( int     argc,
       for( b=0UL; (b+7UL)<sz[j]; b+=8UL ) *((ulong *)(mem[j]+b)) = pat[j];
       for( ; b<sz[j]; b++ ) mem[j][b] = ((uchar)tile_idx);
 
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       if ( mem[j] && sz[j] )
         FD_TEST( fd_asan_query( mem[j], sz[j] ) == NULL );
       #endif 
@@ -159,7 +159,7 @@ test_main( int     argc,
 
       fd_wksp_free( wksp, gaddr );
 
-      #if FD_HAS_DEEPCLEAN
+      #if FD_HAS_DEEPASAN
       if ( mem[k] && sz[k] )
         FD_TEST( fd_asan_query( mem[k], sz[k] ) != NULL );
       #endif

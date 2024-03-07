@@ -178,7 +178,7 @@ fd_scratch_attach( void * smem,
   fd_scratch_private_frame_cnt = 0UL;
   fd_scratch_private_frame_max = depth;
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* Poison the entire smem region and populate with junk bytes for debugging.
      Alignment should be hanmdled by the caller */
   fd_memset( smem, 'A', smax );
@@ -207,7 +207,7 @@ fd_scratch_detach( void ** _opt_fmem ) {
   fd_scratch_in_prepare = 0;
 # endif
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* Unpoison the entire scratch space and fill with junk bytes. We have a guarantee
      about the alignment region already. */
   fd_asan_unpoison( (void *)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
@@ -270,7 +270,7 @@ fd_scratch_reset( void ) {
   fd_scratch_private_free      = fd_scratch_private_start;
   fd_scratch_private_frame_cnt = 0UL;
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* Poison entire scratch space again. */
   fd_asan_poison( (void *)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
 # endif 
@@ -312,7 +312,7 @@ fd_scratch_pop( void ) {
 # endif
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* On a pop() operation, the entire range from fd_scratch_private_free to the
      end of the scratch space can be safely poisoned. The region must be aligned 
      to accomodate asan manual poisoning requirements. The region from the new
@@ -383,7 +383,7 @@ fd_scratch_prepare( ulong align ) {
 # endif
 
   ulong true_align = fd_scratch_private_true_align( align );
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* Need 8 byte alignment */
   align            = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
 # endif
@@ -412,7 +412,7 @@ fd_scratch_publish( void * _end ) {
   fd_scratch_in_prepare   = 0;
 # endif
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* Unpoison the range from the previous fd_scratch_private_free to the end
      address specified by the caller. The start address is aligned down because
      the start of the scratch space is aligned and any prior bytes should be 
@@ -529,7 +529,7 @@ fd_scratch_trim( void * _end ) {
   fd_scratch_in_prepare = 0;
 # endif
 
-# if FD_HAS_DEEPCLEAN
+# if FD_HAS_DEEPASAN
   /* The region to poison should be from _end to the end of the scratch's region.
      The same alignment considerations need to be taken into account. The region
      that is trimmed but not poisoned will be populated with junk bytes. */

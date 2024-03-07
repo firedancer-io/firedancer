@@ -208,7 +208,7 @@ main( int     argc,
     fd_wksp_free( wksp, g );
 
     FD_TEST( !fd_wksp_tag( wksp, g ) );
-    #if !FD_HAS_DEEPCLEAN
+    #if !FD_HAS_DEEPASAN
     fd_wksp_free  ( wksp, g      ); /* double free */
     #endif
     fd_wksp_memset( wksp, g, 255 ); /* memset unallocated */
