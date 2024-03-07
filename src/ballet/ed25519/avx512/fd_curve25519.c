@@ -149,7 +149,9 @@ fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
                             uchar const          buf[ static 32 ] ) {
-  FD_R43X6_GE_DECODE( r->P, buf );
+  if ( FD_UNLIKELY( FD_R43X6_GE_DECODE( r->P, buf ) != 0 ) ) {
+    return NULL;
+  }
   return r;
 }
 
