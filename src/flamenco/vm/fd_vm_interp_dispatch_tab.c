@@ -377,9 +377,9 @@ BRANCH_PRE_CODE
     if( syscall_entry_imm==NULL ) {
       // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
       register_file[10] += 0x2000;
-      fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] ); // FIXME: stack overflow fault.
+      fd_vm_stack_push( ctx->stack, (ulong)pc, &register_file[6] ); // FIXME: stack overflow fault.
+      uint target_pc = fd_pchash_inverse( instr.imm );
       if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz ) {
-        uint target_pc = fd_pchash_inverse( instr.imm );
         pc = (long)(target_pc) - 1L;
       } else if( instr.imm==0x71e3cf81 ) {
         pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
