@@ -27,6 +27,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_topo_run_tile_t fd_tile_netmux = {
+  .name                     = "netmux",
   .mux_flags                = FD_MUX_FLAG_DEFAULT,
   .burst                    = 1UL,
   .mux_ctx                  = NULL,

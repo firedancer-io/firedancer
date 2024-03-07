@@ -12,10 +12,15 @@
 /* Maximum number of tiles that may be present in a topology. */
 #define FD_TOPO_MAX_TILES         (256UL)
 /* Maximum number of objects that may be present in a topology. */
-#define FD_TOPO_MAX_OBJS          (256UL)
+#define FD_TOPO_MAX_OBJS          (1024UL)
 /* Maximum number of links that may go into any one tile in the
    topology. */
-#define FD_TOPO_MAX_TILE_IN_LINKS ( 16UL)
+#define FD_TOPO_MAX_TILE_IN_LINKS  ( 32UL)
+/* Maximum number of links that a tile may write to in addition
+   to the primary output link. */
+#define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
+/* Maximum number of objects that a tile can use. */
+#define FD_TOPO_MAX_TILE_OBJS      ( 128UL)
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -88,32 +93,36 @@ typedef struct {
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of USHORT_MAX or more indicates the tile should be floating and not pinned to a core. */
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
-  ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
-  int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
-  int   in_link_poll[ 16 ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
+  ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
+  int   in_link_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
+  int   in_link_poll[ FD_TOPO_MAX_TILE_IN_LINKS ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
                                    If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
                                    reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
   ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
 
   ulong out_cnt;                /* The number of non-primary links that this tile writes to. */
-  ulong out_link_id[ 16 ];      /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
+  ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
 
   ulong tile_obj_id;
   ulong cnc_obj_id;
   ulong metrics_obj_id;
-  ulong in_link_fseq_obj_id[ 16 ];
+  ulong in_link_fseq_obj_id[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong uses_obj_cnt;
-  ulong uses_obj_id[ 32 ];
-  int   uses_obj_mode[ 32 ];
+  ulong uses_obj_id[ FD_TOPO_MAX_TILE_OBJS ];
+  int   uses_obj_mode[ FD_TOPO_MAX_TILE_OBJS ];
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_cnc_t * cnc;
-    ulong *    metrics;            /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
-    ulong *    in_link_fseq[ 16 ]; /* The fseq of each link that this tile reads from.  Multiple fseqs may point to the link, if there are multiple consumers.
-                                      An fseq can be uniquely identified via (link_id, tile_id), or (link_kind, link_kind_id, tile_kind, tile_kind_id) */
+    ulong *    metrics; /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
+
+    /* The fseq of each link that this tile reads from.  Multiple fseqs
+       may point to the link, if there are multiple consumers.  An fseq
+       can be uniquely identified via (link_id, tile_id), or (link_kind,
+       link_kind_id, tile_kind, tile_kind_id) */
+    ulong *    in_link_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ]; 
   };
 
   /* Configuration fields.  These are required to be known by the topology so it can determine the
@@ -179,6 +188,16 @@ typedef struct {
     struct {
       ushort prometheus_listen_port;
     } metric;
+
+    struct {
+      ushort send_to_port;
+      uint   send_to_ip_addr;
+    } benchs;
+
+    struct {
+      ushort rpc_port;
+      uint   rpc_ip_addr;
+    } bencho;
   };
 } fd_topo_tile_t;
 
@@ -209,6 +228,8 @@ typedef struct fd_topo_t {
 } fd_topo_t;
 
 typedef struct {
+  char const *                  name;
+
   ulong                         mux_flags;
   ulong                         burst;
   ulong                         rlimit_file_cnt;
@@ -448,7 +469,8 @@ fd_topo_run_single_process( fd_topo_t * topo,
                             int         solana_labs,
                             uint        uid,
                             uint        gid,
-                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ) );
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ),
+                            int *       done_futex );
 
 /* fd_topo_run_tile runs the given tile directly within the current
    process (and thread).  The function will never return, as tiles are
