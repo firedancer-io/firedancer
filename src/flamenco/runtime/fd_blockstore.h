@@ -485,6 +485,9 @@ fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );
 
+void
+fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */

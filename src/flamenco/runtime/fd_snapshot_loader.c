@@ -43,7 +43,7 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "insufficient scratch space for snapshot restore" ));
   uchar * zstd_mem = fd_scratch_alloc( fd_zstd_dstream_align(), fd_zstd_dstream_footprint( max_window_sz ) );
 
-  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, slot_ctx, restore_manifest );
+  fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, slot_ctx->acc_mgr, slot_ctx->funk_txn, fd_libc_alloc_virtual(), slot_ctx, restore_manifest );
   assert( restore );
 
   fd_tar_reader_t reader_[1];
@@ -103,6 +103,8 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( 0!=close(fd) ) )
     FD_LOG_ERR(( "close(%s) failed (%d-%s)", snapshotfile, errno, fd_io_strerror( errno ) ));
 
+  fd_snapshot_restore_discard_buf( restore );
+
   return 0;
 }
 
@@ -126,6 +128,8 @@ fd_snapshot_load( const char **        snapshotfiles,
     hptr++;
     char hash[100];
     size_t hlen = (size_t) ((&snapshotfile[slen - 1] - hptr) - 7);
+    if( hlen > sizeof(hash)-1U )
+      FD_LOG_ERR(( "invalid snapshot file %s", snapshotfile ));
     memcpy(hash, hptr, hlen);
     hash[hlen] = '\0';
 

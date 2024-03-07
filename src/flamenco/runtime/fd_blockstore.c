@@ -870,3 +870,83 @@ fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot 
                      (long)slot_entry->block.sz ) );
   }
 }
+
+static char *
+fd_smart_size( ulong sz, char * tmp, size_t tmpsz ) {
+  if( sz <= (1UL<<7) )
+    snprintf( tmp, tmpsz, "%lu B", sz );
+  else if( sz <= (1UL<<17) )
+    snprintf( tmp, tmpsz, "%.3f KB", ((double)sz/((double)(1UL<<10))) );
+  else if( sz <= (1UL<<27) )
+    snprintf( tmp, tmpsz, "%.3f MB", ((double)sz/((double)(1UL<<20))) );
+  else
+    snprintf( tmp, tmpsz, "%.3f GB", ((double)sz/((double)(1UL<<30))) );
+  return tmp;
+}
+
+void
+fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
+  char tmp1[100];
+  char tmp2[100];
+  char tmp3[100];
+
+  FD_LOG_NOTICE(( "blockstore base footprint: %s",
+                  fd_smart_size( fd_blockstore_footprint(), tmp1, sizeof(tmp1) ) ));
+  fd_blockstore_shred_t * shred_pool = fd_blockstore_shred_pool( blockstore );
+  ulong shred_used = fd_blockstore_shred_pool_used( shred_pool );
+  ulong shred_max = fd_blockstore_shred_pool_max( shred_pool );
+  FD_LOG_NOTICE(( "shred pool footprint: %s (%lu entries used out of %lu, %lu%%)",
+                  fd_smart_size( fd_blockstore_shred_pool_footprint( shred_max ), tmp1, sizeof(tmp1) ),
+                  shred_used,
+                  shred_max,
+                  (100U*shred_used) / shred_max ));
+  fd_blockstore_shred_map_t * shred_map = fd_blockstore_shred_map( blockstore );
+  ulong shred_map_cnt = fd_blockstore_shred_map_chain_cnt( shred_map );
+  FD_LOG_NOTICE(( "shred map footprint: %s (%lu chains, load is %.3f)",
+                  fd_smart_size( fd_blockstore_shred_map_footprint( shred_map_cnt ), tmp1, sizeof(tmp1) ),
+                  shred_map_cnt,
+                  ((double)shred_used)/((double)shred_map_cnt) ));
+  fd_blockstore_slot_map_t * slot_map = fd_blockstore_slot_map( blockstore );
+  ulong slot_map_cnt = fd_blockstore_slot_map_key_cnt( slot_map );
+  ulong slot_map_max = fd_blockstore_slot_map_slot_cnt( slot_map );
+  int slot_map_lg_max = fd_blockstore_slot_map_lg_slot_cnt( slot_map );
+  FD_LOG_NOTICE(( "slot map footprint: %s (%lu entries used out of %lu, %lu%%)",
+                  fd_smart_size( fd_blockstore_slot_map_footprint( slot_map_lg_max ), tmp1, sizeof(tmp1) ),
+                  slot_map_cnt,
+                  slot_map_max,
+                  (100U*slot_map_cnt)/slot_map_max ));
+  fd_blockstore_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
+  ulong txn_map_cnt = fd_blockstore_txn_map_key_cnt( txn_map );
+  ulong txn_map_max = fd_blockstore_txn_map_slot_cnt( txn_map );
+  int txn_map_lg_max = fd_blockstore_txn_map_lg_slot_cnt( txn_map );
+  FD_LOG_NOTICE(( "txn map footprint: %s (%lu entries used out of %lu, %lu%%)",
+                  fd_smart_size( fd_blockstore_txn_map_footprint( txn_map_lg_max ), tmp1, sizeof(tmp1) ),
+                  txn_map_cnt,
+                  txn_map_max,
+                  (100U*txn_map_cnt)/txn_map_max ));
+  ulong data_cnt = 0;
+  ulong data_tot = 0;
+  ulong data_max = 0;
+  ulong txn_tot = 0;
+  ulong txn_max = 0;
+  for( ulong i = blockstore->min; i < blockstore->max; ++i ) {
+    fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, i, NULL );
+    if( FD_UNLIKELY( !slot_entry ) ) continue;
+    fd_block_t * block = &slot_entry->block;
+    if( block->data_gaddr && block->data_gaddr != ULONG_MAX ) {
+      data_cnt ++;
+      data_tot += block->sz;
+      data_max = fd_ulong_max( data_max, block->sz );
+      txn_tot += block->txns_cnt;
+      txn_max = fd_ulong_max( txn_max, block->txns_cnt );
+    }
+  }
+  if( data_cnt )
+    FD_LOG_NOTICE(( "block cnt: %lu, total size: %s, avg size: %s, max size: %s, avg txns per block: %lu, max txns: %lu",
+                    data_cnt,
+                    fd_smart_size( data_tot, tmp1, sizeof(tmp1) ),
+                    fd_smart_size( data_tot/data_cnt, tmp2, sizeof(tmp2) ),
+                    fd_smart_size( data_max, tmp3, sizeof(tmp3) ),
+                    txn_tot/data_cnt,
+                    txn_max ));
+}

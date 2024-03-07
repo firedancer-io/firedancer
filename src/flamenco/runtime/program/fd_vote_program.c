@@ -2721,9 +2721,9 @@ fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t 
         if( FD_UNLIKELY(
                 ( 0 != memcmp( &bank_match->theirs, bank_hash->hash, sizeof( fd_hash_t ) ) ) ) ) {
           // TODO support equivocating hashes
-          FD_LOG_WARNING( ( "ignoring equivocating hash %32J vs. %32J",
-                            bank_match->theirs.hash,
-                            bank_hash->hash ) );
+          FD_LOG_DEBUG( ( "ignoring equivocating hash %32J vs. %32J",
+                          bank_match->theirs.hash,
+                          bank_hash->hash ) );
         }
       } else {
         log_bank_match     = 1;

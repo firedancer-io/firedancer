@@ -1,5 +1,7 @@
 build/native/gcc/bin/fd_shmem_cfg alloc 256 gigantic 0
 
+build/native/gcc/bin/fd_shmem_cfg reset
+
 rm -f *.zst && wget --trust-server-names http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2
 
 build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 200 --backup /data/asiegel/test_backup --slothistory 1000

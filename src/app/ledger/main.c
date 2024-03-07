@@ -138,7 +138,9 @@ main( int     argc,
   fd_flamenco_boot( &argc, &argv );
 
   char const * wkspname     = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--wksp",         NULL, NULL      );
-  ulong        pages        = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--pages",        NULL,         5 );
+  ulong        pages        = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--pages",        NULL, ULONG_MAX );
+  if( pages == ULONG_MAX )
+    pages        = fd_env_strip_cmdline_ulong               ( &argc, &argv, "--page-cnt",     NULL, 5 );
   char const * reset        = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--reset",        NULL, "false"   );
   char const * cmd          = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--cmd",          NULL, NULL      );
   ulong        index_max    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--indexmax",     NULL, 450000000 );
@@ -232,7 +234,7 @@ main( int     argc,
     if (shmem == NULL)
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
 
-    int   lg_txn_max    = fd_ulong_find_msb( shred_max ) + 1;
+    int   lg_txn_max    = 22;
 
     blockstore = fd_blockstore_join(fd_blockstore_new(shmem, 1, hashseed, shred_max, slot_history_max, lg_txn_max));
     if (blockstore == NULL) {
@@ -497,6 +499,9 @@ main( int     argc,
 
   if ( tpool )
     fd_tpool_fini( tpool );
+
+  fd_funk_log_mem_usage( funk );
+  fd_blockstore_log_mem_usage( blockstore );
 
   fd_scratch_detach( NULL );
   fd_wksp_free_laddr( smem );

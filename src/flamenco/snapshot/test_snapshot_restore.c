@@ -75,20 +75,18 @@ main( int     argc,
   fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};
   ulong             restore_slot = 999UL;
 
-  uchar _dummy_ctx[1];  /* memory address to serve as the callback context pointer */
-
   /* NEW_RESTORE is a convenience macro to create a new snapshot restore
      context that is waiting for a manifest. */
 
 # define NEW_RESTORE() \
-    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest )
+    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest )
 
   /* NEW_RESTORE_POST_MANIFEST is a convenience macro to create a new
      snapshot restore context that pretends that the manifest has
      already been restored. */
 
 # define NEW_RESTORE_POST_MANIFEST() __extension__({ \
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest ); \
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest ); \
     restore->manifest_done = 1; \
     restore->slot          = restore_slot; \
     restore; \
@@ -165,7 +163,7 @@ main( int     argc,
     _cb_retcode = 0;
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, data_sz ) );
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, data_sz ) );
-    FD_TEST( _cb_v_ctx      == _dummy_ctx  );
+    FD_TEST( _cb_v_ctx      == NULL        );
     FD_TEST( _cb_v_manifest != NULL        );
     FD_TEST( restore->manifest_done == 1   );
     FD_TEST( restore->slot          == 3UL );
@@ -198,7 +196,7 @@ main( int     argc,
     _cb_retcode = 0;
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, manifest_sz + 1 ) );
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
-    FD_TEST( _cb_v_ctx      == _dummy_ctx );  /* callback must have been successful */
+    FD_TEST( _cb_v_ctx      == NULL       );
     FD_TEST( _cb_v_manifest != NULL       );
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
 

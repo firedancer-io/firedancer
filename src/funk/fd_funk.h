@@ -491,6 +491,11 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
 int
 fd_funk_verify( fd_funk_t * funk );
 
+/* fd_funk_log_mem_usage logs useful statistics about memory usage */
+
+void
+fd_funk_log_mem_usage( fd_funk_t * funk );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_funk_fd_funk_h */

@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include <stdio.h>
 
 ulong
 fd_funk_align( void ) {
@@ -350,4 +351,60 @@ fd_funk_verify( fd_funk_t * funk ) {
 # undef TEST
 
   return FD_FUNK_SUCCESS;
+}
+
+static char *
+fd_smart_size( ulong sz, char * tmp, size_t tmpsz ) {
+  if( sz <= (1UL<<7) )
+    snprintf( tmp, tmpsz, "%lu B", sz );
+  else if( sz <= (1UL<<17) )
+    snprintf( tmp, tmpsz, "%.3f KB", ((double)sz/((double)(1UL<<10))) );
+  else if( sz <= (1UL<<27) )
+    snprintf( tmp, tmpsz, "%.3f MB", ((double)sz/((double)(1UL<<20))) );
+  else
+    snprintf( tmp, tmpsz, "%.3f GB", ((double)sz/((double)(1UL<<30))) );
+  return tmp;
+}
+
+void
+fd_funk_log_mem_usage( fd_funk_t * funk ) {
+  char tmp1[100];
+  char tmp2[100];
+      
+  FD_LOG_NOTICE(( "funk base footprint: %s",
+                  fd_smart_size( fd_funk_footprint(), tmp1, sizeof(tmp1) ) ));
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_txn_t const * txn_map = fd_funk_txn_map( funk, wksp );
+  FD_LOG_NOTICE(( "txn table footprint: %s (%lu entries used out of %lu, %lu%%)",
+                  fd_smart_size( fd_funk_txn_map_footprint( funk->txn_max ), tmp1, sizeof(tmp1) ),
+                  fd_funk_txn_map_key_cnt( txn_map ),
+                  fd_funk_txn_map_key_max( txn_map ),
+                  (100U*fd_funk_txn_map_key_cnt( txn_map )) / fd_funk_txn_map_key_max( txn_map ) ));
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  FD_LOG_NOTICE(( "rec table footprint: %s (%lu entries used out of %lu, %lu%%)",
+                  fd_smart_size( fd_funk_rec_map_footprint( funk->rec_max ), tmp1, sizeof(tmp1) ),
+                  fd_funk_rec_map_key_cnt( rec_map ),
+                  fd_funk_rec_map_key_max( rec_map ),
+                  (100U*fd_funk_rec_map_key_cnt( rec_map )) / fd_funk_rec_map_key_max( rec_map ) ));
+  ulong val_cnt = 0;
+  ulong val_min = ULONG_MAX;
+  ulong val_max = 0;
+  ulong val_used = 0;
+  ulong val_alloc = 0;
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
+       !fd_funk_rec_map_iter_done( rec_map, iter );
+       iter = fd_funk_rec_map_iter_next( rec_map, iter ) ) {
+    fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( rec_map, iter );
+    val_cnt ++;
+    val_min = fd_ulong_min( val_min, rec->val_sz );
+    val_max = fd_ulong_max( val_max, rec->val_sz );
+    val_used += rec->val_sz;
+    val_alloc += rec->val_max;
+  }
+  FD_LOG_NOTICE(( "  rec count: %lu, min size: %lu, avg_size: %lu, max_size: %lu, total_size: %s, total_allocated: %s",
+                  val_cnt, val_min, val_used/val_cnt, val_max,
+                  fd_smart_size( val_used, tmp1, sizeof(tmp1) ),
+                  fd_smart_size( val_alloc, tmp2, sizeof(tmp2) ) ));
+  FD_LOG_NOTICE(( "part vec footprint: %s",
+                  fd_smart_size( fd_funk_partvec_footprint(0U), tmp1, sizeof(tmp1) ) ));
 }

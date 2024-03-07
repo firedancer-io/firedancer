@@ -266,10 +266,15 @@ resolve_hostport( const char * str /* host:port */, fd_repair_peer_addr_t * res 
 }
 
 static void
-print_stats( fd_exec_slot_ctx_t * slot_ctx ) {
+print_stats( fd_exec_slot_ctx_t * slot_ctx,
+             FD_PARAM_UNUSED fd_funk_t * funk,
+             FD_PARAM_UNUSED fd_blockstore_t * blockstore ) {
   FD_LOG_NOTICE( ( "current slot: %lu, transactions: %lu",
                    slot_ctx->slot_bank.slot,
                    slot_ctx->slot_bank.transaction_count ) );
+  // These calls are expensive. Uncomment for development only
+  // fd_funk_log_mem_usage( funk );
+  // fd_blockstore_log_mem_usage( blockstore );
 }
 
 static int
@@ -421,7 +426,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
     /* Housekeeping */
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( ( now - last_stats ) > (long)30e9 ) ) {
-      print_stats( slot_ctx );
+      print_stats( slot_ctx, replay->funk, replay->blockstore );
       last_stats = now;
     }
     replay->now = now;
@@ -612,7 +617,7 @@ void funk_setup( fd_wksp_t *  wksp,
     funk_wksp = fd_wksp_attach( funk_wksp_name );
     if( funk_wksp == NULL )
       FD_LOG_ERR( ( "failed to attach to workspace %s", funk_wksp_name ) );
-    if( rec_max == ULONG_MAX ) { rec_max = 350000000; }
+    if( rec_max == ULONG_MAX ) { rec_max = 450000000; }
   }
   FD_TEST( funk_wksp );
 
@@ -707,7 +712,7 @@ void blockstore_setup( fd_wksp_t * wksp, ulong hashseed, blockstore_setup_t * ou
     // - 1mb of txns
     ulong tmp_shred_max    = 1UL << 20;
     ulong slot_history_max = FD_BLOCKSTORE_SLOT_HISTORY_MAX;
-    int   lg_txn_max       = 25;
+    int   lg_txn_max       = 22;
     out->blockstore             = fd_blockstore_join(
         fd_blockstore_new( shmem, 1, hashseed, tmp_shred_max, slot_history_max, lg_txn_max ) );
     if( out->blockstore == NULL ) {
