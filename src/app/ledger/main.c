@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_snapshot_loader.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/shredcap/fd_shredcap.h"
 
 extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const       pubkey[ static 32 ], char const *      data, ulong             sz );
 
@@ -31,6 +32,7 @@ static void usage(char const * progname) {
   fprintf(stderr, "              --rocksdb <file>                    also ingest a rocks database file\n");
   fprintf(stderr, "                --txnstatus true                  also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
+  fprintf(stderr, "              --shredcap <directory>              also ingest a shredcap\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --pages <count>                                  number of gigantic pages in anonymous workspace\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
@@ -97,7 +99,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Read and deshred block from RocksDB */
 
-    int err = fd_rocksdb_import_block(&rocks_db, &m, blockstore, txnstatus, (slot == trashhash) ? trash_hash : NULL);
+    int err = fd_rocksdb_import_block_blockstore(&rocks_db, &m, blockstore, txnstatus, (slot == trashhash) ? trash_hash : NULL);
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
 
     // if( blk_cnt % 1000 == 0 ) {
@@ -159,6 +161,7 @@ main( int     argc,
   char const * backup       = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--backup",       NULL, NULL      );
   char const * capture_fpath = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--capture",      NULL, NULL      );
   char const * checkacchash = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--checkacchash", NULL, NULL      );
+  char const * shredcap     = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--shredcap", NULL, NULL        );
   ulong        trashhash    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--trashhash",    NULL, ULONG_MAX );
 #ifdef _ENABLE_LTHASH
   char const * lthash       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",       NULL, "false"   );
@@ -408,7 +411,12 @@ main( int     argc,
       }
     }
 
-    if( rocksdb_dir ) {
+    /* Give preference to shredcap over rocksdb if both are passed in */
+    if ( shredcap ) {
+      FD_LOG_NOTICE(("using shredcap"));
+      fd_shredcap_populate_blockstore( shredcap, blockstore, slot_ctx->slot_bank.slot, end_slot );
+    }
+    else if( rocksdb_dir ) {
       if ( end_slot >= slot_ctx->slot_bank.slot + slot_history_max )
         end_slot = slot_ctx->slot_bank.slot + slot_history_max - 1;
       ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, (strcmp( txnstatus, "true" ) == 0), trashhash );

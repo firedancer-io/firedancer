@@ -1,8 +1,11 @@
 #include "fd_rocksdb.h"
 #include "fd_blockstore.h"
+#include "../shredcap/fd_shredcap.h"
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h> 
 #include "../../util/bits/fd_bits.h"
 
 char *
@@ -283,11 +286,11 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
 }
 
 int
-fd_rocksdb_import_block( fd_rocksdb_t *    db,
-                         fd_slot_meta_t *  m,
-                         fd_blockstore_t * blockstore,
-                         int txnstatus,
-                         const uchar *hash_override) // How much effort should we go to here to confirm the size of the hash override?
+fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
+                                    fd_slot_meta_t *  m,
+                                    fd_blockstore_t * blockstore,
+                                    int txnstatus,
+                                    const uchar *hash_override ) // How much effort should we go to here to confirm the size of the hash override?
 {
   fd_blockstore_start_write( blockstore );
 
@@ -483,5 +486,188 @@ fd_rocksdb_import_block( fd_rocksdb_t *    db,
   }
 
   fd_blockstore_end_write(blockstore);
+  return 0;
+}
+
+int
+fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
+                                    fd_slot_meta_t *           metadata,
+                                    fd_io_buffered_ostream_t * ostream,
+                                    fd_io_buffered_ostream_t * bank_hash_ostream ) {  
+  ulong slot = metadata->slot;
+
+  /* pre_slot_hdr_file_offset is the current offset within the file, but
+     pre_slot_hdr_file_offset_real accounts for the size of the buffer that has
+     been filled but not flushed. This value is used to jump back into the file to
+     populate the payload_sz for the slot header */
+  long pre_slot_hdr_file_offset      = lseek( ostream->fd, 0, SEEK_CUR );
+  long pre_slot_hdr_file_offset_real = pre_slot_hdr_file_offset + (long)ostream->wbuf_used;
+  if ( FD_UNLIKELY( pre_slot_hdr_file_offset == -1 ) ) {
+    FD_LOG_ERR(( "lseek error while seeking to current location" ));
+  }
+
+  /* Write slot specific header */
+  fd_shredcap_slot_hdr_t slot_hdr;
+  slot_hdr.magic                 = FD_SHREDCAP_SLOT_HDR_MAGIC;
+  slot_hdr.version               = FD_SHREDCAP_SLOT_HDR_VERSION;
+  slot_hdr.payload_sz            = ULONG_MAX; /* This value is populated after slot is processed */
+  slot_hdr.slot                  = metadata->slot;
+  slot_hdr.consumed              = metadata->consumed;
+  slot_hdr.received              = metadata->received;
+  slot_hdr.first_shred_timestamp = metadata->first_shred_timestamp;
+  slot_hdr.last_index            = metadata->last_index;
+  slot_hdr.parent_slot           = metadata->parent_slot;
+  fd_io_buffered_ostream_write( ostream, &slot_hdr, FD_SHREDCAP_SLOT_HDR_FOOTPRINT );
+  
+  /* We need to track the payload size */
+  ulong payload_sz = 0;
+
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf( db->db, db->ro, db->cf_handles[3] );
+
+  char k[16];
+  ulong slot_be = *((ulong *) &k[0]) = fd_ulong_bswap( slot );
+  *((ulong *) &k[8]) = fd_ulong_bswap( 0 );
+
+  rocksdb_iter_seek( iter, (const char *) k, sizeof(k) );
+
+  ulong start_idx = 0;
+  ulong end_idx   = metadata->received;
+  for ( ulong i = start_idx; i < end_idx; i++ ) {
+    ulong cur_slot, index;
+    uchar valid = rocksdb_iter_valid( iter );
+
+    if ( valid ) {
+      size_t klen = 0;
+      const char* key = rocksdb_iter_key( iter, &klen ); // There is no need to free key
+      if ( klen != 16 ) {  // invalid key
+        continue;
+      }
+      cur_slot = fd_ulong_bswap(*((ulong *) &key[0]));
+      index    = fd_ulong_bswap(*((ulong *) &key[8]));
+    }
+
+    if ( !valid || cur_slot != slot ) {
+      FD_LOG_WARNING(( "missing shreds for slot %ld", slot ));
+      rocksdb_iter_destroy( iter );
+      return -1;
+    }
+
+    if ( index != i ) {
+      FD_LOG_WARNING(( "missing shred %ld at index %ld for slot %ld", i, index, slot ));
+      rocksdb_iter_destroy( iter );
+      return -1;
+    }
+
+    size_t dlen = 0;
+    // Data was first copied from disk into memory to make it available to this API
+    const unsigned char *data = (const unsigned char *) rocksdb_iter_value( iter, &dlen );
+    if ( data == NULL ) {
+      FD_LOG_WARNING(( "failed to read shred %ld/%ld", slot, i ));
+      rocksdb_iter_destroy( iter );
+      return -1;
+    }
+
+    fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
+    if ( shred == NULL ) {
+      FD_LOG_WARNING(( "failed to parse shred %ld/%ld", slot, i ));
+      rocksdb_iter_destroy( iter );
+      return -1;
+    }
+
+    /* Write a shred header and shred. Each shred and it's header will be aligned */
+    char shred_buf[ FD_SHREDCAP_SHRED_MAX ];
+    char * shred_buf_ptr = shred_buf;
+    ushort shred_sz = (ushort)fd_shred_sz( shred );
+    uint shred_boundary_sz = (uint)fd_uint_align_up( shred_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT, 
+                                                     FD_SHREDCAP_ALIGN ) - FD_SHREDCAP_SHRED_HDR_FOOTPRINT;
+
+    fd_memset( shred_buf_ptr, 0, shred_boundary_sz );
+    /* Populate start of buffer with header */
+    fd_shredcap_shred_hdr_t * shred_hdr = (fd_shredcap_shred_hdr_t*)shred_buf_ptr;
+    shred_hdr->hdr_sz            = FD_SHREDCAP_SHRED_HDR_FOOTPRINT;
+    shred_hdr->shred_sz          = shred_sz;
+    shred_hdr->shred_boundary_sz = shred_boundary_sz;
+
+    /* Skip ahead and populate rest of buffer with shred and write out */
+    fd_memcpy( shred_buf_ptr + FD_SHREDCAP_SHRED_HDR_FOOTPRINT, shred, shred_boundary_sz );
+    fd_io_buffered_ostream_write( ostream, shred_buf_ptr, 
+                                  shred_boundary_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT );
+
+    payload_sz += shred_boundary_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT;
+    rocksdb_iter_next( iter );
+  }
+
+  /* Update file size */
+  long pre_slot_processed_file_offset = lseek( ostream->fd, 0, SEEK_CUR );
+  if ( FD_UNLIKELY( pre_slot_processed_file_offset == -1 ) ) {
+    FD_LOG_ERR(( "lseek error when seeking to current position" ));
+  }
+
+  if ( FD_UNLIKELY( pre_slot_processed_file_offset == pre_slot_hdr_file_offset ) ) { 
+    /* This case is when the payload from the shreds is smaller than the free
+       space from the write buffer. This means that the buffer was not flushed
+       at any point. This case is highly unlikely */
+    fd_io_buffered_ostream_flush( ostream );
+  }
+
+  /* Safely assume that the buffer was flushed to the file at least once. Store 
+     original seek position, skip to position with payload_sz in header, write
+     updated payload sz, and then reset seek position. */
+  long original_offset = lseek( ostream->fd, 0, SEEK_CUR );
+  if ( FD_UNLIKELY( original_offset == -1 ) ) {
+    FD_LOG_ERR(( "lseek error when seeking to current position" ));
+  }
+  long payload_sz_file_offset = pre_slot_hdr_file_offset_real + 
+                                (long)FD_SHREDCAP_SLOT_HDR_PAYLOAD_SZ_OFFSET;
+
+  long offset;
+  offset = lseek( ostream->fd, payload_sz_file_offset, SEEK_SET );
+  if ( FD_UNLIKELY( offset == -1 ) ) {
+    FD_LOG_ERR(( "lseek error when seeking to offset=%ld", payload_sz_file_offset ));
+  }
+  ulong to_write;
+  fd_io_write( ostream->fd, &payload_sz, sizeof(ulong), sizeof(ulong), &to_write );
+
+  offset = lseek( ostream->fd, original_offset, SEEK_SET );
+  if ( FD_UNLIKELY( offset == -1 ) ) {
+    FD_LOG_ERR(( "lseek error when seeking to offset=%ld", original_offset ));
+  }
+
+  /* Write slot footer */
+  fd_shredcap_slot_ftr_t slot_ftr;
+  slot_ftr.magic      = FD_SHREDCAP_SLOT_FTR_MAGIC;
+  slot_ftr.payload_sz = payload_sz;
+  fd_io_buffered_ostream_write( ostream, &slot_ftr, FD_SHREDCAP_SLOT_FTR_FOOTPRINT );
+  rocksdb_iter_destroy( iter );
+
+  /* Get and write bank hash information to respective file */
+  size_t vallen = 0;
+  char * err = NULL;
+  char * res = rocksdb_get_cf( db->db, db->ro, db->cf_handles[ FD_ROCKSDB_CFIDX_BANK_HASHES ],
+               (char const *)&slot_be, sizeof(ulong), &vallen, &err );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING((" Could not get bank hash data due to err=%s",err ));
+    free( err );
+  } else {
+    fd_scratch_push();
+    fd_bincode_decode_ctx_t decode = {
+      .data    = res,
+      .dataend = res + vallen,
+      .valloc  = fd_scratch_virtual(),
+    };
+    fd_frozen_hash_versioned_t versioned;
+    int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
+    if( FD_UNLIKELY( decode_err != FD_BINCODE_SUCCESS ) ) goto cleanup;
+    if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
+    if( FD_UNLIKELY( versioned.discriminant != fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
+
+    fd_shredcap_bank_hash_entry_t bank_hash_entry;
+    bank_hash_entry.slot = slot;
+    fd_memcpy( &bank_hash_entry.bank_hash, versioned.inner.current.frozen_hash.hash, 32UL );
+    fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_entry, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT );
+  cleanup:
+    free( res );
+    fd_scratch_pop();
+  }
   return 0;
 }

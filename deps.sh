@@ -420,7 +420,7 @@ install_rocksdb () {
     -DWITH_CORE_TOOLS=OFF \
     -DWITH_RUNTIME_DEBUG=OFF \
     -DWITH_TESTS=OFF \
-    -DWITH_TOOLS=OFF \
+    -DWITH_TOOLS=ON \
     -DWITH_TRACE_TOOLS=OFF \
     -DZLIB_ROOT="$PREFIX" \
     -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \

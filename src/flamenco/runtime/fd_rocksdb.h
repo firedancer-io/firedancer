@@ -160,12 +160,17 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
 /* Import from rocksdb into blockstore */
 
 int
-fd_rocksdb_import_block( fd_rocksdb_t *    db,
-                         fd_slot_meta_t *  m,
-                         fd_blockstore_t * blockstore,
-                         int txnstatus,
-                         const uchar *hash_override
-);
+fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
+                                    fd_slot_meta_t *  m,
+                                    fd_blockstore_t * blockstore,
+                                    int txnstatus,
+                                    const uchar *hash_override );
+
+int
+fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
+                                  fd_slot_meta_t *           metadata,
+                                  fd_io_buffered_ostream_t * ostream,
+                                  fd_io_buffered_ostream_t * bank_hash_ostream );
 
 FD_PROTOTYPES_END
 
