@@ -397,6 +397,8 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
 
   fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
   fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
+  fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
+
 
   long now = fd_log_wallclock();
   if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
