@@ -1,6 +1,6 @@
 #include "fd_vm_syscall.h"
 
-#include "../../ballet/ed25519/fd_curve25519.h"
+#include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../runtime/fd_account.h"
 
 /* Representation of a caller account, used to update callee accounts. */
