@@ -102,8 +102,8 @@ fd_topo_firedancer( config_t * config ) {
 
   topo->tile_cnt = tile_cnt;
 
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 1, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   1, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_QUIC_TO_NETMUX,  i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_SHRED_TO_NETMUX, 0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_QUIC,   i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -147,11 +147,11 @@ fd_topo_firedancer( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SHRED_TO_SIGN,     0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SHRED,  0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,     0UL, 0, 0 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_SHRED,     0UL    );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 0, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 1, 1 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED,   0UL   );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR,  0UL   );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL   );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 1, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 0, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_REPAIR, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR,  0UL, 0, 1 );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX,  0UL, 0, 1 );
