@@ -611,7 +611,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
 }
 
 /* Sign/timestamp an outgoing crds value */
-static void
+void
 fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   /* Update the identifier and timestamp */
   fd_pubkey_t * pubkey;
@@ -1792,11 +1792,11 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
 
   fd_bincode_destroy_ctx_t ctx2;
   ctx2.valloc = glob->valloc;
-
   int decode_err = fd_gossip_msg_decode(&gmsg, &ctx);
   if( decode_err != FD_BINCODE_SUCCESS ) {
     FD_LOG_DEBUG(("corrupt gossip message - err: %d", decode_err ));
     FD_LOG_HEXDUMP_WARNING(("CGM1", msg, msglen));
+    fd_gossip_msg_destroy(&gmsg, &ctx2);
     fd_gossip_unlock( glob );
     return -1;
   }
@@ -1804,6 +1804,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   if (ctx.data != ctx.dataend) {
     FD_LOG_DEBUG(("corrupt gossip message"));
     FD_LOG_HEXDUMP_WARNING(("CGM2", msg, msglen));
+    fd_gossip_msg_destroy(&gmsg, &ctx2);
     fd_gossip_unlock( glob );
     return -1;
   }

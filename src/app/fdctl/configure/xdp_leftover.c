@@ -18,8 +18,10 @@ check( config_t * const config ) {
     if( FD_UNLIKELY( entry->d_name[ 0 ] == '.' ) ) continue;
 
     if( FD_UNLIKELY( strcmp( config->name, entry->d_name ) ) ) {
+      char d_name[256];
+      memcpy( d_name, entry->d_name, 256);
       if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `/sys/fs/bpf` (%i-%s)", errno, fd_io_strerror( errno ) ));
-      PARTIALLY_CONFIGURED( "unexpected entry `%s` in `/sys/fs/bpf`", entry->d_name );
+      PARTIALLY_CONFIGURED( "unexpected entry `%s` in `/sys/fs/bpf`", d_name );
     }
   }
 
