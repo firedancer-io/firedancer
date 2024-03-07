@@ -81,9 +81,26 @@ after_frag( void *             _ctx,
     fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
 
   if( fd_disco_netmux_sig_src_tile( *opt_sig ) == SRC_TILE_GOSSIP ) {
-    // FD_LOG_NOTICE(("Q: %lu %lu %lu", seq, *opt_sig, *opt_sz));
+    FD_LOG_NOTICE(("Q: %lu %lu %lu", seq, *opt_sig, *opt_sz));
     // FD_LOG_HEXDUMP_NOTICE(("R", (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), *opt_sz ));
   }
+
+  uchar * packet = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+
+
+  /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
+      branch */
+
+  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+    FD_LOG_WARNING(("C: %lu %lu %lu", *opt_sz, *opt_sig, in_idx ));
+    FD_LOG_HEXDUMP_WARNING(("HEY", packet, *opt_sz));
+    FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+                  "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+                  "is not configured correctly." ));
+    
+  }
+
 
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
 }

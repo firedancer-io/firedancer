@@ -1014,17 +1014,17 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     return;
   }
 
-#ifdef FD_GOSSIP_DEMO
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ crd->signature.uc,
-                         /* public_key */ pubkey->uc,
-                         sha )) {
-    FD_LOG_DEBUG(("received crds_value with invalid signature"));
-    return;
-  }
-#endif
+// #ifdef FD_GOSSIP_DEMO
+//   fd_sha512_t sha[1];
+//   if (fd_ed25519_verify( /* msg */ buf,
+//                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
+//                          /* sig */ crd->signature.uc,
+//                          /* public_key */ pubkey->uc,
+//                          sha )) {
+//     FD_LOG_DEBUG(("received crds_value with invalid signature"));
+//     return;
+//   }
+// #endif
 
   /* Perform the value hash to get the value table key */
   ctx.data = buf;
