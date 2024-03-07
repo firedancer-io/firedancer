@@ -123,6 +123,8 @@ static fd_pubkey_t   g_identity_public_key;
 
 static uchar              g_src_mac_addr[6];
 
+static ulong g_num_packets_sent;
+
 /* Includes Ethernet, IP, UDP headers */
 static uchar g_gossip_buffer[ FD_NET_MTU ];
 
@@ -265,6 +267,11 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen, 
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
+  g_num_packets_sent++;
+
+  if(g_num_packets_sent > 100) {
+    return;
+  }
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
@@ -395,11 +402,6 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
-  fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
-  fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
-  fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
-
-
   long now = fd_log_wallclock();
   if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
     ctx->last_shred_dest_push_time = now;
@@ -475,6 +477,7 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
     ctx->repair_contact_out_chunk = fd_dcache_compact_next( ctx->repair_contact_out_chunk, repair_contact_sz, ctx->repair_contact_out_chunk0, ctx->repair_contact_out_wmark );
   }
 
+  g_num_packets_sent = 0;
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 
@@ -500,6 +503,15 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
     }
   }
 #endif
+}
+
+static void
+during_housekeeping( void * _ctx ) {
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
+
+  fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
+  fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
+  fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
 }
 
 static void
@@ -583,6 +595,7 @@ unprivileged_init( fd_topo_t *      topo,
   
   ctx->last_shred_dest_push_time = 0;
   ctx->last_spam_time = 0;
+  g_num_packets_sent = 0;
 
   /* Set up shred contact info tile output */
   fd_topo_link_t * shred_contact_out = &topo->links[ tile->out_link_id[ 0 ] ];
@@ -699,6 +712,7 @@ fd_tile_config_t fd_tile_gossip = {
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_during_housekeeping  = during_housekeeping,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
