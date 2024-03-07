@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 
-#include "../../../ballet/ed25519/fd_ristretto255_ge.h"
+#include "../../../ballet/ed25519/fd_curve25519.h"
+#include "../../../ballet/ed25519/fd_ristretto255.h"
 
 /* pointer constraints for input parameters */
 /* FIXME: PREFIX */
@@ -89,8 +90,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
-      int p0v = !!fd_ed25519_point_decompress( p0, p0c );
-      int p1v = !!fd_ed25519_point_decompress( p1, p1c );
+      int p0v = !!fd_ed25519_point_frombytes( p0, p0c );
+      int p1v = !!fd_ed25519_point_frombytes( p1, p1c );
 
       if( FD_LIKELY( p0v & p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( vm, out_addr, POINT_SZ, POINT_ALIGN );
@@ -98,7 +99,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
         fd_ed25519_point_t h[1];
         fd_ed25519_point_add( h, p0, p1 );
-        fd_ed25519_point_compress( hc, h );
+        fd_ed25519_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -117,8 +118,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
       fd_ed25519_point_t p0[1];
       fd_ed25519_point_t p1[1];
-      int p0v = !!fd_ed25519_point_decompress( p0, p0c );
-      int p1v = !!fd_ed25519_point_decompress( p1, p1c );
+      int p0v = !!fd_ed25519_point_frombytes( p0, p0c );
+      int p1v = !!fd_ed25519_point_frombytes( p1, p1c );
 
       if( FD_LIKELY( p0v & p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( vm, out_addr, POINT_SZ, POINT_ALIGN );
@@ -126,7 +127,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
         fd_ed25519_point_t h[1];
         fd_ed25519_point_sub( h, p0, p1 );
-        fd_ed25519_point_compress( hc, h );
+        fd_ed25519_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -144,16 +145,16 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
       fd_ed25519_point_t p[1];
-      int pv = !!fd_ed25519_point_decompress( p, pc );
-      int sv = !!fd_ed25519_scalar_validate ( s );
+      int pv = !!fd_ed25519_point_frombytes( p, pc );
+      int sv = !!fd_curve25519_scalar_validate ( s );
 
       if( FD_LIKELY( pv & sv ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( vm, out_addr, POINT_SZ, POINT_ALIGN );
         if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ed25519_point_t h[1];
-        fd_ed25519_point_scalarmult( h, s, p );
-        fd_ed25519_point_compress( hc, h );
+        fd_ed25519_scalar_mul( h, s, p );
+        fd_ed25519_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -181,8 +182,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
-      int p0v = !!fd_ristretto255_point_decompress( p0, p0c );
-      int p1v = !!fd_ristretto255_point_decompress( p1, p1c );
+      int p0v = !!fd_ristretto255_point_frombytes( p0, p0c );
+      int p1v = !!fd_ristretto255_point_frombytes( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( vm, out_addr, POINT_SZ, POINT_ALIGN );
@@ -190,7 +191,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
         fd_ristretto255_point_t h[1];
         fd_ristretto255_point_add( h, p0, p1 );
-        fd_ristretto255_point_compress( hc, h );
+        fd_ristretto255_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -209,8 +210,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
       fd_ristretto255_point_t p0[1];
       fd_ristretto255_point_t p1[1];
-      int p0v = !!fd_ristretto255_point_decompress( p0, p0c );
-      int p1v = !!fd_ristretto255_point_decompress( p1, p1c );
+      int p0v = !!fd_ristretto255_point_frombytes( p0, p0c );
+      int p1v = !!fd_ristretto255_point_frombytes( p1, p1c );
 
       if( FD_LIKELY( p0v && p1v ) ) {
         uchar * hc = fd_vm_translate_vm_to_host( vm, out_addr, POINT_SZ, POINT_ALIGN );
@@ -218,7 +219,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
         fd_ristretto255_point_t h[1];
         fd_ristretto255_point_sub( h, p0, p1 );
-        fd_ristretto255_point_compress( hc, h );
+        fd_ristretto255_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -236,7 +237,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
       fd_ristretto255_point_t p[1];
-      int pv = !!fd_ristretto255_point_decompress( p, pc );
+      int pv = !!fd_ristretto255_point_frombytes( p, pc );
       int sv = !!fd_ristretto255_scalar_validate ( s );
 
       if( FD_LIKELY( pv && sv ) ) {
@@ -244,8 +245,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
         if( FD_UNLIKELY( !hc ) ) return FD_VM_ERR_PERM;
 
         fd_ristretto255_point_t h[1];
-        fd_ristretto255_point_scalarmult( h, s, p );
-        fd_ristretto255_point_compress( hc, h );
+        fd_ed25519_scalar_mul( h, s, p );
+        fd_ristretto255_point_tobytes( hc, h );
         ret = 0UL;
       }
       break;
@@ -263,16 +264,16 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* multiscalar_multiply_edwards computes a MSM on curve25519.
+/* multi_scalar_mul_edwards computes a MSM on curve25519.
 
    This function is equivalent to
-   zk-token-sdk::edwards::multiscalar_multiply_edwards
+   zk-token-sdk::edwards::multi_scalar_mul_edwards
 
    https://github.com/solana-labs/solana/blob/v1.17.7/zk-token-sdk/src/curve25519/edwards.rs#L116
 
    Specifically it takes as input byte arrays and takes care of scalars
    validation and points decompression.  It then invokes ballet MSM
-   function fd_ed25519_multiscalar_mul.  To avoid dynamic allocation,
+   function fd_ed25519_multi_scalar_mul.  To avoid dynamic allocation,
    the full MSM is done in batches of MSM_BATCH_SZ. */
 
 /* FIXME: WHY RETURN VOID * AND NOT POINT? */
@@ -280,11 +281,11 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 #define BATCH_MAX (16UL) /* FIXME: CONSIDER LARGER BATCH CNT (low hundreds to a low thousands is quite reasonable here 128?) */
 
 static void *
-multiscalar_multiply_edwards( fd_ed25519_point_t * r,
+multi_scalar_mul_edwards( fd_ed25519_point_t * r,
                               uchar const *        a,
                               uchar const *        pc,
                               ulong                cnt ) {
-  fd_ed25519_point_0( r );
+  fd_ed25519_point_set_zero( r );
 
   for( ulong i=0UL; i<cnt; i+=BATCH_MAX ) {
     ulong batch_cnt = fd_ulong_min( cnt-i, BATCH_MAX );
@@ -293,12 +294,12 @@ multiscalar_multiply_edwards( fd_ed25519_point_t * r,
     for( ulong j=0UL; j<batch_cnt; j++ ) {
       /* FIXME: IS THIS ORDER OPTIMAL (E.G. ONE OR THE OTHER IS A LOT
          CHEAPER, DO THAT WHOLE BATCH FIRST) */
-      if( FD_UNLIKELY( !fd_ed25519_point_decompress( &A[j], pc + j* POINT_SZ ) ) ) return NULL;
-      if( FD_UNLIKELY( !fd_ed25519_scalar_validate ( a         + j*SCALAR_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_ed25519_point_frombytes( &A[j], pc + j* POINT_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_curve25519_scalar_validate ( a     + j*SCALAR_SZ ) ) ) return NULL;
     }
 
     fd_ed25519_point_t h[1];
-    fd_ed25519_multiscalar_mul( h, a, A, batch_cnt );
+    fd_ed25519_multi_scalar_mul( h, a, A, batch_cnt );
     fd_ed25519_point_add( r, r, h );
     pc +=  POINT_SZ*batch_cnt;
     a  += SCALAR_SZ*batch_cnt;
@@ -307,28 +308,28 @@ multiscalar_multiply_edwards( fd_ed25519_point_t * r,
   return r;
 }
 
-/* multiscalar_multiply_ristretto computes a MSM on ristretto255.
-   See multiscalar_multiply_edwards for details. */
+/* multi_scalar_mul_ristretto computes a MSM on ristretto255.
+   See multi_scalar_mul_edwards for details. */
 /* FIXME: SAME AS EDWARDS */
 
 static void *
-multiscalar_multiply_ristretto( fd_ristretto255_point_t * r,
+multi_scalar_mul_ristretto( fd_ristretto255_point_t * r,
                                 uchar const *             a,
                                 uchar const *             pc,
                                 ulong                     cnt ) {
-  fd_ristretto255_point_0( r );
+  fd_ristretto255_point_set_zero( r );
 
   for( ulong i=0UL; i<cnt; i+=BATCH_MAX ) {
     ulong batch_cnt = fd_ulong_min( cnt-i, BATCH_MAX );
 
     fd_ristretto255_point_t A[ BATCH_MAX ];
     for( ulong j=0UL; j<batch_cnt; j++ ) {
-      if( FD_UNLIKELY( !fd_ristretto255_point_decompress( &A[j], pc + j* POINT_SZ ) ) ) return NULL;
-      if( FD_UNLIKELY( !fd_ristretto255_scalar_validate ( a         + j*SCALAR_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_ristretto255_point_frombytes( &A[j], pc + j* POINT_SZ ) ) ) return NULL;
+      if( FD_UNLIKELY( !fd_ristretto255_scalar_validate ( a        + j*SCALAR_SZ ) ) ) return NULL;
     }
 
     fd_ristretto255_point_t h[1];
-    fd_ristretto255_multiscalar_mul( h, a, A, batch_cnt );
+    fd_ristretto255_multi_scalar_mul( h, a, A, batch_cnt );
     fd_ristretto255_point_add( r, r, h );
 
     pc +=  POINT_SZ*batch_cnt;
@@ -371,13 +372,13 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
     fd_ed25519_point_t _r[1];
-    fd_ed25519_point_t * r = multiscalar_multiply_edwards( _r, s, pc, point_cnt );
+    fd_ed25519_point_t * r = multi_scalar_mul_edwards( _r, s, pc, point_cnt );
 
     if( FD_LIKELY( r ) ) {
       uchar * rc = fd_vm_translate_vm_to_host( vm, result_point_addr, POINT_SZ, POINT_ALIGN );
       if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_PERM;
 
-      fd_ed25519_point_compress( rc, r );
+      fd_ed25519_point_tobytes( rc, r );
       ret = 0UL;
     }
     break;
@@ -395,12 +396,12 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     if( FD_UNLIKELY( !pc ) ) return FD_VM_ERR_PERM;
 
     fd_ristretto255_point_t _r[1];
-    fd_ristretto255_point_t * r = multiscalar_multiply_ristretto( _r, s, pc, point_cnt );
+    fd_ristretto255_point_t * r = multi_scalar_mul_ristretto( _r, s, pc, point_cnt );
     if( FD_LIKELY( r ) ) {
       uchar * rc = fd_vm_translate_vm_to_host( vm, result_point_addr, POINT_SZ, POINT_ALIGN );
       if( FD_UNLIKELY( !rc ) ) return FD_VM_ERR_PERM;
 
-      fd_ristretto255_point_compress( rc, r );
+      fd_ristretto255_point_tobytes( rc, r );
       ret = 0UL;
     }
     break;
