@@ -90,7 +90,7 @@ after_frag( void *             _ctx,
   (void)opt_chunk;
   (void)opt_filter;
 
-    fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
+  fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
 
   uchar * packet = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
@@ -106,9 +106,18 @@ after_frag( void *             _ctx,
                   "is not configured correctly." ));
     
   }
-
+  
+  ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mux_publish( mux, *opt_sig, ctx->out_chunk, *opt_sz, 0, 0, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
 }
+
+// static inline void
+// during_housekeeping( void * _ctx ) {
+//   fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
+
+//   fd_mux
+// }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -160,7 +169,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_tile_config_t fd_tile_netmux = {
-  .mux_flags                = FD_MUX_FLAG_COPY,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
