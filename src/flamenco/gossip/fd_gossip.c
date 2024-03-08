@@ -1468,7 +1468,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Try again in 100 msec */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e1);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e6);
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
 #endif

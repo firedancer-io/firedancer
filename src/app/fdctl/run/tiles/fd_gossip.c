@@ -400,7 +400,6 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
   long now = fd_log_wallclock();
-
   g_num_packets_sent = 0;
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
