@@ -258,14 +258,14 @@ fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,
 }
 
 int
-fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
-                      ulong                      program_cnt,
+fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
+                      ulong                      text_cnt,
                       fd_sbpf_syscalls_t const * syscalls,
                       char *                     out,
                       ulong                      out_max,
                       ulong *                    _out_len ) {
 
-  if( FD_UNLIKELY( ((!program) & (!!program_cnt)) | (!syscalls) || (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( ((!text) & (!!text_cnt)) | (!syscalls) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
   /* Construct the mapping of pc to labels and functions.  FIXME: This
@@ -273,8 +273,8 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
 
   ulong func_cnt  = 0UL;
   ulong label_cnt = 0UL;
-  for( ulong i=0UL; i<program_cnt; i++ ) {
-    fd_sbpf_instr_t instr = program[i];
+  for( ulong i=0UL; i<text_cnt; i++ ) {
+    fd_sbpf_instr_t instr = text[i];
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -287,8 +287,8 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
   ulong label_pc[ 65536 ];
   ulong func_pc [ 65536 ];
 
-  for( ulong i=0UL; i<program_cnt; i++ ) {
-    fd_sbpf_instr_t instr = program[i];
+  for( ulong i=0UL; i<text_cnt; i++ ) {
+    fd_sbpf_instr_t instr = text[i];
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL;
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL;
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -301,7 +301,7 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
 
   OUT_PRINTF( "function_0:\n" );
 
-  for( ulong i=0UL; i<program_cnt; i++ ) {
+  for( ulong i=0UL; i<text_cnt; i++ ) {
 
     /* Print functions / labels (note: as per logic above, it is not
        possible for pc to have both a label and a function). */
@@ -312,13 +312,13 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
 
     /* Print instruction */
 
-    fd_sbpf_instr_t const * instr = &program[i];
+    fd_sbpf_instr_t const * instr = &text[i];
 
     ulong extra_cnt = fd_ulong_if( instr->opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD, 1UL, 0UL );
-    if( FD_UNLIKELY( (i+extra_cnt)>=program_cnt ) ) return FD_VM_ERR_INVAL;
+    if( FD_UNLIKELY( (i+extra_cnt)>=text_cnt ) ) return FD_VM_ERR_INVAL;
 
     OUT_PRINTF( "    " );
-    int err = fd_vm_disasm_instr( instr, program_cnt-i, i, syscalls, out, out_max, _out_len );
+    int err = fd_vm_disasm_instr( instr, text_cnt-i, i, syscalls, out, out_max, _out_len );
     if( FD_UNLIKELY( err ) ) return err;
     OUT_PRINTF( "\n" );
 
@@ -326,7 +326,7 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    program,
 
     /* Print any trailing function */
     /* FIXME: Algo efficiency?  Only scan if instr.opcode.raw==JA?  Only
-       scan if i+1<program_cnt? */
+       scan if i+1<text_cnt? */
 
     found = 0;
     for( ulong j=0UL; j<label_cnt; j++ ) if( label_pc[j]==i+1UL ) { found = 1; break; }
