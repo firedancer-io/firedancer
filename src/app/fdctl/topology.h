@@ -104,6 +104,7 @@
 #define FD_TOPO_LINK_KIND_STORE_TO_REPLAY     (25UL)
 #define FD_TOPO_LINK_KIND_REPLAY_TO_SHRED     (26UL)
 #define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (27UL)
+#define FD_TOPO_LINK_KIND_NETMUX_TO_NET       (28UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -265,7 +266,7 @@ typedef struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
       char  identity_key_path[ PATH_MAX ];
-    } pack;
+  } pack;
 
     struct {
       ulong bank_cnt;
@@ -502,6 +503,7 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_TVU_TO_NETMUX:       return "tvu_netmux";
     case FD_TOPO_LINK_KIND_STORE_TO_REPLAY:     return "store_replay";
     case FD_TOPO_LINK_KIND_STORE_TO_REPAIR:     return "store_repair";
+    case FD_TOPO_LINK_KIND_NETMUX_TO_NET:       return "netmux_net";
     default: FD_LOG_ERR(( "unknown link kind %lu", kind )); return NULL;
   }
 }
