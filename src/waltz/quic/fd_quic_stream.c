@@ -167,7 +167,6 @@ fd_quic_stream_delete( fd_quic_stream_t * stream ) {
   /* stream pointing to itself is not a member of any list */
   stream->next = stream->prev = stream;
   stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_NONE;
-  stream->flags = 0u;
 }
 
 

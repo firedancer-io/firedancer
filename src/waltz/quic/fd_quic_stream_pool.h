@@ -70,7 +70,13 @@ fd_quic_stream_pool_alloc( fd_quic_stream_pool_t * pool );
 void
 fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool, fd_quic_stream_t * stream );
 
+/* returns the number of streams available in the pool */
+static inline
+ulong
+fd_quic_stream_pool_avail( fd_quic_stream_pool_t * pool ) {
+  return pool->cur_cnt;
+}
+
 FD_PROTOTYPES_END
 
 #endif
-

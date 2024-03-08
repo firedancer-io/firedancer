@@ -144,7 +144,6 @@ fd_quic_conn_new( void *                   mem,
 
   conn->quic             = quic;
   conn->stream_tx_buf_sz = limits->tx_buf_sz;
-  conn->tot_num_streams  = layout.stream_cnt;
   conn->state            = FD_QUIC_CONN_STATE_INVALID;
 
   /* Initialize streams */
@@ -204,7 +203,7 @@ fd_quic_conn_get_context( fd_quic_conn_t * conn ) {
      FD_QUIC_TYPE_UNIDIR
      FD_QUIC_TYPE_BIDIR */
 FD_QUIC_API void
-fd_quic_conn_set_max_stream( fd_quic_conn_t * conn, int dirtype, ulong stream_cnt ) {
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int dirtype, ulong stream_cnt ) {
   if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
                 && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
     FD_LOG_ERR(( "fd_quic_conn_set_max_stream called with invalid type" ));
@@ -219,42 +218,32 @@ fd_quic_conn_set_max_stream( fd_quic_conn_t * conn, int dirtype, ulong stream_cn
        dir        - direction: bidir or unidir
        role       - client or server
        type       - dir | role */
-  uint server = (uint)conn->server;
-  uint type   = server + ( (uint)dirtype << 1u );
+  uint peer = (uint)!conn->server;
+  uint type = peer + ( (uint)dirtype << 1u );
 
   /* store the desired value */
-  conn->tgt_max_streams[type] = stream_cnt;
+  conn->max_concur_streams[type] = stream_cnt;
 
-  /* if we're decreasing the max streams value, we simply set the target
-       to lower the value, we have to wait until streams are freed
-     if we're increasing, we try to allocate more streams from the pool
-       to satisfy the request */
-  if( stream_cnt > conn->alloc_streams[type] ) {
+  /* set tgt_sup_stream_id */
+  ulong tgt_sup_stream_id = ( stream_cnt << 2UL ) + type;
 
-    /* load the currently allocated streams */
-    ulong alloc_streams   = conn->alloc_streams[type];
-    ulong tgt_max_streams = conn->tgt_max_streams[type];
+  /* update the cs_tree */
 
-    fd_quic_stream_t * unused_streams = conn->unused_streams[type];
+  /* determine the weight */
+  /* weight is max( 0, stream_cnt - cur_stream_cnt */
 
-    /* allocate streams from the pool to the connection */
-    for( ulong j = alloc_streams; j < tgt_max_streams; ++j ) {
-      fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( state->stream_pool );
-
-      /* best effort */
-      if( FD_UNLIKELY( !stream ) ) break;
-
-      /* insert into unused list */
-      FD_QUIC_STREAM_LIST_INSERT_BEFORE( unused_streams, stream );
-      stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_UNUSED;
-
-      /* adjust alloc_streams to match */
-      alloc_streams++;
-    }
-
-    /* store alloc_streams */
-    conn->alloc_streams[type] = alloc_streams;
+  ulong weight = 0UL;
+  if( FD_LIKELY( tgt_sup_stream_id > tgt_sup_stream_id ) ) {
+    weight = stream_cnt - conn->cur_stream_cnt[type];
   }
+
+  /* set the weight in the cs_tree */
+  fd_quic_cs_tree_t * cs_tree = fd_quic_get_state( conn->quic )->tree;
+  ulong               idx     = ( conn_idx << 1UL ) + dirtype;
+  fd_quic_cs_tree_update( cs_tree, idx, weight );
+
+  /* reassign the streams */
+  fd_quic_assign_streams( conn->quic );
 }
 
 
@@ -267,6 +256,6 @@ FD_QUIC_API ulong
 fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, int dirtype ) {
   uint server = (uint)conn->server;
   uint type   = server + ( (uint)dirtype << 1u );
-  return conn->tgt_max_streams[type];
+  return conn->max_streams[type];
 }
 

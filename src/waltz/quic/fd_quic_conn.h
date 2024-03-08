@@ -163,8 +163,12 @@ struct fd_quic_conn {
 
   /* use of supremum here:
        this is the smallest stream id greater than all the allowed stream ids
-       to valid stream_id if stream_id < sup_stream_id
+       so stream_id is valid if stream_id < sup_stream_id
        so sup_stream_id = max_stream_id + 4 */
+
+  /* min_stream_id, sup_stream_id represent the "current range" */
+  /* stream_ids within this range have been allocated to the connection */
+  /* they may have been closed and deallocated */
   ulong min_stream_id[4];       /* minimum stream id by type */
   ulong sup_stream_id[4];       /* supremum stream id by type */
       /* sup_stream_id[j] == min_stream_id[j] implies no available stream_ids */
@@ -173,8 +177,17 @@ struct fd_quic_conn {
       /* number of streams in valid range is:                                 */
       /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
 
-  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids */
-  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type */
+  /* peer_sup_stream_id[type] always represents the peer imposed limit */
+  /* tgt_sup_stream_id[type] always represents our limit on the stream_id */
+  /* tgt_sup_stream_id is derived from max_concur_streams and cur_stream_cnt */
+  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids            */
+  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type           */
+                                /* sup_stream_id cannot drop, but tgt_sup_stream_id */
+                                /* is allowed to fall below sup_stream_id           */
+
+  ulong max_concur_streams[4];  /* user set concurrent max - used to set tgt_sup_stream_id */
+                                /* for self initiated streams */
+  ulong cur_stream_cnt[4];      /* current number of streams by type */
 
   /* rfc9000:
        19.11 Note that these frames (and the corresponding transport parameters)
@@ -349,7 +362,7 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
      FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
      FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
 FD_QUIC_API void
-fd_quic_conn_set_max_stream( fd_quic_conn_t * conn, int type, ulong stream_cnt );
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int type, ulong stream_cnt );
 
 
 /* get the current value for the concurrent streams for the specified type

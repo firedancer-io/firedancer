@@ -75,9 +75,13 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Various internal state */
 
   fd_quic_conn_t *        conns;          /* free list of unused connections */
+  ulong                   free_conns;     /* count of free connections */
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
+
+  fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
+  fd_rng_t *              rng;            /* random number generator */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -362,7 +366,7 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
 /* This function updates the value in the tree with the given value and     */
 /* updates the rest of its internal state for quick queries                 */
 void
-fd_quic_update_cs_tree( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value );
+fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value );
 
 /* fd_quic_choose_weighted_index chooses an index in a random way by weight */
 ulong
@@ -386,13 +390,13 @@ fd_quic_cs_tree_align( void ) {
 }
 
 void
-fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree );
+fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree, ulong cnt );
 
 static inline
 fd_quic_conn_t *
-fd_quic_conn_at_idx( fd_quic_t * quic, ulong idx ) {
-  ulong addr = quic->conn_base;
-  ulong sz   = quic->conn_sz;
+fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
+  ulong addr = quic_state->conn_base;
+  ulong sz   = quic_state->conn_sz;
   return (fd_quic_conn_t*)( addr + idx * sz );
 }
 
