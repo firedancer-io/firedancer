@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_vm_fd_vm_context_h
 
 #include "fd_vm_cpi.h"
-#include "fd_vm_trace.h"
 
 /* FIXME: NEGATIVE INTEGER ERROR CODES */
 /* FIXME: UNIFY THE ERROR CODES */
@@ -217,7 +216,7 @@ struct fd_vm_exec_context {
 
   fd_vm_heap_allocator_t alloc[1]; /* Bump allocator provided through syscall */
 
-  fd_vm_trace_context_t * trace_ctx;
+  fd_vm_trace_t * trace;
 };
 
 typedef struct fd_vm_exec_context fd_vm_exec_context_t;
