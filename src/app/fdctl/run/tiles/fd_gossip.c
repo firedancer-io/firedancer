@@ -95,6 +95,8 @@ struct fd_gossip_tile_ctx {
 
   long last_spam_time;
   fd_rng_t rng[1];
+
+  fd_mux_context_t * mux_ctx;
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -257,9 +259,10 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( ip, port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_GOSSIP, (ushort)0 );
-  fd_mcache_publish( g_net_out_mcache, g_net_out_depth, g_net_out_seq, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
-  g_net_out_seq   = fd_seq_inc( g_net_out_seq, 1UL );
-  g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
+  // fd_mcache_publish( g_net_out_mcache, g_net_out_depth, g_net_out_seq, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  // g_net_out_seq   = fd_seq_inc( g_net_out_seq, 1UL );
+  // g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
+  fd_mux_publish( ctx->mux_ctx, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
 }
 
 static void 
@@ -374,12 +377,13 @@ after_frag( void *             _ctx,
 
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
-  *opt_filter = 1;
+  ctx->mux_ctx = mux;
 
   uint   ip = fd_disco_netmux_sig_ip_addr( *opt_sig );
   ushort port = fd_disco_netmux_sig_port( *opt_sig );
   // uint ip = 2471188301; // 147.75.199.41
   if( FD_UNLIKELY( port==g_gossip_listen_port ) ) {
+    *opt_filter = 0;
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
     eth_ip_udp_t * hdr = (eth_ip_udp_t *)g_gossip_buffer;
 
@@ -397,9 +401,10 @@ after_frag( void *             _ctx,
 }
 
 static void
-after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
+after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
+  ctx->mux_ctx = mux_ctx;
   long now = fd_log_wallclock();
   g_num_packets_sent = 0;
   fd_gossip_settime( ctx->gossip, now );
@@ -436,7 +441,7 @@ during_housekeeping( void * _ctx ) {
   // fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
   // fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
   // fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
-}
+} 
 
 static void
 privileged_init( fd_topo_t *      topo,
@@ -514,7 +519,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-  
+
   ctx->last_shred_dest_push_time = 0;
   ctx->last_spam_time = 0;
   g_num_packets_sent = 0;
