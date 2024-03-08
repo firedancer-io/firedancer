@@ -10,8 +10,6 @@
 
 #include <linux/unistd.h>
 
-#define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -28,7 +26,10 @@ typedef struct {
 
   uint   src_ip_addr;
   uchar  src_mac_addr[6];
-  ushort allow_ports[ FD_NET_PORT_ALLOW_CNT ];
+
+  ushort shred_listen_port;
+  ushort quic_transaction_listen_port;
+  ushort legacy_transaction_listen_port;
 
   fd_wksp_t * in_mem;
   ulong       in_chunk0;
@@ -126,22 +127,29 @@ net_rx_aio_send( void *                    _ctx,
     /* Ignore if UDP header is too short */
     if( FD_UNLIKELY( udp+8U > packet_end ) ) continue;
 
-    /* Extract IP dest addr and UDP dest port */
+    /* Extract IP dest addr and UDP src/dest port */
     uint ip_srcaddr    =                  *(uint   *)( iphdr+12UL );
+    ushort udp_srcport = fd_ushort_bswap( *(ushort *)( udp+0UL    ) );
     ushort udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
 
-    int allow_port = 0;
-    for( ulong i=0UL; i<FD_NET_PORT_ALLOW_CNT; i++ ) allow_port |= udp_dstport==ctx->allow_ports[ i ];
-    if( FD_UNLIKELY( !allow_port ) )
+    ushort proto;
+    if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) )             proto = DST_PROTO_SHRED;
+    else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port) )   proto = DST_PROTO_TPU_QUIC;
+    else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port) ) proto = DST_PROTO_TPU_UDP;
+    else {
       FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
                    "Only ports %hu, %hu, and %hu should be configured to forward packets. Do "
                    "you need to reload the XDP program?",
-                   udp_dstport, ctx->allow_ports[ 0 ], ctx->allow_ports[ 1 ], ctx->allow_ports[ 2 ] ));
+                   udp_dstport,
+                   ctx->shred_listen_port,
+                   ctx->quic_transaction_listen_port,
+                   ctx->legacy_transaction_listen_port ));
+    }
 
     fd_memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), packet, batch[i].buf_sz );
 
-    /* tile can decide how to partition based on src ip addr and port */
-    ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_dstport, 14UL+8UL+iplen, SRC_TILE_NET, 0 );
+    /* tile can decide how to partition based on src ip addr and src port */
+    ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mux_publish( ctx->mux, sig, ctx->out_chunk, batch[i].buf_sz, 0, 0, tspub );
@@ -182,8 +190,8 @@ during_housekeeping( void * _ctx ) {
 FD_FN_PURE static int
 route_loopback( uint  tile_ip_addr,
                 ulong sig ) {
-  return fd_disco_netmux_sig_ip_addr( sig )==FD_IP4_ADDR(127,0,0,1) ||
-    fd_disco_netmux_sig_ip_addr( sig )==tile_ip_addr;
+  return fd_disco_netmux_sig_dst_ip( sig )==FD_IP4_ADDR(127,0,0,1) ||
+    fd_disco_netmux_sig_dst_ip( sig )==tile_ip_addr;
 }
 
 static void
@@ -196,13 +204,18 @@ before_frag( void * _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
-  ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
+  ulong proto = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) {
+    *opt_filter = 1;
+    return;
+  }
 
   /* Round robin by sequence number for now, QUIC should be modified to
      echo the net tile index back so we can transmit on the same queue.
 
      127.0.0.1 packets for localhost must go out on net tile 0 which
      owns the loopback interface XSK, which only has 1 queue. */
+
   int handled_packet = 0;
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
     handled_packet = ctx->round_robin_id == 0;
@@ -210,7 +223,7 @@ before_frag( void * _ctx,
     handled_packet = (seq % ctx->round_robin_cnt) == ctx->round_robin_id;
   }
 
-  if( FD_UNLIKELY( src_tile==SRC_TILE_NET || !handled_packet ) ) {
+  if( FD_UNLIKELY( !handled_packet ) ) {
     *opt_filter = 1;
   }
 }
@@ -285,7 +298,7 @@ after_frag( void *             _ctx,
     ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
   } else {
     /* extract dst ip */
-    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_ip_addr( *opt_sig ) );
+    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( *opt_sig ) );
 
     uint  next_hop    = 0U;
     uchar dst_mac[6]  = {0};
@@ -437,10 +450,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_ip_addr = tile->net.src_ip_addr;
   memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
 
-  for( ulong i=0UL; i<FD_NET_PORT_ALLOW_CNT; i++ ) {
-    if( FD_UNLIKELY( !tile->net.allow_ports[ i ] ) ) FD_LOG_ERR(( "net tile listen port %lu was 0", i ));
-    ctx->allow_ports[ i ] = tile->net.allow_ports[ i ];
-  }
+  ctx->shred_listen_port = tile->net.shred_listen_port;
+  ctx->quic_transaction_listen_port = tile->net.quic_transaction_listen_port;
+  ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
 
   /* Put a bound on chunks we read from the input, to make sure they
       are within in the data region of the workspace. */

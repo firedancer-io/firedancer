@@ -43,8 +43,6 @@ typedef struct {
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
 
-  ushort legacy_transaction_port; /* port for receiving non-QUIC (raw UDP) transactions on*/
-
   fd_keyguard_client_t keyguard_client[1];
 
   uchar buffer[ FD_NET_MTU ];
@@ -240,28 +238,16 @@ before_frag( void * _ctx,
 
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  ushort dst_port    = fd_disco_netmux_sig_port( sig );
-  ulong  src_ip_addr = fd_disco_netmux_sig_ip_addr( sig );
-  ushort src_tile    = fd_disco_netmux_sig_src_tile( sig );
-
-  if( FD_UNLIKELY( src_tile!=SRC_TILE_NET ) ) {
+  ulong proto = fd_disco_netmux_sig_proto( sig );
+  if( FD_UNLIKELY( proto!=DST_PROTO_TPU_UDP && proto!=DST_PROTO_TPU_QUIC ) ) {
     *opt_filter = 1;
     return;
   }
 
-  int handled_port = dst_port == ctx->legacy_transaction_port ||
-                     dst_port == ctx->quic->config.net.listen_udp_port;
-
-  /* Ignore traffic e.g. for shred tile */
-  if( FD_UNLIKELY( !handled_port ) ) {
+  ulong hash = fd_disco_netmux_sig_hash( sig );
+  if( FD_UNLIKELY( (hash % ctx->round_robin_cnt) != ctx->round_robin_id ) ) {
     *opt_filter = 1;
     return;
-  }
-
-  int handled_ip_address = (src_ip_addr % ctx->round_robin_cnt) == ctx->round_robin_id;
-
-  if( FD_UNLIKELY( !handled_port || !handled_ip_address ) ) {
-    *opt_filter = 1;
   }
 }
 
@@ -306,12 +292,12 @@ after_frag( void *             _ctx,
 
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
-  ushort dst_port = fd_disco_netmux_sig_port( *opt_sig );
+  ulong proto = fd_disco_netmux_sig_proto( *opt_sig );
 
-  if( FD_LIKELY( dst_port==ctx->quic->config.net.listen_udp_port ) ) {
+  if( FD_LIKELY( proto==DST_PROTO_TPU_QUIC ) ) {
     fd_aio_pkt_info_t pkt = { .buf = ctx->buffer, .buf_sz = (ushort)*opt_sz };
     fd_aio_send( ctx->quic_rx_aio, &pkt, 1, NULL, 1 );
-  } else if( FD_LIKELY( dst_port==ctx->legacy_transaction_port ) ) {
+  } else if( FD_LIKELY( proto==DST_PROTO_TPU_UDP ) ) {
     ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
     if( FD_UNLIKELY( *opt_sz<network_hdr_sz ) ) {
       /* Transaction not valid if the packet isn't large enough for the network
@@ -496,7 +482,6 @@ quic_tx_aio_send( void *                    _ctx,
 
     uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
     uint   ip_dstaddr  = 0;
-    ushort udp_dstport = 0;
     if( FD_LIKELY( test_ethip==0x080011 ) ) {
       /* IPv4 is variable-length, so lookup IHL to find start of UDP */
       uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
@@ -510,12 +495,11 @@ quic_tx_aio_send( void *                    _ctx,
 
       /* Extract IP dest addr and UDP dest port */
       ip_dstaddr  =                  *(uint   *)( iphdr+16UL );
-      udp_dstport = fd_ushort_bswap( *(ushort *)( udp+2UL    ) );
     }
 
     /* send packets are just round-robined by sequence number, so for now
        just indicate where they came from so they don't bounce back */
-    ulong sig = fd_disco_netmux_sig( ip_dstaddr, udp_dstport, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_QUIC, 0 );
+    ulong sig = fd_disco_netmux_sig( 0U, 0U, ip_dstaddr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
     fd_mcache_publish( ctx->net_out_mcache,
@@ -682,8 +666,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_id  = tile->kind_id;
-
-  ctx->legacy_transaction_port = tile->quic.legacy_transaction_listen_port;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
