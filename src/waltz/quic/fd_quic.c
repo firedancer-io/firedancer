@@ -4,7 +4,6 @@
 #include "fd_quic_conn.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_proto.h"
-#include "../tls/fd_tls.h"
 
 #include "crypto/fd_quic_crypto_suites.h"
 #include "templ/fd_quic_transport_params.h"

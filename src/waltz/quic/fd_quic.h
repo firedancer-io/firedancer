@@ -84,6 +84,7 @@
 #include "fd_quic_enum.h"
 
 #include "../aio/fd_aio.h"
+#include "../tls/fd_tls.h"
 #include "../../util/fd_util.h"
 
 /* FD_QUIC_API marks public API declarations.  No-op for now. */
