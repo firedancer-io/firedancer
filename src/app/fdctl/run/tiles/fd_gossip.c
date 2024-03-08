@@ -269,7 +269,7 @@ gossip_send_packet( uchar const * msg,
                     void * arg ) {
   g_num_packets_sent++;
 
-  if(g_num_packets_sent > 100) {
+  if(g_num_packets_sent > 1) {
     return;
   }
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -627,7 +627,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_tile_config_t fd_tile_gossip = {
-  .mux_flags                = FD_MUX_FLAG_COPY,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
