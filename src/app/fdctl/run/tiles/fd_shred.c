@@ -128,7 +128,6 @@ typedef struct {
 
   uint                 src_ip_addr;
   uchar                src_mac_addr[ 6 ];
-  ushort               shred_listen_port;
 
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
@@ -262,17 +261,16 @@ finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
 }
 
 static void
-before_frag( void * _ctx,
+before_frag( void * ctx,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
              int *  opt_filter ) {
+  (void)ctx;
   (void)seq;
 
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
-
   if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
-    *opt_filter = fd_disco_netmux_sig_port( sig )!=ctx->shred_listen_port;
+    *opt_filter = fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
   } else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) {
     *opt_filter = fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
   }
@@ -433,7 +431,7 @@ send_shred( fd_shred_ctx_t *      ctx,
   ulong pkt_sz = shred_sz + sizeof(eth_ip_udp_t);
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong   sig = fd_disco_netmux_sig( dest->ip4, dest->port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_SHRED, (ushort)0 );
+  ulong   sig = fd_disco_netmux_sig( 0U, 0U, dest->ip4, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
       pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
@@ -789,7 +787,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->src_ip_addr = tile->shred.ip_addr;
   fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
-  ctx->shred_listen_port = tile->shred.shred_listen_port;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.pos            = 0UL;

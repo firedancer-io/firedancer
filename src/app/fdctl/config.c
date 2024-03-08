@@ -780,9 +780,9 @@ topo_initialize( config_t * config ) {
       tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr       = config->tiles.net.ip_addr;
-      tile->net.allow_ports[ 0 ]  = config->tiles.quic.regular_transaction_listen_port;
-      tile->net.allow_ports[ 1 ]  = config->tiles.quic.quic_transaction_listen_port;
-      tile->net.allow_ports[ 2 ]  = config->tiles.shred.shred_listen_port;
+      tile->net.shred_listen_port = config->tiles.shred.shred_listen_port;
+      tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
+      tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) {
 
@@ -798,7 +798,6 @@ topo_initialize( config_t * config ) {
       tile->quic.tx_buf_size                    = config->tiles.quic.tx_buf_size;
       tile->quic.ip_addr                        = config->tiles.net.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
-      tile->quic.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
       tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;

@@ -127,7 +127,10 @@ typedef struct {
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
-      ushort allow_ports[ 3 ];
+
+      ushort shred_listen_port;
+      ushort quic_transaction_listen_port;
+      ushort legacy_transaction_listen_port;
     } net;
 
     struct {
@@ -141,7 +144,6 @@ typedef struct {
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
-      ushort legacy_transaction_listen_port;
       ulong  idle_timeout_millis;
       char   identity_key_path[ PATH_MAX ];
       int    retry;
