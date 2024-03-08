@@ -63,7 +63,7 @@ during_frag( void * _ctx,
   uchar * packet = dst;
   uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
   if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-    FD_LOG_WARNING(("E: %lu %lu %lu", sz, sig, in_idx, fd_disco_netmux_sig_src_tile(sig) ));
+    FD_LOG_WARNING(("E: %lu %lu %lu %u", sz, sig, in_idx, fd_disco_netmux_sig_src_tile(sig) ));
     FD_LOG_HEXDUMP_WARNING(("HEY3", packet, sz));
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "

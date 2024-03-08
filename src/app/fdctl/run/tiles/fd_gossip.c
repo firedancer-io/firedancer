@@ -263,6 +263,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   // g_net_out_seq   = fd_seq_inc( g_net_out_seq, 1UL );
   // g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
   fd_mux_publish( ctx->mux_ctx, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
 }
 
 static void 
