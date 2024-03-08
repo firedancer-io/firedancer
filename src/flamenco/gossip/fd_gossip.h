@@ -92,4 +92,7 @@ const char * fd_gossip_addr_str( char * dst, ulong dstlen, fd_gossip_peer_addr_t
 
 ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
+void
+fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd );
+
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

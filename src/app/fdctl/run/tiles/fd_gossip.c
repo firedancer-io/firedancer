@@ -626,7 +626,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_tile_config_t fd_tile_gossip = {
-  .mux_flags                = FD_MUX_FLAG_COPY,
+  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .loose_footprint          = loose_footprint,
   .mux_ctx                  = mux_ctx,
