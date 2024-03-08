@@ -23,6 +23,7 @@ fd_topo_tile_to_config( fd_topo_tile_t * tile ) {
     case FD_TOPO_TILE_KIND_TVU:         return &fd_tile_tvu;
     case FD_TOPO_TILE_KIND_STORE:       return &fd_tile_store;
     case FD_TOPO_TILE_KIND_REPLAY:      return &fd_tile_replay;
+    case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return &fd_tile_gossip_verify;
     default: FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
   }
 }

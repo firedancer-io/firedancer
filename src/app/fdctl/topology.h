@@ -126,7 +126,8 @@
 #define FD_TOPO_TILE_KIND_TVU       (14UL)
 #define FD_TOPO_TILE_KIND_STORE     (15UL)
 #define FD_TOPO_TILE_KIND_REPLAY    (16UL)
-#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_REPLAY+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_GOSSIP_VERIFY (17UL)
+#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_GOSSIP_VERIFY+1 ) /* Keep updated with maximum tile IDX */
 
 #define FD_TOPO_KIND_TVU            (0UL)
 #define FD_TOPO_KIND_FIREDANCER     (1UL)
@@ -543,6 +544,7 @@ fd_topo_tile_kind_str( ulong kind ) {
     case FD_TOPO_TILE_KIND_TVU:        return "tvu";
     case FD_TOPO_TILE_KIND_STORE:      return "store";
     case FD_TOPO_TILE_KIND_REPLAY:      return "replay";
+    case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return "gossip_verify";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

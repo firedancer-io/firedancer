@@ -320,14 +320,14 @@ after_frag( void *             _ctx,
     ushort ip_len = fd_ushort_bswap(((ushort *)iphdr)[1]);
     ushort udp_len = fd_ushort_bswap(((ushort *) udp)[2]);
     (void)udp_len;
-    if(ip_len+14!=*opt_sz) {
+    if((ulong)ip_len+14!=*opt_sz) {
       FD_LOG_NOTICE(("o: %u %u", ip_len+14, *opt_sz));
     }
 
     if(ip_len+14!=udp_len+14+20) {
       FD_LOG_NOTICE(("n: %u %u", ip_len+(ushort)14, udp_len+(ushort)(14+20)));
     }
-    FD_TEST(ip_len+14==*opt_sz);
+    FD_TEST((ulong)ip_len+14==*opt_sz);
     FD_TEST(ip_len+14==udp_len+14+20);
   }
 
