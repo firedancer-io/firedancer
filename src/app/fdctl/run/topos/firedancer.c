@@ -48,7 +48,7 @@ fd_topo_firedancer( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_NETMUX,     FD_TOPO_WKSP_KIND_NETMUX,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,       FD_TOPO_WKSP_KIND_SIGN,       ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC,     FD_TOPO_WKSP_KIND_METRIC,     ULONG_MAX                                                       );
-  TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     ULONG_MAX                                                       );
+  TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,   i )                                                       );
 
   topo->tile_cnt = tile_cnt;
 
@@ -56,6 +56,5 @@ fd_topo_firedancer( config_t * config ) {
   for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 1, 1 );
-  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL   );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
 }

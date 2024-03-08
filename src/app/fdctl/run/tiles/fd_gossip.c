@@ -73,25 +73,25 @@ struct fd_gossip_tile_ctx {
 
   fd_contact_info_elem_t * contact_info_table;
 
-  fd_frag_meta_t * shred_contact_out_mcache;
-  ulong *          shred_contact_out_sync;
-  ulong            shred_contact_out_depth;
-  ulong            shred_contact_out_seq;
+  // fd_frag_meta_t * shred_contact_out_mcache;
+  // ulong *          shred_contact_out_sync;
+  // ulong            shred_contact_out_depth;
+  // ulong            shred_contact_out_seq;
 
-  fd_wksp_t * shred_contact_out_mem;
-  ulong       shred_contact_out_chunk0;
-  ulong       shred_contact_out_wmark;
-  ulong       shred_contact_out_chunk;
+  // fd_wksp_t * shred_contact_out_mem;
+  // ulong       shred_contact_out_chunk0;
+  // ulong       shred_contact_out_wmark;
+  // ulong       shred_contact_out_chunk;
 
-  fd_frag_meta_t * repair_contact_out_mcache;
-  ulong *          repair_contact_out_sync;
-  ulong            repair_contact_out_depth;
-  ulong            repair_contact_out_seq;
+  // fd_frag_meta_t * repair_contact_out_mcache;
+  // ulong *          repair_contact_out_sync;
+  // ulong            repair_contact_out_depth;
+  // ulong            repair_contact_out_seq;
 
-  fd_wksp_t * repair_contact_out_mem;
-  ulong       repair_contact_out_chunk0;
-  ulong       repair_contact_out_wmark;
-  ulong       repair_contact_out_chunk;
+  // fd_wksp_t * repair_contact_out_mem;
+  // ulong       repair_contact_out_chunk0;
+  // ulong       repair_contact_out_wmark;
+  // ulong       repair_contact_out_chunk;
 
   long last_spam_time;
   fd_rng_t rng[1];
@@ -432,10 +432,10 @@ after_credit( void * _ctx, fd_mux_context_t * FD_PARAM_UNUSED mux_ctx ) {
 static void
 during_housekeeping( void * _ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
-
-  fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
-  fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
-  fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
+  (void)ctx;
+  // fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
+  // fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
+  // fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
 }
 
 static void
@@ -478,16 +478,16 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 1 ||
-                   topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX ) ) {
-    FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %lu %lu",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
-  }
+  // if( FD_UNLIKELY( tile->out_cnt != 1 ||
+  //                  topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX ) ) {
+  //   FD_LOG_ERR(( "gossip tile has none or unexpected output links %lu %lu %lu",
+  //                tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+  // }
 
-  if( FD_UNLIKELY( tile->out_link_id_primary != ULONG_MAX ) )
-    FD_LOG_ERR(( "gossip tile has a primary output link" ));
+  if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
+    FD_LOG_ERR(( "gossip tile has no primary output link" ));
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
 
   g_net_out_mcache = net_out->mcache;
   g_net_out_sync   = fd_mcache_seq_laddr( g_net_out_mcache );
@@ -519,27 +519,27 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_spam_time = 0;
   g_num_packets_sent = 0;
 
-  /* Set up shred contact info tile output */
-  fd_topo_link_t * shred_contact_out = &topo->links[ tile->out_link_id[ 0 ] ];
-  ctx->shred_contact_out_mcache = shred_contact_out->mcache;
-  ctx->shred_contact_out_sync   = fd_mcache_seq_laddr( ctx->shred_contact_out_mcache );
-  ctx->shred_contact_out_depth  = fd_mcache_depth( ctx->shred_contact_out_mcache );
-  ctx->shred_contact_out_seq    = fd_mcache_seq_query( ctx->shred_contact_out_sync );
-  ctx->shred_contact_out_mem    = topo->workspaces[ shred_contact_out->wksp_id ].wksp;
-  ctx->shred_contact_out_chunk0 = fd_dcache_compact_chunk0( ctx->shred_contact_out_mem, shred_contact_out->dcache );
-  ctx->shred_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_contact_out_mem, shred_contact_out->dcache, shred_contact_out->mtu );
-  ctx->shred_contact_out_chunk  = ctx->shred_contact_out_chunk0;
+  // /* Set up shred contact info tile output */
+  // fd_topo_link_t * shred_contact_out = &topo->links[ tile->out_link_id[ 0 ] ];
+  // ctx->shred_contact_out_mcache = shred_contact_out->mcache;
+  // ctx->shred_contact_out_sync   = fd_mcache_seq_laddr( ctx->shred_contact_out_mcache );
+  // ctx->shred_contact_out_depth  = fd_mcache_depth( ctx->shred_contact_out_mcache );
+  // ctx->shred_contact_out_seq    = fd_mcache_seq_query( ctx->shred_contact_out_sync );
+  // ctx->shred_contact_out_mem    = topo->workspaces[ shred_contact_out->wksp_id ].wksp;
+  // ctx->shred_contact_out_chunk0 = fd_dcache_compact_chunk0( ctx->shred_contact_out_mem, shred_contact_out->dcache );
+  // ctx->shred_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_contact_out_mem, shred_contact_out->dcache, shred_contact_out->mtu );
+  // ctx->shred_contact_out_chunk  = ctx->shred_contact_out_chunk0;
 
-  /* Set up repair contact info tile output */
-  fd_topo_link_t * repair_contact_out = &topo->links[ tile->out_link_id[ 1 ] ];
-  ctx->repair_contact_out_mcache = repair_contact_out->mcache;
-  ctx->repair_contact_out_sync   = fd_mcache_seq_laddr( ctx->repair_contact_out_mcache );
-  ctx->repair_contact_out_depth  = fd_mcache_depth( ctx->repair_contact_out_mcache );
-  ctx->repair_contact_out_seq    = fd_mcache_seq_query( ctx->repair_contact_out_sync );
-  ctx->repair_contact_out_mem    = topo->workspaces[ repair_contact_out->wksp_id ].wksp;
-  ctx->repair_contact_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_contact_out_mem, repair_contact_out->dcache );
-  ctx->repair_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_contact_out_mem, repair_contact_out->dcache, repair_contact_out->mtu );
-  ctx->repair_contact_out_chunk  = ctx->repair_contact_out_chunk0;
+  // /* Set up repair contact info tile output */
+  // fd_topo_link_t * repair_contact_out = &topo->links[ tile->out_link_id[ 1 ] ];
+  // ctx->repair_contact_out_mcache = repair_contact_out->mcache;
+  // ctx->repair_contact_out_sync   = fd_mcache_seq_laddr( ctx->repair_contact_out_mcache );
+  // ctx->repair_contact_out_depth  = fd_mcache_depth( ctx->repair_contact_out_mcache );
+  // ctx->repair_contact_out_seq    = fd_mcache_seq_query( ctx->repair_contact_out_sync );
+  // ctx->repair_contact_out_mem    = topo->workspaces[ repair_contact_out->wksp_id ].wksp;
+  // ctx->repair_contact_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_contact_out_mem, repair_contact_out->dcache );
+  // ctx->repair_contact_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_contact_out_mem, repair_contact_out->dcache, repair_contact_out->mtu );
+  // ctx->repair_contact_out_chunk  = ctx->repair_contact_out_chunk0;
 
   /* Valloc setup */
 
