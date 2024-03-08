@@ -1075,7 +1075,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->datalen = datalen;
 
 #ifdef FD_GOSSIP_DEMO
-  for(ulong l = 0; l < 100; l++ ) {
+  for(ulong l = 0; l < 1000; l++ ) {
 #endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
@@ -1468,7 +1468,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Try again in 100 msec */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e6);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e1);
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
 #endif
