@@ -3533,7 +3533,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   fd_blockstore_t * blockstore  = state->slot_ctx->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
-  for( ulong slot = state->slot_ctx->slot_bank.slot + 1; slot < args->end_slot; ++slot ) {
+  for( ulong slot = state->slot_ctx->slot_bank.slot + 1; slot <= args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 

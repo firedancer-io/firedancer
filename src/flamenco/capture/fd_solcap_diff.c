@@ -276,8 +276,12 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
   /* Streaming diff */
   int data_eq = meta[0].data_sz == meta[1].data_sz;
   if( data_eq ) {
-    for( ulong i=0UL; i<2UL; i++ )
-      FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
+    for( ulong i=0UL; i<2UL; i++ ) {
+        if ( data_goff[i] == ULONG_MAX ) {
+          continue;
+        }
+        FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
+    }
 
     for( ulong off=0UL; off<meta[0].data_sz; ) {
 #     define BUFSZ (512UL)
@@ -309,8 +313,14 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
       void * acc_data[2];
       acc_data[0] = fd_scratch_alloc( 1UL, meta[0].data_sz );
       acc_data[1] = fd_scratch_alloc( 1UL, meta[1].data_sz );
+      fd_memset( acc_data[0], 0, meta[0].data_sz );
+      fd_memset( acc_data[1], 0, meta[1].data_sz );
 
       for( ulong i=0UL; i<2UL; i++ ) {
+        if ( data_goff[i] == ULONG_MAX ) {
+          continue;
+        }
+
         /* Rewind capture stream */
         FD_TEST( 0==fseek( diff->iter[ i ].stream, (long)data_goff[i], SEEK_SET ) );
 
@@ -379,7 +389,7 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
 
   /* Read account meta */
   fd_solcap_AccountMeta meta[2];
-  ulong                 data_goff[2];
+  ulong                 data_goff[2] = {ULONG_MAX, ULONG_MAX};
   for( ulong i=0UL; i<2UL; i++ ) {
     FILE * stream = diff->iter[ i ].stream;
     int err = fd_solcap_find_account( stream, meta+i, &data_goff[i], entry[i], acc_tbl_goff[i] );
@@ -419,8 +429,8 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
             "    +executable: %d\n",
             meta[0].executable,
             meta[1].executable );
-  if( ( (meta[0].data_sz == 0UL) | fd_solcap_includes_account_data( &meta[0] ) )
-    & ( (meta[1].data_sz == 0UL) | fd_solcap_includes_account_data( &meta[1] ) ) )
+  if( ( (meta[0].data_sz != 0UL) | fd_solcap_includes_account_data( &meta[0] ) )
+    | ( (meta[1].data_sz != 0UL) | fd_solcap_includes_account_data( &meta[1] ) ) )
         fd_solcap_diff_account_data( diff, meta, entry, data_goff );
 
   /* Restore file offsets */

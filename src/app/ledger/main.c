@@ -94,7 +94,7 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
   ulong blk_cnt = 0;
   do {
     ulong slot = m.slot;
-    if (slot >= end_slot)
+    if (slot > end_slot)
       break;
 
     /* Read and deshred block from RocksDB */

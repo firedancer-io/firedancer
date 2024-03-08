@@ -130,17 +130,25 @@ static void
 unmarshal_bank_preimage( cJSON const *            json,
                          fd_solcap_BankPreimage * out ) {
 
-  cJSON * slot = cJSON_GetObjectItem( json, "slot" );
+  cJSON * head = (cJSON *)json;
+
+  // The strucutre of 1.18 is different to 1.17, and includes bank_hash_details
+  cJSON * bank_hash_details = cJSON_GetObjectItem( head, "bank_hash_details" );
+  if ( bank_hash_details != NULL ) {
+    head = cJSON_GetArrayItem(bank_hash_details, 0);
+  }
+
+  cJSON * slot = cJSON_GetObjectItem( head, "slot" );
   out->slot = slot ? slot->valueulong : 0UL;
 
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "bank_hash"           ), out->bank_hash          ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "parent_bank_hash"    ), out->prev_bank_hash     ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "accounts_delta_hash" ), out->account_delta_hash ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "last_blockhash"      ), out->poh_hash           ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "bank_hash"           ), out->bank_hash          ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "parent_bank_hash"    ), out->prev_bank_hash     ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "accounts_delta_hash" ), out->account_delta_hash ) );
+  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "last_blockhash"      ), out->poh_hash           ) );
 
-  out->signature_cnt = cJSON_GetObjectItem( json, "signature_count" )->valueulong;
+  out->signature_cnt = cJSON_GetObjectItem( head, "signature_count" )->valueulong;
 
-  cJSON * accs = cJSON_GetObjectItem( json, "accounts" );
+  cJSON * accs = cJSON_GetObjectItem( head, "accounts" );
   FD_TEST( accs );
   out->account_cnt = (ulong)cJSON_GetArraySize( accs );
 }
