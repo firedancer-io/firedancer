@@ -283,12 +283,13 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
 
   if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
-    FD_LOG_NOTICE(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.addr.inner.ip4 ), contact_info->gossip.port ));
 
+    // TODO: what to do when the contact table is full?
     fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
     if( ele == NULL ) {
       /* Insert the element */
       ele = fd_contact_info_table_insert( ctx->contact_info_table, &contact_info->id );
+      FD_LOG_NOTICE(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.addr.inner.ip4 ), contact_info->gossip.port ));
     }
 
     ele->contact_info = *contact_info;

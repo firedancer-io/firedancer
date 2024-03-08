@@ -57,5 +57,5 @@ fd_topo_firedancer( config_t * config ) {
   
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 1, 1 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL   );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 1, 1 );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
 }
