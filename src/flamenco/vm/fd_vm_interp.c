@@ -151,10 +151,13 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx ) {
   long start_pc = pc;
 
 #define JMP_TAB_ID interp_trace
+
+/* FIXME: IS PC LONG OR ULONG? */
 #define JMP_TAB_PRE_CASE_CODE \
-  if( ic > ctx->trace_ctx->trace_entries_sz ) goto JT_RET_LOC; \
-  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic+(ulong)(pc-start_pc)-skipped_insns, previous_instruction_meter - due_insn_cnt, register_file );
+  fd_vm_trace_event_exe( ctx->trace, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, register_file );
+
 #define JMP_TAB_POST_CASE_CODE
+
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);

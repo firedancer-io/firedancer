@@ -182,19 +182,24 @@ read_input_file( char const * input_path, ulong * _input_sz ) {
   return input_buf;
 }
 
-int cmd_trace( char const * bin_path, char const * input_path ) {
+int
+cmd_trace( char const * bin_path,
+           char const * input_path ) {
 
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path );
   FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
-  ulong input_sz = 0;
-  uchar * input = read_input_file( input_path, &input_sz );
+  ulong   input_sz = 0UL;
+  uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
-  ulong trace_sz = 128 * 1024;
-  ulong trace_used = 0;
-  fd_vm_trace_entry_t * trace = (fd_vm_trace_entry_t *) malloc(trace_sz * sizeof(fd_vm_trace_entry_t));
+  ulong event_max      = 1UL<<30; /* 1 GiB default storage */
+  ulong event_data_max = 2048UL;  /* 2 KiB memory range captures by default */
+  fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( aligned_alloc(
+    fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) ); /* logs details */
+  if( FD_UNLIKELY( !trace ) ) return FD_VM_ERR_FULL;
 
+  /* FIXME: Gross init */
   fd_vm_exec_context_t ctx = {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
@@ -207,57 +212,29 @@ int cmd_trace( char const * bin_path, char const * input_path ) {
     .input               = input,
     .input_sz            = input_sz,
     .read_only           = (uchar *)fd_type_pun_const(tool_prog.prog->rodata),
-    .read_only_sz        = tool_prog.prog->rodata_sz
+    .read_only_sz        = tool_prog.prog->rodata_sz,
+    .trace               = trace
   };
 
-  ctx.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  ctx.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   ctx.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  long  dt = -fd_log_wallclock();
-  ulong interp_res = fd_vm_interp_instrs_trace( &ctx );
+  long dt = -fd_log_wallclock();
+  ulong interp_res = fd_vm_interp_instrs_trace( &ctx ); /* FIXME: ERROR CODE */
   dt += fd_log_wallclock();
-
-  if( interp_res != 0 ) {
-    return 1;
-  }
 
   printf( "Frame 0\n" );
 
-  for( ulong i = 0; i < trace_used; i++ ) {
-    fd_vm_trace_entry_t trace_ent = trace[i];
-    fprintf(stdout, "%5lu [%016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX, %016lX] %5lu: ",
-        trace_ent.ic,
-        trace_ent.register_file[0],
-        trace_ent.register_file[1],
-        trace_ent.register_file[2],
-        trace_ent.register_file[3],
-        trace_ent.register_file[4],
-        trace_ent.register_file[5],
-        trace_ent.register_file[6],
-        trace_ent.register_file[7],
-        trace_ent.register_file[8],
-        trace_ent.register_file[9],
-        trace_ent.register_file[10],
-        trace_ent.pc+29 /* FIXME: THIS OFFSET IS FOR TESTING ONLY */
-      );
+  int err = fd_vm_trace_printf( ctx.trace, ctx.instrs, ctx.instrs_sz, ctx.syscall_map ); /* logs details */
 
-    ulong out_len = 0UL;
-    char  out[128];
-    out[0] = '\0';
-    int err = fd_vm_disasm_instr( ctx.instrs + trace[i].pc, ctx.instrs_sz - trace[i].pc, trace[i].pc, ctx.syscall_map,
-                                  out, 128UL, &out_len );
-    if( FD_UNLIKELY( err ) ) printf( "# fd_vm_disasm_instr error %i", err ); /* FIXME: STRING PRETTY PRINT */
-    puts( out );
-  }
+  printf( "Interp_res:          %lu\n", interp_res              );
+  printf( "Return value:        %lu\n", ctx.register_file[0]    );
+  printf( "Fault code:          %lu\n", ctx.cond_fault          );
+  printf( "Instruction counter: %lu\n", ctx.instruction_counter );
+  printf( "Time:                %lu\n", dt                      );
 
-  fprintf(stdout, "Return value: %lu\n", ctx.register_file[0]);
-  fprintf(stdout, "Fault code: %lu\n", ctx.cond_fault);
-  fprintf(stdout, "Instruction counter: %lu\n", ctx.instruction_counter);
-  fprintf(stdout, "Time: %lu\n", dt);
-
-  free( trace );
-
-  return 0;
+  free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
+  return err;
 }
 
 int cmd_run( char const * bin_path, char const * input_path ) {
@@ -347,9 +324,8 @@ main( int     argc,
       FD_LOG_ERR(( "Please specify a --input-file" ));
     }
 
-    if( FD_UNLIKELY( cmd_trace( program_file, input_file ) ) ) {
-      FD_LOG_ERR(( "error during trace" ));
-    }
+    if( FD_UNLIKELY( cmd_trace( program_file, input_file ) ) ) FD_LOG_ERR(( "cmd trace failed" ));
+
   } else if( !strcmp( cmd, "run" ) ) {
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
     char const * input_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--input-file", NULL, NULL );
