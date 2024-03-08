@@ -111,7 +111,7 @@ struct __attribute__((aligned(16UL))) fd_quic_limits {
   ulong  conn_id_cnt;      /* per-conn, max conn ID count (min 4UL) */
   double conn_id_sparsity; /* per-conn, conn ID hashmap sparsity    */
 
-  ulong  stream_cnt[4];    /* per-conn, initial max concurrent stream count */
+  ulong  stream_cnt[4];    /* per-conn, initial target max concurrent stream count */
   double stream_sparsity;  /* per-conn, stream hashmap sparsity     */
 
   ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */

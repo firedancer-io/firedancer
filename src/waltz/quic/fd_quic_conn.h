@@ -72,6 +72,10 @@ struct fd_quic_ack {
 };
 
 struct fd_quic_conn {
+  ulong              conn_idx;            /* connection index */
+                                          /* connections are sized at runtime */
+                                          /* storing the index avoids a division */
+
   fd_quic_t *        quic;
   void *             context;             /* user context */
 
@@ -147,16 +151,53 @@ struct fd_quic_conn {
                                            value of keys */
   uint                     key_phase_upd; /* set to 1 if we're undertaking a key update */
 
-  ulong                    tot_num_streams;
   fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
-  fd_quic_stream_t         unused_streams[4][1]; /* sentinel of list of unused streams */
   fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
   /* invariant: an allocated stream must be in exactly one of the following lists:
      send_streams
-     unused_streams
      used_streams */
-  fd_quic_stream_map_t *   stream_map;           /* map stream_id -> stream */
-  ulong                    tgt_max_streams[4];   /* target value for max_streams by type */
+
+  /* stream id members */
+  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
+                                /* next_stream_id is used for streams coming from the stream pool */
+
+  /* use of supremum here:
+       this is the smallest stream id greater than all the allowed stream ids
+       to valid stream_id if stream_id < sup_stream_id
+       so sup_stream_id = max_stream_id + 4 */
+  ulong min_stream_id[4];       /* minimum stream id by type */
+  ulong sup_stream_id[4];       /* supremum stream id by type */
+      /* sup_stream_id[j] == min_stream_id[j] implies no available stream_ids */
+      /* valid range of stream ids is:                                        */
+      /*     ( min_stream_id[j], sup_stream_id[j] ]                           */
+      /* number of streams in valid range is:                                 */
+      /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
+
+  ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids */
+  ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type */
+
+  /* rfc9000:
+       19.11 Note that these frames (and the corresponding transport parameters)
+               do not describe the number of streams that can be opened concurrently.
+        4.6  Only streams with a stream ID less than
+               (max_streams * 4 + first_stream_id_of_type) can be opened
+        2.1  Stream types:
+             0x00 Client-Initiated, Bidirectional
+             0x01 Server-Initiated, Bidirectional
+             0x02 Client-Initiated, Unidirectional
+             0x03 Server-Initiated, Unidirectional */
+
+  /* stream pool */
+  /* when do we assign streams to connections?
+     can't increase max_stream_data until we have streams
+     Easiest to put under user control
+     
+     Maybe:
+       Assign N at initial connection creation
+       Add more via api call
+  */
+  fd_quic_stream_pool_t * stream_pool;
+  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -193,41 +234,6 @@ struct fd_quic_conn {
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
 
-  /* sent packet metadata */
-  /* TODO */
-  /* 3 linked lists of packet metadata for tracking what data was sent
-     one for each packet space:
-       initial
-       handshake
-       app data */
-  /* once a packet is ready to send, a metadata structure is added
-     here, to the end of the relevant list
-     if no metadata is available, we can defer, or do a reclaim/resend */
-  /* we keep metadata for the following:
-       sent stream offset range
-         streams include:
-           data streams
-           crypto streams - one for each enc_level
-       acks sent */
-
-  ulong next_stream_id[4];      /* next unused stream id by type - see rfc9000 2.1 */
-
-  ulong max_streams[4];         /* maximum stream id by type */
-  /* rfc9000:
-       19.11 Note that these frames (and the corresponding transport parameters)
-               do not describe the number of streams that can be opened concurrently.
-        4.6  Only streams with a stream ID less than
-               (max_streams * 4 + first_stream_id_of_type) can be opened
-        2.1  Stream types:
-             0x00 Client-Initiated, Bidirectional
-             0x01 Server-Initiated, Bidirectional
-             0x02 Client-Initiated, Unidirectional
-             0x03 Server-Initiated, Unidirectional */
-
-  /* TODO remove this if unused: */
-  ulong num_streams[4];         /* current number of streams of each type */
-
-  ulong alloc_streams[4];       /* current number of streams allocated by type */
 
   /* TODO find better name than pool */
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
@@ -298,17 +304,6 @@ struct fd_quic_conn {
   fd_quic_conn_t *     next;
   ulong token_len;
   uchar token[FD_QUIC_TOKEN_SZ_MAX];
-
-  /* stream pool */
-  /* when do we assign streams to connections?
-     can't increase max_stream_data until we have streams
-     Easiest to put under user control
-     
-     Maybe:
-       Assign N at initial connection creation
-       Add more via api call
-  */
-  fd_quic_stream_pool_t * stream_pool;
 };
 
 FD_PROTOTYPES_BEGIN

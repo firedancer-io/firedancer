@@ -53,6 +53,7 @@ struct fd_quic_layout {
   ulong event_queue_off; /* offset of event queue mem region */
   int   lg_slot_cnt;     /* see conn_map_new                 */
   ulong tls_off;         /* offset of fd_quic_tls_t          */
+  ulong cs_tree_off;     /* offset of the cs_tree            */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -121,6 +122,13 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong tls_footprint  = fd_quic_tls_footprint( limits->handshake_cnt );
   if( FD_UNLIKELY( !tls_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_tls_footprint" )); return 0UL; }
   offs                += tls_footprint;
+
+  /* allocate space for fd_quic_cs_tree_t */
+  offs                    = fd_ulong_align_up( offs, fd_quic_cs_tree_align() );
+  layout->cs_tree_off     = offs;
+  ulong cs_tree_footprint = fd_quic_cs_tree_footprint( conn_cnt );
+  if( FD_UNLIKELY( !cs_tree_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_cs_tree_footprint" )); return 0UL; }
+  offs                   += cs_tree_footprint;
 
   return offs;
 }
@@ -351,6 +359,11 @@ fd_quic_init( fd_quic_t * quic ) {
   /* State: initialize each connection, and add to free list */
 
   ulong conn_laddr = (ulong)quic + layout.conns_off;
+
+  /* used for indexing */
+  conn->conn_base = conn_laddr;
+  conn->conn_sz   = layout.conn_footprint;
+
   fd_quic_conn_t * last = NULL;
   for( ulong j = 0; j < limits->conn_cnt; ++j ) {
     void * conn_mem  = (void *)( conn_laddr );
@@ -361,6 +374,9 @@ fd_quic_init( fd_quic_t * quic ) {
       FD_LOG_WARNING(( "NULL conn" ));
       return NULL;
     }
+
+    /* used for indexing */
+    conn->conn_idx = j;
 
     conn->next = 0L;
     /* start with minimum supported max datagram */
@@ -425,6 +441,10 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
   quic->metrics.hs_created_cnt++;
+
+  ulong cs_tree_laddr = (ulong)quic + layout.cs_tree_off;
+  state->cs_tree = (fd_quic_cs_tree_t*)cs_tree_laddr;
+  fd_quic_cs_tree_init( state->cs_tree );
 
   /* Initialize crypto */
 
@@ -788,33 +808,23 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   uint type   = server + ( (uint)dirtype << 1u );
 
   ulong next_stream_id  = conn->next_stream_id[type];
-  uint  stream_cnt      = (uint)conn->quic->limits.stream_cnt[type];
-  uint  cur_num_streams = (uint)conn->num_streams[type];
 
   /* have we maxed out our max stream id?? */
-  ulong max_stream_id = ( conn->max_streams[type] << 2u ) + type;
-  if( FD_UNLIKELY( ( next_stream_id  >  max_stream_id ) |
-                   ( conn->state     != FD_QUIC_CONN_STATE_ACTIVE ) |
-                   ( cur_num_streams >= stream_cnt ) ) ) {
+  ulong sup_stream_id = conn->sup_stream_id[type];
+  if( FD_UNLIKELY( ( next_stream_id  >= sup_stream_id ) |
+                   ( conn->state     != FD_QUIC_CONN_STATE_ACTIVE ) ) ) {
     /* this is a normal condition which occurs whenever we run up to
        the peer advertised limit and represents one form of flow control */
     return NULL;
   }
 
-  /* find unused stream */
-  fd_quic_stream_t * stream = conn->unused_streams->next;
+  /* obtain a stream from stream_pool */
+  fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( conn->stream_pool );
 
-  /* should not occur
-     implies logic error */
-  if( FD_UNLIKELY( stream == conn->unused_streams ) ) {
-    FD_LOG_WARNING(( "max_concur_streams not reached, yet no free streams found" ));
-    fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-
+  if( FD_UNLIKELY( !stream ) ) {
+    /* no streams available in the stream pool */
     return NULL;
   }
-
-  /* remove from unused list */
-  FD_QUIC_STREAM_LIST_REMOVE( stream );
 
   fd_quic_stream_init( stream );
 
@@ -822,12 +832,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
      0x01 Server-Initiated, Bidirectional
      0x02 Client-Initiated, Unidirectional
      0x03 Server-Initiated, Unidirectional */
-
-  /* generate a new stream id */
-  conn->next_stream_id[type] = next_stream_id + 4;
-
-  /* track current number of streams */
-  conn->num_streams[type]++;
 
   /* stream tx_buf already set */
   stream->conn      = conn;
@@ -860,6 +864,9 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
 
     return NULL;
   }
+
+  /* generate a new stream id */
+  conn->next_stream_id[type] = next_stream_id + 4U;
 
   entry->stream = stream;
 
@@ -3016,23 +3023,35 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
 
         /* max streams
-           set the initial max allowed by the peer */
-        uint stream_cnt = (uint)(
-            conn->quic->limits.stream_cnt[ 0x00 ] +
-            conn->quic->limits.stream_cnt[ 0x01 ] +
-            conn->quic->limits.stream_cnt[ 0x02 ] +
-            conn->quic->limits.stream_cnt[ 0x03 ] );
+           no streams allowed: min_stream_id[j] = sup_stream_id[j] = j
+           peer initialized to "no-streams", and later configured by peer->tp
+           target sup_stream_ids set from limits */
+        for( ulong j = 0; j < 4; ++j ) conn->min_stream_id[j] = j;
+        for( ulong j = 0; j < 4; ++j ) conn->sup_stream_id[j] = j;
+        for( ulong j = 0; j < 4; ++j ) conn->peer_sup_stream_id[j] = j;
+        for( ulong j = 0; j < 4; ++j ) {
+          conn->tgt_sup_stream_ds[j] = conn->quic->limits.stream_cnt[j] * 4 + j;
+        }
         if( conn->server ) {
           /* 0x01 server-initiated, bidirectional */
-          conn->max_streams[0x01] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_bidi );
+          conn->peer_sup_stream_id[0x01] = (ulong)peer_tp->initial_max_streams_bidi;
           /* 0x03 server-initiated, unidirectional */
-          conn->max_streams[0x03] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_uni );
+          conn->peer_sup_stream_id[0x03] = (ulong)peer_tp->initial_max_streams_uni;
         } else {
           /* 0x00 client-initiated, bidirectional */
-          conn->max_streams[0x00] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_bidi );
+          conn->peer_sup_stream_id[0x00] = (ulong)peer_tp->initial_max_streams_bidi;
           /* 0x02 client-initiated, unidirectional */
-          conn->max_streams[0x02] = fd_uint_min( stream_cnt, (uint)peer_tp->initial_max_streams_uni );
+          conn->peer_sup_stream_id[0x02] = (ulong)peer_tp->initial_max_streams_uni;
         }
+
+#if TODO_ERR
+#error "our_tp->initial_max_streams_* need setting to zero, then adjusting later"
+#error "new_connection should be disallowed if no streams available"
+TODO( "could allocate streams at beginning" )
+#endif
+
+        /* try to allocate streams to connection */
+        fd_quic_assign_streams( quic );
 
         return;
       }
@@ -4056,7 +4075,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             /* send max streams frame */
             ulong stream_type_idx = 2u | !conn->server;
             frame.max_streams.stream_type = 1;
-            frame.max_streams.max_streams = conn->max_streams[stream_type_idx];
+            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
@@ -4079,7 +4098,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             /* send max streams frame */
             ulong stream_type_idx = 0u | !conn->server;
             frame.max_streams.stream_type = 0;
-            frame.max_streams.max_streams = conn->max_streams[stream_type_idx];
+            frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
@@ -4680,24 +4699,6 @@ fd_quic_conn_free( fd_quic_t *      quic,
     fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
   }
 
-  /* deallocate unused streams */
-  for( ulong j = 0UL; j < 4UL; ++j ) {
-    fd_quic_stream_t * unused_sentinel = conn->unused_streams[j];
-    while( 1 ) {
-      fd_quic_stream_t * stream = unused_sentinel->next;
-
-      if( stream == unused_sentinel ) break;
-
-      /* remove from list */
-      FD_QUIC_STREAM_LIST_REMOVE( stream );
-      stream->list_memb = FD_QUIC_STREAM_LIST_MEMB_NONE;
-      stream->flags     = 0u;
-
-      /* return to pool */
-      fd_quic_stream_pool_free( state->stream_pool, stream );
-    }
-  }
-
   /* if any stream map entries are left over, remove them
      this should not occur, so this branch should not execute
      but if a stream doesn't get cleaned up properly, this fixes
@@ -5021,22 +5022,35 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->handshake_done_ackd = 0;
   conn->tls_hs              = NULL; /* created later */
 
+  /* initialize stream_id members */
+  for( ulong j = 0; j < 4; ++j ) conn->min_stream_id[j] = j;
+  for( ulong j = 0; j < 4; ++j ) conn->sup_stream_id[j] = j;
+  for( ulong j = 0; j < 4; ++j ) conn->peer_sup_stream_id[j] = j;
+  for( ulong j = 0; j < 4; ++j ) {
+    conn->tgt_sup_stream_ds[j] = conn->quic->limits.stream_cnt[j] * 4 + j;
+  }
+
+#if TODO_ERR
+#error "need to obtain streams here"
+#endif
+
   /* initial max_streams */
 
   if( server ) {
-    /* we are the server, so start client-initiated at our max-concurrent,
-       and server-initiated at 0 peer will advertise its configured maximum */
-    conn->max_streams[ 0x00 ] = quic->limits.stream_cnt[ 0x00 ];  /* 0x00 Client-Initiated, Bidirectional */
-    conn->max_streams[ 0x01 ] = 0;                                /* 0x01 Server-Initiated, Bidirectional */
-    conn->max_streams[ 0x02 ] = quic->limits.stream_cnt[ 0x02 ];  /* 0x02 Client-Initiated, Unidirectional */
-    conn->max_streams[ 0x03 ] = 0;                                /* 0x03 Server-Initiated, Unidirectional */
+    /* We are the server, so start client-initiated at our max-concurrent, */
+    /* and server-initiated at 0                                           */
+    /* Peer will advertise its configured maximum                          */
+    conn->max_streams[ 0x00 ] = conn->sup_stream_id[ 0x00 ] >> 2;  /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[ 0x01 ] = 0;                                 /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[ 0x02 ] = conn->sup_stream_id[ 0x02 ] >> 2;  /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[ 0x03 ] = 0;                                 /* 0x03 Server-Initiated, Unidirectional */
   } else {
      /* we are the client, so start server-initiated at our max-concurrent,
         and client-initiated at 0 peer will advertise its configured maximum */
-    conn->max_streams[ 0x00 ] = 0;                                /* 0x00 Client-Initiated, Bidirectional */
-    conn->max_streams[ 0x01 ] = quic->limits.stream_cnt[ 0x01 ];  /* 0x01 Server-Initiated, Bidirectional */
-    conn->max_streams[ 0x02 ] = 0;                                /* 0x02 Client-Initiated, Unidirectional */
-    conn->max_streams[ 0x03 ] = quic->limits.stream_cnt[ 0x03 ];  /* 0x03 Server-Initiated, Unidirectional */
+    conn->max_streams[ 0x00 ] = 0;                                 /* 0x00 Client-Initiated, Bidirectional */
+    conn->max_streams[ 0x01 ] = conn->sup_stream_id[ 0x01 ] >> 2;  /* 0x01 Server-Initiated, Bidirectional */
+    conn->max_streams[ 0x02 ] = 0;                                 /* 0x02 Client-Initiated, Unidirectional */
+    conn->max_streams[ 0x03 ] = conn->sup_stream_id[ 0x03 ] >> 2;  /* 0x03 Server-Initiated, Unidirectional */
   }
 
   /* conn->streams initialized inside fd_quic_conn_new */
@@ -5058,25 +5072,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->next_stream_id[2] = 2;
   conn->next_stream_id[3] = 3;
 
-  /* start at our max, peer is allowed to lower */
-  conn->max_concur_streams = (uint)(
-      quic->limits.stream_cnt[ 0 ] +
-      quic->limits.stream_cnt[ 1 ] +
-      quic->limits.stream_cnt[ 2 ] +
-      quic->limits.stream_cnt[ 3 ] );
-
-  /* array: current number of streams by type is zero */
-  fd_memset( &conn->num_streams, 0, sizeof( conn->num_streams ) );
-
   /* initialize streams */
-  FD_QUIC_STREAM_LIST_SENTINEL( conn->unused_streams );
-  FD_QUIC_STREAM_LIST_SENTINEL( conn->send_streams );
-  ulong tot_num_streams = conn->tot_num_streams;
-  for( ulong j = 0; j < tot_num_streams; ++j ) {
-    /* insert into unused list */
-    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->unused_streams, conn->streams[j] );
-    conn->streams[j]->stream_flags = 0;
-  }
+#if TODO_ERR
+#error "initialize streams"
+#endif
 
   /* initialize packet metadata */
   ulong num_pkt_meta = conn->num_pkt_meta;
@@ -5990,53 +5989,48 @@ fd_quic_frame_handle_new_token_frame(
 }
 
 void
-fd_quic_stream_reclaim( fd_quic_conn_t * conn ) {
-  for( ulong stream_type = 0; stream_type < 4; ++stream_type ) {
-    ulong stream_cnt     = conn->quic->limits.stream_cnt[stream_type];
-    ulong next_stream_id = conn->max_streams[stream_type] * 4UL + stream_type;
-    ulong min_stream_id  = 0;
-    if( next_stream_id > stream_cnt * 4UL ) min_stream_id = next_stream_id - stream_cnt * 4UL;
+fd_quic_stream_reclaim( fd_quic_conn_t * conn, uint stream_type ) {
+  ulong sup_stream_id  = conn->sup_stream_id[stream_type];
+  ulong min_stream_id  = conn->min_stream_id[stream_type];
 
-    for( ulong j = min_stream_id; j < next_stream_id; j += 4UL ) {
-      ulong stream_id = j;
+  int change = 0; /* indicates a change occurred */
 
-      /* look up stream_id in stream_map */
-      fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
+  for( ulong j = min_stream_id; j < sup_stream_id; j += 4UL ) {
+    ulong stream_id = j;
 
-      /* can only remove the lowest numbered stream id */
+    /* look up stream_id in stream_map */
+    fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
 
-      /* either a stream_id that hasn't been used, or one that's currently active */
-      if( stream_entry == NULL ||
-          ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) break;
+    /* can only remove the lowest numbered stream id */
 
-      fd_quic_stream_t * stream = stream_entry->stream;
+    /* either a stream_id that hasn't been used, or one that's currently active */
+    if( stream_entry != NULL ) break;
 
-      /* remove the stream_id from the map */
-      fd_quic_stream_map_remove( conn->stream_map, stream_entry );
+    min_stream_id += 4U;
 
-      stream->stream_id = FD_QUIC_STREAM_ID_UNUSED;
+    change = 1;
 
-      /* idempotent */
-      FD_QUIC_STREAM_LIST_REMOVE( stream );
+#if TODO_ERR
+#error "the following code is relevant for the assign_streams function"
+#endif
+    // /* was the stream initiated by the peer */
+    // if( (uint)( stream_type & 1u ) == (uint)!conn->server ) {
+    //   conn->max_streams[stream_type]++; /* allows for one more stream */
 
-      /* insert into unused list */
-      FD_QUIC_STREAM_LIST_INSERT_AFTER( conn->unused_streams, stream );
-      stream->stream_flags = 0;
+    //   /* trigger frame to increase max_streams for peer */
+    //   uint flag     = ( stream_id & 2u ) ? FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
+    //   				   : FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+    //   conn->flags         |= flag;
+    //   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    // }
+  }
 
-      /* track current number of streams */
-      conn->num_streams[stream_type]--;
+  if( FD_LIKELY( change ) ) {
+    /* store min_stream_id */
+    conn->min_stream_id[stream_type] = min_stream_id;
 
-      /* was the stream initiated by the peer */
-      if( (uint)( stream_type & 1u ) == (uint)!conn->server ) {
-	conn->max_streams[stream_type]++; /* allows for one more stream */
-
-	/* trigger frame to increase max_streams for peer */
-	uint flag     = ( stream_id & 2u ) ? FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
-					   : FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
-	conn->flags         |= flag;
-	conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-      }
-    }
+    /* if any streams freed, assign them */
+    fd_quic_assign_streams( conn->quic );
   }
 }
 
@@ -6045,23 +6039,26 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
   /* TODO rename FD_QUIC_NOTIFY_END to FD_QUIC_STREAM_NOTIFY_END et al */
   fd_quic_cb_stream_notify( quic, stream, stream->context, code );
 
-  ulong stream_id   = stream->stream_id;
+  ulong stream_id = stream->stream_id;
 
   /* reclaim removes it from stream map */
-  fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( conn->stream_map, stream_id, NULL );
+  fd_quic_stream_map_t * stream_map   = conn->stream_map;
+  fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( stream_map, stream_id, NULL );
   if( FD_LIKELY( stream_entry ) ) {
     stream_entry->stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
+    fd_quic_stream_map_remove( stream_map, stream_entry );
   } else {
     FD_LOG_WARNING(( "stream %lu not found in stream map", (ulong)stream_id ));
   }
 
-  /* remove from send_streams */
-  if( FD_QUIC_STREAM_ACTION( stream ) ) {
-    FD_QUIC_STREAM_LIST_REMOVE( stream );
-  }
+  /* remove from list - idempotent */
+  FD_QUIC_STREAM_LIST_REMOVE( stream );
   stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
 
-  fd_quic_stream_reclaim( conn );
+  /* add to stream_pool */
+  fd_quic_stream_pool_free( conn->stream_pool, stream );
+
+  fd_quic_stream_reclaim( conn, stream_id & 3 );
 }
 
 /* retry sending stream data */
@@ -6115,135 +6112,92 @@ fd_quic_frame_handle_stream_frame(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* TODO consider storing min_stream_id instead of recalculating it */
-  ulong stream_type    = stream_id & 3UL;
-  ulong stream_cnt     = context.quic->limits.stream_cnt[stream_type];
-  ulong next_stream_id = context.conn->max_streams[stream_type] * 4UL + stream_type;
-  ulong min_stream_id  = 0;
-  if( next_stream_id > stream_cnt * 4UL ) min_stream_id = next_stream_id - stream_cnt * 4UL;
+  ulong stream_type = stream_id & 3UL;
 
   /* stream id is an old one, assume a retransmit and ack */
-  if( FD_UNLIKELY( stream_id < min_stream_id ) ) {
+  if( FD_UNLIKELY( stream_id < conn->min_stream_id[stream_type] ) ) {
     return data_sz;
+  }
+
+  /* stream_id not available - protocol error */
+  if( FD_UNLIKELY( stream_id >= conn->sup_stream_id[stream_type] ) ) {
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+    return FD_QUIC_PARSE_FAIL;
   }
 
   /* find stream */
   fd_quic_stream_t *     stream       = NULL;
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
 
-  if( stream_entry ) {
-    /* stream is dead. Assume a retransmit, and ack */
-    if( FD_UNLIKELY( ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) != 0 ) ) {
-      return data_sz;
-    }
+  if( FD_UNLIKELY( !stream_entry ) ) {
+    /* we need to know if client-initiated or server-initiated
+       we know peer initiated, so: */
+    uint initiator = !context.conn->server;
 
-    stream = stream_entry->stream;
-  } else {
-    /* not found, get unused stream */
-    fd_quic_stream_t * sentinel = context.conn->unused_streams;
-
-    stream = sentinel->next;
-
-    if( FD_LIKELY( !stream->sentinel ) ) {
-      ulong max_stream_id = ( context.conn->max_streams[type] << 2u ) + type;
-      if( FD_UNLIKELY( stream_id > max_stream_id ) ) {
-        fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
-
-        /* since we're terminating the connection, don't parse more */
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      /* new stream - peer initiated */
-
-      /* initialize stream members */
-
-      fd_quic_stream_init( stream );
-
-      /* we need to know if client-initiated or server-initiated
-         we know peer initiated, so: */
-      uint initiator = !context.conn->server;
-
-      /* client chosen stream id must match type */
-      uint stream_id_initiator = stream_id & 1u;
-      if( FD_UNLIKELY( stream_id_initiator != initiator ) ) {
-        FD_LOG_WARNING(( "Protocol violation: Peer requested invalid stream id" ));
-        fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
-
-        /* since we're terminating the connection, don't parse more */
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      /* bidirectional? */
-      uint bidir = !( ( stream_id >> 1u ) & 1u );
-
-      /* if unidir, we can't send - since peer initiated */
-      /* if bidir we can only send up to the peer's advertised limit */
-      ulong tx_max_stream_data = bidir ?
-                  context.conn->tx_initial_max_stream_data_bidi_local : 0;
-
-      stream->conn        = context.conn;
-
-      stream->context     = NULL; /* TODO where do we get this from? */
-
-      stream->tx_buf.head = 0; /* first unused byte of tx_buf */
-      stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
-      stream->tx_sent     = 0; /* first unsent byte of tx_buf */
-      memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
-
-      stream->stream_flags = 0UL;
-      stream->state        = bidir ? 0u : FD_QUIC_STREAM_STATE_TX_FIN;
-
-      /* flow control */
-      stream->tx_max_stream_data = tx_max_stream_data;
-      stream->tx_tot_data        = 0;
-      stream->tx_last_byte       = 0;
-
-      stream->rx_max_stream_data = context.quic->config.initial_rx_max_stream_data;
-      stream->rx_tot_data        = 0;
-
-      stream->upd_pkt_number     = 0;
-
-      /* insert into stream map */
-      fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( context.conn->stream_map, stream_id );
-      if( FD_UNLIKELY( !entry ) ) {
-        /* stream map is sized to allow all concurrent streams with extra space for efficiency
-           so this should never happen */
-        FD_LOG_WARNING(( "no space in stream map" ));
-
-        /* abort connection */
-        fd_quic_conn_error( stream->conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-
-        return FD_QUIC_PARSE_FAIL;
-      }
-
-      entry->stream = stream;
-
-      /* remove from head of unused streams list */
-      fd_quic_conn_t * conn = context.conn;
-      FD_QUIC_STREAM_LIST_REMOVE( stream );
-
-      stream->stream_id   = stream_id;
-
-      /* track current number of streams */
-      conn->num_streams[type]++;
-
-      fd_quic_cb_stream_new( context.quic, stream, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
-    } else {
-      /* no free streams - concurrent max should handle this */
-      FD_LOG_WARNING(( "insufficient space for incoming stream, yet concurrent max not exceeded" ));
-
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
+    /* client chosen stream id must match type */
+    uint stream_id_initiator = stream_id & 1u;
+    if( FD_UNLIKELY( stream_id_initiator != initiator ) ) {
+      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
 
       /* since we're terminating the connection, don't parse more */
       return FD_QUIC_PARSE_FAIL;
     }
+
+    /* stream is dead. Assume a retransmit, and ack */
+    return data_sz;
+
+  } else {
+    stream = stream_entry->stream;
+  }
+
+#if TODO_ERR
+#error "ensure newly allocated streams are in state FD_QUIC_STREAM_STATE_DEAD"
+#endif
+  if( stream->state == FD_QUIC_STREAM_STATE_DEAD ) {
+    /* new stream - peer initiated */
+
+    /* initialize stream members */
+
+    fd_quic_stream_init( stream );
+
+    /* bidirectional? */
+    uint bidir = !( ( stream_id >> 1u ) & 1u );
+
+    /* if unidir, we can't send - since peer initiated */
+    /* if bidir we can only send up to the peer's advertised limit */
+    ulong tx_max_stream_data = bidir ?
+                context.conn->tx_initial_max_stream_data_bidi_local : 0;
+
+    stream->conn        = context.conn;
+
+    stream->context     = NULL; /* TODO where do we get this from? */
+
+    stream->tx_buf.head = 0; /* first unused byte of tx_buf */
+    stream->tx_buf.tail = 0; /* first unacked (used) byte of tx_buf */
+    stream->tx_sent     = 0; /* first unsent byte of tx_buf */
+    memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
+
+    stream->stream_flags = 0UL;
+    stream->state        = bidir ? 0u : FD_QUIC_STREAM_STATE_TX_FIN;
+
+    /* flow control */
+    stream->tx_max_stream_data = tx_max_stream_data;
+    stream->tx_tot_data        = 0;
+    stream->tx_last_byte       = 0;
+
+    stream->rx_max_stream_data = context.quic->config.initial_rx_max_stream_data;
+    stream->rx_tot_data        = 0;
+
+    stream->upd_pkt_number     = 0;
+
+    fd_quic_cb_stream_new( context.quic, stream, bidir ? FD_QUIC_TYPE_BIDIR : FD_QUIC_TYPE_UNIDIR );
   }
 
   /* A receiver MUST close the connection with an error of type FLOW_CONTROL_ERROR if the sender
      violates the advertised connection or stream data limits */
   if (stream->rx_max_stream_data < offset + data_sz) {
     FD_LOG_WARNING(( "peer exceeded advertised stream data limit" ));
-    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
+    fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_FLOW_CONTROL_ERROR );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -6423,7 +6377,8 @@ fd_quic_frame_handle_max_streams_frame(
 
   /* max streams is only allowed to increase the limit. Transgressing frames
      are silently ignored */
-  context.conn->max_streams[type] = fd_ulong_max( data->max_streams, context.conn->max_streams[type] );
+  ulong peer_sup_stream_id = data->max_streams * 4U + type;
+  context.conn->peer_sup_stream_id[type] = fd_ulong_max( data->max_streams, peer_sup_stream_id );
 
   return 0;
 }
@@ -6492,6 +6447,9 @@ fd_quic_frame_handle_streams_blocked_frame(
      value
      We can support this in the future, but the solana-tpu client
      does not currently use it */
+#if TODO_ERR
+#error "consider calling fd_quic_assign_streams here"
+#endif
   return 0;
 }
 
@@ -6511,6 +6469,8 @@ fd_quic_frame_handle_new_conn_id_frame(
   context.pkt->ack_flag |= ACK_FLAG_RQD;
 
   FD_DEBUG( FD_LOG_DEBUG(( "new_conn_id requested" )); )
+
+  /* TODO add support */
   return 0;
 }
 
@@ -6530,6 +6490,8 @@ fd_quic_frame_handle_retire_conn_id_frame(
 
   // /* ack-eliciting */
   // context.pkt->ack_flag |= ACK_FLAG_RQD;
+
+  /* TODO add support */
 
   return FD_QUIC_PARSE_FAIL;
 }
@@ -6742,4 +6704,181 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn ) {
     pkt_meta = pkt_meta->next;
   }
   return cnt;
+}
+
+
+void
+fd_quic_assign_streams( fd_quic_t * quic ) {
+
+  /* fd_quic_assign_streams attempts to distribute streams across         */
+  /* connections fairly                                                   */
+  /* The user sets a target number of concurrently usable streams to each */
+  /* connection. Across all the connections, it is possible that this     */
+  /* target cannot be reached. So we use a policy that assigns available  */
+  /* streams randomly by weight, where the weight is the difference       */
+  /* between the current number of valid streams and the target.          */
+  /* The result is that if the targets can be fulfullied, they will be,   */
+  /* otherwise, they will be distributed fairly                           */
+  /* The user may terminate connections to free up streams for higher     */
+  /* priority connections.                                                */
+
+  fd_quic_cs_tree_t * cs_tree = quic->cs_tree;
+
+  while( FD_LIKELY( 1 ) ) {
+    /* if total weights over all connections is zero break */
+    if( FD_UNLIKELY( fd_quic_cs_tree_total( cs_tree ) == 0 ) ) break;
+
+    /* obtain stream from stream pool */
+    fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( quic->stream_pool );
+
+    /* if none, break */
+    if( FD_UNLIKELY( !stream ) ) break;
+
+    /* choose weighted random connection index */
+    ulong idx = fd_quic_choose_weighted_index( cs_tree );
+
+    /* idx maps to connection and stream_type thusly:  */
+    /*   idx = ( conn_idx << 2 ) + stream_type         */
+    ulong conn_idx    =       ( idx >> 2UL );
+    uint  stream_type = (uint)( idx &  3UL );
+
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( quic, conn_idx );
+
+    /* assign stream to connection */
+    int rtn = fd_quic_assign_stream( conn, stream_type, stream );
+
+    /* if fails, return to pool and break */
+    if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+      fd_quic_stream_pool_insert( stream_pool, stream );
+      break;
+    }
+  }
+}
+
+
+int
+fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_t * stream ) {
+  ulong next_stream_id = conn->next_stream_id[stream_type];
+
+  uint dirtype = ( (uint)stream_type & 2U ) >> 1U;
+
+  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
+  if( FD_UNLIKELY( !entry ) ) {
+    /* stream_map should be large enough for maximum tgt_stream_id */
+#if TODO_ERR
+#error "stream_map size needs to be set to a useful value"
+#endif
+    return FD_QUIC_FAILED;
+  }
+
+  entry->stream = stream;
+
+  fd_quic_stream_init( stream );
+
+  /* stream tx_buf already set */
+  stream->conn      = conn;
+  stream->stream_id = next_stream_id;
+  stream->context   = NULL;
+
+  /* set the max stream data to the appropriate initial value */
+  stream->tx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
+                                   ? conn->tx_initial_max_stream_data_bidi_local
+                                   : conn->tx_initial_max_stream_data_uni;
+
+  /* probably we should add rx_buf */
+  stream->rx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
+                                   ? conn->rx_initial_max_stream_data_bidi_local
+                                   : 0ul;
+
+  /* set state depending on stream type */
+  stream->state = 0u;
+  if( dirtype != FD_QUIC_TYPE_BIDIR ) {
+    stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
+  }
+
+  stream->stream_flags = 0u;
+
+  /* update metrics */
+  quic->metrics.stream_opened_cnt[ next_stream_id&0x3 ]++;
+  quic->metrics.stream_active_cnt[ next_stream_id&0x3 ]++;
+
+  return FD_QUIC_SUCCESS;
+}
+
+
+#if TODO_ERR
+#error "ensure every change to tgt_sup_stream_id and sup_stream_id " \
+       "result in a call to fd_quic_update_cs_tree"
+#endif
+void
+fd_quic_update_cs_tree( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value ) {
+  /* the structure of the cs_tree is such that the parent of node at idx is at (idx>>1) */
+  /* it is also true that the parent of node at (idx^1) is also at (idx>>1)             */
+  /* note that element 1 is the root, and element 0 is unused                           */
+  /* the value of the parent is the total value of its children                         */
+  /* the leaves are the values such that value at idx is at node_idx = idx + cnt        */
+
+  ulong   cnt      = cs_tree->cnt;
+  ulong * values   = cs_tree->values;
+  ulong   node_idx = idx + cnt;
+  ulong   delta    = new_value - values[node_idx];
+
+  /* as delta is unsigned, it may wrap around, but the result of adding it to */
+  /* the elements is well defined and correct */
+
+  /* apply delta to leaf and all ancestors */
+  while( FD_LIKELY( node_idx >= 1UL ) ) {
+    values[node_idx] += delta;
+    node_idx >>= 1UL;
+  }
+}
+
+
+ulong
+fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree ) {
+  ulong   cnt      = cs_tree->cnt;
+  ulong * values   = cs_tree->values;
+  ulong   node_idx = 1UL;
+  ulong   total    = values[1UL]; /* the root is at 1 */
+
+  ulong   target   = fd_randint( 0, total ); /* return rand in [0,total) */
+
+  // while( FD_LIKELY( node_idx < cnt ) ) {
+  //   ulong node_idx2 = node_idx << 1UL;
+  //   if( target <= values[node_idx2] ) {
+  //     node_idx = node_idx2;
+  //   } else {
+  //     node_idx = node_idx2 + 1;
+  //     target  -= values[node_idx2];
+  //   }
+  // }
+
+  while( FD_LIKELY( node_idx < cnt ) ) {
+    ulong node_idx2 = node_idx << 1UL;
+    ulong v         = values[node_idx2];
+    int   gt        = target > v;
+    /* */ node_idx  = node_idx2 + (ulong)gt;
+    ulong adj       = gt ? v : 0;
+    /* */ target   -= adj;
+  }
+
+  /* index is (node_idx - cnt) */
+  return node_idx - cnt;
+}
+
+ulong
+fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree ) {
+  /* total is the value at node_idx = 1 (which is the root) */
+  return cs_tree->values[1UL];
+}
+
+ulong
+fd_quic_cs_tree_footprint( ulong cnt ) {
+  return sizeof( fd_quic_cs_tree_t ) + 2UL * cnt * sizeof(ulong);
+}
+
+void
+fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree, ulong cnt ) {
+  fd_memset( cs_tree, 0, fd_quic_cs_tree_footprint( cnt ) );
+  cs_tree->cnt = cnt;
 }
