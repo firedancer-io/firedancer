@@ -1,5 +1,23 @@
 #include "fd_vm_base.h"
 
+/* FIXME: MOVE TO A BETTER LOCATION */
+char const *
+fd_vm_strerror( int err ) {
+  switch( err ) {
+  case FD_VM_SUCCESS:   return "SUCCESS success";
+  case FD_VM_ERR_INVAL: return "INVAL invalid request";
+  case FD_VM_ERR_UNSUP: return "UNSUP unsupported request";
+  case FD_VM_ERR_PERM:  return "PERM unauthorized request";
+  case FD_VM_ERR_FULL:  return "FULL storage full";
+  case FD_VM_ERR_EMPTY: return "EMPTY nothing to do";
+  case FD_VM_ERR_IO:    return "IO input-output error";
+  case FD_VM_ERR_AGAIN: return "AGAIN try again later";
+  /* FIXME: ADD COVERAGE OF OTHER ERR CODES */
+  default: break;
+  }
+  return "unknown";
+}
+
 ulong
 fd_vm_trace_align( void ) {
   return 8UL;
@@ -34,10 +52,10 @@ fd_vm_trace_new( void * shmem,
     return NULL;
   }
 
-  fd_memset( trace, 0, footprint );
+  memset( trace, 0, footprint );
 
   trace->event_max      = event_max;
-  trace->event_data_max = event_max;
+  trace->event_data_max = event_data_max;
   trace->event_off      = 0UL;
 
   FD_COMPILER_MFENCE();
@@ -141,7 +159,7 @@ int
 fd_vm_trace_event_mem( fd_vm_trace_t * trace,
                        int             write,
                        ulong           vaddr,
-                       ulong           sz ,
+                       ulong           sz,
                        void *          data ) {
 
   /* Acquire event storage */
@@ -151,7 +169,7 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
   ulong event_off = trace->event_off;
   ulong event_rem = trace->event_max - event_off;
 
-  int   valid           = (!!data) & (!sz); /* FIXME: ponder sz==0 handling */
+  int   valid           = (!!data) & (!!sz); /* FIXME: ponder sz==0 handling */
   ulong event_data_sz   = fd_ulong_if( valid, fd_ulong_min( sz, trace->event_data_max ), 0UL );
   ulong event_footprint = fd_ulong_align_up( sizeof(fd_vm_trace_event_mem_t) + event_data_sz, 8UL );
 
@@ -226,20 +244,15 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
       /* Print the instruction */
 
-      if( FD_LIKELY( text_cnt ) ) {
-        if( FD_UNLIKELY( event_pc>=text_cnt ) ) {
-          FD_LOG_WARNING(( "bad event pc" ));
-          return FD_VM_ERR_IO;
-        }
+      if( FD_UNLIKELY( !text_cnt ) ) printf( "-\n" );
+      else {
+        if( FD_UNLIKELY( event_pc>=text_cnt ) ) printf( " bad pc\n" );
         ulong out_len = 0UL;
         char  out[128];
         out[0] = '\0';
         int err = fd_vm_disasm_instr( text+event_pc, text_cnt-event_pc, event_pc, syscalls, out, 128UL, &out_len );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "fd_vm_disasm_instr failed" )); /* FIXME: STRING PRETTY PRINT */
-          return FD_VM_ERR_IO;
-        }
-        puts( out );
+        if( FD_UNLIKELY( err ) ) printf( "disasm failed (%i-%s)\n", err, fd_vm_strerror( err ) );
+        printf( "%s\n", out );
       }
 
       break;
@@ -270,7 +283,7 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
 
       ulong prev_ic = 0UL; /* FIXME: there was some commented out code originally to find the ic that previously modified */
 
-      printf( "        %s: vm_addr: 0x%016lX, sz; %8lu, prev_ic: %8lu, data: ",
+      printf( "        %s: vm_addr: 0x%016lX, sz: %8lu, prev_ic: %8lu, data: ",
               event_type==FD_VM_TRACE_EVENT_TYPE_READ ? "R" : "W", event->vaddr, event_sz, prev_ic );
 
       char buf[ 1024UL + 6UL*2048UL ]; /* 1KiB for overhead + 6 bytes for every byte of event_data_max */
@@ -279,17 +292,17 @@ fd_vm_trace_printf( fd_vm_trace_t const *      trace,
       if( !valid ) p = fd_cstr_append_char( p, '-' );
       else {
         for( ulong data_off=0UL; data_off<data_sz; data_off++ ) {
-          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) p = fd_cstr_append_printf( p, "\n        0x%04lX:", data_off );
+          if( FD_UNLIKELY( (data_off & 0xfUL)==0UL ) ) p = fd_cstr_append_printf( p, "\n                0x%04lX:", data_off );
           if( FD_UNLIKELY( (data_off & 0xfUL)==8UL ) ) p = fd_cstr_append_char( p, ' ' );
           p = fd_cstr_append_printf( p, " %02X", (uint)data[ data_off ] );
         }
         if( FD_UNLIKELY( data_sz < event_sz ) )
-          p = fd_cstr_append_printf( p, "\n        ... omitted %lu bytes ...", event_sz - data_sz );
+          p = fd_cstr_append_printf( p, "\n                ... omitted %lu bytes ...", event_sz - data_sz );
       }
       p = fd_cstr_append_char( p, '\n' );
       fd_cstr_fini( p );
 
-      puts( buf );
+      printf( "%s", buf );
       break;
     }
 
