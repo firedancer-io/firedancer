@@ -20,36 +20,50 @@
    completed successfully.  FD_VM_ERR_* are negative integers and
    returned to indicate an operation that failed and why. */
 
-/* FIXME: Renumber and harmonize after consolidating */
+/* FIXME: consider disambiguating PERM case into something like ACCES
+   (e.g. out of bounds VM memory request), FAULT/BUS cases (e.g.
+   misaligned VM memory access), PERM (e.g. disallowed VM memory access
+   like writing read-only memory) and maybe making MEM_OVERLAP something
+   like INVAL). */
 
-/* FIXME: consider disambiguating PERM case out-of-bounds, etc) into
-   something like ACCES (e.g. out of bounds VM memory request),
-   FAULT/BUS cases (e.g. misaligned VM memory access), and/or PERM (e.g.
-   disallowed VM memory access like writing read-only memory) */
+/* "Standard" Firedancer error codes (FIXME: harmonize and consolidate) */
 
-/* TODO: Specify exactly how these map onto Labs SyscallError (and
+#define FD_VM_SUCCESS   (  0) /* success */
+#define FD_VM_ERR_INVAL ( -1) /* invalid request */
+#define FD_VM_ERR_AGAIN ( -2) /* try again later */
+#define FD_VM_ERR_UNSUP ( -3) /* unsupported request */
+#define FD_VM_ERR_PERM  ( -4) /* unauthorized request */
+#define FD_VM_ERR_FULL  ( -5) /* storage full */
+#define FD_VM_ERR_EMPTY ( -6) /* nothing to do */
+#define FD_VM_ERR_IO    ( -7) /* input-output error */
+
+/* VM syscall related error codes */
+
+/* FIXME: Specify exactly how these map onto Labs SyscallError (and/or
    provide full coverage of Lab SyscallErrors) */
 
-#define FD_VM_SUCCESS                          (  0) /* Request completed normally */
-#define FD_VM_ERR_INVAL                        ( -1) /* Request failed because it did not make sense */
-#define FD_VM_ERR_UNSUP                        ( -2) /* Request failed because it is not supported on this target currently */
-#define FD_VM_ERR_FULL                         ( -3) /* Request failed because there is no space available for the request */
-#define FD_VM_ERR_EMPTY                        ( -4) /* Request failed because there is no resource for the request */
-#define FD_VM_ERR_PERM                         ( -5) /* Request failed because the requestor does not have permission */
-#define FD_VM_ERR_IO                           ( -6) /* Request failed because an I/O error occurred */
+#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded */
+#define FD_VM_ERR_ABORT                        ( -9)
+#define FD_VM_ERR_PANIC                        (-10)
+#define FD_VM_ERR_MEM_OVERLAP                  (-11)
+#define FD_VM_ERR_INSTR_ERR                    (-12)
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13)
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14)
 
-#define FD_VM_ERR_BUDGET                       ( -7) /* Request failed because the compute budget was exceeded */
-#define FD_VM_ERR_ABORT                        ( -8)
-#define FD_VM_ERR_PANIC                        ( -9)
-#define FD_VM_ERR_MEM_OVERLAP                  (-10)
-#define FD_VM_ERR_INSTR_ERR                    (-11)
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-12)
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-13)
+FD_PROTOTYPES_BEGIN
+
+/* fd_vm_strerror converts an FD_VM_SUCCESS / FD_VM_ERR_* code into
+   a human readable cstr.  The lifetime of the returned pointer is
+   infinite.  The returned pointer is always to a non-NULL cstr. */
+
+FD_FN_CONST char const * fd_vm_strerror( int err );
+
+FD_PROTOTYPES_END
 
 /* fd_vm_log_collector API ********************************************/
 
-/* FIXME: ADD SPECIFIC UNIT TEST COVERAGE OF THIS API */
-/* FIXME: RENAME AGGREGATOR FOR CONSISTENT WITH OTHER APIS? */
+/* FIXME: RENAME FOR CONSISTENT WITH OTHER APIS AND/OR ADD MORE STANDARD
+   INIT/FINI OR OTHER OBJECT LIFECYCLE SEMANTICS? */
 
 /* A fd_vm_log_collector_t is used by the vm for storing text/bytes
    logged by programs running in the vm.  The collector can collect up
@@ -59,8 +73,8 @@
 #define FD_VM_LOG_COLLECTOR_BUF_MAX (10000UL) /* FIXME: IS THIS NUMBER A PROTOCOL REQUIREMENT OR IS 10K JUST LUCKY? */
 
 struct fd_vm_log_collector_private {
-  uchar buf[ FD_VM_LOG_COLLECTOR_BUF_MAX ];
   ulong buf_used;
+  uchar buf[ FD_VM_LOG_COLLECTOR_BUF_MAX ];
 };
 
 typedef struct fd_vm_log_collector_private fd_vm_log_collector_t;
@@ -81,7 +95,7 @@ fd_vm_log_collector_flush( fd_vm_log_collector_t * collector ) {
 static inline fd_vm_log_collector_t *
 fd_vm_log_collector_wipe( fd_vm_log_collector_t * collector ) {
   collector->buf_used = 0UL;
-  fd_memset( collector->buf, 0, FD_VM_LOG_COLLECTOR_BUF_MAX );
+  memset( collector->buf, 0, FD_VM_LOG_COLLECTOR_BUF_MAX );
   return collector;
 }
 
@@ -95,7 +109,7 @@ fd_vm_log_collector_append( fd_vm_log_collector_t * collector,
                             ulong                   sz ) {
   ulong buf_used = collector->buf_used;
   ulong cpy_sz   = fd_ulong_min( sz, FD_VM_LOG_COLLECTOR_BUF_MAX - buf_used );
-  if( FD_LIKELY( cpy_sz ) ) fd_memcpy( collector->buf + buf_used, msg, cpy_sz ); /* Sigh ... branchless if sz==0 wasn't UB */
+  if( FD_LIKELY( cpy_sz ) ) memcpy( collector->buf + buf_used, msg, cpy_sz ); /* Sigh ... branchless if sz==0 wasn't UB */
   collector->buf_used = buf_used + cpy_sz;
   return collector;
 }
@@ -133,36 +147,34 @@ FD_PROTOTYPES_END
 
 /* fd_vm_stack API ****************************************************/
 
-/* FIXME: ADD SPECIFIC UNIT TEST COVERAGE OF THIS API */
+/* FIXME: RENAME FOR CONSISTENCY WITH OTHER APIS AND/OR ADD MORE
+   STANDARD LIFECYCLE SEMANTICS? */
+/* FIXME: document Solana requirements here */
+/* FIXME: FRAME_MAX should be run time configurable by compute budget
+   (is there an upper bound to how configurable ... there needs to be!) */
 
-/* FIXME: The max depth of the stack is configurable by the compute
-   budget */
-
-/* FIXME: DOCUMENT SOLANA PROTOCOL REQUIRMENTS HERE */
-
-#define FD_VM_STACK_DEPTH_MAX           (64UL)
+#define FD_VM_STACK_FRAME_MAX           (64UL)
 #define FD_VM_STACK_FRAME_SZ            (0x1000UL)
 #define FD_VM_STACK_FRAME_WITH_GUARD_SZ (0x2000UL)
 
-#define FD_VM_STACK_DATA_MAX (FD_VM_STACK_DEPTH_MAX*FD_VM_STACK_FRAME_WITH_GUARD_SZ)
+#define FD_VM_STACK_DATA_MAX (FD_VM_STACK_FRAME_MAX*FD_VM_STACK_FRAME_WITH_GUARD_SZ) /* FIXME: see note below */
 
-/* A fd_vm_stack_private_shadow_t holds stack frame information hidden
+/* A fd_vm_stack_frame_shadow_t holds stack frame information hidden
    from VM program execution. */
 
-struct fd_vm_stack_private_shadow {
+struct fd_vm_stack_frame_shadow {
   ulong ret_instr_ptr;
   ulong saved_reg[4];
 };
 
-typedef struct fd_vm_stack_private_shadow fd_vm_stack_private_shadow_t;
+typedef struct fd_vm_stack_frame_shadow fd_vm_stack_frame_shadow_t;
 
 /* A fd_vm_stack_t gives the VM program stack state. */
 
 struct fd_vm_stack {
-  ulong                        stack_pointer;                   /* FIXME: DOCUMENT THIS BETTER */
-  ulong                        depth;                           /* In [0,DEPTH_MAX] */
-  fd_vm_stack_private_shadow_t shadow[ FD_VM_STACK_DEPTH_MAX ]; /* Indexed [0,depth), if not empty, bottom at 0, top at depth-1 */
-  uchar                        data  [ FD_VM_STACK_DATA_MAX  ]; /* FIXME: DOCUMENT THIS BETTER */
+  ulong                      frame_cnt;                       /* In [0,FRAME_MAX] */
+  fd_vm_stack_frame_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* Indexed [0,frame_cnt), if not empty, bottom at 0, top at frame_cnt-1 */
+  uchar                      data  [ FD_VM_STACK_DATA_MAX  ]; /* FIXME: should this be part of the fd_vm_stack_t? */
 };
 
 typedef struct fd_vm_stack fd_vm_stack_t;
@@ -170,57 +182,13 @@ typedef struct fd_vm_stack fd_vm_stack_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_vm_stack_wipe zeros out stack data, shadow frames, stack_pointer
-   and depth.  Assumes stack is valid.  Returns stack.  Use this to
+   and frame_cnt.  Assumes stack is valid.  Returns stack.  Use this to
    initialize a newly allocated VM stack. */
 
 static inline fd_vm_stack_t *
 fd_vm_stack_wipe( fd_vm_stack_t * stack ) {
-  fd_memset( stack, 0, sizeof(fd_vm_stack_t) );
+  memset( stack, 0, sizeof(fd_vm_stack_t) );
   return stack;
-}
-
-/* fd_vm_stack_push pushes a new frame onto the VM stack.  Assumes
-   stack, ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS
-   (0) on success or FD_VM_ERR_FULL (negative) on failure. */
-
-static inline int
-fd_vm_stack_push( fd_vm_stack_t * stack,
-                  ulong           ret_instr_ptr,
-                  ulong const     saved_reg[4] ) {
-  ulong top_idx = stack->depth;
-  if( FD_UNLIKELY( top_idx>=FD_VM_STACK_DEPTH_MAX ) ) return FD_VM_ERR_FULL;
-  fd_vm_stack_private_shadow_t * shadow = stack->shadow + top_idx;
-  shadow->ret_instr_ptr = ret_instr_ptr;
-  shadow->saved_reg[0]  = saved_reg[0];
-  shadow->saved_reg[1]  = saved_reg[1];
-  shadow->saved_reg[2]  = saved_reg[2];
-  shadow->saved_reg[3]  = saved_reg[3];
-  stack->depth = top_idx + 1UL;
-  return FD_VM_SUCCESS;
-}
-
-/* fd_vm_stack_pop pops a frame off the VM stack.  Assumes stack,
-   ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS (0) on
-   success and FD_VM_ERR_EMPTY (negative) on failure.  On success,
-   *_ret_instr_ptr and saved_reg[0:3] hold the values popped off the
-   stack on return.  These are unchanged otherwise. */
-/* TODO: CONSIDER ZERO COPY API? */
-
-static inline int
-fd_vm_stack_pop( fd_vm_stack_t * stack,
-                 ulong *         _ret_instr_ptr,
-                 ulong           saved_reg[4] ) {
-  ulong top_idx = stack->depth;
-  if( FD_UNLIKELY( !top_idx ) ) return FD_VM_ERR_EMPTY;
-  top_idx--;
-  fd_vm_stack_private_shadow_t * shadow = stack->shadow + top_idx;
-  *_ret_instr_ptr = shadow->ret_instr_ptr;
-  saved_reg[0]    = shadow->saved_reg[0];
-  saved_reg[1]    = shadow->saved_reg[1];
-  saved_reg[2]    = shadow->saved_reg[2];
-  saved_reg[3]    = shadow->saved_reg[3];
-  stack->depth = top_idx;
-  return FD_VM_SUCCESS;
 }
 
 /* fd_vm_stack_data returns a pointer to the first byte a VM's program
@@ -231,10 +199,56 @@ fd_vm_stack_pop( fd_vm_stack_t * stack,
 
 FD_FN_CONST static inline void * fd_vm_stack_data( fd_vm_stack_t * stack ) { return stack->data; }
 
-/* fd_vm_stack_empty returns 1 if the stack is empty and 0 if not.
-   Assumes stack is valid. */
+/* fd_vm_stack_empty/full returns 1 if the stack is empty/full and 0 if
+   not.  Assumes stack is valid. */
 
-FD_FN_PURE static inline int fd_vm_stack_is_empty( fd_vm_stack_t const * stack ) { return !stack->depth; }
+FD_FN_PURE static inline int fd_vm_stack_is_empty( fd_vm_stack_t const * stack ) { return !stack->frame_cnt;                       }
+FD_FN_PURE static inline int fd_vm_stack_is_full ( fd_vm_stack_t const * stack ) { return stack->frame_cnt==FD_VM_STACK_FRAME_MAX; }
+
+/* fd_vm_stack_push pushes a new frame onto the VM stack.  Assumes
+   stack, ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS
+   (0) on success or FD_VM_ERR_FULL (negative) on failure. */
+/* FIXME: consider zero copy API and/or failure free API? */
+
+static inline int
+fd_vm_stack_push( fd_vm_stack_t * stack,
+                  ulong           ret_instr_ptr,
+                  ulong const     saved_reg[4] ) {
+  ulong frame_cnt = stack->frame_cnt;
+  if( FD_UNLIKELY( frame_cnt>=FD_VM_STACK_FRAME_MAX ) ) return FD_VM_ERR_FULL;
+  fd_vm_stack_frame_shadow_t * shadow = stack->shadow + frame_cnt;
+  shadow->ret_instr_ptr = ret_instr_ptr;
+  shadow->saved_reg[0]  = saved_reg[0];
+  shadow->saved_reg[1]  = saved_reg[1];
+  shadow->saved_reg[2]  = saved_reg[2];
+  shadow->saved_reg[3]  = saved_reg[3];
+  stack->frame_cnt = frame_cnt + 1UL;
+  return FD_VM_SUCCESS;
+}
+
+/* fd_vm_stack_pop pops a frame off the VM stack.  Assumes stack,
+   ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS (0) on
+   success and FD_VM_ERR_EMPTY (negative) on failure.  On success,
+   *_ret_instr_ptr and saved_reg[0:3] hold the values popped off the
+   stack on return.  These are unchanged otherwise. */
+/* FIXME: consider zero copy API and/or failure free API? */
+
+static inline int
+fd_vm_stack_pop( fd_vm_stack_t * stack,
+                 ulong *         _ret_instr_ptr,
+                 ulong           saved_reg[4] ) {
+  ulong frame_idx = stack->frame_cnt;
+  if( FD_UNLIKELY( !frame_idx ) ) return FD_VM_ERR_EMPTY;
+  frame_idx--;
+  fd_vm_stack_frame_shadow_t * shadow = stack->shadow + frame_idx;
+  *_ret_instr_ptr = shadow->ret_instr_ptr;
+  saved_reg[0]    = shadow->saved_reg[0];
+  saved_reg[1]    = shadow->saved_reg[1];
+  saved_reg[2]    = shadow->saved_reg[2];
+  saved_reg[3]    = shadow->saved_reg[3];
+  stack->frame_cnt = frame_idx;
+  return FD_VM_SUCCESS;
+}
 
 FD_PROTOTYPES_END
 
@@ -264,6 +278,9 @@ FD_PROTOTYPES_BEGIN
    FD_VM_ERR_INVAL - Invalid input.  For instr, out buffer and *_out_len
    are unchanged.  For program, out buffer and *_out_len will have been
    updated up to the point where the error occurred.
+
+   FD_VM_ERR_UNSUP - For program, too many functions and/or labels for
+   the current implementation.  out buffer and *_out_len unchanged.
 
    FD_VM_ERR_FULL - Not enough room in out to hold the result so output
    was truncated.  out buffer and *_out_len updated.
@@ -313,7 +330,7 @@ struct fd_vm_trace_event_exe {
   ulong ic;                                   /* ic */
   ulong cu;                                   /* cu */
   ulong reg[ FD_VM_TRACE_EVENT_EXE_REG_CNT ]; /* registers */
-  /* FIXME: ENCODE OP CODE? */
+  /* FIXME: ENCODE INSTR WORDS? */
   /* This point is aligned 8 */
 };
 
