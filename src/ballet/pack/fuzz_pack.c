@@ -379,8 +379,8 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
                     rewards +=
                         make_transaction(insert_idx, (uint) ptr[0],
                                          (double) ptr[1], acc1, acc2);
-                    // free((void *) acc1);
-                    // free((void *) acc2);
+                    free((void *) acc1);
+                    free((void *) acc2);
                     ptr += 10;
                     s -= 10;
                     insert(insert_idx++, pack);
