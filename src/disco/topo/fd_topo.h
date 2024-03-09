@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_topo_fd_topo_h
 
 #include "../mux/fd_mux.h"
+#include "../quic/fd_tpu.h"
 #include "../../tango/fd_tango.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -10,16 +11,11 @@
 #define FD_TOPO_MAX_LINKS         (256UL)
 /* Maximum number of tiles that may be present in a topology. */
 #define FD_TOPO_MAX_TILES         (256UL)
+/* Maximum number of objects that may be present in a topology. */
+#define FD_TOPO_MAX_OBJS          (256UL)
 /* Maximum number of links that may go into any one tile in the
    topology. */
 #define FD_TOPO_MAX_TILE_IN_LINKS ( 16UL)
-
-/* FD_TOPO_FILL_MODE_* are used with the fd_topo_fill functions to
-   determine what they do.  See comments on those functions for more
-   details. */
-#define FD_TOPO_FILL_MODE_FOOTPRINT (0UL)
-#define FD_TOPO_FILL_MODE_NEW       (1UL)
-#define FD_TOPO_FILL_MODE_JOIN      (2UL)
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -53,16 +49,21 @@ typedef struct {
   ulong id;           /* The ID of this link.  Indexed from [0, link_cnt).  When placed in a topology, the ID must be the index of the link in the links list. */
   char  name[ 13UL ]; /* The name of this link, like "pack_bank". There can be multiple of each link name in a topology. */
   ulong kind_id;      /* The ID of this link within its name.  If there are N links of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a link, as does "id" on its own. */
-  ulong wksp_id;      /* The workspace that this link belongs to.  Each link belongs to exactly one workspace. */
 
-  ulong depth;   /* The depth of the mcache representing the link. */
-  ulong mtu;     /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
-  ulong burst;   /* The max amount of MTU sized data fragments that might be bursted to the dcache. */
+  int   is_reasm; /* If the link is a reassembly buffer. */
+  ulong depth;    /* The depth of the mcache representing the link. */
+  ulong mtu;      /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
+  ulong burst;    /* The max amount of MTU sized data fragments that might be bursted to the dcache. */
+
+  ulong mcache_obj_id;
+  ulong dcache_obj_id;
+  ulong reasm_obj_id;
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
-   fd_frag_meta_t * mcache; /* The mcache of this link. */
-   void *           dcache; /* The dcache of this link, if it has one. */
+    fd_frag_meta_t * mcache; /* The mcache of this link. */
+    void *           dcache; /* The dcache of this link, if it has one. */
+    fd_tpu_reasm_t * reasm;  /* The reassembly buffer of this link, if it has one. */
   };
 } fd_topo_link_t;
 
@@ -82,7 +83,6 @@ typedef struct {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
-  ulong wksp_id;                /* The workspace that this tile belongs to.  Each tile belongs to exactly one workspace. */
   int   is_labs;                /* If the tile needs to run in the Solana Labs (Anza) address space or not. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of USHORT_MAX or more indicates the tile should be floating and not pinned to a core. */
@@ -99,19 +99,21 @@ typedef struct {
   ulong out_cnt;                /* The number of non-primary links that this tile writes to. */
   ulong out_link_id[ 16 ];      /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
 
+  ulong tile_obj_id;
+  ulong cnc_obj_id;
+  ulong metrics_obj_id;
+  ulong in_link_fseq_obj_id[ 16 ];
+
+  ulong uses_obj_cnt;
+  ulong uses_obj_id[ 32 ];
+  int   uses_obj_mode[ 32 ];
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_cnc_t * cnc;
     ulong *    metrics;            /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
     ulong *    in_link_fseq[ 16 ]; /* The fseq of each link that this tile reads from.  Multiple fseqs may point to the link, if there are multiple consumers.
                                       An fseq can be uniquely identified via (link_id, tile_id), or (link_kind, link_kind_id, tile_kind, tile_kind_id) */
-
-    ulong      user_mem_offset;    /* Offset in bytes from the workspace base for memory region that has been
-                                      reserved for this tile. The footprint and alignment will match those
-                                      provided by the footprint and align functions in the corresponding
-                                      fd_topo_run_tile_t */
-
-    void *     extra[ 32 ];         /* Hack for stashing extra shared tango objects. */
   };
 
   /* Configuration fields.  These are required to be known by the topology so it can determine the
@@ -125,7 +127,10 @@ typedef struct {
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
-      ushort allow_ports[ 3 ];
+
+      ushort shred_listen_port;
+      ushort quic_transaction_listen_port;
+      ushort legacy_transaction_listen_port;
     } net;
 
     struct {
@@ -139,7 +144,6 @@ typedef struct {
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
-      ushort legacy_transaction_listen_port;
       ulong  idle_timeout_millis;
       char   identity_key_path[ PATH_MAX ];
       int    retry;
@@ -180,19 +184,30 @@ typedef struct {
   };
 } fd_topo_tile_t;
 
+typedef struct {
+  ulong id;
+  char  name[ 13UL ];
+  ulong wksp_id;
+
+  ulong offset;
+} fd_topo_obj_t;
+
 /* An fd_topo_t represents the overall structure of a Firedancer
    configuration, describing all the workspaces, tiles, and links
    between them. */
 typedef struct fd_topo_t {
   char           app_name[ 256UL ];
+  uchar          props[ 16384UL ];
 
   ulong          wksp_cnt;
   ulong          link_cnt;
   ulong          tile_cnt;
+  ulong          obj_cnt;
 
   fd_topo_wksp_t workspaces[ FD_TOPO_MAX_WKSPS ];
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
+  fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 } fd_topo_t;
 
 typedef struct {
@@ -214,11 +229,29 @@ typedef struct {
   ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
+  ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST static inline ulong
+fd_topo_workspace_align( void ) {
+  /* This needs to be the max( align ) of all the child members that
+     could be aligned into this workspace, otherwise our footprint
+     calculation will not be correct.  For now just set to 4096 but this
+     should probably be calculated dynamically, or we should reduce
+     those child aligns if we can. */
+  return 4096UL;
+}
+
+FD_FN_PURE static inline void *
+fd_topo_obj_laddr( fd_topo_t const * topo,
+                   ulong             obj_id ) {
+  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
+}
 
 FD_FN_PURE static inline ulong
 fd_topo_tile_name_cnt( fd_topo_t const * topo,
@@ -363,55 +396,29 @@ fd_topo_leave_workspaces( fd_topo_t *  topo );
 void
 fd_topo_create_workspaces( fd_topo_t * topo );
 
-/* Populate all IPC objects needed by the topology of this particular
-   tile, or just calculate the footprint needed to store them depending
-   on the argument.  This will populate all mcaches, dcaches, and fseqs
-   into the topo object. This must be called after all of the tile
-   workspaces have been joined, either by calling
-   fd_topo_join_workspaces, or fd_topo_join_tile_workspaces.
+/* Join the standard IPC objects needed by the topology of this particular
+   tile */
 
-   The mode should be one of FD_TOPO_FILL_MODE_* and determines
-   what the function actually does.
-
-     FD_TOPO_FILL_MODE_FOOTPRINT
-        The footprint of every workspace in the topology is calculated
-        and stored in the toplogy, under wksp->footprint, along with
-        other size and offset related fields.  No objects are actually
-        created or joined.
-
-     FD_TOPO_FILL_MODE_NEW
-        This actually creates (calls new) on all of the objects
-        (mcaches, dcaches, etc) in the toplogy.  It does not join them,
-        and it is assumed to be running during some static
-        initialization or configuration step.
-
-     FD_TOPO_FILL_MODE_JOIN
-        This joins the objects in the toplogy, assuming that they
-        already exist (aka someone else has already called
-        FD_TOPO_FILL_MODE_NEW during an initialization step.) */
 void
 fd_topo_fill_tile( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   ulong            mode,
-                   ulong (* tile_align )( fd_topo_tile_t const * tile ),
-                   ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
+                   fd_topo_tile_t * tile );
 
 /* Same as fd_topo_fill_tile but fills in all the objects for a
    particular workspace with the given mode. */
 void
 fd_topo_workspace_fill( fd_topo_t *      topo,
-                        fd_topo_wksp_t * wksp,
-                        ulong            mode,
-                        ulong (* tile_align )( fd_topo_tile_t const * tile ),
-                        ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
+                        fd_topo_wksp_t * wksp );
 
-/* Same as fd_topo_fill_tile but fills in all tiles in the topology with
-   the given mode. */
+/* Apply a function to every object in the topology. */
+
 void
-fd_topo_fill( fd_topo_t * topo,
-              ulong       mode,
-              ulong (* tile_align )( fd_topo_tile_t const * tile ),
-              ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
+fd_topo_wksp_apply( fd_topo_t * topo,
+                    void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
+
+/* Same as fd_topo_fill_tile but fills in all tiles in the topology. */
+
+void
+fd_topo_fill( fd_topo_t * topo );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
@@ -443,9 +450,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
                             int         solana_labs,
                             uint        uid,
                             uint        gid,
-                            fd_topo_run_tile_t (* tile_run       )( fd_topo_tile_t * tile ),
-                            ulong              (* tile_align     )( fd_topo_tile_t const * tile ),
-                            ulong              (* tile_footprint )( fd_topo_tile_t const * tile ) );
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ) );
 
 /* fd_topo_run_tile runs the given tile directly within the current
    process (and thread).  The function will never return, as tiles are
@@ -486,9 +491,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   int                  allow_fd,
                   volatile int *       wait,
                   volatile int *       debugger,
-                  fd_topo_run_tile_t * tile_run,
-                  ulong (* tile_align     )( fd_topo_tile_t const * tile ),
-                  ulong (* tile_footprint )( fd_topo_tile_t const * tile ) );
+                  fd_topo_run_tile_t * tile_run );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to
    successfully run all tiles in separate processes.  The value returned

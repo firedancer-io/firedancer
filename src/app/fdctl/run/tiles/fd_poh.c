@@ -306,6 +306,7 @@
 #include "../../../../ballet/pack/fd_pack.h"
 #include "../../../../ballet/sha256/fd_sha256.h"
 #include "../../../../ballet/bmtree/fd_bmtree.h"
+#include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
@@ -1292,7 +1293,7 @@ poh_link_init( poh_link_t *     link,
                fd_topo_tile_t * tile,
                ulong            out_idx ) {
   fd_topo_link_t * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
-  fd_topo_wksp_t * wksp = &topo->workspaces[ topo_link->wksp_id ];
+  fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
 
   link->mem      = wksp->wksp;
   link->depth    = fd_mcache_depth( topo_link->mcache );
@@ -1322,7 +1323,7 @@ poh_link_init( poh_link_t *     link,
 void
 fd_ext_poh_publish_gossip_vote( uchar * data,
                                 ulong   data_len ) {
-  poh_link_publish( &gossip_pack, 0UL, data, data_len );
+  poh_link_publish( &gossip_pack, 1UL, data, data_len );
 }
 
 void
@@ -1367,7 +1368,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bank_cnt = tile->in_cnt-1UL;
   ctx->stake_in_idx = tile->in_cnt-1UL;
 
-  fd_shred_version = tile->extra[ tile->in_cnt-1UL ];
+  ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
+  FD_TEST( poh_shred_obj_id!=ULONG_MAX );
+
+  fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
 
   memset( &ctx->deferred_metrics, '\0', sizeof(ctx->deferred_metrics) );
@@ -1396,22 +1400,25 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0; i<tile->in_cnt-1; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->bank_in[ i ].mem    = link_wksp->wksp;
     ctx->bank_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->bank_in[i].mem, link->dcache );
     ctx->bank_in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->bank_in[i].mem, link->dcache, link->mtu );
-    ctx->pack_busy[ i ] = tile->extra[ i ];
+
+    ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ctx->pack_busy[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     if( FD_UNLIKELY( !ctx->pack_busy[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
   }
 
   FD_TEST( tile->out_cnt==3UL );
 
-  ctx->stake_in.mem = topo->workspaces[ topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].wksp_id ].wksp;
+  ctx->stake_in.mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].dcache );
   ctx->stake_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].dcache, topo->links[ tile->in_link_id[ tile->in_cnt-1UL ] ].mtu );
 
-  ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;

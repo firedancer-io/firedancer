@@ -2,6 +2,8 @@
 
 #include "../run/run.h"
 
+#include "../../../disco/topo/fd_pod_format.h"
+
 #include <sys/stat.h>
 #include <linux/capability.h>
 
@@ -34,6 +36,36 @@ workspace_path( config_t * const config,
 }
 
 static void
+fdctl_obj_new( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  #define VAL(name) (__extension__({                                                               \
+      ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
+      if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
+      __x; }))
+
+  void * laddr = fd_topo_obj_laddr( topo, obj->id );
+
+  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
+    /* No need to do anything, tiles don't have a new. */
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
+    fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
+    fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
+    fd_cnc_new( laddr, 0UL, 0, fd_tickcount() );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
+    fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
+    fd_fseq_new( laddr, ULONG_MAX );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
+    fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
+  } else {
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+  }
+#undef VAL
+}
+
+static void
 init( config_t * const config ) {
   /* switch to non-root uid/gid for workspace creation. permissions checks still done as root. */
   gid_t gid = getgid();
@@ -45,7 +77,7 @@ init( config_t * const config ) {
 
   fd_topo_create_workspaces( &config->topo );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_NEW, fdctl_tile_align, fdctl_tile_footprint );
+  fd_topo_wksp_apply( &config->topo, fdctl_obj_new );
   fd_topo_leave_workspaces( &config->topo );
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
