@@ -177,9 +177,8 @@ schedule_validate_microblock(fd_pack_t * pack,
 #endif
 
     if (!(txn_cnt >= min_txns)) {
-        printf("txn: %d, min: %d\n", txn_cnt, min_txns);
         return;
-    }                           //TODO sanity
+    }                         
     FD_TEST(pre_txn_cnt - post_txn_cnt == txn_cnt);
 
     ulong total_rewards = 0UL;
@@ -283,39 +282,28 @@ int LLVMFuzzerInitialize(int *pargc, char ***pargv)
 }
 
 
+// char *generate_random_string_from_data(const uchar *data)
+// {
+//     static const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+//     const int charset_size = sizeof(charset) - 1;
+//     const int max_length = 32;
 
-char *generate_random_string_from_data(const uchar * data)
-{
-    static const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const int charset_size = sizeof(charset) - 1;
-    const int max_length = 32;
+//     unsigned int seed;
+//     memcpy(&seed, data, sizeof(seed));
+//     char *result = (char *)malloc((max_length + 1) * sizeof(char));
 
-    // Extract 4 bytes from the data
-    unsigned int seed = *(unsigned int *) data;
 
-    // Seed the random number generator
-    srand(seed);
+//     // Generate random characters within the specified range
+//     for (int i = 0; i < max_length; ++i) {
+//         result[i] = charset[seed % charset_size];
+//         seed >>= 1; // Shift to use the next bit
+//     }
 
-    // Use dynamic memory allocation for the string
-    char *result = (char *) malloc((max_length + 1) * sizeof(char));
+//     // Null-terminate the string
+//     result[max_length] = '\0';
 
-    // Check for allocation failure
-    if (result == NULL) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Generate random characters within the specified range
-    for (int i = 0; i < max_length; ++i) {
-        result[i] = charset[rand() % charset_size];
-    }
-
-    // Null-terminate the string
-    result[max_length] = '\0';
-
-    return result;
-}
-
+//     return result;
+// }
 
 int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
 {
@@ -327,7 +315,7 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
         return -1;
     ulong pack_depth = 1024UL;
     ulong gap = 1UL;
-    ulong max_txn_per_microblock = 2UL;
+    ulong max_txn_per_microblock = 30UL;
     ulong footprint =
         fd_pack_footprint(pack_depth, gap, max_txn_per_microblock);
 
@@ -370,40 +358,42 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
                         break;
                     }
 
-                    const char *acc1 =
-                        generate_random_string_from_data(&ptr[2]);
-                    const char *acc2 =
-                        generate_random_string_from_data(&ptr[6]);
-                    printf("%s, %s\n",acc1,acc2);
+                    const char *acc1 = "D";
+                    const char *acc2 = "U";
                     // Add insert operation
                     rewards +=
                         make_transaction(insert_idx, (uint) ptr[0],
                                          (double) ptr[1], acc1, acc2);
-                    free((void *) acc1);
-                    free((void *) acc2);
+                    // printf("rewards: %d\n", rewards);
+                    // free((void *) acc1);
+                    // free((void *) acc2);
                     ptr += 10;
                     s -= 10;
                     insert(insert_idx++, pack);
                     arr[insert_idx] = insert_idx;
 
 
-                } else if (!bit && j % 8 == 0) {
+                } else {
+                  // todo actually help it delete txns
                     fd_ed25519_sig_t const *sig =
                         fd_txn_get_signatures((fd_txn_t *)
                                               txn_scratch[insert_idx],
                                               payload_scratch[insert_idx]);
-                    fd_pack_delete_transaction(pack, sig);
+                    int d = fd_pack_delete_transaction(pack, sig);
+                    if (d) {
+                      printf("Deleting\n");
+                    }
                     // assert(del);
                 }
             }
-            schedule_validate_microblock(pack, 30000UL, 0.0f, 5UL, rewards,
+            schedule_validate_microblock(pack, 30000UL, 0.0f, 1, rewards,
                                      0UL, &outcome);
-            printf("I should have inserted %d\n", insert_idx);
         }
 
     }
 
     fd_pack_end_block(pack);
+    rewards = 0;
     // rewards = 0UL;
     return 0;
 }
