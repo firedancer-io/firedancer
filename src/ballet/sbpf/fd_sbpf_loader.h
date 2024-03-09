@@ -30,9 +30,7 @@
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    ctx is the executor context.  Returns 0 on suceess or an integer
    error code on failure. */
-
-/* FIXME: THIS ARGUABLE BELONGS IN FLAMENCO/VM */
-/* FIXME: IS INT RETURN TYPE WIDE ENOUGH FOR PROTOCOL USAGES? */
+/* FIXME: THIS BELONGS IN FLAMENCO/VM */
 
 typedef int
 (*fd_sbpf_syscall_func_t)( void *  ctx,
@@ -43,17 +41,20 @@ typedef int
                            ulong   arg4,
                            ulong * _ret );
 
-/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
+/* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific context */
+/* FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */
+/* FIXME: THIS IS PROBABLY OVERSIZED */
 
-struct __attribute__((aligned(16UL))) fd_sbpf_syscalls {
+#define FD_SBPF_SYSCALLS_LG_SLOT_CNT (12)
+#define FD_SBPF_SYSCALLS_SLOT_CNT    (1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT)
+
+struct fd_sbpf_syscalls {
   uint                   key;  /* Murmur3-32 hash of function name */
   fd_sbpf_syscall_func_t func; /* Function pointer */
-  char const *           name;
+  char const *           name; /* Infinite lifetime pointer to function name */
 };
 
 typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
-
-/* fd_sbpf_syscalls_t maps syscall IDs => local function pointers. */
 
 #define MAP_NAME              fd_sbpf_syscalls
 #define MAP_T                 fd_sbpf_syscalls_t
@@ -64,7 +65,7 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 #define MAP_KEY_EQUAL_IS_SLOW 0
 #define MAP_KEY_HASH(k)       (k)
 #define MAP_MEMOIZE           0
-#define MAP_LG_SLOT_CNT       12
+#define MAP_LG_SLOT_CNT       FD_SBPF_SYSCALLS_LG_SLOT_CNT
 #include "../../util/tmpl/fd_map.c"
 
 /* fd_sbpf_elf_info_t contains basic information extracted from an ELF
