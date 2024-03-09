@@ -1455,52 +1455,85 @@ fd_log_private_stack_discover( ulong   stack_sz,
   FD_VOLATILE( stack_mem[0] ) = (uchar)1; /* Paranoia to make sure compiler puts this in stack */
   ulong stack_addr = (ulong)stack_mem;
 
-  FILE * file = fopen( "/proc/self/maps", "r" );
-  if( FD_UNLIKELY( !file ) )
-    FD_LOG_WARNING(( "fopen( \"/proc/self/maps\", \"r\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  else {
-
-    while( FD_LIKELY( !feof( file ) ) ) {
-
-      /* Get the next memory region */
-
-      char buf[ 1024 ];
-      if( FD_UNLIKELY( !fgets( buf, 1024UL, file ) ) ) break;
-      ulong m0;
-      ulong m1;
-      if( FD_UNLIKELY( sscanf( buf, "%lx-%lx", &m0, &m1 )!=2 ) ) continue;
-
-      /* Test if the stack allocation is in the discovered region */
-
-      if( FD_UNLIKELY( (m0<=stack_addr) & (stack_addr<m1) ) ) {
-        ulong msz = m1 - m0;
-        if( msz==stack_sz ) { /* Memory region matches expectations */
-          stack0 = m0;
-          stack1 = m1;
-        } else if( ((fd_log_group_id()==fd_log_tid()) & (msz<stack_sz)) ) {
-          /* This is the main thread, which, on recent Linux, seems to
-             just reserve address space for main's stack at program
-             start up to the application stack size limits then uses
-             page faults to dynamically back the stack with DRAM as the
-             stack grows (which is awful for performance, jitter and
-             reliability ... sigh).  This assumes stack grows down such
-             that m1 is the fixed value in this process. */
-          stack0 = m1 - stack_sz;
-          stack1 = m1;
-        } else {
-          FD_LOG_WARNING(( "unexpected caller stack memory region size (got %lu bytes, expected %lu bytes)", msz, stack_sz ));
-          /* don't trust the discovered region */
-        }
-        break;
-      }
-
-    }
-
-    if( FD_UNLIKELY( fclose( file ) ) )
-      FD_LOG_WARNING(( "fclose( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
+  int filefd;
+  if( FD_UNLIKELY( ( filefd = open( "/proc/self/maps", O_RDONLY ) ) < 0 ) ) {
+    FD_LOG_WARNING(( "open( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    *_stack0 = 0UL;
+    *_stack1 = 0UL;
+    return;
   }
 
+  char filebuf[1<<12];
+  ulong filelen = 0;
+  char * p = filebuf;
+  int found = 0;
+  while( !found ) {
+    
+    /* Scan a line */
+
+    int full_line = 0;
+    char * nextp;
+    for( nextp = p; nextp < filebuf + filelen; ) {
+      if( *(nextp++) == '\n' ) {
+        full_line = 1;
+        break;
+      }
+    }
+    if( !full_line ) {
+      /* We need to read more data. First shift the old data down. */
+      filelen = (ulong)((filebuf + filelen) - p);
+      if( filelen )
+        memmove( filebuf, p, filelen );
+      p = filebuf;
+      /* Now read data */
+      ssize_t tlen;
+      if( FD_UNLIKELY( ( tlen = read( filefd, filebuf + filelen, sizeof(filebuf)-1U-filelen ) ) < 0 ) ) {
+        FD_LOG_WARNING(( "read( \"/proc/self/maps\" ) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        break;
+      }
+      if( tlen == 0 ) break; /* End of file */
+      filelen += (ulong)tlen;
+      filebuf[filelen] = '\0'; /* For sscanf */
+      continue;
+    }
+
+    ulong m0;
+    ulong m1;
+    int r = sscanf( p, "%lx-%lx", &m0, &m1 );
+    p = nextp;
+    if( FD_UNLIKELY( r !=2 ) ) continue;
+
+    /* Test if the stack allocation is in the discovered region */
+
+    if( FD_UNLIKELY( (m0<=stack_addr) & (stack_addr<m1) ) ) {
+      found = 1;
+      ulong msz = m1 - m0;
+      if( msz==stack_sz ) { /* Memory region matches expectations */
+        stack0 = m0;
+        stack1 = m1;
+      } else if( ((fd_log_group_id()==fd_log_tid()) & (msz<stack_sz)) ) {
+        /* This is the main thread, which, on recent Linux, seems to
+           just reserve address space for main's stack at program
+           start up to the application stack size limits then uses
+           page faults to dynamically back the stack with DRAM as the
+           stack grows (which is awful for performance, jitter and
+           reliability ... sigh).  This assumes stack grows down such
+           that m1 is the fixed value in this process. */
+        stack0 = m1 - stack_sz;
+        stack1 = m1;
+      } else {
+        FD_LOG_WARNING(( "unexpected caller stack memory region size (got %lu bytes, expected %lu bytes)", msz, stack_sz ));
+        /* don't trust the discovered region */
+      }
+      break;
+    }
+
+  }
+  if( !found )
+    FD_LOG_WARNING(( "unable to find stack size around address 0x%lx", stack_addr ));
+
+  close(filefd);
+  
   *_stack0 = stack0;
   *_stack1 = stack1;
 }
