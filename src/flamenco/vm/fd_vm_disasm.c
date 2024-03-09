@@ -144,13 +144,13 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
   if( FD_UNLIKELY( instr.opcode.normal.op_mode==FD_SBPF_OPCODE_JMP_OP_MODE_CALL ) ) {
     switch ( instr.opcode.normal.op_src ) {
     case FD_SBPF_OPCODE_SOURCE_MODE_IMM: {
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query( (fd_sbpf_syscalls_t *)syscalls, instr.imm, NULL ); /* FIXME: CONST CORRECT IN SYSCALLS_QUERY */
-      if( syscall ) {
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query( (fd_sbpf_syscalls_t *)syscalls, instr.imm, NULL ); /* FIXME: const correctness query in map */
+      if( syscall ) { /* FIXME: THESE CODE PATHS CURRENTLY NOT EXERCISED BY UNIT TEST */
         char const * name = syscall->name;
         if( name ) OUT_PRINTF( "syscall%s %s",     suffix, name      );
         else       OUT_PRINTF( "syscall%s 0x%08x", suffix, instr.imm );
       } else {
-        uint pc = fd_pchash_inverse( instr.imm );
+        uint pc = fd_pchash_inverse( instr.imm ); /* FIXME: is pchash in the right place? */
         if( pc<(10<<17) ) OUT_PRINTF( "%s%s function_%u",  op_name, suffix, pc        ); /* FIXME: hardcoded constant */
         else              OUT_PRINTF( "%s%s function_%#x", op_name, suffix, instr.imm );
       }
@@ -246,7 +246,12 @@ fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,
     OUT_PRINTF( "lddw r%d, 0x%lx", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)) );
     return FD_VM_SUCCESS;
   case FD_SBPF_OPCODE_CLASS_LDX:   return fd_vm_disasm_instr_ldx( *instr,                     out, out_max, _out_len);
-  case FD_SBPF_OPCODE_CLASS_ST:    return FD_VM_SUCCESS; /* FIXME: HMMM? */
+  case FD_SBPF_OPCODE_CLASS_ST: { /* FIXME: FIGURE OUT WHAT'S UP HERE */
+    ulong u;
+    memcpy( &u, instr, 8UL );
+    OUT_PRINTF( "FIXME: %016lx (ST)", u );
+    return FD_VM_SUCCESS;
+  }
   case FD_SBPF_OPCODE_CLASS_STX:   return fd_vm_disasm_instr_stx( *instr,                     out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_ALU:   return fd_vm_disasm_instr_alu( *instr, "",                 out, out_max, _out_len );
   case FD_SBPF_OPCODE_CLASS_JMP:   return fd_vm_disasm_instr_jmp( *instr, pc, "",   syscalls, out, out_max, _out_len );
@@ -269,10 +274,15 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
   /* Construct the mapping of pc to labels and functions.  FIXME: This
-     is currently not an algo efficient implementation. */
+     is currently not an algo efficient implementation.  Note: if the
+     same instruction is the targeted by multiple calls / exits / jmps,
+     it will appear multiple times in the label_pc and/or func_pc
+     arrays.  But that's okay because use the target instruction as the
+     label and function name. */
 
-  ulong func_cnt  = 0UL;
-  ulong label_cnt = 0UL;
+  ulong func_pc [ 65536 ]; ulong func_cnt  = 0UL;
+  ulong label_pc[ 65536 ]; ulong label_cnt = 0UL;
+
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = text[i];
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_cnt++;
@@ -282,19 +292,19 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
                (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_JMP32) ) ) label_cnt++;
   }
 
-  if( FD_UNLIKELY( (func_cnt>65536UL) | (label_cnt>65536UL) ) ) return FD_VM_ERR_INVAL; /* FIXME: err code? */
+  if( FD_UNLIKELY( (func_cnt>65536UL) | (label_cnt>65536UL) ) ) return FD_VM_ERR_UNSUP;
 
-  ulong label_pc[ 65536 ];
-  ulong func_pc [ 65536 ];
+  func_cnt  = 0UL;
+  label_cnt = 0UL;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = text[i];
-    if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL;
-    else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL;
+    if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
+    else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
     else if( ( (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_JMP  ) |
                (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_JMP32) ) )
-      label_pc[ label_cnt++ ] = (ulong)((long)i + (long)instr.offset + 1L); /* FIXME: hmmm */
+      label_pc[ label_cnt++ ] = (ulong)((long)i + (long)instr.offset + 1L); /* FIXME: casting and what if out of bounds? */
   }
 
   /* Output the program */
@@ -303,8 +313,11 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
 
-    /* Print functions / labels (note: as per logic above, it is not
-       possible for pc to have both a label and a function). */
+    /* Print functions / labels */
+    /* FIXME: What if there is a func_pc and a label_pc that target
+       for the same instruction?  It is possible given the above logic.
+       Probably should print both. */
+    /* FIXME: Algo efficiency! */
 
     int found = 0;
     for( ulong j=0UL; j<label_cnt; j++ ) if( label_pc[j]==i ) { found = 1; OUT_PRINTF( "lbb_%lu:\n", i ); break; }
@@ -314,8 +327,12 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
 
     fd_sbpf_instr_t const * instr = &text[i];
 
+    /* FIXME: WHAT ABOUT LABELS IN THE MIDDLE OF MULTIWORD INSTRUCTIONS!
+       AND NOT JUST FOR DISASSEMBLY ... POTENTIAL CONSENSUS FAILURE
+       MECHANISM! */
+
     ulong extra_cnt = fd_ulong_if( instr->opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD, 1UL, 0UL );
-    if( FD_UNLIKELY( (i+extra_cnt)>=text_cnt ) ) return FD_VM_ERR_INVAL;
+    if( FD_UNLIKELY( (i+extra_cnt)>=text_cnt ) ) return FD_VM_ERR_INVAL; /* Truncated multiword instruction at end of text */
 
     OUT_PRINTF( "    " );
     int err = fd_vm_disasm_instr( instr, text_cnt-i, i, syscalls, out, out_max, _out_len );
@@ -325,12 +342,16 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
     i += extra_cnt;
 
     /* Print any trailing function */
-    /* FIXME: Algo efficiency?  Only scan if instr.opcode.raw==JA?  Only
-       scan if i+1<text_cnt? */
+    /* FIXME: this is probably not necessary if the function/label print
+       above just prints both, unless trying print a function label that
+       happens to immediately after the end of a program. */
+    /* FIXME: Algo efficiency? */
 
-    found = 0;
-    for( ulong j=0UL; j<label_cnt; j++ ) if( label_pc[j]==i+1UL ) { found = 1; break; }
-    if( !found && (instr->opcode.raw==FD_SBPF_OP_JA) ) OUT_PRINTF( "\nfunction_%lu:\n", i+1UL );
+    if( FD_UNLIKELY( (instr->opcode.raw==FD_SBPF_OP_JA) & ((i+1UL)<text_cnt) ) ) {
+      found = 0;
+      for( ulong j=0UL; j<label_cnt; j++ ) if( label_pc[j]==(i+1UL) ) { found = 1; break; }
+      if( !found ) OUT_PRINTF( "\nfunction_%lu:\n", i+1UL );
+    }
   }
 
   return FD_VM_SUCCESS;
