@@ -1,4 +1,5 @@
 #include "fd_bpf_loader_v4_program.h"
+#include "../fd_account.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
 #include "../fd_acc_mgr.h"
@@ -284,12 +285,15 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/programs/loader-v4/src/lib.rs#L305-L310 */
-  ulong required_lamports;
+  ulong required_lamports = 0UL;
   if( new_sz==0U ) {
     required_lamports = 0UL;
   } else {
     ulong raw_new_sz  = fd_ulong_sat_add( sizeof(fd_bpf_loader_v4_state_t), new_sz );
-    required_lamports = fd_rent_exempt_minimum_balance( ctx.slot_ctx, raw_new_sz );
+    do {
+      int err = fd_rent_exempt_minimum_balance( ctx.slot_ctx, raw_new_sz, &required_lamports );
+      if( FD_UNLIKELY( err ) ) return err;
+    } while(0);
   }
 
   if( program->const_meta->info.lamports < required_lamports ) {
@@ -328,14 +332,18 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
     raw_new_sz = sizeof(fd_bpf_loader_v4_state_t) + new_sz;
   }
 
+  /* TODO THE ABOVE IS MISSING LOTS OF CHECKS */
+  if( raw_new_sz > FD_ACC_SZ_MAX )
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+
   /* Gather writable handle to program if not done yet */
-  if( !program->rec ) {
-    err = fd_instr_borrowed_account_modify_idx( &ctx, 0, raw_new_sz, &program );
+  do {
+    int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, raw_new_sz, &program );
     if( FD_UNLIKELY( err ) ) {
       /* TODO what error code to return here? */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-  }
+  } while(0);
 
   if( raw_new_sz > program->meta->dlen )
     fd_memset( program->data + program->meta->dlen, 0, raw_new_sz - program->meta->dlen );
@@ -358,91 +366,203 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
 static int
 _process_deploy( fd_exec_instr_ctx_t ctx ) {
 
-  /* Accounts */
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L356
+     Get the program account (index 0) */
 
-  fd_borrowed_account_t * const * instr_accs = ctx.instr->borrowed_accounts;
-
-  if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 1UL ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
-  fd_pubkey_t const * program_acc       = instr_accs[0]->pubkey;
-  fd_pubkey_t const * authority_address = instr_accs[1]->pubkey;
-  fd_pubkey_t const * source_program    = NULL;
+  fd_borrowed_account_t * program = NULL;
+  if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, 0, &program )
+                   !=FD_ACC_MGR_SUCCESS ) )
+    return FD_EXECUTOR_INSTR_ERR_FATAL;
 
-  if( ctx.instr->acct_cnt >= 3 )
-    source_program = instr_accs[2]->pubkey;
+  do {
+    int err = fd_borrowed_account_acquire_write( program );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
 
-  // Load program account
-  FD_BORROWED_ACCOUNT_DECL(program_acc_rec);
-  int err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, program_acc, 1, 0, program_acc_rec);
-  if( FD_UNLIKELY( err ) ) return err;
-  err = check_program_account(ctx, program_acc_rec->meta);
-  if( FD_UNLIKELY( err ) ) return err;
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L357-L359
+     Ensure the authority address is given (index 1) */
 
+  if( FD_UNLIKELY( ctx.instr->acct_cnt < 2UL ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L360-L362
+     Get the source account (index 2).  This one is weird because it
+     silently discards all errors. */
+
+  fd_borrowed_account_t * source = NULL;
+  do {
+    if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, 2, &source )
+                     !=FD_ACC_MGR_SUCCESS ) ) {
+      source = NULL;
+      break;
+    }
+
+    if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( source ) ) ) {
+      source = NULL;
+      break;
+    }
+  } while(0);
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L363-L368
+     Authorization checks on the program account */
+
+  do {
+    int err = check_program_account( ctx, program->const_meta );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
   fd_bpf_loader_v4_state_t const * state = (fd_bpf_loader_v4_state_t const *)
-      fd_type_pun_const( program_acc_rec->const_data );
+      fd_type_pun_const( program->const_data );
 
-  fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( &clock, ctx.slot_ctx );
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L369
+     Get current slot number */
+
+  fd_sol_sysvar_clock_t clock = {0};
+  if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   ulong current_slot = clock.slot;
 
-  if( fd_ulong_sat_add(state->slot, DEPLOYMENT_COOLDOWN_IN_SLOTS) > current_slot ) {
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L370-L376
+     Enforce deployment cooldown */
+
+  if( fd_ulong_sat_add( state->slot, DEPLOYMENT_COOLDOWN_IN_SLOTS ) > current_slot ) {
     /* TODO Log: "Program was deployed recently, cooldown still in effect" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  if( state->status != FD_BPF_LOADER_V4_STATUS_RETRACTED ) {
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L377-L380 */
+
+  if( FD_UNLIKELY( state->status != FD_BPF_LOADER_V4_STATUS_RETRACTED ) ) {
     /* TODO Log: "Destination program is not retracted" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L381-L395
+     Extract the buffer account to be deployed from the source or
+     program account. */
+
   fd_account_meta_t * buffer_metadata = NULL;
-  uchar * buffer_data = NULL;
-
-  FD_BORROWED_ACCOUNT_DECL( _source_program_rec );
-  fd_borrowed_account_t *source_program_rec = NULL;
-  if( source_program ) {
-    source_program_rec = _source_program_rec;
-    err = fd_acc_mgr_modify(ctx.acc_mgr, ctx.funk_txn, source_program, 1, 0, source_program_rec);
-    if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) return err;
-
-    err = check_program_account(ctx, source_program_rec->const_meta);
-    if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) return err;
-
+  uchar *             buffer_data     = NULL;
+  if( source ) {
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L382-L387 */
+    do {
+      int err = check_program_account( ctx, source->const_meta );
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) return err;
+    } while(0);
     fd_bpf_loader_v4_state_t const * source_state = (fd_bpf_loader_v4_state_t const *)
-      fd_type_pun_const( source_program_rec->const_data);
+      fd_type_pun_const( source->const_data );
 
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L388-L391 */
     if( FD_UNLIKELY( source_state->status != FD_BPF_LOADER_V4_STATUS_RETRACTED ) ) {
       /* TODO Log: "Source program is not retracted" */
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
-    buffer_metadata = source_program_rec->meta;
-    buffer_data = source_program_rec->data;
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L392 */
+    buffer_metadata = source->meta;
+    buffer_data     = source->data;
   } else {
-    buffer_metadata = program_acc_rec->meta;
-    buffer_data = program_acc_rec->data;
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L394 */
+    buffer_metadata = program->meta;
+    buffer_data     = program->data;
   }
 
-  FD_LOG_WARNING(("TODO: load program"));
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L397-L400
+     Bounds check the buffer account for program data */
+  if( FD_UNLIKELY( buffer_metadata->dlen < sizeof(fd_bpf_loader_v4_state_t) ) )
+    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
-  if( source_program ) {
-    ulong required_lamports = fd_rent_exempt_minimum_balance(ctx.slot_ctx, program_acc_rec->meta->dlen);
-    ulong transfer_lamports = fd_ulong_sat_sub(program_acc_rec->meta->info.lamports, required_lamports);
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L402 */
+  ulong deployment_slot = state->slot;
 
-    program_acc_rec->meta->dlen = source_program_rec->meta->dlen;
-    fd_memcpy(program_acc_rec->data, source_program_rec->data, source_program_rec->meta->dlen);
-    source_program_rec->meta->dlen = 0;
-    source_program_rec->meta->info.lamports -= transfer_lamports;
-    program_acc_rec->meta->info.lamports += transfer_lamports;
-  }
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L403 */
+  ulong effective_slot = fd_ulong_sat_add( deployment_slot, 1UL );
 
-  fd_bpf_loader_v4_state_t * mut_state = (fd_bpf_loader_v4_state_t *) program_acc_rec->data;
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L405-L427 */
+  FD_LOG_WARNING(( "TODO: load program" ));
+  (void)buffer_metadata; (void)buffer_data; (void)effective_slot;
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L428-L436
+     Move data from source to program account */
+
+  if( source ) {
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L429-L430 */
+    ulong required_lamports = 0UL;
+    do {
+      int err = fd_rent_exempt_minimum_balance( ctx.slot_ctx, source->const_meta->dlen, &required_lamports );
+      if( FD_UNLIKELY( err ) ) return err;
+    } while(0);
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L431 */
+    ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program->const_meta->info.lamports );
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L432
+       Acquire writable handle for program, resize, and copy over data.
+       NOTE: This effectively moves the source account's data region
+             entirely to the destination account and could therefore be
+             done zero-copy. */
+    do {
+      int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, source->const_meta->dlen, &program );
+      if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    } while(0);
+
+    do {
+      int err = 0;
+      if( FD_UNLIKELY( !fd_account_set_data_from_slice(
+          &ctx, program->meta, program->pubkey, program->data, source->const_data, source->const_meta->dlen, &err ) ) )
+        return err;
+    } while(0);
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L433
+       Acquire writable handle for source and resize. */
+
+    do {
+      int err = fd_instr_borrowed_account_modify_idx( &ctx, 2, 0UL, &source );
+      if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    } while(0);
+
+    do {
+      int err = 0;
+      if( FD_UNLIKELY( !fd_account_set_data_length(
+          &ctx, source->meta, source->pubkey, 0UL, &err ) ) )
+        return err;
+    } while(0);
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L434 */
+
+    do {
+      int err = 0;
+      if( FD_UNLIKELY( !fd_account_checked_sub_lamports(
+          &ctx, source->meta, source->pubkey, transfer_lamports ) ) )
+        return err;
+    } while(0);
+
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L435 */
+
+    do {
+      int err = 0;
+      if( FD_UNLIKELY( !fd_account_checked_add_lamports(
+          &ctx, program->meta, program->pubkey, transfer_lamports ) ) )
+        return err;
+    } while(0);
+
+  }  /* if( source ) */
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L437-L439 */
+
+  fd_bpf_loader_v4_state_t * mut_state = (fd_bpf_loader_v4_state_t *)program->data;
   mut_state->slot   = current_slot;
   mut_state->status = FD_BPF_LOADER_V4_STATUS_DEPLOYED;
 
-  (void) buffer_data;
-  (void) buffer_metadata;
-  (void) authority_address;
+  /* Implicit drop */
+  if( source ) fd_borrowed_account_release_write( source );
+
+  /* Implicit drop */
+  fd_borrowed_account_release_write( program );
+
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 

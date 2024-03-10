@@ -44,6 +44,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
+#include <assert.h>  /* TODO remove */
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
@@ -236,6 +237,45 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t * const ctx,
 
   return fd_account_set_lamports( ctx, meta, key, balance_post );
 }
+
+/* fd_account_set_data_from_slice mirrors Anza function
+   solana_sdk::transaction_context::BorrowedAccount::set_data_from_slice.
+   Assumes that destination account already has enough space to fit
+   data.
+
+   TODO This method could be refactored to make it more efficient and
+        easier to use.  (e.g. collapse the arguments into
+        fd_borrowed_account_t and turn it from a header-only function
+        to a normal one; also add the account's instruction index to the
+        borrowed account metadata to make the writable check faster)
+
+   https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L903-L923 */
+
+static inline int
+fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
+                                fd_account_meta_t *   acc_meta,
+                                fd_pubkey_t const *   acc_key,
+                                uchar *               acc_data,
+                                uchar const *         src_data,
+                                ulong                 data_sz,
+                                int *                 err ) {
+  if( !fd_account_can_data_be_resized( ctx, acc_meta, data_sz, err ) )
+    return 0;
+
+  if( !fd_account_can_data_be_changed( ctx, acc_meta, acc_key, err ) )
+    return 0;
+
+  /* TODO update_accounts_resize_delta */
+  /* TODO make_data_mut */
+
+  assert( acc_meta->dlen >= data_sz );
+  fd_memcpy( acc_data, src_data, data_sz );
+  return 1;
+}
+
+/* fd_account_set_data_length mirrors Anza function
+   solana_sdk::transaction_context::BorrowedAccount::set_data_length.
+   https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L925-L940 */
 
 static inline int
 fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
