@@ -25,16 +25,21 @@ typedef struct fd_exec_test_acct_state {
     /* The account key. Can be ommitted if obvious from the context. */
     bool has_address;
     pb_byte_t address[32];
+    bool has_lamports;
     uint64_t lamports;
     pb_bytes_array_t *data;
+    bool has_executable;
     bool executable;
+    bool has_rent_epoch;
     uint64_t rent_epoch;
+    bool has_owner;
     pb_byte_t owner[32];
 } fd_exec_test_acct_state_t;
 
 /* EpochContext includes context scoped to an epoch.
  On "real" ledgers, it is created during the epoch boundary. */
 typedef struct fd_exec_test_epoch_context {
+    bool has_features;
     fd_exec_test_feature_set_t features;
 } fd_exec_test_epoch_context_t;
 
@@ -50,16 +55,20 @@ typedef struct fd_exec_test_txn_context {
 
 typedef struct fd_exec_test_instr_acct {
     /* Selects an account in an external list */
+    bool has_index;
     uint32_t index;
+    bool has_is_writable;
     bool is_writable;
+    bool has_is_signer;
     bool is_signer;
 } fd_exec_test_instr_acct_t;
 
 /* The execution context of a program invocation (aka instruction).
- Contains all required information to independently replay an instruction.
+ Contains all information to independently replay an instruction.
  Also includes partial transaction context. */
 typedef struct fd_exec_test_instr_context {
     /* The address of the program invoked.  (32 bytes) */
+    bool has_program_id;
     pb_byte_t program_id[32];
     /* The address of the program loader if the invoked program is a user
  deployed program. */
@@ -73,9 +82,13 @@ typedef struct fd_exec_test_instr_context {
     struct fd_exec_test_instr_acct *instr_accounts;
     /* The input data passed to program execution. */
     pb_bytes_array_t *data;
+    bool has_cu_avail;
     uint64_t cu_avail;
+    bool has_txn_context;
     fd_exec_test_txn_context_t txn_context;
+    bool has_slot_context;
     fd_exec_test_slot_context_t slot_context;
+    bool has_epoch_context;
     fd_exec_test_epoch_context_t epoch_context;
 } fd_exec_test_instr_context_t;
 
@@ -100,7 +113,9 @@ typedef struct fd_exec_test_instr_effects {
 
 /* An instruction processing test fixture. */
 typedef struct fd_exec_test_instr_fixture {
+    bool has_input;
     fd_exec_test_instr_context_t input;
+    bool has_output;
     fd_exec_test_instr_effects_t output;
 } fd_exec_test_instr_fixture_t;
 
@@ -111,23 +126,23 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {false, {0}, 0, NULL, 0, 0, {0}}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {false, {0}, false, 0, NULL, false, 0, false, 0, false, {0}}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT    {0}
-#define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, false, {0}, 0, NULL, 0, NULL, NULL, 0, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
+#define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {false, 0, false, 0, false, 0}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {false, {0}, false, {0}, 0, NULL, 0, NULL, NULL, false, 0, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, false, 0, 0, NULL, 0}
-#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {false, {0}, 0, NULL, 0, 0, {0}}
-#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {false, {0}, false, 0, NULL, false, 0, false, 0, false, {0}}
+#define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO}
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0}
 #define FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO       {0}
-#define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {0, 0, 0}
-#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, false, {0}, 0, NULL, 0, NULL, NULL, 0, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
+#define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {false, 0, false, 0, false, 0}
+#define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {false, {0}, false, {0}, 0, NULL, 0, NULL, NULL, false, 0, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
 #define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, false, 0, 0, NULL, 0}
-#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -165,16 +180,16 @@ X(a, POINTER,  REPEATED, FIXED64,  features,          1)
 
 #define FD_EXEC_TEST_ACCT_STATE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, address,           1) \
-X(a, STATIC,   REQUIRED, UINT64,   lamports,          2) \
-X(a, POINTER,  REQUIRED, BYTES,    data,              3) \
-X(a, STATIC,   REQUIRED, BOOL,     executable,        4) \
-X(a, STATIC,   REQUIRED, UINT64,   rent_epoch,        5) \
-X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, owner,             6)
+X(a, STATIC,   OPTIONAL, UINT64,   lamports,          2) \
+X(a, POINTER,  OPTIONAL, BYTES,    data,              3) \
+X(a, STATIC,   OPTIONAL, BOOL,     executable,        4) \
+X(a, STATIC,   OPTIONAL, UINT64,   rent_epoch,        5) \
+X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, owner,             6)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL
 #define FD_EXEC_TEST_ACCT_STATE_DEFAULT NULL
 
 #define FD_EXEC_TEST_EPOCH_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, MESSAGE,  features,          1)
+X(a, STATIC,   OPTIONAL, MESSAGE,  features,          1)
 #define FD_EXEC_TEST_EPOCH_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_EPOCH_CONTEXT_DEFAULT NULL
 #define fd_exec_test_epoch_context_t_features_MSGTYPE fd_exec_test_feature_set_t
@@ -190,22 +205,22 @@ X(a, STATIC,   REQUIRED, MESSAGE,  features,          1)
 #define FD_EXEC_TEST_TXN_CONTEXT_DEFAULT NULL
 
 #define FD_EXEC_TEST_INSTR_ACCT_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, UINT32,   index,             1) \
-X(a, STATIC,   REQUIRED, BOOL,     is_writable,       2) \
-X(a, STATIC,   REQUIRED, BOOL,     is_signer,         3)
+X(a, STATIC,   OPTIONAL, UINT32,   index,             1) \
+X(a, STATIC,   OPTIONAL, BOOL,     is_writable,       2) \
+X(a, STATIC,   OPTIONAL, BOOL,     is_signer,         3)
 #define FD_EXEC_TEST_INSTR_ACCT_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_ACCT_DEFAULT NULL
 
 #define FD_EXEC_TEST_INSTR_CONTEXT_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, FIXED_LENGTH_BYTES, program_id,        1) \
+X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, program_id,        1) \
 X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, loader_id,         2) \
 X(a, POINTER,  REPEATED, MESSAGE,  accounts,          3) \
 X(a, POINTER,  REPEATED, MESSAGE,  instr_accounts,    4) \
-X(a, POINTER,  REQUIRED, BYTES,    data,              5) \
-X(a, STATIC,   REQUIRED, UINT64,   cu_avail,          6) \
-X(a, STATIC,   REQUIRED, MESSAGE,  txn_context,       7) \
-X(a, STATIC,   REQUIRED, MESSAGE,  slot_context,      8) \
-X(a, STATIC,   REQUIRED, MESSAGE,  epoch_context,     9)
+X(a, POINTER,  OPTIONAL, BYTES,    data,              5) \
+X(a, STATIC,   OPTIONAL, UINT64,   cu_avail,          6) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  txn_context,       7) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  slot_context,      8) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_context,     9)
 #define FD_EXEC_TEST_INSTR_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_CONTEXT_DEFAULT NULL
 #define fd_exec_test_instr_context_t_accounts_MSGTYPE fd_exec_test_acct_state_t
@@ -215,17 +230,17 @@ X(a, STATIC,   REQUIRED, MESSAGE,  epoch_context,     9)
 #define fd_exec_test_instr_context_t_epoch_context_MSGTYPE fd_exec_test_epoch_context_t
 
 #define FD_EXEC_TEST_INSTR_EFFECTS_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, INT32,    result,            1) \
+X(a, STATIC,   SINGULAR, INT32,    result,            1) \
 X(a, STATIC,   OPTIONAL, UINT32,   custom_err,        2) \
 X(a, POINTER,  REPEATED, MESSAGE,  modified_accounts,   3) \
-X(a, STATIC,   REQUIRED, UINT64,   cu_avail,          4)
+X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          4)
 #define FD_EXEC_TEST_INSTR_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_EFFECTS_DEFAULT NULL
 #define fd_exec_test_instr_effects_t_modified_accounts_MSGTYPE fd_exec_test_acct_state_t
 
 #define FD_EXEC_TEST_INSTR_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   REQUIRED, MESSAGE,  input,             1) \
-X(a, STATIC,   REQUIRED, MESSAGE,  output,            2)
+X(a, STATIC,   OPTIONAL, MESSAGE,  input,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            2)
 #define FD_EXEC_TEST_INSTR_FIXTURE_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_FIXTURE_DEFAULT NULL
 #define fd_exec_test_instr_fixture_t_input_MSGTYPE fd_exec_test_instr_context_t
