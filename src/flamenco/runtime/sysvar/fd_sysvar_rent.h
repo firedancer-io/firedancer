@@ -15,14 +15,16 @@ fd_rent_t *
 fd_sysvar_rent_read( fd_rent_t *          result,
                      fd_exec_slot_ctx_t * slot_ctx );
 
-/* fd_rent_exempt_minimum_balance returns the minimum balance needed
+/* fd_rent_exempt_minimum_balance looks up the minimum balance needed
    for an account with the given data_len to be rent exempt.  slot_ctx
-   is a slot execution context that has a rent sysvar.  (Aborts program
-   if rent sysvar is invalid) */
+   is a slot execution context that has a rent sysvar.  Returns 0 and
+   sets *min_balance on success.  On failure, returns an error code in
+   FD_EXECUTOR_INSTR_ERR_{...} and leaves *min_balance undefined. */
 
-ulong
+int
 fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
-                                ulong                data_len );
+                                ulong                data_len,
+                                ulong *              min_balance );
 
 /* fd_rent_exempt_minimum_balance2 returns the minimum balance needed
    for an account with the given data_len to be rent exempt.  rent
