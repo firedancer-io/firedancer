@@ -1,4 +1,4 @@
-syntax = "proto2";
+syntax = "proto3";
 package org.solana.sealevel.v1;
 
 // Source:
@@ -25,19 +25,19 @@ message AcctState {
     optional bytes address = 1
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
-    required uint64 lamports = 2;
-    required bytes data = 3
+    optional uint64 lamports = 2;
+    optional bytes data = 3
         [(nanopb).type = FT_POINTER];
-    required bool executable = 4;
-    required uint64 rent_epoch = 5;
-    required bytes owner = 6
+    optional bool executable = 4;
+    optional uint64 rent_epoch = 5;
+    optional bytes owner = 6
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 }
 
 // EpochContext includes context scoped to an epoch.
 // On "real" ledgers, it is created during the epoch boundary.
 message EpochContext {
-  required FeatureSet features = 1;
+  FeatureSet features = 1;
 }
 
 // SlotContext includes context scoped to a block.
@@ -48,17 +48,17 @@ message TxnContext {}
 
 message InstrAcct {
     // Selects an account in an external list
-    required uint32 index = 1;
-    required bool is_writable = 2;
-    required bool is_signer = 3;
+    optional uint32 index = 1;
+    optional bool is_writable = 2;
+    optional bool is_signer = 3;
 }
 
 // The execution context of a program invocation (aka instruction).
-// Contains all required information to independently replay an instruction.
+// Contains all information to independently replay an instruction.
 // Also includes partial transaction context.
 message InstrContext {
     // The address of the program invoked.  (32 bytes)
-    required bytes program_id = 1
+    optional bytes program_id = 1
         [(nanopb).max_size = 32, (nanopb).fixed_length = true];
 
     // The address of the program loader if the invoked program is a user
@@ -75,14 +75,14 @@ message InstrContext {
         [(nanopb).type = FT_POINTER];
 
     // The input data passed to program execution.
-    required bytes data = 5
+    optional bytes data = 5
         [(nanopb).type = FT_POINTER];
 
-    required uint64 cu_avail = 6;
+    optional uint64 cu_avail = 6;
 
-    required TxnContext txn_context = 7;
-    required SlotContext slot_context = 8;
-    required EpochContext epoch_context = 9;
+    optional TxnContext txn_context = 7;
+    optional SlotContext slot_context = 8;
+    optional EpochContext epoch_context = 9;
 }
 
 // The results of executing an InstrContext.
@@ -90,7 +90,7 @@ message InstrEffects {
     // result is zero if the instruction executed succesfully.
     // Otherwise, a non-zero error code.  Error codes are implementation
     // defined.
-    required int32 result = 1;
+    int32 result = 1;
 
     // Some error cases additionally have a custom error code.  Unlike
     // the expected_result, this is stable across clients.
@@ -103,11 +103,11 @@ message InstrEffects {
     repeated AcctState modified_accounts = 3
         [(nanopb).type = FT_POINTER];
 
-    required uint64 cu_avail = 4;
+    uint64 cu_avail = 4;
 }
 
 // An instruction processing test fixture.
 message InstrFixture {
-    required InstrContext input = 1;
-    required InstrEffects output = 2;
+    InstrContext input = 1;
+    InstrEffects output = 2;
 }
