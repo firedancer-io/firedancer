@@ -1101,8 +1101,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.send_fun         = send_packet;
     runtime_ctx->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
     runtime_ctx->repair_config.fun_arg = replay_setup_out.replay;
-    runtime_ctx->repair_config.sign_fun         = signer_fun;
-    runtime_ctx->repair_config.sign_arg         = keyguard_client;
+    runtime_ctx->repair_config.sign_fun         = NULL;
+    runtime_ctx->repair_config.sign_arg         = NULL;
 
     void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
     fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, funk_setup_out.hashseed, valloc ) );
