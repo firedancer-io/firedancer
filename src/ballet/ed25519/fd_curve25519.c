@@ -19,6 +19,62 @@
 #define MSM_MAX_BATCH 32
 
 /*
+ * Ser/de
+ */
+
+fd_ed25519_point_t *
+fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
+                            uchar const          buf[ static 32 ] ) {
+  fd_f25519_t x[1], y[1], t[1];
+  fd_f25519_frombytes( y, buf );
+  uchar expected_x_sign = buf[31] >> 7;
+
+  fd_f25519_t u[1];
+  fd_f25519_t v[1];
+  fd_f25519_sqr( u, y                );
+  fd_f25519_mul( v, u, fd_f25519_d   );
+  fd_f25519_sub( u, u, fd_f25519_one ); /* u = y^2-1 */
+  fd_f25519_add( v, v, fd_f25519_one ); /* v = dy^2+1 */
+
+  fd_f25519_sqrt_ratio( x, u, v );
+
+  fd_f25519_t vxx  [1];
+  fd_f25519_t check[1];
+  fd_f25519_sqr( vxx,   x      );
+  fd_f25519_mul( vxx,   vxx, v );
+  fd_f25519_sub( check, vxx, u );       /* vx^2-u */
+  if( fd_f25519_is_nonzero( check ) ) { /* unclear prob */
+    fd_f25519_add( check, vxx, u );     /* vx^2+u */
+    if( FD_UNLIKELY( fd_f25519_is_nonzero( check ) ) ) {
+      return NULL;
+    }
+    fd_f25519_mul( x, x, fd_f25519_sqrtm1 );
+  }
+
+  if( fd_f25519_sgn(x)!=expected_x_sign ) { /* 50% prob */
+    fd_f25519_neg( x, x );
+  }
+
+  fd_f25519_mul( t, x, y );
+  fd_ed25519_point_from( r, x, y, fd_f25519_one, t );
+
+  return r;
+}
+
+uchar *
+fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
+                          fd_ed25519_point_t const * a ) {
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_to( x, y, z, t, a );
+  fd_f25519_inv( t, z );
+  fd_f25519_mul2( x, x, t,
+                  y, y, t );
+  fd_f25519_tobytes( out, y );
+  out[31] ^= (uchar)(fd_f25519_sgn( x ) << 7);
+  return out;
+}
+
+/*
  * Scalar multiplication
  */
 

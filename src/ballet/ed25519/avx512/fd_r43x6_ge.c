@@ -73,20 +73,6 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
 
   y3 &= ~(1UL<<63);
 
-  // If the resulting value is >= p, decoding fails.
-
-  /* To do this, we add 19 to y ( which yields a 256-bit result, since y
-     is in [0,2^255) after clearing the most significant bit of y3 ) and
-     see if bit 255 is set.  If so, then y+19>=2^255, which implies y>=p. */
-
-  ulong c = 19UL;
-  ulong t;
-  t = y0 + c; c = (ulong)(t<c);
-  t = y1 + c; c = (ulong)(t<c);
-  t = y2 + c; c = (ulong)(t<c);
-  t = y3 + c;
-  if( FD_UNLIKELY( t>>63 ) ) goto fail;
-
   fd_r43x6_t y = fd_r43x6_unpack( wv( y0, y1, y2, y3 ) );
 
   // 2.  To recover the x-coordinate, the curve equation implies x^2 =
@@ -209,15 +195,6 @@ fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
   int x_0a = (int)(y3a>>63);                                       int x_0b = (int)(y3b>>63);
 
   y3a &= ~(1UL<<63);                                               y3b &= ~(1UL<<63);
-
-  ulong ca = 19UL;                                                 ulong cb = 19UL;
-  ulong ta;                                                        ulong tb;
-  ta = y0a + ca; ca = (ulong)(ta<ca);                              tb = y0b + cb; cb = (ulong)(tb<cb);
-  ta = y1a + ca; ca = (ulong)(ta<ca);                              tb = y1b + cb; cb = (ulong)(tb<cb);
-  ta = y2a + ca; ca = (ulong)(ta<ca);                              tb = y2b + cb; cb = (ulong)(tb<cb);
-  ta = y3a + ca;                                                   tb = y3b + cb;
-  if( FD_UNLIKELY( ta>>63 ) ) goto faila;
-  /**/                                                             if( FD_UNLIKELY( tb>>63 ) ) goto failb;
 
   _sa[0] = y0a;                                                    _sb[0] = y0b;
   _sa[1] = y1a;                                                    _sb[1] = y1b;

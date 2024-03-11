@@ -52,7 +52,7 @@ FD_25519_INLINE fd_f25519_t *
 fd_f25519_sub( fd_f25519_t * r,
                fd_f25519_t const * a,
                fd_f25519_t const * b ) {
-  (r->el) = fd_r43x6_fold_unsigned( fd_r43x6_sub_fast( (a->el), (b->el) ) );
+  (r->el) = fd_r43x6_fold_signed( fd_r43x6_sub_fast( (a->el), (b->el) ) );
   return r;
 }
 
@@ -100,26 +100,10 @@ fd_f25519_mul_121666( fd_f25519_t * r,
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
                      uchar const   buf[ static 32 ] ) {
-  ulong y0 = ((ulong *)buf)[0]; /* Bits   0- 63 */
-  ulong y1 = ((ulong *)buf)[1]; /* Bits  64-127 */
-  ulong y2 = ((ulong *)buf)[2]; /* Bits 128-191 */
-  ulong y3 = ((ulong *)buf)[3]; /* Bits 192-255 */
-
-  y3 &= ~(1UL<<63);
-
-  // If the resulting value is >= p, decoding fails.
-
-  /* To do this, we add 19 to y ( which yields a 256-bit result, since y
-     is in [0,2^255) after clearing the most significant bit of y3 ) and
-     see if bit 255 is set.  If so, then y+19>=2^255, which implies y>=p. */
-
-  ulong c = 19UL;
-  ulong t;
-  t = y0 + c; c = (ulong)(t<c);
-  t = y1 + c; c = (ulong)(t<c);
-  t = y2 + c; c = (ulong)(t<c);
-  t = y3 + c;
-
+  ulong y0 = ((ulong *)buf)[0];                      /* Bits   0- 63 */
+  ulong y1 = ((ulong *)buf)[1];                      /* Bits  64-127 */
+  ulong y2 = ((ulong *)buf)[2];                      /* Bits 128-191 */
+  ulong y3 = ((ulong *)buf)[3] & 0x7fffffffffffffff; /* Bits 192-254 */
   r->el = fd_r43x6_unpack( wv( y0, y1, y2, y3 ) );
   return r;
 }
@@ -130,7 +114,7 @@ fd_f25519_frombytes( fd_f25519_t * r,
 FD_25519_INLINE uchar *
 fd_f25519_tobytes( uchar               out[ static 32 ],
                    fd_f25519_t const * a ) {
-  wv_stu( out, fd_r43x6_pack( a->el ) );
+  wv_stu( out, fd_r43x6_pack( fd_r43x6_mod( a->el ) ) );
   return out;
 }
 
@@ -170,7 +154,8 @@ fd_f25519_set( fd_f25519_t * r,
 /* fd_f25519_is_zero returns 1 if a == 0, 0 otherwise. */
 FD_25519_INLINE int
 fd_f25519_is_zero( fd_f25519_t const * a ) {
-  return !fd_r43x6_is_nonzero( a->el );
+  return ( ( wwl_eq( a->el, fd_r43x6_zero() ) & 0xFF ) == 0xFF )
+      || ( ( wwl_eq( a->el, fd_r43x6_p() )    & 0xFF ) == 0xFF );
 }
 
 /*

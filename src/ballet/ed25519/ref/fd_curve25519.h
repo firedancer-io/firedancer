@@ -153,9 +153,6 @@ fd_curve25519_into_precomputed( fd_ed25519_point_t * r ) {
   fd_f25519_mul( r->T, r->T, fd_f25519_k );
 }
 
-/*
-  Implementation of dbl/dbln, needed for fd_ed25519_point_is_small_order
-*/
 /* fd_ed25519_point_add_final_mul computes just the final mul step in point add.
    See fd_ed25519_point_add_with_opts. */
 FD_25519_INLINE fd_ed25519_point_t *

@@ -3,6 +3,7 @@
 #include "fd_curve25519.h"
 #include "../hex/fd_hex.h"
 #include "test_ed25519_wycheproof.c"
+#include "test_ed25519_cctv.c"
 
 static uchar *
 fd_rng_b256( fd_rng_t * rng,
@@ -50,17 +51,46 @@ fe_rng( int *      h,
 
 void
 test_fe_frombytes( fd_rng_t * rng ) {
-  uchar           _s[32]; uchar *           s = _s;
-  fd_f25519_t _h[1];  fd_f25519_t * h = _h;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    uchar ref_s[32]; fe ref_h; fe_frombytes( ref_h, fd_rng_b256( rng, ref_s ) );
-    fd_memcpy( s, ref_s, 32UL );
-    FD_TEST( fd_f25519_frombytes( h, s )==h );
-    FD_TEST( !memcmp( s, ref_s, 32UL ) );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-  }
-# endif
+  uchar           _s[32]; uchar *       s = _s;
+  fd_f25519_t     _h[1];  fd_f25519_t * h = _h;
+
+  /* zero */
+
+  fd_hex_decode( s, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_is_zero( h ) );
+
+  fd_hex_decode( s, "0000000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_is_zero( h ) );
+
+  fd_hex_decode( s, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_is_zero( h ) );
+
+  fd_hex_decode( s, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_is_zero( h ) );
+
+  /* two */
+
+  fd_hex_decode( s, "0200000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_eq( h, fd_f25519_two ) );
+
+  fd_hex_decode( s, "0200000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_eq( h, fd_f25519_two ) );
+
+  fd_hex_decode( s, "efffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_eq( h, fd_f25519_two ) );
+
+  fd_hex_decode( s, "efffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST( fd_f25519_eq( h, fd_f25519_two ) );
+
+  /* bench */
 
   fd_rng_b256( rng, s );
   ulong iter = 1000000UL;
@@ -72,17 +102,64 @@ test_fe_frombytes( fd_rng_t * rng ) {
 
 void
 test_fe_tobytes( fd_rng_t * rng ) {
-  fd_f25519_t _h[1];  fd_f25519_t * h = _h;
-  uchar           _s[32]; uchar *           s = _s;
-# if OPENSSL_COMPARE
-  for( ulong rem=1000000UL; rem; rem-- ) {
-    fe ref_h; uchar ref_s[32]; fe_tobytes( ref_s, fe_rng( ref_h, rng ) );
-    fd_memcpy( h, ref_h, sizeof(fe) );
-    FD_TEST( fd_f25519_tobytes( s, h )==s );
-    FD_TEST( !memcmp( h, ref_h, sizeof(fe) ) );
-    FD_TEST( !memcmp( s, ref_s, 32UL ) );
-  }
-# endif
+  uchar           _s[32]; uchar *       s = _s;
+  uchar           _e[32]; uchar *       e = _e;
+  fd_f25519_t     _h[1];  fd_f25519_t * h = _h;
+
+  fd_hex_decode( e, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_tobytes( s, fd_f25519_zero );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_tobytes( s, fd_f25519_one );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_tobytes( s, fd_f25519_minus_one );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "59f1b226949bd6eb56b183829a14e00030d1f3eef2808e19e7fcdf56dcd90624", 32 );
+  fd_f25519_tobytes( s, fd_f25519_k );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  /* fd_f25519_tobytes should reduce mod p, i.e. only produce canonical results */
+
+  fd_hex_decode( e, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_add_nr( h, fd_f25519_minus_one, fd_f25519_one );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_add_nr( h, fd_f25519_minus_one, fd_f25519_two );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  /* frombytes > tobytes success */
+
+  fd_hex_decode( e, "feffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff3f", 32 );
+  fd_f25519_frombytes( h, e );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "0000000000000000000000000000000000000000000000000000000000000002", 32 );
+  fd_f25519_frombytes( h, e );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  fd_hex_decode( e, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, e );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  /* frombytes > tobytes expected failure */
+
+  fd_hex_decode( e, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_hex_decode( s, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  fd_f25519_tobytes( s, h );
+  FD_TEST( fd_memeq( e, s, 32 ) );
+
+  /* bench */
 
   fd_f25519_rng_unsafe( h, rng );
   ulong iter = 1000000UL;
@@ -90,6 +167,59 @@ test_fe_tobytes( fd_rng_t * rng ) {
   for( ulong rem=iter; rem; rem-- ) { FD_COMPILER_FORGET( h ); FD_COMPILER_FORGET( h ); fd_f25519_tobytes( s, h ); }
   dt = fd_log_wallclock() - dt;
   log_bench( "fd_f25519_tobytes", iter, dt );
+}
+
+void
+test_fe_is_zero( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar           _s[32]; uchar *       s = _s;
+  fd_f25519_t     _h[1];  fd_f25519_t * h = _h;
+
+  FD_TEST( fd_f25519_is_zero( fd_f25519_zero ) );
+
+  fd_hex_decode( s, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( fd_f25519_is_zero( h ), "fd_f25519_is_zero( 00..00 )" );
+
+  fd_hex_decode( s, "0000000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( fd_f25519_is_zero( h ), "fd_f25519_is_zero( 00..80 )" );
+
+  fd_hex_decode( s, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( fd_f25519_is_zero( h ), "fd_f25519_is_zero( edff..7f )" );
+
+  fd_hex_decode( s, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( fd_f25519_is_zero( h ), "fd_f25519_is_zero( edff..ff )" );
+
+  /* negative */
+
+  FD_TEST( !fd_f25519_is_zero( fd_f25519_one ) );
+  FD_TEST( !fd_f25519_is_zero( fd_f25519_minus_one ) );
+
+  fd_hex_decode( s, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( 01..00 )" );
+
+  fd_hex_decode( s, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( 01..80 )" );
+
+  fd_hex_decode( s, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( eeff..7f )" );
+
+  fd_hex_decode( s, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( eeff..ff )" );
+
+  fd_hex_decode( s, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( ecff..7f )" );
+
+  fd_hex_decode( s, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_f25519_frombytes( h, s );
+  FD_TEST_CUSTOM( !fd_f25519_is_zero( h ), "!fd_f25519_is_zero( ecff..ff )" );
 }
 
 void
@@ -198,6 +328,7 @@ test_fe_mul( fd_rng_t * rng ) {
   fd_f25519_t _f[1]; fd_f25519_t * f = _f;
   fd_f25519_t _g[1]; fd_f25519_t * g = _g;
   fd_f25519_t _h[1]; fd_f25519_t * h = _h;
+  fd_f25519_t _e[1]; fd_f25519_t * e = _e;
 # if OPENSSL_COMPARE
   for( ulong rem=1000000UL; rem; rem-- ) {
     fe ref_f; fe ref_g; fe ref_h; fe_mul( ref_h, fe_rng( ref_f, rng ), fe_rng( ref_g, rng ) );
@@ -220,6 +351,18 @@ test_fe_mul( fd_rng_t * rng ) {
   //fd_memcpy( f, ref_f, sizeof(fe) );
   }
 # endif
+
+  uchar buf[32], ebuf[32];
+  fd_hex_decode( buf, "67ccf547e004ba7acda6c72bf9d7d6c5ea20ff33bd887ef92764243c83488700", 32 );
+  fd_f25519_frombytes( f, buf );
+  fd_hex_decode( buf, "58ad456df8e6593162f595ee41b26590052a98a75a243db7f26b3c5f2aba1430", 32 );
+  fd_f25519_frombytes( g, buf );
+  fd_hex_decode( ebuf, "0000000000000000000000000000000000000000000000000000000000000002", 32 );
+  fd_f25519_frombytes( e, ebuf );
+  fd_f25519_mul( h, f, g );
+  FD_TEST( fd_f25519_eq( e, h ) );
+  fd_f25519_tobytes( buf, h );
+  FD_TEST( fd_memeq( buf, ebuf, 32 ) );
 
   fd_f25519_rng_unsafe( f, rng );
   fd_f25519_rng_unsafe( g, rng );
@@ -463,6 +606,50 @@ test_fe_pow22523( fd_rng_t * rng ) {
 /**********************************************************************/
 
 /* FIXME: ADD GE TESTS HERE */
+
+static void
+test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar _buf[32]; uchar * buf = _buf;
+
+  fd_ed25519_point_tobytes( buf, fd_ed25519_base_point );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(fd_ed25519_base_point)" );
+
+  fd_hex_decode( buf, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(00..00)" );
+
+  fd_hex_decode( buf, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "0300000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  fd_hex_decode( buf, "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+
+  /* negative tests */
+
+  fd_hex_decode( buf, "0200000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST_CUSTOM( !fd_ed25519_point_validate( buf ), "!fd_ed25519_point_validate(02..00)" );
+
+  fd_hex_decode( buf, "b898e00f6f6df758b3f9a05cbf73b15fd392a008a9a417d471c178c1b28c7447", 32 );
+  FD_TEST_CUSTOM( !fd_ed25519_point_validate( buf ), "!fd_ed25519_point_validate(02..00)" );
+}
+
 
 /**********************************************************************/
 
@@ -721,9 +908,10 @@ test_verify( fd_rng_t *    rng,
   ulong iter = 10000UL;
 
   for( ulong sz=128UL; sz<=1024UL; sz+=128UL ) {
+    char cstr[128];
     fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
 
-    FD_TEST( fd_ed25519_verify( msg, sz, sig, pub, sha )==FD_ED25519_SUCCESS );
+    FD_TEST_CUSTOM( fd_ed25519_verify( msg, sz, sig, pub, sha )==FD_ED25519_SUCCESS, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify(good %lu)", sz ) );
 
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
@@ -732,7 +920,6 @@ test_verify( fd_rng_t *    rng,
       fd_ed25519_verify( msg, sz, sig, pub, sha );
     }
     dt = fd_log_wallclock() - dt;
-    char cstr[128];
     log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify(good %lu)", sz ), iter, dt );
   }
 
@@ -822,8 +1009,9 @@ test_verify( fd_rng_t *    rng,
   }
 }
 
-static void
+void
 test_wycheproofs( fd_sha512_t * sha ) {
+  char cstr[128];
 
   for( fd_ed25519_verify_wycheproof_t const * proof = ed25519_verify_wycheproofs;
        proof->msg;
@@ -831,12 +1019,67 @@ test_wycheproofs( fd_sha512_t * sha ) {
 
     int actual = ( fd_ed25519_verify( proof->msg, proof->msg_sz, proof->sig, proof->pub, sha )
                      == FD_ED25519_SUCCESS );
-    FD_TEST( actual == proof->ok );
+    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_wycheproof id=%d", proof->tc_id ) );
 
   }
   FD_LOG_NOTICE(( "fd_ed25519_verify_wycheproof: ok" ));
+}
 
- }
+void
+test_cctv( fd_sha512_t * sha ) {
+  char cstr[128];
+  for( fd_ed25519_verify_cctv_t const * proof = ed25519_verify_cctvs;
+       proof->msg;
+       proof++ ) {
+    int actual = ( fd_ed25519_verify( proof->msg, proof->msg_sz, proof->sig, proof->pub, sha )
+                     == FD_ED25519_SUCCESS );
+    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv id=%d", proof->tc_id ) );
+  }
+  FD_LOG_NOTICE(( "fd_ed25519_verify_cctv: ok" ));
+}
+
+void
+test_cctv_batch( fd_rng_t * rng, fd_sha512_t * sha ) {
+  char cstr[128];
+
+  uchar const * msg = ed25519_verify_cctvs[7].msg;
+  ulong msg_sz = ed25519_verify_cctvs[7].msg_sz;
+
+  uchar _pubs[   32*16 ]; uchar * pubs = _pubs;
+  uchar _sigs[   64*16 ]; uchar * sigs = _sigs;
+  uchar _prv2[   32 ]; uchar * prv2 = _prv2;
+  fd_sha512_t * _shas[ 16 ]; fd_sha512_t ** shas = _shas;
+
+  /* generate 16 valid signatures */
+  for( ulong j=0; j<16; j++ ) {
+    _shas[j] = sha;
+    fd_rng_b256( rng, prv2 );
+    fd_ed25519_public_from_private( &pubs[32*j], prv2, sha );
+    fd_ed25519_sign( &sigs[64*j], msg, msg_sz, &pubs[32*j], prv2, sha );
+  }
+  FD_TEST( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 16 )==FD_ED25519_SUCCESS );
+
+  for( fd_ed25519_verify_cctv_t const * proof = ed25519_verify_cctvs;
+       proof->msg;
+       proof++ ) {
+    // only keep tests with the same msg
+    if (proof->msg_sz != msg_sz || !fd_memeq( proof->msg, msg, msg_sz )) {
+      continue;
+    }
+
+    fd_memcpy( &sigs[64], proof->sig, 64 );
+    fd_memcpy( &pubs[32], proof->pub, 32 );
+
+    int actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 2 )
+                     == FD_ED25519_SUCCESS );
+    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(2) id=%d", proof->tc_id ) );
+
+    actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 4 )
+                     == FD_ED25519_SUCCESS );
+    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(4) id=%d", proof->tc_id ) );
+  }
+  FD_LOG_NOTICE(( "fd_ed25519_verify_cctv_batch: ok" ));
+}
 
 /**********************************************************************/
 
@@ -849,6 +1092,7 @@ main( int     argc,
 
   test_fe_frombytes ( rng );
   test_fe_tobytes   ( rng );
+  test_fe_is_zero   ( rng );
   test_fe_copy      ( rng );
   test_fe_add       ( rng );
   test_fe_sub       ( rng );
@@ -860,6 +1104,8 @@ main( int     argc,
   test_fe_isnonzero ( rng );
   test_fe_pow22523  ( rng );
 
+  test_point_validate( rng );
+
   test_sc_validate  ( rng );
   test_sc_reduce    ( rng );
   test_sc_muladd    ( rng );
@@ -869,6 +1115,8 @@ main( int     argc,
   test_verify             ( rng, sha );
 
   test_wycheproofs( sha );
+  test_cctv       ( sha );
+  test_cctv_batch ( rng, sha );
 
   fd_sha512_delete( fd_sha512_leave( sha ) );
   fd_rng_delete( fd_rng_leave( rng ) );

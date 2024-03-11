@@ -32,7 +32,8 @@ fd_ed25519_point_add_with_opts( fd_ed25519_point_t *       r,
                                 FD_PARAM_UNUSED int const skip_last_mul ) {
 
   if( b_is_precomputed ) {
-    FD_R43X6_GE_ADD_TABLE_ALT( r->P, a->P, b->P );
+    fd_ed25519_point_t tmp[2];
+    FD_R43X6_GE_ADD_TABLE_ALT( r->P, a->P, b->P, tmp[0].P, tmp[1].P );
   } else {
     FD_R43X6_GE_ADD( r->P, a->P, b->P );
   }
@@ -146,28 +147,13 @@ fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
  * Ser/de
  */
 
-fd_ed25519_point_t *
-fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
-                            uchar const          buf[ static 32 ] ) {
-  if ( FD_UNLIKELY( FD_R43X6_GE_DECODE( r->P, buf ) != 0 ) ) {
-    return NULL;
-  }
-  return r;
-}
-
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
                                uchar const          buf1[ static 32 ],
                                fd_ed25519_point_t * r2,
                                uchar const          buf2[ static 32 ] ) {
+  //TODO: consider unifying code with ref
   return FD_R43X6_GE_DECODE2( r1->P, buf1, r2->P, buf2 );
-}
-
-uchar *
-fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
-                          fd_ed25519_point_t const * a ) {
-  FD_R43X6_GE_ENCODE( out, a->P );
-  return out;
 }
 
 /*

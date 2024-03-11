@@ -15,6 +15,17 @@ static const fd_ed25519_point_t fd_ed25519_base_point[1] = {
   },
 };
 
+/* Low-order points y coordinates. */
+// 0x26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05
+static const fd_f25519_t fd_ed25519_order8_point_y0[1] = {{
+  { 0x0007b2c28f95e826, 0x0006513e9868b604, 0x0006b37f57c263bf, 0x0004589c99e36982, 0x00005fc536d88023, }
+}};
+
+// 0xc7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a
+static const fd_f25519_t fd_ed25519_order8_point_y1[1] = {{
+  { 0x00004d3d706a17c7, 0x0001aec1679749fb, 0x00014c80a83d9c40, 0x0003a763661c967d, 0x0007a03ac9277fdc, }
+}};
+
 /* Ed25519 base point w-NAF table for fast scalar multiplication.
    Table size 128 points, i.e. max w=8.
    Used by fd_ed25519_verify and similar. */

@@ -37,7 +37,7 @@ FD_PROTOTYPES_BEGIN
    duration the call.  Sanitizes the sha and stack to minimize risk of
    leaking private key info before returning.  Returns public_key. */
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
                                 uchar const   private_key[ static 32 ],
                                 fd_sha512_t * sha );
@@ -64,7 +64,7 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
    takes a write interest in sig and sha and a read interest in msg,
    public_key and private_key for the duration the call.  Returns sig. */
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_ed25519_sign( uchar         sig[ static 64 ],
                  uchar const   msg[], /* msg_sz */
                  ulong         msg_sz,

@@ -175,6 +175,30 @@ fd_curve25519_scalar_wnaf( short       slides[ static 256 ], /* 256-entry */
                            uchar const n[ static 32 ],       /* 32-byte, assumes valid scalar */
                            int         bits );               /* range: [1:12], 1 = NAF */
 
+static inline uchar *
+fd_curve25519_scalar_neg_mod8l( uchar r[ static 32 ], uchar const s[ static 32 ] ) {
+  ulong s0 = *(ulong *)(&s[  0 ]);
+  ulong s1 = *(ulong *)(&s[  8 ]);
+  ulong s2 = *(ulong *)(&s[ 16 ]);
+  ulong s3 = *(ulong *)(&s[ 24 ]);
+
+  ulong mod8l0 = 0xc09318d2e7ae9f68UL;
+  ulong mod8l1 = 0xa6f7cef517bce6b2UL;
+  ulong mod8l2 = 0x0UL;
+  ulong mod8l3 = 0x8000000000000000UL;
+
+  *(ulong *)(&r[ 24 ]) = mod8l3 - s3 - (s2 > mod8l2);
+  *(ulong *)(&r[ 16 ]) = mod8l2 - s2 - (s1 > mod8l1);
+  *(ulong *)(&r[  8 ]) = mod8l1 - s1 - (s0 > mod8l0);
+  *(ulong *)(&r[  0 ]) = mod8l0 - s0;
+  return r;
+}
+
+uchar *
+fd_curve25519_scalar_mul_mod8l( uchar *       s,
+                                uchar const * a,
+                                uchar const * b );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_curve25519_scalar_h */

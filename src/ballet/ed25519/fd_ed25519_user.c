@@ -1,7 +1,7 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
                                 uchar const   private_key[ static 32 ],
                                 fd_sha512_t * sha ) {
@@ -28,7 +28,7 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
   //      second highest bit of the last octet is set.
 
   s[ 0] &= (uchar)0xF8;
-  s[31] &= (uchar)0x3F;
+  s[31] &= (uchar)0x7F;
   s[31] |= (uchar)0x40;
 
   //  3.  Interpret the buffer as the little-endian integer, forming a
@@ -50,13 +50,13 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
 
   /* Sanitize */
 
-  fd_memset( s, 0, 64UL );
+  fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
   fd_sha512_init( sha );
 
   return public_key;
 }
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_ed25519_sign( uchar         sig[ static 64 ],
                  uchar const   msg[], /* msg_sz */
                  ulong         msg_sz,
@@ -81,9 +81,9 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
 
   uchar s[ FD_SHA512_HASH_SZ ];
   fd_sha512_fini( fd_sha512_append( fd_sha512_init( sha ), private_key, 32UL ), s );
-  s[ 0] &= (uchar)248;
-  s[31] &= (uchar) 63;
-  s[31] |= (uchar) 64;
+  s[ 0] &= (uchar)0xF8;
+  s[31] &= (uchar)0x7F;
+  s[31] |= (uchar)0x40;
   uchar * h = s + 32;
 
   /* public_key is an input */
@@ -112,7 +112,6 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
   fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( sha ),
                   sig, 32UL ), public_key, 32UL ), msg, msg_sz ), k );
 
-
   //  5.  Compute S = (r + k * s) mod L.  For efficiency, again reduce k
   //      modulo L first.
   //
@@ -125,8 +124,8 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
 
   /* Sanitize */
 
-  fd_memset( s, 0, FD_SHA512_HASH_SZ );
-  fd_memset( r, 0, FD_SHA512_HASH_SZ );
+  fd_memset_explicit( s, 0, FD_SHA512_HASH_SZ );
+  fd_memset_explicit( r, 0, FD_SHA512_HASH_SZ );
   fd_sha512_init( sha );
 
   return sig;
@@ -164,17 +163,39 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
   fd_ed25519_point_t Aprime[1], R[1];
   int res = fd_ed25519_point_frombytes_2x( Aprime, public_key,   R, r );
 
-  /* Check public key and point r */
+  /* Check public key and point r:
+     1. both public key and point r decompress successfully (RFC)
+     2. both public key and point r are small order (verify_strict)
+
+     There's another check that we currently do NOT enforce:
+     whether public key and point r are canonical.
+     Dalek 2.x (currently used by Agave) does NOT do any check.
+     Dalek 4.x checks that the point r is canonical, but accepts
+     a non canonical public key.
+
+     Note: I couldn't find any test with non canonical points
+     (all tests are non canonical + low order, that are excluded by
+     the verify_strict rule). The reason is that to write such a
+     test one needs to know the discrete log of a non canonical point.
+
+     The following code checks that r is canonical (we can add it
+     in when Agave switches to dalek 4.x).
+
+        uchar compressed[ 32 ];
+        fd_ed25519_affine_tobytes( compressed, R );
+        if( FD_UNLIKELY( !fd_memeq( compressed, r, 32 ) ) ) {
+          return FD_ED25519_ERR_SIG;
+        }
+    */
   if( FD_UNLIKELY( res ) ) {
     return res == 1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
   }
-  if( FD_UNLIKELY( fd_ed25519_point_is_small_order(Aprime) ) ) {
+  if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(Aprime) ) ) {
     return FD_ED25519_ERR_PUBKEY;
   }
-  if( FD_UNLIKELY( fd_ed25519_point_is_small_order(R) ) ) {
+  if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(R) ) ) {
     return FD_ED25519_ERR_SIG;
   }
-  //TODO: check that R is canonical, i.e. tobytes(R) == r
 
   //  2.  Compute SHA512(dom2(F, C) || R || A || PH(M)), and interpret the
   //      64-octet digest as a little-endian integer k.
@@ -187,12 +208,25 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
   //  3.  Check the group equation [8][S]B = [8]R + [8][k]A'.  It's
   //      sufficient, but not required, to instead check [S]B = R + [k]A'.
 
-  /* Compute R = -[k]A' + [S]B, with B base point */
+  /* Compute R = [k](-A') + [S]B, with B base point.
+     Note: this is not the same as R = [-k]A' + [S]B, because the order
+     of A' is 8l. Computing -k mod 8l would work. */
   fd_ed25519_point_t Rcmp[1];
-  fd_curve25519_scalar_neg( k, k );
+#if 1
+  fd_ed25519_point_neg( Aprime, Aprime );
+#else
+  /* this works too, and explains how batch verify (strict) works */
+  fd_curve25519_scalar_neg_mod8l( k, k );
+#endif
   fd_ed25519_double_scalar_mul_base( Rcmp, k, Aprime, S );
 
-  /* Compare R (computed) and R from signature */
+  /* Compare R (computed) and R from signature.
+     Note: many implementations do this comparison by compressing Rcmd,
+     and compare it against the r buf as it appears in the signature.
+     This implicitly prevents non-canonical R.
+     However this also hides a field inv to compress Rcmp.
+     In our implementation we compare the points (see the comment
+     above on "Check public key and point r" for details). */
   if( FD_LIKELY( fd_ed25519_point_eq_z1( Rcmp, R ) ) ) {
     return FD_ED25519_SUCCESS;
   }
@@ -212,12 +246,12 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 
   /* Using MSM introduces an overhead, so for batch_sz==1 it's better
      to just call fd_ed25519_verify. */
-  if ( batch_sz== 1 ) {
+  if ( batch_sz==1 ) {
     return fd_ed25519_verify( msg, msg_sz, signatures, pubkeys, shas[0] );
   }
 
 #if 0
-  /* naive */
+  /* Naive */
   for( uchar i=0; i<batch_sz; i++ ) {
     int res = fd_ed25519_verify( msg, msg_sz, &signatures[ i*64 ], &pubkeys[ i*32 ], shas[0] );
     if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
@@ -227,13 +261,18 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
   return FD_ED25519_SUCCESS;
 #else
 
-  fd_ed25519_point_t points [2*MAX];
-  uchar              scalars[2*MAX * 32];
+  fd_ed25519_point_t points [2*MAX];      /* points for MSM */
+  uchar              scalars[2*MAX * 32]; /* scalars for MSM */
+  uchar              k      [MAX * 32];   /* k_j for each signature */
 
+  /* The first batch_sz points are the R_j, the last are A'_j.
+     Scalars will be stored accordingly. */
   fd_ed25519_point_t * R =      &points[0];
   fd_ed25519_point_t * Aprime = &points[batch_sz];
 
-  //TODO: concurrent loop
+  /* First, we validate scalars, decompress public keys and points R_j,
+     check low order points, and compute k_j.
+     TODO: optimize, this is 20-25% of the total time. */
   for( int j=0; j<batch_sz; j++ ) {
 
     uchar const * r = signatures + 64*j;
@@ -252,54 +291,136 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
     if( FD_UNLIKELY( res ) ) {
       return res == 1 ? FD_ED25519_ERR_PUBKEY : FD_ED25519_ERR_SIG;
     }
-    if( FD_UNLIKELY( fd_ed25519_point_is_small_order(&Aprime[j]) ) ) {
+    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(&Aprime[j]) ) ) {
       return FD_ED25519_ERR_PUBKEY;
     }
-    if( FD_UNLIKELY( fd_ed25519_point_is_small_order(&R[j]) ) ) {
+    if( FD_UNLIKELY( fd_ed25519_affine_is_small_order(&R[j]) ) ) {
       return FD_ED25519_ERR_SIG;
     }
 
-    /* Compute scalars k */
-    uchar k[ 64 ];
+    /* Compute scalars k_j */
+    uchar _k[ 64 ];
     fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_append( fd_sha512_init( shas[j] ),
-                    r, 32UL ), public_key, 32UL ), msg, msg_sz ), k );
-    fd_curve25519_scalar_reduce( &scalars[32*(j+batch_sz)], k );
+                    r, 32UL ), public_key, 32UL ), msg, msg_sz ), _k );
+    fd_curve25519_scalar_reduce( &k[32*j], _k );
   }
 
+  /* Batch verify with MSM.
+     Note: if we detect an issue with MSM, we jump to fallback, where we do batch_sz
+     fd_ed25519_double_scalar_mul_base(), i.e. we verify all signatures independently.
+
+     To verify 1 signature we check the equation:
+       R = [k](-A') + [S]B
+     that we can rewrite as:
+       R + [k](A') - [S]B = 0
+
+     To verify n signatures we have to check the n equations:
+       R_0 + [k_0] A'_0 - [S_0] B = 0
+       R_1 + [k_1] A'_1 - [S_1] B = 0
+       ...
+       R_j + [k_j] A'_j - [S_j] B = 0
+       ...
+
+     We can batch verify the n equation using MSM. To do it securely,
+     we have to multiply each equation by a random factor w_j, before
+     adding all terms together. We set w_0 = 1.
+           R_0 + [k_0] A'_0 - [S_0] B
+       + ( R_1 + [k_1] A'_1 - [S_1] B ) * w_1
+       +   ...
+       + ( R_j + [k_j] A'_j - [S_j] B ) * w_j
+           ... = 0
+
+     Note that we can factor together all the coefficients of B
+     (B is the base point and has order l prime), and leave R_0 out
+     of the MSM and just add it at the end. So, the bulk of the
+     computation is a MSM with 2*n points.
+
+     The cofactors w_j are computed by hashing all inputs into a seed `rnd`,
+     and repeatedly hashing rnd into w_j. For convenience we use sha512
+     (and for comparison, Dalek uses the Merlin protocol based on sha3).
+
+     There's a catch! We want to implement batch verify_strict
+     (Dalek does NOT currently implement batch verify_strict).
+     The critical part is that any of the R_j and A'_j may have a
+     torsion component, so we need to carefully analyze the terms
+     [w_j] R_j and [w_j*k_j] A'_j.
+
+     The first remark is that [w_j*k_j] has to be done mod 8*l (viceversa,
+     computing the coefficient of B can be done mod l).
+
+     The second remark is that if w_j is random, there's a chance that
+     both w_j % 8 == 0, and w_j*k_j % 8 == 0. In this case the torsion
+     may cancel out and an invalid signature may appear as valid.
+
+     Note that honestly generated signatures do NOT have torsion, so
+     for the vast majority of the signatures that we have to verify,
+     the computation will use MSM and will be accelerated.
+     In the "unfortunate" case where 1) a signature j has torsion, and
+     2) both w_j % 8 == 0, and w_j*k_j % 8 == 0, we fall back to verifying
+     each signature independently. */
+
   /* Generate initial randomness. */
-  //TODO: review for security
   uchar rnd[64]; uchar w[32];
   fd_sha512_fini( fd_sha512_append( fd_sha512_append( fd_sha512_init( shas[0] ),
                   "batch-verify", 12 ), &scalars[batch_sz/2], 32*(ulong)batch_sz/2 ), rnd );
 
-  fd_memcpy( scalars, signatures + 32, 32 ); // copy S_0 from signature 0
+  fd_memcpy( &scalars[0], signatures + 32 + 64*0, 32 ); // copy S_0 from signature 0
+  fd_memcpy( &scalars[32*(0+batch_sz)], &k[32*0], 32 ); // copy k_0
   for( int j=1; j<batch_sz; j++ ) {
-    /* Generate random w */
+    uchar const * S = signatures + 32 + 64*j;
+
+    /* Generate random w_j */
     fd_sha512_fini( fd_sha512_append( fd_sha512_init( shas[0] ), rnd, 64 ), rnd );
     fd_curve25519_scalar_reduce( w, rnd );
 
-    /* Scalars:
-       - scalars[0] = \sum w_j S_j, random w_j * S_j from signature j
-       - scalars[j] = w_j
-       - scalars[batch_sz+j] = k_j * w_j, k_j generated above via sha512 */
-    fd_curve25519_scalar_muladd( &scalars[0], signatures + 32 + 64*j, w, &scalars[0] );
+    /* Compute scalars:
+       - scalars[batch_sz+j] = k_j * w_j mod 8*l, coefficient of A'_j
+       - scalars[j] = w_j, coefficient of R_j (excluding R_0)
+       - scalars[0] = \sum w_j S_j, coefficient of base point B */
+
+    /* If w is random, there's a chance that it'll nullify the torsion in R_j or A'_j.
+       If we detect it, first we try to fix it by incrementing w_j by 1.
+       Failing that, we fall back to validating each signature independently. */
+    fd_curve25519_scalar_mul_mod8l( &scalars[32*(j+batch_sz)], &k[32*j], w );
+    if (scalars[32*(j+batch_sz)] % 8 == 0 || w[0] % 8 == 0) {
+      w[0] = (uchar)(w[0] + 1); /* w_j++, still random */
+      fd_curve25519_scalar_mul_mod8l( &scalars[32*(j+batch_sz)], &k[32*j], w );
+    }
+    if (scalars[32*(j+batch_sz)] % 8 == 0 || w[0] % 8 == 0) {
+      goto fallback;
+    }
+
     fd_memcpy( &scalars[32*j], w, 32 );
-    fd_curve25519_scalar_mul( &scalars[32*(j+batch_sz)], &scalars[32*(j+batch_sz)], w );
+    fd_curve25519_scalar_muladd( &scalars[0], S, w, &scalars[0] );
   }
 
-  /* Compute the MSM and subtract R0. */
+  /* Compute the MSM and add R0. */
   fd_ed25519_point_t res[1];
   fd_curve25519_scalar_neg( &scalars[0], &scalars[0] );
   fd_ed25519_multi_scalar_mul_base( res, scalars, points, 2*(ulong)batch_sz );
 
   fd_ed25519_point_add( res, res, &points[0] );
 
-  /* Important: it's not enough to check for res==0, we need to
-     check that [8]res==0, i.e. res has small order. */
-  if( FD_LIKELY( fd_ed25519_point_is_small_order( res ) ) ) {
+  if( FD_LIKELY( fd_ed25519_point_is_zero( res ) ) ) {
     return FD_ED25519_SUCCESS;
   }
   return FD_ED25519_ERR_MSG;
+  /* Batch verify with MSM ends here. */
+
+  /* Fallback: compute batch_sz fd_ed25519_double_scalar_mul_base(),
+     i.e. verify each signature independently. */
+fallback:
+  for( uchar j=0; j<batch_sz; j++ ) {
+    uchar const * S = signatures + 32 + 64*j;
+
+    fd_ed25519_point_neg( &Aprime[j], &Aprime[j] );
+    fd_ed25519_double_scalar_mul_base( res, &k[32*j], &Aprime[j], S );
+    if( FD_UNLIKELY( !fd_ed25519_point_eq_z1( res, &R[j] ) ) ) {
+      return FD_ED25519_ERR_MSG;
+    }
+
+  }
+  return FD_ED25519_SUCCESS;
 #endif
 #undef MAX
 }

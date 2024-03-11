@@ -77,12 +77,37 @@ fd_ed25519_point_neg( fd_ed25519_point_t *       r,
 int
 fd_ed25519_point_is_zero( fd_ed25519_point_t const * a );
 
-/* fd_ed25519_point_is_small_order returns 1 if a has small order (order <= 8), 0 otherwise. */
+/* fd_ed25519_affine_is_small_order returns 1 if a has small order (order <= 8), 0 otherwise. */
 FD_25519_INLINE int
-fd_ed25519_point_is_small_order( fd_ed25519_point_t const * a ) {
-  fd_ed25519_point_t r[1];
-  fd_ed25519_point_dbln( r, a, 3 );
-  return fd_ed25519_point_is_zero( r ); /* it should be sufficient to check r->X == 0 */
+fd_ed25519_affine_is_small_order( fd_ed25519_point_t const * a ) {
+  /* There are 8 points with order <= 8, aka low order:
+     0100000000000000000000000000000000000000000000000000000000000000 ( 0    :  1   )  P0: order 1
+     ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f ( 0    : -1   )  P1: order 2
+     0000000000000000000000000000000000000000000000000000000000000000 ( b0.. :  0   )  P2: order 4
+     0000000000000000000000000000000000000000000000000000000000000080 ( 3d.. :  0   ) -P2: order 4
+     26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05 ( 4a.. : 26.. )  P3: order 8
+     26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85 ( a3.. : 26.. ) -P3: order 8
+     c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a ( 4a.. : c7.. )  P4: order 8
+     c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa ( a3.. : c7.. ) -P4: order 8
+
+     We could test:
+       fd_ed25519_point_t r[1];
+       fd_ed25519_point_dbln( r, a, 3 );
+       return fd_ed25519_point_is_zero( r );
+
+     When the point is affine (Z==1), we can simply check:
+     -     X==0
+     - or, Y==0
+     - or, Y==2a..., or Y==c7...
+
+     And if the point is not affine, we could do 1 single dbl and check for X==0 or Y==0
+     (currently not implemented as not needed).
+  */
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_to( x, y, z, t, a );
+  return fd_f25519_is_zero( x ) | fd_f25519_is_zero( y )
+    | fd_f25519_eq( y, fd_ed25519_order8_point_y0 )
+    | fd_f25519_eq( y, fd_ed25519_order8_point_y1 );
 }
 
 /* fd_ed25519_point_eq returns 1 if a == b, 0 otherwise. */
@@ -180,6 +205,21 @@ fd_ed25519_point_validate(uchar const buf[ static 32 ] ) {
 uchar *
 fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
                           fd_ed25519_point_t const * a );
+
+/* fd_ed25519_affine_tobytes serializes a point a into
+   a 32-byte buffer out, and returns out.
+   out is in little endian form, according to RFC 8032.
+   a is an affine point, i.e. a->Z == 1; compared to
+   fd_ed25519_point_tobytes, this function doesn't require inv. */
+FD_25519_INLINE uchar *
+fd_ed25519_affine_tobytes( uchar                      out[ static 32 ],
+                           fd_ed25519_point_t const * a ) {
+  fd_f25519_t x[1], y[1], z[1], t[1];
+  fd_ed25519_point_to( x, y, z, t, a );
+  fd_f25519_tobytes( out, y );
+  out[31] ^= (uchar)(fd_f25519_sgn( x ) << 7);
+  return out;
+}
 
 /* fd_curve25519_into_precomputed transforms a point into
    precomputed table format, e.g. replaces T -> kT to save

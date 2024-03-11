@@ -206,44 +206,6 @@ fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
  * Ser/de
  */
 
-fd_ed25519_point_t *
-fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
-                            uchar const          buf[ static 32 ] ) {
-  fd_f25519_frombytes( r->Y, buf );
-  uchar expected_x_sign = buf[31] >> 7;
-
-  fd_f25519_t u[1];
-  fd_f25519_t v[1];
-  fd_f25519_sqr( u, r->Y             );
-  fd_f25519_mul( v, u, fd_f25519_d   );
-  fd_f25519_sub( u, u, fd_f25519_one ); /* u = y^2-1 */
-  fd_f25519_add( v, v, fd_f25519_one ); /* v = dy^2+1 */
-
-  fd_f25519_sqrt_ratio( r->X, u, v );
-
-  fd_f25519_t vxx  [1];
-  fd_f25519_t check[1];
-  fd_f25519_sqr( vxx,   r->X   );
-  fd_f25519_mul( vxx,   vxx, v );
-  fd_f25519_sub( check, vxx, u );       /* vx^2-u */
-  if( fd_f25519_is_nonzero( check ) ) { /* unclear prob */
-    fd_f25519_add( check, vxx, u );     /* vx^2+u */
-    if( FD_UNLIKELY( fd_f25519_is_nonzero( check ) ) ) {
-      return NULL;
-    }
-    fd_f25519_mul( r->X, r->X, fd_f25519_sqrtm1 );
-  }
-
-  if( fd_f25519_sgn(r->X)!=expected_x_sign ) { /* 50% prob */
-    fd_f25519_neg( r->X, r->X );
-  }
-
-  fd_f25519_set( r->Z, fd_f25519_one );
-  fd_f25519_mul( r->T, r->X, r->Y );
-
-  return r;
-}
-
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
                                uchar const          buf1[ static 32 ],
@@ -259,20 +221,6 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
     return 2;
   }
   return 0;
-}
-
-uchar *
-fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
-                          fd_ed25519_point_t const * a ) {
-  fd_f25519_t i[1];
-  fd_f25519_t x[1];
-  fd_f25519_t y[1];
-  fd_f25519_inv( i, a->Z );
-  fd_f25519_mul2( x, a->X, i,
-                  y, a->Y, i );
-  fd_f25519_tobytes( out, y );
-  out[31] ^= (uchar)(fd_f25519_sgn( x ) << 7);
-  return out;
 }
 
 /*

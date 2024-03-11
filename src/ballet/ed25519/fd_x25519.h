@@ -40,7 +40,7 @@ FD_PROTOTYPES_BEGIN
    public key generated locally using this function as the
    peer_public_key input to fd_x25519_exchange. */
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_x25519_public( uchar       self_public_key [ static 32 ],
                   uchar const self_private_key[ static 32 ] );
 
@@ -53,7 +53,7 @@ fd_x25519_public( uchar       self_public_key [ static 32 ],
    is received from an untrusted network transport, such as the beginning
    of a TLS handshake, and thus is under the attacker's control.) */
 
-uchar *
+uchar * FD_FN_SENSITIVE
 fd_x25519_exchange( uchar       shared_secret   [ static 32 ],
                     uchar const self_private_key[ static 32 ],
                     uchar const peer_public_key [ static 32 ] );

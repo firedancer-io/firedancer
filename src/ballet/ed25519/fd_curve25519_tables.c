@@ -233,6 +233,15 @@ point_tables_file( FILE * file ) {
   // FD_LOG_HEXDUMP_WARNING(( "x", x, 32 ));
   // FD_LOG_HEXDUMP_WARNING(( "y", y, 32 ));
 
+  /* low order points */
+  fd_f25519_t fd_ed25519_order8_point_y0[1];
+  fd_f25519_t fd_ed25519_order8_point_y1[1];
+
+  fd_hex_decode( y, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
+  fd_f25519_frombytes( fd_ed25519_order8_point_y0, y );
+  fd_hex_decode( y, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a", 32 );
+  fd_f25519_frombytes( fd_ed25519_order8_point_y1, y );
+
   /* w-naf table */
   fd_ed25519_point_t base_point_2x[1];
   fd_curve25519_affine_add( base_point_2x, fd_ed25519_base_point, fd_ed25519_base_point );
@@ -278,6 +287,10 @@ point_tables_file( FILE * file ) {
 
   fprintf( file, "/* Ed25519 base point. */\n");
   points_array( file, "fd_ed25519_base_point", fd_ed25519_base_point, 1 );
+
+  fprintf( file, "/* Low-order points y coordinates. */\n");
+  field_constant( file, "fd_ed25519_order8_point_y0", fd_ed25519_order8_point_y0 );
+  field_constant( file, "fd_ed25519_order8_point_y1", fd_ed25519_order8_point_y1 );
 
   fprintf( file, "/* Ed25519 base point w-NAF table for fast scalar multiplication.\n"
          "   Table size 128 points, i.e. max w=8.\n"
