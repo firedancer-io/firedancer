@@ -1,0 +1,11 @@
+[package]
+name = "dalek_target"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ed25519-dalek = "=1.0.1"

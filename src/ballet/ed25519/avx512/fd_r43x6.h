@@ -88,9 +88,11 @@
 
        add_fast   maps unreduced x unreduced             to unsigned (among others), see fold_unsigned above
        sub_fast   maps unreduced x unreduced             to signed   (among others), see fold_signed   above
+                  or,  reduced x reduced                 to unsigned (among others), see fold_unsigned above
        mul_fast   maps unreduced x unreduced             to unsigned,                see fold_unsigned above
        sqr_fast   maps unreduced                         to unsigned,                see fold_unsigned above
        neg        maps unreduced                         to unreduced
+                  or,  reduced                           to reduced
        add        maps unreduced x unreduced             to unreduced
        sub        maps unreduced x unreduced             to unreduced
        mul        maps unreduced x unreduced             to unreduced
@@ -711,9 +713,9 @@ fd_r43x6_mod_nearly_reduced( fd_r43x6_t x ) {
   return fd_r43x6( y0, y1, y2, y3, y4, y5 );
 }
 
-/* fd_r43x6_neg_fast(x)   returns z = -x
+/* fd_r43x6_neg_fast(x)   returns z = -x,    computed as z = p - x
    fd_r43x6_add_fast(x,y) returns z = x + y
-   fd_r43x6_sub_fast(x,y) returns z = x - y
+   fd_r43x6_sub_fast(x,y) returns z = x - y, computed as z = x + (p - y)
 
    These will be applied to lanes 6 and 7 and these assume that the
    corresponding limbs of x and y when added / subtracted will produce a
@@ -738,9 +740,9 @@ fd_r43x6_mod_nearly_reduced( fd_r43x6_t x ) {
       sll - umm -> snn, smm - ull -> snn
       sll - smm -> snn, smm - sll -> snn */
 
-#define fd_r43x6_neg_fast( x )    wwl_sub( wwl_zero(), (x) )
+#define fd_r43x6_neg_fast( x )    wwl_sub( fd_r43x6_p(), (x) )
 #define fd_r43x6_add_fast( x, y ) wwl_add( (x), (y) )
-#define fd_r43x6_sub_fast( x, y ) wwl_sub( (x), (y) )
+#define fd_r43x6_sub_fast( x, y ) wwl_add( (x), wwl_sub( (fd_r43x6_p()), (y) ) )
 
 /* fd_r43x6_mul_fast(x,y) returns z = x*y as an unsigned fd_r43x6_t
    with lanes 6 and 7 zero where x and y are unreduced fd_r43x6_t's

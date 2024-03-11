@@ -40,25 +40,23 @@ FD_PROTOTYPES_BEGIN
    public key generated locally using this function as the
    peer_public_key input to fd_x25519_exchange. */
 
-void *
-fd_x25519_public( void *       self_public_key,
-                  void const * self_private_key );
+uchar * FD_FN_SENSITIVE
+fd_x25519_public( uchar       self_public_key [ 32 ],
+                  uchar const self_private_key[ 32 ] );
 
 /* fd_x25519_exchange computes a shared secret given an arbitrary 32
-   byte secret at self_private_key and an X25519 public key at
-   peer_public_key.  On success, writes 32 bytes to shared_secret and
-   returns shared_secret.  On failure, returns NULL and leaves the
-   contents of shared_secret undefined. Reasons for failure include that
-   peer_public_key is a low order curve point.  (This is never the case
-   when using fd_x25519_public.  However, peer_public_key typically is
-   received from an untrusted network transport, such as the beginning
-   of a TLS handshake, and thus may have been tampered with by an
-   attacker) */
+   byte secret at self_private_key and an X25519 public key at peer_public_key.
+   On success, writes 32 bytes to shared_secret and returns shared_secret.
+   On failure, writes 32 bytes of 0s to shared_secret and returns NULL.
+   Reasons for failure include if peer_public_key is a low order curve point.
+   (This is never the case when using fd_x25519_public. However, peer_public_key
+   is received from an untrusted network transport, such as the beginning
+   of a TLS handshake, and thus is under the attacker's control.) */
 
-void *
-fd_x25519_exchange( void *       shared_secret,
-                    void const * self_private_key,
-                    void const * peer_public_key );
+uchar * FD_FN_SENSITIVE
+fd_x25519_exchange( uchar       shared_secret   [ 32 ],
+                    uchar const self_private_key[ 32 ],
+                    uchar const peer_public_key [ 32 ] );
 
 FD_PROTOTYPES_END
 

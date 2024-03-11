@@ -41,9 +41,9 @@ main( int     argc,
                   "sig: " FD_LOG_HEX16_FMT "  " FD_LOG_HEX16_FMT "\n\t"
                   "pub: " FD_LOG_HEX16_FMT,
           i,
-          FD_LOG_HEX16_FMT_ARGS(should_fail[i].sig),
-          FD_LOG_HEX16_FMT_ARGS(should_fail[i].sig+32),
-          FD_LOG_HEX16_FMT_ARGS(should_fail[i].pub)));
+          FD_LOG_HEX16_FMT_ARGS(should_pass[i].sig),
+          FD_LOG_HEX16_FMT_ARGS(should_pass[i].sig+32),
+          FD_LOG_HEX16_FMT_ARGS(should_pass[i].pub)));
     }
   }
 
