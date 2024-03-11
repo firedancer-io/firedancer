@@ -481,6 +481,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_topo_run_tile_t fd_tile_metric = {
+  .name                     = "metric",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .rlimit_file_cnt          = MAX_CONNS+1,

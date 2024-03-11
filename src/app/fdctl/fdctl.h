@@ -10,6 +10,9 @@
 #include <unistd.h>
 #include <errno.h>
 
+extern fd_topo_run_tile_t * TILES[];
+
+
 #define CONFIGURE_STAGE_COUNT 13
 struct configure_stage;
 
@@ -68,6 +71,21 @@ typedef struct {
   void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
   void       (*fn  )( args_t * args, config_t * const config );
 } action_t;
+
+ulong
+fdctl_obj_align( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj );
+
+ulong
+fdctl_obj_footprint( fd_topo_t const *     topo,
+                     fd_topo_obj_t const * obj );
+
+ulong
+fdctl_obj_loose( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj );
+
+fd_topo_run_tile_t
+fdctl_tile_run( fd_topo_tile_t * tile );
 
 #define ACTIONS_CNT (10UL)
 extern action_t ACTIONS[ ACTIONS_CNT ];

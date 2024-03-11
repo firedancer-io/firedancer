@@ -37,6 +37,42 @@ static action_t DEV_ACTIONS[] = {
   { .name = "bench", .args = bench_cmd_args, .fn = bench_cmd_fn, .perm = bench_cmd_perm },
 };
 
+extern fd_topo_run_tile_t fd_tile_net;
+extern fd_topo_run_tile_t fd_tile_netmux;
+extern fd_topo_run_tile_t fd_tile_quic;
+extern fd_topo_run_tile_t fd_tile_verify;
+extern fd_topo_run_tile_t fd_tile_dedup;
+extern fd_topo_run_tile_t fd_tile_pack;
+extern fd_topo_run_tile_t fd_tile_bank;
+extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_shred;
+extern fd_topo_run_tile_t fd_tile_store;
+extern fd_topo_run_tile_t fd_tile_sign;
+extern fd_topo_run_tile_t fd_tile_metric;
+
+extern fd_topo_run_tile_t fd_tile_bencho;
+extern fd_topo_run_tile_t fd_tile_benchg;
+extern fd_topo_run_tile_t fd_tile_benchs;
+
+fd_topo_run_tile_t * TILES[] = {
+  &fd_tile_net,
+  &fd_tile_netmux,
+  &fd_tile_quic,
+  &fd_tile_verify,
+  &fd_tile_dedup,
+  &fd_tile_pack,
+  &fd_tile_bank,
+  &fd_tile_poh,
+  &fd_tile_shred,
+  &fd_tile_store,
+  &fd_tile_sign,
+  &fd_tile_metric,
+  &fd_tile_bencho,
+  &fd_tile_benchg,
+  &fd_tile_benchs,
+  NULL,
+};
+
 #define MAX_ARGC 32
 
 extern char fd_log_private_path[ 1024 ];
