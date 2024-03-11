@@ -91,7 +91,7 @@ after_frag( void *             _ctx,
 
   fd_netmux_ctx_t * ctx = (fd_netmux_ctx_t *)_ctx;
 
-  uchar * packet = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  // uchar * packet = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
       branch */
