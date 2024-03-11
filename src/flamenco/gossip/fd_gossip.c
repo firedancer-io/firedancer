@@ -476,7 +476,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 100; i++)
+  for(ulong i = 0; i < 2000; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
@@ -1468,7 +1468,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Try again in 100 msec */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e1);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e3);
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
 #endif

@@ -248,7 +248,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
 
   // TODO: LML handle checksum correctly
   hdr->ip4->check = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
-
+ 
   ulong packet_sz = payload_sz + sizeof(eth_ip_udp_t);
   fd_memcpy( packet+sizeof(eth_ip_udp_t), payload, payload_sz );
 
@@ -272,10 +272,11 @@ gossip_send_packet( uchar const * msg,
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
   g_num_packets_sent++;
-
-  if(g_num_packets_sent > 1000) {
+/*
+  if(g_num_packets_sent > 1) {
     return;
   }
+  */
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
