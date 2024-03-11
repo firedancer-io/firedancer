@@ -4,6 +4,9 @@
 #include "generated/verify_seccomp.h"
 
 #include "../../../../disco/quic/fd_tpu.h"
+#include "../../../../flamenco/types/fd_bincode.h"
+#include "../../../../flamenco/types/fd_types.h"
+#include "../../../../util/net/fd_eth.h"
 
 #include <linux/unistd.h>
 
@@ -24,31 +27,23 @@ typedef struct {
     ulong                     out_chunk0;
     ulong                     out_wmark;
     ulong                     out_chunk;
+    ushort                    gossip_listen_port;
+    
+    ulong                     round_robin_cnt;
+    ulong                     round_robin_id;
 } fd_gossip_verify_ctx_t;
 
 static int
 gossip_verify( fd_gossip_verify_ctx_t * ctx,
-                   uchar const *            payload,
-                   ushort const             payload_sz,
-                   fd_txn_t const *         txn,
-                   ulong *                  opt_sig ) {
-  /* We do not want to deref any non-data field from the txn struct more than once */
-  uchar  signature_cnt = txn->signature_cnt;
-  ushort signature_off = txn->signature_off;
-  ushort acct_addr_off = txn->acct_addr_off;
-  ushort message_off   = txn->message_off;
+               uchar const *            msg,
+               ulong                    msg_sz,
+               fd_signature_t *         signature,
+               fd_pubkey_t *            pubkey ) {
 
-  uchar const * signatures = payload + signature_off;
-  uchar const * pubkeys = payload + acct_addr_off;
-  uchar const * msg = payload + message_off;
-  ulong msg_sz = (ulong)payload_sz - message_off;
-
-  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, ctx->sha, signature_cnt );
+  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signature->uc, pubkey->uc, ctx->sha, 1 );
   if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
     return GOSSIP_VERIFY_FAILED;
   }
-
-  *opt_sig = *(ulong *)signatures;
 
   return GOSSIP_VERIFY_SUCCESS;
 }
@@ -76,6 +71,78 @@ scratch_footprint( fd_topo_tile_t * tile ) {
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_gossip_verify_ctx_t ) );
+}
+
+static fd_pubkey_t *
+get_pubkey_from_crds( fd_crds_value_t * crd ) {
+  fd_pubkey_t * pubkey;
+  switch (crd->data.discriminant) {
+    case fd_crds_data_enum_contact_info_v1:
+      pubkey = &crd->data.inner.contact_info_v1.id;
+      break;
+    case fd_crds_data_enum_vote:
+      pubkey = &crd->data.inner.vote.from;
+      break;
+    case fd_crds_data_enum_lowest_slot:
+      pubkey = &crd->data.inner.lowest_slot.from;
+      break;
+    case fd_crds_data_enum_snapshot_hashes:
+      pubkey = &crd->data.inner.snapshot_hashes.from;
+      break;
+    case fd_crds_data_enum_accounts_hashes:
+      pubkey = &crd->data.inner.accounts_hashes.from;
+      break;
+    case fd_crds_data_enum_epoch_slots:
+      pubkey = &crd->data.inner.epoch_slots.from;
+      break;
+    case fd_crds_data_enum_version_v1:
+      pubkey = &crd->data.inner.version_v1.from;
+      break;
+    case fd_crds_data_enum_version_v2:
+      pubkey = &crd->data.inner.version_v2.from;
+      break;
+    case fd_crds_data_enum_node_instance:
+      pubkey = &crd->data.inner.node_instance.from;
+      break;
+    case fd_crds_data_enum_duplicate_shred:
+      pubkey = &crd->data.inner.duplicate_shred.from;
+      break;
+    case fd_crds_data_enum_incremental_snapshot_hashes:
+      pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
+      break;
+    default:
+      return NULL;
+  }
+  return pubkey;
+}
+
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+
+  fd_gossip_verify_ctx_t * ctx = (fd_gossip_verify_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY( seq % ctx->round_robin_cnt != ctx->round_robin_id ) ) {
+    *opt_filter = 1;
+    return;
+  }
+
+  ushort dst_port    = fd_disco_netmux_sig_port( sig );
+  ushort src_tile    = fd_disco_netmux_sig_src_tile( sig );
+
+  if( FD_UNLIKELY( src_tile!=SRC_TILE_NET ) ) {
+    *opt_filter = 1;
+    return;
+  }
+
+  if ( FD_UNLIKELY( dst_port != ctx->gossip_listen_port ) ) {
+    *opt_filter = 1;
+    return;
+  }
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -123,33 +190,129 @@ after_frag( void *             _ctx,
 
   fd_gossip_verify_ctx_t * ctx = (fd_gossip_verify_ctx_t *)_ctx;
 
-  /* Sanity check that should never fail. We should have atleast
-     FD_TPU_DCACHE_MTU bytes available. */
-  if( FD_UNLIKELY( *opt_sz < sizeof(ushort) ) ) {
-    FD_LOG_ERR( ("invalid opt_sz(%lx)", *opt_sz ) );
-  }
+  ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
 
-  uchar * udp_payload = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  ushort payload_sz = *(ushort*)(udp_payload + *opt_sz - sizeof(ushort));
+  uchar * udp_payload = ((uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ) + network_hdr_sz);
+  ulong payload_sz = (*opt_sz - network_hdr_sz);
 
-  /* Make sure payload_sz is valid */
+    /* Make sure payload_sz is valid */
   if( FD_UNLIKELY( payload_sz > FD_TPU_DCACHE_MTU ) ) {
     FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
   }
 
-  /* txn contents are located in shared memory accessible to the dedup tile
-     and the contents are controlled by the quic tile. We must perform
-     validation */
-  fd_txn_t * txn = (fd_txn_t*) fd_ulong_align_up( (ulong)(udp_payload) + payload_sz, 2UL );
+  fd_bincode_decode_ctx_t decode_ctx = { .data = udp_payload, .dataend = udp_payload + payload_sz, .valloc = fd_libc_alloc_virtual() };
+  fd_gossip_msg_t gmsg[1];
+  if ( FD_BINCODE_SUCCESS != fd_gossip_msg_decode( gmsg, &decode_ctx ) ) {
+    FD_LOG_ERR(( "Gossip message decode failed" ));
+  }
+  int res = 0;
 
-  /* We need to access signatures and accounts, which are all before the recent_blockhash_off.
-     We assert that the payload_sz includes all signatures and account pubkeys we need. */
-  ushort recent_blockhash_off = txn->recent_blockhash_off;
-  if( FD_UNLIKELY( recent_blockhash_off >= payload_sz ) ) {
-    FD_LOG_ERR( ("txn is invalid: payload_sz = %x, recent_blockhash_off = %x", payload_sz, recent_blockhash_off ) );
+  fd_signature_t * signature = NULL;
+  ulong sig = 0;
+  fd_pubkey_t    * pubkey    = NULL;
+  switch ( gmsg->discriminant ) {
+    case fd_gossip_msg_enum_pull_req: {
+      signature = &gmsg->inner.pull_req.value.signature;
+      fd_crds_value_t * crd = &gmsg->inner.pull_req.value;
+
+      uchar buf[FD_ETH_PAYLOAD_MAX];
+      fd_bincode_encode_ctx_t encode_ctx;
+      encode_ctx.data = buf;
+      encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+      if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
+        FD_LOG_ERR(("fd_crds_data_encode failed"));
+      }
+
+      pubkey = get_pubkey_from_crds( crd );
+      res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+      sig = signature->ul[0];
+      break;
+    }
+    case fd_gossip_msg_enum_pull_resp: {
+      fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
+      for (ulong i = 0; i < pull_resp->crds_len; ++i) {
+        signature = &pull_resp->crds[i].signature;
+        fd_crds_value_t * crd = &pull_resp->crds[i];
+
+        uchar buf[FD_ETH_PAYLOAD_MAX];
+        fd_bincode_encode_ctx_t encode_ctx;
+        encode_ctx.data = buf;
+        encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+        if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
+          FD_LOG_ERR(("fd_crds_data_encode failed"));
+        }
+
+        pubkey = get_pubkey_from_crds( crd );
+        if (!pubkey)
+          pubkey = &pull_resp->pubkey;
+        res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+        sig ^= signature->ul[0];
+      }
+      break;
+    }
+    case fd_gossip_msg_enum_push_msg: {
+      fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
+      for (ulong i = 0; i < push_msg->crds_len; ++i) {
+        signature = &push_msg->crds[i].signature;
+        fd_crds_value_t * crd = &push_msg->crds[i];
+
+        uchar buf[FD_ETH_PAYLOAD_MAX];
+        fd_bincode_encode_ctx_t encode_ctx;
+        encode_ctx.data = buf;
+        encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+        if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
+          FD_LOG_ERR(("fd_crds_data_encode failed"));
+        }
+
+        pubkey = get_pubkey_from_crds( crd );
+        if (!pubkey)
+          pubkey = &push_msg->pubkey;
+        res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+        sig ^= signature->ul[0];
+      }
+      break;
+    }
+    case fd_gossip_msg_enum_prune_msg: {
+      signature = &gmsg->inner.prune_msg.data.signature;
+      pubkey    = &gmsg->inner.prune_msg.pubkey;
+      uchar buf[FD_ETH_PAYLOAD_MAX];
+      fd_bincode_encode_ctx_t encode_ctx;
+      encode_ctx.data = buf;
+      encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+
+      fd_gossip_prune_msg_t * msg = &gmsg->inner.prune_msg;
+      fd_gossip_prune_sign_data_t signdata;
+      signdata.pubkey = msg->data.pubkey;
+      signdata.prunes_len = msg->data.prunes_len;
+      signdata.prunes = msg->data.prunes;
+      signdata.destination = msg->data.destination;
+      signdata.wallclock = msg->data.wallclock;
+
+      if ( fd_gossip_prune_sign_data_encode( &signdata, &encode_ctx ) ) {
+        FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
+        return;
+      }
+
+      res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+      sig = signature->ul[0];
+      break;
+    }
+    case fd_gossip_msg_enum_ping: {
+      signature = &gmsg->inner.ping.signature;
+      pubkey    = &gmsg->inner.ping.from;
+      res |= gossip_verify( ctx, gmsg->inner.ping.token.uc, 32UL, signature, pubkey );
+      sig = signature->ul[0];
+      break;
+    }
+    case fd_gossip_msg_enum_pong: {
+      signature = &gmsg->inner.pong.signature;
+      pubkey    = &gmsg->inner.pong.from;
+      res |= gossip_verify( ctx, gmsg->inner.pong.token.uc, 32UL, signature, pubkey );
+      sig = signature->ul[0];
+      break;
+    }
   }
 
-  int res = gossip_verify( ctx, udp_payload, payload_sz, txn, opt_sig );
   if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
     *opt_filter = 1;
     return;
@@ -157,6 +320,10 @@ after_frag( void *             _ctx,
 
   *opt_filter = 0;
   *opt_chunk = ctx->out_chunk;
+
+  // Adding first 8 bytes of signature for gossip dedup
+  FD_STORE( ulong, udp_payload + payload_sz, sig);
+  *opt_sz += sizeof(ulong);
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
@@ -191,6 +358,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+  ctx->gossip_listen_port = tile->gossip_verify.gossip_listen_port;
+
+  ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
+  ctx->round_robin_id = tile->kind_id;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -226,6 +397,7 @@ fd_tile_config_t fd_tile_gossip_verify = {
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .mux_before_frag          = before_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

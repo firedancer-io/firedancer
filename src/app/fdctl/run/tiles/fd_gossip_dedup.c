@@ -101,6 +101,10 @@ during_frag( void * _ctx,
   fd_memcpy( dst, src, sz );
 }
 
+// static ulong *
+// get_signature( uchar * payload,
+//                ulong   payload_sz )
+
 /* After the transaction has been fully received, and we know we were
    not overrun while reading it, check if it's a duplicate of a prior
    transaction. */
@@ -122,12 +126,20 @@ after_frag( void *             _ctx,
 
   fd_gossip_dedup_ctx_t * ctx = (fd_gossip_dedup_ctx_t *)_ctx;
 
+  ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+
+  uchar * udp_payload = ((uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ) + network_hdr_sz);
+  ulong payload_sz = (*opt_sz - network_hdr_sz - sizeof(ulong));
+
+  ulong * signature = (ulong *)(udp_payload + payload_sz);
+
   int is_dup;
-  FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *opt_sig );
+  FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *signature );
   *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk     = ctx->out_chunk;
-    *opt_sig       = 0; /* indicate this txn is coming from dedup, and has already been parsed */
+    FD_STORE(ulong, signature, 0UL);
+    *opt_sz -= sizeof(ulong);
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
 }

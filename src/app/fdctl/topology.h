@@ -268,6 +268,10 @@ typedef struct {
     } dedup;
 
     struct {
+      ushort gossip_listen_port;
+    } gossip_verify;
+
+    struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
       char  identity_key_path[ PATH_MAX ];
@@ -470,6 +474,8 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
     case FD_TOPO_WKSP_KIND_BLOCKSTORE:   return "bstore";
     case FD_TOPO_WKSP_KIND_REPLAY:   return "replay";
+    case FD_TOPO_WKSP_KIND_GOSSIP_VERIFY: return "gverify";
+    case FD_TOPO_WKSP_KIND_GOSSIP_DEDUP:  return "gdedup";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -509,6 +515,7 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_STORE_TO_REPLAY:     return "store_replay";
     case FD_TOPO_LINK_KIND_STORE_TO_REPAIR:     return "store_repair";
     case FD_TOPO_LINK_KIND_NETMUX_TO_NET:       return "netmux_net";
+    case FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP:     return "dedup_gossip";
     default: FD_LOG_ERR(( "unknown link kind %lu", kind )); return NULL;
   }
 }
@@ -548,8 +555,8 @@ fd_topo_tile_kind_str( ulong kind ) {
     case FD_TOPO_TILE_KIND_TVU:        return "tvu";
     case FD_TOPO_TILE_KIND_STORE:      return "store";
     case FD_TOPO_TILE_KIND_REPLAY:      return "replay";
-    case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return "gossip_verify";
-    case FD_TOPO_TILE_KIND_GOSSIP_DEDUP: return "gossip_dedup";
+    case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return "gverify";
+    case FD_TOPO_TILE_KIND_GOSSIP_DEDUP: return "gdedup";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

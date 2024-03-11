@@ -679,9 +679,15 @@ config_tiles( config_t * config ) {
         tile->quic.idle_timeout_millis = config->tiles.quic.idle_timeout_millis;
         strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
         break;
-      case FD_TOPO_TILE_KIND_VERIFY | FD_TOPO_TILE_KIND_GOSSIP_VERIFY:
+      case FD_TOPO_TILE_KIND_VERIFY:
         break;
-      case FD_TOPO_TILE_KIND_DEDUP | FD_TOPO_TILE_KIND_GOSSIP_DEDUP:
+      case FD_TOPO_TILE_KIND_GOSSIP_VERIFY:
+        tile->gossip_verify.gossip_listen_port = config->tiles.gossip.gossip_listen_port;
+        break;
+      case FD_TOPO_TILE_KIND_DEDUP:
+        tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+        break;
+      case FD_TOPO_TILE_KIND_GOSSIP_DEDUP:
         tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
       case FD_TOPO_TILE_KIND_PACK:
