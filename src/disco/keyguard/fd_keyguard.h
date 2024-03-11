@@ -18,9 +18,10 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_KEYGUARD_ROLE_VOTER   (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP  (1)  /* gossip participant */
-#define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
-#define FD_KEYGUARD_ROLE_TLS     (3)  /* TLS peer (certificate verify) */
-#define FD_KEYGUARD_ROLE_X509_CA (4)  /* self-signed cert CA */
+#define FD_KEYGUARD_ROLE_REPAIR  (2)  /* repair participant */
+#define FD_KEYGUARD_ROLE_LEADER  (3)  /* block producer (shreds) */
+#define FD_KEYGUARD_ROLE_TLS     (4)  /* TLS peer (certificate verify) */
+#define FD_KEYGUARD_ROLE_X509_CA (5)  /* self-signed cert CA */
 
 /* Type confusion/ambiguity checks ************************************/
 

@@ -21,8 +21,10 @@
 
 #define NET_IN_IDX      0
 #define CONTACT_IN_IDX  1
+#define SIGN_IN_IDX     2
 
 #define NET_OUT_IDX     0
+#define SIGN_OUT_IDX    1
 
 #define MAX_REPAIR_PEERS 40200UL
 
@@ -103,6 +105,8 @@ struct fd_repair_tile_ctx {
   /* Includes Ethernet, IP, UDP headers */
   ulong repair_buffer_sz;
   uchar repair_buffer[ FD_NET_MTU ];
+
+  fd_keyguard_client_t keyguard_client[1];
 };
 typedef struct fd_repair_tile_ctx fd_repair_tile_ctx_t;
 
@@ -284,6 +288,15 @@ repair_shred_deliver_fun( fd_shred_t const * shred,
   (void)ctx;
 }
 
+void
+repair_signer( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len ) {
+  fd_repair_tile_ctx_t * ctx = (fd_repair_tile_ctx_t *) signer_ctx;
+  fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len );
+}
+
 static void
 before_frag( void * _ctx,
              ulong  in_idx,
@@ -421,16 +434,16 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+  if( FD_UNLIKELY( tile->in_cnt != 3 ||
                    topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
-                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ) )
-    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR ||
+                   topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_REPAIR ) )
+    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu", tile->in_cnt ));
 
-  // if( FD_UNLIKELY( tile->out_cnt != 1 ||
-  //                  topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX ) )
-  //   FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %lu %lu",
-  //                tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].kind, topo->links[ tile->out_link_id[ 1 ] ].kind ));
+  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+                   topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_REPAIR_TO_NETMUX ||
+                   topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_REPAIR_TO_SIGN ) )
+    FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %lu %lu", tile->out_cnt ));
       
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
     FD_LOG_ERR(( "repair tile has no primary output link" ));
@@ -487,6 +500,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->contact_in_mem, contact_in_link->dcache );
   ctx->contact_in_wmark  = fd_dcache_compact_wmark ( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
+  if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
+                                                        sign_out->mcache,
+                                                        sign_out->dcache,
+                                                        sign_in->mcache,
+                                                        sign_in->dcache ) ) == NULL ) {
+    FD_LOG_ERR(( "Keyguard join failed" ));
+  }
 
   /* Valloc setup */
 
@@ -515,6 +537,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_config.fun_arg = ctx;
   ctx->repair_config.deliver_fun = repair_shred_deliver_fun;
   ctx->repair_config.send_fun = repair_send_packet;
+  ctx->repair_config.sign_fun = repair_signer;
+  ctx->repair_config.sign_arg = ctx;
 
   if( fd_repair_set_config( ctx->repair, &ctx->repair_config ) ) {
     FD_LOG_ERR( ( "error setting gossip config" ) );

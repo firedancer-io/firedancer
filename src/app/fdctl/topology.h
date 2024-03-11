@@ -61,7 +61,9 @@
 #define FD_TOPO_WKSP_KIND_STORE        (30UL)
 #define FD_TOPO_WKSP_KIND_GOSSIP_SIGN  (31UL)
 #define FD_TOPO_WKSP_KIND_SIGN_GOSSIP  (32UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_SIGN_GOSSIP+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_REPAIR_SIGN  (33UL)
+#define FD_TOPO_WKSP_KIND_SIGN_REPAIR  (34UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_SIGN_REPAIR+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -102,6 +104,8 @@
 #define FD_TOPO_LINK_KIND_REPAIR_TO_STORE     (24UL)
 #define FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN      (25UL)
 #define FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP      (26UL)
+#define FD_TOPO_LINK_KIND_REPAIR_TO_SIGN      (27UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_REPAIR      (28UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -459,6 +463,8 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
     case FD_TOPO_WKSP_KIND_GOSSIP_SIGN:  return "gossip_sign";
     case FD_TOPO_WKSP_KIND_SIGN_GOSSIP:  return "sign_gossip";
+    case FD_TOPO_WKSP_KIND_REPAIR_SIGN:  return "repair_sign";
+    case FD_TOPO_WKSP_KIND_SIGN_REPAIR:  return "sign_repair";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -497,6 +503,8 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_TVU_TO_NETMUX:       return "tvu_netmux";
     case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN:      return "gossip_sign";
     case FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP:      return "sign_gossip";
+    case FD_TOPO_LINK_KIND_REPAIR_TO_SIGN:      return "repair_sign";
+    case FD_TOPO_LINK_KIND_SIGN_TO_REPAIR:      return "sign_repair";
     default: FD_LOG_ERR(( "unknown link kind %lu", kind )); return NULL;
   }
 }

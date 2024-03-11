@@ -44,6 +44,8 @@ fd_topo_firedancer( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_REPAIR       }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_GOSSIP_SIGN  }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_GOSSIP  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_REPAIR_SIGN  }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_SIGN_REPAIR  }; wksp_cnt++;
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -78,6 +80,8 @@ fd_topo_firedancer( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_SHRED,   FD_TOPO_WKSP_KIND_SIGN_SHRED,   128UL,                                    64UL,                   1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN,  FD_TOPO_WKSP_KIND_GOSSIP_SIGN,  128UL,                                    2048UL,                 1UL );
   LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,  FD_TOPO_WKSP_KIND_SIGN_GOSSIP,  128UL,                                    64UL,                   1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_REPAIR_TO_SIGN,  FD_TOPO_WKSP_KIND_REPAIR_SIGN,  128UL,                                    2048UL,                 1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_SIGN_TO_REPAIR,  FD_TOPO_WKSP_KIND_SIGN_REPAIR,  128UL,                                    64UL,                   1UL );
 
   topo->link_cnt = link_cnt;
 
@@ -157,4 +161,8 @@ fd_topo_firedancer( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN,    0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,    0UL, 0, 0 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP,    0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_SIGN,   0UL, FD_TOPO_LINK_KIND_REPAIR_TO_SIGN,  0UL, 0, 1 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_REPAIR_TO_SIGN,  0UL    );
+  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_SIGN_TO_REPAIR,  0UL, 0, 0 );
+  /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN, 0UL, FD_TOPO_LINK_KIND_SIGN_TO_REPAIR,  0UL    );
 }

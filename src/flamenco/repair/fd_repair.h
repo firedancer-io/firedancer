@@ -27,6 +27,9 @@ typedef void (*fd_repair_shred_deliver_fun)( fd_shred_t const * shred, ulong shr
 /* Callback for sending a packet. addr is the address of the destination. */
 typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
 
+/* Callback signing */
+typedef void (*fd_repair_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len );
+
 /* Callback for when a request fails. Echoes back the request parameters. */
 typedef void (*fd_repair_shred_deliver_fail_fun)( fd_pubkey_t const * id, ulong slot, uint shred_index, void * arg, int reason );
 
@@ -39,6 +42,8 @@ struct fd_repair_config {
     fd_repair_send_packet_fun send_fun;
     fd_repair_shred_deliver_fail_fun deliver_fail_fun;
     void * fun_arg;
+    fd_repair_sign_fun sign_fun;
+    void * sign_arg;
 };
 typedef struct fd_repair_config fd_repair_config_t;
 

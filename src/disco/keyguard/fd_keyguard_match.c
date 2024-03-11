@@ -186,6 +186,15 @@ fd_keyguard_payload_matches_gossip_msg( uchar const * data,
 }
 
 FD_FN_PURE int
+fd_keyguard_payload_matches_repair_msg( uchar const * data,
+                                        ulong         sz ) {
+  (void)data;
+  (void)sz;
+  // TODO: LML how do we distinguish repair messages?
+  return 1;
+}
+
+FD_FN_PURE int
 fd_keyguard_payload_matches_shred( uchar const * data,
                                    ulong         sz ) {
   switch( sz ) {
@@ -263,6 +272,7 @@ fd_keyguard_payload_authorize( uchar const * data,
   switch( role ) {
     case FD_KEYGUARD_ROLE_VOTER: return fd_keyguard_payload_matches_txn_msg( data, sz );
     case FD_KEYGUARD_ROLE_GOSSIP: return fd_keyguard_payload_matches_gossip_msg( data, sz );
+    case FD_KEYGUARD_ROLE_REPAIR: return fd_keyguard_payload_matches_repair_msg( data, sz );
     case FD_KEYGUARD_ROLE_LEADER: return fd_keyguard_payload_matches_shred( data, sz );
     case FD_KEYGUARD_ROLE_TLS: return fd_keyguard_payload_matches_tls_cv( data, sz );
     case FD_KEYGUARD_ROLE_X509_CA: return fd_keyguard_payload_matches_x509_csr( data, sz );

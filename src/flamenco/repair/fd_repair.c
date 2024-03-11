@@ -168,6 +168,10 @@ struct fd_repair {
     fd_repair_shred_deliver_fun deliver_fun;
     /* Function used to send raw packets on the network */
     fd_repair_send_packet_fun send_fun;
+    /* Function used to send packets for signing to remote tile */
+    fd_repair_sign_fun sign_fun;
+    /* Argument to fd_repair_sign_fun */
+    void * sign_arg;
     /* Function used to deliver repair failure on the network */
     fd_repair_shred_deliver_fail_fun deliver_fail_fun;
     void * fun_arg;
@@ -281,6 +285,8 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   glob->deliver_fun = config->deliver_fun;
   glob->send_fun = config->send_fun;
   glob->fun_arg = config->fun_arg;
+  glob->sign_fun = config->sign_fun;
+  glob->sign_arg = config->sign_arg;
   glob->deliver_fail_fun = config->deliver_fail_fun;
   return 0;
 }
@@ -348,14 +354,18 @@ fd_repair_sign_and_send( fd_repair_t * glob, fd_repair_protocol_t * protocol, fd
   // https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L874
   ulong buflen = (ulong)((uchar*)ctx.data - buf);
   fd_memcpy(buf + 64U, buf, 4U);
-  fd_sha512_t sha[1];
   fd_signature_t sig;
-  fd_ed25519_sign( /* sig */ sig.uc,
-                   /* msg */ buf + 64U,
-                   /* sz  */ buflen - 64U,
-                   /* public_key  */ glob->public_key->key,
-                   /* private_key */ glob->private_key,
-                   sha );
+  if( glob->sign_fun ) {
+    (*glob->sign_fun)( glob->sign_arg, sig.uc, buf + 64U, buflen - 64U );
+  } else {
+    fd_sha512_t sha[1];
+    fd_ed25519_sign( /* sig */ sig.uc,
+                     /* msg */ buf + 64U,
+                     /* sz  */ buflen - 64U,
+                     /* public_key  */ glob->public_key->key,
+                     /* private_key */ glob->private_key,
+                     sha );
+  }
   fd_memcpy(buf + 4U, &sig, 64U);
 
   (*glob->send_fun)(buf, buflen, addr, glob->fun_arg);
@@ -513,13 +523,17 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   fd_sha256_fini( sha, pong->token.uc );
 
   /* Sign it */
-  fd_sha512_t sha2[1];
-  fd_ed25519_sign( /* sig */ pong->signature.uc,
-                   /* msg */ pong->token.uc,
-                   /* sz  */ 32UL,
-                   /* public_key  */ glob->public_key->key,
-                   /* private_key */ glob->private_key,
-                   sha2 );
+  if( glob->sign_fun ) {
+    (*glob->sign_fun)( glob->sign_arg, pong->signature.uc, pong->token.uc, 32UL );
+  } else {
+    fd_sha512_t sha2[1];
+    fd_ed25519_sign( /* sig */ pong->signature.uc,
+                     /* msg */ pong->token.uc,
+                     /* sz  */ 32UL,
+                     /* public_key  */ glob->public_key->key,
+                     /* private_key */ glob->private_key,
+                     sha2 );
+  }
 
   fd_bincode_encode_ctx_t ctx;
   uchar buf[1024];

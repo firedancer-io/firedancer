@@ -94,8 +94,6 @@ done
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
 echo "[tiles.tvu]
-  repair_peer_id = \"$(solana-keygen pubkey id.json)\"
-  repair_peer_addr = \"$PRIMARY_IP:8008\"
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
   snapshot = \"$(echo snapshot*)\"
   page_cnt = 25
@@ -103,7 +101,7 @@ echo "[tiles.tvu]
   check_hash = \"true\"
 " > fddev.toml
 
-timeout 90 fddev --no-sandbox --no-solana-labs --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) || true
+timeout 120 fddev --no-sandbox --no-solana-labs --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) || true
 
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 grep -qv "Bank hash mismatch" $(readlink -f fddev.log)

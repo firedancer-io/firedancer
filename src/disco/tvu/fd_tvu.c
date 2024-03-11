@@ -177,10 +177,10 @@ gossip_send_packet( uchar const *                 data,
 }
 
 void
-gossip_signer_fun( void *    arg,
-               uchar         signature[ static 64 ],
-               uchar const * buffer,
-               ulong         len ) {
+signer_fun( void *    arg,
+            uchar         signature[ static 64 ],
+            uchar const * buffer,
+            ulong         len ) {
   fd_keyguard_client_t * keyguard_client = (fd_keyguard_client_t *)arg;
   fd_keyguard_client_sign( keyguard_client, signature, buffer, len );
 }
@@ -1101,6 +1101,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->repair_config.send_fun         = send_packet;
     runtime_ctx->repair_config.deliver_fail_fun = repair_deliver_fail_fun;
     runtime_ctx->repair_config.fun_arg = replay_setup_out.replay;
+    runtime_ctx->repair_config.sign_fun         = signer_fun;
+    runtime_ctx->repair_config.sign_arg         = keyguard_client;
 
     void *        repair_mem = fd_valloc_malloc( valloc, fd_repair_align(), fd_repair_footprint() );
     fd_repair_t * repair     = fd_repair_join( fd_repair_new( repair_mem, funk_setup_out.hashseed, valloc ) );
@@ -1122,7 +1124,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->gossip_config.deliver_arg   = repair;
     runtime_ctx->gossip_config.send_fun      = gossip_send_packet;
     runtime_ctx->gossip_config.send_arg      = NULL;
-    runtime_ctx->gossip_config.sign_fun      = gossip_signer_fun;
+    runtime_ctx->gossip_config.sign_fun      = signer_fun;
     runtime_ctx->gossip_config.sign_arg      = keyguard_client;
 
     ulong seed = fd_hash( 0, funk_setup_out.hostname, strnlen( funk_setup_out.hostname, sizeof( funk_setup_out.hostname ) ) );
