@@ -348,8 +348,6 @@ after_frag( void *             _ctx,
         break;
     }
   }
-
-  *opt_filter = 1;
 }
 
 static void
