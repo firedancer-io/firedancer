@@ -234,17 +234,17 @@ during_frag( void * _ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
-  uchar * packet = src;
-  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-    ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
-    FD_LOG_WARNING(("F: %lu %lu %lu %u", sz, sig, in_idx, src_tile ));
-    FD_LOG_HEXDUMP_WARNING(("HEY4", packet, sz));
-    FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                  "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                  "is not configured correctly." ));
+  // uchar * packet = src;
+  // uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  // if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+  //   ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
+  //   FD_LOG_WARNING(("F: %lu %lu %lu %u", sz, sig, in_idx, src_tile ));
+  //   FD_LOG_HEXDUMP_WARNING(("HEY4", packet, sz));
+  //   FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+  //                 "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+  //                 "is not configured correctly." ));
     
-  }
+  // }
   fd_memcpy( ctx->frame, src, sz ); // TODO: Change xsk_aio interface to eliminate this copy
 }
 
@@ -293,43 +293,43 @@ after_frag( void *             _ctx,
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
   
-  {
-    uchar const * packet = aio_buf.buf;
-    if( FD_UNLIKELY( aio_buf.buf_sz > FD_NET_MTU ) )
-      FD_LOG_ERR(( "received a UDP packet with a too large payload (%u)", aio_buf.buf_sz ));
+  // {
+  //   uchar const * packet = aio_buf.buf;
+  //   if( FD_UNLIKELY( aio_buf.buf_sz > FD_NET_MTU ) )
+  //     FD_LOG_ERR(( "received a UDP packet with a too large payload (%u)", aio_buf.buf_sz ));
 
-    uchar const * iphdr = packet + 14U;
+  //   uchar const * iphdr = packet + 14U;
 
-    /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
-        branch */
-    // FD_LOG_WARNING(("A: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
+  //   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
+  //       branch */
+  //   // FD_LOG_WARNING(("A: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
 
-    uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-    if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-      FD_LOG_WARNING(("B: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
-      FD_LOG_HEXDUMP_WARNING(("HEY", packet, *opt_sz));
-      FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                    "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                    "is not configured correctly." ));
+  //   uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  //   if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+  //     FD_LOG_WARNING(("B: %lu %lu %lu %lu", *opt_sz, *opt_sig, in_idx, seq ));
+  //     FD_LOG_HEXDUMP_WARNING(("HEY", packet, *opt_sz));
+  //     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+  //                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+  //                   "is not configured correctly." ));
       
-    }
-    /* IPv4 is variable-length, so lookup IHL to find start of UDP */
-    uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
-    uchar const * udp = iphdr + iplen;
+  //   }
+  //   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
+  //   uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
+  //   uchar const * udp = iphdr + iplen;
 
-    ushort ip_len = fd_ushort_bswap(((ushort *)iphdr)[1]);
-    ushort udp_len = fd_ushort_bswap(((ushort *) udp)[2]);
-    (void)udp_len;
-    if(ip_len+14!=*opt_sz) {
-      FD_LOG_NOTICE(("o: %u %u", ip_len+14, *opt_sz));
-    }
+  //   ushort ip_len = fd_ushort_bswap(((ushort *)iphdr)[1]);
+  //   ushort udp_len = fd_ushort_bswap(((ushort *) udp)[2]);
+  //   (void)udp_len;
+  //   if(ip_len+14!=*opt_sz) {
+  //     FD_LOG_NOTICE(("o: %u %u", ip_len+14, *opt_sz));
+  //   }
 
-    if(ip_len+14!=udp_len+14+20) {
-      FD_LOG_NOTICE(("n: %u %u", ip_len+(ushort)14, udp_len+(ushort)(14+20)));
-    }
-    FD_TEST(ip_len+14==*opt_sz);
-    FD_TEST(ip_len+14==udp_len+14+20);
-  }
+  //   if(ip_len+14!=udp_len+14+20) {
+  //     FD_LOG_NOTICE(("n: %u %u", ip_len+(ushort)14, udp_len+(ushort)(14+20)));
+  //   }
+  //   FD_TEST(ip_len+14==*opt_sz);
+  //   FD_TEST(ip_len+14==udp_len+14+20);
+  // }
 
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
     ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
