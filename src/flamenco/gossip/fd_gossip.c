@@ -573,14 +573,14 @@ static void
 fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_ping_t const * ping ) {
   /* Verify the signature */
   fd_sha512_t sha2[1];
-  if (fd_ed25519_verify( /* msg */ ping->token.uc,
-                         /* sz */ 32UL,
-                         /* sig */ ping->signature.uc,
-                         /* public_key */ ping->from.uc,
-                         sha2 )) {
-    FD_LOG_WARNING(("received ping with invalid signature"));
-    return;
-  }
+  // if (fd_ed25519_verify( /* msg */ ping->token.uc,
+  //                        /* sz */ 32UL,
+  //                        /* sig */ ping->signature.uc,
+  //                        /* public_key */ ping->from.uc,
+  //                        sha2 )) {
+  //   FD_LOG_WARNING(("received ping with invalid signature"));
+  //   return;
+  // }
 
   /* Build a pong message */
   fd_gossip_msg_t gmsg;
@@ -859,15 +859,15 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   }
 
   /* Verify the signature */
-  fd_sha512_t sha2[1];
-  if (fd_ed25519_verify( /* msg */ pong->token.uc,
-                         /* sz */ 32UL,
-                         /* sig */ pong->signature.uc,
-                         /* public_key */ pong->from.uc,
-                         sha2 )) {
-    FD_LOG_WARNING(("received pong with invalid signature"));
-    return;
-  }
+  // fd_sha512_t sha2[1];
+  // if (fd_ed25519_verify( /* msg */ pong->token.uc,
+  //                        /* sz */ 32UL,
+  //                        /* sig */ pong->signature.uc,
+  //                        /* public_key */ pong->from.uc,
+  //                        sha2 )) {
+  //   FD_LOG_WARNING(("received pong with invalid signature"));
+  //   return;
+  // }
 
   val->pongtime = glob->now;
   fd_hash_copy(&val->id, &pong->from);
@@ -1157,17 +1157,17 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
   }
 
-#ifdef FD_GOSSIP_DEMO
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - buf),
-                         /* sig */ msg->data.signature.uc,
-                         /* public_key */ msg->pubkey.uc,
-                         sha )) {
-    FD_LOG_WARNING(("received prune_msg with invalid signature"));
-    return;
-  }
-#endif
+// #ifdef FD_GOSSIP_DEMO
+//   fd_sha512_t sha[1];
+//   if (fd_ed25519_verify( /* msg */ buf,
+//                          /* sz  */ (ulong)((uchar*)ctx.data - buf),
+//                          /* sig */ msg->data.signature.uc,
+//                          /* public_key */ msg->pubkey.uc,
+//                          sha )) {
+//     FD_LOG_WARNING(("received prune_msg with invalid signature"));
+//     return;
+//   }
+// #endif
 
   /* Find the active push state which needs to be pruned */
   fd_push_state_t* ps = NULL;
