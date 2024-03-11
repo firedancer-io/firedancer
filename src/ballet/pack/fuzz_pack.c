@@ -281,30 +281,6 @@ int LLVMFuzzerInitialize(int *pargc, char ***pargv)
     return 0;
 }
 
-
-// char *generate_random_string_from_data(const uchar *data)
-// {
-//     static const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-//     const int charset_size = sizeof(charset) - 1;
-//     const int max_length = 32;
-
-//     unsigned int seed;
-//     memcpy(&seed, data, sizeof(seed));
-//     char *result = (char *)malloc((max_length + 1) * sizeof(char));
-
-
-//     // Generate random characters within the specified range
-//     for (int i = 0; i < max_length; ++i) {
-//         result[i] = charset[seed % charset_size];
-//         seed >>= 1; // Shift to use the next bit
-//     }
-
-//     // Null-terminate the string
-//     result[max_length] = '\0';
-
-//     return result;
-// }
-
 int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
 {
 
@@ -354,7 +330,7 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
             for (int j = 0; j < 8; j++) {
                 int bit = (firstThreeBytes[i] >> j) & 1;
                 if (bit) {
-                    if (s < 10) {
+                    if (s < 5) {
                         break;
                     }
 
@@ -367,23 +343,16 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
                     // printf("rewards: %d\n", rewards);
                     // free((void *) acc1);
                     // free((void *) acc2);
-                    ptr += 10;
-                    s -= 10;
+                    ptr += 5;
+                    s -= 5;
                     insert(insert_idx++, pack);
                     arr[insert_idx] = insert_idx;
 
 
                 } else {
                   // todo actually help it delete txns
-                    fd_ed25519_sig_t const *sig =
-                        fd_txn_get_signatures((fd_txn_t *)
-                                              txn_scratch[insert_idx],
-                                              payload_scratch[insert_idx]);
+                    fd_ed25519_sig_t const *sig = fd_txn_get_signatures((fd_txn_t *) txn_scratch[insert_idx], payload_scratch);
                     int d = fd_pack_delete_transaction(pack, sig);
-                    if (d) {
-                      printf("Deleting\n");
-                    }
-                    // assert(del);
                 }
             }
             schedule_validate_microblock(pack, 30000UL, 0.0f, 1, rewards,
