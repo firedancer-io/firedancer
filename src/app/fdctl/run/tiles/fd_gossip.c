@@ -272,10 +272,11 @@ gossip_send_packet( uchar const * msg,
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
   g_num_packets_sent++;
-
+/*
   if(g_num_packets_sent > 1) {
     return;
   }
+  */
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
