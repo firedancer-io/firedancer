@@ -290,10 +290,13 @@ fd_r43x6_add_fast_ref( fd_r43x6_t x,
 FD_FN_CONST static fd_r43x6_t
 fd_r43x6_sub_fast_ref( fd_r43x6_t x,
                        fd_r43x6_t y ) {
-  union { __m512i v; long lane[8]; } xx, yy, zz;
+  union { __m512i v; long lane[8]; } xx, yy, zz, pp;
   xx.v = x; /* Arb */
   yy.v = y; /* Arb */
-  for( ulong i=0UL; i<8UL; i++ ) zz.lane[i] = xx.lane[i] - yy.lane[i];
+  pp.v = fd_r43x6_p();
+  for( ulong i=0UL; i<8UL; i++ ) {
+    zz.lane[i] = xx.lane[i] + ( pp.lane[i] - yy.lane[i] );
+  }
   return zz.v; /* Arb */
 }
 

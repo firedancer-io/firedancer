@@ -1,4 +1,6 @@
 #include "fd_x25519.h"
+#include "../hex/fd_hex.h"
+#include "test_x25519_wycheproof.c"
 
 struct fd_x25519_test_vector {
   uchar self  [ 32 ];
@@ -81,11 +83,32 @@ log_bench( char const * descr,
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
 
+static void
+test_wycheproofs( void ) {
+  char cstr[128];
+
+  uchar shared[32];
+  for( fd_x25519_verify_wycheproof_t const * proof = x25519_verify_wycheproofs;
+       proof->comment;
+       proof++ ) {
+
+    int actual = ( fd_x25519_exchange( shared, proof->prv, proof->pub )
+                     != NULL );
+    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%d", proof->tc_id ) );
+    if (proof->ok) {
+      FD_TEST_CUSTOM( fd_memeq( shared, proof->shared, 32 ), fd_cstr_printf( cstr, 128UL, NULL, "fd_x25519_exchange_wycheproof id=%d (shared)", proof->tc_id ) );
+    }
+  }
+  FD_LOG_NOTICE(( "fd_x25519_exchange_wycheproof: ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  test_wycheproofs();
 
   for( fd_x25519_test_vector_t const * test = test_x25519_vector;
        (ulong)test < ((ulong)test_x25519_vector + sizeof(test_x25519_vector));
