@@ -57,19 +57,18 @@ during_frag( void * _ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-
   fd_memcpy( dst, src, sz );
 
-  uchar * packet = dst;
-  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-    FD_LOG_WARNING(("E: %lu %lu %lu %u", sz, sig, in_idx, fd_disco_netmux_sig_src_tile(sig) ));
-    FD_LOG_HEXDUMP_WARNING(("HEY3", packet, sz));
-    FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                  "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                  "is not configured correctly." ));
+  // uchar * packet = dst;
+  // uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  // if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+  //   FD_LOG_WARNING(("E: %lu %lu %lu %u", sz, sig, in_idx, fd_disco_netmux_sig_src_tile(sig) ));
+  //   FD_LOG_HEXDUMP_WARNING(("HEY3", packet, sz));
+  //   FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+  //                 "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+  //                 "is not configured correctly." ));
     
-  }
+  // }
 }
 
 static inline void
@@ -97,15 +96,15 @@ after_frag( void *             _ctx,
   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
       branch */
 
-  uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
-    FD_LOG_WARNING(("C: %lu %lu %lu", *opt_sz, *opt_sig, in_idx ));
-    FD_LOG_HEXDUMP_WARNING(("HEY2", packet, *opt_sz));
-    FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
-                  "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
-                  "is not configured correctly." ));
+  // uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
+  // if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
+  //   FD_LOG_WARNING(("C: %lu %lu %lu", *opt_sz, *opt_sig, in_idx ));
+  //   FD_LOG_HEXDUMP_WARNING(("HEY2", packet, *opt_sz));
+  //   FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
+  //                 "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
+  //                 "is not configured correctly." ));
     
-  }
+  // }
   
   ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mux_publish( mux, *opt_sig, ctx->out_chunk, *opt_sz, 0, 0, tspub );
