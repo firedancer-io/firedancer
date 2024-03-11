@@ -30,7 +30,8 @@ static int
 gossip_verify( fd_gossip_verify_ctx_t * ctx,
                    uchar const *            payload,
                    ushort const             payload_sz,
-                   fd_txn_t const *         txn ) {
+                   fd_txn_t const *         txn,
+                   ulong *                  opt_sig ) {
   /* We do not want to deref any non-data field from the txn struct more than once */
   uchar  signature_cnt = txn->signature_cnt;
   ushort signature_off = txn->signature_off;
@@ -46,6 +47,8 @@ gossip_verify( fd_gossip_verify_ctx_t * ctx,
   if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
     return GOSSIP_VERIFY_FAILED;
   }
+
+  *opt_sig = *(ulong *)signatures;
 
   return GOSSIP_VERIFY_SUCCESS;
 }
@@ -146,7 +149,7 @@ after_frag( void *             _ctx,
     FD_LOG_ERR( ("txn is invalid: payload_sz = %x, recent_blockhash_off = %x", payload_sz, recent_blockhash_off ) );
   }
 
-  int res = gossip_verify( ctx, udp_payload, payload_sz, txn );
+  int res = gossip_verify( ctx, udp_payload, payload_sz, txn, opt_sig );
   if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
     *opt_filter = 1;
     return;

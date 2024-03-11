@@ -62,7 +62,9 @@
 #define FD_TOPO_WKSP_KIND_STORE        (31UL)
 #define FD_TOPO_WKSP_KIND_BLOCKSTORE   (32UL)
 #define FD_TOPO_WKSP_KIND_REPLAY       (33UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_REPLAY+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_GOSSIP_VERIFY      (34UL)
+#define FD_TOPO_WKSP_KIND_GOSSIP_DEDUP       (35UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_GOSSIP_DEDUP+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -105,6 +107,7 @@
 #define FD_TOPO_LINK_KIND_REPLAY_TO_SHRED     (26UL)
 #define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (27UL)
 #define FD_TOPO_LINK_KIND_NETMUX_TO_NET       (28UL)
+#define FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP     (29UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -127,7 +130,8 @@
 #define FD_TOPO_TILE_KIND_STORE     (15UL)
 #define FD_TOPO_TILE_KIND_REPLAY    (16UL)
 #define FD_TOPO_TILE_KIND_GOSSIP_VERIFY (17UL)
-#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_GOSSIP_VERIFY+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_GOSSIP_DEDUP  (18UL)
+#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_GOSSIP_DEDUP+1 ) /* Keep updated with maximum tile IDX */
 
 #define FD_TOPO_KIND_TVU            (0UL)
 #define FD_TOPO_KIND_FIREDANCER     (1UL)
@@ -545,6 +549,7 @@ fd_topo_tile_kind_str( ulong kind ) {
     case FD_TOPO_TILE_KIND_STORE:      return "store";
     case FD_TOPO_TILE_KIND_REPLAY:      return "replay";
     case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return "gossip_verify";
+    case FD_TOPO_TILE_KIND_GOSSIP_DEDUP: return "gossip_dedup";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

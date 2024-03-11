@@ -681,7 +681,7 @@ config_tiles( config_t * config ) {
         break;
       case FD_TOPO_TILE_KIND_VERIFY | FD_TOPO_TILE_KIND_GOSSIP_VERIFY:
         break;
-      case FD_TOPO_TILE_KIND_DEDUP:
+      case FD_TOPO_TILE_KIND_DEDUP | FD_TOPO_TILE_KIND_GOSSIP_DEDUP:
         tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
       case FD_TOPO_TILE_KIND_PACK:

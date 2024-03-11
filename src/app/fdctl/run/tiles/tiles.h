@@ -120,6 +120,7 @@ extern fd_tile_config_t fd_tile_tvu;
 extern fd_tile_config_t fd_tile_store;
 extern fd_tile_config_t fd_tile_replay;
 extern fd_tile_config_t fd_tile_gossip_verify;
+extern fd_tile_config_t fd_tile_gossip_dedup;
 
 void *
 fd_wksp_pod_map1( uchar const * pod,
