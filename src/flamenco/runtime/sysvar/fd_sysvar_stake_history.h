@@ -14,7 +14,8 @@ void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
 /* Reads the current value of the stake history sysvar */
 fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_stake_history_t * result,
-                              fd_exec_slot_ctx_t * slot_ctx );
+                              fd_exec_slot_ctx_t * slot_ctx,
+                              fd_valloc_t *valloc);
 
 void
 fd_sysvar_stake_history_destroy( fd_stake_history_t * result,

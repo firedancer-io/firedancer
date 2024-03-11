@@ -1027,8 +1027,7 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_exec_context_t * ctx,
                                   ulong                  signers_seeds_va,
                                   ulong                  signers_seeds_cnt ) {
 
-  fd_vm_syscall_pdas_t _pdas[1];
-  fd_vm_syscall_pdas_t * pdas = fd_vm_syscall_pdas_join( fd_vm_syscall_pdas_new( _pdas, out ) );
+  fd_vm_syscall_pdas_t * pdas = fd_vm_syscall_pdas_join( fd_vm_syscall_pdas_new( fd_alloca( alignof(fd_vm_syscall_pdas_t), sizeof(fd_vm_syscall_pdas_t ) ), out ) );
 
   if( signers_seeds_cnt>0UL ) {
     ulong res = fd_vm_syscall_cpi_derive_signers_( ctx, pdas, signers_seeds_va, signers_seeds_cnt );
@@ -2136,8 +2135,7 @@ fd_vm_syscall_sol_create_program_address(
   if ( FD_UNLIKELY( err ) ) return err;
   /* Calculate PDA */
 
-  fd_sha256_t _sha[1];
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( fd_alloca( alignof(fd_sha256_t), sizeof(fd_sha256_t ) ) ) );
   if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, NULL ) ) )
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
 
@@ -2221,8 +2219,7 @@ fd_vm_syscall_sol_try_find_program_address(
 
   fd_pubkey_t result;
   for( ulong i = 0UL; i < 256UL; i++ ) {
-    fd_sha256_t _sha[1];
-    fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+    fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( fd_alloca( alignof(fd_sha256_t), sizeof(fd_sha256_t ) ) ) );
     uchar suffix[1] = {(uchar)(255UL - i)};
 
     if( FD_UNLIKELY( !fd_vm_partial_derive_address( ctx, sha, program_id_vaddr, seeds_vaddr, seeds_cnt, suffix ) ) ) {

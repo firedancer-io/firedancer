@@ -173,10 +173,10 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
   } FD_SCRATCH_SCOPE_END;
 }
 
-/* 
+/*
 Refresh vote accounts.
 
-This updates the epoch bank stakes vote_accounts cache - that is, the total amount 
+This updates the epoch bank stakes vote_accounts cache - that is, the total amount
 of delegated stake each vote account has, using the current delegation values from inside each
 stake account.
 
@@ -194,7 +194,7 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
     ulong * new_rate_activation_epoch = NULL;
 
     // Iterate over each stake delegation and accumulate the stake amount associated with the given vote account.
-    for ( 
+    for (
       fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root);
       n;
       n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
@@ -214,7 +214,7 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
 
         // Fetch the delegation associated with this stake account
         fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-        fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( 
+        fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
           delegation, stakes->epoch, history, new_rate_activation_epoch );
 
         // Add this delegation amount to the total stake of the vote account
@@ -232,10 +232,10 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
         }
     }
 
-    // Also include delegations from the stake accounts in the current slot context's 
+    // Also include delegations from the stake accounts in the current slot context's
     // slot_ctx->slot_bank.stake_account_keys (a set of the stake accounts which we have
     // from this epoch).
-    for ( fd_stake_accounts_pair_t_mapnode_t * n = fd_stake_accounts_pair_t_map_minimum( 
+    for ( fd_stake_accounts_pair_t_mapnode_t * n = fd_stake_accounts_pair_t_map_minimum(
       slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool,
       slot_ctx->slot_bank.stake_account_keys.stake_accounts_root);
           n;
@@ -269,8 +269,8 @@ void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t *
       }
     }
 
-    // Copy the delegated stake values calculated above to the epoch bank stakes vote_accounts 
-    for ( fd_vote_accounts_pair_t_mapnode_t * n = 
+    // Copy the delegated stake values calculated above to the epoch bank stakes vote_accounts
+    for ( fd_vote_accounts_pair_t_mapnode_t * n =
         fd_vote_accounts_pair_t_map_minimum(
           stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root);
           n;
@@ -307,7 +307,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( &history, slot_ctx );
+  fd_sysvar_stake_history_read( &history, slot_ctx, &slot_ctx->valloc );
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -399,7 +399,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Update the current epoch value */
   stakes->epoch = next_epoch;
 
-  fd_valloc_free( slot_ctx->valloc, 
+  fd_valloc_free( slot_ctx->valloc,
     fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
 
   // Update the list of vote accounts in the epoch stake cache

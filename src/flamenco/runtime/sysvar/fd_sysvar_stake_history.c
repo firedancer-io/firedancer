@@ -23,7 +23,8 @@ void write_stake_history( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* sta
 
 fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_stake_history_t * result,
-                              fd_exec_slot_ctx_t * slot_ctx ) {
+                              fd_exec_slot_ctx_t * slot_ctx,
+                              fd_valloc_t *valloc) {
 
   FD_BORROWED_ACCOUNT_DECL(stake_rec);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec);
@@ -33,7 +34,7 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
   fd_bincode_decode_ctx_t ctx = {
     .data = stake_rec->const_data,
     .dataend = (char *) stake_rec->const_data + stake_rec->const_meta->dlen,
-    .valloc  = slot_ctx->valloc
+    .valloc  = *valloc
   };
 
   if( FD_UNLIKELY( fd_stake_history_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
@@ -61,7 +62,7 @@ void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
 void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_entry_t * entry) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
-  fd_sysvar_stake_history_read( &stake_history, slot_ctx );
+  fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
 
   if (fd_stake_history_treap_ele_cnt( stake_history.treap ) == fd_stake_history_treap_ele_max( stake_history.treap )) {
     fd_stake_history_treap_fwd_iter_t iter = fd_stake_history_treap_fwd_iter_init( stake_history.treap, stake_history.pool );

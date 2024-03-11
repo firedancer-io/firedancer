@@ -31,14 +31,14 @@ for MACHINE in ${MACHINES[*]}; do
   make clean --silent >/dev/null
   contrib/make-j
   if [[ -z "$NOTEST" ]]; then
+    if [[ -n "$RUNTIME_TEST" ]]; then
+      make run-runtime-test
+    fi
     make run-unit-test
     make run-fuzz-test
     make run-script-test
     if [[ "$HAS_LLVM_COV" == 1 ]]; then
       make "${OBJDIR}/cov/cov.profdata"
-    fi
-    if [[ -n "$RUNTIME_TEST" ]]; then
-      make run-runtime-test
     fi
   fi
   export -n MACHINE

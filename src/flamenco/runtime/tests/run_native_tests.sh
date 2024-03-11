@@ -4,6 +4,8 @@
 
 OBJDIR=${OBJDIR:-build/native/gcc}
 
+set -x
+
 # Running this twice, but whatever
 "$OBJDIR"/unit-test/test_native_programs >& native.log
 

@@ -114,7 +114,19 @@ done
 
 if [ ! -e dump/$LEDGER ]; then
   mkdir -p dump
-  curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
+  echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+  if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
+    if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
+      if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
+        gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
+      fi
+      if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
+        gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+      fi
+    fi
+  fi
+  gsutil cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
+  # curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
 if [ "" == "$SNAPSHOT" ]; then
@@ -160,8 +172,8 @@ ARGS=" --load test_ledger_backup \
   --abort-on-mismatch 1 \
   --capture test.solcap \
   $END_SLOT \
-  --log-level-logfile 0 \
-  --log-level-stderr 0 \
+  --log-level-logfile 2 \
+  --log-level-stderr 2 \
   --allocator libc"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
@@ -179,7 +191,7 @@ then
     echo "inverted test passed"
     exit 0
   fi
-  tail -20 $LOG
+  tail -40 $LOG
   echo 'ledger test failed:'
   echo $LOG
   exit $status

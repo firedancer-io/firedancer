@@ -706,7 +706,7 @@ calculate_validator_rewards(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
     fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( &stake_history, slot_ctx );
+    fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
 
     fd_point_value_t point_value_result[1] = {0};
     calculate_reward_points_partitioned(slot_ctx, &stake_history, rewards, point_value_result);
@@ -915,7 +915,7 @@ pay_validator_rewards(
 ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2789-L2839 */
     fd_stake_history_t stake_history;
-    fd_sysvar_stake_history_read( &stake_history, slot_ctx );
+    fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
     fd_point_value_t point_value_result[1] = {{0}};
     calculate_reward_points(slot_ctx, &stake_history, rewards, point_value_result);
     fd_validator_reward_calculation_t rewards_calc_result[1] = {0};

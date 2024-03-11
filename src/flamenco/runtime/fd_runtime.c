@@ -621,9 +621,16 @@ fd_runtime_execute_txn_task(void *tpool,
   if( res != 0 ) {
     FD_LOG_ERR(("could not prepare txn"));
   }
-  // fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
-  // fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
-  // FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+  fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
+  fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
+//  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+
+  // Leave this here for debugging...
+  char txnbuf[100];
+  fd_base58_encode_64((uchar *)raw_txn->raw + txn->signature_off , NULL, txnbuf );
+
+// if (!strcmp(txnbuf, "4RGULZH1tkq5naQzD5zmvPf9T8U5Ei7U2oTExnELf8EyHLyWNQzrDukmzNBVvde2p9NrHn5EW4N38oELejX1MDZq"))
+//   FD_LOG_WARNING(("hi mom"));
 
   task_info->exec_res = fd_execute_txn( task_info->txn_ctx );
   // FD_LOG_WARNING(("Transaction result %d for %64J %lu %lu %lu", task_info->exec_res, (uchar *)raw_txn->raw + txn->signature_off, task_info->txn_ctx->compute_meter, task_info->txn_ctx->compute_unit_limit, task_info->txn_ctx->num_instructions));
@@ -3381,7 +3388,7 @@ void fd_process_new_epoch(
   fd_update_stake_delegations( slot_ctx );
 
   fd_stake_history_t history;
-  fd_sysvar_stake_history_read( &history, slot_ctx );
+  fd_sysvar_stake_history_read( &history, slot_ctx, &slot_ctx->valloc );
   refresh_vote_accounts( slot_ctx, &history );
   fd_bincode_destroy_ctx_t ctx;
   ctx.valloc  = slot_ctx->valloc;

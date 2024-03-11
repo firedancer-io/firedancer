@@ -245,6 +245,21 @@ fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
     return FD_PROGRAM_OK;                                                                          \
   } while( 0 )
 
+#define FD_SYSVAR_CHECKED_READ_2(invoke_context,                                                   \
+                                instruction_context,                                               \
+                                instruction_account_index,                                         \
+                                fd_sysvar_id,                                                      \
+                                fd_sysvar_read,                                                    \
+                                valloc,                                                            \
+                                out )                                                              \
+  do {                                                                                             \
+    FD_SYSVAR_CHECK_SYSVAR_ACCOUNT(                                                                \
+        invoke_context->txn_ctx, instruction_context, instruction_account_index, fd_sysvar_id );   \
+    if( FD_UNLIKELY( !fd_sysvar_read( out, invoke_context->slot_ctx, valloc ) ) )                  \
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                                             \
+    return FD_PROGRAM_OK;                                                                          \
+  } while( 0 )
+
 // https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L236
 static FD_FN_UNUSED int
 fd_sysvar_clock_checked_read( fd_exec_instr_ctx_t const *       invoke_context,
@@ -278,13 +293,15 @@ static FD_FN_UNUSED int
 fd_sysvar_stake_history_checked_read( fd_exec_instr_ctx_t const *    invoke_context,
                                       fd_instr_info_t const *        instruction_context,
                                       uchar                          instruction_account_index,
+                                      fd_valloc_t *                  valloc,
                                       /* out */ fd_stake_history_t * stake_history ) {
-  FD_SYSVAR_CHECKED_READ( invoke_context,
-                          instruction_context,
-                          instruction_account_index,
-                          fd_sysvar_stake_history_id,
-                          fd_sysvar_stake_history_read,
-                          stake_history );
+  FD_SYSVAR_CHECKED_READ_2( invoke_context,
+                            instruction_context,
+                            instruction_account_index,
+                            fd_sysvar_stake_history_id,
+                            fd_sysvar_stake_history_read,
+                            valloc,
+                            stake_history );
 }
 
 FD_PROTOTYPES_END

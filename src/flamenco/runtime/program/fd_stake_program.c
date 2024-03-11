@@ -1029,7 +1029,7 @@ get_stake_status( fd_exec_instr_ctx_t *          invoke_context,
                   fd_sol_sysvar_clock_t const *  clock,
                   fd_stake_activation_status_t * out ) {
   fd_stake_history_t stake_history;
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx ) ) )
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx, &invoke_context->slot_ctx->valloc ) ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   ulong new_rate_activation_epoch = ULONG_MAX;
   bool  is_some = new_warmup_cooldown_rate_epoch( invoke_context, &new_rate_activation_epoch );
@@ -1411,7 +1411,7 @@ set_lockup( fd_borrowed_account_t *       stake_account,
 }
 
 /* Removes stake delegation from epoch stakes and updates vote account */
-void 
+void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
   fd_stake_accounts_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
@@ -1427,7 +1427,7 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
 }
 
 /* Updates stake delegation in epoch stakes */
-void 
+void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
   FD_TEST( stake_account->const_meta->info.lamports != 0 );
   fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
@@ -1869,7 +1869,7 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
     fd_stake_t      stake = stake_account_state.inner.stake.stake;
 
     fd_stake_history_t stake_history = { 0 };
-    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx ) ) )
+    if( FD_UNLIKELY( !fd_sysvar_stake_history_read( &stake_history, invoke_context->slot_ctx, &invoke_context->slot_ctx->valloc ) ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     ulong new_rate_activation_epoch = ULONG_MAX;
@@ -2453,7 +2453,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     fd_stake_history_t stake_history = { 0 };
-    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &stake_history );
+    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &ctx.slot_ctx->valloc, &stake_history );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 5 ) )
@@ -2502,7 +2502,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
                    &stake_history,
                    signers,
                    &ctx.valloc );
-    
+
     // TODO: use scratch allocator instead to avoid leaks
     fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.slot_ctx->valloc };
     fd_stake_history_destroy( &stake_history, &destroy );
@@ -2553,7 +2553,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     fd_stake_history_t stake_history = { 0 };
-    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &stake_history );
+    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &ctx.slot_ctx->valloc, &stake_history );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     rc = merge(
@@ -2573,7 +2573,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
    * Processor:
    * https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L237
    */
-  case fd_stake_instruction_enum_withdraw: {
+  case fd_stake_instruction_enum_withdraw: FD_SCRATCH_SCOPE_BEGIN {
     ulong lamports = instruction.inner.withdraw;
 
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) )
@@ -2587,12 +2587,14 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     rc                          = fd_sysvar_clock_checked_read( &ctx, ctx.instr, 2, &clock );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
+    fd_valloc_t valloc  = fd_scratch_virtual();
     fd_stake_history_t stake_history = { 0 };
-    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &stake_history );
+    rc = fd_sysvar_stake_history_checked_read( &ctx, ctx.instr, 3, &valloc, &stake_history );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-    if( FD_UNLIKELY( ctx.instr->acct_cnt < 5 ) )
+    if( FD_UNLIKELY( ctx.instr->acct_cnt < 5 ) ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    }
 
     uchar custodian_index           = 5;
     ulong new_rate_activation_epoch = ULONG_MAX;
@@ -2610,8 +2612,9 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
         // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_instruction.rs#L258-L262
         fd_ptr_if( instruction_context->acct_cnt >= 6, &custodian_index, NULL ),
         fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
+
+    } FD_SCRATCH_SCOPE_END;
     break;
-  }
 
   /* Deactivate
    *
