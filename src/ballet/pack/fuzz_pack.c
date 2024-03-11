@@ -340,9 +340,6 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
                     rewards +=
                         make_transaction(insert_idx, (uint) ptr[0],
                                          (double) ptr[1], acc1, acc2);
-                    // printf("rewards: %d\n", rewards);
-                    // free((void *) acc1);
-                    // free((void *) acc2);
                     ptr += 5;
                     s -= 5;
                     insert(insert_idx++, pack);
@@ -352,7 +349,7 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
                 } else {
                   // todo actually help it delete txns
                     fd_ed25519_sig_t const *sig = fd_txn_get_signatures((fd_txn_t *) txn_scratch[insert_idx], payload_scratch);
-                    int d = fd_pack_delete_transaction(pack, sig);
+                    fd_pack_delete_transaction(pack, sig);
                 }
             }
             schedule_validate_microblock(pack, 30000UL, 0.0f, 1, rewards,
@@ -363,6 +360,5 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong data_sz)
 
     fd_pack_end_block(pack);
     rewards = 0;
-    // rewards = 0UL;
     return 0;
 }
