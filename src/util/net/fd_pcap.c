@@ -347,10 +347,11 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
   return 1;
 }
 
-#define FD_PCAP_SNAPLEN (2048UL) /* FIXME: Allow for Jumbos? */
+#define FD_PCAP_SNAPLEN (USHORT_MAX + 64UL + 4UL)
 
 ulong
-fd_pcap_fwrite_hdr( void * file ) {
+fd_pcap_fwrite_hdr( void * file,
+                    uint   link_layer_type ) {
   fd_pcap_hdr_t hdr[1];
   hdr->magic_number  = 0xa1b23c4dU;
   hdr->version_major = (ushort)2;
@@ -358,7 +359,7 @@ fd_pcap_fwrite_hdr( void * file ) {
   hdr->thiszone      = 0;
   hdr->sigfigs       = 0U;
   hdr->snaplen       = (uint)FD_PCAP_SNAPLEN;
-  hdr->network       = 1U;
+  hdr->network       = link_layer_type;
   return fwrite( hdr, sizeof(fd_pcap_hdr_t), 1UL, (FILE *)file );
 }
 

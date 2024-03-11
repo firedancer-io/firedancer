@@ -34,7 +34,7 @@ main( int     argc,
     FD_LOG_NOTICE(( "Streaming up to --max %lu packets to --out %s", out_rem, out_path ));
     stream_out = fopen( out_path, "w" );
     if( FD_UNLIKELY( !stream_out ) ) FD_LOG_ERR(( "fopen failed" ));
-    FD_TEST( fd_pcap_fwrite_hdr( stream_out )==1UL );
+    FD_TEST( fd_pcap_fwrite_hdr( stream_out, FD_PCAP_LINK_LAYER_ETHERNET )==1UL );
   } else {
     FD_LOG_NOTICE(( "--out not specified and/or --max is zero; not streaming out" ));
     stream_out = NULL;
