@@ -1,5 +1,7 @@
 #include "fd_vm_base.h"
 
+/* Verify error codes */
+
 FD_STATIC_ASSERT( FD_VM_SUCCESS                         ==  0, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVAL                       == -1, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_AGAIN                       == -2, vm_err );
@@ -31,22 +33,33 @@ FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-24, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_MEM_TRANS                   ==-25, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_BAD_CALL                    ==-26, vm_err );
 
+/* Verify limits */
+
+FD_STATIC_ASSERT( FD_VM_REG_CNT==11UL, vm_reg );
+
+FD_STATIC_ASSERT( FD_VM_SHADOW_FRAME_REG_CNT==4UL, vm_shadow );
+
+FD_STATIC_ASSERT( FD_VM_STACK_FRAME_MAX==64UL,          vm_stack );
+FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SZ ==0x1000UL,      vm_stack );
+FD_STATIC_ASSERT( FD_VM_STACK_GUARD_SZ ==0x1000UL,      vm_stack );
+FD_STATIC_ASSERT( FD_VM_STACK_SZ_MAX   ==64UL*0x2000UL, vm_stack );
+
+FD_STATIC_ASSERT( FD_VM_HEAP_SZ_DEFAULT   == 32UL*1024UL, vm_heap );
+FD_STATIC_ASSERT( FD_VM_HEAP_SZ_MAX       ==256UL*1024UL, vm_heap );
+
 FD_STATIC_ASSERT( FD_VM_LOG_COLLECTOR_BUF_MAX==10000UL, vm_log_collector );
 
-FD_STATIC_ASSERT( FD_VM_STACK_FRAME_MAX          ==64UL,                                                  vm_stack );
-FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SZ           ==0x1000UL,                                              vm_stack );
-FD_STATIC_ASSERT( FD_VM_STACK_FRAME_WITH_GUARD_SZ==0x2000UL,                                              vm_stack );
-FD_STATIC_ASSERT( FD_VM_STACK_DATA_MAX           ==FD_VM_STACK_FRAME_MAX*FD_VM_STACK_FRAME_WITH_GUARD_SZ, vm_stack );
+/* FIXME: COVER MEMORY MAP */
+/* FIXME: COVER COMPUTE BUDGET */
 
-FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0,    vm_trace );
-FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1,    vm_trace );
-FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2,    vm_trace );
-FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_EXE_REG_CNT==11UL, vm_trace );
+FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
+FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );
+FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
 
 static fd_vm_log_collector_t lc[1];
 static uchar lc_mirror[ FD_VM_LOG_COLLECTOR_BUF_MAX ];
 
-static fd_vm_stack_t stack[1];
+static fd_vm_shadow_t shadow[1];
 
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
@@ -147,21 +160,20 @@ main( int     argc,
     lc_mirror_avail = FD_VM_LOG_COLLECTOR_BUF_MAX;
   }
 
-  FD_LOG_NOTICE(( "Testing fd_vm_stack" ));
+  FD_LOG_NOTICE(( "Testing fd_vm_shadow" ));
 
-  FD_TEST( fd_vm_stack_wipe( stack )==stack );
-  uchar * _stack = (uchar *)stack;
-  for( ulong off=0UL; off<sizeof(fd_vm_stack_t); off++ ) FD_TEST( !_stack[off] );
+  FD_TEST( fd_vm_shadow_wipe( shadow )==shadow );
+  uchar * _shadow = (uchar *)shadow;
+  for( ulong off=0UL; off<sizeof(fd_vm_shadow_t); off++ ) FD_TEST( !_shadow[off] );
 
-  ulong stack_mirror[ FD_VM_STACK_FRAME_MAX ][ 5 ];
-  ulong stack_mirror_cnt = 0UL;
+  ulong shadow_mirror[ FD_VM_STACK_FRAME_MAX ][ 5 ];
+  ulong shadow_mirror_cnt = 0UL;
 
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong r[5];
 
-    FD_TEST( fd_vm_stack_data( stack ) );
-    FD_TEST( fd_vm_stack_is_empty( stack )==(stack_mirror_cnt==0UL)                   );
-    FD_TEST( fd_vm_stack_is_full ( stack )==(stack_mirror_cnt>=FD_VM_STACK_FRAME_MAX) );
+    FD_TEST( fd_vm_shadow_is_empty( shadow )==(shadow_mirror_cnt==0UL)                   );
+    FD_TEST( fd_vm_shadow_is_full ( shadow )==(shadow_mirror_cnt>=FD_VM_STACK_FRAME_MAX) );
 
     int op = (int)(fd_rng_uint( rng ) & 1U);
     switch( op ) {
@@ -169,24 +181,24 @@ main( int     argc,
     default:
     case 0: { /* Push */
       for( ulong i=0UL; i<5UL; i++ ) r[i] = fd_rng_ulong( rng );
-      int err = fd_vm_stack_push( stack, r[4], r );
-      if( FD_UNLIKELY( stack_mirror_cnt>=FD_VM_STACK_FRAME_MAX ) ) FD_TEST( err==FD_VM_ERR_FULL );
+      int err = fd_vm_shadow_push( shadow, r[4], r );
+      if( FD_UNLIKELY( shadow_mirror_cnt>=FD_VM_STACK_FRAME_MAX ) ) FD_TEST( err==FD_VM_ERR_FULL );
       else {
         FD_TEST( !err );
-        memcpy( stack_mirror[ stack_mirror_cnt ], r, 5UL*sizeof(ulong) );
-        stack_mirror_cnt++;
+        memcpy( shadow_mirror[ shadow_mirror_cnt ], r, 5UL*sizeof(ulong) );
+        shadow_mirror_cnt++;
       }
       break;
     }
 
     case 1: { /* Pop */
       ulong r[5];
-      int err = fd_vm_stack_pop( stack, r+4, r );
-      if( FD_UNLIKELY( !stack_mirror_cnt ) ) FD_TEST( err==FD_VM_ERR_EMPTY );
+      int err = fd_vm_shadow_pop( shadow, r+4, r );
+      if( FD_UNLIKELY( !shadow_mirror_cnt ) ) FD_TEST( err==FD_VM_ERR_EMPTY );
       else {
         FD_TEST( !err );
-        FD_TEST( !memcmp( stack_mirror[ stack_mirror_cnt-1UL ], r, 5UL*sizeof(ulong) ) );
-        stack_mirror_cnt--;
+        FD_TEST( !memcmp( shadow_mirror[ shadow_mirror_cnt-1UL ], r, 5UL*sizeof(ulong) ) );
+        shadow_mirror_cnt--;
       }
       break;
     }
@@ -299,8 +311,8 @@ main( int     argc,
 
   /* Test tracing */
 
-  ulong reg[ 3UL+FD_VM_TRACE_EVENT_EXE_REG_CNT ];
-  for( ulong i=0UL; i<3UL+FD_VM_TRACE_EVENT_EXE_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
+  ulong reg[ 3UL+FD_VM_REG_CNT ];
+  for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
   FD_TEST( fd_vm_trace_event_exe( NULL, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL )==FD_VM_ERR_INVAL );
   FD_TEST( fd_vm_trace_event_mem( NULL, 1, 2UL, 3UL, reg                                            )==FD_VM_ERR_INVAL );
 
@@ -311,7 +323,7 @@ main( int     argc,
 
     default:
     case 0: { /* exe */
-      for( ulong i=0UL; i<3UL+FD_VM_TRACE_EVENT_EXE_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
+      for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
       int err = fd_vm_trace_event_exe( trace, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL );
       if( FD_UNLIKELY( err==FD_VM_ERR_FULL ) ) goto vm_trace_done;
       FD_TEST( !err );

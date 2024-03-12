@@ -75,7 +75,7 @@ main( int     argc,
     .input_sz            = 0,
     .read_only           = read_only_prog,
     .read_only_sz        = read_only_sz,
-    .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
+    .heap_sz             = FD_VM_HEAP_SZ_DEFAULT,
   };
 
   set_vm_read_only_memory_region( &vm );

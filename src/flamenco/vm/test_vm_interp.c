@@ -36,7 +36,7 @@ test_program_success( char *        test_case_name,
     .compute_meter              = FD_MAX_COMPUTE_UNIT_LIMIT,
     .due_insn_cnt               = 0,
     .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
-    .heap_sz                    = FD_VM_DEFAULT_HEAP_SZ,
+    .heap_sz                    = FD_VM_HEAP_SZ_DEFAULT,
     .alloc                      = { {.offset = 0} }
   };
 
@@ -48,14 +48,14 @@ test_program_success( char *        test_case_name,
   dt += fd_log_wallclock();
 
   free( syscalls );
-  if (expected_result != vm.register_file[0]) {
-    FD_LOG_WARNING(( "RET: %lu 0x%lx", vm.register_file[0], vm.register_file[0] ));
-    FD_LOG_WARNING(( "PC: %lu 0x%lx", vm.program_counter, vm.program_counter ));
-    FD_LOG_WARNING(( "Cond fault: %d", vm.cond_fault));
-    FD_LOG_WARNING(( "IC: %lu 0x%lx", vm.instruction_counter, vm.instruction_counter));
+  if( FD_UNLIKELY( vm.reg[0]!=expected_result ) ) {
+    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm.reg[0],              vm.reg[0]                       ));
+    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm.program_counter,     vm.program_counter              ));
+    FD_LOG_WARNING(( "Cond fault: %i (%s)",   vm.cond_fault,          fd_vm_strerror( vm.cond_fault ) ));
+    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm.instruction_counter, vm.instruction_counter          ));
   }
-  FD_TEST( vm.register_file[0]==expected_result );
 //FD_LOG_NOTICE(( "Instr counter: %lu", vm.instruction_counter ));
+  FD_TEST( vm.reg[0]==expected_result );
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
 //FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.instruction_counter ));
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.instruction_counter / (double) dt)));
