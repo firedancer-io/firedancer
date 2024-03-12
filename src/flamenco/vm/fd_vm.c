@@ -257,8 +257,8 @@ fd_vm_translate_vm_to_host_private( fd_vm_t * vm,
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( FD_UNLIKELY( end_addr > FD_VM_STACK_DATA_MAX ) ) return 0UL;
-      haddr = (ulong)fd_vm_stack_data( vm->stack ) + start_addr;
+      if( FD_UNLIKELY( end_addr > FD_VM_STACK_SZ_MAX ) ) return 0UL;
+      haddr = (ulong)vm->stack + start_addr;
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */

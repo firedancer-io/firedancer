@@ -3,22 +3,10 @@
 
 #include "fd_vm_cpi.h"
 
-/* VM memory map constants */
-
-#define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
-#define FD_VM_MEM_MAP_STACK_REGION_START    (0x200000000UL)
-#define FD_VM_MEM_MAP_HEAP_REGION_START     (0x300000000UL)
-#define FD_VM_MEM_MAP_INPUT_REGION_START    (0x400000000UL)
-#define FD_VM_MEM_MAP_REGION_SZ             (0x0FFFFFFFFUL)
-#define FD_VM_MEM_MAP_REGION_MASK           (~FD_VM_MEM_MAP_REGION_SZ)
-#define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS (32)
-#define FD_VM_MAX_HEAP_SZ                   (256UL*1024UL)
-#define FD_VM_DEFAULT_HEAP_SZ               (32UL*1024UL)
-
-/* FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~ */
-
 /* The sBPF execution context. This is the primary data structure that
    is evolved before, during and after contract execution. */
+
+/* FIXME: THE HEAP IS RESIZEABLE AT INVOCATION ~~ugh~~ */
 
 struct fd_vm {
 
@@ -28,34 +16,31 @@ struct fd_vm {
   long                 entrypoint;  /* The initial program counter to start at */ /* FIXME: WHY LONG? IS IT IN [0,TEXT_CNT)? */
   fd_sbpf_syscalls_t * syscalls;    /* The map of syscalls that can be called into */ /* FIXME: CONST? */
   ulong *              calldests;   /* The bit vector of local functions that can be called into (FIXME: INDEXING, CONST) */
-  ulong const *        text;        /* The program instructions, indexed [0,text_cnt) */
-  ulong                text_cnt;    /* The number of program instructions (FIXME: BOUNDS?) */
-  ulong                text_off;    /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) in bytes
-                                       (FIXME: SHOULD THIS BE IN BYTES, MULTIPLE OF 8, ULONG, WHAT ARE BOUNDS?) */
   int                  check_align; /* If non-zero, VM does alignment checks where necessary (syscalls) */
   int                  check_size;  /* If non-zero, VM does size checks where necessary (syscalls) */
 
-  /* Writable VM parameters */
-  ulong                 register_file[11];          /* The sBPF register file */ /* FIXME: MAGIC NUMBER */
-  ulong                 program_counter;            /* The current instruction index being executed */
-  ulong                 instruction_counter;        /* The number of instructions which have been executed */
-  fd_vm_log_collector_t log_collector[1];           /* The log collector used by `sol_log_*` syscalls */
-  ulong                 compute_meter;              /* The remaining CUs left for the transaction */
-  ulong                 due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
-  ulong                 previous_instruction_meter; /* Last value of remaining compute units */
-  int                   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the execution fault that occured */
+  /* Read-write VM parameters */
+  ulong program_counter;            /* The current instruction index being executed */
+  ulong instruction_counter;        /* The number of instructions which have been executed */
+  ulong compute_meter;              /* The remaining CUs left for the transaction */
+  ulong due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
+  ulong previous_instruction_meter; /* Last value of remaining compute units */
+  int   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the execution fault that occured */
 
   /* Memory regions */
-  uchar *       read_only;                 /* The read-only memory region, typically just the relocated program binary blob */
-  ulong         read_only_sz;              /* The read-only memory region size */
-  uchar *       input;                     /* The program input memory region */
-  ulong         input_sz;                  /* The program input memory region size */
-  fd_vm_stack_t stack[1];                  /* The sBPF call frame stack */ /* FIXME: SEPARATE STACK AND SHADOW STACK */
-  ulong         heap_sz;                   /* The configured size of the heap */
-  uchar         heap[ FD_VM_MAX_HEAP_SZ ]; /* The heap memory allocated by the bump allocator syscall */
+  ulong const *   text;         /* Program sBPF words, indexed [0,text_cnt) */
+  ulong           text_cnt;     /* Program sBPF word count (FIXME: BOUNDS?) */
+  ulong           text_off;     /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs)
+                                   IMPORANT SAFETY TIP!  THIS IS IN BYTES (FIXME: SHOULD THIS BE IN BYTES, MULTIPLE OF 8, ULONG, BOUNDS?) */
+  uchar *         read_only;    /* The read-only memory region, typically just the relocated program binary blob  */ /* FIXME: CONST */
+  ulong           read_only_sz; /* The read-only memory region size (FIXME: BOUNDS) */
+  uchar *         input;        /* The program input memory region */
+  ulong           input_sz;     /* The program input memory region size, FIXME: BOUNDS */
+  ulong           heap_sz;      /* The configured size of the heap, in [0,FD_VM_HEAP_SZ_MAX] FIXME: DOUBLE CHECK BOUNDS */
+  fd_vm_trace_t * trace;        /* Location to hold traces (ignored and can be NULL if not tracing) */
 
   /* Runtime context */
-  fd_exec_instr_ctx_t * instr_ctx;
+  fd_exec_instr_ctx_t * instr_ctx; /* FIXME: DOCUMENT */
 
   /* Miscellaneous native state
 
@@ -65,7 +50,13 @@ struct fd_vm {
 
   fd_vm_heap_allocator_t alloc[1]; /* Bump allocator provided through syscall */
 
-  fd_vm_trace_t * trace;
+  /* Large VM state */
+  /* FIXME: ALIGNMENT */
+  ulong                 reg   [ FD_VM_REG_CNT      ]; /* The sBPF register file */
+  fd_vm_shadow_t        shadow[1];                    /* The sBPF shadow stack */
+  uchar                 stack [ FD_VM_STACK_SZ_MAX ]; /* The sBPF stack */
+  uchar                 heap  [ FD_VM_HEAP_SZ_MAX  ]; /* The heap memory allocated by the bump allocator syscall */
+  fd_vm_log_collector_t log_collector[1];             /* The log collector used by `sol_log_*` syscalls */
 };
 
 typedef struct fd_vm fd_vm_t;
