@@ -199,7 +199,7 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->accounts_cnt       = 0;
   txn_ctx->executable_cnt     = 0;
   txn_ctx->paid_fees          = 0;
-  txn_ctx->heap_size          = FD_VM_HEAP_SZ_DEFAULT;
+  txn_ctx->heap_size          = FD_VM_HEAP_DEFAULT;
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   txn_ctx->txn_descriptor = txn_descriptor;
