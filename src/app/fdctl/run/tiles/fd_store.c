@@ -124,6 +124,13 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_store = {
   .name                     = "store",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
@@ -132,6 +139,7 @@ fd_topo_run_tile_t fd_tile_store = {
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .mux_metrics_write        = metrics_write,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,
