@@ -330,6 +330,9 @@ after_frag( void *             _ctx,
   *opt_filter = 0;
   *opt_chunk = ctx->out_chunk;
 
+  ulong time = (ulong)fd_log_wallclock() / 10000000000UL;
+  sig ^= time;
+
   // Adding first 8 bytes of signature for gossip dedup
   FD_STORE( ulong, udp_payload + payload_sz, sig);
   *opt_sz += sizeof(ulong);
