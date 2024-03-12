@@ -283,7 +283,7 @@ gossip_send_packet( uchar const * msg,
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 #ifdef FD_GOSSIP_DEMO
   for(ushort i = 0; i < 4; i++) {
-    send_packet( arg, addr->addr, msg, msglen, tsorig + i );
+    send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig + i );
   }
 #else
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
