@@ -37,6 +37,14 @@ fd_vm_partial_derive_address( fd_vm_t *     vm,
     if( FD_UNLIKELY( mem_sz>FD_VM_CPI_SEED_MEM_MAX ) ) return NULL;
     /* FIXME: WHAT'S THE EXPECTED BEHAVIOR IF SRC_SZ==0? */
 
+    /* FIXME: if mem_sz is 0, then translate_slice returns a valid memory address,
+       but does nothing with it. Our translate_slice needs to have equivalent behaviour,
+       and we should use it here. The below line is a band-aid and should be removed when the semantics are fixed.
+       
+       https://github.com/solana-labs/solana/blob/089324c69ef3dc1293fe54840d666bf0e3d88419/programs/bpf_loader/src/syscalls/mod.rs#L801-L807
+        */
+    if ( FD_UNLIKELY( mem_sz == 0 ) ) continue;
+
     void const * mem_haddr = fd_vm_translate_vm_to_host_const( vm, seed_haddr[i].addr, mem_sz, alignof(uchar) );
     if( FD_UNLIKELY( !mem_haddr ) ) return NULL;
 
