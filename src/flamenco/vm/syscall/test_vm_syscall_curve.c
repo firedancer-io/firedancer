@@ -61,6 +61,17 @@ main( int     argc,
   uchar       rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
 
+  /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
+  fd_exec_epoch_ctx_t epoch_ctx = {
+    .magic = FD_EXEC_EPOCH_CTX_MAGIC,
+  };
+  fd_exec_slot_ctx_t slot_ctx = {
+    .epoch_ctx = &epoch_ctx,
+  };
+  fd_exec_instr_ctx_t instr_ctx = {
+    .slot_ctx = &slot_ctx,
+  };
+
   fd_vm_t vm = {
     .entrypoint          = 0,
     .syscalls            = NULL,
@@ -75,6 +86,8 @@ main( int     argc,
     .rodata              = rodata,
     .rodata_sz           = rodata_sz,
     .heap_max            = FD_VM_HEAP_DEFAULT,
+    /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
+    .instr_ctx           = &instr_ctx,
   };
 
   ulong scalar_vaddr = 0;
@@ -95,6 +108,20 @@ main( int     argc,
     result_point_vaddr,
     0UL, // ret_code
     FD_VM_ERR_PERM, // syscall_ret
+    expected_result_host_ptr
+  );
+
+  // invalid (max 512 points)
+  test_vm_syscall_sol_curve_multiscalar_mul(
+    "test_vm_syscall_sol_curve_multiscalar_mul: invalid",
+    &vm,
+    FD_VM_SYSCALL_SOL_CURVE_ECC_ED25519,
+    scalar_vaddr,
+    point_vaddr,
+    513UL, // point_cnt
+    result_point_vaddr,
+    0UL, // ret_code
+    FD_VM_ERR_INVAL, // syscall_ret
     expected_result_host_ptr
   );
 
