@@ -14,7 +14,7 @@ do { \
   long insns = pc-start_pc + 1; \
 
 #define BRANCH_POST_CODE \
-  instr = ctx->instrs[++pc]; \
+  instr = fd_sbpf_instr( ctx->text[++pc] ); \
   ic += (ulong)insns - skipped_insns; \
   start_pc = pc; \
   due_insn_cnt += (ulong)insns - skipped_insns; \
@@ -26,7 +26,7 @@ do { \
 } while(0);
 
 #define INSTR_POST_CODE \
-  instr = ctx->instrs[++pc]; \
+  instr = fd_sbpf_instr( ctx->text[++pc] ); \
   goto *(locs[instr.opcode.raw]);
 
 /* 0x00 - 0x0f */
@@ -68,7 +68,7 @@ JT_CASE_END
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x18 */ JT_CASE(0x18) // FD_BPF_OP_LDQ
-  register_file[instr.dst_reg] = (ulong)((ulong)instr.imm | ((ulong)ctx->instrs[pc+1].imm << 32));
+  register_file[instr.dst_reg] = (ulong)((ulong)instr.imm | ((ulong)fd_sbpf_instr( ctx->text[pc+1] ).imm << 32));
   pc++;
   skipped_insns++;
 INSTR_POST_CODE
@@ -334,13 +334,7 @@ INSTR_POST_CODE
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
 BRANCH_PRE_CODE
-  compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
-  ctx->compute_meter = compute_meter;
-  due_insn_cnt = 0;
-  ctx->due_insn_cnt = 0;
-  fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
-  if( syscall_entry_imm==NULL ) {
-    // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
+  if ( (ulong)(pc + (int)instr.imm + 1L) < ctx->text_cnt ) {
     register_file[10] += 0x2000;
     cond_fault = 0;
     fd_vm_stack_push( ctx->stack, (ulong)pc, &register_file[6] ); // FIXME: stack overflow fault
@@ -350,13 +344,13 @@ BRANCH_PRE_CODE
     ctx->compute_meter = compute_meter;
     due_insn_cnt = 0;
     ctx->due_insn_cnt = 0;
-    fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
+    fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscalls, instr.imm, NULL );
     if( syscall_entry_imm==NULL ) {
       // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
       register_file[10] += 0x2000;
       fd_vm_stack_push( ctx->stack, (ulong)pc, &register_file[6] ); // FIXME: stack overflow fault.
       uint target_pc = fd_pchash_inverse( instr.imm );
-      if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz ) {
+      if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->text_cnt ) {
         pc = (long)(target_pc) - 1L;
       } else if( instr.imm==0x71e3cf81 ) {
         pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
@@ -390,7 +384,7 @@ BRANCH_PRE_CODE
   register_file[10] += 0x2000;
   cond_fault = fd_vm_stack_push( ctx->stack, (ulong)pc, &register_file[6] ); // FIXME: stack overflow fault
   pc = (long)((start_addr / 8UL)-1);
-  pc -= (long)ctx->instrs_offset / 8;
+  pc -= (long)ctx->text_off / 8L; /* FIXME: WHAT IF TEXT_OFF IS NOT A MULTIPLE OF 8 */
   /* TODO verify that program counter is within bounds */
   /* TODO when static_syscalls are enabled, check that the call destination is valid */
   goto *(!cond_fault ? &&fallthrough_0x8d : &&JT_RET_LOC);
