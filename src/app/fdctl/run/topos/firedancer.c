@@ -45,9 +45,9 @@ fd_topo_firedancer( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
 
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,    FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,     FD_TOPO_WKSP_KIND_DEDUP_PACK,  config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                      FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( config->layout.verify_tile_count,       FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,  FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( config->layout.gossip_dedup_tile_count, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,  FD_TOPO_WKSP_KIND_GOSSIP_DEDUP,  config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   topo->link_cnt = link_cnt;
 
   ulong tile_cnt = 0UL;
@@ -57,17 +57,19 @@ fd_topo_firedancer( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,       FD_TOPO_WKSP_KIND_SIGN,       ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC,     FD_TOPO_WKSP_KIND_METRIC,     ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,   i )                                                       );
-  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_GOSSIP_VERIFY, FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i) );
-  TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP_DEDUP, FD_TOPO_WKSP_KIND_GOSSIP_DEDUP, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP, i) );
+  TILE( config->layout.verify_tile_count,                                FD_TOPO_TILE_KIND_GOSSIP_VERIFY, FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i) );
+  TILE( config->layout.gossip_dedup_tile_count,                                FD_TOPO_TILE_KIND_GOSSIP_DEDUP, FD_TOPO_WKSP_KIND_GOSSIP_DEDUP, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP, i) );
 
   topo->tile_cnt = tile_cnt;
 
   for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NET,    i,   FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_NET_TO_NETMUX,   i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_VERIFY, i, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 0, 1 );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_DEDUP, 0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     i, 0, 1 );
-  // /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_VERIFY, 0UL, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,     0UL, 0, 1 );
-  // /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_DEDUP,  0UL, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,   0UL, 0, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,   0UL, 0, 1 );
-  /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
+  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
+    for( ulong j=0; j<config->layout.gossip_dedup_tile_count; j++ ) {
+      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_DEDUP, j, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     i, 0, 1 );
+    }
+  }
+  for( ulong i=0; i<config->layout.gossip_dedup_tile_count; i++ )  TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,   i, 0, 1 );
+  /**/                                                             TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
 }

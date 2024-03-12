@@ -483,7 +483,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 1 ||
+  if( FD_UNLIKELY( tile->in_cnt != 4 ||
                    topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP ) ) {
     FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %lu %lu",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));

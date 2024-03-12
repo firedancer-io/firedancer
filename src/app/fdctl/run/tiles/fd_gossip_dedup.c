@@ -38,6 +38,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+  ulong       round_robin_cnt;
+  ulong       round_robin_id;
 } fd_gossip_dedup_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -57,6 +59,23 @@ scratch_footprint( fd_topo_tile_t * tile ) {
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_gossip_dedup_ctx_t ) );
+}
+
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)sig;
+
+  fd_gossip_dedup_ctx_t * ctx = (fd_gossip_dedup_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY( seq % ctx->round_robin_cnt != ctx->round_robin_id ) ) {
+    *opt_filter = 1;
+    return;
+  }
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -173,6 +192,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
+  ctx->round_robin_cnt = fd_topo_tile_kind_cnt( topo, tile->kind );
+  ctx->round_robin_id  = tile->kind_id;
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -205,6 +227,7 @@ fd_tile_config_t fd_tile_gossip_dedup = {
   .mux_flags                = FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,

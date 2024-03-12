@@ -1,9 +1,10 @@
 topology = "firedancer"
 
 [layout]
-    affinity = "0-26"
+    affinity = "0-32"
     net_tile_count = 4
     verify_tile_count = 16
+    gossip_dedup_tile_count = 4
     bank_tile_count = 1
 
 [tiles.net]
