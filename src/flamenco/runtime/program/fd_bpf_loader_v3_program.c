@@ -200,9 +200,9 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.register_file, 0, sizeof(vm.register_file) );
-  vm.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  memset( vm.reg, 0, sizeof(vm.reg) );
+  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
 //int err = fd_vm_validate( &vm );
 //if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
@@ -228,13 +228,13 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 
   ctx.txn_ctx->compute_meter = vm.compute_meter;
 
-//FD_LOG_DEBUG(( "fd_vm_exec success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.register_file[0], vm.cond_fault, vm.compute_meter ));
+//FD_LOG_DEBUG(( "fd_vm_exec success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
 //FD_LOG_WARNING(( "log coll - len: %lu %s", vm.log_collector.buf ));
 
-  if( vm.register_file[0]!=0 ) {
+  if( FD_UNLIKELY( vm.reg[0] ) ) {
     fd_valloc_free( ctx.valloc, input);
-    //FD_LOG_WARNING((" register_file[0] fail "));
-    // TODO: vm should report this error
+    //FD_LOG_WARNING(( "reg[0] fail" ));
+    //TODO: vm should report this error
     return -1;
   }
 

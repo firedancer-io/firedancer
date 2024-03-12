@@ -208,8 +208,8 @@ cmd_trace( char const * bin_path,
     .trace               = trace
   };
 
-  vm.register_file[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
   int err = fd_vm_exec_trace( &vm );
@@ -221,11 +221,11 @@ cmd_trace( char const * bin_path,
 
   free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
 
-  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );
-  printf( "Return value:        %lu\n",     vm.register_file[0]        );
-  printf( "Fault code:          %lu\n",     vm.cond_fault              );
-  printf( "Instruction counter: %lu\n",     vm.instruction_counter     );
-  printf( "Time:                %lu\n",     dt                         );
+  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err )                     );
+  printf( "Return value:        %lu\n",     vm.reg[0]                                      );
+  printf( "Fault code:          %i\n",      vm.cond_fault, fd_vm_strerror( vm.cond_fault ) );
+  printf( "Instruction counter: %lu\n",     vm.instruction_counter                         );
+  printf( "Time:                %lu\n",     dt                                             );
 
   return err;
 }
@@ -255,18 +255,18 @@ cmd_run( char const * bin_path,
     .read_only_sz        = tool_prog.prog->rodata_sz
   };
 
-  vm.register_file[1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  vm.reg[ 1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
   int err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
-  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );
-  printf( "Return value:        %lu\n", vm.register_file[0]    );
-  printf( "Fault code:          %lu\n", vm.cond_fault          );
-  printf( "Instruction counter: %lu\n", vm.instruction_counter );
-  printf( "Time:                %lu\n", dt                     );
+  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err )           );
+  printf( "Return value:        %lu\n",     vm.reg[0]                            );
+  printf( "Fault code:          %i (%s)\n", vm.cond_fault, fd_vm_strerror( err ) );
+  printf( "Instruction counter: %lu\n",     vm.instruction_counter               );
+  printf( "Time:                %lu\n",     dt                                   );
 
   return err;
 }
