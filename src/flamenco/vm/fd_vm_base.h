@@ -85,17 +85,113 @@ FD_FN_CONST char const * fd_vm_strerror( int err );
 
 FD_PROTOTYPES_END
 
+/* fd_vm_limits API ***************************************************/
+
+/* FIXME: DOCUMENT THESE / LINK TO SOLANA CODE / ETC */
+
+#define FD_VM_REG_CNT (11UL)
+
+/* VM stack constatns */
+
+#define FD_VM_SHADOW_FRAME_REG_CNT (4UL)
+
+#define FD_VM_STACK_FRAME_MAX (64UL)
+#define FD_VM_STACK_FRAME_SZ  (0x1000UL)
+#define FD_VM_STACK_GUARD_SZ  (0x1000UL)
+#define FD_VM_STACK_SZ_MAX    (FD_VM_STACK_FRAME_MAX*(FD_VM_STACK_FRAME_SZ+FD_VM_STACK_GUARD_SZ))
+
+/* VM heap constants */
+
+#define FD_VM_HEAP_SZ_DEFAULT ( 32UL*1024UL)
+#define FD_VM_HEAP_SZ_MAX     (256UL*1024UL)
+
+/* VM log constants */
+
+#define FD_VM_LOG_COLLECTOR_BUF_MAX (10000UL) /* FIXME: IS THIS NUMBER A PROTOCOL REQUIREMENT OR IS 10K JUST LUCKY? */
+
+/* VM memory map constants */
+
+#define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
+#define FD_VM_MEM_MAP_STACK_REGION_START    (0x200000000UL)
+#define FD_VM_MEM_MAP_HEAP_REGION_START     (0x300000000UL)
+#define FD_VM_MEM_MAP_INPUT_REGION_START    (0x400000000UL)
+#define FD_VM_MEM_MAP_REGION_SZ             (0x0FFFFFFFFUL)
+#define FD_VM_MEM_MAP_REGION_MASK           (~FD_VM_MEM_MAP_REGION_SZ)
+#define FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS (32)
+
+/* VM compute budget */
+
+/* FIXME: DO THESE MIRROR THE SOLANA NAMES?  IF SO, LINK CORRESPONDING
+   SOLANA CODE.  IF NOT, ADJUST TO FD CONVENTIONS. */
+/* FIXME: PREFIX? */
+/* FIXME: REPLACE WITH COMPILE TIME MACROS FOR PERFORMANCE AND SECURITY */
+/* FIXME: MOVE TO SBPF? */
+
+#define FD_VM_MAX_COMPUTE_UNIT_LIMIT              (1400000UL)
+#define FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES (64UL*1024UL*1024UL)
+
+struct fd_vm_exec_compute_budget {
+  ulong compute_unit_limit;                        /* Number of compute units that a transaction or individual instruction is
+                                                      allowed to consume.  Compute units are consumed by program execution,
+                                                      resources they use, etc ... */
+  ulong log_64_units;                              /* Number of compute units consumed by a log_u64 call */ /* FIXME: NAME? */
+  ulong create_program_address_units;              /* Number of compute units consumed by a create_program_address call */
+  ulong invoke_units;                              /* Number of compute units consumed by an invoke call (not including the cost
+                                                      incurred by the called program */
+  ulong max_invoke_depth;                          /* Maximum cross-program invocation depth allowed */
+  ulong sha256_base_cost;                          /* Base number of compute units consumed to call SHA256 */
+  ulong sha256_byte_cost;                          /* Incremental number of units consumed by SHA256 (based on bytes) */
+  ulong sha256_max_slices;                         /* Maximum number of slices hashed per syscall */
+  ulong max_call_depth;                            /* Maximum BPF to BPF call depth */
+  ulong stack_frame_size;                          /* Size of a stack frame in bytes, must match the size specified in the LLVM BPF
+                                                      backend */
+  ulong log_pubkey_units;                          /* Number of compute units consumed by logging a `Pubkey` */
+  ulong max_cpi_instruction_size;                  /* Maximum cross-program invocation instruction size */
+  ulong cpi_bytes_per_unit;                        /* Number of account data bytes per compute unit charged during a cross-program
+                                                      invocation */
+  ulong sysvar_base_cost;                          /* Base number of compute units consumed to get a sysvar */
+  ulong secp256k1_recover_cost;                    /* Number of compute units consumed to call secp256k1_recover */
+  ulong syscall_base_cost;                         /* Number of compute units consumed to do a syscall without any work */
+  ulong curve25519_edwards_validate_point_cost;    /* Number of compute units consumed to validate a curve25519 edwards point */
+  ulong curve25519_edwards_add_cost;               /* Number of compute units consumed to add two curve25519 edwards points */
+  ulong curve25519_edwards_subtract_cost;          /* Number of compute units consumed to subtract two curve25519 edwards points */
+  ulong curve25519_edwards_multiply_cost;          /* Number of compute units consumed to multiply a curve25519 edwards point */
+  ulong curve25519_edwards_msm_base_cost;          /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      edwards points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_edwards_msm_incremental_cost;   /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      edwards points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_ristretto_validate_point_cost;  /* Number of compute units consumed to validate a curve25519 ristretto point */
+  ulong curve25519_ristretto_add_cost;             /* Number of compute units consumed to add two curve25519 ristretto points */
+  ulong curve25519_ristretto_subtract_cost;        /* Number of compute units consumed to subtract two curve25519 ristretto
+                                                      points */
+  ulong curve25519_ristretto_multiply_cost;        /* Number of compute units consumed to multiply a curve25519 ristretto point */
+  ulong curve25519_ristretto_msm_base_cost;        /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      ristretto points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong curve25519_ristretto_msm_incremental_cost; /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                      ristretto points.  The total cost is calculated as
+                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+  ulong heap_size;                                 /* Optional program heap region size, if 0 then loader default */
+  ulong heap_cost;                                 /* Number of compute units per additional 32k heap above the default
+                                                      (~.5 us per 32k at 15 units/us rounded up) */
+  ulong mem_op_base_cost;                          /* Memory operation syscall base cost */
+  ulong loaded_accounts_data_size_limit;           /* Maximum accounts data size, in bytes, that a transaction is allowed to load; the
+                                                      value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of
+                                                      memory. */
+};
+
+typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
+
 /* fd_vm_log_collector API ********************************************/
 
-/* FIXME: RENAME FOR CONSISTENT WITH OTHER APIS AND/OR ADD MORE STANDARD
-   INIT/FINI OR OTHER OBJECT LIFECYCLE SEMANTICS? */
+/* FIXME: DEFLATE THIS INTO FD_VM_T */
 
 /* A fd_vm_log_collector_t is used by the vm for storing text/bytes
    logged by programs running in the vm.  The collector can collect up
    to FD_VM_LOG_COLLECTOR_BUF_MAX bytes of log data, beyond which the
    log is truncated. */
-
-#define FD_VM_LOG_COLLECTOR_BUF_MAX (10000UL) /* FIXME: IS THIS NUMBER A PROTOCOL REQUIREMENT OR IS 10K JUST LUCKY? */
 
 struct fd_vm_log_collector_private {
   ulong buf_used;
@@ -170,114 +266,95 @@ fd_vm_log_collector_buf_avail( fd_vm_log_collector_t const * collector ) {
 
 FD_PROTOTYPES_END
 
-/* fd_vm_stack API ****************************************************/
+/* fd_vm_shadow API ***************************************************/
 
-/* FIXME: RENAME FOR CONSISTENCY WITH OTHER APIS AND/OR ADD MORE
-   STANDARD LIFECYCLE SEMANTICS? */
+/* FIXME: DEFLATE THIS INTO FD_VM_T */
 /* FIXME: document Solana requirements here */
 /* FIXME: FRAME_MAX should be run time configurable by compute budget
    (is there an upper bound to how configurable ... there needs to be!) */
 
-#define FD_VM_STACK_FRAME_MAX           (64UL)
-#define FD_VM_STACK_FRAME_SZ            (0x1000UL)
-#define FD_VM_STACK_FRAME_WITH_GUARD_SZ (0x2000UL)
-
-#define FD_VM_STACK_DATA_MAX (FD_VM_STACK_FRAME_MAX*FD_VM_STACK_FRAME_WITH_GUARD_SZ) /* FIXME: see note below */
-
-/* A fd_vm_stack_frame_shadow_t holds stack frame information hidden
+/* A fd_vm_shadow_frame_t holds stack frame information hidden
    from VM program execution. */
 
-struct fd_vm_stack_frame_shadow {
-  ulong ret_instr_ptr;
-  ulong saved_reg[4];
+struct fd_vm_shadow_frame {
+  ulong rip;
+  ulong reg[ FD_VM_SHADOW_FRAME_REG_CNT ];
 };
 
-typedef struct fd_vm_stack_frame_shadow fd_vm_stack_frame_shadow_t;
+typedef struct fd_vm_shadow_frame fd_vm_shadow_frame_t;
 
-/* A fd_vm_stack_t gives the VM program stack state. */
+/* A fd_vm_shadow_t gives the VM program shadow stack. */
 
-struct fd_vm_stack {
-  ulong                      frame_cnt;                       /* In [0,FRAME_MAX] */
-  fd_vm_stack_frame_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* Indexed [0,frame_cnt), if not empty, bottom at 0, top at frame_cnt-1 */
-  uchar                      data  [ FD_VM_STACK_DATA_MAX  ]; /* FIXME: should this be part of the fd_vm_stack_t? */
+struct fd_vm_shadow {
+  ulong                frame_cnt;                      /* In [0,FD_VM_STACK_FRAME_MAX] */
+  fd_vm_shadow_frame_t frame[ FD_VM_STACK_FRAME_MAX ]; /* Indexed [0,frame_cnt), if not empty, bottom at 0, top at frame_cnt-1 */
 };
 
-typedef struct fd_vm_stack fd_vm_stack_t;
+typedef struct fd_vm_shadow fd_vm_shadow_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_stack_wipe zeros out stack data, shadow frames, stack_pointer
-   and frame_cnt.  Assumes stack is valid.  Returns stack.  Use this to
-   initialize a newly allocated VM stack. */
+/* fd_vm_shadow_wipe zeros out frame_cnt and shadow frames and
+   frame_cnt.  Assumes shadow is valid.  Returns shadow.  Use this to
+   initialize a newly allocated VM shadow. */
 
-static inline fd_vm_stack_t *
-fd_vm_stack_wipe( fd_vm_stack_t * stack ) {
-  memset( stack, 0, sizeof(fd_vm_stack_t) );
-  return stack;
+static inline fd_vm_shadow_t *
+fd_vm_shadow_wipe( fd_vm_shadow_t * shadow ) {
+  memset( shadow, 0, sizeof(fd_vm_shadow_t) );
+  return shadow;
 }
 
-/* fd_vm_stack_data returns a pointer to the first byte a VM's program
-   stack region in the hosts's address space.  There are
-   FD_VM_STACK_DATA_MAX bytes available at this region.  Assumes stack
-   is valid.  The lifetime of the returned pointer is the lifetime of
-   the stack. */
+/* fd_vm_shadow_empty/full returns 1 if the shadow stack is empty/full
+   and 0 if not.  Assumes shadow is valid. */
 
-FD_FN_CONST static inline void * fd_vm_stack_data( fd_vm_stack_t * stack ) { return stack->data; }
+FD_FN_PURE static inline int fd_vm_shadow_is_empty( fd_vm_shadow_t const * shadow ) { return !shadow->frame_cnt;                       }
+FD_FN_PURE static inline int fd_vm_shadow_is_full ( fd_vm_shadow_t const * shadow ) { return shadow->frame_cnt==FD_VM_STACK_FRAME_MAX; }
 
-/* fd_vm_stack_empty/full returns 1 if the stack is empty/full and 0 if
-   not.  Assumes stack is valid. */
-
-FD_FN_PURE static inline int fd_vm_stack_is_empty( fd_vm_stack_t const * stack ) { return !stack->frame_cnt;                       }
-FD_FN_PURE static inline int fd_vm_stack_is_full ( fd_vm_stack_t const * stack ) { return stack->frame_cnt==FD_VM_STACK_FRAME_MAX; }
-
-/* fd_vm_stack_push pushes a new frame onto the VM stack.  Assumes
+/* fd_vm_shadow_push pushes a new frame onto the VM stack.  Assumes
    stack, ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS
    (0) on success or FD_VM_ERR_FULL (negative) on failure. */
 /* FIXME: consider zero copy API and/or failure free API? */
 
 static inline int
-fd_vm_stack_push( fd_vm_stack_t * stack,
-                  ulong           ret_instr_ptr,
-                  ulong const     saved_reg[4] ) {
-  ulong frame_cnt = stack->frame_cnt;
-  if( FD_UNLIKELY( frame_cnt>=FD_VM_STACK_FRAME_MAX ) ) return FD_VM_ERR_FULL;
-  fd_vm_stack_frame_shadow_t * shadow = stack->shadow + frame_cnt;
-  shadow->ret_instr_ptr = ret_instr_ptr;
-  shadow->saved_reg[0]  = saved_reg[0];
-  shadow->saved_reg[1]  = saved_reg[1];
-  shadow->saved_reg[2]  = saved_reg[2];
-  shadow->saved_reg[3]  = saved_reg[3];
-  stack->frame_cnt = frame_cnt + 1UL;
+fd_vm_shadow_push( fd_vm_shadow_t * shadow,
+                   ulong            rip,
+                   ulong const      reg[ FD_VM_SHADOW_FRAME_REG_CNT ] ) {
+  ulong frame_idx = shadow->frame_cnt;
+  if( FD_UNLIKELY( frame_idx>=FD_VM_STACK_FRAME_MAX ) ) return FD_VM_ERR_FULL;
+  fd_vm_shadow_frame_t * frame = shadow->frame + frame_idx;
+  frame->rip = rip;
+  memcpy( frame->reg, reg, FD_VM_SHADOW_FRAME_REG_CNT*sizeof(ulong) );
+  shadow->frame_cnt = frame_idx + 1UL;
   return FD_VM_SUCCESS;
 }
 
-/* fd_vm_stack_pop pops a frame off the VM stack.  Assumes stack,
-   ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS (0) on
-   success and FD_VM_ERR_EMPTY (negative) on failure.  On success,
-   *_ret_instr_ptr and saved_reg[0:3] hold the values popped off the
-   stack on return.  These are unchanged otherwise. */
+/* fd_vm_shadow_pop pops a frame off the VM shadow stack.  Assumes
+   shadow, _ret_instr_ptr and saved_reg are valid.  Returns
+   FD_VM_SUCCESS (0) on success and FD_VM_ERR_EMPTY (negative) on
+   failure.  On success, *_ret_instr_ptr and saved_reg[0:3] hold the
+   values popped off the shadow stack on return.  These are unchanged
+   otherwise. */
 /* FIXME: consider zero copy API and/or failure free API? */
 
 static inline int
-fd_vm_stack_pop( fd_vm_stack_t * stack,
-                 ulong *         _ret_instr_ptr,
-                 ulong           saved_reg[4] ) {
-  ulong frame_idx = stack->frame_cnt;
+fd_vm_shadow_pop( fd_vm_shadow_t * shadow,
+                  ulong *          _rip,
+                  ulong            reg[ FD_VM_SHADOW_FRAME_REG_CNT ] ) {
+  ulong frame_idx = shadow->frame_cnt;
   if( FD_UNLIKELY( !frame_idx ) ) return FD_VM_ERR_EMPTY;
   frame_idx--;
-  fd_vm_stack_frame_shadow_t * shadow = stack->shadow + frame_idx;
-  *_ret_instr_ptr = shadow->ret_instr_ptr;
-  saved_reg[0]    = shadow->saved_reg[0];
-  saved_reg[1]    = shadow->saved_reg[1];
-  saved_reg[2]    = shadow->saved_reg[2];
-  saved_reg[3]    = shadow->saved_reg[3];
-  stack->frame_cnt = frame_idx;
+  fd_vm_shadow_frame_t * frame = shadow->frame + frame_idx;
+  *_rip = frame->rip;
+  memcpy( reg, frame->reg, FD_VM_SHADOW_FRAME_REG_CNT*sizeof(ulong) );
+  shadow->frame_cnt = frame_idx;
   return FD_VM_SUCCESS;
 }
 
 FD_PROTOTYPES_END
 
 /* fd_vm_heap_allocator API *******************************************/
+
+/* FIXME: DEFAULT THIS INTO FD_VM_T */
 
 /* fd_vm_heap_allocator_t provides the allocator backing the
    sol_alloc_free_ syscall.
@@ -300,71 +377,6 @@ struct fd_vm_heap_allocator {
 typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
 
 /* FIXME: WRAP UP USAGE HERE AND ADD UNIT TEST COVERAGE? */
-
-/* fd_vm_cu API *******************************************************/
-
-/* FIXME: DO THESE MIRROR THE SOLANA NAMES?  IF SO, LINK CORRESPONDING
-   SOLANA CODE.  IF NOT, ADJUST TO FD CONVENTIONS. */
-/* FIXME: PREFIX? */
-/* FIXME: REPLACE WITH COMPILE TIME MACROS FOR PERFORMANCE AND SECURITY */
-/* FIXME: MOVE TO SBPF? */
-
-#define FD_VM_MAX_COMPUTE_UNIT_LIMIT              (1400000UL)
-#define FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES (64UL*1024UL*1024UL)
-
-struct fd_vm_exec_compute_budget {
-  ulong compute_unit_limit;                        /* Number of compute units that a transaction or individual instruction is
-                                                      allowed to consume.  Compute units are consumed by program execution,
-                                                      resources they use, etc ... */
-  ulong log_64_units;                              /* Number of compute units consumed by a log_u64 call */ /* FIXME: NAME? */
-  ulong create_program_address_units;              /* Number of compute units consumed by a create_program_address call */
-  ulong invoke_units;                              /* Number of compute units consumed by an invoke call (not including the cost
-                                                      incurred by the called program */
-  ulong max_invoke_depth;                          /* Maximum cross-program invocation depth allowed */
-  ulong sha256_base_cost;                          /* Base number of compute units consumed to call SHA256 */
-  ulong sha256_byte_cost;                          /* Incremental number of units consumed by SHA256 (based on bytes) */
-  ulong sha256_max_slices;                         /* Maximum number of slices hashed per syscall */
-  ulong max_call_depth;                            /* Maximum BPF to BPF call depth */
-  ulong stack_frame_size;                          /* Size of a stack frame in bytes, must match the size specified in the LLVM BPF
-                                                      backend */
-  ulong log_pubkey_units;                          /* Number of compute units consumed by logging a `Pubkey` */
-  ulong max_cpi_instruction_size;                  /* Maximum cross-program invocation instruction size */
-  ulong cpi_bytes_per_unit;                        /* Number of account data bytes per compute unit charged during a cross-program
-                                                      invocation */
-  ulong sysvar_base_cost;                          /* Base number of compute units consumed to get a sysvar */
-  ulong secp256k1_recover_cost;                    /* Number of compute units consumed to call secp256k1_recover */
-  ulong syscall_base_cost;                         /* Number of compute units consumed to do a syscall without any work */
-  ulong curve25519_edwards_validate_point_cost;    /* Number of compute units consumed to validate a curve25519 edwards point */
-  ulong curve25519_edwards_add_cost;               /* Number of compute units consumed to add two curve25519 edwards points */
-  ulong curve25519_edwards_subtract_cost;          /* Number of compute units consumed to subtract two curve25519 edwards points */
-  ulong curve25519_edwards_multiply_cost;          /* Number of compute units consumed to multiply a curve25519 edwards point */
-  ulong curve25519_edwards_msm_base_cost;          /* Number of compute units consumed for a multiscalar multiplication (msm) of
-                                                      edwards points.  The total cost is calculated as
-                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-  ulong curve25519_edwards_msm_incremental_cost;   /* Number of compute units consumed for a multiscalar multiplication (msm) of
-                                                      edwards points.  The total cost is calculated as
-                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-  ulong curve25519_ristretto_validate_point_cost;  /* Number of compute units consumed to validate a curve25519 ristretto point */
-  ulong curve25519_ristretto_add_cost;             /* Number of compute units consumed to add two curve25519 ristretto points */
-  ulong curve25519_ristretto_subtract_cost;        /* Number of compute units consumed to subtract two curve25519 ristretto
-                                                      points */
-  ulong curve25519_ristretto_multiply_cost;        /* Number of compute units consumed to multiply a curve25519 ristretto point */
-  ulong curve25519_ristretto_msm_base_cost;        /* Number of compute units consumed for a multiscalar multiplication (msm) of
-                                                      ristretto points.  The total cost is calculated as
-                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-  ulong curve25519_ristretto_msm_incremental_cost; /* Number of compute units consumed for a multiscalar multiplication (msm) of
-                                                      ristretto points.  The total cost is calculated as
-                                                      `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-  ulong heap_size;                                 /* Optional program heap region size, if 0 then loader default */
-  ulong heap_cost;                                 /* Number of compute units per additional 32k heap above the default
-                                                      (~.5 us per 32k at 15 units/us rounded up) */
-  ulong mem_op_base_cost;                          /* Memory operation syscall base cost */
-  ulong loaded_accounts_data_size_limit;           /* Maximum accounts data size, in bytes, that a transaction is allowed to load; the
-                                                      value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of
-                                                      memory. */
-};
-
-typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
 
 /* fd_vm_disasm API ***************************************************/
 
@@ -435,16 +447,15 @@ FD_PROTOTYPES_END
 #define FD_VM_TRACE_EVENT_TYPE_READ  (1)
 #define FD_VM_TRACE_EVENT_TYPE_WRITE (2)
 
-#define FD_VM_TRACE_EVENT_EXE_REG_CNT (11UL) /* FIXME: LINK UP WITH REST OF SOLANA */
-
 struct fd_vm_trace_event_exe {
   /* This point is aligned 8 */
-  ulong info;                                 /* Event info bit field */
-  ulong pc;                                   /* pc */
-  ulong ic;                                   /* ic */
-  ulong cu;                                   /* cu */
-  ulong reg[ FD_VM_TRACE_EVENT_EXE_REG_CNT ]; /* registers */
-  /* FIXME: ENCODE INSTR WORDS? */
+  ulong info;                 /* Event info bit field */
+  ulong pc;                   /* pc */
+  ulong ic;                   /* ic */
+  ulong cu;                   /* cu */
+  ulong reg[ FD_VM_REG_CNT ]; /* registers */
+  /* FIXME: ENCODE 1-2 INSTR WORDS HERE SO THAT TEXT SECTION ISN'T
+     NEEDED BY TRACE_PRINTF? (USE INFO TO ENCOE MW OR NOT) */
   /* This point is aligned 8 */
 };
 
@@ -553,7 +564,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           pc,
                        ulong           ic,
                        ulong           cu,
-                       ulong           reg[ FD_VM_TRACE_EVENT_EXE_REG_CNT ] );
+                       ulong           reg[ FD_VM_REG_CNT ] );
 
 /* fd_vm_trace_event_mem records an attempt to access the VM address
    range [vaddr,vaddr+sz).  If write==0, it was a read attempt,

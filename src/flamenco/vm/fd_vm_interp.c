@@ -61,10 +61,9 @@ DECL( ulong  )
 
 int
 fd_vm_exec( fd_vm_t * ctx ) {
-  long pc = ctx->entrypoint;
-  ulong ic = ctx->instruction_counter;
-  ulong * register_file = ctx->register_file;
-  // memset(register_file, 0, sizeof(register_file));
+  long    pc            = ctx->entrypoint;
+  ulong   ic            = ctx->instruction_counter;
+  ulong * register_file = ctx->reg;
 
     // let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
     // let _ = invoke_context.consume_checked(
@@ -136,10 +135,9 @@ JT_END;
 
 int
 fd_vm_exec_trace( fd_vm_t * ctx ) {
-  long pc = ctx->entrypoint;
-  ulong ic = ctx->instruction_counter;
-  ulong * register_file = ctx->register_file;
-  // memset( register_file, 0, sizeof(register_file) );
+  long    pc            = ctx->entrypoint;
+  ulong   ic            = ctx->instruction_counter;
+  ulong * register_file = ctx->reg;
 
   int cond_fault = 994; /* FIXME: HMMMM */
   ulong compute_meter = ctx->compute_meter;
