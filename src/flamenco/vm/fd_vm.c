@@ -51,14 +51,15 @@ fd_vm_strerror( int err ) {
 }
 
 /* FIXME: MOVE TO BASE/SBPF? */
-/* FIXME: CORRELATE AND VALIDATE AGAINST SOLANA CODE */
 
+/* https://github.com/anza-xyz/agave/blob/v1.18.5/program-runtime/src/compute_budget.rs#L133 */
 fd_vm_exec_compute_budget_t const vm_compute_budget = {
   .compute_unit_limit                        = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
   .log_64_units                              =   100UL,
   .create_program_address_units              =  1500UL,
   .invoke_units                              =  1000UL,
-  .max_invoke_depth                          =     4UL,
+  .max_invoke_stack_height                   =     5UL,
+  .max_instruction_trace_length              =    64UL,
   .sha256_base_cost                          =    85UL,
   .sha256_byte_cost                          =     1UL,
   .sha256_max_slices                         = 20000UL,
@@ -82,9 +83,21 @@ fd_vm_exec_compute_budget_t const vm_compute_budget = {
   .curve25519_ristretto_multiply_cost        =  2208UL,
   .curve25519_ristretto_msm_base_cost        =  2303UL,
   .curve25519_ristretto_msm_incremental_cost =   788UL,
-  .heap_size                                 =     0UL, /* FIXME: WHY COMMENTED OUT BEFORE? */
-  .heap_cost                                 =     8UL,
+  .heap_size                                 = 32768UL, // u32::try_from(solana_sdk::entrypoint::HEAP_LENGTH).unwrap()
+  .heap_cost                                 =     8UL, // DEFAULT_HEAP_COST
   .mem_op_base_cost                          =    10UL,
+  .alt_bn128_addition_cost                   =   334UL,
+  .alt_bn128_multiplication_cost             =  3840UL,
+  .alt_bn128_pairing_one_pair_cost_first     = 36364UL,
+  .alt_bn128_pairing_one_pair_cost_other     = 12121UL,
+  .big_modular_exponentiation_cost           =    33UL,
+  .poseidon_cost_coefficient_a               =    61UL,
+  .poseidon_cost_coefficient_c               =   542UL,
+  .get_remaining_compute_units_cost          =   100UL,
+  .alt_bn128_g1_compress                     =    30UL,
+  .alt_bn128_g1_decompress                   =   398UL,
+  .alt_bn128_g2_compress                     =    86UL,
+  .alt_bn128_g2_decompress                   = 13610UL,
   .loaded_accounts_data_size_limit           = FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, // 64MiB
 };
 
