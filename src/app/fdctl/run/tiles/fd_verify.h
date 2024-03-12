@@ -23,6 +23,9 @@ typedef struct {
   /* TODO switch to fd_sha512_batch_t? */
   fd_sha512_t * sha[ FD_TXN_ACTUAL_SIG_MAX ];
 
+  ulong round_robin_idx;
+  ulong round_robin_cnt;
+
   ulong   tcache_depth;
   ulong   tcache_map_cnt;
   ulong * tcache_sync;
