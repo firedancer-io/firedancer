@@ -7,7 +7,6 @@
 #include "generated/fd_metrics_quic.h"
 #include "generated/fd_metrics_pack.h"
 #include "generated/fd_metrics_bank.h"
-#include "generated/fd_metrics_poh.h"
 
 #include "../../tango/tempo/fd_tempo.h"
 
