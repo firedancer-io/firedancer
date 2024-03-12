@@ -763,7 +763,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   else
     rec_con = irec;
 
-  if ( rec_con ) {
+  if ( rec_con && !FD_UNLIKELY( rec_con->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */

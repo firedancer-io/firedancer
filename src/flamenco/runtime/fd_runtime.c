@@ -3644,7 +3644,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn, valloc to be non-NULL and valid. */
 int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(!slot_ctx->acc_mgr)) return -1;
-  if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
+  // if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
   /* TODO check valloc */
 
   fd_slot_hashes_new( slot_ctx->sysvar_cache.slot_hashes );

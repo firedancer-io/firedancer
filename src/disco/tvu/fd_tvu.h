@@ -23,16 +23,10 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_runtime_args_t *   args );
 
 int
-fd_tvu_main( fd_gossip_t *         gossip,
-             fd_gossip_config_t *  gossip_config,
+fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
+             fd_runtime_args_t *   runtime_args,
              fd_replay_t *         replay,
-             fd_exec_slot_ctx_t *  slot_ctx,
-             fd_repair_config_t *  repair_config,
-             volatile int *        stopflag,
-             char const *          repair_peer_id_,
-             char const *          repair_peer_addr,
-             char const *          tvu_addr,
-             char const *          tvu_fwd_addr );
+             fd_exec_slot_ctx_t *  slot_ctx );
 
 int
 fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv );

@@ -486,16 +486,10 @@ doit( void ) {
   /* Tile                                                               */
   /**********************************************************************/
 
-  if( fd_tvu_main( runtime_ctx.gossip,
-                   &runtime_ctx.gossip_config,
+  if( fd_tvu_main( &runtime_ctx,
+                   &args,
                    replay,
-                   slot_ctx,
-                   &runtime_ctx.repair_config,
-                   &runtime_ctx.stopflag,
-                   g_repair_peer_id,
-                   g_repair_peer_addr,
-                   args.tvu_addr,
-                   args.tvu_fwd_addr ) ) {
+                   slot_ctx ) ) {
     return 1;
   }
   return 0;

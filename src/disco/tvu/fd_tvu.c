@@ -337,47 +337,47 @@ struct fd_gossip_thread_args {
 
 static void * fd_gossip_thread( void * ptr );
 
+static fd_exec_slot_ctx_t *
+fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
+                       fd_runtime_args_t *   runtime_args,
+                       fd_replay_t *         replay,
+                       ulong                 snapshot_slot );
+
 int
-fd_tvu_main( fd_gossip_t *         gossip,
-             fd_gossip_config_t *  gossip_config,
+fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
+             fd_runtime_args_t *   runtime_args,
              fd_replay_t *         replay,
-             fd_exec_slot_ctx_t *  slot_ctx,
-             fd_repair_config_t *  repair_config,
-             volatile int *        stopflag,
-             char const *          repair_peer_id_,
-             char const *          repair_peer_addr_,
-             char const *          tvu_addr_,
-             char const *          tvu_fwd_addr_ ) {
+             fd_exec_slot_ctx_t *  slot_ctx ) {
 
   replay->now = fd_log_wallclock();
 
   /* initialize gossip */
-  int gossip_fd = fd_tvu_create_socket( &gossip_config->my_addr );
+  int gossip_fd = fd_tvu_create_socket( &runtime_ctx->gossip_config.my_addr );
   gossip_sockfd = gossip_fd;
-  fd_gossip_update_addr( gossip, &gossip_config->my_addr );
+  fd_gossip_update_addr( runtime_ctx->gossip, &runtime_ctx->gossip_config.my_addr );
 
-  fd_gossip_settime( gossip, fd_log_wallclock() );
-  fd_gossip_start( gossip );
+  fd_gossip_settime( runtime_ctx->gossip, fd_log_wallclock() );
+  fd_gossip_start( runtime_ctx->gossip );
 
   /* initialize repair */
-  int repair_fd = fd_tvu_create_socket( &repair_config->intake_addr );
+  int repair_fd = fd_tvu_create_socket( &runtime_ctx->repair_config.intake_addr );
   repair_sockfd = repair_fd;
   fd_repair_update_addr(
-      replay->repair, &repair_config->intake_addr, &repair_config->service_addr );
-  if( fd_gossip_update_repair_addr( gossip, &repair_config->service_addr ) )
+      replay->repair, &runtime_ctx->repair_config.intake_addr, &runtime_ctx->repair_config.service_addr );
+  if( fd_gossip_update_repair_addr( runtime_ctx->gossip, &runtime_ctx->repair_config.service_addr ) )
     FD_LOG_ERR( ( "error setting gossip config" ) );
 
   fd_repair_settime( replay->repair, fd_log_wallclock() );
   fd_repair_start( replay->repair );
 
   /* optionally specify a repair peer identity to skip waiting for a contact info to come through */
-  if( repair_peer_id_ ) {
+  if( runtime_args->repair_peer_id ) {
     fd_pubkey_t repair_peer_id;
-    fd_base58_decode_32( repair_peer_id_, repair_peer_id.uc );
+    fd_base58_decode_32( runtime_args->repair_peer_id, repair_peer_id.uc );
     fd_repair_peer_addr_t repair_peer_addr = { 0 };
     if( FD_UNLIKELY(
             fd_repair_add_active_peer( replay->repair,
-                                       resolve_hostport( repair_peer_addr_, &repair_peer_addr ),
+                                       resolve_hostport( runtime_args->repair_peer_addr, &repair_peer_addr ),
                                        &repair_peer_id ) ) ) {
       FD_LOG_ERR( ( "error adding repair active peer" ) );
     }
@@ -386,18 +386,18 @@ fd_tvu_main( fd_gossip_t *         gossip,
   }
 
   fd_repair_peer_addr_t tvu_addr[1] = { 0 };
-  resolve_hostport( tvu_addr_, tvu_addr );
+  resolve_hostport( runtime_args->tvu_addr, tvu_addr );
   fd_repair_peer_addr_t tvu_fwd_addr[1] = { 0 };
-  resolve_hostport( tvu_fwd_addr_, tvu_fwd_addr );
+  resolve_hostport( runtime_args->tvu_fwd_addr, tvu_fwd_addr );
 
   /* initialize tvu */
   int tvu_fd = fd_tvu_create_socket( tvu_addr );
-  if( fd_gossip_update_tvu_addr( gossip, tvu_addr, tvu_fwd_addr ) )
+  if( fd_gossip_update_tvu_addr( runtime_ctx->gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
-    { .stopflag = stopflag, .tvu_fd = tvu_fd, .replay = replay };
+    { .stopflag = &runtime_ctx->stopflag, .tvu_fd = tvu_fd, .replay = replay };
   pthread_t turb_thread;
   int rc = pthread_create( &turb_thread, NULL, fd_turbine_thread, &ttarg );
   if (rc)
@@ -405,7 +405,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
-    { .stopflag = stopflag, .repair_fd = repair_fd, .replay = replay };
+    { .stopflag = &runtime_ctx->stopflag, .repair_fd = repair_fd, .replay = replay };
   pthread_t repair_thread;
   rc = pthread_create( &repair_thread, NULL, fd_repair_thread, &reparg );
   if (rc)
@@ -413,15 +413,25 @@ fd_tvu_main( fd_gossip_t *         gossip,
 
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
-    { .stopflag = stopflag, .gossip_fd = gossip_fd, .replay = replay };
+    { .stopflag = &runtime_ctx->stopflag, .gossip_fd = gossip_fd, .replay = replay };
   pthread_t gossip_thread;
   rc = pthread_create( &gossip_thread, NULL, fd_gossip_thread, &gosarg );
   if (rc)
     FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
 
+  if( runtime_ctx->need_incr_snap ) {
+    /* Wait for first turbine packet before grabbing the incremental snapshot */
+    while( replay->first_turbine_slot == FD_SLOT_NULL ){
+      struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
+      nanosleep(&ts, NULL);
+    }
+    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot );
+    runtime_ctx->need_incr_snap = 0;
+  }
+  
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
-  while( !*stopflag ) {
+  while( !runtime_ctx->stopflag ) {
 
     /* Housekeeping */
     long now = fd_log_wallclock();
@@ -443,6 +453,7 @@ fd_tvu_main( fd_gossip_t *         gossip,
         fd_replay_slot_execute( replay_tmp, i, parent_slot_ctx, block, block_sz );
         if( i > 64U )
           replay->smr = fd_ulong_max( replay->smr, i - 64U );
+        replay->now = now = fd_log_wallclock();
       }
     }
 
@@ -835,7 +846,6 @@ typedef struct {
 } snapshot_setup_t;
 
 void snapshot_setup( char const * snapshot,
-                     char const * incremental_snapshot,
                      char const * validate_snapshot,
                      char const * check_hash,
                      fd_exec_slot_ctx_t * exec_slot_ctx,
@@ -843,7 +853,7 @@ void snapshot_setup( char const * snapshot,
   fd_memset( out, 0, sizeof( snapshot_setup_t ) );
 
   char snapshot_out[128];
-  if( snapshot && snapshot[0] != '\0' && strncmp( snapshot, "http", 4 ) == 0 ) {
+  if( strncmp( snapshot, "http", 4 ) == 0 ) {
     FILE * fp;
 
     /* Open the command for reading. */
@@ -858,7 +868,7 @@ void snapshot_setup( char const * snapshot,
 
     /* Read the output a line at a time - output it. */
     if( !fgets( snapshot_out, sizeof( snapshot_out ) - 1, fp ) ) {
-        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
+        FD_LOG_ERR( ( "failed to pass snapshot name" ) );
     }
     snapshot_out[strcspn( snapshot_out, "\n" )]  = '\0';
     snapshot = snapshot_out;
@@ -866,105 +876,77 @@ void snapshot_setup( char const * snapshot,
     /* close */
     pclose( fp );
   }
-
-  char incremental_snapshot_out[128];
-  if( incremental_snapshot && incremental_snapshot[0] != '\0' && strncmp( incremental_snapshot, "http", 4 ) == 0 ) {
-    FILE * fp;
-
-    /* Open the command for reading. */
-    char   cmd[128];
-    snprintf( cmd, sizeof( cmd ), "./shenanigans.sh %s", incremental_snapshot );
-    FD_LOG_NOTICE(("cmd: %s", cmd));
-    fp = popen( cmd, "r" );
-    if( fp == NULL ) {
-      printf( "Failed to run command\n" );
-      exit( 1 );
-    }
-
-    /* Read the output a line at a time - output it. */
-    if( !fgets( incremental_snapshot_out, sizeof( incremental_snapshot_out ) - 1, fp ) ) {
-        FD_LOG_ERR( ( "failed to pass incremental snapshot" ) );
-    }
-    incremental_snapshot_out[strcspn( incremental_snapshot_out, "\n" )]  = '\0';
-    incremental_snapshot = incremental_snapshot_out;
-
-    /* close */
-    pclose( fp );
-  }
-
-  if( snapshot && snapshot[0] != '\0' ) {
-    if( !incremental_snapshot || incremental_snapshot[0] == '\0' ) {
-      FD_LOG_WARNING( ( "Running without incremental snapshot. This only makes sense if you're "
-                        "using a local validator." ) );
-      // TODO: LML We really need to fix the way these arguments are handled
-      incremental_snapshot = NULL;
-    }
-    const char * p = strstr( snapshot, "snapshot-" );
-    if( p == NULL ) FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
-    do {
-      const char * p2 = strstr( p + 1, "snapshot-" );
-      if( p2 == NULL ) break;
-      p = p2;
-    } while( 1 );
-    if( sscanf( p, "snapshot-%lu", &out->snapshot_slot ) < 1 )
-      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
-
-    if( incremental_snapshot && incremental_snapshot[0] != '\0' ) {
-
-      p = strstr( incremental_snapshot, "incremental-snapshot-" );
-      if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-      do {
-        const char * p2 = strstr( p + 1, "incremental-snapshot-" );
-        if( p2 == NULL ) break;
-        p = p2;
-      } while( 1 );
-      ulong i, j;
-      if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
-        FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-      if( i != out->snapshot_slot )
-        FD_LOG_ERR( ( "--snapshot-file slot number does not match --incremental" ) );
-      out->snapshot_slot = j;
-    }
-
-    const char * snapshotfiles[3];
-    snapshotfiles[0] = snapshot;
-    snapshotfiles[1] = incremental_snapshot;
-    snapshotfiles[2] = NULL;
-    fd_snapshot_load( snapshotfiles, exec_slot_ctx,
-      ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
-      ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
-      );
-
-  } else if( incremental_snapshot && incremental_snapshot[0] != '\0' ) {
-    fd_runtime_recover_banks( exec_slot_ctx, 0 );
-
-    const char * p = strstr( incremental_snapshot, "snapshot-" );
-    if( p == NULL ) FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
-    do {
-      const char * p2 = strstr( p + 1, "snapshot-" );
-      if( p2 == NULL ) break;
-      p = p2;
-    } while( 1 );
+  
+  const char * p = strstr( snapshot, "incremental-snapshot-" );
+  if( p != NULL ) {
     ulong i, j;
-    if( sscanf( p, "snapshot-%lu-%lu", &i, &j ) < 2 )
+    if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
       FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
     if( i != exec_slot_ctx->slot_bank.slot )
-      FD_LOG_ERR( ( "ledger slot number does not match --incremental, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, incremental_snapshot ) );
+      FD_LOG_ERR( ( "ledger slot number does not match --incremental-snapshot, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, p ) );
     out->snapshot_slot = j;
-
-    const char * snapshotfiles[2];
-    snapshotfiles[0] = incremental_snapshot;
-    snapshotfiles[1] = NULL;
-    fd_snapshot_load( snapshotfiles, exec_slot_ctx,
-      ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
-      ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
-      );
-
   } else {
-    fd_runtime_recover_banks( exec_slot_ctx, 0 );
+    p = strstr( snapshot, "snapshot-" );
+    if( p != NULL ) {
+      if( sscanf( p, "snapshot-%lu", &out->snapshot_slot ) < 1 )
+        FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+    } else {
+      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+    }
   }
 
+  const char * snapshotfiles[2];
+  snapshotfiles[0] = snapshot;
+  snapshotfiles[1] = NULL;
+  fd_snapshot_load( snapshotfiles, exec_slot_ctx,
+                    ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
+                    ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
+                  );
+
   fd_runtime_cleanup_incinerator( exec_slot_ctx );
+}
+
+static fd_exec_slot_ctx_t *
+fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
+                       fd_runtime_args_t *   runtime_args,
+                       fd_replay_t *         replay,
+                       ulong                 snapshot_slot ) {
+  (void)runtime_ctx;
+
+  fd_replay_slot_ctx_t * replay_slot_ctx = fd_replay_pool_ele_acquire( replay->pool );
+  fd_exec_slot_ctx_t *   slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &replay_slot_ctx->slot_ctx ) );
+  slot_ctx->acc_mgr               = replay->acc_mgr;
+  slot_ctx->blockstore            = replay->blockstore;
+  slot_ctx->valloc                = replay->valloc;
+  slot_ctx->epoch_ctx             = replay->epoch_ctx;
+  slot_ctx->slot_bank.slot        = snapshot_slot; /* needed for matching old snapshot with new */
+
+  snapshot_setup_t snapshot_setup_out = {0};
+  snapshot_setup(runtime_args->incremental_snapshot,
+                 runtime_args->validate_snapshot,
+                 runtime_args->check_hash,
+                 slot_ctx,
+                 &snapshot_setup_out );
+
+  snapshot_slot = replay->smr = slot_ctx->slot_bank.slot;
+  
+  slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
+  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
+  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
+
+  /* add it to the frontier */
+  replay_slot_ctx->slot = snapshot_slot;
+  fd_replay_frontier_ele_insert( replay->frontier, replay_slot_ctx, replay->pool );
+  
+  /* fake the snapshot slot's block and mark it as executed */
+  fd_blockstore_slot_map_t * slot_entry =
+    fd_blockstore_slot_map_insert( fd_blockstore_slot_map( replay->blockstore ), snapshot_slot );
+  slot_entry->block.data_gaddr = ULONG_MAX;
+  slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
+  slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_EXECUTED );
+
+  return slot_ctx;
 }
 
 void
@@ -1050,12 +1032,16 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /* snapshots                                                          */
   /**********************************************************************/
   snapshot_setup_t snapshot_setup_out = {0};
-  snapshot_setup(args->snapshot,
-                 args->incremental_snapshot,
-                 args->validate_snapshot,
-                 args->check_hash,
-                 slot_ctx_setup_out.exec_slot_ctx,
-                 &snapshot_setup_out );
+  if( args->snapshot && args->snapshot[0] != '\0' )
+    snapshot_setup(args->snapshot,
+                   args->validate_snapshot,
+                   args->check_hash,
+                   slot_ctx_setup_out.exec_slot_ctx,
+                   &snapshot_setup_out );
+  else
+    fd_runtime_recover_banks( slot_ctx_setup_out.exec_slot_ctx, 0 );
+
+  runtime_ctx->need_incr_snap = ( args->incremental_snapshot && args->incremental_snapshot[0] != '\0' );
 
   /**********************************************************************/
   /* Thread pool                                                        */
