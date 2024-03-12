@@ -39,6 +39,11 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_LDQ_NO_ADDL_IMM:   return "LDQ_NO_ADDL_IMM detected a ldq without an addl imm following it";
   case FD_VM_ERR_NO_SUCH_EXT_CALL:  return "NO_SUCH_EXT_CALL detected a call imm with no function was registered for that immediate";
 
+  /* VM fault error codes */
+
+  case FD_VM_ERR_MEM_TRANS: return "MEM_TRANS"; /* FIXME: description */
+  case FD_VM_ERR_BAD_CALL:  return "BAD_CALL";  /* FIXME: description */
+
   default: break;
   }
 
@@ -174,8 +179,11 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
   /* FIXME: CLEAN UP LONG / ULONG TYPE CONVERSION */
 
-  for( ulong i=0UL; i<vm->instrs_sz; i++ ) {
-    fd_sbpf_instr_t instr = vm->instrs[i];
+  ulong const * text     = vm->text;
+  ulong         text_cnt = vm->text_cnt;
+  for( ulong i=0UL; i<text_cnt; i++ ) {
+    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+
     uchar validation_code = validation_map[ instr.opcode.raw ];
     switch( validation_code ) {
 
@@ -184,8 +192,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_JMP: {
       if( FD_UNLIKELY( instr.offset==-1 ) ) return FD_VM_ERR_INF_LOOP;
       long jmp_dst = (long)i + (long)instr.offset + 1L;
-      if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)vm->instrs_sz)          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
-      if( FD_UNLIKELY( vm->instrs[ jmp_dst ].opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
+      if( FD_UNLIKELY( (jmp_dst<0) | (jmp_dst>=(long)text_cnt)                          ) ) return FD_VM_ERR_JMP_OUT_OF_BOUNDS;
+      if( FD_UNLIKELY( fd_sbpf_instr( text[ jmp_dst ] ).opcode.raw==FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_JMP_TO_ADDL_IMM;
       break;
     }
 
@@ -197,9 +205,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_ST: break; /* FIXME: HMMM ... */
 
     case FD_CHECK_LDQ: {
-      if( FD_UNLIKELY( instr.src_reg                                     ) ) return FD_VM_ERR_INVALID_SRC_REG;
-      if( FD_UNLIKELY( (i+1UL)>=vm->instrs_sz                            ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
-      if( FD_UNLIKELY( vm->instrs[i+1UL].opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
+      if( FD_UNLIKELY( instr.src_reg                                                ) ) return FD_VM_ERR_INVALID_SRC_REG;
+      if( FD_UNLIKELY( (i+1UL)>=text_cnt                                            ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
+      if( FD_UNLIKELY( fd_sbpf_instr( text[i+1UL] ).opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
       /* FIXME: SHOULD THERE BE EXTRA CHECKS ON THE ADDL_IMM HERE? */
       /* FIXME: SET A BIT MAP HERE OF ADDL_IMM TO DENOTE * AS FORBIDDEN
          BRANCH TARGETS OF CALL_REG?? */
@@ -208,8 +216,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     case FD_CHECK_CALL: { /* FIXME: Check to make sure we are really doing this right! (required for sbpf2?) */
-      if( instr.imm>=vm->instrs_sz                                                 &&
-          !fd_sbpf_syscalls_query( vm->syscall_map, instr.imm, NULL )              &&
+      if( instr.imm>=text_cnt                                                      &&
+          !fd_sbpf_syscalls_query( vm->syscalls, instr.imm, NULL )                 &&
           !fd_sbpf_calldests_test( vm->calldests, fd_pchash_inverse( instr.imm ) ) ) return FD_VM_ERR_NO_SUCH_EXT_CALL;
       break;
     }
