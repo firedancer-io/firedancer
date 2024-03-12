@@ -280,10 +280,10 @@ gossip_send_packet( uchar const * msg,
     return;
   }
   */
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 #ifdef FD_GOSSIP_DEMO
   send_packet( arg, addr->addr, addr->port, msg, msglen, g_num_packets_sent );
 #else
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 #endif
 }
