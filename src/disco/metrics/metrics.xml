@@ -191,14 +191,6 @@ metric introduced.
 </group>
 
 <group name="PohTile" tile="poh">
-    <counter name="MicroblockTooEarly" summary="Received a microblock but it was for a slot that's after the current leader bank." />
-    <counter name="MicroblockTooLate" summary="Received a microblock but it was for a slot that's before the current leader bank." />
-    <counter name="MicroblockNoLongerLeader" summary="Received a microblock that was on time, but we are no longer leader at the target slot." />
-    <counter name="ReplayTooEarly" summary="Received a notification of a new bank but it was for a slot that's earlier than the current time." />
-    <counter name="ReplayTooLate" summary="Received a notification of a new bank but it was for a slot that's later than the current time." />
-    <counter name="ReplayNoLongerLeader" summary="Received a notification of a new bank that was on time, but we are no longer leader at the target slot." />
-    <counter name="LeaderSlotMissedBackpressure" summary="Couldn't tell pack to start packing, because the PoH tile was backpressured." />
-    <counter name="NoLeaderBank" summary="Got sent transactions for a valid leader slot, but we did not have a leader bank available." />
 </group>
 
 <group name="Quic" tile="quic">

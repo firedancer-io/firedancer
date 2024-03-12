@@ -2,46 +2,6 @@
 
 #include "../fd_metrics_base.h"
 
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_EARLY_OFF  (173UL)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_EARLY_NAME "poh_tile_microblock_too_early"
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_EARLY_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_EARLY_DESC "Received a microblock but it was for a slot that's after the current leader bank."
 
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_LATE_OFF  (174UL)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_LATE_NAME "poh_tile_microblock_too_late"
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_LATE_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_TOO_LATE_DESC "Received a microblock but it was for a slot that's before the current leader bank."
-
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_NO_LONGER_LEADER_OFF  (175UL)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_NO_LONGER_LEADER_NAME "poh_tile_microblock_no_longer_leader"
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_NO_LONGER_LEADER_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_MICROBLOCK_NO_LONGER_LEADER_DESC "Received a microblock that was on time, but we are no longer leader at the target slot."
-
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_EARLY_OFF  (176UL)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_EARLY_NAME "poh_tile_replay_too_early"
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_EARLY_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_EARLY_DESC "Received a notification of a new bank but it was for a slot that's earlier than the current time."
-
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_LATE_OFF  (177UL)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_LATE_NAME "poh_tile_replay_too_late"
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_LATE_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_TOO_LATE_DESC "Received a notification of a new bank but it was for a slot that's later than the current time."
-
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_NO_LONGER_LEADER_OFF  (178UL)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_NO_LONGER_LEADER_NAME "poh_tile_replay_no_longer_leader"
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_NO_LONGER_LEADER_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_REPLAY_NO_LONGER_LEADER_DESC "Received a notification of a new bank that was on time, but we are no longer leader at the target slot."
-
-#define FD_METRICS_COUNTER_POH_TILE_LEADER_SLOT_MISSED_BACKPRESSURE_OFF  (179UL)
-#define FD_METRICS_COUNTER_POH_TILE_LEADER_SLOT_MISSED_BACKPRESSURE_NAME "poh_tile_leader_slot_missed_backpressure"
-#define FD_METRICS_COUNTER_POH_TILE_LEADER_SLOT_MISSED_BACKPRESSURE_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_LEADER_SLOT_MISSED_BACKPRESSURE_DESC "Couldn't tell pack to start packing, because the PoH tile was backpressured."
-
-#define FD_METRICS_COUNTER_POH_TILE_NO_LEADER_BANK_OFF  (180UL)
-#define FD_METRICS_COUNTER_POH_TILE_NO_LEADER_BANK_NAME "poh_tile_no_leader_bank"
-#define FD_METRICS_COUNTER_POH_TILE_NO_LEADER_BANK_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_POH_TILE_NO_LEADER_BANK_DESC "Got sent transactions for a valid leader slot, but we did not have a leader bank available."
-
-
-#define FD_METRICS_POH_TOTAL (8UL)
+#define FD_METRICS_POH_TOTAL (0UL)
 extern const fd_metrics_meta_t FD_METRICS_POH[FD_METRICS_POH_TOTAL];
