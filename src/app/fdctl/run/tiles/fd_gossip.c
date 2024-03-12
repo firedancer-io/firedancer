@@ -240,7 +240,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   memset(packet, 0, sizeof(eth_ip_udp_t));
   uchar mac[6] = {0};
 #ifdef FD_GOSSIP_DEMO
-  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port + (ushort)(tsorig % 4) );
+  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port + (ushort)(tsorig % 16) );
 #else
   populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
 #endif
@@ -282,9 +282,7 @@ gossip_send_packet( uchar const * msg,
   */
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 #ifdef FD_GOSSIP_DEMO
-  for(ushort i = 0; i < 4; i++) {
-    send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig + i );
-  }
+  send_packet( arg, addr->addr, addr->por msg, msglen, g_num_packets_sent );
 #else
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 #endif
