@@ -229,41 +229,47 @@ fd_vm_disasm_instr_stx( fd_sbpf_instr_t instr,
 }
 
 int
-fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,
-                    ulong                      instr_cnt,
+fd_vm_disasm_instr( ulong const *              text,
+                    ulong                      text_cnt,
                     ulong                      pc,
                     fd_sbpf_syscalls_t const * syscalls,
                     char *                     out,
                     ulong                      out_max,
                     ulong *                    _out_len ) {
 
-  if( FD_UNLIKELY( (!instr) | (!instr_cnt) | (!syscalls) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( (!text) | (!text_cnt) | (!syscalls) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
-  switch( instr->opcode.any.op_class ) {
-  case FD_SBPF_OPCODE_CLASS_LD:
-    if( FD_UNLIKELY( instr_cnt<2UL ) ) return FD_VM_ERR_INVAL;
-    OUT_PRINTF( "lddw r%d, 0x%lx", instr->dst_reg, (ulong)((ulong)instr[0].imm | (ulong)((ulong)instr[1].imm << 32UL)) );
-    return FD_VM_SUCCESS;
-  case FD_SBPF_OPCODE_CLASS_LDX:   return fd_vm_disasm_instr_ldx( *instr,                     out, out_max, _out_len);
-  case FD_SBPF_OPCODE_CLASS_ST: { /* FIXME: FIGURE OUT WHAT'S UP HERE */
-    ulong u;
-    memcpy( &u, instr, 8UL );
-    OUT_PRINTF( "FIXME: %016lx (ST)", u );
+  fd_sbpf_instr_t i0 = fd_sbpf_instr( text[0] );
+
+  switch( i0.opcode.any.op_class ) {
+
+  case FD_SBPF_OPCODE_CLASS_LD: {
+    if( FD_UNLIKELY( text_cnt<2UL ) ) return FD_VM_ERR_INVAL;
+    fd_sbpf_instr_t i1 = fd_sbpf_instr( text[1] );
+    /* FIXME: VALIDATE I1 IS PROPER */
+    OUT_PRINTF( "lddw r%d, 0x%lx", i0.dst_reg, (ulong)((ulong)i0.imm | (ulong)((ulong)i1.imm << 32UL)) );
     return FD_VM_SUCCESS;
   }
-  case FD_SBPF_OPCODE_CLASS_STX:   return fd_vm_disasm_instr_stx( *instr,                     out, out_max, _out_len );
-  case FD_SBPF_OPCODE_CLASS_ALU:   return fd_vm_disasm_instr_alu( *instr, "",                 out, out_max, _out_len );
-  case FD_SBPF_OPCODE_CLASS_JMP:   return fd_vm_disasm_instr_jmp( *instr, pc, "",   syscalls, out, out_max, _out_len );
-  case FD_SBPF_OPCODE_CLASS_JMP32: return fd_vm_disasm_instr_jmp( *instr, pc, "32", syscalls, out, out_max, _out_len );
-  case FD_SBPF_OPCODE_CLASS_ALU64: return fd_vm_disasm_instr_alu( *instr, "64",               out, out_max, _out_len );
+
+  case FD_SBPF_OPCODE_CLASS_ST: { /* FIXME: FIGURE OUT WHAT'S UP HERE */
+    OUT_PRINTF( "FIXME: %016lx (ST)", text[0] );
+    return FD_VM_SUCCESS;
+  }
+
+  case FD_SBPF_OPCODE_CLASS_LDX:   return fd_vm_disasm_instr_ldx( i0,                     out, out_max, _out_len);
+  case FD_SBPF_OPCODE_CLASS_STX:   return fd_vm_disasm_instr_stx( i0,                     out, out_max, _out_len );
+  case FD_SBPF_OPCODE_CLASS_ALU:   return fd_vm_disasm_instr_alu( i0, "",                 out, out_max, _out_len );
+  case FD_SBPF_OPCODE_CLASS_JMP:   return fd_vm_disasm_instr_jmp( i0, pc, "",   syscalls, out, out_max, _out_len );
+  case FD_SBPF_OPCODE_CLASS_JMP32: return fd_vm_disasm_instr_jmp( i0, pc, "32", syscalls, out, out_max, _out_len );
+  case FD_SBPF_OPCODE_CLASS_ALU64: return fd_vm_disasm_instr_alu( i0, "64",               out, out_max, _out_len );
   default: break;
   }
   return FD_VM_ERR_INVAL;
 }
 
 int
-fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
+fd_vm_disasm_program( ulong const *              text,
                       ulong                      text_cnt,
                       fd_sbpf_syscalls_t const * syscalls,
                       char *                     out,
@@ -284,7 +290,7 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
   ulong label_pc[ 65536 ]; ulong label_cnt = 0UL;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
-    fd_sbpf_instr_t instr = text[i];
+    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_cnt++;
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -298,7 +304,7 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
   label_cnt = 0UL;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
-    fd_sbpf_instr_t instr = text[i];
+    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
     if     ( instr.opcode.raw==FD_SBPF_OP_CALL_IMM ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
     else if( instr.opcode.raw==FD_SBPF_OP_EXIT     ) func_pc[ func_cnt++ ] = i + instr.imm + 1UL; /* FIXME: what if out of bounds? */
     else if( instr.opcode.raw==FD_SBPF_OP_CALL_REG ) continue;
@@ -325,17 +331,16 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
 
     /* Print instruction */
 
-    fd_sbpf_instr_t const * instr = &text[i];
-
     /* FIXME: WHAT ABOUT LABELS IN THE MIDDLE OF MULTIWORD INSTRUCTIONS!
        AND NOT JUST FOR DISASSEMBLY ... POTENTIAL CONSENSUS FAILURE
        MECHANISM! */
 
-    ulong extra_cnt = fd_ulong_if( instr->opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD, 1UL, 0UL );
+    fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
+    ulong extra_cnt = fd_ulong_if( instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD, 1UL, 0UL );
     if( FD_UNLIKELY( (i+extra_cnt)>=text_cnt ) ) return FD_VM_ERR_INVAL; /* Truncated multiword instruction at end of text */
 
     OUT_PRINTF( "    " );
-    int err = fd_vm_disasm_instr( instr, text_cnt-i, i, syscalls, out, out_max, _out_len );
+    int err = fd_vm_disasm_instr( text+i, text_cnt-i, i, syscalls, out, out_max, _out_len );
     if( FD_UNLIKELY( err ) ) return err;
     OUT_PRINTF( "\n" );
 
@@ -347,7 +352,7 @@ fd_vm_disasm_program( fd_sbpf_instr_t const *    text,
        happens to immediately after the end of a program. */
     /* FIXME: Algo efficiency? */
 
-    if( FD_UNLIKELY( (instr->opcode.raw==FD_SBPF_OP_JA) & ((i+1UL)<text_cnt) ) ) {
+    if( FD_UNLIKELY( (instr.opcode.raw==FD_SBPF_OP_JA) & ((i+1UL)<text_cnt) ) ) {
       found = 0;
       for( ulong j=0UL; j<label_cnt; j++ ) if( label_pc[j]==(i+1UL) ) { found = 1; break; }
       if( !found ) OUT_PRINTF( "\nfunction_%lu:\n", i+1UL );

@@ -43,13 +43,13 @@
    FIXME: Are these exact matches to Solana?  If so, provide link?  If
    not document and refine names / consolidate further. */
 
-#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded (FIXME: probably more a "standard" error) */
-#define FD_VM_ERR_ABORT                        ( -9) /* FIXME: descrption */
-#define FD_VM_ERR_PANIC                        (-10) /* FIXME: descrption */
-#define FD_VM_ERR_MEM_OVERLAP                  (-11) /* FIXME: descrption */
-#define FD_VM_ERR_INSTR_ERR                    (-12) /* FIXME: descrption */
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13) /* FIXME: descrption */
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14) /* FIXME: descrption */
+#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded (FIXME: fault error code) */
+#define FD_VM_ERR_ABORT                        ( -9) /* FIXME: description */
+#define FD_VM_ERR_PANIC                        (-10) /* FIXME: description */
+#define FD_VM_ERR_MEM_OVERLAP                  (-11) /* FIXME: description */
+#define FD_VM_ERR_INSTR_ERR                    (-12) /* FIXME: description */
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13) /* FIXME: description */
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14) /* FIXME: description */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -67,6 +67,13 @@
 #define FD_VM_ERR_INCOMPLETE_LDQ    (-22) /* detected an incomplete ldq at program end */
 #define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-23) /* detected a ldq without an addl imm following it */
 #define FD_VM_ERR_NO_SUCH_EXT_CALL  (-24) /* detected a call imm with no function was registered for that immediate */
+
+/* VM fault error codes.  This are only produced by the vm interpreter.
+   FIXME: Are these exact matches to Solana?  If so, provide link, if
+   not, document and refine name / consolidate further. */
+
+#define FD_VM_ERR_MEM_TRANS (-25) /* FIXME: description */
+#define FD_VM_ERR_BAD_CALL  (-26) /* FIXME: description */
 
 FD_PROTOTYPES_BEGIN
 
@@ -368,15 +375,15 @@ typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_disasm_{instr,text} appends to the *_out_len (in strlen sense)
-   cstr in the out_max byte buffer out a pretty printed cstr of the
-   {instruction,program}.  On input, *_out_len should be strlen(out) and
-   in [0,out_max).  For instr, pc is the program counter corresponding
-   to instr[0] (as such instr_cnt should be positive) and instr_cnt is
-   the number of instruction words available at instr to support safely
-   printing multiword instructions.  Given a valid out on input, on
-   output, *_out_len will be strlen(out) and in [0,out_max), even if
-   there was an error.
+/* fd_vm_disasm_{instr,program} appends to the *_out_len (in strlen
+   sense) cstr in the out_max byte buffer out a pretty printed cstr of
+   the {instruction,program}.  On input, *_out_len should be strlen(out)
+   and in [0,out_max).  For instr, pc is the program counter corresponding
+   to text[0] (as such instr_cnt should be positive) and text_cnt is the
+   number of words available at text to support safely printing
+   multiword instructions.  Given a valid out on input, on output,
+   *_out_len will be strlen(out) and in [0,out_max), even if there was
+   an error.
 
    Returns:
 
@@ -399,8 +406,8 @@ FD_PROTOTYPES_BEGIN
    clobbered. */
 
 int
-fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,     /* Indexed [0,instr_cnt) */
-                    ulong                      instr_cnt,
+fd_vm_disasm_instr( ulong const *              text,      /* Indexed [0,text_cnt) */
+                    ulong                      text_cnt,
                     ulong                      pc,
                     fd_sbpf_syscalls_t const * syscalls,
                     char *                     out,       /* Indexed [0,out_max) */
@@ -408,7 +415,7 @@ fd_vm_disasm_instr( fd_sbpf_instr_t const *    instr,     /* Indexed [0,instr_cn
                     ulong *                    _out_len );
 
 int
-fd_vm_disasm_program( fd_sbpf_instr_t const *    text,       /* Indexed [0,text_cnt) */
+fd_vm_disasm_program( ulong const *              text,       /* Indexed [0,text_cnt) */
                       ulong                      text_cnt,
                       fd_sbpf_syscalls_t const * syscalls,
                       char *                     out,        /* Indexed [0,out_max) */
@@ -576,7 +583,7 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
 
 int
 fd_vm_trace_printf( fd_vm_trace_t      const * trace,
-                    fd_sbpf_instr_t    const * text,       /* Indexed [0,text_cnt) */
+                    ulong              const * text,       /* Indexed [0,text_cnt) */
                     ulong                      text_cnt,
                     fd_sbpf_syscalls_t const * syscalls );
 

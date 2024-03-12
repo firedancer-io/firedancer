@@ -93,20 +93,20 @@ cmd_disasm( char const * bin_path ) {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
-    .instrs_sz           = tool_prog.prog->text_cnt,
-    .instrs_offset       = tool_prog.prog->text_off,
+    .text                = tool_prog.prog->text,
+    .text_cnt            = tool_prog.prog->text_cnt,
+    .text_off            = tool_prog.prog->text_off, /* FIXME: WHAT IF TEXT OFF NOT MULTIPLE OF 8 */
     .calldests           = tool_prog.prog->calldests,
-    .syscall_map         = tool_prog.syscalls,
+    .syscalls            = tool_prog.syscalls
   };
 
-  ulong  out_max = 128UL*tool_prog.prog->text_cnt; /* FIXME: OVERFLOW */
+  ulong  out_max = 128UL*vm.text_cnt; /* FIXME: OVERFLOW */
   ulong  out_len = 0UL;
   char * out     = (char *)malloc( out_max ); /* FIXME: GROSS */
   if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "malloc failed" ));
   out[0] = '\0';
 
-  int err = fd_vm_disasm_program( vm.instrs, vm.instrs_sz, tool_prog.syscalls, out, out_max, &out_len );
+  int err = fd_vm_disasm_program( vm.text, vm.text_cnt, vm.syscalls, out, out_max, &out_len );
 
   puts( out );
 
@@ -127,11 +127,11 @@ cmd_validate( char const * bin_path ) {
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
-    .instrs_sz           = tool_prog.prog->text_cnt,
-    .instrs_offset       = tool_prog.prog->text_off,
+    .text                = tool_prog.prog->text,
+    .text_cnt            = tool_prog.prog->text_cnt,
+    .text_off            = tool_prog.prog->text_off, /* FIXME: WHAT IF TEXT OFF NOT MULTIPLE OF 8 */
     .calldests           = tool_prog.prog->calldests,
-    .syscall_map         = tool_prog.syscalls,
+    .syscalls            = tool_prog.syscalls,
   };
 
   int err = fd_vm_validate( &vm );
@@ -196,14 +196,14 @@ cmd_trace( char const * bin_path,
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
-    .instrs_sz           = tool_prog.prog->text_cnt,
-    .instrs_offset       = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
-    .syscall_map         = tool_prog.syscalls,
+    .text                = tool_prog.prog->text,
+    .text_cnt            = tool_prog.prog->text_cnt,
+    .text_off            = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata, /* Note: byte offset (FIXME: WHAT IF MISALIGNED) */
+    .syscalls            = tool_prog.syscalls,
     .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
-    .read_only           = (uchar *)fd_type_pun_const(tool_prog.prog->rodata),
+    .read_only           = (uchar *)tool_prog.prog->rodata,
     .read_only_sz        = tool_prog.prog->rodata_sz,
     .trace               = trace
   };
@@ -212,20 +212,20 @@ cmd_trace( char const * bin_path,
   vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  int err = fd_vm_interp_instrs_trace( &vm );
+  int err = fd_vm_exec_trace( &vm );
   dt += fd_log_wallclock();
 
   printf( "Frame 0\n" );
-  int trace_err = fd_vm_trace_printf( vm.trace, vm.instrs, vm.instrs_sz, vm.syscall_map ); /* logs details */
+  int trace_err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscalls ); /* logs details */
   if( FD_UNLIKELY( trace_err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", trace_err, fd_vm_strerror( trace_err ) ));
+
+  free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
 
   printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );
   printf( "Return value:        %lu\n",     vm.register_file[0]        );
   printf( "Fault code:          %lu\n",     vm.cond_fault              );
   printf( "Instruction counter: %lu\n",     vm.instruction_counter     );
   printf( "Time:                %lu\n",     dt                         );
-
-  free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
 
   return err;
 }
@@ -244,14 +244,14 @@ cmd_run( char const * bin_path,
     .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
-    .instrs_sz           = tool_prog.prog->text_cnt,
-    .instrs_offset       = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
-    .syscall_map         = tool_prog.syscalls,
+    .text                = tool_prog.prog->text,
+    .text_cnt            = tool_prog.prog->text_cnt,
+    .text_off            = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata, /* Note: byte offset (FIXME: WHAT IF NOT ALIGNED 8) */
+    .syscalls            = tool_prog.syscalls,
     .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
-    .read_only           = (uchar *)fd_type_pun_const(tool_prog.prog->rodata),
+    .read_only           = (uchar *)tool_prog.prog->rodata,
     .read_only_sz        = tool_prog.prog->rodata_sz
   };
 
@@ -259,7 +259,7 @@ cmd_run( char const * bin_path,
   vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  int err = fd_vm_interp_instrs( &vm );
+  int err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
   printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err ) );

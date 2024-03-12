@@ -173,7 +173,7 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
 
 int
 fd_vm_trace_printf( fd_vm_trace_t const *      trace,
-                    fd_sbpf_instr_t const *    text,
+                    ulong const *              text,
                     ulong                      text_cnt,
                     fd_sbpf_syscalls_t const * syscalls ) {
 

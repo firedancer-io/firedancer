@@ -60,7 +60,7 @@ DECL( ulong  )
 #undef DECL
 
 int
-fd_vm_interp_instrs( fd_vm_t * ctx ) {
+fd_vm_exec( fd_vm_t * ctx ) {
   long pc = ctx->entrypoint;
   ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
@@ -74,7 +74,7 @@ fd_vm_interp_instrs( fd_vm_t * ctx ) {
     // );
     // let heap =
 
-  int cond_fault = 0;
+  int cond_fault = FD_VM_SUCCESS;
 
   ulong compute_meter = ctx->compute_meter;
   ulong due_insn_cnt = ctx->due_insn_cnt;
@@ -89,11 +89,9 @@ fd_vm_interp_instrs( fd_vm_t * ctx ) {
 #include "fd_jump_tab.c"
 
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
-  cond_fault = fd_vm_consume_compute(ctx, heap_cus_consumed);
+  cond_fault = fd_vm_consume_compute( ctx, heap_cus_consumed );
   compute_meter = ctx->compute_meter;
-  if( cond_fault != 0 ) {
-    goto JT_RET_LOC;
-  }
+  if( FD_UNLIKELY( cond_fault ) ) goto JT_RET_LOC;
 
   fd_sbpf_instr_t instr;
 
@@ -101,16 +99,16 @@ fd_vm_interp_instrs( fd_vm_t * ctx ) {
 #include "fd_vm_interp_locs.c"
   };
 
-  instr = ctx->instrs[pc];
+  instr = fd_sbpf_instr( ctx->text[pc] );
 
   goto *(locs[instr.opcode.raw]);
 
 interp_fault:
-    compute_meter = 0; \
-    due_insn_cnt = 0; \
-    previous_instruction_meter = 0; \
-    cond_fault = 1; \
-    goto JT_RET_LOC;
+  compute_meter              = 0;
+  due_insn_cnt               = 0;
+  previous_instruction_meter = 0;
+  cond_fault                 = FD_VM_ERR_MEM_TRANS; /* FIXME: HMMM */
+  goto JT_RET_LOC;
 
 JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
@@ -137,13 +135,13 @@ JT_END;
 }
 
 int
-fd_vm_interp_instrs_trace( fd_vm_t * ctx ) {
+fd_vm_exec_trace( fd_vm_t * ctx ) {
   long pc = ctx->entrypoint;
   ulong ic = ctx->instruction_counter;
   ulong * register_file = ctx->register_file;
   // memset( register_file, 0, sizeof(register_file) );
 
-  int cond_fault = 994;
+  int cond_fault = 994; /* FIXME: HMMMM */
   ulong compute_meter = ctx->compute_meter;
   ulong due_insn_cnt = ctx->due_insn_cnt;
   ulong previous_instruction_meter = ctx->previous_instruction_meter;
@@ -163,9 +161,7 @@ fd_vm_interp_instrs_trace( fd_vm_t * ctx ) {
   ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_sz / (32*1024), 1), vm_compute_budget.heap_cost);
   cond_fault = fd_vm_consume_compute( ctx, heap_cus_consumed );
   compute_meter = ctx->compute_meter;
-  if( cond_fault != 0) {
-    goto JT_RET_LOC;
-  }
+  if( FD_UNLIKELY( cond_fault ) ) goto JT_RET_LOC;
 
   fd_sbpf_instr_t instr;
 
@@ -173,16 +169,16 @@ fd_vm_interp_instrs_trace( fd_vm_t * ctx ) {
 #include "fd_vm_interp_locs.c"
   };
 
-  instr = ctx->instrs[pc];
+  instr = fd_sbpf_instr( ctx->text[pc] );
 
   goto *(locs[instr.opcode.raw]);
 
 interp_fault:
-    compute_meter = 0; \
-    due_insn_cnt = 0; \
-    previous_instruction_meter = 0; \
-    cond_fault = 1; \
-    goto JT_RET_LOC;
+  compute_meter              = 0;
+  due_insn_cnt               = 0;
+  previous_instruction_meter = 0;
+  cond_fault                 = FD_VM_ERR_MEM_TRANS; /* FIXME: HMMM */
+  goto JT_RET_LOC;
 
 JT_START;
 #include "fd_vm_interp_dispatch_tab.c"
