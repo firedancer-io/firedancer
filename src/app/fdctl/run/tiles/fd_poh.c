@@ -569,8 +569,8 @@ fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments 
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
-    ctx->max_microblocks_per_slot = FD_PACK_MAX_MICROBLOCKS_PER_BLOCK;
-    FD_TEST( ctx->hashcnt_per_tick>=FD_PACK_MAX_MICROBLOCKS_PER_BLOCK );
+    /* We can set this to more or less whatever we want. */
+    ctx->max_microblocks_per_slot = ctx->hashcnt_per_tick-1UL;
   }
 
   fd_ext_poh_write_unlock();
@@ -700,9 +700,11 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->pack_out_mem, ctx->pack_out_chunk );
 
   fd_became_leader_t * leader = (fd_became_leader_t *)dst;
-  leader->slot_start_ns = slot_start_ns;
-  leader->bank = ctx->current_leader_bank;
+  leader->slot_start_ns           = slot_start_ns;
+  leader->slot_end_ns             = slot_start_ns + (long)(ctx->hashcnt_duration_ns * ctx->hashcnt_per_slot);
+  leader->bank                    = ctx->current_leader_bank;
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
+  leader->ticks_per_slot          = ctx->ticks_per_slot;
 
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
   fd_mcache_publish( ctx->pack_out_mcache, ctx->pack_out_depth, ctx->pack_out_seq, sig, ctx->pack_out_chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
