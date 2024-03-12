@@ -207,22 +207,22 @@ typedef struct {
                                    burst this amount to downstream consumers. */
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
-  ulong in_link_id[ 16 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
-  int   in_link_reliable[ 16 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
-  int   in_link_poll[ 16 ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
+  ulong in_link_id[ 256 ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
+  int   in_link_reliable[ 256 ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
+  int   in_link_poll[ 256 ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
                                    If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
                                    reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
   ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
 
   ulong out_cnt;                /* The number of non-primary links that this tile writes to. */
-  ulong out_link_id[ 16 ];      /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
+  ulong out_link_id[ 256 ];      /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_cnc_t * cnc;
     ulong *    metrics;            /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
-    ulong *    in_link_fseq[ 16 ]; /* The fseq of each link that this tile reads from.  Multiple fseqs may point to the link, if there are multiple consumers.
+    ulong *    in_link_fseq[ 256 ]; /* The fseq of each link that this tile reads from.  Multiple fseqs may point to the link, if there are multiple consumers.
                                       An fseq can be uniquely identified via (link_id, tile_id), or (link_kind, link_kind_id, tile_kind, tile_kind_id) */
 
     ulong      user_mem_offset;    /* Offset in bytes from the workspace base for memory region that has been
@@ -266,6 +266,11 @@ typedef struct {
     struct {
       ulong tcache_depth;
     } dedup;
+
+
+    struct {
+      ulong tcache_depth;
+    } gossip_dedup;
 
     struct {
       ushort gossip_listen_port;

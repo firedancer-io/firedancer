@@ -688,7 +688,7 @@ config_tiles( config_t * config ) {
         tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
       case FD_TOPO_TILE_KIND_GOSSIP_DEDUP:
-        tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+        tile->gossip_dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
       case FD_TOPO_TILE_KIND_PACK:
         tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;

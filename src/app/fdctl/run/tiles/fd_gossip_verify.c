@@ -163,7 +163,7 @@ during_frag( void * _ctx,
 
   fd_gossip_verify_ctx_t * ctx = (fd_gossip_verify_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_TPU_DCACHE_MTU ) )
+  if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz > FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
@@ -196,7 +196,7 @@ after_frag( void *             _ctx,
   ulong payload_sz = (*opt_sz - network_hdr_sz);
 
     /* Make sure payload_sz is valid */
-  if( FD_UNLIKELY( payload_sz > FD_TPU_DCACHE_MTU ) ) {
+  if( FD_UNLIKELY( payload_sz > FD_NET_MTU ) ) {
     FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
   }
 

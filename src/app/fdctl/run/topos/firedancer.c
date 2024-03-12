@@ -31,6 +31,10 @@ fd_topo_firedancer( config_t * config ) {
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_REPLAY       }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_GOSSIP_VERIFY       }; wksp_cnt++;
   topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_GOSSIP_DEDUP       }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_VERIFY_DEDUP       }; wksp_cnt++;
+  topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt, .kind = FD_TOPO_WKSP_KIND_DEDUP_PACK       }; wksp_cnt++;
+
+
 
   topo->wksp_cnt = wksp_cnt;
 
@@ -41,9 +45,9 @@ fd_topo_firedancer( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
 
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( config->layout.verify_tile_count,                                FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP_DEDUP,  config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,    FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( config->layout.verify_tile_count, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     FD_TOPO_WKSP_KIND_VERIFY_DEDUP, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( 1,                                FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,     FD_TOPO_WKSP_KIND_DEDUP_PACK,  config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   topo->link_cnt = link_cnt;
 
   ulong tile_cnt = 0UL;
@@ -53,7 +57,7 @@ fd_topo_firedancer( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,       FD_TOPO_WKSP_KIND_SIGN,       ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC,     FD_TOPO_WKSP_KIND_METRIC,     ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,   i )                                                       );
-  TILE( config->layout.verify_tile_count,                                FD_TOPO_TILE_KIND_GOSSIP_VERIFY, FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i) );
+  TILE( config->layout.verify_tile_count, FD_TOPO_TILE_KIND_GOSSIP_VERIFY, FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i) );
   TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP_DEDUP, FD_TOPO_WKSP_KIND_GOSSIP_DEDUP, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP, i) );
 
   topo->tile_cnt = tile_cnt;

@@ -32,7 +32,7 @@ typedef struct {
   ulong * tcache_ring;
   ulong * tcache_map;
 
-  fd_gossip_dedup_in_ctx_t in[ 32 ];
+  fd_gossip_dedup_in_ctx_t in[ 256 ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -50,7 +50,7 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_gossip_dedup_ctx_t ), sizeof( fd_gossip_dedup_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->dedup.tcache_depth, 0 ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( tile->gossip_dedup.tcache_depth, 0 ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -92,7 +92,7 @@ during_frag( void * _ctx,
 
   fd_gossip_dedup_ctx_t * ctx = (fd_gossip_dedup_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_TPU_DCACHE_MTU ) )
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz > FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );

@@ -221,7 +221,11 @@ populate_packet_header_template( eth_ip_udp_t * pkt,
   memcpy( pkt->ip4->saddr_c, &src_ip, 4UL );
   memset( pkt->ip4->daddr_c, 0,       4UL ); /* varies by shred */
 
+#ifdef FD_GOSSIP_DEMO
+  pkt->udp->net_sport = fd_ushort_bswap( src_port ) + (ushort)(g_num_packets_sent % 4U);
+#else
   pkt->udp->net_sport = fd_ushort_bswap( src_port );
+#endif
   pkt->udp->net_dport = (ushort)0; /* varies by shred */
   pkt->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   pkt->udp->check     = (ushort)0;
