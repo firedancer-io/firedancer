@@ -108,7 +108,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
     .input_sz            = input_sz,
     .read_only           = (uchar *)prog->rodata,
     .read_only_sz        = prog->rodata_sz,
-    .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
+    .heap_sz             = FD_VM_HEAP_SZ_DEFAULT,
     /* TODO configure heap allocator */
     .instr_ctx           = &ctx,
     .due_insn_cnt        = 0,
@@ -130,9 +130,9 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.register_file, 0, sizeof(vm.register_file) );
-  vm.register_file[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.register_file[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  memset( vm.reg, 0, sizeof(vm.reg) );
+  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   int err;
 
@@ -161,10 +161,10 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
   fd_valloc_free( ctx.valloc, rodata);
 
-//FD_LOG_WARNING(( "fd_vm_exec() success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.register_file[0], vm.cond_fault, vm.compute_meter ));
+//FD_LOG_WARNING(( "fd_vm_exec() success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
 //FD_LOG_WARNING(( "log coll: %s", vm.log_collector.buf ));
 
-  if( vm.register_file[0]!=0 ) {
+  if( FD_UNLIKELY( vm.reg[0] ) ) {
     fd_valloc_free( ctx.valloc, input);
     return -1;
   }
