@@ -14,6 +14,10 @@
 #define GOSSIP_VERIFY_FAILED  -1
 #define GOSSIP_VERIFY_DEDUP   -2
 
+#define GOSSIP_VERIFY_SCRATCH_MAX (1UL<<20UL)
+#define GOSSIP_VERIFY_SCRATCH_DEPTH (4UL)
+
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -65,6 +69,8 @@ scratch_footprint( fd_topo_tile_t * tile ) {
   for( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
+  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( GOSSIP_VERIFY_SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( GOSSIP_VERIFY_SCRATCH_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -200,39 +206,22 @@ after_frag( void *             _ctx,
     FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
   }
 
-  fd_bincode_decode_ctx_t decode_ctx = { .data = udp_payload, .dataend = udp_payload + payload_sz, .valloc = fd_libc_alloc_virtual() };
-  fd_gossip_msg_t gmsg[1];
-  if ( FD_BINCODE_SUCCESS != fd_gossip_msg_decode( gmsg, &decode_ctx ) ) {
-    FD_LOG_ERR(( "Gossip message decode failed" ));
-  }
-  int res = 0;
-
-  fd_signature_t * signature = NULL;
   ulong sig = 0;
-  fd_pubkey_t    * pubkey    = NULL;
-  switch ( gmsg->discriminant ) {
-    case fd_gossip_msg_enum_pull_req: {
-      signature = &gmsg->inner.pull_req.value.signature;
-      fd_crds_value_t * crd = &gmsg->inner.pull_req.value;
-
-      uchar buf[FD_ETH_PAYLOAD_MAX];
-      fd_bincode_encode_ctx_t encode_ctx;
-      encode_ctx.data = buf;
-      encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
-      if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
-        FD_LOG_ERR(("fd_crds_data_encode failed"));
-      }
-
-      pubkey = get_pubkey_from_crds( crd );
-      res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
-      sig = signature->ul[0];
-      break;
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_bincode_decode_ctx_t decode_ctx = { .data = udp_payload, .dataend = udp_payload + payload_sz, .valloc = fd_scratch_virtual() };
+    fd_gossip_msg_t gmsg[1];
+    if ( FD_BINCODE_SUCCESS != fd_gossip_msg_decode( gmsg, &decode_ctx ) ) {
+      FD_LOG_ERR(( "Gossip message decode failed" ));
     }
-    case fd_gossip_msg_enum_pull_resp: {
-      fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
-      for (ulong i = 0; i < pull_resp->crds_len; ++i) {
-        signature = &pull_resp->crds[i].signature;
-        fd_crds_value_t * crd = &pull_resp->crds[i];
+    int res = 0;
+
+    fd_signature_t * signature = NULL;
+
+    fd_pubkey_t    * pubkey    = NULL;
+    switch ( gmsg->discriminant ) {
+      case fd_gossip_msg_enum_pull_req: {
+        signature = &gmsg->inner.pull_req.value.signature;
+        fd_crds_value_t * crd = &gmsg->inner.pull_req.value;
 
         uchar buf[FD_ETH_PAYLOAD_MAX];
         fd_bincode_encode_ctx_t encode_ctx;
@@ -243,80 +232,100 @@ after_frag( void *             _ctx,
         }
 
         pubkey = get_pubkey_from_crds( crd );
-        if (!pubkey)
-          pubkey = &pull_resp->pubkey;
         res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
-        sig ^= signature->ul[0];
+        sig = signature->ul[0];
+        break;
       }
-      break;
-    }
-    case fd_gossip_msg_enum_push_msg: {
-      fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
-      for (ulong i = 0; i < push_msg->crds_len; ++i) {
-        signature = &push_msg->crds[i].signature;
-        fd_crds_value_t * crd = &push_msg->crds[i];
+      case fd_gossip_msg_enum_pull_resp: {
+        fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
+        for (ulong i = 0; i < pull_resp->crds_len; ++i) {
+          signature = &pull_resp->crds[i].signature;
+          fd_crds_value_t * crd = &pull_resp->crds[i];
 
+          uchar buf[FD_ETH_PAYLOAD_MAX];
+          fd_bincode_encode_ctx_t encode_ctx;
+          encode_ctx.data = buf;
+          encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+          if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
+            FD_LOG_ERR(("fd_crds_data_encode failed"));
+          }
+
+          pubkey = get_pubkey_from_crds( crd );
+          if (!pubkey)
+            pubkey = &pull_resp->pubkey;
+          res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+          sig ^= signature->ul[0];
+        }
+        break;
+      }
+      case fd_gossip_msg_enum_push_msg: {
+        fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
+        for (ulong i = 0; i < push_msg->crds_len; ++i) {
+          signature = &push_msg->crds[i].signature;
+          fd_crds_value_t * crd = &push_msg->crds[i];
+
+          uchar buf[FD_ETH_PAYLOAD_MAX];
+          fd_bincode_encode_ctx_t encode_ctx;
+          encode_ctx.data = buf;
+          encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
+          if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
+            FD_LOG_ERR(("fd_crds_data_encode failed"));
+          }
+
+          pubkey = get_pubkey_from_crds( crd );
+          if (!pubkey)
+            pubkey = &push_msg->pubkey;
+          res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
+          sig ^= signature->ul[0];
+        }
+        break;
+      }
+      case fd_gossip_msg_enum_prune_msg: {
+        signature = &gmsg->inner.prune_msg.data.signature;
+        pubkey    = &gmsg->inner.prune_msg.pubkey;
         uchar buf[FD_ETH_PAYLOAD_MAX];
         fd_bincode_encode_ctx_t encode_ctx;
         encode_ctx.data = buf;
         encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
-        if ( fd_crds_data_encode( &crd->data, &encode_ctx ) ) {
-          FD_LOG_ERR(("fd_crds_data_encode failed"));
+
+        fd_gossip_prune_msg_t * msg = &gmsg->inner.prune_msg;
+        fd_gossip_prune_sign_data_t signdata;
+        signdata.pubkey = msg->data.pubkey;
+        signdata.prunes_len = msg->data.prunes_len;
+        signdata.prunes = msg->data.prunes;
+        signdata.destination = msg->data.destination;
+        signdata.wallclock = msg->data.wallclock;
+
+        if ( fd_gossip_prune_sign_data_encode( &signdata, &encode_ctx ) ) {
+          FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
+          return;
         }
 
-        pubkey = get_pubkey_from_crds( crd );
-        if (!pubkey)
-          pubkey = &push_msg->pubkey;
         res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
-        sig ^= signature->ul[0];
+        sig = signature->ul[0];
+        break;
       }
-      break;
-    }
-    case fd_gossip_msg_enum_prune_msg: {
-      signature = &gmsg->inner.prune_msg.data.signature;
-      pubkey    = &gmsg->inner.prune_msg.pubkey;
-      uchar buf[FD_ETH_PAYLOAD_MAX];
-      fd_bincode_encode_ctx_t encode_ctx;
-      encode_ctx.data = buf;
-      encode_ctx.dataend = buf + FD_ETH_PAYLOAD_MAX;
-
-      fd_gossip_prune_msg_t * msg = &gmsg->inner.prune_msg;
-      fd_gossip_prune_sign_data_t signdata;
-      signdata.pubkey = msg->data.pubkey;
-      signdata.prunes_len = msg->data.prunes_len;
-      signdata.prunes = msg->data.prunes;
-      signdata.destination = msg->data.destination;
-      signdata.wallclock = msg->data.wallclock;
-
-      if ( fd_gossip_prune_sign_data_encode( &signdata, &encode_ctx ) ) {
-        FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
-        return;
+      case fd_gossip_msg_enum_ping: {
+        signature = &gmsg->inner.ping.signature;
+        pubkey    = &gmsg->inner.ping.from;
+        res |= gossip_verify( ctx, gmsg->inner.ping.token.uc, 32UL, signature, pubkey );
+        sig = signature->ul[0];
+        break;
       }
+      case fd_gossip_msg_enum_pong: {
+        signature = &gmsg->inner.pong.signature;
+        pubkey    = &gmsg->inner.pong.from;
+        res |= gossip_verify( ctx, gmsg->inner.pong.token.uc, 32UL, signature, pubkey );
+        sig = signature->ul[0];
+        break;
+      }
+    }
 
-      res |= gossip_verify( ctx, buf, (ulong)((uchar*)encode_ctx.data - buf), signature, pubkey );
-      sig = signature->ul[0];
-      break;
+    if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
+      *opt_filter = 1;
+      return;
     }
-    case fd_gossip_msg_enum_ping: {
-      signature = &gmsg->inner.ping.signature;
-      pubkey    = &gmsg->inner.ping.from;
-      res |= gossip_verify( ctx, gmsg->inner.ping.token.uc, 32UL, signature, pubkey );
-      sig = signature->ul[0];
-      break;
-    }
-    case fd_gossip_msg_enum_pong: {
-      signature = &gmsg->inner.pong.signature;
-      pubkey    = &gmsg->inner.pong.from;
-      res |= gossip_verify( ctx, gmsg->inner.pong.token.uc, 32UL, signature, pubkey );
-      sig = signature->ul[0];
-      break;
-    }
-  }
-
-  if( FD_UNLIKELY( res != GOSSIP_VERIFY_SUCCESS ) ) {
-    *opt_filter = 1;
-    return;
-  }
+  } FD_SCRATCH_SCOPE_END;
 
   *opt_filter = 0;
   *opt_chunk = ctx->out_chunk;
@@ -339,6 +348,10 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
     ctx->sha[i] = sha;
   }
+
+  ulong * scratch_fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( GOSSIP_VERIFY_SCRATCH_DEPTH ) );
+  uchar * scratch_smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( GOSSIP_VERIFY_SCRATCH_MAX ) );
+  fd_scratch_attach( scratch_smem, scratch_fmem, GOSSIP_VERIFY_SCRATCH_MAX, GOSSIP_VERIFY_SCRATCH_DEPTH );
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

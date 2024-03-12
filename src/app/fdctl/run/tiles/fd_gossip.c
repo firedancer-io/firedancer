@@ -221,11 +221,7 @@ populate_packet_header_template( eth_ip_udp_t * pkt,
   memcpy( pkt->ip4->saddr_c, &src_ip, 4UL );
   memset( pkt->ip4->daddr_c, 0,       4UL ); /* varies by shred */
 
-#ifdef FD_GOSSIP_DEMO
-  pkt->udp->net_sport = fd_ushort_bswap( src_port ) + (ushort)(g_num_packets_sent % 4U);
-#else
   pkt->udp->net_sport = fd_ushort_bswap( src_port );
-#endif
   pkt->udp->net_dport = (ushort)0; /* varies by shred */
   pkt->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   pkt->udp->check     = (ushort)0;
@@ -282,7 +278,13 @@ gossip_send_packet( uchar const * msg,
   }
   */
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+#ifdef FD_GOSSIP_DEMO
+  for(ushort i = 0; i < 4; i++) {
+    send_packet( arg, addr->addr, addr->port + fd_ushort_bswap(i), msg, msglen, tsorig );
+  }
+#else
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
+#endif
 }
 
 
@@ -483,11 +485,11 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 4 ||
-                   topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP ) ) {
-    FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
-  }
+  // if( FD_UNLIKELY( tile->in_cnt != 4 ||
+  //                  topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP ) ) {
+  //   FD_LOG_ERR(( "gossip tile has none or unexpected input links %lu %lu %lu",
+  //                tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+  // }
 
   // if( FD_UNLIKELY( tile->out_cnt != 1 ||
   //                  topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX ) ) {
