@@ -836,7 +836,7 @@ mux_ctx( void * scratch ) {
 static void
 publish_tick( fd_poh_ctx_t *     ctx,
               fd_mux_context_t * mux ) {
-  /* We must subtract 1 from hascnt here, since we might have ticked
+  /* We must subtract 1 from hashcnt here, since we might have ticked
      over into the next slot already. */
   ulong slot = (ctx->hashcnt-1UL)/ctx->hashcnt_per_slot;
 
@@ -1369,6 +1369,13 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_poh = {
   .name                     = "poh",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
@@ -1378,6 +1385,7 @@ fd_topo_run_tile_t fd_tile_poh = {
   .mux_during_housekeeping  = during_housekeeping,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

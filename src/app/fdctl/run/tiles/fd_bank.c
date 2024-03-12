@@ -292,6 +292,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_bank = {
   .name                     = "bank",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
@@ -301,6 +308,7 @@ fd_topo_run_tile_t fd_tile_bank = {
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .mux_metrics_write        = metrics_write,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

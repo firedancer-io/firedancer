@@ -206,6 +206,13 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_sign = {
   .name                     = "sign",
   .mux_flags                = FD_MUX_FLAG_COPY | FD_MUX_FLAG_MANUAL_PUBLISH,
@@ -213,6 +220,7 @@ fd_topo_run_tile_t fd_tile_sign = {
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
