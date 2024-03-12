@@ -111,7 +111,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           pc,
                        ulong           ic,
                        ulong           cu,
-                       ulong           reg[ FD_VM_TRACE_EVENT_EXE_REG_CNT ] ) {
+                       ulong           reg[ FD_VM_REG_CNT ] ) {
 
   /* Acquire event storage */
 
@@ -132,7 +132,7 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
   event->pc   = pc;
   event->ic   = ic;
   event->cu   = cu;
-  memcpy( event->reg, reg, FD_VM_TRACE_EVENT_EXE_REG_CNT*sizeof(ulong) );
+  memcpy( event->reg, reg, FD_VM_REG_CNT*sizeof(ulong) );
 
   return FD_VM_SUCCESS;
 }
