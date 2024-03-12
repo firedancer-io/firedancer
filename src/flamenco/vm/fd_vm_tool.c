@@ -203,8 +203,8 @@ cmd_trace( char const * bin_path,
     .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
-    .read_only           = (uchar *)tool_prog.prog->rodata,
-    .read_only_sz        = tool_prog.prog->rodata_sz,
+    .rodata              = tool_prog.prog->rodata,
+    .rodata_sz           = tool_prog.prog->rodata_sz,
     .trace               = trace
   };
 
@@ -251,8 +251,8 @@ cmd_run( char const * bin_path,
     .calldests           = tool_prog.prog->calldests,
     .input               = input,
     .input_sz            = input_sz,
-    .read_only           = (uchar *)tool_prog.prog->rodata,
-    .read_only_sz        = tool_prog.prog->rodata_sz
+    .rodata              = tool_prog.prog->rodata,
+    .rodata_sz           = tool_prog.prog->rodata_sz
   };
 
   vm.reg[ 1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
