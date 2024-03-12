@@ -539,7 +539,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     .info      = *elf_info,
     .rodata    = rodata,
     .rodata_sz = elf_info->rodata_sz,
-    .text      = (ulong *)((ulong)rodata + elf_info->text_off),
+    .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
     .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
     .entry_pc  = elf_info->entry_pc

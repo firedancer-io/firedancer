@@ -171,10 +171,10 @@ main( int     argc,
     .entrypoint          = 0,
     .program_counter     = 0,
     .instruction_counter = 0,
-    .instrs              = NULL,
-    .instrs_sz           = 0,
-    .instrs_offset       = 0,
-    .syscall_map         = NULL,
+    .text                = NULL,
+    .text_cnt            = 0,
+    .text_off            = 0,
+    .syscalls            = NULL,
     .calldests           = NULL,
     .input               = NULL,
     .input_sz            = 0,
@@ -183,7 +183,6 @@ main( int     argc,
     .heap_sz             = FD_VM_DEFAULT_HEAP_SZ,
     .compute_meter       = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
   };
-
 
   set_vm_read_only_memory_region( &vm );
 
