@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-23"
+    affinity = "0-21"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -507,16 +507,21 @@ dynamic_port_range = "8900-9000"
     #
     # See the comments for the [tiles.net] section below for more
     # information.
-    net_tile_count = 4
+    net_tile_count = 1
+    
+    # How many QUIC tiles to run.  Each QUIC tile can service persistent
+    # QUIC connections, and will be responsible for parsing and and
+    # responding to incoming data. 
+    quic_tile_count = 1
 
-    # How many verify tiles to run.  Currently this also configures the
-    # number of QUIC tiles to run.  QUIC and verify tiles are connected
-    # 1:1.
-    verify_tile_count = 4
+    # How many verify tiles to run.  Verify tiles perform signature
+    # verification on incoming transactions, an expensive operation that
+    # is often the bottleneck of the validator.
+    verify_tile_count = 10
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
-    bank_tile_count = 4
+    bank_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic

@@ -117,6 +117,7 @@ typedef struct {
   struct {
     char affinity[ AFFINITY_SZ ];
     uint net_tile_count;
+    uint quic_tile_count;
     uint verify_tile_count;
     uint bank_tile_count;
   } layout;
