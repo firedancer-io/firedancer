@@ -1129,6 +1129,11 @@ after_frag( void *             _ctx,
      sending the microblock below is the publishing action. */
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
+    if( FD_UNLIKELY( ctx->hashcnt>=(ctx->next_leader_slot_hashcnt+ctx->hashcnt_per_slot) ) ) {
+      /* We ticked while leader and are no longer leader... transition
+         the state machine. */
+      no_longer_leader( ctx );
+    }
   }
 
   publish_microblock( ctx, mux, *opt_sig, target_slot, hashcnt_delta, txn_cnt );
