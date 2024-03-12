@@ -877,6 +877,7 @@ fd_runtime_prepare_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_capture_ctx_t * capture_ctx,
                                 fd_execute_txn_task_info_t * task_info,
                                 ulong txn_cnt,
                                 fd_tpool_t * tpool,
@@ -888,6 +889,11 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
+      if ( capture_ctx != NULL ) {
+        uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+        fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err, 
+                                     txn_ctx->custom_err, slot_ctx->slot_bank.slot );
+      }
 
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
         if ( txn_ctx->nonce_accounts[i] ) {
@@ -1010,6 +1016,7 @@ fd_runtime_finalize_txns( fd_exec_slot_ctx_t * slot_ctx,
 /* Make sure there are no dependent txns! */
 int
 fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_capture_ctx_t * capture_ctx,
                                fd_txn_t * * txn_ptrs,
                                fd_rawtxn_b_t * raw_txns,
                                ulong txn_cnt,
@@ -1021,7 +1028,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return res;
   }
   fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, task_info, NULL, NULL, 1, 0, txn_cnt );
-  res = fd_runtime_finalize_txns_tpool( slot_ctx, task_info, txn_cnt, tpool, max_workers );
+  res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_info, txn_cnt, tpool, max_workers );
   if( res != 0 ) {
     return res;
   }
@@ -1138,6 +1145,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
 
 int
 fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                        fd_capture_ctx_t * capture_ctx,
                                         fd_txn_t * * txn_ptrs,
                                         fd_rawtxn_b_t * raw_txns,
                                         ulong txn_cnt,
@@ -1188,7 +1196,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
 
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
-      res = fd_runtime_finalize_txns_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
+      res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
       if( res != 0 ) {
         return res;
       }
@@ -1221,13 +1229,13 @@ int fd_runtime_microblock_batch_execute(fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_runtime_microblock_execute_tpool( fd_exec_slot_ctx_t *slot_ctx,
-                                     fd_capture_ctx_t *capture_ctx FD_PARAM_UNUSED,
+                                     fd_capture_ctx_t *capture_ctx,
                                      fd_microblock_info_t const * microblock_info,
                                      fd_tpool_t *tpool,
                                      ulong max_workers ) {
   fd_microblock_hdr_t const * hdr = &microblock_info->microblock_hdr;
 
-  int res = fd_runtime_execute_txns_tpool( slot_ctx, microblock_info->txn_ptrs, microblock_info->raw_txns, hdr->txn_cnt, tpool, max_workers );
+  int res = fd_runtime_execute_txns_tpool( slot_ctx, capture_ctx, microblock_info->txn_ptrs, microblock_info->raw_txns, hdr->txn_cnt, tpool, max_workers );
   return res;
 }
 
@@ -1494,7 +1502,7 @@ int fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
-                                       fd_capture_ctx_t * capture_ctx FD_PARAM_UNUSED,
+                                       fd_capture_ctx_t * capture_ctx,
                                        fd_block_info_t const * block_info,
                                        fd_tpool_t * tpool,
                                        ulong max_workers ) {
@@ -1515,7 +1523,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_runtime_block_collect_txns( block_info, raw_txns, txn_ptrs );
 
-    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, txn_ptrs, raw_txns, txn_cnt, tpool, max_workers );
+    res = fd_runtime_execute_txns_in_waves_tpool( slot_ctx, capture_ctx, txn_ptrs, raw_txns, txn_cnt, tpool, max_workers );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       return res;
     }

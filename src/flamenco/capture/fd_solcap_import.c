@@ -12,13 +12,16 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <math.h>
+#include <dirent.h>
+
+#define DT_REG (8UL)
 
 static int
 usage( void ) {
   fprintf( stderr,
-    "Usage: fd_solcap_import [options] {IN_FILE} {OUT_FILE}\n"
+    "Usage: fd_solcap_import [options] {IN_DIR} {OUT_FILE}\n"
     "\n"
-    "Imports a runtime capture file from JSON.\n"
+    "Imports a runtime capture directory from JSON.\n"
     "\n"
     "Options:\n"
     "  --page-sz      {gigantic|huge|normal}    Page size\n"
@@ -205,6 +208,61 @@ unmarshal_account( cJSON const *             json,
   return data;
 }
 
+void write_slots( const char * in_path, 
+                  fd_solcap_writer_t * writer,
+                  fd_wksp_t * wksp,
+                  fd_alloc_t * alloc ) {
+  /* Iterate through the directory to get all of the bank hash details file */
+  struct dirent * ent;
+  DIR * dir = opendir( in_path );
+  
+  if ( dir == NULL ) {
+    FD_LOG_ERR(( "unable to open the directory=%s", in_path ));
+  }
+  /* TODO: sort the files that are read in. The API makes no guarantee that the
+     files are alphabetically sorted, but in practice they are. */
+  for ( ent = readdir( dir ); ent != NULL; ent = readdir( dir ) ) {
+    if ( ent->d_type != DT_REG ) {
+      continue;
+    }
+
+    char path_buf[ 256UL ];
+    char * path_buf_ptr = path_buf;
+    fd_memcpy( path_buf_ptr, in_path, strlen( in_path ) );
+    fd_memcpy( path_buf_ptr + strlen( in_path ), ent->d_name, strlen( ent->d_name ) );
+    FD_LOG_NOTICE(( "Reading input file=%s", path_buf_ptr ));
+
+    cJSON * json = read_json_file( wksp, alloc, path_buf_ptr );
+    if( FD_UNLIKELY( !json ) ) {
+      FD_LOG_ERR(( "Failed to read input file=%s", path_buf_ptr ));
+    }
+
+    fd_solcap_BankPreimage preimg[1] = {{0}};
+    unmarshal_bank_preimage( json, preimg );
+
+    fd_solcap_writer_set_slot( writer, preimg->slot );
+
+    cJSON * json_acc = cJSON_GetObjectItem( json, "accounts" );
+    int n = cJSON_GetArraySize( json_acc );
+    for( int i=0; i<n; i++ ) {
+      fd_scratch_push();
+
+      cJSON * acc = cJSON_GetArrayItem( json_acc, i );
+      fd_solcap_account_tbl_t  rec[1]; memset( rec,  0, sizeof(fd_solcap_account_tbl_t) );
+      fd_solcap_AccountMeta   meta[1]; memset( meta, 0, sizeof(fd_solcap_AccountMeta  ) );
+      void * data = unmarshal_account( acc, rec, meta );
+
+      FD_TEST( 0==fd_solcap_write_account2( writer, rec, meta, data, meta->data_sz ) );
+
+      fd_scratch_pop();
+    }
+
+    FD_TEST( 0==fd_solcap_write_bank_preimage2( writer, preimg ) );
+    cJSON_free( json );
+  }
+  closedir( dir );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -251,13 +309,6 @@ main( int     argc,
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_buf, 2UL ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "Failed to create heap" ));
 
-  /* Read input file */
-
-  char const * in_path = argv[1];
-  cJSON * json = read_json_file( wksp, alloc, in_path );
-  if( FD_UNLIKELY( !json ) ) FD_LOG_ERR(( "Failed to read input file" ));
-  FD_LOG_NOTICE(( "Read input file" ));
-
   /* Create output file */
 
   FILE * out_file = fopen( argv[2], "wb" );
@@ -273,35 +324,12 @@ main( int     argc,
   if( FD_UNLIKELY( !writer ))
     FD_LOG_ERR(( "Failed to create solcap writer" ));
 
-  /* Read bank preimage */
-
-  fd_solcap_BankPreimage preimg[1] = {{0}};
-  unmarshal_bank_preimage( json, preimg );
-
-  fd_solcap_writer_set_slot( writer, preimg->slot );
-
-  cJSON * json_acc = cJSON_GetObjectItem( json, "accounts" );
-  int n = cJSON_GetArraySize( json_acc );
-  for( int i=0; i<n; i++ ) {
-    fd_scratch_push();
-
-    cJSON * acc = cJSON_GetArrayItem( json_acc, i );
-    fd_solcap_account_tbl_t rec[1];  memset( rec,  0, sizeof(fd_solcap_account_tbl_t) );
-    fd_solcap_AccountMeta   meta[1]; memset( meta, 0, sizeof(fd_solcap_AccountMeta  ) );
-    void * data = unmarshal_account( acc, rec, meta );
-
-    FD_TEST( 0==fd_solcap_write_account2( writer, rec, meta, data, meta->data_sz ) );
-
-    fd_scratch_pop();
-  }
-
-  FD_TEST( 0==fd_solcap_write_bank_preimage2( writer, preimg ) );
+  write_slots( argv[1], writer, wksp, alloc );
 
   /* Cleanup */
 
   fd_wksp_free_laddr( fd_solcap_writer_delete( fd_solcap_writer_fini( writer ) ) );
   fclose( out_file );
-  cJSON_free( json );
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   FD_TEST( fd_scratch_frame_used()==0UL );
   fd_wksp_free_laddr( fd_scratch_detach( NULL ) );

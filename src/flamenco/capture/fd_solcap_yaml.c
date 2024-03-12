@@ -20,6 +20,8 @@ usage( void ) {
     "  --page-cnt     {count}                   Page count\n"
     "  --scratch-mb   1024                      Scratch mem MiB\n"
     "  -v             {level}                   YAML verbosity\n"
+    "  --start-slot   {slot}                    Start slot\n"
+    "  --end-slot     {slot}                    End slot\n"
     "\n" );
   return 0;
 }
@@ -173,6 +175,7 @@ process_account( FILE * file,
 
 static int
 process_account_table( FILE * file,
+                       ulong  slot,
                        int    verbose ) {
 
   /* Remember stream cursor */
@@ -256,10 +259,13 @@ process_account_table( FILE * file,
     /* Write to YAML */
 
     printf(
-      "    - pubkey: '%32J'\n"
-      "      hash:   '%32J'\n",
+      "    - pubkey:   '%32J'\n"
+      "      hash:     '%32J'\n"
+      "      explorer: 'https://explorer.solana.com/block/%lu?accountFilter=%32J&filter=all'\n",
       entry->key,
-      entry->hash );
+      entry->hash,
+      slot,
+      entry->key );
 
     /* Fetch account details */
 
@@ -291,7 +297,9 @@ static int
 process_bank( fd_solcap_chunk_t const * chunk,
               FILE *                    file,
               int                       verbose,
-              long                      chunk_gaddr ) {
+              long                      chunk_gaddr,
+              ulong                     start_slot,
+              ulong                     end_slot ) {
 
 # define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
   if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ) ) {
@@ -322,20 +330,24 @@ process_bank( fd_solcap_chunk_t const * chunk,
     return EPROTO;
   }
 
-  /* Write YAML */
+  if ( meta.slot < start_slot || meta.slot > end_slot ) {
+    return 0;
+  }
 
-  printf(
-    "- slot: %lu\n"
-    "  bank_hash: '%32J'\n",
-    meta.slot,
-    meta.bank_hash );
+  /* Write YAML */
+  if ( verbose < 3 )
+    printf( "- slot: %lu\n", meta.slot );
+
+  printf( 
+      "  - bank_hash:          '%32J'\n", 
+      meta.bank_hash );
 
   if( verbose>=1 ) {
     printf(
-      "  prev_bank_hash:     '%32J'\n"
-      "  account_delta_hash: '%32J'\n"
-      "  poh_hash:           '%32J'\n"
-      "  signature_cnt:      %lu\n",
+      "  - prev_bank_hash:     '%32J'\n"
+      "  - account_delta_hash: '%32J'\n"
+      "  - poh_hash:           '%32J'\n"
+      "  - signature_cnt:      %lu\n",
       meta.prev_bank_hash,
       meta.account_delta_hash,
       meta.poh_hash,
@@ -347,7 +359,7 @@ process_bank( fd_solcap_chunk_t const * chunk,
   if( verbose >= 2 ) {
     if( meta.account_table_coff==0L ) {
       if( meta.account_cnt > 0UL )
-        FD_LOG_WARNING(( "Capture does not include account info" ));
+        FD_LOG_WARNING(( "Capture does not include account info for slot=%lu", meta.slot ));
       return 0;
     }
 
@@ -356,12 +368,73 @@ process_bank( fd_solcap_chunk_t const * chunk,
       return errno;
     }
 
-    printf( "  accounts_delta:\n" );
-    if( FD_UNLIKELY( 0!=process_account_table( file, verbose ) ) )
+    printf( "  - accounts_delta:\n" );
+    if( FD_UNLIKELY( 0!=process_account_table( file, meta.slot, verbose ) ) )
       return errno;
   }
 
   return 0;
+}
+
+static ulong
+process_txn( fd_solcap_chunk_t const * chunk,
+             FILE *                    file,
+             long                      chunk_gaddr,
+             ulong                     prev_slot,
+             ulong                     start_slot,
+             ulong                     end_slot ) {
+
+# define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
+  if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_TRANSACTION_FOOTPRINT ) ) {
+    FD_LOG_ERR(( "invalid transaction meta size (%lu)", chunk->meta_sz ));
+  }
+
+  /* Read bank preimage meta */
+
+  uchar meta_buf[ 128UL ];
+  if( FD_UNLIKELY( 0!=fseek( file, chunk_gaddr + (long)chunk->meta_coff, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "fseek transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( chunk->meta_sz != fread( meta_buf, 1UL, chunk->meta_sz, file ) ) ) {
+    FD_LOG_ERR(( "fread transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Deserialize bank preimage meta */
+
+  pb_istream_t stream = pb_istream_from_buffer( meta_buf, chunk->meta_sz );
+
+  fd_solcap_Transaction meta;
+  if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_Transaction_fields, &meta ) ) ) {
+    FD_LOG_HEXDUMP_DEBUG(( "transaction meta", meta_buf, chunk->meta_sz ));
+    FD_LOG_ERR(( "pb_decode transaction meta failed (%s)", PB_GET_ERROR(&stream) ));
+  }
+
+  if ( meta.slot < start_slot || meta.slot > end_slot ) {
+    return meta.slot;
+  }
+
+  /* Write YAML */
+  if ( prev_slot == 0 || prev_slot != meta.slot ) {
+    printf( 
+      "- slot: %lu\n"
+      "  - txns:\n", meta.slot
+    );
+  }
+  printf(
+    "    - txn_sig:    '%64J'\n"
+    "      txn_err:    %d\n"
+    "      custom_err: %u\n"
+    "      explorer:   'https://explorer.solana.com/tx/%64J'\n"
+    "      solscan:    'https://solscan.io/tx/%64J'\n"
+    "      solanafm:   'https://solana.fm/tx/%64J'\n",
+    meta.txn_sig,
+    meta.txn_err,
+    meta.custom_err,
+    meta.txn_sig,
+    meta.txn_sig,
+    meta.txn_sig );
+
+  return meta.slot;
 }
 
 int
@@ -379,6 +452,8 @@ main( int     argc,
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 2UL        );
   ulong        scratch_mb = fd_env_strip_cmdline_ulong( &argc, &argv, "--scratch-mb", NULL, 1024UL     );
   int          verbose    = fd_env_strip_cmdline_int  ( &argc, &argv, "-v",           NULL, 0          );
+  ulong        start_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--start-slot", NULL, 0          );
+  ulong        end_slot   = fd_env_strip_cmdline_ulong( &argc, &argv, "--end-slot",   NULL, ULONG_MAX  );
 
   ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
@@ -433,6 +508,7 @@ main( int     argc,
 
   fd_solcap_chunk_iter_t iter[1];
   fd_solcap_chunk_iter_new( iter, file );
+  ulong previous_slot = 0;
   /* TODO replace this with fd_solcap_chunk_iter_find */
   for(;;) {
     long chunk_gaddr = fd_solcap_chunk_iter_next( iter );
@@ -448,7 +524,9 @@ main( int     argc,
     if( FD_UNLIKELY( !chunk ) ) FD_LOG_ERR(( "fd_solcap_chunk_item() failed" ));
 
     if( chunk->magic == FD_SOLCAP_V1_BANK_MAGIC )
-      process_bank( chunk, file, verbose, chunk_gaddr );
+      process_bank( chunk, file, verbose, chunk_gaddr, start_slot, end_slot );
+    else if ( verbose >= 3 && chunk->magic == FD_SOLCAP_V1_TRXN_MAGIC )
+      previous_slot = process_txn( chunk, file, chunk_gaddr, previous_slot, start_slot, end_slot );
   }
 
   /* Cleanup */

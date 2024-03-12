@@ -86,6 +86,7 @@ typedef struct fd_solcap_fhdr fd_solcap_fhdr_t;
 #define FD_SOLCAP_V1_ACCT_MAGIC (0x805fe7580b1da4bAUL)
 #define FD_SOLCAP_V1_ACTB_MAGIC (0x805fe7580b1da4bBUL)
 #define FD_SOLCAP_V1_BANK_MAGIC (0x805fe7580b1da4b8UL)
+#define FD_SOLCAP_V1_TRXN_MAGIC (0x805fe7580b1da4bCUL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -164,5 +165,10 @@ typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
    Protobuf struct. */
 
 #define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
+
+/* FD_SOLCAP_TRANSACTION_FOOTPRINT is the max size of the Transaction
+   Protobuf struct. */
+
+#define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_proto_h */

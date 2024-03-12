@@ -541,3 +541,57 @@ fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
 
   return 0;
 }
+
+int fd_solcap_write_transaction( fd_solcap_writer_t * writer,
+                                 void const *         txn_sig,
+                                 int                  txn_err,
+                                 uint                 custom_err,
+                                 ulong                slot ) {
+  
+  if( FD_LIKELY( !writer ) ) return 0;
+
+  fd_solcap_Transaction txn_pb[1];
+  memcpy( txn_pb->txn_sig, txn_sig, 64UL );
+  txn_pb->txn_err     = txn_err;
+  txn_pb->custom_err  = custom_err;
+  txn_pb->slot        = slot;
+
+  return fd_solcap_write_transaction2( writer, txn_pb );
+}
+
+int fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
+                                  fd_solcap_Transaction * txn ) {
+
+  if( FD_LIKELY( !writer ) ) return 0;
+
+  /* Locate chunk */
+  ulong chunk_goff = FTELL_BAIL( writer->file );
+  FSKIP_BAIL( writer->file, sizeof(fd_solcap_chunk_t) );
+
+  /* Serialize and write transaction */
+  uchar txn_pb_enc[ FD_SOLCAP_TRANSACTION_FOOTPRINT ];
+  pb_ostream_t stream = pb_ostream_from_buffer( txn_pb_enc, sizeof(txn_pb_enc) );
+  FD_TEST( pb_encode( &stream, fd_solcap_Transaction_fields, txn ) );
+
+  FWRITE_BAIL( txn_pb_enc, 1UL, stream.bytes_written, writer->file );
+  FALIGN_BAIL( writer->file, 8UL );
+  ulong chunk_end_goff = FTELL_BAIL( writer->file );
+
+  /* Serialize chunk header */
+  fd_solcap_chunk_t chunk = {
+    .magic     = FD_SOLCAP_V1_TRXN_MAGIC,
+    .meta_coff = (uint)sizeof(fd_solcap_chunk_t),
+    .meta_sz   = (uint)stream.bytes_written,
+    .total_sz  = chunk_end_goff - chunk_goff
+  };
+
+  /* Write out chunk */
+  FSEEK_BAIL( writer->file, (long)chunk_goff, SEEK_SET );
+  FWRITE_BAIL( &chunk, sizeof(fd_solcap_chunk_t), 1UL, writer->file );
+
+  /* Restore stream cursor */
+
+  FSEEK_BAIL( writer->file, (long)chunk_end_goff, SEEK_SET );
+
+  return 0;
+}

@@ -128,6 +128,19 @@ int
 fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
                                 fd_solcap_BankPreimage * preimg );
 
+/* fd_solcap_write_transaction writes the given transaction to the
+   stream.  Must only be called for transactions that are part of the
+   current slot's transaction hash. */
+
+int fd_solcap_write_transaction( fd_solcap_writer_t * writer,
+                                 void const *         txn_sig,
+                                 int                  txn_err,
+                                 uint                 custom_err,
+                                 ulong                slot );
+
+int fd_solcap_write_transaction2( fd_solcap_writer_t * writer,
+                                  fd_solcap_Transaction * txn );
+
 FD_PROTOTYPES_END
 
 #endif /* FD_HAS_HOSTED */

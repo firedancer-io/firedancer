@@ -66,6 +66,13 @@ typedef struct _fd_solcap_AccountMeta {
 } fd_solcap_AccountMeta;
 
 
+typedef struct _fd_solcap_Transaction {
+    pb_byte_t txn_sig[64];
+    int32_t txn_err;
+    uint32_t custom_err;
+    uint64_t slot;
+} fd_solcap_Transaction;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -79,6 +86,7 @@ extern "C" {
 #define fd_solcap_BankPreimage_init_zero         {0, {0}, {0}, {0}, {0}, 0, 0, 0}
 #define fd_solcap_AccountTableMeta_init_zero     {0, 0, 0}
 #define fd_solcap_AccountMeta_init_zero          {0, 0, 0, {0}, 0, 0, 0}
+#define fd_solcap_Transaction_init_default       {{0}, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_solcap_FileMeta_first_slot_tag        1
@@ -102,6 +110,10 @@ extern "C" {
 #define fd_solcap_AccountMeta_executable_tag     5
 #define fd_solcap_AccountMeta_data_coff_tag      6
 #define fd_solcap_AccountMeta_data_sz_tag        7
+#define fd_solcap_Transaction_txn_sig_tag        1
+#define fd_solcap_Transaction_txn_err_tag        2
+#define fd_solcap_Transaction_custom_err_tag     3
+#define fd_solcap_Transaction_slot_tag           4
 
 /* Struct field encoding specification for nanopb */
 #define fd_solcap_FileMeta_FIELDLIST(X, a) \
@@ -141,28 +153,40 @@ X(a, STATIC,   SINGULAR, UINT64,   data_sz,           7)
 #define fd_solcap_AccountMeta_CALLBACK NULL
 #define fd_solcap_AccountMeta_DEFAULT NULL
 
+#define fd_solcap_Transaction_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, txn_sig, 1) \
+X(a, STATIC,   SINGULAR, INT32,    txn_err,           2) \
+X(a, STATIC,   SINGULAR, UINT32,   custom_err,        3) \
+X(a, STATIC,   SINGULAR, UINT64,   slot,              4)
+#define fd_solcap_Transaction_CALLBACK NULL
+#define fd_solcap_Transaction_DEFAULT NULL
+
 extern const pb_msgdesc_t fd_solcap_FileMeta_msg;
 extern const pb_msgdesc_t fd_solcap_BankPreimage_msg;
 extern const pb_msgdesc_t fd_solcap_AccountTableMeta_msg;
 extern const pb_msgdesc_t fd_solcap_AccountMeta_msg;
+extern const pb_msgdesc_t fd_solcap_Transaction_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define fd_solcap_FileMeta_fields &fd_solcap_FileMeta_msg
 #define fd_solcap_BankPreimage_fields &fd_solcap_BankPreimage_msg
 #define fd_solcap_AccountTableMeta_fields &fd_solcap_AccountTableMeta_msg
 #define fd_solcap_AccountMeta_fields &fd_solcap_AccountMeta_msg
+#define fd_solcap_Transaction_fields &fd_solcap_Transaction_msg
 
 /* Maximum encoded size of messages (where known) */
 #define fd_solcap_AccountMeta_size               91
 #define fd_solcap_AccountTableMeta_size          33
 #define fd_solcap_BankPreimage_size              180
 #define fd_solcap_FileMeta_size                  31
+#define fd_solcap_Transaction_size               80
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define solana_capture_FileMeta fd_solcap_FileMeta
 #define solana_capture_BankPreimage fd_solcap_BankPreimage
 #define solana_capture_AccountTableMeta fd_solcap_AccountTableMeta
 #define solana_capture_AccountMeta fd_solcap_AccountMeta
+#define solana_capture_Transaction fd_solcap_Transaction
 
 #ifdef __cplusplus
 } /* extern "C" */

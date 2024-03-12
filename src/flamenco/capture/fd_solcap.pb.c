@@ -18,4 +18,4 @@ PB_BIND(fd_solcap_AccountTableMeta, fd_solcap_AccountTableMeta, AUTO)
 PB_BIND(fd_solcap_AccountMeta, fd_solcap_AccountMeta, AUTO)
 
 
-
+PB_BIND(fd_solcap_Transaction, fd_solcap_Transaction, AUTO)
