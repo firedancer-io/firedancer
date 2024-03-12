@@ -107,21 +107,22 @@ typedef struct fd_quic_state_private fd_quic_state_t;
    (i.e. outlasts joins, until fd_quic_delete) */
 
 struct __attribute__((aligned(16UL))) fd_quic_limits {
-  ulong  conn_cnt;         /* instance-wide, max concurrent conn count      */
-  ulong  handshake_cnt;    /* instance-wide, max concurrent handshake count */
+  ulong  conn_cnt;              /* instance-wide, max concurrent conn count              */
+  ulong  handshake_cnt;         /* instance-wide, max concurrent handshake count         */
 
-  ulong  conn_id_cnt;      /* per-conn, max conn ID count (min 4UL) */
-  double conn_id_sparsity; /* per-conn, conn ID hashmap sparsity    */
+  ulong  conn_id_cnt;           /* per-conn, max conn ID count (min 4UL)                 */
+  double conn_id_sparsity;      /* per-conn, conn ID hashmap sparsity                    */
 
-  ulong  stream_cnt[4];    /* per-conn, initial target max concurrent stream count */
-  double stream_sparsity;  /* per-conn, stream hashmap sparsity     */
+  ulong  stream_cnt[4];         /* per-conn, max concurrent stream count                 */
+  ulong  initial_stream_cnt[4]; /* per-conn, initial target max concurrent stream count  */
+  double stream_sparsity;       /* per-conn, stream hashmap sparsity                     */
 
-  ulong  inflight_pkt_cnt; /* per-conn, max inflight packet count   */
+  ulong  inflight_pkt_cnt;      /* per-conn, max inflight packet count                   */
 
-  ulong  tx_buf_sz;        /* per-stream, tx buf sz in bytes          */
+  ulong  tx_buf_sz;             /* per-stream, tx buf sz in bytes                        */
   /* the user consumes rx directly from the network buffer */
 
-  ulong  stream_pool_sz;   /* instance-wide, number of streams in stream pool */
+  ulong  stream_pool_cnt;  /* instance-wide, number of streams in stream pool */
 };
 typedef struct fd_quic_limits fd_quic_limits_t;
 

@@ -61,16 +61,18 @@ struct fd_quic_stream {
 
   uint sentinel; /* does this stream represent a sentinel? */
 
-  /* send and receive state
+  /* stream state
      mask made up of the following:
+       FD_QUIC_STREAM_STATE_UNUSED      Stream is not yet used
        FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
        FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX)
        FD_QUIC_STREAM_STATE_DEAD        stream is dead and waiting to be
-	                                  reclaimed */
+	                                reclaimed, or is in stream_pool */
   uint state;
+# define FD_QUIC_STREAM_STATE_DEAD   0u
 # define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
 # define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
-# define FD_QUIC_STREAM_STATE_DEAD   (1u<<2u)
+# define FD_QUIC_STREAM_STATE_UNUSED (1u<<2u)
 
 # define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
 

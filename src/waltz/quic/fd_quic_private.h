@@ -370,7 +370,7 @@ fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value 
 
 /* fd_quic_choose_weighted_index chooses an index in a random way by weight */
 ulong
-fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree );
+fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
 
 /* fd_quic_cs_tree_total returns the total value across all the leaves in */
 /* the supplied cs_tree                                                   */

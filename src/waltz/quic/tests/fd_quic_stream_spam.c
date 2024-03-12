@@ -65,6 +65,7 @@ fd_quic_stream_spam_new( void *                    mem,
     FD_LOG_WARNING(( "failed to create pending" ));
     return NULL;
   }
+  FD_LOG_WARNING(( "pending: %p", (void*)pending ));
 
   memset( spam, 0, sizeof(fd_quic_stream_spam_t) );
   spam->pending = pending;

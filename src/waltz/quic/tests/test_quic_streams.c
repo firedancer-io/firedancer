@@ -101,10 +101,10 @@ main( int     argc,
     .conn_id_cnt      = 4,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 20, 0 },
+    .stream_cnt       = { 20, 20, 20, 20 },
     .inflight_pkt_cnt = 100,
     .tx_buf_sz        = 1<<15,
-    .stream_pool_sz   = 128
+    .stream_pool_cnt  = 128
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
@@ -116,9 +116,10 @@ main( int     argc,
     .conn_id_cnt      = 4,
     .conn_id_sparsity = 4.0,
     .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 20, 0 },
+    .stream_cnt       = { 20, 20, 20, 20 },
     .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<21
+    .tx_buf_sz        = 1<<21,
+    .stream_pool_cnt  = 128
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );

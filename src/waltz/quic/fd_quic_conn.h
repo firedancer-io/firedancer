@@ -177,17 +177,47 @@ struct fd_quic_conn {
       /* number of streams in valid range is:                                 */
       /* ( sup_stream_id[j] - min_stream_id[j]] ) / 4                         */
 
-  /* peer_sup_stream_id[type] always represents the peer imposed limit */
-  /* tgt_sup_stream_id[type] always represents our limit on the stream_id */
-  /* tgt_sup_stream_id is derived from max_concur_streams and cur_stream_cnt */
+  /* peer_sup_stream_id[type] represents the peer imposed limit on self initiated */
+  /* streams. */
+  /* tgt_sup_stream_id[type] represents our limit on the stream_id of peer initiated */
+  /* stream_ids */
+  /* tgt_sup_stream_id is derived from max_concur_streams, cur_stream_cnt */
+  /* and sup_stream_id thus: */
+  /* tgt_sup_stream_id = sup_stream_id + ( max_concur_streams - cur_stream_cnt ) * 4 */
   ulong peer_sup_stream_id[4];  /* peer imposed supremum over stream_ids            */
   ulong tgt_sup_stream_id[4];   /* target value for sup_stream_id by type           */
-                                /* sup_stream_id cannot drop, but tgt_sup_stream_id */
-                                /* is allowed to fall below sup_stream_id           */
+                                /* sup_stream_id cannot drop                        */
 
-  ulong max_concur_streams[4];  /* user set concurrent max - used to set tgt_sup_stream_id */
-                                /* for self initiated streams */
+  ulong max_concur_streams[4];  /* user set concurrent max */
   ulong cur_stream_cnt[4];      /* current number of streams by type */
+
+  /* stream id limits */
+  /* limits->stream_cnt */
+  /*   used to size stream_map, and provides an upper limit on the temporary limits */
+  /*   on streams */
+
+  /* max_concur_streams */
+  /*   temporary limit on the number of streams */
+  /*   currently only applies to peers */
+  /*   may be adjusted via fd_quic_conn_set_max_streams */
+
+  /* limits->initial_stream_cnt */
+  /*   new connections attempt to assign initial_stream_cnt streams from the pool */
+  /*   for peer initiated streams */
+  /*   however many streams are assigned at this point becomes the limit imposed */
+  /*   on the peer */
+
+  /* peer initiated streams */
+  /* the peer will create streams at will up to our imposed limit via max_streams */
+  /* frames */
+  /* max_streams frames are derived from changes to sup_stream_id */
+  /* fd_quic_assign_streams assigns streams to connections in preparation for use */
+  /* upon assignment, sup_stream_id and cur_stream_cnt are adjusted */
+
+  /* self initiated streams */
+  /* we can create streams at will up to the peer imposed limit in peer_sup_stream_id */
+  /* these streams also come from the stream pool, and so the size of the stream pool */
+  /* also imposes a limit on self initiated streams */
 
   /* rfc9000:
        19.11 Note that these frames (and the corresponding transport parameters)
@@ -362,7 +392,7 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn ) {
      FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
      FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
 FD_QUIC_API void
-fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int type, ulong stream_cnt );
+fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint type, ulong stream_cnt );
 
 
 /* get the current value for the concurrent streams for the specified type
@@ -371,23 +401,14 @@ fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, int type, ulong stream_cnt 
      FD_QUIC_CONN_MAX_STREAM_TYPE_UNIDIR
      FD_QUIC_CONN_MAX_STREAM_TYPE_BIDIR */
 FD_QUIC_API ulong
-fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, int type );
+fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint type );
 
 
-//static inline void
-//fd_quic_conn_set_next( fd_quic_conn_t * conn,
-//                       fd_quic_conn_t * next ) {
-//  if( next == NULL ) conn->next_off == 0L;
-//  else               conn->next_off = (long)((ulong)next - (ulong)conn);
-//  /* TODO assumes two's complement */
-//}
-//
-//FD_FN_PURE static inline fd_quic_conn_t *
-//fd_quic_conn_get_next( fd_quic_conn_t const * conn ) {
-//  if( conn->next_off == 0L ) return NULL;
-//
-//  return (fd_quic_conn_t *)((uchar *)conn + conn->next_off);
-//}
+/* update the tree weight
+   called whenever weight may have changed */
+void
+fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype );
+
 
 FD_PROTOTYPES_END
 
