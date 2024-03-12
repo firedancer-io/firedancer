@@ -353,7 +353,12 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
 
   ulong ret = 1UL;
 
-  // TODO limit on point_cnt
+  // https://github.com/anza-xyz/agave/blob/v1.18.5/programs/bpf_loader/src/syscalls/mod.rs#L1125-L1133
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, curve25519_restrict_msm_length ) ) {
+    if( point_cnt > 512 ) {
+      return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
+    }
+  }
 
   ulong scalar_list_sz = fd_ulong_sat_mul( point_cnt, SCALAR_SZ );
   ulong  point_list_sz = fd_ulong_sat_mul( point_cnt, POINT_SZ  );
