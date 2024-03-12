@@ -15,7 +15,7 @@ $(call make-unit-test,bench_tps,bench_tps,fd_aio fd_quic fd_tls fd_ballet fd_tan
 # WARNING 03-07 16:26:44.035818 569410 f0   0    src/flamenco/runtime/fd_runtime.c(3593): Bank hash mismatch! slot=251418232 expected=H44FqPbX6Q9ZWKjzQppz8tEdQnKxkbFQms7VA2ZWE4sN, got=matVdNPdYycwL3PJ5zB7bHKQv2zuv43SH8fAz9xwKP5
 
 run-runtime-test: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
-#	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-251418170 -s snapshot-251418231-EkDdaUmskEdPnTtooQMUaFY8tNPBAqy5dDf8HyqiatLe.tar.zst -p 64 -m 2000000 -e 251418233
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l mainnet-251418170 -s snapshot-251418231-EkDdaUmskEdPnTtooQMUaFY8tNPBAqy5dDf8HyqiatLe.tar.zst -p 64 -m 2000000 -e 251418233
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l helloworld -s snapshot-100-92rXQxDb3gbNU4YEjof4PjAQ9wDvqAXL4Ma3757kHPRs.tar.zst

@@ -349,14 +349,14 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
-  uint bpf_upgradeable_in_txn = 0;
-  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    fd_pubkey_t * acc = &txn_ctx->accounts[i];
-    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
-      bpf_upgradeable_in_txn = 1;
-      break;
-    }
-  }
+//  uint bpf_upgradeable_in_txn = 0;
+//  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+//    fd_pubkey_t * acc = &txn_ctx->accounts[i];
+//    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+//      bpf_upgradeable_in_txn = 1;
+//      break;
+//    }
+//  }
 
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
@@ -370,17 +370,17 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       // FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
     }
 
-    uint is_executable = borrowed_account->const_meta != NULL && borrowed_account->const_meta->info.executable;
+//    uint is_executable = borrowed_account->const_meta != NULL && borrowed_account->const_meta->info.executable;
     if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i ) ) {
-      if ( is_executable ) {
-        if ( bpf_upgradeable_in_txn && memcmp( borrowed_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0 ) {
-          void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
-          fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-        }
-      } else {
+//      if ( is_executable ) {
+//        if ( bpf_upgradeable_in_txn && memcmp( borrowed_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0 ) {
+//          void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
+//          fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+//        }
+//      } else {
         void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-      }
+//      }
     }
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;

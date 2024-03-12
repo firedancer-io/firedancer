@@ -216,6 +216,8 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const * pre_lens,
                                          uchar * input,
                                          ulong input_sz ) {
+  // TODO!! important!! somebody needs to be calling can_data_be_changed!!
+
   uchar * input_cursor = input;
 
   uchar acc_idx_seen[256];
@@ -244,22 +246,22 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
           + sizeof(fd_pubkey_t);    // key
 
       if ( view_acc->const_meta ) {
-        if (view_acc->const_meta->info.executable && memcmp( view_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0) {
-          // no-op
-        } else if (view_acc->const_meta->info.executable) {
-          input_cursor += sizeof(fd_pubkey_t);  // owner
-          input_cursor += sizeof(ulong);        // lamports
-          input_cursor += sizeof(ulong);        // data_len
+        if (view_acc->const_meta->info.executable) {
+          if (memcmp( view_acc->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0) {
+            input_cursor += sizeof(fd_pubkey_t);  // owner
+            input_cursor += sizeof(ulong);        // lamports
+            input_cursor += sizeof(ulong);        // data_len
 
-          fd_account_meta_t const * metadata = view_acc->const_meta;
+            fd_account_meta_t const * metadata = view_acc->const_meta;
 
-          if ( view_err == FD_ACC_MGR_SUCCESS ) {
-            input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+            if ( view_err == FD_ACC_MGR_SUCCESS ) {
+              input_cursor += fd_ulong_align_up(metadata->dlen, 8);
+            }
+            input_cursor += MAX_PERMITTED_DATA_INCREASE;
+
+            input_cursor += sizeof(ulong);
+            continue;
           }
-          input_cursor += MAX_PERMITTED_DATA_INCREASE;
-
-          input_cursor += sizeof(ulong);
-          continue;
         }
       }
 
@@ -305,33 +307,29 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
         input_cursor += fd_ulong_align_up( pre_len, 8 );
 
-        if (NULL != metadata) {
-          uchar * acc_data = fd_account_get_data( metadata );
+        uchar * acc_data = fd_account_get_data( metadata );
 
-          int err1;
-          int err2;
-          if (fd_account_can_data_be_resized(&ctx, metadata, post_data_len, &err1)
-            && fd_account_can_data_be_changed(&ctx, metadata, acc, &err2)) {
-            metadata->dlen = post_data_len;
-            fd_memcpy( acc_data, post_data, post_data_len );
-          } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
-            FD_LOG_DEBUG(("Data resize failed"));
-            fd_valloc_free( ctx.valloc, input );  // FIXME: need to return an invalid realloc error
-            return -1;
-          }
-
-          metadata->info.lamports = lamports;
-          // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
-          //   fd_account_set_owner(&ctx, metadata, acc, owner);
-          // }
-          fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
-
-          // add to dirty list
-          metadata->slot = ctx.slot_ctx->slot_bank.slot;
-          // FD_LOG_DEBUG(("Deserialize success %32J", acc->uc));
-        } else {
-          FD_TEST(view_acc->const_meta->info.executable);
+        int err1;
+        int err2;
+        if (fd_account_can_data_be_resized(&ctx, metadata, post_data_len, &err1)
+          && fd_account_can_data_be_changed(&ctx, metadata, acc, &err2)) {
+          metadata->dlen = post_data_len;
+          fd_memcpy( acc_data, post_data, post_data_len );
+        } else if (metadata->dlen != post_data_len || memcmp(acc_data, post_data, post_data_len) != 0) {
+          FD_LOG_DEBUG(("Data resize failed"));
+          fd_valloc_free( ctx.valloc, input );  // FIXME: need to return an invalid realloc error
+          return -1;
         }
+
+        metadata->info.lamports = lamports;
+        // if (memcmp(metadata->info.owner, owner, sizeof(fd_pubkey_t)) != 0) {
+        //   fd_account_set_owner(&ctx, metadata, acc, owner);
+        // }
+        fd_memcpy(metadata->info.owner, owner, sizeof(fd_pubkey_t));
+
+        // add to dirty list
+        metadata->slot = ctx.slot_ctx->slot_bank.slot;
+        // FD_LOG_DEBUG(("Deserialize success %32J", acc->uc));
       } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
         input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
