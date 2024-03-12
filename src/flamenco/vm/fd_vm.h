@@ -3,10 +3,6 @@
 
 #include "fd_vm_cpi.h"
 
-#define FD_VM_COND_FAULT_FLAG_NONE      (0x0UL)
-#define FD_VM_COND_FAULT_FLAG_MEM_TRANS (0x1UL)
-#define FD_VM_COND_FAULT_FLAG_BAD_CALL  (0x2UL)
-
 /* VM memory map constants */
 
 #define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
@@ -29,14 +25,15 @@ struct fd_vm {
   /* FIXME: ORGANIZATION FOR PERFORMANCE */
 
   /* Read-only VM parameters */
-  long                    entrypoint;    /* The initial program counter to start at */ /* FIXME: WHY LONG? */
-  fd_sbpf_syscalls_t *    syscall_map;   /* The map of syscalls that can be called into */ /* FIXME: NAME? */
-  ulong *                 calldests;     /* The bit vector of local functions that can be called into  (FIXME: SIZE?) */
-  fd_sbpf_instr_t const * instrs;        /* The program instructions */ /* FIXME: NAME?  ULONG? */
-  ulong                   instrs_sz;     /* The number of program instructions */ /* FIXME: this should be _cnt, not _sz */
-  ulong                   instrs_offset; /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) */
-  uint                    check_align;   /* If non-zero, VM does alignment checks where necessary (syscalls) */ /* FIXME: INT? */
-  uint                    check_size;    /* If non-zero, VM does size checks where necessary (syscalls) */ /* FIXME: INT? */
+  long                 entrypoint;  /* The initial program counter to start at */ /* FIXME: WHY LONG? IS IT IN [0,TEXT_CNT)? */
+  fd_sbpf_syscalls_t * syscalls;    /* The map of syscalls that can be called into */ /* FIXME: CONST? */
+  ulong *              calldests;   /* The bit vector of local functions that can be called into (FIXME: INDEXING, CONST) */
+  ulong const *        text;        /* The program instructions, indexed [0,text_cnt) */
+  ulong                text_cnt;    /* The number of program instructions (FIXME: BOUNDS?) */
+  ulong                text_off;    /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs) in bytes
+                                       (FIXME: SHOULD THIS BE IN BYTES, MULTIPLE OF 8, ULONG, WHAT ARE BOUNDS?) */
+  int                  check_align; /* If non-zero, VM does alignment checks where necessary (syscalls) */
+  int                  check_size;  /* If non-zero, VM does size checks where necessary (syscalls) */
 
   /* Writable VM parameters */
   ulong                 register_file[11];          /* The sBPF register file */ /* FIXME: MAGIC NUMBER */
@@ -46,7 +43,7 @@ struct fd_vm {
   ulong                 compute_meter;              /* The remaining CUs left for the transaction */
   ulong                 due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
   ulong                 previous_instruction_meter; /* Last value of remaining compute units */
-  int                   cond_fault;                 /* If non-zero, indicates a fault occured during execution */
+  int                   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the execution fault that occured */
 
   /* Memory regions */
   uchar *       read_only;                 /* The read-only memory region, typically just the relocated program binary blob */
@@ -208,19 +205,18 @@ fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
 
-/* fd_vm_interp_instrs runs the sBPF program from the context until
-   completion or a fault occurs.  Returns 0UL success or an error/fault
-   code. */
-/* FIXME: NAME? */
+/* fd_vm_exec runs the sBPF program in the VM until completion or a
+   fault occurs.  Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR
+   code (negative) on failure.  FIXME: DOCUMENT FAILURE REASONS */
 /* FIXME: PASS TRACE AS FLAG?  USE TRACE!=NULL IN VM TO INDICATE
-   TRACING?  REMOVE TRACE FROM VM AND PASS TRACE TO INTERP?  MAKE
-   TRACING COMPILE TIME? */
+   TRACING?  REMOVE TRACE FROM VM AND PASS TRACE TO EXEC?  MAKE TRACING
+   COMPILE TIME? */
 
 int
-fd_vm_interp_instrs( fd_vm_t * vm );
+fd_vm_exec( fd_vm_t * vm );
 
 int
-fd_vm_interp_instrs_trace( fd_vm_t * vm );
+fd_vm_exec_trace( fd_vm_t * vm );
 
 FD_PROTOTYPES_END
 
