@@ -13,6 +13,7 @@
 
 #define POH_PKT_TYPE_MICROBLOCK    (0UL)
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
+#define POH_PKT_TYPE_DONE_PACKING  (2UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -73,18 +74,18 @@ FD_FN_CONST static inline ulong
 fd_disco_poh_sig( ulong slot,
                   ulong pkt_type,
                   ulong bank_tile ) {
-   /* The high 7 bits of the low byte of the signature field is the bank
+   /* The high 6 bits of the low byte of the signature field is the bank
       idx.  Banks will filter to only handle frags with their own idx.
       The higher 7 bytes are the slot number.  Technically, the slot
       number is a ulong, but it won't hit 256^7 for about 10^9 years at
-      the current rate.  The lowest bit of the low byte is the packet
+      the current rate.  The lowest bits of the low byte is the packet
       type. */
-  return (slot << 8) | ((bank_tile & 0x7FUL) << 1) | (pkt_type & 0x1UL);
+  return (slot << 8) | ((bank_tile & 0x3FUL) << 2) | (pkt_type & 0x3UL);
 }
 
-FD_FN_CONST static inline ulong fd_disco_poh_sig_pkt_type( ulong sig ) { return (sig & 0x1UL); }
+FD_FN_CONST static inline ulong fd_disco_poh_sig_pkt_type( ulong sig ) { return (sig & 0x3UL); }
 FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig >> 8); }
-FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 1) & 0x7FUL; }
+FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
