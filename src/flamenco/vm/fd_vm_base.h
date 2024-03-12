@@ -89,25 +89,27 @@ FD_PROTOTYPES_END
 
 /* FIXME: DOCUMENT THESE / LINK TO SOLANA CODE / ETC */
 
+/* VM register constants */
+
 #define FD_VM_REG_CNT (11UL)
 
-/* VM stack constatns */
+#define FD_VM_SHADOW_REG_CNT (4UL)
 
-#define FD_VM_SHADOW_FRAME_REG_CNT (4UL)
+/* VM stack constants */
 
 #define FD_VM_STACK_FRAME_MAX (64UL)
 #define FD_VM_STACK_FRAME_SZ  (0x1000UL)
 #define FD_VM_STACK_GUARD_SZ  (0x1000UL)
-#define FD_VM_STACK_SZ_MAX    (FD_VM_STACK_FRAME_MAX*(FD_VM_STACK_FRAME_SZ+FD_VM_STACK_GUARD_SZ))
+#define FD_VM_STACK_MAX       (FD_VM_STACK_FRAME_MAX*(FD_VM_STACK_FRAME_SZ+FD_VM_STACK_GUARD_SZ))
 
 /* VM heap constants */
 
-#define FD_VM_HEAP_SZ_DEFAULT ( 32UL*1024UL)
-#define FD_VM_HEAP_SZ_MAX     (256UL*1024UL)
+#define FD_VM_HEAP_DEFAULT ( 32UL*1024UL)
+#define FD_VM_HEAP_MAX     (256UL*1024UL)
 
 /* VM log constants */
 
-#define FD_VM_LOG_COLLECTOR_BUF_MAX (10000UL) /* FIXME: IS THIS NUMBER A PROTOCOL REQUIREMENT OR IS 10K JUST LUCKY? */
+#define FD_VM_LOG_MAX (10000UL)
 
 /* VM memory map constants */
 
@@ -183,200 +185,6 @@ struct fd_vm_exec_compute_budget {
 };
 
 typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
-
-/* fd_vm_log_collector API ********************************************/
-
-/* FIXME: DEFLATE THIS INTO FD_VM_T */
-
-/* A fd_vm_log_collector_t is used by the vm for storing text/bytes
-   logged by programs running in the vm.  The collector can collect up
-   to FD_VM_LOG_COLLECTOR_BUF_MAX bytes of log data, beyond which the
-   log is truncated. */
-
-struct fd_vm_log_collector_private {
-  ulong buf_used;
-  uchar buf[ FD_VM_LOG_COLLECTOR_BUF_MAX ];
-};
-
-typedef struct fd_vm_log_collector_private fd_vm_log_collector_t;
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_vm_log_collector_flush flushes all bytes from a log collector.
-   Assumes collector is valid and returns collector.  Use this to
-   initial a log collector.  fd_vm_log_collector_wipe is the same as the
-   above but also zeros out all memory. */
-
-static inline fd_vm_log_collector_t *
-fd_vm_log_collector_flush( fd_vm_log_collector_t * collector ) {
-  collector->buf_used = 0UL;
-  return collector;
-}
-
-static inline fd_vm_log_collector_t *
-fd_vm_log_collector_wipe( fd_vm_log_collector_t * collector ) {
-  collector->buf_used = 0UL;
-  memset( collector->buf, 0, FD_VM_LOG_COLLECTOR_BUF_MAX );
-  return collector;
-}
-
-/* fd_vm_log_collector_log appends a message of sz bytes to the log,
-   truncating it if the collector is already full.  Assumes collector is
-   valid and returns collector and msg / sz are valid.  sz 0 is fine. */
-
-static inline fd_vm_log_collector_t *
-fd_vm_log_collector_append( fd_vm_log_collector_t * collector,
-                            void const *            msg,
-                            ulong                   sz ) {
-  ulong buf_used = collector->buf_used;
-  ulong cpy_sz   = fd_ulong_min( sz, FD_VM_LOG_COLLECTOR_BUF_MAX - buf_used );
-  if( FD_LIKELY( cpy_sz ) ) memcpy( collector->buf + buf_used, msg, cpy_sz ); /* Sigh ... branchless if sz==0 wasn't UB */
-  collector->buf_used = buf_used + cpy_sz;
-  return collector;
-}
-
-/* fd_vm_log_collector_{buf,max,used,avail} access the state of the log
-   collector.  Assumes collector is valid.  buf returns the location of
-   the first buffer buf, the lifetime of the returned pointer is the
-   collector lifetime.  max gives the size of buf (positive), used gives
-   the number currently in use, in [0,max], avail gives the number of
-   bytes free for additional logging (max-used).  Used bytes are at
-   offsets [0,used) and available bytes are at offset [used,max). */
-
-FD_FN_CONST static inline uchar const *
-fd_vm_log_collector_buf( fd_vm_log_collector_t const * collector ) {
-  return collector->buf;
-}
-
-FD_FN_CONST static inline ulong
-fd_vm_log_collector_buf_max( fd_vm_log_collector_t const * collector ) {
-  (void)collector;
-  return FD_VM_LOG_COLLECTOR_BUF_MAX;
-}
-
-FD_FN_PURE static inline ulong
-fd_vm_log_collector_buf_used( fd_vm_log_collector_t const * collector ) {
-  return collector->buf_used;
-}
-
-FD_FN_PURE static inline ulong
-fd_vm_log_collector_buf_avail( fd_vm_log_collector_t const * collector ) {
-  return FD_VM_LOG_COLLECTOR_BUF_MAX - collector->buf_used;
-}
-
-FD_PROTOTYPES_END
-
-/* fd_vm_shadow API ***************************************************/
-
-/* FIXME: DEFLATE THIS INTO FD_VM_T */
-/* FIXME: document Solana requirements here */
-/* FIXME: FRAME_MAX should be run time configurable by compute budget
-   (is there an upper bound to how configurable ... there needs to be!) */
-
-/* A fd_vm_shadow_frame_t holds stack frame information hidden
-   from VM program execution. */
-
-struct fd_vm_shadow_frame {
-  ulong rip;
-  ulong reg[ FD_VM_SHADOW_FRAME_REG_CNT ];
-};
-
-typedef struct fd_vm_shadow_frame fd_vm_shadow_frame_t;
-
-/* A fd_vm_shadow_t gives the VM program shadow stack. */
-
-struct fd_vm_shadow {
-  ulong                frame_cnt;                      /* In [0,FD_VM_STACK_FRAME_MAX] */
-  fd_vm_shadow_frame_t frame[ FD_VM_STACK_FRAME_MAX ]; /* Indexed [0,frame_cnt), if not empty, bottom at 0, top at frame_cnt-1 */
-};
-
-typedef struct fd_vm_shadow fd_vm_shadow_t;
-
-FD_PROTOTYPES_BEGIN
-
-/* fd_vm_shadow_wipe zeros out frame_cnt and shadow frames and
-   frame_cnt.  Assumes shadow is valid.  Returns shadow.  Use this to
-   initialize a newly allocated VM shadow. */
-
-static inline fd_vm_shadow_t *
-fd_vm_shadow_wipe( fd_vm_shadow_t * shadow ) {
-  memset( shadow, 0, sizeof(fd_vm_shadow_t) );
-  return shadow;
-}
-
-/* fd_vm_shadow_empty/full returns 1 if the shadow stack is empty/full
-   and 0 if not.  Assumes shadow is valid. */
-
-FD_FN_PURE static inline int fd_vm_shadow_is_empty( fd_vm_shadow_t const * shadow ) { return !shadow->frame_cnt;                       }
-FD_FN_PURE static inline int fd_vm_shadow_is_full ( fd_vm_shadow_t const * shadow ) { return shadow->frame_cnt==FD_VM_STACK_FRAME_MAX; }
-
-/* fd_vm_shadow_push pushes a new frame onto the VM stack.  Assumes
-   stack, ret_instr_ptr and saved_reg is valid.  Returns FD_VM_SUCCESS
-   (0) on success or FD_VM_ERR_FULL (negative) on failure. */
-/* FIXME: consider zero copy API and/or failure free API? */
-
-static inline int
-fd_vm_shadow_push( fd_vm_shadow_t * shadow,
-                   ulong            rip,
-                   ulong const      reg[ FD_VM_SHADOW_FRAME_REG_CNT ] ) {
-  ulong frame_idx = shadow->frame_cnt;
-  if( FD_UNLIKELY( frame_idx>=FD_VM_STACK_FRAME_MAX ) ) return FD_VM_ERR_FULL;
-  fd_vm_shadow_frame_t * frame = shadow->frame + frame_idx;
-  frame->rip = rip;
-  memcpy( frame->reg, reg, FD_VM_SHADOW_FRAME_REG_CNT*sizeof(ulong) );
-  shadow->frame_cnt = frame_idx + 1UL;
-  return FD_VM_SUCCESS;
-}
-
-/* fd_vm_shadow_pop pops a frame off the VM shadow stack.  Assumes
-   shadow, _ret_instr_ptr and saved_reg are valid.  Returns
-   FD_VM_SUCCESS (0) on success and FD_VM_ERR_EMPTY (negative) on
-   failure.  On success, *_ret_instr_ptr and saved_reg[0:3] hold the
-   values popped off the shadow stack on return.  These are unchanged
-   otherwise. */
-/* FIXME: consider zero copy API and/or failure free API? */
-
-static inline int
-fd_vm_shadow_pop( fd_vm_shadow_t * shadow,
-                  ulong *          _rip,
-                  ulong            reg[ FD_VM_SHADOW_FRAME_REG_CNT ] ) {
-  ulong frame_idx = shadow->frame_cnt;
-  if( FD_UNLIKELY( !frame_idx ) ) return FD_VM_ERR_EMPTY;
-  frame_idx--;
-  fd_vm_shadow_frame_t * frame = shadow->frame + frame_idx;
-  *_rip = frame->rip;
-  memcpy( reg, frame->reg, FD_VM_SHADOW_FRAME_REG_CNT*sizeof(ulong) );
-  shadow->frame_cnt = frame_idx;
-  return FD_VM_SUCCESS;
-}
-
-FD_PROTOTYPES_END
-
-/* fd_vm_heap_allocator API *******************************************/
-
-/* FIXME: DEFAULT THIS INTO FD_VM_T */
-
-/* fd_vm_heap_allocator_t provides the allocator backing the
-   sol_alloc_free_ syscall.
-
-   IMPORANT SAFETY TIP!  THE BEHAVIOR OF THIS HEAP ALLOCATOR MUST MATCH
-   THE SOLANA VALIDATOR HEAP ALLOCATOR:
-
-   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
-
-   BIT-FOR-BIT AND BUG-FOR-BUG.  SEE THE SYSCALL_ALLOC_FREE FOR MORE
-   DETAILS.
-
-   Like many syscalls, the same allocation logic could trivially be
-   implemented in on-chain bytecode. */
-
-struct fd_vm_heap_allocator {
-  ulong offset; /* Points to beginning of free region within heap, relative to start of heap region. */
-};
-
-typedef struct fd_vm_heap_allocator fd_vm_heap_allocator_t;
-
-/* FIXME: WRAP UP USAGE HERE AND ADD UNIT TEST COVERAGE? */
 
 /* fd_vm_disasm API ***************************************************/
 
