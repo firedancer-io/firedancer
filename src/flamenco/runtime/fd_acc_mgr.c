@@ -60,7 +60,7 @@ fd_rent_lists_cb( fd_funk_rec_t * rec,
       void const * data = fd_funk_val( rec, fd_funk_wksp(acc_mgr->funk) );
       fd_account_meta_t const * metadata = fd_type_pun_const( data );
 
-      ulong required_balance = fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, metadata->dlen);
+      ulong required_balance = fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, metadata->dlen );
       if( required_balance <= metadata->info.lamports )
         return FD_FUNK_PART_NULL;
     }

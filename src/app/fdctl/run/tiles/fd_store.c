@@ -125,6 +125,7 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 fd_topo_run_tile_t fd_tile_store = {
+  .name                     = "store",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,

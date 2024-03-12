@@ -90,7 +90,7 @@ fd_topob_link( fd_topo_t *  topo,
    will automatically send frags and flow control the primary output
    link. */
 
-void
+fd_topo_tile_t *
 fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_name,
                char const *   tile_wksp,

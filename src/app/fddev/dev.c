@@ -175,7 +175,7 @@ run_firedancer_threaded( config_t * config ) {
      join (the key is only on shmem name, when it should be (name, mode)). */
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
   if( FD_LIKELY( !config->development.no_solana_labs ) ) {
     pthread_t pthread;
@@ -184,7 +184,7 @@ run_firedancer_threaded( config_t * config ) {
   }
 
   /* None of the threads will ever exit, they just abort the process, so sleep forever. */
-  for(;;) sleep( 60 );
+  for(;;) pause();
 }
 
 void

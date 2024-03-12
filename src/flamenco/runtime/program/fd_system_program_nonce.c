@@ -366,7 +366,12 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L120 */
 
-      ulong min_balance = fd_rent_exempt_minimum_balance( ctx->slot_ctx, from->const_meta->dlen );
+      ulong min_balance = 0UL;
+      do {
+        int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, from->const_meta->dlen, &min_balance );
+        if( FD_UNLIKELY( err ) ) return err;
+      } while(0);
+
       ulong amount;
       if( FD_UNLIKELY( __builtin_uaddl_overflow( requested_lamports, min_balance, &amount ) ) )
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -509,7 +514,11 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L170 */
 
-    ulong min_balance = fd_rent_exempt_minimum_balance( ctx->slot_ctx, account->const_meta->dlen );
+    ulong min_balance = 0UL;
+    do {
+      int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, account->const_meta->dlen, &min_balance );
+      if( FD_UNLIKELY( err ) ) return err;
+    } while(0);
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L171-L179 */
 

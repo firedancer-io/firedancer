@@ -471,37 +471,17 @@ username_to_uid( char * username ) {
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
 }
 
-extern fd_topo_run_tile_t fd_tile_net;
-extern fd_topo_run_tile_t fd_tile_netmux;
-extern fd_topo_run_tile_t fd_tile_quic;
-extern fd_topo_run_tile_t fd_tile_verify;
-extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_pack;
-extern fd_topo_run_tile_t fd_tile_bank;
-extern fd_topo_run_tile_t fd_tile_poh;
-extern fd_topo_run_tile_t fd_tile_shred;
-extern fd_topo_run_tile_t fd_tile_store;
-extern fd_topo_run_tile_t fd_tile_sign;
-extern fd_topo_run_tile_t fd_tile_metric;
-
 FD_FN_CONST fd_topo_run_tile_t *
 fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
-  if( FD_UNLIKELY( !strcmp( tile->name, "net"          ) ) ) return &fd_tile_net;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) return &fd_tile_netmux;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "quic"   ) ) ) return &fd_tile_quic;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) return &fd_tile_verify;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "dedup"  ) ) ) return &fd_tile_dedup;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "pack"   ) ) ) return &fd_tile_pack;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "bank"   ) ) ) return &fd_tile_bank;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "poh"    ) ) ) return &fd_tile_poh;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "shred"  ) ) ) return &fd_tile_shred;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "store"  ) ) ) return &fd_tile_store;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "sign"   ) ) ) return &fd_tile_sign;
-  else if ( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) return &fd_tile_metric;
-  else FD_LOG_ERR(( "unknown tile name %s", tile->name ));
+  fd_topo_run_tile_t ** run = TILES;
+  while( *run ) {
+    if( FD_LIKELY( !strcmp( (*run)->name, tile->name ) ) ) return *run;
+    run++;
+  }
+  FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
 }
 
-static inline ulong
+ulong
 fdctl_obj_align( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
@@ -533,7 +513,7 @@ fdctl_obj_align( fd_topo_t const *     topo,
   }
 }
 
-static inline ulong
+ulong
 fdctl_obj_footprint( fd_topo_t const *     topo,
                      fd_topo_obj_t const * obj ) {
   #define VAL(name) (__extension__({                                                               \
@@ -571,7 +551,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
 #undef VAL
 }
 
-static inline ulong
+ulong
 fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {

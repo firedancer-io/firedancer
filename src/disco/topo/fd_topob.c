@@ -97,12 +97,15 @@ fd_topob_tile_uses( fd_topo_t *      topo,
                     fd_topo_obj_t *  obj,
                     int              mode ) {
   (void)topo;
+
+  if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) FD_LOG_ERR(( "tile `%s` uses too many objects", tile->name ));
+
   tile->uses_obj_id[ tile->uses_obj_cnt ] = obj->id;
   tile->uses_obj_mode[ tile->uses_obj_cnt ] = mode;
   tile->uses_obj_cnt++;
 }
 
-void
+fd_topo_tile_t *
 fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_name,
                char const *   tile_wksp,
@@ -160,6 +163,7 @@ fd_topob_tile( fd_topo_t *    topo,
     }
   }
   topo->tile_cnt++;
+  return tile;
 }
 
 void
@@ -181,7 +185,7 @@ fd_topob_tile_in( fd_topo_t *  topo,
   if( FD_UNLIKELY( link_id==ULONG_MAX ) ) FD_LOG_ERR(( "link not found: %s:%lu", link_name, link_kind_id ));
   fd_topo_link_t * link = &topo->links[ link_id ];
 
-  if( FD_UNLIKELY( tile->in_cnt>=16UL ) ) FD_LOG_ERR(( "too many in links: %s:%lu", tile_name, tile_kind_id ) );
+  if( FD_UNLIKELY( tile->in_cnt>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "too many in links: %s:%lu", tile_name, tile_kind_id ) );
   tile->in_link_id[ tile->in_cnt ] = link->id;
   tile->in_link_reliable[ tile->in_cnt ] = reliable;
   tile->in_link_poll[ tile->in_cnt ] = polled;
@@ -230,7 +234,7 @@ fd_topob_tile_out( fd_topo_t *  topo,
   if( FD_UNLIKELY( link_id==ULONG_MAX ) ) FD_LOG_ERR(( "link not found: %s:%lu", link_name, link_kind_id ));
   fd_topo_link_t * link = &topo->links[ link_id ];
 
-  if( FD_UNLIKELY( tile->out_cnt>=16UL ) ) FD_LOG_ERR(( "too many out links: %s", tile_name ));
+  if( FD_UNLIKELY( tile->out_cnt>=FD_TOPO_MAX_TILE_OUT_LINKS ) ) FD_LOG_ERR(( "too many out links: %s", tile_name ));
   tile->out_link_id[ tile->out_cnt ] = link->id;
   tile->out_cnt++;
 
