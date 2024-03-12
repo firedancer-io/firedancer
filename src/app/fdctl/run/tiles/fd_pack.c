@@ -18,16 +18,37 @@
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
-#define BLOCK_DURATION_NS    (400UL*1000UL*1000UL)
+/* For now, produce microblocks as fast as possible. */
+#define MICROBLOCK_DURATION_NS  (0L)
 
-/* Right now with no batching in pack, we want to make sure we don't
-   produce more than about 800 microblocks.  Setting this to 2ms gives
-   us about 200 microblocks per bank. */
-#define MICROBLOCK_DURATION_NS  (2L*1000L*1000L)
 #define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
 
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
+
+/* Each block is limited to 32k parity shreds.  We don't want pack to
+   produce a block with so many transactions we can't shred it, but the
+   correspondance between transactions and parity shreds is somewhat
+   complicated, so we need to use conservative limits.
+
+   Except for the final batch in the block, the current version of the
+   shred tile shreds microblock batches of size (25431, 63671] bytes,
+   including the microblock headers, but excluding the microblock count.
+   The worst case size by bytes/parity shred is a 25871 byte microblock
+   batch, which produces 31 parity shreds.  The final microblock batch,
+   however, may be as bad as 48 bytes triggering the creation of 17
+   parity shreds.  This gives us a limit of floor((32k - 17)/31)*25871 +
+   48 = 27,319,824 bytes.
+
+   To get this right, the pack tile needs to add in the 48-byte
+   microblock headers for each microblock, and we also need to subtract
+   out the tick bytes, which aren't known until PoH initialization is
+   complete.
+
+   Note that the number of parity shreds in each FEC set is always at
+   least as many as the number of data shreds, so we don't need to
+   consider the data shreds limit. */
+#define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -58,6 +79,13 @@ typedef struct {
   /* The maximum number of microblocks that can be packed in this slot.
      Provided by the PoH tile when we become leader.*/
   ulong slot_max_microblocks;
+
+  /* Cap (in bytes) of the amount of transaction data we produce in each
+     block to avoid hitting the shred limits.  See where this is set for
+     more explanation. */
+  ulong slot_max_data;
+
+  fd_rng_t * rng;
 
   /* The end wallclock time of the leader slot we are currently packing
      for, if we are currently packing for a slot.
@@ -145,19 +173,18 @@ after_credit( void *             _ctx,
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
          if it receives the maximum allowed microblocks, since it knows
-         there is nothing left to receive, and it must soon be getting a
-         DONE_PACKING notification.
+         there is nothing left to receive.  In that case, we actually
+         must not send a DONE_PACKING notification, because it would
+         cause PoH to end the next slot that it has already started
+         waiting for microblocks on.
 
-         In that case, we actually must not send a DONE_PACKING
-         notification, because it would cause PoH to end the next slot
-         that it has already started waiting for microblocks on.
-      
-         We reuse the slot field here to send the microblock count for
-         the slot instead, since the slot is already known to the PoH
-         tile (they told us to pack for it). */
+         We reuse the slot field when sending this message to send the
+         microblock count for the slot instead, since the slot is
+         already known to the PoH tile (they told us to pack for it). */
       fd_mux_publish( mux, fd_disco_poh_sig( ctx->slot_microblock_cnt, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), 0UL, 0UL, 0UL, 0UL, 0UL );
     }
     ctx->slot_microblock_cnt = 0UL;
+    return;
   }
 
   /* Am I leader? If not, nothing to do. */
@@ -166,13 +193,23 @@ after_credit( void *             _ctx,
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
 
+  ulong bank_cnt = ctx->bank_cnt;
+
+  /* Randomize the starting point for the loop so that bank tile 0
+     doesn't always get the best transactions. */
+  ulong offset = fd_rng_ulong_roll( ctx->rng, bank_cnt );
+
   /* Is it time to schedule the next microblock? For each banking
      thread, if it's not busy... */
-  for( ulong i=0UL; i<ctx->bank_cnt; i++ ) {
-    if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) { /* optimize for the case we send a microblock */
+  for( ulong _i=0UL; _i<bank_cnt; _i++ ) {
+    ulong i = (_i + offset)%bank_cnt;
+
+    /* optimize for the case we send a microblock */
+    if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
+
       fd_pack_microblock_complete( ctx->pack, i );
       /* TODO: record metrics for expire */
-      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)(fd_log_wallclock()-LONG_MIN), TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
+      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)(now-LONG_MIN), TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       long schedule_duration = -fd_tickcount();
@@ -235,14 +272,16 @@ during_frag( void * _ctx,
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
-    ctx->leader_bank = became_leader->bank;
+    ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
+    ctx->slot_max_data        = FD_PACK_MAX_DATA_PER_BLOCK - 48UL*became_leader->ticks_per_slot;
 
     /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
        the slot will get skipped.  Then update it in the `after_frag` case
        below to the correct value. */
     ctx->slot_end_ns = 0L;
-    ctx->_slot_end_ns = became_leader->slot_start_ns + (long)BLOCK_DURATION_NS;
+    ctx->_slot_end_ns = became_leader->slot_end_ns;
+
     return;
   }
 
@@ -321,6 +360,7 @@ after_frag( void *             _ctx,
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
+    fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
   } else {
     /* Normal transaction case */
     long insert_duration = -fd_tickcount();
@@ -351,12 +391,14 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK, FD_PACK_MAX_MICROBLOCKS_PER_BLOCK, rng ) );
+                                         tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK,
+                                         0UL, 0UL, rng ) ); /* initialize with microblock limits at 0 */
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
-  ctx->cur_spot = NULL;
+  ctx->cur_spot    = NULL;
   ctx->leader_slot = ULONG_MAX;
   ctx->slot_microblock_cnt = 0UL;
+  ctx->rng         = rng;
 
   ctx->bank_cnt = tile->pack.bank_tile_count;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
