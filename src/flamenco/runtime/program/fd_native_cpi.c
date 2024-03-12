@@ -1,6 +1,5 @@
 #include "../fd_account.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../vm/fd_vm_interp.h"
 
 int 
 fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
