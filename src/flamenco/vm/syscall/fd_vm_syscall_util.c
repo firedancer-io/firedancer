@@ -83,7 +83,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
   /* FIXME: SHOULD THERE BE SANITIZATION FIRST? */
   /* FIXME: SHOULD TRUNCATION BE SILENT? */
 
-  fd_vm_log_collector_append( vm->log_collector, msg_haddr, msg_sz );
+  fd_vm_log_append( vm, msg_haddr, msg_sz );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -111,7 +111,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program log: %lx %lx %lx %lx %lx", arg0, arg1, arg2, arg3, arg4 );
-  fd_vm_log_collector_append( vm->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_append( vm, msg, (ulong)msg_len );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -138,18 +138,18 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
 
   /* FIXME: See note above about sprintf error trapping and fd_cstr
      instead of sprintf here.  Probably even faster still to just call
-     log_collector append twice (once with "Program log: " and then
-     again with pubkey_cstr).  E.g.
+     fd_vm_log_append twice (once with "Program log: " and then again
+     with pubkey_cstr).  E.g.
 
-       fd_vm_log_collector_append( vm->log_collector, "Program log: ", 13UL                     );
-       fd_vm_log_collector_append( vm->log_collector, pubkey_cstr,     FD_BASE58_ENCODED_32_LEN );
+       fd_vm_log_append( vm, "Program log: ", 13UL                     );
+       fd_vm_log_append( vm, pubkey_cstr,     FD_BASE58_ENCODED_32_LEN );
 
      Could go even faster still by doing zero copy encode_32 in-place
-     into the log_collector (would need to check truncation upfront) */
+     into the vm log (would need to check truncation upfront) */
 
   char msg[128]; /* >>13+44+1 */
   int msg_len = sprintf( msg, "Program log: %s", pubkey_cstr );
-  fd_vm_log_collector_append( vm->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_append( vm, msg, (ulong)msg_len );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -174,7 +174,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
 
   char msg[1024];
   int msg_len = sprintf( msg, "Program consumption: %lu units remaining\n", vm->compute_meter );
-  fd_vm_log_collector_append( vm->log_collector, msg, (ulong)msg_len );
+  fd_vm_log_append( vm, msg, (ulong)msg_len );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -237,7 +237,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
   err = fd_vm_consume_compute( vm, cost );
   if( FD_UNLIKELY( err ) ) return err;
 
-  fd_vm_log_collector_append( vm->log_collector, msg, msg_len );
+  fd_vm_log_append( vm, msg, msg_len );
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -274,7 +274,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
 
      https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
 
-     fd_vm_heap_allocator_t and the below replicate this exactly.
+     vm->heap_{sz,max} and the below replicate this exactly.
 
      Another major issue is that this alloc doesn't always conform
      typical malloc/free semantics (e.g. C/C++ requires malloc to have
@@ -315,22 +315,20 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  fd_vm_heap_allocator_t * alloc = vm->alloc;
-
   ulong align = vm->check_align ? 8UL : 1UL;
 
-  ulong pos         = fd_ulong_align_up( alloc->offset, align );
-  ulong alloc_vaddr = fd_ulong_sat_add ( pos,           FD_VM_MEM_MAP_HEAP_REGION_START );
-  /**/  pos         = fd_ulong_sat_add ( pos,           sz    );
+  ulong heap_sz    = fd_ulong_align_up( vm->heap_sz, align                           );
+  ulong heap_vaddr = fd_ulong_sat_add ( heap_sz,     FD_VM_MEM_MAP_HEAP_REGION_START );
+  /**/  heap_sz    = fd_ulong_sat_add ( heap_sz,     sz                              );
 
-  if( FD_UNLIKELY( pos > vm->heap_sz ) ) { /* Not enough free memory */
+  if( FD_UNLIKELY( heap_sz > vm->heap_max ) ) { /* Not enough free memory */
     *_ret = 0UL;
     return FD_VM_SUCCESS;
   }
 
-  alloc->offset = pos;
+  vm->heap_sz = heap_sz;
 
-  *_ret = alloc_vaddr;
+  *_ret = heap_vaddr;
   return FD_VM_SUCCESS;
 }
 
