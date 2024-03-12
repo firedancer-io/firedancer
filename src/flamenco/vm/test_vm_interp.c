@@ -15,10 +15,10 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
 }
 
 static void
-test_program_success( char *            test_case_name,
-                      ulong             expected_result,
-                      ulong             instrs_sz,
-                      fd_sbpf_instr_t * instrs ) {
+test_program_success( char *        test_case_name,
+                      ulong         expected_result,
+                      ulong const * text,
+                      ulong         text_cnt ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint()) );
@@ -27,24 +27,24 @@ test_program_success( char *            test_case_name,
   fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
 
   fd_vm_t vm = {
-    .entrypoint = 0,
-    .program_counter = 0,
-    .instruction_counter = 0,
-    .instrs = instrs,
-    .instrs_sz = instrs_sz,
-    .syscall_map = syscalls,
-    .compute_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
-    .due_insn_cnt = 0,
+    .entrypoint                 = 0,
+    .program_counter            = 0,
+    .instruction_counter        = 0,
+    .text                       = text,
+    .text_cnt                   = text_cnt,
+    .syscalls                   = syscalls,
+    .compute_meter              = FD_MAX_COMPUTE_UNIT_LIMIT,
+    .due_insn_cnt               = 0,
     .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
-    .heap_sz = FD_VM_DEFAULT_HEAP_SZ,
-    .alloc               = { {.offset = 0} }
+    .heap_sz                    = FD_VM_DEFAULT_HEAP_SZ,
+    .alloc                      = { {.offset = 0} }
   };
 
   int err = fd_vm_validate( &vm );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "validation failed: %i-%s", err, fd_vm_strerror( err ) ));
 
   long dt = -fd_log_wallclock();
-  fd_vm_interp_instrs( &vm );
+  fd_vm_exec( &vm ); /* FIXME: GET ERR AND LOG */
   dt += fd_log_wallclock();
 
   free( syscalls );
@@ -61,14 +61,16 @@ test_program_success( char *            test_case_name,
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.instruction_counter / (double) dt)));
 }
 
-#define TEST_PROGRAM_SUCCESS(test_case_name, expected_result, instrs_sz, ...) { \
-  fd_sbpf_instr_t instrs_var[instrs_sz] = { __VA_ARGS__ }; \
-  test_program_success(test_case_name, expected_result, instrs_sz, instrs_var); \
-}
+#define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
+    fd_sbpf_instr_t _text[ text_cnt ] = { __VA_ARGS__ };                            \
+    test_program_success( (test_case_name), (expected_result), (ulong const *)fd_type_pun( _text ), text_cnt ); /* FIXME: GROSS */ \
+  } while(0)
 
 static void
-generate_random_alu_instrs( fd_rng_t * rng, fd_sbpf_instr_t * instrs, ulong instrs_sz ) {
-  uchar opcodes[25] = {
+generate_random_alu_instrs( fd_rng_t * rng,
+                            ulong *    text,
+                            ulong      text_cnt ) {
+  static uchar const opcodes[25] = {
     FD_SBPF_OP_ADD_IMM,
     FD_SBPF_OP_ADD_REG,
     FD_SBPF_OP_SUB_IMM,
@@ -96,20 +98,27 @@ generate_random_alu_instrs( fd_rng_t * rng, fd_sbpf_instr_t * instrs, ulong inst
     FD_SBPF_OP_ARSH_REG,
   };
 
-  for( ulong i = 0; i < instrs_sz-1; i++ ) {
-    fd_sbpf_instr_t * instr = &instrs[i];
-    instr->opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
-    instr->dst_reg = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
-    instr->src_reg = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
-    instr->offset = 0;
-    instr->imm = fd_rng_uint_roll(rng, 1024*1024);
+  if( FD_UNLIKELY( !text_cnt ) ) return;
+
+  fd_sbpf_instr_t instr;
+  for( ulong i=0UL; i<text_cnt-1UL; i++ ) {
+    instr.opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
+    instr.dst_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
+    instr.src_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
+    instr.offset     = 0;
+    instr.imm        = fd_rng_uint_roll(rng, 1024*1024);
+    text[i] = fd_sbpf_ulong( instr );
   }
-  instrs[instrs_sz-1].opcode.raw = FD_SBPF_OP_EXIT;
+  instr.opcode.raw = FD_SBPF_OP_EXIT;
+  text[text_cnt-1UL] = fd_sbpf_ulong( instr );
 }
 
 static void
-generate_random_alu64_instrs( fd_rng_t * rng, fd_sbpf_instr_t * instrs, ulong instrs_sz ) {
-  uchar opcodes[25] = {
+generate_random_alu64_instrs( fd_rng_t * rng,
+                              ulong *    text,
+                              ulong      text_cnt ) {
+
+  static uchar const opcodes[25] = {
     FD_SBPF_OP_ADD64_IMM,
     FD_SBPF_OP_ADD64_REG,
     FD_SBPF_OP_SUB64_IMM,
@@ -137,15 +146,18 @@ generate_random_alu64_instrs( fd_rng_t * rng, fd_sbpf_instr_t * instrs, ulong in
     FD_SBPF_OP_ARSH64_REG,
   };
 
-  for( ulong i = 0; i < instrs_sz-1; i++ ) {
-    fd_sbpf_instr_t * instr = &instrs[i];
-    instr->opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
-    instr->dst_reg = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
-    instr->src_reg = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
-    instr->offset = 0;
-    instr->imm = fd_rng_uint_roll(rng, 1024*1024);
+  if( FD_UNLIKELY( !text_cnt ) ) return;
+
+  fd_sbpf_instr_t instr;
+  for( ulong i=0UL; i<text_cnt-1UL; i++ ) {
+    instr.opcode.raw = opcodes[fd_rng_ulong_roll(rng, 25)];
+    instr.dst_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
+    instr.src_reg    = (1+fd_rng_uchar_roll(rng, 9)) & 0xFUL;
+    instr.offset     = 0;
+    instr.imm        = fd_rng_uint_roll( rng, 1024*1024 );
   }
-  instrs[instrs_sz-1].opcode.raw = FD_SBPF_OP_EXIT;
+  instr.opcode.raw = FD_SBPF_OP_EXIT;
+  text[text_cnt-1UL] = fd_sbpf_ulong( instr );
 }
 
 int
@@ -829,23 +841,23 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
-  ulong instrs_sz = 128*1024*1024;
-  fd_sbpf_instr_t * instrs = malloc( sizeof(fd_sbpf_instr_t) * instrs_sz );
+  ulong   text_cnt = 128*1024*1024;
+  ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
-  generate_random_alu_instrs( rng, instrs, instrs_sz );
-  test_program_success("alu_bench", 0x0, instrs_sz, instrs);
+  generate_random_alu_instrs( rng, text, text_cnt );
+  test_program_success("alu_bench", 0x0, text, text_cnt );
 
-  generate_random_alu64_instrs( rng, instrs, instrs_sz );
-  test_program_success("alu64_bench", 0x0, instrs_sz, instrs);
+  generate_random_alu64_instrs( rng, text, text_cnt );
+  test_program_success("alu64_bench", 0x0, text, text_cnt );
 
-  instrs_sz = 1024;
-  generate_random_alu_instrs( rng, instrs, instrs_sz );
-  test_program_success("alu_bench_short", 0x0, instrs_sz, instrs);
+  text_cnt = 1024UL;
+  generate_random_alu_instrs( rng, text, text_cnt );
+  test_program_success("alu_bench_short", 0x0, text, text_cnt );
 
-  generate_random_alu64_instrs( rng, instrs, instrs_sz );
-  test_program_success("alu64_bench_short", 0x0, instrs_sz, instrs);
+  generate_random_alu64_instrs( rng, text, text_cnt );
+  test_program_success("alu64_bench_short", 0x0, text, text_cnt );
 
-  free( instrs );
+  free( text );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );
