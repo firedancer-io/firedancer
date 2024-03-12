@@ -28,6 +28,9 @@ FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-22, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-23, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-24, vm_err );
 
+FD_STATIC_ASSERT( FD_VM_ERR_MEM_TRANS                   ==-25, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_BAD_CALL                    ==-26, vm_err );
+
 FD_STATIC_ASSERT( FD_VM_LOG_COLLECTOR_BUF_MAX==10000UL, vm_log_collector );
 
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_MAX          ==64UL,                                                  vm_stack );
@@ -85,6 +88,9 @@ main( int     argc,
   TEST( FD_VM_ERR_INCOMPLETE_LDQ               );
   TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
   TEST( FD_VM_ERR_NO_SUCH_EXT_CALL             );
+
+  TEST( FD_VM_ERR_MEM_TRANS                    );
+  TEST( FD_VM_ERR_BAD_CALL                     );
 # undef TEST
 
   FD_LOG_NOTICE(( "Testing fd_vm_log_collector" ));
@@ -196,30 +202,35 @@ main( int     argc,
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
 
-  union { ulong u[2]; fd_sbpf_instr_t instr[2]; } _; /* FIXME: Clean up confusion for text sections */
+  ulong text[2];
+  text[0] = fd_rng_ulong( rng );
+  text[1] = fd_rng_ulong( rng );
 
-  FD_TEST( fd_vm_disasm_instr( NULL,    1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr    */
-  FD_TEST( fd_vm_disasm_instr( _.instr, 0UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* zero cnt      */
-  FD_TEST( fd_vm_disasm_instr( _.instr, 1UL, 0UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
-  FD_TEST( fd_vm_disasm_instr( _.instr, 1UL, 0UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_instr( _.instr, 1UL, 0UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_instr( _.instr, 1UL, 0UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
+  FD_TEST( fd_vm_disasm_instr( NULL, 1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr    */
+  FD_TEST( fd_vm_disasm_instr( text, 0UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* zero cnt      */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
   out_len = out_max;
-  FD_TEST( fd_vm_disasm_instr( _.instr, 1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
 
   for( ulong iter=0UL; iter<10000000UL; iter++ ) {
-    _.u[0]       = fd_rng_ulong( rng );
-    _.u[1]       = fd_rng_ulong( rng );
-    _.instr->imm = fd_pchash( fd_rng_uint( rng )>>11 ); /* Use the pchash of a 21-bit random number to execise some esoteric code paths */
+    text[0] = fd_rng_ulong( rng );
+    text[1] = fd_rng_ulong( rng );
 
-    int   mw  = (_.instr->opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);
+    fd_sbpf_instr_t instr = fd_sbpf_instr( text[0] );
+    instr.imm = fd_pchash( fd_rng_uint( rng )>>11 ); /* Use the pchash of a 21-bit random number to execise some esoteric code paths */
+    text[0] = fd_sbpf_ulong( instr );
+
+    int   mw  = (instr.opcode.any.op_class==FD_SBPF_OPCODE_CLASS_LD);
     int   tr  = !(fd_rng_uint( rng ) & 0xffU);
     ulong cnt = (mw & !tr) ? 2UL : 1UL;
     ulong pc  = fd_rng_ulong( rng ) & 0xffffUL;
 
     out[0]  = '\0';
     out_len = 0UL;
-    int err = fd_vm_disasm_instr( _.instr, cnt, pc, syscalls, out, out_max, &out_len );
+    int err = fd_vm_disasm_instr( text, cnt, pc, syscalls, out, out_max, &out_len );
 
     if( out_len ) FD_TEST( !err );
     else          FD_TEST(  err );
@@ -227,18 +238,17 @@ main( int     argc,
     FD_TEST( out[out_len]=='\0'     );
     FD_TEST( strlen( out )==out_len );
 
-    if( 0 )
-      FD_LOG_NOTICE(( "%016lx %016lx (cnt %lu pc %04lx mw %i tr %i) -> %-40s (%i-%s)",
-                      _.u[0], _.u[1], cnt, pc, mw, tr, out, err, fd_vm_strerror( err ) ));
+    if( 0 ) FD_LOG_NOTICE(( "%016lx %016lx (cnt %lu pc %04lx mw %i tr %i) -> %-40s (%i-%s)",
+                            text[0], text[1], cnt, pc, mw, tr, out, err, fd_vm_strerror( err ) ));
   }
 
-  FD_TEST( fd_vm_disasm_program( NULL,    2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr w/ non-zero sz */
-  FD_TEST( fd_vm_disasm_program( _.instr, 2UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
-  FD_TEST( fd_vm_disasm_program( _.instr, 2UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_program( _.instr, 2UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_program( _.instr, 2UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
+  FD_TEST( fd_vm_disasm_program( NULL, 2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr w/ non-zero sz */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
   out_len = out_max;
-  FD_TEST( fd_vm_disasm_program( _.instr, 2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
 
   /* FIXME: more coverage of fd_vm_disasm_program */
 
