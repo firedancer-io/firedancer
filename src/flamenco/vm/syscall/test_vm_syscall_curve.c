@@ -1,9 +1,6 @@
 #include "fd_vm_syscall.h"
 
-static void
-set_vm_read_only_memory_region( fd_vm_t * vm ) {
-  for( ulong i=0UL; i<vm->read_only_sz; i++ ) vm->read_only[i] = (uchar) (i % (UCHAR_MAX + 1));
-}
+static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL; i<sz; i++ ) mem[i] = (uchar)(i & 0xffUL); }
 
 static void
 test_vm_syscall_sol_curve_multiscalar_mul( char const * test_case_name,
@@ -59,26 +56,26 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-  ulong const read_only_sz = 500UL;
-  uchar read_only_prog[read_only_sz];
+
+  ulong const rodata_sz = 500UL;
+  uchar       rodata[ rodata_sz ];
+  set_memory_region( rodata, rodata_sz );
 
   fd_vm_t vm = {
     .entrypoint          = 0,
+    .syscalls            = NULL,
+    .calldests           = NULL,
     .program_counter     = 0,
     .instruction_counter = 0,
     .text                = NULL,
     .text_cnt            = 0,
     .text_off            = 0,
-    .syscalls            = NULL,
-    .calldests           = NULL,
     .input               = NULL,
     .input_sz            = 0,
-    .read_only           = read_only_prog,
-    .read_only_sz        = read_only_sz,
-    .heap_sz             = FD_VM_HEAP_SZ_DEFAULT,
+    .rodata              = rodata,
+    .rodata_sz           = rodata_sz,
+    .heap_max            = FD_VM_HEAP_DEFAULT,
   };
-
-  set_vm_read_only_memory_region( &vm );
 
   ulong scalar_vaddr = 0;
   ulong point_vaddr = 0;

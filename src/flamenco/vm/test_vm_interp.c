@@ -28,16 +28,16 @@ test_program_success( char *        test_case_name,
 
   fd_vm_t vm = {
     .entrypoint                 = 0,
+    .syscalls                   = syscalls,
     .program_counter            = 0,
     .instruction_counter        = 0,
-    .text                       = text,
-    .text_cnt                   = text_cnt,
-    .syscalls                   = syscalls,
     .compute_meter              = FD_MAX_COMPUTE_UNIT_LIMIT,
     .due_insn_cnt               = 0,
     .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
-    .heap_sz                    = FD_VM_HEAP_SZ_DEFAULT,
-    .alloc                      = { {.offset = 0} }
+    .text                       = text,
+    .text_cnt                   = text_cnt,
+    .heap_max                   = FD_VM_HEAP_DEFAULT,
+    .heap_sz                    = 0UL
   };
 
   int err = fd_vm_validate( &vm );

@@ -240,37 +240,37 @@ fd_vm_translate_vm_to_host_private( fd_vm_t * vm,
                                     ulong     sz,
                                     int       write ) {
   ulong mem_region = vaddr & FD_VM_MEM_MAP_REGION_MASK;
-  ulong start_addr = vaddr & FD_VM_MEM_MAP_REGION_SZ;
-  ulong end_addr = start_addr + sz;
+  ulong start_off = vaddr & FD_VM_MEM_MAP_REGION_SZ;
+  ulong end_off = start_off + sz;
 
   ulong haddr = 0UL;
   switch( mem_region ) {
     case FD_VM_MEM_MAP_PROGRAM_REGION_START:
       /* Read-only program binary blob memory region */
       if( FD_UNLIKELY( ( write                        )
-                     | ( end_addr > vm->read_only_sz ) ) )
+                     | ( end_off > vm->rodata_sz ) ) )
         return 0UL;
 
-      haddr = (ulong)vm->read_only + start_addr;
+      haddr = (ulong)vm->rodata + start_off;
       break;
     case FD_VM_MEM_MAP_STACK_REGION_START:
       /* Stack memory region */
       /* TODO: needs more of the runtime to actually implement */
       /* FIXME: check that we are in the current or previous stack frame! */
-      if( FD_UNLIKELY( end_addr > FD_VM_STACK_SZ_MAX ) ) return 0UL;
-      haddr = (ulong)vm->stack + start_addr;
+      if( FD_UNLIKELY( end_off > FD_VM_STACK_MAX ) ) return 0UL;
+      haddr = (ulong)vm->stack + start_off;
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-      if( FD_UNLIKELY( end_addr > vm->heap_sz ) )
+      if( FD_UNLIKELY( end_off > vm->heap_max ) ) /* FIXME: Are users allowed to map unallocated heap space? */
         return 0UL;
-      haddr = (ulong)vm->heap + start_addr;
+      haddr = (ulong)vm->heap + start_off;
       break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
-      if( FD_UNLIKELY( end_addr > vm->input_sz ) )
+      if( FD_UNLIKELY( end_off > vm->input_sz ) )
         return 0UL;
-      haddr = (ulong)vm->input + start_addr;
+      haddr = (ulong)vm->input + start_off;
       break;
     default:
       return 0UL;
