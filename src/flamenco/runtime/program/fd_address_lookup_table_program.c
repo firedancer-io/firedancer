@@ -8,8 +8,7 @@
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../../../ballet/ed25519/fd_curve25519.h"
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../vm/fd_vm_cpi.h"
+#include "../../vm/syscall/fd_vm_syscall.h" /* FIXME: GROSS (for prepare_instruction) */
 
 #include <string.h>
 

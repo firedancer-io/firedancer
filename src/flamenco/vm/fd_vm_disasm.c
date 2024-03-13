@@ -1,5 +1,4 @@
-#include "fd_vm_base.h"
-#include <stdarg.h>
+#include "fd_vm_private.h"
 
 /* fd_vm_disasm_printf appends to the *_len string in the max byte
    buffer buf the printf of the remaining args.  On input, assumes *_len
@@ -19,6 +18,9 @@
 
 /* FIXME: REWORK API TO USE FD_CSTR_PRINTF HERE?  (OR CONSIDER ADDING
    FD_VM_DISASM_PRINTF AS A FD_CSTR API) */
+
+#include <stdio.h>
+#include <stdarg.h>
 
 static int
 fd_vm_disasm_printf( char *       buf,
