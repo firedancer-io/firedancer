@@ -133,10 +133,16 @@ fd_vm_validate( fd_vm_t const * vm );
    (REMOVING TRACE FROM VM IN THE PROCESS?) MAKE TRACING COMPILE TIME? */
 
 int
-fd_vm_exec( fd_vm_t * vm );
+fd_vm_private_exec_trace( fd_vm_t * vm );
 
 int
-fd_vm_exec_trace( fd_vm_t * vm );
+fd_vm_private_exec_notrace( fd_vm_t * vm );
+
+static inline int
+fd_vm_exec( fd_vm_t * vm ) {
+  if( FD_UNLIKELY( vm->trace ) ) return fd_vm_private_exec_trace  ( vm );
+  else                           return fd_vm_private_exec_notrace( vm );
+}
 
 FD_PROTOTYPES_END
 
