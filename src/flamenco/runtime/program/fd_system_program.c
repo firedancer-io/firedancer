@@ -695,6 +695,11 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 
 int
 fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
+  do {
+    int err = fd_exec_consume_cus( ctx.txn_ctx, 150UL );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
+
   /* Deserialize the SystemInstruction enum */
   uchar * data = ctx.instr->data;
 
@@ -704,7 +709,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
       .dataend = &data[ctx.instr->data_sz],
       .valloc  = fd_scratch_virtual() };
   if( fd_system_program_instruction_decode( &instruction, &decode ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
   int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
