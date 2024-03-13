@@ -1,10 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_vm_fd_vm_h
 #define HEADER_fd_src_flamenco_vm_fd_vm_h
 
-/* An fd_vm_t is an opaque handle of a virtual machine that can execute
-   sBPF programs. */
-
 #include "fd_vm_base.h"
+
+/* A fd_vm_t is an opaque handle of a virtual machine that can execute
+   sBPF programs. */
 
 struct fd_vm;
 typedef struct fd_vm fd_vm_t;
@@ -119,28 +119,6 @@ struct fd_vm {
 FD_PROTOTYPES_BEGIN
 
 /* FIXME: FD_VM_T NEEDS PROPER CONSTRUCTORS */
-
-/* fd_vm_syscall_register registers a syscall by name to an execution
-   context. */
-/* FIXME: DOCUMENT IN MORE DETAIL, ADD ERROR HANDLING AND FLUSHING */
-
-void
-fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
-                        char const *           name,
-                        fd_sbpf_syscall_func_t func );
-
-/* fd_vm_syscall_register_slot registers all syscalls appropriate for a
-   slot context. */
-
-void
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx );
-
-/* fd_vm_syscall_register all reigsters all syscalls implemented.  May
-   change between Firedancer versions without warning. */
-
-void
-fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* fd_vm_validate validates the sBPF program in the given vm.  Returns
    success or an error code.  Called before executing a sBPF program. */

@@ -41,11 +41,10 @@ typedef int
                            ulong   arg4,
                            ulong * _ret );
 
-/* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific context */
-/* FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */
-/* FIXME: THIS IS PROBABLY OVERSIZED */
+/* fd_sbpf_syscalls_t maps syscall IDs => a name and a VM specific
+   context.  FIXME: THIS ALSO PROBABLY BELONGS IN FLAMENCO/VM */
 
-#define FD_SBPF_SYSCALLS_LG_SLOT_CNT (12)
+#define FD_SBPF_SYSCALLS_LG_SLOT_CNT (7)
 #define FD_SBPF_SYSCALLS_SLOT_CNT    (1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT)
 
 struct fd_sbpf_syscalls {
