@@ -1,4 +1,4 @@
-#include "fd_vm.h"
+#include "fd_vm_private.h"
 
 /* TODO: consider doing renaming read/write -> ld/st */
 
