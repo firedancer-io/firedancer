@@ -361,7 +361,7 @@ FD_PROTOTYPES_END
 
 /* fd_vm_disasm API ***************************************************/
 
-/* FIXME: pretty good case these actually belong in ballet/sbpf */
+/* FIXME: pretty good case this actually belongs in ballet/sbpf */
 /* FIXME: fd_sbpf_instr_t is nominally a ulong but implemented using
    bit-fields.  Compilers tend to generate notoriously poor asm for bit
    fields ... check ASM here. */
@@ -370,13 +370,16 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_vm_disasm_{instr,program} appends to the *_out_len (in strlen
    sense) cstr in the out_max byte buffer out a pretty printed cstr of
-   the {instruction,program}.  On input, *_out_len should be strlen(out)
-   and in [0,out_max).  For instr, pc is the program counter corresponding
-   to text[0] (as such instr_cnt should be positive) and text_cnt is the
-   number of words available at text to support safely printing
-   multiword instructions.  Given a valid out on input, on output,
-   *_out_len will be strlen(out) and in [0,out_max), even if there was
-   an error.
+   the {instruction,program}.  If syscalls is non-NULL, syscalls will be
+   annotated with the names from the provided syscall mapping.
+
+   On input, *_out_len should be strlen(out) and in [0,out_max).  For
+   instr, pc is the program counter corresponding to text[0] (as such
+   text_cnt should be positive) and text_cnt is the number of words
+   available at text to support safely printing multiword instructions.
+
+   Given a valid out on input, on output, *_out_len will be strlen(out)
+   and in [0,out_max), even if there was an error.
 
    Returns:
 
@@ -419,7 +422,7 @@ FD_PROTOTYPES_END
 
 /* fd_vm_trace API ****************************************************/
 
-/* FIXME: pretty good case these actually belongs in ballet/sbpf */
+/* FIXME: pretty good case this actually belongs in ballet/sbpf */
 
 /* A FD_VM_TRACE_EVENT_TYPE_* indicates how a fd_vm_trace_event_t should
    be interpreted. */
@@ -435,8 +438,7 @@ struct fd_vm_trace_event_exe {
   ulong ic;                   /* ic */
   ulong cu;                   /* cu */
   ulong reg[ FD_VM_REG_CNT ]; /* registers */
-  /* FIXME: ENCODE 1-2 INSTR WORDS HERE SO THAT TEXT SECTION ISN'T
-     NEEDED BY TRACE_PRINTF? (USE INFO TO ENCOE MW OR NOT) */
+  ulong text[ 2 ];            /* If the event has valid clear, this is actually text[1] */
   /* This point is aligned 8 */
 };
 
@@ -535,17 +537,22 @@ fd_vm_trace_reset( fd_vm_trace_t * trace ) {
 }
 
 /* fd_vm_trace_event_exe records the the current pc, ic, cu and
-   register file of the VM.  Returns FD_VM_SUCCESS (0) on success and a
-   FD_VM_ERR code (negative) on failure.  Reasons for failure include
-   INVAL (trace NULL) and FULL (insufficient trace event storage
-   available to store the event). */
+   register file of the VM and the instruction about to execute.  Text
+   points to the first word of the instruction about to execute and
+   text_cnt points to the number of words available at that point.
+   Returns FD_VM_SUCCESS (0) on success and a FD_VM_ERR code (negative)
+   on failure.  Reasons for failure include INVAL (trace NULL, reg NULL,
+   text NULL, and/or text_cnt 0) and FULL (insufficient trace event
+   storage available). */
 
 int
 fd_vm_trace_event_exe( fd_vm_trace_t * trace,
                        ulong           pc,
                        ulong           ic,
                        ulong           cu,
-                       ulong           reg[ FD_VM_REG_CNT ] );
+                       ulong           reg[ FD_VM_REG_CNT ],
+                       ulong const *   text,       /* Indexed [0,text_cnt) */
+                       ulong           text_cnt );
 
 /* fd_vm_trace_event_mem records an attempt to access the VM address
    range [vaddr,vaddr+sz).  If write==0, it was a read attempt,
@@ -565,18 +572,16 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
                        ulong           sz,
                        void *          data );
 
-/* fd_vm_trace_printf pretty prints the current trace to stdout.
-   Returns FD_VM_SUCCESS (0) on success and a FD_VM_ERR code (negative)
-   on failure.  If text_cnt is non-zero, this will also include
-   annotations from the text.  Reasons for failure include INVAL
-   (NULL trace, non-zero text_cnt with NULL text or NULL syscalls)
-   and IO (corruption detected while parsing the trace events).  FIXME:
-   REVAMP THIS API FOR MORE GENERAL USE CASES. */
+/* fd_vm_trace_printf pretty prints the current trace to stdout.  If
+   syscalls is non-NULL, the trace will annotate syscalls in its
+   disassembly according the syscall mapping.  Returns FD_VM_SUCCESS (0)
+   on success and a FD_VM_ERR code (negative) on failure.  Reasons for
+   failure include INVAL (NULL trace) and IO (corruption detected while
+   parsing the trace events).  FIXME: REVAMP THIS API FOR MORE GENERAL
+   USE CASES. */
 
 int
 fd_vm_trace_printf( fd_vm_trace_t      const * trace,
-                    ulong              const * text,       /* Indexed [0,text_cnt) */
-                    ulong                      text_cnt,
                     fd_sbpf_syscalls_t const * syscalls );
 
 /* fd_vm_syscall API **************************************************/
