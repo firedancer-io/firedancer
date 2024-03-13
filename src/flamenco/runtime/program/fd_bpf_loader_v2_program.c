@@ -193,15 +193,11 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
   vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
-  int err;
-
-//err = fd_vm_validate( &vm );
+//int err = fd_vm_validate( &vm );
 //if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  if( FD_UNLIKELY( vm.trace ) ) err = fd_vm_exec_trace( &vm );
-  else                          err = fd_vm_exec      ( &vm );
-
+  int err = fd_vm_exec( &vm );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_exec failed (%i-%s)", err, fd_vm_strerror( err ) ));
 
 #ifdef FD_DEBUG_SBPF_TRACES
