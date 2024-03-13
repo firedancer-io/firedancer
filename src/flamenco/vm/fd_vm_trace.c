@@ -1,4 +1,4 @@
-#include "fd_vm_base.h"
+#include "fd_vm_private.h"
 
 ulong
 fd_vm_trace_align( void ) {
@@ -170,6 +170,8 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
 
   return FD_VM_SUCCESS;
 }
+
+#include <stdio.h>
 
 int
 fd_vm_trace_printf( fd_vm_trace_t const *      trace,
