@@ -6,15 +6,30 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_rent.h"
 
-/* check_sysvar_instr_acc asserts that a given instruction account (by
-   index) refers to a specific sysvar ID.
-
-   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/sysvar_cache.rs#L223-L234 */
+/* sysvar_cache_contains_key checks whether the "sysvar cache" (in our
+   case just the accounts database) contains a given sysvar ID. */
 
 static int
-check_sysvar_instr_acc( fd_exec_instr_ctx_t * ctx,
-                        ulong                 idx,
-                        fd_pubkey_t const *   pubkey ) {
+sysvar_cache_contains_key( fd_exec_instr_ctx_t * ctx,
+                           fd_pubkey_t const *   pubkey ) {
+
+  FD_BORROWED_ACCOUNT_DECL(acct);
+  int err = fd_acc_mgr_view( ctx->slot_ctx->acc_mgr, ctx->txn_ctx->funk_txn, pubkey, acct );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) )
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* get_sysvar_with_account_check asserts that a given instruction account (by
+   index) refers to a specific sysvar ID.
+
+   https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/sysvar_cache.rs#L220 */
+
+static int
+get_sysvar_with_account_check( fd_exec_instr_ctx_t * ctx,
+                               ulong                 idx,
+                               fd_pubkey_t const *   pubkey ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/sysvar_cache.rs#L228-L229 */
 
@@ -26,7 +41,7 @@ check_sysvar_instr_acc( fd_exec_instr_ctx_t * ctx,
   if( FD_UNLIKELY( 0!=memcmp( ctx->instr->acct_pubkeys[idx].uc, pubkey->uc, sizeof(fd_pubkey_t) ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return sysvar_cache_contains_key( ctx, pubkey );
 }
 
 /* most_recent_block_hash mirrors
@@ -235,7 +250,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
   do {
-    int err = check_sysvar_instr_acc( ctx, 1UL, &fd_sysvar_recent_block_hashes_id );
+    int err = get_sysvar_with_account_check( ctx, 1UL, &fd_sysvar_recent_block_hashes_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -460,14 +475,14 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L445-L449 */
 
   do {
-    int err = check_sysvar_instr_acc( ctx, 2UL, &fd_sysvar_recent_block_hashes_id );
+    int err = get_sysvar_with_account_check( ctx, 2UL, &fd_sysvar_recent_block_hashes_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L450 */
 
   do {
-    int err = check_sysvar_instr_acc( ctx, 3UL, &fd_sysvar_rent_id );
+    int err = get_sysvar_with_account_check( ctx, 3UL, &fd_sysvar_rent_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -612,7 +627,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
   do {
-    int err = check_sysvar_instr_acc( ctx, 1UL, &fd_sysvar_recent_block_hashes_id );
+    int err = get_sysvar_with_account_check( ctx, 1UL, &fd_sysvar_recent_block_hashes_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -625,6 +640,15 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L479 */
+
+  do {
+    int err = get_sysvar_with_account_check( ctx, 2UL, &fd_sysvar_rent_id );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L480 */
 
   int err = fd_system_program_initialize_nonce_account( ctx, account, instr_acc_idx, authorized );
 
