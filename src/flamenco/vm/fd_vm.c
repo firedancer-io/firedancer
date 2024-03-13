@@ -1,4 +1,4 @@
-#include "fd_vm.h"
+#include "fd_vm_private.h"
 
 char const *
 fd_vm_strerror( int err ) {

@@ -1,7 +1,9 @@
-#ifndef HEADER_fd_src_flamenco_vm_fd_vm_cpi_h
-#define HEADER_fd_src_flamenco_vm_fd_vm_cpi_h
+#ifndef HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h
+#define HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h
 
-#include "fd_vm_base.h"
+#ifndef HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
+#error "Do not include this directly; use fd_vm_syscall.h"
+#endif
 
 /* fd_vm_cpi contains type definitions for the cross-program-invocation
    (CPI) API.  These types are passed from the virtual machine to the
@@ -9,25 +11,12 @@
    address space.  Struct parameter offsets and sizes match exactly.
    Structs also have alignment requirements in VM address space.  These
    alignments are provided as const macros.  Since we cannot guarantee
-   that a type is aligned in host address space even when aligned in
-   VM address space, all structs support unaligned access
-   (i.e. alignof(type)==1UL).
+   that a type is aligned in host address space even when aligned in VM
+   address space (FIXME: HMMM ... THAT DOESN'T SOUND RIGHT), all structs
+   support unaligned access (i.e. alignof(type)==1UL).
 
    Unfortunately, the Solana protocol provides this API twice:
    In a C-style ABI and in Rust ABI. */
-
-/* fd_vm_vec_t is the in-memory representation of a vector descriptor.
-   Equal in layout to the Rust slice header &[_] and various vector
-   types in the C version of the syscall API. */
-
-#define FD_VM_VEC_ALIGN (8UL)
-
-struct __attribute__((packed)) fd_vm_vec {
-  ulong addr;
-  ulong len;
-};
-
-typedef struct fd_vm_vec fd_vm_vec_t;
 
 #define FD_VM_RC_REFCELL_ALIGN (8UL)
 
@@ -170,4 +159,4 @@ struct __attribute__((packed)) fd_vm_account_info {
 
 typedef struct fd_vm_account_info fd_vm_account_info_t;
 
-#endif /* HEADER_fd_src_flamenco_vm_fd_vm_cpi_h */
+#endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */
