@@ -61,7 +61,7 @@ DECL( ulong  )
 
 int
 fd_vm_exec( fd_vm_t * ctx ) {
-  long    pc            = ctx->entrypoint;
+  long    pc            = (long)ctx->entrypoint; /* FIXME: HMMM */
   ulong   ic            = ctx->instruction_counter;
   ulong * register_file = ctx->reg;
 
@@ -87,7 +87,7 @@ fd_vm_exec( fd_vm_t * ctx ) {
 #define JMP_TAB_POST_CASE_CODE
 #include "fd_jump_tab.c"
 
-  ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_max / (32*1024), 1), vm_compute_budget.heap_cost);
+  ulong heap_cus_consumed = fd_ulong_sat_mul( fd_ulong_sat_sub( ctx->heap_max/(32*1024), 1 ), FD_VM_HEAP_COST );
   cond_fault = fd_vm_consume_compute( ctx, heap_cus_consumed );
   compute_meter = ctx->compute_meter;
   if( FD_UNLIKELY( cond_fault ) ) goto JT_RET_LOC;
@@ -135,7 +135,7 @@ JT_END;
 
 int
 fd_vm_exec_trace( fd_vm_t * ctx ) {
-  long    pc            = ctx->entrypoint;
+  long    pc            = (long)ctx->entrypoint; /* FIXME: HMMM */
   ulong   ic            = ctx->instruction_counter;
   ulong * register_file = ctx->reg;
 
@@ -156,7 +156,7 @@ fd_vm_exec_trace( fd_vm_t * ctx ) {
 
 #include "fd_jump_tab.c"
 
-  ulong heap_cus_consumed = fd_ulong_sat_mul(fd_ulong_sat_sub(ctx->heap_max / (32*1024), 1), vm_compute_budget.heap_cost);
+  ulong heap_cus_consumed = fd_ulong_sat_mul( fd_ulong_sat_sub( ctx->heap_max/(32*1024), 1 ), FD_VM_HEAP_COST );
   cond_fault = fd_vm_consume_compute( ctx, heap_cus_consumed );
   compute_meter = ctx->compute_meter;
   if( FD_UNLIKELY( cond_fault ) ) goto JT_RET_LOC;
