@@ -212,7 +212,8 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
                             ulong                 acct_idx,
-                            ulong                 space ) {
+                            ulong                 space,
+                            fd_pubkey_t const *   authority ) {
 
   /* Assumes that acct_idx was bounds checked */
 
@@ -220,7 +221,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
-  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, account->pubkey ) ) ) {
+  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, authority ) ) ) {
     /* TODO Log: "Allocate 'to' account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -266,7 +267,8 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
                           ulong                 acct_idx,
-                          fd_pubkey_t const *   owner ) {
+                          fd_pubkey_t const *   owner,
+                          fd_pubkey_t const *   authority ) {
 
   /* Assumes addr_idx was bounds checked */
 
@@ -279,7 +281,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
-  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, account->pubkey ) ) ) {
+  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, authority ) ) ) {
     /* TODO Log: "Assign: account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -301,14 +303,15 @@ static int
 fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t * ctx,
                                        ulong                 acct_idx,
                                        ulong                 space,
-                                       fd_pubkey_t const *   owner ) {
+                                       fd_pubkey_t const *   owner,
+                                       fd_pubkey_t const *   authority ) {
 
   do {
-    int err = fd_system_program_allocate( ctx, acct_idx, space );
+    int err = fd_system_program_allocate( ctx, acct_idx, space, authority );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  return fd_system_program_assign( ctx, acct_idx, owner );
+  return fd_system_program_assign( ctx, acct_idx, owner, authority );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L146-L181
@@ -347,7 +350,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L171 */
 
   do {
-    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, space, owner );
+    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, space, owner, to->pubkey );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -419,7 +422,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_assign( ctx, acct_idx, owner );
+    int err = fd_system_program_assign( ctx, acct_idx, owner, account->pubkey );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -520,7 +523,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
 
   ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_allocate( ctx, acct_idx, space );
+    int err = fd_system_program_allocate( ctx, acct_idx, space, account->pubkey );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -576,7 +579,8 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
         ctx,
         acct_idx,
         args->space,
-        &args->owner );
+        &args->owner,
+        &args->base );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -628,7 +632,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_assign( ctx, acct_idx, &args->owner );
+    int err = fd_system_program_assign( ctx, acct_idx, &args->owner, &args->base );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
