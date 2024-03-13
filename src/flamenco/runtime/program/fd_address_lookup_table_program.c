@@ -879,7 +879,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
   do {
-    int err = fd_account_checked_add_lamports( ctx, recipient_acct->meta, recipient_acct->pubkey, withdrawn_lamports );
+    int err = fd_account_checked_add_lamports( ctx, ACC_IDX_RECIPIENT, withdrawn_lamports );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 

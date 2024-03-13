@@ -366,6 +366,10 @@ _process_truncate( fd_exec_instr_ctx_t ctx,
 static int
 _process_deploy( fd_exec_instr_ctx_t ctx ) {
 
+  ulong const program_acct_idx   = 0UL;
+  //ulong const authority_acct_idx = 1UL;
+  ulong const source_acct_idx    = 2UL;
+
   /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L356
      Get the program account (index 0) */
 
@@ -373,7 +377,7 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   fd_borrowed_account_t * program = NULL;
-  if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, 0, &program )
+  if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, program_acct_idx, &program )
                    !=FD_ACC_MGR_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_FATAL;
 
@@ -394,7 +398,7 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
 
   fd_borrowed_account_t * source = NULL;
   do {
-    if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, 2, &source )
+    if( FD_UNLIKELY( fd_instr_borrowed_account_view_idx( &ctx, source_acct_idx, &source )
                      !=FD_ACC_MGR_SUCCESS ) ) {
       source = NULL;
       break;
@@ -500,34 +504,22 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
     ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program->const_meta->info.lamports );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L432
-       Acquire writable handle for program, resize, and copy over data.
        NOTE: This effectively moves the source account's data region
              entirely to the destination account and could therefore be
              done zero-copy. */
-    do {
-      int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, source->const_meta->dlen, &program );
-      if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
-    } while(0);
 
     do {
       int err = 0;
       if( FD_UNLIKELY( !fd_account_set_data_from_slice(
-          &ctx, program->meta, program->pubkey, program->data, source->const_data, source->const_meta->dlen, &err ) ) )
+          &ctx, program_acct_idx, source->const_data, source->const_meta->dlen, &err ) ) )
         return err;
     } while(0);
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L433
-       Acquire writable handle for source and resize. */
-
-    do {
-      int err = fd_instr_borrowed_account_modify_idx( &ctx, 2, 0UL, &source );
-      if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
-    } while(0);
+    /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L433 */
 
     do {
       int err = 0;
-      if( FD_UNLIKELY( !fd_account_set_data_length(
-          &ctx, source->meta, source->pubkey, 0UL, &err ) ) )
+      if( FD_UNLIKELY( !fd_account_set_data_length( &ctx, source_acct_idx, 0UL, &err ) ) )
         return err;
     } while(0);
 
@@ -536,7 +528,7 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
     do {
       int err = 0;
       if( FD_UNLIKELY( !fd_account_checked_sub_lamports(
-          &ctx, source->meta, source->pubkey, transfer_lamports ) ) )
+          &ctx, source_acct_idx, transfer_lamports ) ) )
         return err;
     } while(0);
 
@@ -545,7 +537,7 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
     do {
       int err = 0;
       if( FD_UNLIKELY( !fd_account_checked_add_lamports(
-          &ctx, program->meta, program->pubkey, transfer_lamports ) ) )
+          &ctx, program_acct_idx, transfer_lamports ) ) )
         return err;
     } while(0);
 

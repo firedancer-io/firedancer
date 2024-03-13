@@ -44,6 +44,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
+#include "context/fd_exec_instr_ctx.h"
 #include <assert.h>  /* TODO remove */
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
@@ -56,57 +57,67 @@ FD_PROTOTYPES_BEGIN
    executable flag set.  Otherwise, returns 0.  Mirrors Anza's
    solana_sdk::transaction_context::BorrowedAccount::is_executable. */
 
-static inline int
+FD_FN_PURE static inline int
 fd_account_is_executable( fd_account_meta_t const * meta ) {
   return !!meta->info.executable;
 }
 
-static inline int
-fd_account_can_data_be_resized( fd_exec_instr_ctx_t *     ctx,
+/* fd_account_is_owned_by_current_program returns 1 if the given
+   account is owned by the program invoked in the current instruction.
+   Otherwise, returns 0.  Mirrors Anza's
+   solana_sdk::transaction_context::BorrowedAccount::is_owned_by_current_program */
+
+FD_FN_PURE static inline int
+fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
+                                        fd_account_meta_t const * acct ) {
+  return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
+}
+
+FD_FN_PURE static inline int
+fd_account_can_data_be_resized( fd_instr_info_t const *   instr,
                                 fd_account_meta_t const * acct,
                                 ulong                     new_length,
                                 int *                     err ) {
 
-  if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_early_verification_of_account_modifications ) )
-    return 1;
-
-  if( acct->dlen != new_length && !fd_instr_acc_is_owned_by_current_program( ctx->instr, acct ) ) {
+  if( FD_UNLIKELY( ( acct->dlen != new_length ) &
+                   ( !fd_account_is_owned_by_current_program( instr, acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
 
-  if( new_length > FD_ACC_SZ_MAX ) {
+  if( FD_UNLIKELY( new_length > FD_ACC_SZ_MAX ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
 
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
 static inline int
-fd_account_can_data_be_changed( fd_exec_instr_ctx_t *     ctx,
-                                fd_account_meta_t const * acct,
-                                fd_pubkey_t const *       key,
-                                int *                     err ) {
+fd_account_can_data_be_changed( fd_instr_info_t const * instr,
+                                ulong                   instr_acc_idx,
+                                int *                   err ) {
 
-  if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_early_verification_of_account_modifications ) )
-    return 1;
+  assert( instr_acc_idx < instr->acct_cnt );
+  fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
-  if( fd_account_is_executable( acct ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable( meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
     return 0;
   }
 
-  if( !fd_instr_acc_is_writable( ctx->instr, key ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
     return 0;
   }
 
-  if (!fd_instr_acc_is_owned_by_current_program( ctx->instr, acct )) {
+  if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
     return 0;
   }
 
+  err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
@@ -120,33 +131,10 @@ fd_account_is_zeroed( fd_account_meta_t const * acct ) {
   return 1;
 }
 
-static inline int
+int
 fd_account_set_owner( fd_exec_instr_ctx_t * ctx,
-                      fd_account_meta_t *   acct,
-                      fd_pubkey_t const *   key,
-                      fd_pubkey_t const *   owner ) {
-
-  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) {
-
-    if( !fd_instr_acc_is_owned_by_current_program( ctx->instr, acct ) )
-      return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if( !fd_instr_acc_is_writable( ctx->instr, key ) )
-      return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if( fd_account_is_executable( acct ) )
-      return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if( !fd_account_is_zeroed( acct ) )
-      return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if( 0==memcmp( &acct->info.owner, owner, sizeof(fd_pubkey_t) ) )
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    if( 0!=memcmp( acct->info.owner, fd_solana_system_program_id.key, sizeof(acct->info.owner) ) )
-      return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-
-  }
-
-  memcpy( &acct->info.owner, owner, sizeof(fd_pubkey_t) );
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
+                      ulong                 instr_acc_idx,
+                      fd_pubkey_t const *   owner );
 
 /* fd_account_get_lamports mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::get_lamports.
@@ -164,145 +152,74 @@ fd_account_get_lamports( fd_account_meta_t const * meta ) {
    Runs through a sequence of permission checks, then sets the account
    balance.  Does not update global capitalization.  On success, returns
    0 and updates meta->lamports.  On failure, returns an
-   FD_EXECUTOR_INSTR_ERR_{...} code.
+   FD_EXECUTOR_INSTR_ERR_{...} code.  Acquires a writable handle. */
 
-   Assumes acct has previously been upgraded to a writable handle. */
-
-static inline int
+int
 fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
-                         fd_account_meta_t *   meta,
-                         fd_pubkey_t const *   key,
-                         ulong                 lamports ) {
-
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "NULL meta" ));
-
-  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) {
-
-    if( FD_UNLIKELY( ( !fd_instr_acc_is_owned_by_current_program( ctx->instr, meta ) ) &
-                    ( lamports < meta->info.lamports ) ) )
-      return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
-
-    /* TODO: This is a slow O(n) search through the account access list
-            Consider caching the access flags in fd_borrowed_account_t. */
-    if( FD_UNLIKELY( !fd_instr_acc_is_writable( ctx->instr, key ) ) )
-      return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
-
-    if( FD_UNLIKELY( fd_account_is_executable( meta ) ) )
-      return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE;
-
-    if( lamports == meta->info.lamports ) return 0;
-
-    /* TODO: Call fd_account_touch.  This seems to have some side effect
-            checking the number of accounts?  Unclear... */
-
-  }
-
-  meta->info.lamports = lamports;
-  return 0;
-}
+                         ulong                 instr_acc_idx,
+                         ulong                 lamports );
 
 /* fd_account_checked_{add,sub}_lamports add/removes lamports to/from an
    account.  Does not update global capitalization.  Returns 0 on
    success or an FD_EXECUTOR_INSTR_ERR_{...} code on failure.
-   Gracefully handles underflow. */
+   Gracefully handles underflow.  Acquires a writable handle. */
 
 static inline int
 fd_account_checked_add_lamports( fd_exec_instr_ctx_t * const ctx,
-                                 fd_account_meta_t *   const meta,
-                                 fd_pubkey_t const *   const key,
+                                 ulong                 const instr_acc_idx,
                                  ulong                 const add_amount ) {
 
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "NULL meta" ));
+  assert( instr_acc_idx < ctx->instr->acct_cnt );
+  fd_account_meta_t const * meta = ctx->instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
   ulong const balance_pre  = meta->info.lamports;
   ulong const balance_post = balance_pre + add_amount;
   if( FD_UNLIKELY( balance_post < balance_pre ) )
     return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
 
-  return fd_account_set_lamports( ctx, meta, key, balance_post );
+  return fd_account_set_lamports( ctx, instr_acc_idx, balance_post );
 }
 
 static inline int
 fd_account_checked_sub_lamports( fd_exec_instr_ctx_t * const ctx,
-                                 fd_account_meta_t *   const meta,
-                                 fd_pubkey_t const *   const key,
+                                 ulong                 const instr_acc_idx,
                                  ulong                 const sub_amount ) {
 
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "NULL meta" ));
+  assert( instr_acc_idx < ctx->instr->acct_cnt );
+  fd_account_meta_t const * meta = ctx->instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
   ulong const balance_pre  = meta->info.lamports;
   ulong const balance_post = balance_pre - sub_amount;
   if( FD_UNLIKELY( balance_post > balance_pre ) )
     return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
 
-  return fd_account_set_lamports( ctx, meta, key, balance_post );
+  return fd_account_set_lamports( ctx, instr_acc_idx, balance_post );
 }
 
 /* fd_account_set_data_from_slice mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::set_data_from_slice.
    Assumes that destination account already has enough space to fit
-   data.
-
-   TODO This method could be refactored to make it more efficient and
-        easier to use.  (e.g. collapse the arguments into
-        fd_borrowed_account_t and turn it from a header-only function
-        to a normal one; also add the account's instruction index to the
-        borrowed account metadata to make the writable check faster)
+   data.  Acquires a writable handle.
 
    https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L903-L923 */
 
-static inline int
+int
 fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
-                                fd_account_meta_t *   acc_meta,
-                                fd_pubkey_t const *   acc_key,
-                                uchar *               acc_data,
-                                uchar const *         src_data,
+                                ulong                 instr_acc_idx,
+                                uchar const *         data,
                                 ulong                 data_sz,
-                                int *                 err ) {
-  if( !fd_account_can_data_be_resized( ctx, acc_meta, data_sz, err ) )
-    return 0;
-
-  if( !fd_account_can_data_be_changed( ctx, acc_meta, acc_key, err ) )
-    return 0;
-
-  /* TODO update_accounts_resize_delta */
-  /* TODO make_data_mut */
-
-  assert( acc_meta->dlen >= data_sz );
-  fd_memcpy( acc_data, src_data, data_sz );
-  return 1;
-}
+                                int *                 err );
 
 /* fd_account_set_data_length mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::set_data_length.
+   Acquires a writable handle.
    https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L925-L940 */
 
-static inline int
+int
 fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
-                            fd_account_meta_t *   acct,
-                            fd_pubkey_t const *   key,
+                            ulong                 instr_acc_idx,
                             ulong                 new_len,
-                            int *                 err ) {
-  if( !fd_account_can_data_be_resized( ctx, acct, new_len, err ) )
-    return 0;
-
-  if( !fd_account_can_data_be_changed( ctx, acct, key, err ) )
-    return 0;
-
-  ulong old_len = acct->dlen;
-
-  if( old_len == new_len )
-    return 1;
-
-  uchar * data = ((uchar *) acct) + acct->hlen;
-
-  if( new_len > old_len )
-    fd_memset( data + acct->dlen, 0, new_len - old_len );
-
-  acct->dlen = new_len;
-
-  return 1;
-}
+                            int *                 err );
 
 FD_PROTOTYPES_END
 
