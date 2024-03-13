@@ -1,15 +1,17 @@
 #ifndef HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
 #define HEADER_fd_src_flamenco_vm_syscall_fd_vm_syscall_h
 
-#include "../fd_vm.h"
-
-/* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
-   IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
-   SYSCALLS? */
+#include "../fd_vm_private.h"
+#include "fd_vm_cpi.h"                /* FIXME: REFINE THIS MORE */
+#include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 #define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 #define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+
+/* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
+   IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
+   SYSCALLS? */
 
 /* FD_VM_SYSCALL_DECL declares a prototype of a syscall */
 
