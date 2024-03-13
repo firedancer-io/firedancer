@@ -146,7 +146,7 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
   if( FD_UNLIKELY( instr.opcode.normal.op_mode==FD_SBPF_OPCODE_JMP_OP_MODE_CALL ) ) {
     switch ( instr.opcode.normal.op_src ) {
     case FD_SBPF_OPCODE_SOURCE_MODE_IMM: {
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query( (fd_sbpf_syscalls_t *)syscalls, instr.imm, NULL ); /* FIXME: const correctness query in map */
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, instr.imm, NULL );
       if( syscall ) { /* FIXME: THESE CODE PATHS CURRENTLY NOT EXERCISED BY UNIT TEST */
         char const * name = syscall->name;
         if( name ) OUT_PRINTF( "syscall%s %s",     suffix, name      );

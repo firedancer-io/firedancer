@@ -180,7 +180,7 @@ main( int     argc,
     .rodata              = rodata,
     .rodata_sz           = rodata_sz,
     .heap_max            = FD_VM_HEAP_DEFAULT,
-    .compute_meter       = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
+    .compute_meter       = FD_VM_COMPUTE_UNIT_LIMIT,
   };
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
