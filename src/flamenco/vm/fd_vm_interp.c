@@ -60,7 +60,7 @@ DECL( ulong  )
 #undef DECL
 
 int
-fd_vm_exec( fd_vm_t * ctx ) {
+fd_vm_private_exec_notrace( fd_vm_t * ctx ) {
   long    pc            = (long)ctx->entrypoint; /* FIXME: HMMM */
   ulong   ic            = ctx->instruction_counter;
   ulong * register_file = ctx->reg;
@@ -134,7 +134,7 @@ JT_END;
 }
 
 int
-fd_vm_exec_trace( fd_vm_t * ctx ) {
+fd_vm_private_exec_trace( fd_vm_t * ctx ) {
   long    pc            = (long)ctx->entrypoint; /* FIXME: HMMM */
   ulong   ic            = ctx->instruction_counter;
   ulong * register_file = ctx->reg;
@@ -148,9 +148,10 @@ fd_vm_exec_trace( fd_vm_t * ctx ) {
 
 #define JMP_TAB_ID interp_trace
 
-/* FIXME: IS PC LONG OR ULONG? */
-#define JMP_TAB_PRE_CASE_CODE \
-  fd_vm_trace_event_exe( ctx->trace, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, register_file );
+  /* FIXME: IS PC LONG OR ULONG? */
+#define JMP_TAB_PRE_CASE_CODE                                                                                 \
+  fd_vm_trace_event_exe( ctx->trace, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, register_file, \
+                         ctx->text + pc, ctx->text_cnt - (ulong)pc );
 
 #define JMP_TAB_POST_CASE_CODE
 

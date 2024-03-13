@@ -107,8 +107,6 @@ static uchar lc_mirror[ FD_VM_LOG_MAX ];
 static fd_vm_shadow_t shadow[1];
 #endif
 
-static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
-
 int
 main( int     argc,
       char ** argv ) {
@@ -256,24 +254,23 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing fd_vm_disasm" ));
 
+  /* FIXME: TEST WITH SYSCALLS TOO */
+
   char  out[128]; out[0] = '\0';
   ulong out_max = 128UL;
   ulong out_len = 0UL;
-
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
 
   ulong text[2];
   text[0] = fd_rng_ulong( rng );
   text[1] = fd_rng_ulong( rng );
 
-  FD_TEST( fd_vm_disasm_instr( NULL, 1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr    */
-  FD_TEST( fd_vm_disasm_instr( text, 0UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* zero cnt      */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
+  FD_TEST( fd_vm_disasm_instr( NULL, 1UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr    */
+  FD_TEST( fd_vm_disasm_instr( text, 0UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* zero cnt      */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
   out_len = out_max;
-  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
+  FD_TEST( fd_vm_disasm_instr( text, 1UL, 0UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
 
   for( ulong iter=0UL; iter<10000000UL; iter++ ) {
     text[0] = fd_rng_ulong( rng );
@@ -290,7 +287,7 @@ main( int     argc,
 
     out[0]  = '\0';
     out_len = 0UL;
-    int err = fd_vm_disasm_instr( text, cnt, pc, syscalls, out, out_max, &out_len );
+    int err = fd_vm_disasm_instr( text, cnt, pc, NULL, out, out_max, &out_len );
 
     if( out_len ) FD_TEST( !err );
     else          FD_TEST(  err );
@@ -302,17 +299,14 @@ main( int     argc,
                             text[0], text[1], cnt, pc, mw, tr, out, err, fd_vm_strerror( err ) ));
   }
 
-  FD_TEST( fd_vm_disasm_program( NULL, 2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr w/ non-zero sz */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL,     out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL syscalls */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
-  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
+  FD_TEST( fd_vm_disasm_program( NULL, 2UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL instr w/ non-zero sz */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, NULL, out_max, &out_len )==FD_VM_ERR_INVAL ); /* NULL out      */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  0UL,     &out_len )==FD_VM_ERR_INVAL ); /* zero out_max  */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  out_max, NULL     )==FD_VM_ERR_INVAL ); /* NULL _out_len */
   out_len = out_max;
-  FD_TEST( fd_vm_disasm_program( text, 2UL, syscalls, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
+  FD_TEST( fd_vm_disasm_program( text, 2UL, NULL, out,  out_max, &out_len )==FD_VM_ERR_INVAL ); /* bad _out_len  */
 
   /* FIXME: more coverage of fd_vm_disasm_program */
-
-  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 
   FD_LOG_NOTICE(( "Testing fd_vm_trace (--event-max %lu --event-data-max %lu)", event_max, event_data_max ));
 
@@ -361,8 +355,11 @@ main( int     argc,
 
   ulong reg[ 3UL+FD_VM_REG_CNT ];
   for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
-  FD_TEST( fd_vm_trace_event_exe( NULL, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL )==FD_VM_ERR_INVAL );
-  FD_TEST( fd_vm_trace_event_mem( NULL, 1, 2UL, 3UL, reg                                            )==FD_VM_ERR_INVAL );
+  text[0] = fd_rng_ulong( rng );
+  text[1] = fd_rng_ulong( rng );
+
+  FD_TEST( fd_vm_trace_event_exe( NULL, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_trace_event_mem( NULL, 1, 2UL, 3UL, reg                                                       )==FD_VM_ERR_INVAL );
 
   for(;;) {
     uint r = fd_rng_uint( rng );
@@ -372,7 +369,9 @@ main( int     argc,
     default:
     case 0: { /* exe */
       for( ulong i=0UL; i<3UL+FD_VM_REG_CNT; i++ ) reg[i] = fd_rng_ulong( rng );
-      int err = fd_vm_trace_event_exe( trace, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL );
+      text[0] = fd_rng_ulong( rng );
+      text[1] = fd_rng_ulong( rng );
+      int err = fd_vm_trace_event_exe( trace, reg[0UL] & 0xffffUL, reg[1UL] & 0xffffUL, reg[2UL], reg+3UL, text, 2UL );
       if( FD_UNLIKELY( err==FD_VM_ERR_FULL ) ) goto vm_trace_done;
       FD_TEST( !err );
       break;
@@ -401,10 +400,10 @@ vm_trace_done:
 
   /* FIXME: Iterate over the trace manually and verify contents */
 
-  FD_TEST( fd_vm_trace_printf( NULL, NULL, 0UL, NULL )==FD_VM_ERR_INVAL );
+  FD_TEST( fd_vm_trace_printf( NULL, NULL )==FD_VM_ERR_INVAL );
 
   FD_LOG_NOTICE(( "Synthetic trace"));
-  FD_TEST( !fd_vm_trace_printf( trace, NULL, 0UL, NULL ) );
+  FD_TEST( !fd_vm_trace_printf( trace, NULL ) );
   /* FIXME: More fd_vm_trace coverage */
 
   /* Test destructors */
