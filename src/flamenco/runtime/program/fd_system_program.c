@@ -116,7 +116,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   fd_borrowed_account_t * from = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)from_acct_idx, &from );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( from ) ) )
@@ -144,11 +144,11 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)from_acct_idx, 0UL, &from );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   do {
-    int err = fd_account_checked_sub_lamports( ctx, from->meta, from->pubkey, transfer_amount );
+    int err = fd_account_checked_sub_lamports( ctx, from_acct_idx, transfer_amount );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -162,7 +162,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)to_acct_idx, 0UL, &to );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( to ) ) )
@@ -171,7 +171,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L211 */
 
   do {
-    int err = fd_account_checked_add_lamports( ctx, to->meta, to->pubkey, transfer_amount );
+    int err = fd_account_checked_add_lamports( ctx, to_acct_idx, transfer_amount );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -255,16 +255,16 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   do {
     /* Implicit upgrade to writable */
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)acct_idx, space, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   do {
     int err = FD_EXECUTOR_INSTR_ERR_FATAL;  /* 'FATAL', in case set_data_length doesn't initialize this value */
-    int ok = fd_account_set_data_length( ctx, account->meta, account->pubkey, space, &err );
+    int ok = fd_account_set_data_length( ctx, acct_idx, space, &err );
     if( FD_UNLIKELY( !ok ) ) return err;
   } while(0);
 
-  return 0;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L113-L131
@@ -300,10 +300,10 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
   /* Implicit writable acquire */
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)acct_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  return fd_account_set_owner( ctx, account->meta, account->pubkey, owner );
+  return fd_account_set_owner( ctx, acct_idx, owner );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L133-L143
@@ -349,7 +349,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   fd_borrowed_account_t * to = NULL;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)to_acct_idx, &to );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( to ) ) )
@@ -427,7 +427,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   fd_borrowed_account_t * account;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
@@ -534,7 +534,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   fd_borrowed_account_t * account;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
@@ -577,7 +577,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   fd_borrowed_account_t * account;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
@@ -635,7 +635,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   fd_borrowed_account_t * account;
   do {
     int err = fd_instr_borrowed_account_view_idx( ctx, 0, &account );
-    if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_FATAL;
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
