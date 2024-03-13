@@ -74,7 +74,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
                        /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, fd_ulong_max( msg_sz, vm_compute_budget.syscall_base_cost ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   void const * msg_haddr = fd_vm_translate_vm_to_host_const( vm, msg_vaddr, msg_sz, alignof(uchar) );
@@ -99,7 +99,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
                           ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.log_64_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_LOG_64_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: Consider using faster fd_cstr semantics here.  This would
@@ -127,7 +127,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
                               /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.log_pubkey_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_LOG_PUBKEY_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   void * pubkey_haddr = fd_vm_translate_vm_to_host( vm, pubkey_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
@@ -166,7 +166,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: See note above about sprintf error trapping and fd_cstr
@@ -193,14 +193,14 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t); /* FIXME: OVERFLOW TRAPPING */
   fd_vm_vec_t const * slice_haddr = fd_vm_translate_slice_vm_to_host_const( vm, slice_vaddr, slice_sz, FD_VM_VEC_ALIGN );
   if( FD_UNLIKELY( !slice_haddr ) ) return FD_VM_ERR_PERM;
 
-  err = fd_vm_consume_compute( vm, fd_ulong_sat_mul( vm_compute_budget.syscall_base_cost, slice_cnt ) );
+  err = fd_vm_consume_compute( vm, fd_ulong_sat_mul( FD_VM_SYSCALL_BASE_COST, slice_cnt ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   char msg[102400]; /* FIXME: MAGIC NUMBER (AND PROBABLY SHOULD NOT BE ON THE STACK IF NEEDS TO BE MADE LARGER ... PROBABLY SHOULD USE BATCHING HERE) */
@@ -478,7 +478,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   FD_TEST( vm->instr_ctx->instr );
 
   /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sol_sysvar_clock_t) ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
@@ -513,7 +513,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   FD_TEST( vm->instr_ctx->instr );
 
   /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_epoch_schedule_t) ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
@@ -548,7 +548,7 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
   FD_TEST( vm->instr_ctx->instr );
 
   /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sysvar_fees_t) ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_fees_t) ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
@@ -583,7 +583,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   FD_TEST( vm->instr_ctx->instr );
 
   /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_rent_t) ) );
+  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
@@ -613,7 +613,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
                                     /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   *_ret = vm->instr_ctx->txn_ctx->instr_stack_sz;
@@ -641,7 +641,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
                                    /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.syscall_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->return_data;
@@ -652,7 +652,7 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
   if( FD_LIKELY( cpy_sz ) ) {
 
     /* FIXME: Assumes non-zero denom */
-    ulong cost = fd_ulong_sat_add( cpy_sz, sizeof(fd_pubkey_t) ) / vm_compute_budget.cpi_bytes_per_unit;
+    ulong cost = fd_ulong_sat_add( cpy_sz, sizeof(fd_pubkey_t) ) / FD_VM_CPI_BYTES_PER_UNIT;
     err = fd_vm_consume_compute( vm, cost );
     if( FD_UNLIKELY( err ) ) return err;
 
@@ -690,7 +690,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: Assumes non-zero denom */
-  ulong cost = fd_ulong_sat_add( src_sz / vm_compute_budget.cpi_bytes_per_unit, vm_compute_budget.syscall_base_cost );
+  ulong cost = fd_ulong_sat_add( src_sz / FD_VM_CPI_BYTES_PER_UNIT, FD_VM_SYSCALL_BASE_COST );
   int   err  = fd_vm_consume_compute( vm, cost );
   if( FD_UNLIKELY( err ) ) return err;
 

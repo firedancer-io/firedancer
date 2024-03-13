@@ -65,7 +65,7 @@ setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_dat
   }
 
   fd_vm_t vm = {
-    .entrypoint          = (long)prog->entry_pc,
+    .entrypoint          = prog->entry_pc,
     .syscalls            = syscalls,
     .calldests           = prog->calldests,
     .program_counter     = 0,
@@ -155,7 +155,7 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   }
 
   fd_vm_t vm = {
-    .entrypoint                 = (long)prog->entry_pc,
+    .entrypoint                 = prog->entry_pc,
     .syscalls                   = syscalls,
     .calldests                  = prog->calldests,
     .program_counter            = 0,
@@ -218,7 +218,7 @@ if( FD_UNLIKELY( vm.trace ) ) {
   fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
   fd_valloc_free( ctx.valloc, rodata);
 
-//FD_LOG_WARNING(( "fd_vm_exec() success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
+//FD_LOG_WARNING(( "fd_vm_exec success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
 //FD_LOG_WARNING(( "log coll: %s", vm.log_collector.buf ));
 
   if( FD_UNLIKELY( vm.reg[0] ) ) {
