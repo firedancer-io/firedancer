@@ -11,7 +11,7 @@
    available in hosted environments like stdio and stdlib) */
 
 #include "../fd_flamenco_base.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: MOVE TO PRIVATE WHEN SYSCALL_REGISTER API FIXED */
+#include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: functionality needed from here probably should be moved here */
 
 /* FD_VM_SUCCESS is zero and returned to indicate that an operation
    completed successfully.  FD_VM_ERR_* are negative integers and
@@ -578,6 +578,57 @@ fd_vm_trace_printf( fd_vm_trace_t      const * trace,
                     ulong              const * text,       /* Indexed [0,text_cnt) */
                     ulong                      text_cnt,
                     fd_sbpf_syscalls_t const * syscalls );
+
+/* fd_vm_syscall API **************************************************/
+
+/* FIXME: fd_sbpf_syscalls_t and fd_sbpf_syscall_func_t probably should
+   be moved from ballet/sbpf to here. */
+
+/* Note: the syscall map is kept separate from the fd_vm_t itself to
+   support, for example, multiple fd_vm_t executing transactions
+   concurrently for a slot.  They could use the same syscalls for setup,
+   memory and cache efficiency. */
+
+/* fd_vm_syscall_register inserts the syscall with the given cstr name
+   into the given syscalls.  The VM syscall implementation to use is
+   given by func (NULL is fine though a VM itself may not accept such as
+   valid).  The caller promises there is room in the syscall map.
+   Returns FD_VM_SUCCESS (0) on success or a FD_VM_ERR code (negative)
+   on failure.  Reasons for failure include INVAL (NULL syscalls, NULL
+   name, name or the hash of name already in the map).  On success,
+   syscalls retains a read-only interest in name (e.g. use an infinite
+   lifetime cstr here).  (This function is exposed to allow VM users to
+   add custom syscalls but most use cases probably should just call
+   fd_vm_syscall_register_slot below.) */
+
+int
+fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
+                        char const *           name,
+                        fd_sbpf_syscall_func_t func );
+
+/* fd_vm_syscall_register_slot unmaps all syscalls in the current map
+   (also ending any interest in the corresponding name cstr) and
+   registers all syscalls appropriate for the slot described by
+   slot_ctx.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR code
+   (negative) on failure.  Reasons for failure include INVAL (NULL
+   syscalls) and FULL (tried to register too many system calls ...
+   compile time map size needs to be adjusted).  If slot_ctx is NULL,
+   will register all fd_vm syscall implementations (whether or not that
+   makes sense ... may change between Firedancer versions without
+   warning).  FIXME: probably better to pass the features for a slot
+   than pass the whole slot_ctx. */
+
+int
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
+                             fd_exec_slot_ctx_t const * slot_ctx );
+
+/* fd_vm_syscall_register_all is a shorthand for registering all
+   syscalls (see register slot). */
+
+static inline int
+fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls ) {
+  return fd_vm_syscall_register_slot( syscalls, NULL );
+}
 
 FD_PROTOTYPES_END
 
