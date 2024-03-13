@@ -38,7 +38,7 @@ fd_vm_trace_new( void * shmem,
 
   trace->event_max      = event_max;
   trace->event_data_max = event_data_max;
-  trace->event_off      = 0UL;
+  trace->event_sz       = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( trace->magic ) = FD_VM_TRACE_MAGIC;
@@ -117,16 +117,18 @@ fd_vm_trace_event_exe( fd_vm_trace_t * trace,
 
   if( FD_UNLIKELY( !trace ) ) return FD_VM_ERR_INVAL;
 
-  ulong event_off = trace->event_off;
-  ulong event_rem = trace->event_max - event_off;
+  ulong event_sz  = trace->event_sz;
+  ulong event_rem = trace->event_max - event_sz;
 
   ulong event_footprint = fd_ulong_align_up( sizeof(fd_vm_trace_event_exe_t), 8UL );
 
   if( FD_UNLIKELY( event_footprint > event_rem ) ) return FD_VM_ERR_FULL;
 
-  fd_vm_trace_event_exe_t * event = (fd_vm_trace_event_exe_t *)((ulong)(trace+1) + event_off);
+  fd_vm_trace_event_exe_t * event = (fd_vm_trace_event_exe_t *)((ulong)(trace+1) + event_sz);
 
-  trace->event_off = event_off + event_footprint;
+  trace->event_sz = event_sz + event_footprint;
+
+  /* Record the event */
 
   event->info = fd_vm_trace_event_info( FD_VM_TRACE_EVENT_TYPE_EXE, 0 );
   event->pc   = pc;
@@ -148,8 +150,8 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
 
   if( FD_UNLIKELY( !trace ) ) return FD_VM_ERR_INVAL;
 
-  ulong event_off = trace->event_off;
-  ulong event_rem = trace->event_max - event_off;
+  ulong event_sz  = trace->event_sz;
+  ulong event_rem = trace->event_max - event_sz;
 
   int   valid           = (!!data) & (!!sz); /* FIXME: ponder sz==0 handling */
   ulong event_data_sz   = fd_ulong_if( valid, fd_ulong_min( sz, trace->event_data_max ), 0UL );
@@ -157,9 +159,9 @@ fd_vm_trace_event_mem( fd_vm_trace_t * trace,
 
   if( FD_UNLIKELY( event_footprint > event_rem ) ) return FD_VM_ERR_FULL;
 
-  fd_vm_trace_event_mem_t * event = (fd_vm_trace_event_mem_t *)((ulong)(trace+1) + event_off);
+  fd_vm_trace_event_mem_t * event = (fd_vm_trace_event_mem_t *)((ulong)(trace+1) + event_sz);
 
-  trace->event_off = event_off + event_footprint;
+  trace->event_sz = event_sz + event_footprint;
 
   /* Record the event */
 
