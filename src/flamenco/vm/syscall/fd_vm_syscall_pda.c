@@ -66,7 +66,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   fd_pubkey_t result[1];
@@ -114,7 +114,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* FIXME: DOUBLE CHECK COST MODEL (WEIRD CHARGE) */
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Similar to create_program_address but appends a 1 byte nonce that
@@ -177,7 +177,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
 
     /* FIXME: DOUBLE CHECK COST MODEL (THIS IS A WEIRD BUT PLAUSIBLE
        PLACE AND A WEIRD AMOUNT) */
-    err = fd_vm_consume_compute( vm, vm_compute_budget.create_program_address_units );
+    err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
     if( FD_UNLIKELY( err ) ) break;
   }
 

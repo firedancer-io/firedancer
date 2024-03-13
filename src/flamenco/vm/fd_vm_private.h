@@ -45,17 +45,14 @@ fd_vm_consume_compute( fd_vm_t * vm,
 /* fd_vm_consume_mem consumes 'sz' bytes equivalent compute units from
    vm.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET
    (negative) on failure.  On return, the compute_meter is updated (to
-   zero in the ERR_BUDGET case).  FIXME: double check that sz 0 should
-   have zero cost due to things like address translation costs and what
-   not. */
+   zero in the ERR_BUDGET case). */
 
 /* FIXME: OPTIMIZE FUNCTION SIGNATURE FOR USE CASE */
 
 static inline int
 fd_vm_consume_mem( fd_vm_t * vm,
                    ulong     sz ) {
-  ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost, sz / vm_compute_budget.cpi_bytes_per_unit );
-  return fd_vm_consume_compute( vm, cost );
+  return fd_vm_consume_compute( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) );
 }
 
 /* fd_vm_mem API ******************************************************/
