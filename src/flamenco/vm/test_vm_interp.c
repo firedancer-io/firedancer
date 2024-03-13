@@ -1,6 +1,4 @@
-#include "fd_vm.h"
-
-#define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
+#include "fd_vm_private.h"
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
@@ -31,9 +29,9 @@ test_program_success( char *        test_case_name,
     .syscalls                   = syscalls,
     .program_counter            = 0,
     .instruction_counter        = 0,
-    .compute_meter              = FD_MAX_COMPUTE_UNIT_LIMIT,
+    .compute_meter              = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
     .due_insn_cnt               = 0,
-    .previous_instruction_meter = FD_MAX_COMPUTE_UNIT_LIMIT,
+    .previous_instruction_meter = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
     .text                       = text,
     .text_cnt                   = text_cnt,
     .heap_max                   = FD_VM_HEAP_DEFAULT,

@@ -2,19 +2,17 @@
 #define HEADER_fd_src_flamenco_vm_fd_vm_base_h
 
 /* TODO: Headers included from other modules need cleanup.  At it
-   stands, this also brings in util, flamenco_base, ballet/base58,
-   ballet/sha256, and a bunch of other stuff (that may or may not be
-   necessary) in a somewhat haphazard fashion (include no-no things that
-   are only available in hosted environments like stdio and stdlib) */
+   stands, flamenco_base brings in types/custom, types/meta/
+   types/bincode, ballet/base58, ballet/sha256, ballet/sha512,
+   ballet/ed25519, ballet/txnthis also brings in util, flamenco_base,
+   ballet/base58, util and the optional util/net/ipv4
+   ballet/sha256, most of which is probably not necessary to use
+   this module in a somewhat haphazard fashion (include no-no things
+   that are only available in hosted environments like stdio and stdlib)
+   */
 
-/* TODO: Separate into external-public-user /
-   internal-private-implementor APIs */
-
-#include "../../ballet/sbpf/fd_sbpf_instr.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../ballet/sbpf/fd_sbpf_opcodes.h"
-#include "../../ballet/murmur3/fd_murmur3.h"
-#include "../runtime/fd_runtime.h"
+#include "../fd_flamenco_base.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: MOVE TO PRIVATE WHEN SYSCALL_REGISTER API FIXED */
 
 /* FD_VM_SUCCESS is zero and returned to indicate that an operation
    completed successfully.  FD_VM_ERR_* are negative integers and
@@ -132,113 +130,75 @@ FD_PROTOTYPES_END
 
 /* https://github.com/anza-xyz/agave/blob/v1.18.5/program-runtime/src/compute_budget.rs#L19 */
 struct fd_vm_exec_compute_budget {
-   /* Number of compute units that a transaction or individual instruction is
-      allowed to consume. Compute units are consumed by program execution,
-      resources they use, etc... */
-   ulong compute_unit_limit;
-   /* Number of compute units consumed by a log_u64 call */
-   ulong log_64_units;
-   /* Number of compute units consumed by a create_program_address call */
-   ulong create_program_address_units;
-   /* Number of compute units consumed by an invoke call (not including the cost incurred by
-      the called program) */
-   ulong invoke_units;
-   /* Maximum program instruction invocation stack height. Invocation stack
-      height starts at 1 for transaction instructions and the stack height is
-      incremented each time a program invokes an instruction and decremented
-      when a program returns. */
-   ulong max_invoke_stack_height;
-   /* Maximum cross-program invocation and instructions per transaction */
-   ulong max_instruction_trace_length;
-   /* Base number of compute units consumed to call SHA256 */
-   ulong sha256_base_cost;
-   /* Incremental number of units consumed by SHA256 (based on bytes) */
-   ulong sha256_byte_cost;
-   /* Maximum number of slices hashed per syscall */
-   ulong sha256_max_slices;
-   /* Maximum SBF to BPF call depth */
-   ulong max_call_depth;
-   /* Size of a stack frame in bytes, must match the size specified in the LLVM SBF backend */
-   ulong stack_frame_size;
-   /* Number of compute units consumed by logging a `Pubkey` */
-   ulong log_pubkey_units;
-   /* Maximum cross-program invocation instruction size */
-   ulong max_cpi_instruction_size;
-   /* Number of account data bytes per compute unit charged during a cross-program invocation */
-   ulong cpi_bytes_per_unit;
-   /* Base number of compute units consumed to get a sysvar */
-   ulong sysvar_base_cost;
-   /* Number of compute units consumed to call secp256k1_recover */
-   ulong secp256k1_recover_cost;
-   /* Number of compute units consumed to do a syscall without any work */
-   ulong syscall_base_cost;
-   /* Number of compute units consumed to validate a curve25519 edwards point */
-   ulong curve25519_edwards_validate_point_cost;
-   /* Number of compute units consumed to add two curve25519 edwards points */
-   ulong curve25519_edwards_add_cost;
-   /* Number of compute units consumed to subtract two curve25519 edwards points */
-   ulong curve25519_edwards_subtract_cost;
-   /* Number of compute units consumed to multiply a curve25519 edwards point */
-   ulong curve25519_edwards_multiply_cost;
-   /* Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
-      The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-   ulong curve25519_edwards_msm_base_cost;
-   /* Number of compute units consumed for a multiscalar multiplication (msm) of edwards points.
-      The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-   ulong curve25519_edwards_msm_incremental_cost;
-   /* Number of compute units consumed to validate a curve25519 ristretto point */
-   ulong curve25519_ristretto_validate_point_cost;
-   /* Number of compute units consumed to add two curve25519 ristretto points */
-   ulong curve25519_ristretto_add_cost;
-   /* Number of compute units consumed to subtract two curve25519 ristretto points */
-   ulong curve25519_ristretto_subtract_cost;
-   /* Number of compute units consumed to multiply a curve25519 ristretto point */
-   ulong curve25519_ristretto_multiply_cost;
-   /* Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
-      The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-   ulong curve25519_ristretto_msm_base_cost;
-   /* Number of compute units consumed for a multiscalar multiplication (msm) of ristretto points.
-      The total cost is calculated as `msm_base_cost + (length - 1) * msm_incremental_cost`. */
-   ulong curve25519_ristretto_msm_incremental_cost;
-   /* program heap region size, default: solana_sdk::entrypoint::HEAP_LENGTH */
-   ulong heap_size;
-   /* Number of compute units per additional 32k heap above the default (~.5
-      us per 32k at 15 units/us rounded up) */
-   ulong heap_cost;
-   /* Memory operation syscall base cost */
-   ulong mem_op_base_cost;
-   /* Number of compute units consumed to call alt_bn128_addition */
-   ulong alt_bn128_addition_cost;
-   /* Number of compute units consumed to call alt_bn128_multiplication. */
-   ulong alt_bn128_multiplication_cost;
-   /* Total cost will be alt_bn128_pairing_one_pair_cost_first
-      + alt_bn128_pairing_one_pair_cost_other * (num_elems - 1) */
-   ulong alt_bn128_pairing_one_pair_cost_first;
-   ulong alt_bn128_pairing_one_pair_cost_other;
-   /* Big integer modular exponentiation cost */
-   ulong big_modular_exponentiation_cost;
-   /* Coefficient `a` of the quadratic function which determines the number
-      of compute units consumed to call poseidon syscall for a given number
-      of inputs. */
-   ulong poseidon_cost_coefficient_a;
-   /* Coefficient `c` of the quadratic function which determines the number
-      of compute units consumed to call poseidon syscall for a given number
-      of inputs. */
-   ulong poseidon_cost_coefficient_c;
-   /* Number of compute units consumed for accessing the remaining compute units. */
-   ulong get_remaining_compute_units_cost;
-   /* Number of compute units consumed to call alt_bn128_g1_compress. */
-   ulong alt_bn128_g1_compress;
-   /* Number of compute units consumed to call alt_bn128_g1_decompress. */
-   ulong alt_bn128_g1_decompress;
-   /* Number of compute units consumed to call alt_bn128_g2_compress. */
-   ulong alt_bn128_g2_compress;
-   /* Number of compute units consumed to call alt_bn128_g2_decompress. */
-   ulong alt_bn128_g2_decompress;
-   /* Maximum accounts data size, in bytes, that a transaction is allowed to load; the
-      value is capped by MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent overuse of
-      memory. */
-   ulong loaded_accounts_data_size_limit;
+   ulong compute_unit_limit;                        /* Number of compute units that a transaction or individual instruction is
+                                                       allowed to consume.  Compute units are consumed by program execution,
+                                                       resources they use, etc... */
+   ulong log_64_units;                              /* Number of compute units consumed by a log_u64 call */
+   ulong create_program_address_units;              /* Number of compute units consumed by a create_program_address call */
+   ulong invoke_units;                              /* Number of compute units consumed by an invoke call (not including the cost
+                                                       incurred by the called program) */
+   ulong max_invoke_stack_height;                   /* Maximum program instruction invocation stack height. Invocation stack height
+                                                       starts at 1 for transaction instructions and the stack height is incremented
+                                                       each time a program invokes an instruction and decremented when a program
+                                                       returns. */
+   ulong max_instruction_trace_length;              /* Maximum cross-program invocation and instructions per transaction */
+   ulong sha256_base_cost;                          /* Base number of compute units consumed to call SHA256 */
+   ulong sha256_byte_cost;                          /* Incremental number of units consumed by SHA256 (based on bytes) */
+   ulong sha256_max_slices;                         /* Maximum number of slices hashed per syscall */
+   ulong max_call_depth;                            /* Maximum SBF to BPF call depth */
+   ulong stack_frame_size;                          /* Size of a stack frame in bytes, must match the size specified in the LLVM
+                                                       SBF backend */
+   ulong log_pubkey_units;                          /* Number of compute units consumed by logging a `Pubkey` */
+   ulong max_cpi_instruction_size;                  /* Maximum cross-program invocation instruction size */
+   ulong cpi_bytes_per_unit;                        /* Number of account data bytes per compute unit charged during a cross-program
+                                                       invocation */
+   ulong sysvar_base_cost;                          /* Base number of compute units consumed to get a sysvar */
+   ulong secp256k1_recover_cost;                    /* Number of compute units consumed to call secp256k1_recover */
+   ulong syscall_base_cost;                         /* Number of compute units consumed to do a syscall without any work */
+   ulong curve25519_edwards_validate_point_cost;    /* Number of compute units consumed to validate a curve25519 edwards point */
+   ulong curve25519_edwards_add_cost;               /* Number of compute units consumed to add two curve25519 edwards points */
+   ulong curve25519_edwards_subtract_cost;          /* Number of compute units consumed to subtract two curve25519 edwards points */
+   ulong curve25519_edwards_multiply_cost;          /* Number of compute units consumed to multiply a curve25519 edwards point */
+   ulong curve25519_edwards_msm_base_cost;          /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                       edwards points.  The total cost is calculated as
+                                                       `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+   ulong curve25519_edwards_msm_incremental_cost;   /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                       edwards points.  The total cost is calculated as
+                                                       `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+   ulong curve25519_ristretto_validate_point_cost;  /* Number of compute units consumed to validate a curve25519 ristretto point */
+   ulong curve25519_ristretto_add_cost;             /* Number of compute units consumed to add two curve25519 ristretto points */
+   ulong curve25519_ristretto_subtract_cost;        /* Number of compute units consumed to subtract two curve25519 ristretto
+                                                       points */
+   ulong curve25519_ristretto_multiply_cost;        /* Number of compute units consumed to multiply a curve25519 ristretto point */
+   ulong curve25519_ristretto_msm_base_cost;        /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                       ristretto points.  The total cost is calculated as
+                                                       `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+   ulong curve25519_ristretto_msm_incremental_cost; /* Number of compute units consumed for a multiscalar multiplication (msm) of
+                                                       ristretto points.  The total cost is calculated as
+                                                       `msm_base_cost + (length - 1) * msm_incremental_cost`. */
+   ulong heap_size;                                 /* program heap region size, default: solana_sdk::entrypoint::HEAP_LENGTH */
+   ulong heap_cost;                                 /* Number of compute units per additional 32k heap above the default
+                                                       (~.5 us per 32k at 15 units/us rounded up) */
+   ulong mem_op_base_cost;                          /* Memory operation syscall base cost */
+   ulong alt_bn128_addition_cost;                   /* Number of compute units consumed to call alt_bn128_addition */
+   ulong alt_bn128_multiplication_cost;             /* Number of compute units consumed to call alt_bn128_multiplication. */
+   ulong alt_bn128_pairing_one_pair_cost_first;     /* Total cost will be alt_bn128_pairing_one_pair_cost_first + ... */
+   ulong alt_bn128_pairing_one_pair_cost_other;     /* ... alt_bn128_pairing_one_pair_cost_other * (num_elems - 1) */
+   ulong big_modular_exponentiation_cost;           /* Big integer modular exponentiation cost */
+   ulong poseidon_cost_coefficient_a;               /* Coefficient `a` of the quadratic function which determines the number of
+                                                       compute units consumed to call poseidon syscall for a given number of
+                                                       inputs. */
+   ulong poseidon_cost_coefficient_c;               /* Coefficient `c` of the quadratic function which determines the number of
+                                                       compute units consumed to call poseidon syscall for a given number of
+                                                       inputs. */
+   ulong get_remaining_compute_units_cost;          /* Number of compute units consumed for reading the remaining compute units. */
+   ulong alt_bn128_g1_compress;                     /* Number of compute units consumed to call alt_bn128_g1_compress. */
+   ulong alt_bn128_g1_decompress;                   /* Number of compute units consumed to call alt_bn128_g1_decompress. */
+   ulong alt_bn128_g2_compress;                     /* Number of compute units consumed to call alt_bn128_g2_compress. */
+   ulong alt_bn128_g2_decompress;                   /* Number of compute units consumed to call alt_bn128_g2_decompress. */
+   ulong loaded_accounts_data_size_limit;           /* Maximum accounts data size, in bytes, that a transaction is allowed to load;
+                                                       the value is capped by FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES to prevent
+                                                       overuse of memory. */
 };
 
 typedef struct fd_vm_exec_compute_budget fd_vm_exec_compute_budget_t;
