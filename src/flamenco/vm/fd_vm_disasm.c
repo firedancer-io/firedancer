@@ -146,7 +146,7 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
   if( FD_UNLIKELY( instr.opcode.normal.op_mode==FD_SBPF_OPCODE_JMP_OP_MODE_CALL ) ) {
     switch ( instr.opcode.normal.op_src ) {
     case FD_SBPF_OPCODE_SOURCE_MODE_IMM: {
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, instr.imm, NULL );
+      fd_sbpf_syscalls_t const * syscall = syscalls ? fd_sbpf_syscalls_query_const( syscalls, instr.imm, NULL ) : NULL;
       if( syscall ) { /* FIXME: THESE CODE PATHS CURRENTLY NOT EXERCISED BY UNIT TEST */
         char const * name = syscall->name;
         if( name ) OUT_PRINTF( "syscall%s %s",     suffix, name      );
@@ -239,7 +239,7 @@ fd_vm_disasm_instr( ulong const *              text,
                     ulong                      out_max,
                     ulong *                    _out_len ) {
 
-  if( FD_UNLIKELY( (!text) | (!text_cnt) | (!syscalls) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( (!text) | (!text_cnt) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
   fd_sbpf_instr_t i0 = fd_sbpf_instr( text[0] );
@@ -278,7 +278,7 @@ fd_vm_disasm_program( ulong const *              text,
                       ulong                      out_max,
                       ulong *                    _out_len ) {
 
-  if( FD_UNLIKELY( ((!text) & (!!text_cnt)) | (!syscalls) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( ((!text) & (!!text_cnt)) | (!out) | (!out_max) | (!_out_len) ) ) return FD_VM_ERR_INVAL;
   if( FD_UNLIKELY( (*_out_len)>=out_max ) ) return FD_VM_ERR_INVAL;
 
   /* Construct the mapping of pc to labels and functions.  FIXME: This

@@ -35,7 +35,8 @@ test_program_success( char *        test_case_name,
     .text                       = text,
     .text_cnt                   = text_cnt,
     .heap_max                   = FD_VM_HEAP_DEFAULT,
-    .heap_sz                    = 0UL
+    .heap_sz                    = 0UL,
+    .trace                      = NULL
   };
 
   int err = fd_vm_validate( &vm );

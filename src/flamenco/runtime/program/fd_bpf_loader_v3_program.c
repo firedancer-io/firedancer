@@ -208,11 +208,7 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 //if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  int err;
-
-  if( FD_UNLIKELY( vm.trace ) ) err = fd_vm_exec_trace( &vm );
-  else                          err = fd_vm_exec      ( &vm );
-
+  int err = fd_vm_exec( &vm );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_exec failed (%i-%s)", err, fd_vm_strerror( err ) ));
 
 #ifdef FD_DEBUG_SBPF_TRACES
