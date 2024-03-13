@@ -488,7 +488,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L159-L166 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, (uchar)instr_acc_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* TODO Log: "Initialize nonce account: Account {} must be writeable" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
@@ -646,7 +646,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L206-L213 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, (uchar)instr_acc_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* TODO Log: "Authorize nonce account: Account {} must be writable" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }

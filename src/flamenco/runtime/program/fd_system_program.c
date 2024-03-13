@@ -48,12 +48,7 @@ fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
    Returns 1 if any instruction account with the given pubkey is a
    signer and 0 otherwise.  Note that the same account/pubkey can be
    specified as multiple different instruction accounts that might not
-   all have the signer bit.
-
-   TODO: Calls to this function are lifted out from the actual call
-         sites (fd_system_program_{assign,allocate}) to further up the
-         stack (like fd_system_program_allocate_and_assign).  We should
-         strongly reconsider this. */
+   all have the signer bit. */
 
 FD_FN_PURE static int
 any_instr_acc_is_signer( fd_instr_info_t const * info,
@@ -61,7 +56,7 @@ any_instr_acc_is_signer( fd_instr_info_t const * info,
   int is_signer = 0;
   for( ulong j=0UL; j < info->acct_cnt; j++ )
     is_signer |=
-      ( ( !!fd_instr_acc_is_signer_idx( info, (uchar)j ) ) &
+      ( ( !!fd_instr_acc_is_signer_idx( info, j ) ) &
         ( 0==memcmp( pubkey->key, info->acct_pubkeys[j].key, sizeof(fd_pubkey_t) ) ) );
   return is_signer;
 }
@@ -115,7 +110,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   fd_borrowed_account_t * from = NULL;
   do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)from_acct_idx, &from );
+    int err = fd_instr_borrowed_account_view_idx( ctx, from_acct_idx, &from );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -143,7 +138,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
 
   do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)from_acct_idx, 0UL, &from );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, from_acct_idx, 0UL, &from );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -161,7 +156,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   fd_borrowed_account_t * to = NULL;
 
   do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)to_acct_idx, 0UL, &to );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, to_acct_idx, 0UL, &to );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -193,12 +188,14 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L223-L229 */
 
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, system_transfer_zero_check )
-      && transfer_amount == 0UL )
-    return 0;
+      && transfer_amount == 0UL ) {
+    FD_LOG_WARNING(( "BRUH" ));
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L231-L241 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)from_acct_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
     /* TODO Log: "Transfer: `from` account {} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -210,28 +207,23 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L71-L111
 
-   Based on Solana Labs system_processor::allocate()
-
-   is_authorized is 1 if any instruction account is a signer for the
-   address of the acct_idx instruction account.  THIS IS NOT EQUAL TO
-   fd_instr_acc_is_signer_idx(acct_idx). */
+   Based on Solana Labs system_processor::allocate() */
 
 static int
 fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
                             ulong                 acct_idx,
-                            int                   is_authorized,
                             ulong                 space ) {
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
-
-  if( FD_UNLIKELY( !is_authorized ) ) {
-    /* TODO Log: "Allocate 'to' account {:?} must sign" */
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
 
   /* Assumes that acct_idx was bounds checked */
 
   fd_borrowed_account_t * account = ctx->instr->borrowed_accounts[ acct_idx ];
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
+
+  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, account->pubkey ) ) ) {
+    /* TODO Log: "Allocate 'to' account {:?} must sign" */
+    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L87-L96 */
 
@@ -254,7 +246,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   do {
     /* Implicit upgrade to writable */
-    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)acct_idx, space, &account );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, acct_idx, space, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -269,16 +261,11 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L113-L131
 
-   Based on Solana Labs system_processor::assign()
-
-   is_authorized is 1 if any instruction account is a signer for the
-   address of the acct_idx instruction account.  THIS IS NOT EQUAL TO
-   fd_instr_acc_is_signer_idx(acct_idx). */
+   Based on Solana Labs system_processor::assign() */
 
 static int
 fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
                           ulong                 acct_idx,
-                          int                   is_authorized,
                           fd_pubkey_t const *   owner ) {
 
   /* Assumes addr_idx was bounds checked */
@@ -292,14 +279,14 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
-  if( FD_UNLIKELY( !is_authorized ) ) {
+  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, account->pubkey ) ) ) {
     /* TODO Log: "Assign: account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   /* Implicit writable acquire */
   do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)acct_idx, 0UL, &account );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, acct_idx, 0UL, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -308,25 +295,20 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L133-L143
 
-   Based on Solana Labs system_processor::allocate_and_assign()
-
-   is_authorized is 1 if any instruction account is a signer for the
-   address of the acct_idx instruction account.  THIS IS NOT EQUAL TO
-   fd_instr_acc_is_signer_idx(acct_idx). */
+   Based on Solana Labs system_processor::allocate_and_assign() */
 
 static int
 fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t * ctx,
                                        ulong                 acct_idx,
-                                       int                   is_authorized,
                                        ulong                 space,
                                        fd_pubkey_t const *   owner ) {
 
   do {
-    int err = fd_system_program_allocate( ctx, acct_idx, is_authorized, space );
+    int err = fd_system_program_allocate( ctx, acct_idx, space );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  return fd_system_program_assign( ctx, acct_idx, is_authorized, owner );
+  return fd_system_program_assign( ctx, acct_idx, owner );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L146-L181
@@ -337,7 +319,6 @@ static int
 fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
                                   ulong                 from_acct_idx,
                                   ulong                 to_acct_idx,
-                                  int                   to_is_authorized,
                                   ulong                 lamports,
                                   ulong                 space,
                                   fd_pubkey_t const *   owner ) {
@@ -348,7 +329,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
   fd_borrowed_account_t * to = NULL;
   do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, (uchar)to_acct_idx, &to );
+    int err = fd_instr_borrowed_account_view_idx( ctx, to_acct_idx, &to );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -366,7 +347,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L171 */
 
   do {
-    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, to_is_authorized, space, owner );
+    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, space, owner );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -398,12 +379,10 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
 
   ulong const from_acct_idx    = 0UL;
   ulong const to_acct_idx      = 1UL;
-  int   const to_is_authorized = any_instr_acc_is_signer( ctx->instr, &ctx->instr->acct_pubkeys[to_acct_idx] );
   return fd_system_program_create_account(
       ctx,
-      (uchar)from_acct_idx,
-      (uchar)to_acct_idx,
-      to_is_authorized,
+      from_acct_idx,
+      to_acct_idx,
       create_acc->lamports,
       create_acc->space,
       &create_acc->owner );
@@ -436,13 +415,11 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L385-L391
      system_processor::Address::create eliminated (dead code) */
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392
-     Authorization check is lifted out from 'assign' to here. */
+  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
 
-  ulong const acct_idx      = 0UL;
-  int   const is_authorized = any_instr_acc_is_signer( ctx->instr, &ctx->instr->acct_pubkeys[acct_idx] );
+  ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_assign( ctx, (uchar)acct_idx, is_authorized, owner );
+    int err = fd_system_program_assign( ctx, acct_idx, owner );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -498,19 +475,14 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  /* Authorization check is lifted out from 'allocate' to here. */
-
-  int const to_is_authorized = any_instr_acc_is_signer( instr, &args->base );
-
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L368-L379 */
 
   ulong const from_acct_idx    = 0UL;
   ulong const to_acct_idx      = 1UL;
   return fd_system_program_create_account(
       ctx,
-      (uchar)from_acct_idx,
-      (uchar)to_acct_idx,
-      to_is_authorized,
+      from_acct_idx,
+      to_acct_idx,
       args->lamports,
       args->space,
       &args->owner );
@@ -546,10 +518,9 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
      Authorization check is lifted out from 'allocate' to here. */
 
-  ulong const acct_idx      = 0UL;
-  int   const is_authorized = any_instr_acc_is_signer( ctx->instr, &ctx->instr->acct_pubkeys[acct_idx] );
+  ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_allocate( ctx, (uchar)acct_idx, is_authorized, space );
+    int err = fd_system_program_allocate( ctx, acct_idx, space );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -599,13 +570,11 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L533-L540
      Authorization check is lifted out from 'allocate' to here. */
 
-  ulong const acct_idx      = 0UL;
-  int   const is_authorized = any_instr_acc_is_signer( ctx->instr, &ctx->instr->acct_pubkeys[acct_idx] );
+  ulong const acct_idx = 0UL;
   do {
     int err = fd_system_program_allocate_and_assign(
         ctx,
-        (uchar)acct_idx,
-        is_authorized,
+        acct_idx,
         args->space,
         &args->owner );
     if( FD_UNLIKELY( err ) ) return err;
@@ -657,10 +626,9 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L553
      Authorization check is lifted out from 'assign' to here. */
 
-  ulong const acct_idx      = 0UL;
-  int   const is_authorized = any_instr_acc_is_signer( ctx->instr, &ctx->instr->acct_pubkeys[acct_idx] );
+  ulong const acct_idx = 0UL;
   do {
-    int err = fd_system_program_assign( ctx, (uchar)acct_idx, is_authorized, &args->owner );
+    int err = fd_system_program_assign( ctx, acct_idx, &args->owner );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
