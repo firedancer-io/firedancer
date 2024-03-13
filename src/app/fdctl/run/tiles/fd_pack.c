@@ -141,9 +141,22 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( now>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     ctx->leader_slot = ULONG_MAX;
     fd_pack_end_block( ctx->pack );
-    /* We reuse the slot field here to send the microblock count for the slot instead,
-       since the slot is already known to the PoH tile (they told us to pack for it). */
-    fd_mux_publish( mux, fd_disco_poh_sig( ctx->slot_microblock_cnt, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), 0UL, 0UL, 0UL, 0UL, 0UL );
+
+    if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
+      /* As an optimization, The PoH tile will automatically end a slot
+         if it receives the maximum allowed microblocks, since it knows
+         there is nothing left to receive, and it must soon be getting a
+         DONE_PACKING notification.
+
+         In that case, we actually must not send a DONE_PACKING
+         notification, because it would cause PoH to end the next slot
+         that it has already started waiting for microblocks on.
+      
+         We reuse the slot field here to send the microblock count for
+         the slot instead, since the slot is already known to the PoH
+         tile (they told us to pack for it). */
+      fd_mux_publish( mux, fd_disco_poh_sig( ctx->slot_microblock_cnt, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), 0UL, 0UL, 0UL, 0UL, 0UL );
+    }
     ctx->slot_microblock_cnt = 0UL;
   }
 
@@ -218,7 +231,7 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX ) ) fd_pack_end_block( ctx->pack );
+    FD_TEST( ctx->leader_slot==ULONG_MAX );
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;

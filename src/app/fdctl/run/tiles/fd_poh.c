@@ -894,30 +894,31 @@ after_credit( void *             _ctx,
   else                         restricted_hashcnt = fd_ulong_if( (current_slot+2UL)*ctx->hashcnt_per_slot>=max_remaining_microblocks, (current_slot+2UL)*ctx->hashcnt_per_slot-max_remaining_microblocks, 0UL );
   target_hash_cnt = fd_ulong_min( target_hash_cnt, restricted_hashcnt );
 
-  /* And then now actually perform the hashes.
+  if( FD_LIKELY( ctx->hashcnt_per_tick!=1UL && (target_hash_cnt%ctx->hashcnt_per_tick)==(ctx->hashcnt_per_tick-1UL)) ) {
+    /* Recall that there are two kinds of events that will get published
+       to the shredder,
 
-     Recall that there are two kinds of events that will get published
-     to the shredder,
+         (a) Ticks. These occur every 12,500 (hashcnt_per_tick) hashcnts,
+             and there will be 64 (ticks_per_slot) of them in each slot.
 
-       (a) Ticks. These occur every 12,500 (hashcnt_per_tick) hashcnts,
-           and there will be 64 (ticks_per_slot) of them in each slot.
+             Ticks must not have any transactions mixed into the hash.
+             This is not strictly needed in theory, but is required by the
+             current consensus protocol.
 
-           Ticks must not have any transactions mixed into the hash.
-           This is not strictly needed in theory, but is required by the
-           current consensus protocol.
+         (b) Microblocks.  These can occur at any other hashcnt, as long
+             as it is not a tick.  Microblocks cannot be empty, and must
+             have at least one transactions mixed in.
 
-       (b) Microblocks.  These can occur at any other hashcnt, as long
-           as it is not a tick.  Microblocks cannot be empty, and must
-           have at least one transactions mixed in.
+       To make sure that we do not publish microblocks on tick boundaries,
+       we always make sure here the hashcnt does not get left one before
+       a tick boundary.
 
-     To make sure that we do not publish microblocks on tick boundaries,
-     we always make sure here the hashcnt does not get left one before
-     a tick boundary.  If we reach such a case and want to terminate the
-     loop, we simply do one more hash and publish the tick first.
+       If hashcnt_per_tick is 1, then we are in low power mode and this
+       does not apply, we can mix in transactions at any time. */
+    target_hash_cnt = fd_ulong_if( target_hash_cnt>0UL, target_hash_cnt-1UL, 0UL );
+  }
 
-     If hashcnt_per_tick is 1, then we are in low power mode and this
-     does not apply, we can mix in transactions at any time. */
-  while( ctx->hashcnt<target_hash_cnt || (ctx->hashcnt_per_tick!=1UL && (ctx->hashcnt_per_tick-1UL)==(ctx->hashcnt%ctx->hashcnt_per_tick)) ) {
+  while( ctx->hashcnt<target_hash_cnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
     ctx->hashcnt++;
 
@@ -932,6 +933,7 @@ after_credit( void *             _ctx,
     if( FD_UNLIKELY( is_leader && ctx->hashcnt>=(ctx->next_leader_slot_hashcnt+ctx->hashcnt_per_slot) ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
+      FD_TEST( !max_remaining_microblocks );
       no_longer_leader( ctx );
     }
 
@@ -994,6 +996,11 @@ during_frag( void * _ctx,
     /* We now know the real amount of microblocks published, so set an
        exact bound for once we receive them. */
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
+      FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
+      FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
+                    ctx->hashcnt/ctx->hashcnt_per_slot,
+                    ctx->microblocks_lower_bound,
+                    fd_disco_poh_sig_slot( sig ) ));
       ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - fd_disco_poh_sig_slot( sig );
     }
     *opt_filter = 1;
@@ -1089,7 +1096,11 @@ after_frag( void *             _ctx,
                   next_leader_slot_hashcnt_after_frag/ctx->hashcnt_per_slot ));
 
     ctx->next_leader_slot_hashcnt = next_leader_slot_hashcnt_after_frag;
-    if( FD_UNLIKELY( currently_leader && !leader_after_frag ) ) no_longer_leader( ctx );
+    if( FD_UNLIKELY( currently_leader && !leader_after_frag ) ) {
+      /* Shouldn't ever happen, otherwise we need to do a state
+         transition out of being leader. */
+      FD_LOG_ERR(( "stake update caused us to no longer be leader in an active slot" ));
+    }
 
     /* Nothing to do if we transition into being leader, since it
        will just get picked up by the regular tick loop. */
