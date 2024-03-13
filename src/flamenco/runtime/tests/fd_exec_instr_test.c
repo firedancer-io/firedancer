@@ -86,7 +86,7 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   return runner;
 }
 
-static void
+static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
@@ -96,6 +96,10 @@ _load_account( fd_borrowed_account_t *           acc,
   if( state->data ) size = state->data->size;
 
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
+
+  /* Account must not yet exist */
+  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) )
+    return 0;
 
   assert( acc_mgr->funk );
   assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
@@ -116,6 +120,8 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta->info.rent_epoch = state->rent_epoch;
   acc->meta->dlen            = size;
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
+
+  return 1;
 }
 
 static int
@@ -207,6 +213,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->acc_mgr   = acc_mgr;
   txn_ctx->valloc    = fd_scratch_virtual();
 
+  txn_ctx->compute_meter      = test_ctx->cu_avail;
+  txn_ctx->compute_unit_limit = test_ctx->cu_avail;
+
   /* Set up instruction context */
 
   fd_instr_info_t * info = fd_scratch_alloc( alignof(fd_instr_info_t), sizeof(fd_instr_info_t) );
@@ -235,7 +244,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   assert( acc_mgr->funk );
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ )
-    _load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] );
+    if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
+      return 0;
 
   /* Load instruction accounts */
 
@@ -564,6 +574,20 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     return 0UL;
   }
 
+  /* TODO: Agave currently fails with UnsupportedProgramId if the
+           owner of the native program is weird. */
+  do {
+    FD_BORROWED_ACCOUNT_DECL( prog_acct );
+    int err = fd_acc_mgr_view( ctx->acc_mgr, ctx->funk_txn, program_id, prog_acct );
+    if( err==FD_ACC_MGR_SUCCESS ) {
+      if( ( 0!=memcmp( prog_acct->const_meta->info.owner, fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) |
+          ( !prog_acct->const_meta->info.executable ) ) {
+        _context_destroy( runner, ctx );
+        return 0;
+      }
+    }
+  } while(0);
+
   /* Execute the test */
 
   int exec_result = native_prog_fn( *ctx );
@@ -584,7 +608,8 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 
   /* Capture error code */
 
-  effects->result = exec_result;
+  effects->result   = -exec_result - 1;
+  effects->cu_avail = ctx->txn_ctx->compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
     effects->has_custom_err = 1;
@@ -633,7 +658,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
 
     fd_exec_test_acct_state_t * out_acct = &effects->modified_accounts[ modified_idx ];
     memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
-
     /* Copy over account content */
 
     out_acct->has_address = 1;
@@ -658,6 +682,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     out_acct->has_rent_epoch = 1;
     out_acct->rent_epoch     = meta->info.rent_epoch;
 
+    out_acct->has_owner = 1;
     memcpy( out_acct->owner, meta->info.owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
