@@ -49,7 +49,52 @@ FD_STATIC_ASSERT( FD_VM_HEAP_MAX    ==256UL*1024UL, vm_heap );
 FD_STATIC_ASSERT( FD_VM_LOG_MAX==10000UL, vm_log );
 
 /* FIXME: COVER MEMORY MAP */
-/* FIXME: COVER COMPUTE BUDGET */
+
+FD_STATIC_ASSERT( FD_VM_COMPUTE_UNIT_LIMIT                       ==         1400000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_LOG_64_UNITS                             ==             100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CREATE_PROGRAM_ADDRESS_UNITS             ==            1500UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_INVOKE_UNITS                             ==            1000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_MAX_INVOKE_STACK_HEIGHT                  ==               5UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_MAX_INSTRUCTION_TRACE_LENGTH             ==              64UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SHA256_BASE_COST                         ==              85UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SHA256_BYTE_COST                         ==               1UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SHA256_MAX_SLICES                        ==           20000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_MAX_CALL_DEPTH                           ==              64UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SIZE                         ==            4096UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_LOG_PUBKEY_UNITS                         ==             100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_MAX_CPI_INSTRUCTION_SIZE                 ==            1280UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CPI_BYTES_PER_UNIT                       ==             250UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SYSVAR_BASE_COST                         ==             100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SECP256K1_RECOVER_COST                   ==           25000UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_SYSCALL_BASE_COST                        ==             100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_VALIDATE_POINT_COST   ==             159UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_ADD_COST              ==             473UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST         ==             475UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST         ==            2177UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MSM_BASE_COST         ==            2273UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_EDWARDS_MSM_INCREMENTAL_COST  ==             758UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_VALIDATE_POINT_COST ==             169UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_ADD_COST            ==             521UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST       ==             519UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST       ==            2208UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MSM_BASE_COST       ==            2303UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_CURVE25519_RISTRETTO_MSM_INCREMENTAL_COST==             788UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_HEAP_SIZE                                ==           32768UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_HEAP_COST                                ==               8UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_MEM_OP_BASE_COST                         ==              10UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_ADDITION_COST                  ==             334UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_MULTIPLICATION_COST            ==            3840UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_FIRST    ==           36364UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_PAIRING_ONE_PAIR_COST_OTHER    ==           12121UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_BIG_MODULAR_EXPONENTIATION_COST          ==              33UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_POSEIDON_COST_COEFFICIENT_A              ==              61UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_POSEIDON_COST_COEFFICIENT_C              ==             542UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_GET_REMAINING_COMPUTE_UNITS_COST         ==             100UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_COMPRESS                    ==              30UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G1_DECOMPRESS                  ==             398UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_COMPRESS                    ==              86UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_ALT_BN128_G2_DECOMPRESS                  ==           13610UL, vm_cu );
+FD_STATIC_ASSERT( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT          ==64UL*1024UL*1024UL, vm_cu );
 
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );

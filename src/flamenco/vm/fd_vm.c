@@ -50,57 +50,6 @@ fd_vm_strerror( int err ) {
   return "UNKNOWN probably not a FD_VM_ERR code";
 }
 
-/* FIXME: MOVE TO BASE/SBPF? */
-
-/* https://github.com/anza-xyz/agave/blob/v1.18.5/program-runtime/src/compute_budget.rs#L133 */
-fd_vm_exec_compute_budget_t const vm_compute_budget = {
-  .compute_unit_limit                        = FD_VM_MAX_COMPUTE_UNIT_LIMIT,
-  .log_64_units                              =   100UL,
-  .create_program_address_units              =  1500UL,
-  .invoke_units                              =  1000UL,
-  .max_invoke_stack_height                   =     5UL,
-  .max_instruction_trace_length              =    64UL,
-  .sha256_base_cost                          =    85UL,
-  .sha256_byte_cost                          =     1UL,
-  .sha256_max_slices                         = 20000UL,
-  .max_call_depth                            =    64UL,
-  .stack_frame_size                          =  4096UL,
-  .log_pubkey_units                          =   100UL,
-  .max_cpi_instruction_size                  =  1280UL, // IPv6 Min MTU size
-  .cpi_bytes_per_unit                        =   250UL, // ~50MB at 200,000 units
-  .sysvar_base_cost                          =   100UL,
-  .secp256k1_recover_cost                    = 25000UL,
-  .syscall_base_cost                         =   100UL,
-  .curve25519_edwards_validate_point_cost    =   159UL,
-  .curve25519_edwards_add_cost               =   473UL,
-  .curve25519_edwards_subtract_cost          =   475UL,
-  .curve25519_edwards_multiply_cost          =  2177UL,
-  .curve25519_edwards_msm_base_cost          =  2273UL,
-  .curve25519_edwards_msm_incremental_cost   =   758UL,
-  .curve25519_ristretto_validate_point_cost  =   169UL,
-  .curve25519_ristretto_add_cost             =   521UL,
-  .curve25519_ristretto_subtract_cost        =   519UL,
-  .curve25519_ristretto_multiply_cost        =  2208UL,
-  .curve25519_ristretto_msm_base_cost        =  2303UL,
-  .curve25519_ristretto_msm_incremental_cost =   788UL,
-  .heap_size                                 = 32768UL, // u32::try_from(solana_sdk::entrypoint::HEAP_LENGTH).unwrap()
-  .heap_cost                                 =     8UL, // DEFAULT_HEAP_COST
-  .mem_op_base_cost                          =    10UL,
-  .alt_bn128_addition_cost                   =   334UL,
-  .alt_bn128_multiplication_cost             =  3840UL,
-  .alt_bn128_pairing_one_pair_cost_first     = 36364UL,
-  .alt_bn128_pairing_one_pair_cost_other     = 12121UL,
-  .big_modular_exponentiation_cost           =    33UL,
-  .poseidon_cost_coefficient_a               =    61UL,
-  .poseidon_cost_coefficient_c               =   542UL,
-  .get_remaining_compute_units_cost          =   100UL,
-  .alt_bn128_g1_compress                     =    30UL,
-  .alt_bn128_g1_decompress                   =   398UL,
-  .alt_bn128_g2_compress                     =    86UL,
-  .alt_bn128_g2_decompress                   = 13610UL,
-  .loaded_accounts_data_size_limit           = FD_VM_MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, // 64MiB
-};
-
 /* FIXME: add a pedantic version of this validation that does things
    like:
   - only 0 imms when the instruction does not use an imm
@@ -230,7 +179,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     case FD_CHECK_CALL: { /* FIXME: Check to make sure we are really doing this right! (required for sbpf2?) */
       if( instr.imm>=text_cnt                                                      &&
-          !fd_sbpf_syscalls_query( vm->syscalls, instr.imm, NULL )                 &&
+          !fd_sbpf_syscalls_query_const( vm->syscalls, instr.imm, NULL )           &&
           !fd_sbpf_calldests_test( vm->calldests, fd_pchash_inverse( instr.imm ) ) ) return FD_VM_ERR_NO_SUCH_EXT_CALL;
       break;
     }

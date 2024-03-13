@@ -10,7 +10,7 @@ struct fd_vm;
 typedef struct fd_vm fd_vm_t;
 
 /**********************************************************************/
-/* FIXME: MOVE TO PRIVATE WHEN CONSTRUCTORS READY */
+/* FIXME: MOVE TO FD_VM_PRIVATE WHEN CONSTRUCTORS READY */
 
 /* A fd_vm_shadow_t holds stack frame information not accessible from
    within a VM program. */
@@ -24,36 +24,45 @@ typedef struct fd_vm_shadow fd_vm_shadow_t;
 
 struct fd_vm {
 
-  /* FIXME: ORGANIZATION FOR PERFORMANCE */
+  /* FIXME: ORGANIZE FOR PERFORMANCE */
 
   /* Read-only VM parameters */
 
-  long                 entrypoint;  /* The initial program counter to start at */ /* FIXME: WHY LONG? IS IT IN [0,TEXT_CNT)? */
-  fd_sbpf_syscalls_t * syscalls;    /* The map of syscalls that can be called into */ /* FIXME: CONST? */
-  ulong *              calldests;   /* The bit vector of local functions that can be called into (FIXME: INDEXING, CONST) */
-  int                  check_align; /* If non-zero, VM does alignment checks where necessary (syscalls) */
-  int                  check_size;  /* If non-zero, VM does size checks where necessary (syscalls) */
+  int check_align; /* If non-zero, VM does alignment checks where necessary (syscalls) */
+  int check_size;  /* If non-zero, VM does size checks where necessary (syscalls) */
 
   /* Read-write VM parameters */
 
-  ulong program_counter;            /* The current instruction index being executed */
-  ulong instruction_counter;        /* The number of instructions which have been executed */
-  ulong compute_meter;              /* The remaining CUs left for the transaction */
+  ulong program_counter;            /* The current instruction index being executed, FIXME: NAME -> PC? */
+  ulong instruction_counter;        /* The number of instructions which have been executed, FIXME: NAME -> IC? */
+  ulong compute_meter;              /* The remaining CUs left for the transaction */ /* FIXME: NAME -> CC? */
   ulong due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
-  ulong previous_instruction_meter; /* Last value of remaining compute units */
-  int   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the execution fault that occured */
+  ulong previous_instruction_meter; /* Last value of remaining compute units */ /* FIXME: NAME -> CC_LAST? */
+  int   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the fault that occured, FIXME: NAME: FAULT? */
 
-  /* Memory regions */
+  /* External memory regions */
+  /* FIXME: MAKE CALLDESTS AN INTERNAL MEMORY REGION IF TEXT_CNT
+     HAS A REASONABLY UPPER BOUND? */
+  /* FIXME: ADD BIT VECTOR TO FORBID BRANCHING INTO MULTIWORD
+     INSTRUCTIONS (OR AS AN INTERNAL MEMORY REGION) AND/OR HAVE VALIDATE
+     COMPUTE. */
 
-  ulong const *   text;      /* Program sBPF words, indexed [0,text_cnt) */
-  ulong           text_cnt;  /* Program sBPF word count (FIXME: BOUNDS?) */
-  ulong           text_off;  /* This is the relocation offset we must apply to indirect calls (callx/CALL_REGs)
-                                IMPORANT SAFETY TIP!  THIS IS IN BYTES (FIXME: SHOULD THIS BE IN BYTES, MULTIPLE OF 8, ULONG, BOUNDS?) */
-  uchar *         input;     /* Program input memory region */
-  ulong           input_sz;  /* Program input memory region size, FIXME: BOUNDS */
-  uchar const *   rodata;    /* Program read only data, typically just the relocated program binary blob */
-  ulong           rodata_sz; /* Program read only data size in bytes (FIXME: BOUNDS) */
-  fd_vm_trace_t * trace;     /* Location to hold traces (ignored and can be NULL if not tracing) */
+  ulong const * text;       /* Program sBPF words, indexed [0,text_cnt) */
+  ulong         text_cnt;   /* Program sBPF word count (FIXME: BOUNDS?) */
+  ulong         text_off;   /* Relocation offset we must apply to indirect calls (callx/CALL_REGs)
+                               IMPORANT SAFETY TIP!  THIS IS IN BYTES (FIXME: SHOULD IT BE? MULTIPLE OF 8? LONG? BOUNDS?) */
+  ulong         entrypoint; /* Initial program counter */ /* FIXME: NAME, BOUNDS [0,TEXT_CNT)? */
+  ulong const * calldests;  /* Bit vector of local functions that can be called into (FIXME: BIT INDEXED [0,TEXT_CNT)?) */
+
+  fd_sbpf_syscalls_t const * syscalls; /* The map of syscalls (sharable over multiple concurrently running VM) */
+
+  uchar * input;    /* Program input memory, indexed [0,input_sz) FIXME: ALIGN? */
+  ulong   input_sz; /* Program input memory size in bytes, FIXME: BOUNDS? */
+
+  uchar const * rodata;    /* Program read only data, indexed [0,rodata_sz) FIXME: ALIGN?, usually the relocated program binary blob */
+  ulong         rodata_sz; /* Program read only data size in bytes, FIXME: BOUNDS? */
+
+  fd_vm_trace_t * trace; /* Location to stream traces (no tracing if NULL) */
 
   /* Runtime context */
 
@@ -63,7 +72,9 @@ struct fd_vm {
 
   /* FIXME: FRAME_MAX should be run time configurable by compute budget
      (is there an upper bound to how configurable ... there needs to be
-     ...  regardless fixable by adding a ulong frame_max here!). */
+     ... regardless fixable by adding a ulong frame_max here!) and
+     potentally making the stack and shadow regions external if there is
+     no reasonable bound on frame_max. */
 
 //ulong frame_max; /* In [0,FD_VM_STACK_FRAME_MAX] */
   ulong frame_cnt; /* In [0,frame_max] */
@@ -92,11 +103,11 @@ struct fd_vm {
 
   ulong log_sz; /* In [0,FD_VM_LOG_MAX] */
 
-  /* Large VM state */
+  /* Internal memory regions */
   /* FIXME: ALIGNMENT */
 
   ulong          reg   [ FD_VM_REG_CNT         ]; /* registers (FIXME: USAGE) */
-  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow frames, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is bottom/top */
+  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is bottom/top */
   uchar          stack [ FD_VM_STACK_MAX       ]; /* stack (FIXME: USAGE) */
   uchar          heap  [ FD_VM_HEAP_MAX        ]; /* sol_alloc_free syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free */
   uchar          log   [ FD_VM_LOG_MAX         ]; /* sol_log_* syscalls log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free */
@@ -109,13 +120,9 @@ FD_PROTOTYPES_BEGIN
 
 /* FIXME: FD_VM_T NEEDS PROPER CONSTRUCTORS */
 
-extern fd_vm_exec_compute_budget_t const vm_compute_budget; /* FIXME: IF NOT COMPILE TIME MACROS, SHOULD THIS BE AN ELEMENT OF FD_VM_T */
-
-/* FIXME: SHOULD THESE TAKE A FD_VM_EXEC_CONTEXT_T? MOVE TO VM_BASE? */
-/* FIXME: DOCUMENT IN MORE DETAIL */
-
 /* fd_vm_syscall_register registers a syscall by name to an execution
    context. */
+/* FIXME: DOCUMENT IN MORE DETAIL, ADD ERROR HANDLING AND FLUSHING */
 
 void
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
@@ -136,8 +143,7 @@ void
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls );
 
 /* fd_vm_validate validates the sBPF program in the given vm.  Returns
- * success or an error code.  Called before executing a sBPF
-   program. */
+   success or an error code.  Called before executing a sBPF program. */
 
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
