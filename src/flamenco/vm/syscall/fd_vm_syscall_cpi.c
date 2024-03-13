@@ -179,7 +179,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
     }
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
-    if ( FD_UNLIKELY( adjusted_len > vm_compute_budget.max_cpi_instruction_size ) ) {
+    if ( FD_UNLIKELY( adjusted_len > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       // Cap the number of account_infos a caller can pass to approximate
       // maximum that accounts that could be passed in an instruction
       // todo: correct return code type. Too many accounts passed to inner instruction.
@@ -735,7 +735,7 @@ from_account_info_rust( fd_vm_t *            vm,
     fd_vm_translate_vm_to_host( vm, account_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN );
   if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_PERM;
 
-  int err = fd_vm_consume_compute( vm, caller_acc_data_box->len / vm_compute_budget.cpi_bytes_per_unit );
+  int err = fd_vm_consume_compute( vm, caller_acc_data_box->len / FD_VM_CPI_BYTES_PER_UNIT );
   if( FD_UNLIKELY( err ) ) return err;
 
   uchar * caller_acc_data = fd_vm_translate_vm_to_host( vm, caller_acc_data_box->addr, caller_acc_data_box->len, alignof(uchar) );
@@ -763,7 +763,7 @@ from_account_info_c( fd_vm_t * vm,
   /* FIXME: TEST? */
   fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
 
-  int err = fd_vm_consume_compute( vm, account_info->data_sz / vm_compute_budget.cpi_bytes_per_unit );
+  int err = fd_vm_consume_compute( vm, account_info->data_sz / FD_VM_CPI_BYTES_PER_UNIT );
   if( FD_UNLIKELY( err ) ) return err;
 
   uchar * caller_acc_data = fd_vm_translate_vm_to_host( vm, account_info->data_addr, account_info->data_sz, alignof(uchar) );
@@ -806,7 +806,7 @@ translate_and_update_accounts( fd_vm_t *       vm,
 
     if( acc_meta && fd_account_is_executable( acc_meta ) ) {
       // FD_LOG_DEBUG(("CPI Acc data len %lu", acc_meta->dlen));
-      int err = fd_vm_consume_compute( vm, acc_meta->dlen / vm_compute_budget.cpi_bytes_per_unit );
+      int err = fd_vm_consume_compute( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       if( FD_UNLIKELY( err ) ) return err;
     } else {
       uint found = 0;
@@ -862,7 +862,7 @@ fd_vm_syscall_cpi_c( void *  _vm,
                      ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.invoke_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Pre-flight checks ************************************************/
@@ -981,7 +981,7 @@ fd_vm_syscall_cpi_rust( void *  _vm,
                         ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.invoke_units );
+  int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Pre-flight checks ************************************************/
@@ -996,7 +996,7 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
-    fd_vm_consume_compute( vm, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+    fd_vm_consume_compute( vm, FD_VM_CPI_BYTES_PER_UNIT ? instruction->data.len/FD_VM_CPI_BYTES_PER_UNIT : ULONG_MAX );
 
   /* Translate signers ************************************************/
 

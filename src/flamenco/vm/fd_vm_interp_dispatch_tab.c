@@ -344,7 +344,7 @@ BRANCH_PRE_CODE
     ctx->compute_meter = compute_meter;
     due_insn_cnt = 0;
     ctx->due_insn_cnt = 0;
-    fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscalls, instr.imm, NULL );
+    fd_sbpf_syscalls_t const * syscall_entry_imm = fd_sbpf_syscalls_query_const( ctx->syscalls, instr.imm, NULL );
     if( syscall_entry_imm==NULL ) {
       // FIXME: DO STACK STUFF correctly: move this r10 manipulation on success.
       register_file[10] += 0x2000; // FIXME: MAGIC NUMBER

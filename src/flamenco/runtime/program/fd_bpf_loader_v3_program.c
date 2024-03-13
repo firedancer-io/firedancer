@@ -166,7 +166,7 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
 
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
   fd_vm_t vm = {
-    .entrypoint                 = (long)prog->entry_pc,
+    .entrypoint                 = prog->entry_pc,
     .syscalls                   = syscalls,
     .calldests                  = prog->calldests,
     .program_counter            = 0,
@@ -288,7 +288,7 @@ setup_program( fd_exec_instr_ctx_t * ctx,
   }
 
   fd_vm_t vm = {
-    .entrypoint          = (long)prog->entry_pc,
+    .entrypoint          = prog->entry_pc,
     .syscalls            = syscalls,
     .calldests           = prog->calldests,
     .program_counter     = 0,

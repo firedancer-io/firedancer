@@ -41,9 +41,9 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
 
   /* TODO don't hardcode limit */
-  if( FD_UNLIKELY( slice_cnt>vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( slice_cnt>FD_VM_SHA256_MAX_SLICES ) ) return FD_VM_ERR_INVAL;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.sha256_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SHA256_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t); /* Note: assumes sha256_max_slices <= ULONG_MAX/sizeof(fd_vm_vec_t) */
@@ -65,8 +65,8 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
     if( FD_UNLIKELY( !mem_haddr ) ) return FD_VM_ERR_PERM;
 
     /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) */
-    ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost,
-                               fd_ulong_sat_mul( vm_compute_budget.sha256_byte_cost, mem_sz ) / 2UL );
+    ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
+                               fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, mem_sz ) / 2UL );
     int err = fd_vm_consume_compute( vm, cost );
     if( FD_UNLIKELY( err ) ) return err;
 
@@ -93,9 +93,9 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
 
   /* FIXME: BLAKE3 HAS NOTE THAT SLICE_CNT SHOULDN'T BE HARDCODED */
-  if( FD_UNLIKELY( slice_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( slice_cnt > FD_VM_SHA256_MAX_SLICES ) ) return FD_VM_ERR_INVAL;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.sha256_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SHA256_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   void * hash_haddr = fd_vm_translate_vm_to_host( vm, res_vaddr, 32UL, alignof(uchar) );
@@ -119,8 +119,8 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
       if( FD_UNLIKELY( !mem_haddr ) ) return FD_VM_ERR_PERM;
 
       /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) (THIS IS PROBABLY WRONG?) */
-      ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost,
-                                 fd_ulong_sat_mul( vm_compute_budget.sha256_byte_cost, mem_sz / 2UL ) );
+      ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
+                                 fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, mem_sz / 2UL ) );
       int err = fd_vm_consume_compute( vm, cost );
       if( FD_UNLIKELY( err ) ) return err;
 
@@ -148,9 +148,9 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
      FIXME: PROVIDE LINK TO SOLANA CODE HERE */
 
   /* FIXME: NOTE BLAKE3 HAS NOTE ABOUT NOT HARDCODED? */
-  if( FD_UNLIKELY( slice_cnt > vm_compute_budget.sha256_max_slices ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( slice_cnt > FD_VM_SHA256_MAX_SLICES ) ) return FD_VM_ERR_INVAL;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.sha256_base_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SHA256_BASE_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   ulong slice_sz = slice_cnt*sizeof(fd_vm_vec_t); /* Note: assumes sha256_max_slices <= ULONG_MAX/sizeof(fd_vm_vec_t) */
@@ -172,8 +172,8 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
     if( FD_UNLIKELY( !mem_haddr ) ) return FD_VM_ERR_PERM;
 
     /* FIXME: WHERE DOES THE / 2UL GO? (SEE OTHER EXAMPLES) */
-    ulong cost = fd_ulong_max( vm_compute_budget.mem_op_base_cost,
-                               fd_ulong_sat_mul( vm_compute_budget.sha256_byte_cost, mem_sz ) / 2UL );
+    ulong cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST,
+                               fd_ulong_sat_mul( FD_VM_SHA256_BYTE_COST, mem_sz ) / 2UL );
     int err = fd_vm_consume_compute( vm, cost );
     if( FD_UNLIKELY( err ) ) return err;
 
@@ -290,7 +290,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, vm_compute_budget.secp256k1_recover_cost );
+  int err = fd_vm_consume_compute( vm, FD_VM_SECP256K1_RECOVER_COST );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* FIXME: Consider fusing these branches? */

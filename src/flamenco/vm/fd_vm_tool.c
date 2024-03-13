@@ -86,28 +86,20 @@ fd_vm_tool_prog_free( fd_vm_tool_prog_t * prog ) {
 
 int
 cmd_disasm( char const * bin_path ) {
-
   fd_vm_tool_prog_t tool_prog;
   fd_vm_tool_prog_create( &tool_prog, bin_path ); /* FIXME: RENAME INIT? */
 
-  fd_vm_t vm = {
-    .entrypoint          = (long)tool_prog.prog->entry_pc,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = tool_prog.prog->text,
-    .text_cnt            = tool_prog.prog->text_cnt,
-    .text_off            = tool_prog.prog->text_off, /* FIXME: WHAT IF TEXT OFF NOT MULTIPLE OF 8 */
-    .calldests           = tool_prog.prog->calldests,
-    .syscalls            = tool_prog.syscalls
-  };
+  /* FIXME: DOES DISASM NEED THE TEXT_OFF TOO FOR CALLS? */
+  /* FIXME: WOULD DISASM BENEFIT BY ANNOTATING THE ENTRY PC AND/OR THE
+     CALLDESTS? */
 
-  ulong  out_max = 128UL*vm.text_cnt; /* FIXME: OVERFLOW */
+  ulong  out_max = 128UL*tool_prog.prog->text_cnt; /* FIXME: OVERFLOW */
   ulong  out_len = 0UL;
   char * out     = (char *)malloc( out_max ); /* FIXME: GROSS */
   if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "malloc failed" ));
   out[0] = '\0';
 
-  int err = fd_vm_disasm_program( vm.text, vm.text_cnt, vm.syscalls, out, out_max, &out_len );
+  int err = fd_vm_disasm_program( tool_prog.prog->text, tool_prog.prog->text_cnt, tool_prog.syscalls, out, out_max, &out_len );
 
   puts( out );
 
@@ -125,7 +117,7 @@ cmd_validate( char const * bin_path ) {
   fd_vm_tool_prog_create( &tool_prog, bin_path );
 
   fd_vm_t vm = {
-    .entrypoint          = (long)tool_prog.prog->entry_pc,
+    .entrypoint          = tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
     .text                = tool_prog.prog->text,
@@ -134,6 +126,8 @@ cmd_validate( char const * bin_path ) {
     .calldests           = tool_prog.prog->calldests,
     .syscalls            = tool_prog.syscalls,
   };
+
+  /* FIXME: DO WE REALLY NEED THE WHOLE VM TO VALIDATE? */
 
   int err = fd_vm_validate( &vm );
 
@@ -194,7 +188,7 @@ cmd_trace( char const * bin_path,
 
   /* FIXME: Gross init */
   fd_vm_t vm = {
-    .entrypoint          = (long)tool_prog.prog->entry_pc,
+    .entrypoint          = tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
     .text                = tool_prog.prog->text,
@@ -242,7 +236,7 @@ cmd_run( char const * bin_path,
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
   fd_vm_t vm = {
-    .entrypoint          = (long)tool_prog.prog->entry_pc,
+    .entrypoint          = tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
     .text                = tool_prog.prog->text,
