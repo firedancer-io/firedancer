@@ -56,7 +56,7 @@ init( config_t * const config ) {
     char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
     FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
-    FD_TEST( fprintf( f, "  balance: 500000000\n" ) >= 0 );
+    FD_TEST( fprintf( f, "  balance: 500000000000000\n" ) >= 0 );
     FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
     FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
     FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
