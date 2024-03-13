@@ -1,4 +1,4 @@
-#include "fd_vm_base.h"
+#include "fd_vm_private.h"
 
 /* Verify error codes */
 

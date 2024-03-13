@@ -1,5 +1,6 @@
-#include "fd_vm.h"
+#include "fd_vm_private.h"
 
+#include <stdio.h>
 #include <errno.h>
 #include <sys/stat.h>
 
