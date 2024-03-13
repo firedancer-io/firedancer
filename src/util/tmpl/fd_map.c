@@ -117,9 +117,10 @@
     // lifetime is until the next map remove or map leave.  The caller
     // should not change key or hash but is free to modify other fields
     // in the entry.  Assumes map is a current join and that key is
-    // non-zero.
+    // non-zero.  mymap_query_const is a const correct version.
 
-    mymap_t * mymap_query( mymap_t * map, ulong key, mymap_t * null );
+    mymap_t *       mymap_query      ( mymap_t *       map, ulong key, mymap_t *       null );
+    mymap_t const * mymap_query_const( mymap_t const * map, ulong key, mymap_t const * null );
 
   You can do this as often as you like in a compilation unit to get
   different types of maps.  Since it is all static inline, it is fine
@@ -440,6 +441,13 @@ MAP_(query)( MAP_T *   map,
     slot = MAP_(private_next)( slot );
   }
   return m;
+}
+
+FD_FN_PURE static inline MAP_T const *
+MAP_(query_const)( MAP_T const * map,
+                   MAP_KEY_T     key,
+                   MAP_T const * null ) {
+  return (MAP_T const *)MAP_(query)( (MAP_T *)map, key, (MAP_T *)null ); /* query doesn't actual change any memory */
 }
 
 FD_PROTOTYPES_END
