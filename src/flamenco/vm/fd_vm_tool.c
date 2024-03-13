@@ -125,6 +125,7 @@ cmd_validate( char const * bin_path ) {
     .text_off            = tool_prog.prog->text_off, /* FIXME: WHAT IF TEXT OFF NOT MULTIPLE OF 8 */
     .calldests           = tool_prog.prog->calldests,
     .syscalls            = tool_prog.syscalls,
+    .trace               = NULL
   };
 
   /* FIXME: DO WE REALLY NEED THE WHOLE VM TO VALIDATE? */
@@ -207,11 +208,11 @@ cmd_trace( char const * bin_path,
   vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  int err = fd_vm_exec_trace( &vm );
+  int err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
   printf( "Frame 0\n" );
-  int trace_err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscalls ); /* logs details */
+  int trace_err = fd_vm_trace_printf( vm.trace, vm.syscalls ); /* logs details */
   if( FD_UNLIKELY( trace_err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", trace_err, fd_vm_strerror( trace_err ) ));
 
   free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
@@ -247,7 +248,8 @@ cmd_run( char const * bin_path,
     .input               = input,
     .input_sz            = input_sz,
     .rodata              = tool_prog.prog->rodata,
-    .rodata_sz           = tool_prog.prog->rodata_sz
+    .rodata_sz           = tool_prog.prog->rodata_sz,
+    .trace               = NULL
   };
 
   vm.reg[ 1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
