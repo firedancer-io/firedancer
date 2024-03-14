@@ -1249,6 +1249,8 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
     fclose( tvu_args->capture_file );
   }
 
+  if( tvu_args->tpool ) fd_tpool_fini( tvu_args->tpool );
+
   if ( NULL != replay ) {
 #ifdef FD_HAS_LIBMICROHTTP
     if( replay->rpc_ctx ) fd_rpc_stop_service( replay->rpc_ctx );

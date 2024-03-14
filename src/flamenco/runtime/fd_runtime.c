@@ -1027,7 +1027,9 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
   if( res != 0 ) {
     return res;
   }
+  fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 1 ); /* Funk is not safe for concurrent writes */
   fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, task_info, NULL, NULL, 1, 0, txn_cnt );
+  fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 0 );
   res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_info, txn_cnt, tpool, max_workers );
   if( res != 0 ) {
     return res;
@@ -1195,7 +1197,9 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         return res;
       }
 
+      fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 1 ); /* Funk is not safe for concurrent writes */
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
+      fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 0 );
       res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
       if( res != 0 ) {
         return res;
@@ -1898,6 +1902,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 ulong max_workers,
                                 ulong scheduler,
                                 ulong * txn_cnt ) {
+  (void)scheduler;
+  
   /* Publish any transaction older than 31 slots */
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
@@ -1948,12 +1954,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     ret = fd_runtime_block_verify_tpool(&block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, slot_ctx->valloc, tpool, max_workers);
   }
   if( FD_RUNTIME_EXECUTE_SUCCESS == ret ) {
-    if(scheduler == 1) {
-      ret = fd_runtime_block_execute_tpool(slot_ctx, capture_ctx, &block_info, tpool, max_workers);
-    } else if (scheduler == 2) {
-      ret = fd_runtime_block_execute_tpool_v2(slot_ctx, capture_ctx, &block_info, tpool, max_workers);
-
-    }
+    ret = fd_runtime_block_execute_tpool_v2(slot_ctx, capture_ctx, &block_info, tpool, max_workers);
   }
 
   fd_runtime_block_destroy( slot_ctx->valloc, &block_info );
