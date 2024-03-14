@@ -25,6 +25,7 @@ fd_topo_tile_to_config( fd_topo_tile_t * tile ) {
     case FD_TOPO_TILE_KIND_REPLAY:      return &fd_tile_replay;
     case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return &fd_tile_gossip_verify;
     case FD_TOPO_TILE_KIND_GOSSIP_DEDUP: return &fd_tile_gossip_dedup;
+    case FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP: return &fd_tile_gossip_pre_dedup;
     default: FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));
   }
 }

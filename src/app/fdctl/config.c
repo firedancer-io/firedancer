@@ -691,6 +691,10 @@ config_tiles( config_t * config ) {
       case FD_TOPO_TILE_KIND_GOSSIP_DEDUP:
         tile->gossip_dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
         break;
+      case FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP:
+        tile->gossip_pre_dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+        tile->gossip_pre_dedup.gossip_listen_port = config->tiles.gossip.gossip_listen_port;
+        break;
       case FD_TOPO_TILE_KIND_PACK:
         tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
         tile->pack.bank_tile_count = config->layout.bank_tile_count;
