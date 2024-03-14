@@ -4,6 +4,7 @@
 #include "../../vm/fd_vm_context.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
+#define DEFAULT_COMPUTE_UNITS                   (150)
 
 static inline int
 is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t const * instr ) {
@@ -157,6 +158,7 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   } 
   
   ctx->compute_meter =  ctx->compute_unit_limit;
+  ctx->compute_meter = fd_ulong_sat_sub( ctx->compute_meter, (ctx->txn_descriptor->instr_cnt - num_non_compute_budget_instrs) * DEFAULT_COMPUTE_UNITS);
 
   return 0;
 }
