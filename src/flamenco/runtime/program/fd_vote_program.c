@@ -64,6 +64,8 @@
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 #define SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
 
+#define DEFAULT_COMPUTE_UNITS 2100UL
+
 /**********************************************************************/
 /* size_of                                                            */
 /**********************************************************************/
@@ -2170,6 +2172,8 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   fd_pubkey_t const * txn_accs       = ctx.txn_ctx->accounts;
   uchar const *       instr_acc_idxs = ctx.instr->acct_txn_idxs;
   uchar *             data           = ctx.instr->data;
+
+  ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L67
   if( FD_UNLIKELY( ctx.instr->acct_cnt < 1 ) ) {

@@ -51,6 +51,8 @@
 #define STAKE_AUTHORIZE_WITHDRAWER                                                                 \
   ( ( fd_stake_authorize_t ){ .discriminant = fd_stake_authorize_enum_withdrawer, .inner = { 0 } } )
 
+#define DEFAULT_COMPUTE_UNITS 750UL
+
 /**********************************************************************/
 /* MergeKind                                                          */
 /**********************************************************************/
@@ -2276,6 +2278,8 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
   fd_exec_txn_ctx_t *     transaction_context = ctx.txn_ctx;
   fd_instr_info_t const * instruction_context = ctx.instr;
   uchar *                 data                = ctx.instr->data;
+
+  ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_instruction.rs#L75
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };

@@ -8,6 +8,8 @@
 #include "../../../ballet/base58/fd_base58.h"
 #include "../fd_pubkey_utils.h"
 
+#define DEFAULT_COMPUTE_UNITS 150UL
+
 static int transfer( fd_exec_instr_ctx_t               ctx,
                      fd_system_program_instruction_t * instruction ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/system_instruction_processor.rs#L327 */
@@ -401,6 +403,7 @@ int fd_executor_system_program_execute_instruction(
   ) {
   /* Deserialize the SystemInstruction enum */
   uchar *      data            = ctx.instr->data;
+  ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   fd_system_program_instruction_t instruction;
   fd_bincode_decode_ctx_t ctx2;

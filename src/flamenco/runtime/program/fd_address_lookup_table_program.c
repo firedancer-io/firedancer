@@ -24,6 +24,7 @@ typedef struct fd_addrlut fd_addrlut_t;
 
 #define FD_ADDRLUT_META_SZ       (56UL)
 #define FD_ADDRLUT_MAX_ADDR_CNT (256UL)
+#define DEFAULT_COMPUTE_UNITS   (750UL)
 
 static fd_addrlut_t *
 fd_addrlut_new( void * mem ) {
@@ -1121,6 +1122,8 @@ fd_executor_address_lookup_table_program_execute_instruction( fd_exec_instr_ctx_
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
+
+  ctx->txn_ctx->compute_meter = fd_ulong_sat_sub( ctx->txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   FD_SCRATCH_SCOPE_BEGIN {
 

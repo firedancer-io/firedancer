@@ -4,7 +4,7 @@
 #include "../../vm/fd_vm_context.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
-#define DEFAULT_COMPUTE_UNITS                   (150)
+#define DEFAULT_COMPUTE_UNITS                   (150UL)
 
 static inline int
 is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t const * instr ) {

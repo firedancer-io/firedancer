@@ -6,6 +6,7 @@
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 
+#define DEFAULT_COMPUTE_UNITS 450UL
 /* Useful links:
 
    https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs */
@@ -192,6 +193,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
 int
 fd_config_program_execute( fd_exec_instr_ctx_t ctx ) {
+  ctx.txn_ctx->compute_meter = fd_ulong_sat_sub( ctx.txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
   fd_scratch_push();
   int ret = _process_config_instr( ctx );
   fd_scratch_pop();
