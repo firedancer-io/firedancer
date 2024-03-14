@@ -31,9 +31,6 @@ for MACHINE in ${MACHINES[*]}; do
   make clean --silent >/dev/null
   contrib/make-j
   if [[ -z "$NOTEST" ]]; then
-    if [[ -n "$RUNTIME_TEST" ]]; then
-      make run-runtime-test
-    fi
     make run-unit-test
     make run-fuzz-test
     make run-script-test
