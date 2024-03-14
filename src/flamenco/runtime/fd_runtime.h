@@ -98,6 +98,7 @@ struct fd_runtime_args {
   char const * validate_db;
   char const * validate_snapshot;
   char const * capture_fpath;
+  char const * shredlog_fpath;
   char const * trace_fpath;
   char const * check_hash;
   int          retrace;

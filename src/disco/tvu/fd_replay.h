@@ -105,6 +105,9 @@ struct __attribute__((aligned(128UL))) fd_replay {
   ulong                 max_workers;
   fd_valloc_t           valloc;
 
+  /* TODO: @yunzhang declare file pointers, etc. needed for pcap */
+  FILE*                 shred_log_fd;
+
 #ifdef FD_HAS_LIBMICROHTTP
   fd_rpc_ctx_t *        rpc_ctx;
 #endif

@@ -1166,6 +1166,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     slot_entry->block.data_gaddr = ULONG_MAX;
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_EXECUTED );
+
+    /* TODO @yunzhang open files, set the replay pointers, etc. you need here*/
+    if (args->shredlog_fpath == NULL) {
+        replay_setup_out.replay->shred_log_fd = NULL;
+    } else {
+        replay_setup_out.replay->shred_log_fd = fopen(args->shredlog_fpath, "w");
+    }
   }
 
   slot_ctx_setup_out.replay_slot_ctx->slot    = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
@@ -1234,6 +1241,9 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
+  /* TODO @yunzhang: I added this to get the shredlog file path,
+   *  but shredlog_fpath is now NULL despite there is such an entry in the toml config */
+  args->shredlog_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredlog-fpath", NULL, NULL );
   args->retrace       = fd_env_strip_cmdline_int( &argc, &argv, "--retrace", NULL, 0 );
   args->abort_on_mismatch =
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
@@ -1269,6 +1279,12 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
     /* ensure it's no longer valid to join */
     fd_replay_frontier_delete( fd_replay_frontier_leave( replay->frontier ) );
     fd_replay_pool_delete( fd_replay_pool_leave( replay->pool ) );
+
+    /* TODO @yunzhang: I added this and hopefully this is
+     * the right place toclose the shred log file */
+    if( replay->shred_log_fd != NULL) {
+        fclose(replay->shred_log_fd);
+    }
   }
 
   /* Some replay paths don't use frontiers */

@@ -200,6 +200,23 @@ fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
   return i;
 }
 
+#define FD_SHRED_PCAP_OK 0
+#define FD_SHRED_PCAP_ERR -1
+
+int
+fd_replay_shred_logging( fd_replay_t * replay, fd_shred_t const * shred ) {
+  if ( replay->shred_log_fd == NULL ) return 0;
+  ulong n = fwrite( shred, fd_shred_sz(shred), 1UL, replay->shred_log_fd);
+
+  if ( FD_UNLIKELY( n != 1UL ) ) {
+    FD_LOG_WARNING(( "failed at logging shred idx=%d for slot#%d", shred->idx, shred->slot ));
+    return FD_SHRED_PCAP_ERR;
+  } else {
+    FD_LOG_NOTICE ( ( "logging shred idx=%d for slot#%u", shred->idx, shred->slot ) );
+    return FD_SHRED_PCAP_OK;
+  }
+}
+
 int
 fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
   fd_blockstore_t * blockstore = replay->blockstore;
@@ -211,6 +228,10 @@ fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
     return FD_BLOCKSTORE_OK;
   }
   int rc = fd_blockstore_shred_insert( blockstore, shred );
+
+  /* TODO @yunzhang: write to pcap */
+  fd_replay_shred_logging(replay, shred);
+
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
@@ -611,6 +632,9 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
       FD_LOG_DEBUG(
           ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
       int rc = fd_blockstore_shred_insert( blockstore, data_shred );
+      /* TODO @yunzhang: write to pcap */
+      fd_replay_shred_logging(replay, data_shred);
+
       if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
         if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) { replay->first_turbine_slot = slot; }
         replay->curr_turbine_slot = fd_ulong_max(slot, replay->curr_turbine_slot);

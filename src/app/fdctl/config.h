@@ -212,6 +212,7 @@ typedef struct {
       char incremental_snapshot[ PATH_MAX ];
       char validate_snapshot[ 22 ];
       char check_hash[ 22 ];
+      char shredlog_fpath[ PATH_MAX ];
       uint page_cnt;
       ushort gossip_listen_port;
       ushort repair_listen_port;

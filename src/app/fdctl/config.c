@@ -257,6 +257,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.tvu,           load                                                      );
   ENTRY_STR   ( ., tiles.tvu,           validate_snapshot                                         );
   ENTRY_STR   ( ., tiles.tvu,           check_hash                                                );
+  ENTRY_STR   ( ., tiles.tvu,           shredlog_fpath                                            );
   ENTRY_UINT  ( ., tiles.tvu,           page_cnt                                                  );
   ENTRY_USHORT( ., tiles.tvu,           gossip_listen_port                                        );
   ENTRY_USHORT( ., tiles.tvu,           repair_listen_port                                        );
@@ -723,6 +724,7 @@ config_tiles( config_t * config ) {
         strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
 	strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
         strncpy( tile->tvu.validate_snapshot, config->tiles.tvu.validate_snapshot, sizeof(tile->tvu.validate_snapshot) );
+        strncpy( tile->tvu.shredlog_fpath, config->tiles.tvu.shredlog_fpath, sizeof(tile->tvu.shredlog_fpath) );
         strncpy( tile->tvu.check_hash, config->tiles.tvu.check_hash, sizeof(tile->tvu.check_hash) );
         strncpy( tile->tvu.identity_key_path, config->consensus.identity_path, sizeof(tile->tvu.identity_key_path) );
         tile->tvu.page_cnt = config->tiles.tvu.page_cnt;

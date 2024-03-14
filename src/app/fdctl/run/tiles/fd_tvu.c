@@ -20,6 +20,7 @@ char            g_snapshot[ PATH_MAX ];
 char            g_incremental_snapshot[ PATH_MAX ];
 char            g_validate_snapshot[ 22 ];
 char            g_check_hash[ 22 ];
+char            g_shredlog_fpath[ PATH_MAX ];
 uint            g_page_cnt;
 ushort          g_gossip_listen_port;
 ushort          g_repair_listen_port;
@@ -328,6 +329,7 @@ privileged_init( fd_topo_t *      topo,
   strncpy( g_tvu_addr, tile->tvu.tvu_addr, sizeof(g_tvu_addr) );
   strncpy( g_tvu_fwd_addr, tile->tvu.tvu_fwd_addr, sizeof(g_tvu_fwd_addr) );
   strncpy( g_load, tile->tvu.load, sizeof(g_load) );
+  strncpy( g_shredlog_fpath, tile->tvu.shredlog_fpath, sizeof(g_shredlog_fpath) );
   strncpy( g_snapshot, tile->tvu.snapshot, sizeof(g_snapshot) );
   strncpy( g_incremental_snapshot, tile->tvu.incremental_snapshot, sizeof(g_incremental_snapshot) );
   strncpy( g_validate_snapshot, tile->tvu.validate_snapshot, sizeof(g_validate_snapshot) );
@@ -462,6 +464,7 @@ doit( void ) {
     .tvu_addr             = g_tvu_addr,
     .tvu_fwd_addr         = g_tvu_fwd_addr,
     .load                 = g_load,
+    .shredlog_fpath       = g_shredlog_fpath,
     .snapshot             = g_snapshot,
     .incremental_snapshot = g_incremental_snapshot,
     .validate_snapshot    = g_validate_snapshot,
