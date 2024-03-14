@@ -99,7 +99,7 @@ fd_f25519_mul_121666( fd_f25519_t * r,
    buf is in little endian form, according to RFC 8032. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
-                     uchar const   buf[ static 32 ] ) {
+                     uchar const   buf[ 32 ] ) {
   ulong y0 = ((ulong *)buf)[0];                      /* Bits   0- 63 */
   ulong y1 = ((ulong *)buf)[1];                      /* Bits  64-127 */
   ulong y2 = ((ulong *)buf)[2];                      /* Bits 128-191 */
@@ -112,7 +112,7 @@ fd_f25519_frombytes( fd_f25519_t * r,
    a 32-byte buffer out, and returns out.
    out is in little endian form, according to RFC 8032. */
 FD_25519_INLINE uchar *
-fd_f25519_tobytes( uchar               out[ static 32 ],
+fd_f25519_tobytes( uchar               out[ 32 ],
                    fd_f25519_t const * a ) {
   wv_stu( out, fd_r43x6_pack( fd_r43x6_mod( a->el ) ) );
   return out;

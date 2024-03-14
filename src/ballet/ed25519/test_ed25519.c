@@ -7,7 +7,7 @@
 
 static uchar *
 fd_rng_b256( fd_rng_t * rng,
-             uchar      r[ static 32 ] ) {
+             uchar      r[ 32 ] ) {
   ulong * u = (ulong *)r;
   u[0] = fd_rng_ulong( rng ); u[1] = fd_rng_ulong( rng ); u[2] = fd_rng_ulong( rng ); u[3] = fd_rng_ulong( rng );
   return r;
@@ -15,7 +15,7 @@ fd_rng_b256( fd_rng_t * rng,
 
 static uchar *
 fd_rng_b512( fd_rng_t * rng,
-             uchar      r[ static 64 ] ) {
+             uchar      r[ 64 ] ) {
   ulong * u = (ulong *)r;
   u[0] = fd_rng_ulong( rng ); u[1] = fd_rng_ulong( rng ); u[2] = fd_rng_ulong( rng ); u[3] = fd_rng_ulong( rng );
   u[4] = fd_rng_ulong( rng ); u[5] = fd_rng_ulong( rng ); u[6] = fd_rng_ulong( rng ); u[7] = fd_rng_ulong( rng );
@@ -947,7 +947,7 @@ test_verify( fd_rng_t *    rng,
       }
       dt = fd_log_wallclock() - dt;
       char cstr[128];
-      log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_..._verify_batch(%lu / %lu)", sz, batch ), iter/batch, dt );
+      log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_..._verify_batch(%lu / %u)", sz, batch ), iter/batch, dt );
 
       /* trick to test 1, 2, 4, 8, 12 => 12 is the max we support */
       if( batch == 8 ) { batch = 6; }

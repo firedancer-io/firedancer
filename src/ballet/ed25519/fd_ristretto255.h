@@ -40,7 +40,7 @@ typedef fd_ed25519_point_t fd_ristretto255_point_t;
 FD_PROTOTYPES_BEGIN
 
 uchar *
-fd_ristretto255_point_tobytes( uchar                           buf[ static 32 ],
+fd_ristretto255_point_tobytes( uchar                           buf[ 32 ],
                                fd_ristretto255_point_t const * p );
 
 /* fd_ristretto255_point_frombytes decompresses a 32-byte array into
@@ -49,14 +49,14 @@ fd_ristretto255_point_tobytes( uchar                           buf[ static 32 ],
 
 fd_ristretto255_point_t *
 fd_ristretto255_point_frombytes( fd_ristretto255_point_t * p,
-                                  uchar const              buf[ static 32 ] );
+                                  uchar const              buf[ 32 ] );
 
 /* fd_ristretto255_point_validate checks if a 32-byte array represents
    a valid element of the ristretto group h.
    It returns 1 on success, 0 on failure. */
 
 static inline int
-fd_ristretto255_point_validate( uchar const buf[ static 32 ] ) {
+fd_ristretto255_point_validate( uchar const buf[ 32 ] ) {
   fd_ristretto255_point_t t[1];
   return !!fd_ristretto255_point_frombytes( t, buf );
 }
@@ -119,7 +119,7 @@ fd_ristretto255_point_eq_neg( fd_ristretto255_point_t * const p,
 
 fd_ristretto255_point_t *
 fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
-                               uchar const               s[ static 64 ] );
+                               uchar const               s[ 64 ] );
 
 /* fd_ristretto255_map_to_curve implements the elligato2 map for curve25519,
    and computes an element h of the ristretto group given an array s of 32-byte 
@@ -130,7 +130,7 @@ fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
 
 fd_ristretto255_point_t *
 fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
-                              uchar const               s[ static 32 ] );
+                              uchar const               s[ 32 ] );
 
 FD_PROTOTYPES_END
 

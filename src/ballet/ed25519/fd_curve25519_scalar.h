@@ -46,8 +46,8 @@ FD_PROTOTYPES_BEGIN
    result.  In-place operation fine. */
 
 uchar *
-fd_curve25519_scalar_reduce( uchar       out[ static 32 ],
-                             uchar const in [ static 64 ] );
+fd_curve25519_scalar_reduce( uchar       out[ 32 ],
+                             uchar const in [ 64 ] );
 
 /* fd_curve25519_scalar_validate checks whether the given Ed25519 scalar n
    matches the canonical byte representation.
@@ -55,7 +55,7 @@ fd_curve25519_scalar_reduce( uchar       out[ static 32 ],
    Returns s if canonical, NULL otherwise. */
 
 static inline uchar const *
-fd_curve25519_scalar_validate( uchar const s[ static 32 ] ) {
+fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
   ulong s0 = *(ulong *)(&s[  0 ]);
   ulong s1 = *(ulong *)(&s[  8 ]);
   ulong s2 = *(ulong *)(&s[ 16 ]);
@@ -87,10 +87,10 @@ fd_curve25519_scalar_validate( uchar const s[ static 32 ] ) {
    result.  In-place operation fine. */
 
 uchar *
-fd_curve25519_scalar_muladd( uchar       s[ static 32 ],
+fd_curve25519_scalar_muladd( uchar       s[ 32 ],
                              uchar const * a,
-                             uchar const b[ static 32 ],
-                             uchar const c[ static 32 ] );
+                             uchar const b[ 32 ],
+                             uchar const c[ 32 ] );
 
 static inline uchar *
 fd_curve25519_scalar_mul   ( uchar *       s,
@@ -150,9 +150,9 @@ fd_curve25519_scalar_inv( uchar *       s,
 }
 
 static inline void
-fd_curve25519_scalar_batch_inv( uchar       s     [ static 32 ], /* sz scalars */
-                                uchar       allinv[ static 32 ], /* 1 scalar */
-                                uchar const a     [ static 32 ], /* sz scalars */
+fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
+                                uchar       allinv[ 32 ], /* 1 scalar */
+                                uchar const a     [ 32 ], /* sz scalars */
                                 ulong       sz ) {
   uchar acc[ 32 ];
   fd_memcpy( acc, fd_curve25519_scalar_one, 32 );
@@ -171,33 +171,9 @@ fd_curve25519_scalar_batch_inv( uchar       s     [ static 32 ], /* sz scalars *
 }
 
 void
-fd_curve25519_scalar_wnaf( short       slides[ static 256 ], /* 256-entry */
-                           uchar const n[ static 32 ],       /* 32-byte, assumes valid scalar */
+fd_curve25519_scalar_wnaf( short       slides[ 256 ], /* 256-entry */
+                           uchar const n[ 32 ],       /* 32-byte, assumes valid scalar */
                            int         bits );               /* range: [1:12], 1 = NAF */
-
-static inline uchar *
-fd_curve25519_scalar_neg_mod8l( uchar r[ static 32 ], uchar const s[ static 32 ] ) {
-  ulong s0 = *(ulong *)(&s[  0 ]);
-  ulong s1 = *(ulong *)(&s[  8 ]);
-  ulong s2 = *(ulong *)(&s[ 16 ]);
-  ulong s3 = *(ulong *)(&s[ 24 ]);
-
-  ulong mod8l0 = 0xc09318d2e7ae9f68UL;
-  ulong mod8l1 = 0xa6f7cef517bce6b2UL;
-  ulong mod8l2 = 0x0UL;
-  ulong mod8l3 = 0x8000000000000000UL;
-
-  *(ulong *)(&r[ 24 ]) = mod8l3 - s3 - (s2 > mod8l2);
-  *(ulong *)(&r[ 16 ]) = mod8l2 - s2 - (s1 > mod8l1);
-  *(ulong *)(&r[  8 ]) = mod8l1 - s1 - (s0 > mod8l0);
-  *(ulong *)(&r[  0 ]) = mod8l0 - s0;
-  return r;
-}
-
-uchar *
-fd_curve25519_scalar_mul_mod8l( uchar *       s,
-                                uchar const * a,
-                                uchar const * b );
 
 FD_PROTOTYPES_END
 

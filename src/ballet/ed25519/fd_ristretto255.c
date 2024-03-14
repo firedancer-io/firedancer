@@ -2,7 +2,7 @@
 
 fd_ristretto255_point_t *
 fd_ristretto255_point_frombytes( fd_ristretto255_point_t * h,
-                                 uchar const              buf[ static 32 ] ) {
+                                 uchar const              buf[ 32 ] ) {
   fd_f25519_t s[1];
   fd_f25519_frombytes( s, buf );
 
@@ -71,7 +71,7 @@ fd_ristretto255_point_frombytes( fd_ristretto255_point_t * h,
 }
 
 uchar *
-fd_ristretto255_point_tobytes( uchar                           buf[ static 32 ],
+fd_ristretto255_point_tobytes( uchar                           buf[ 32 ],
                                fd_ristretto255_point_t const * h ) {
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, h );
@@ -157,7 +157,7 @@ fd_ristretto255_point_tobytes( uchar                           buf[ static 32 ],
    https://github.com/gtank/ristretto255/blob/v0.1.2/ristretto255.go#L88 */
 fd_ristretto255_point_t *
 fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
-                              uchar const               buf[ static 32 ] ) {
+                              uchar const               buf[ 32 ] ) {
   /* r = SQRT_M1 * t^2 */
   fd_f25519_t r0[1];
   fd_f25519_t r[1];
@@ -224,7 +224,7 @@ fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
 
 fd_ristretto255_point_t *
 fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
-                               uchar const               s[ static 64 ] ) {
+                               uchar const               s[ 64 ] ) {
   fd_ristretto255_point_t p1[1];
   fd_ristretto255_point_t p2[1];
 

@@ -41,8 +41,8 @@ FD_PROTOTYPES_BEGIN
    peer_public_key input to fd_x25519_exchange. */
 
 uchar * FD_FN_SENSITIVE
-fd_x25519_public( uchar       self_public_key [ static 32 ],
-                  uchar const self_private_key[ static 32 ] );
+fd_x25519_public( uchar       self_public_key [ 32 ],
+                  uchar const self_private_key[ 32 ] );
 
 /* fd_x25519_exchange computes a shared secret given an arbitrary 32
    byte secret at self_private_key and an X25519 public key at peer_public_key.
@@ -54,9 +54,9 @@ fd_x25519_public( uchar       self_public_key [ static 32 ],
    of a TLS handshake, and thus is under the attacker's control.) */
 
 uchar * FD_FN_SENSITIVE
-fd_x25519_exchange( uchar       shared_secret   [ static 32 ],
-                    uchar const self_private_key[ static 32 ],
-                    uchar const peer_public_key [ static 32 ] );
+fd_x25519_exchange( uchar       shared_secret   [ 32 ],
+                    uchar const self_private_key[ 32 ],
+                    uchar const peer_public_key [ 32 ] );
 
 FD_PROTOTYPES_END
 

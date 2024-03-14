@@ -208,9 +208,9 @@ fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
 
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
-                               uchar const          buf1[ static 32 ],
+                               uchar const          buf1[ 32 ],
                                fd_ed25519_point_t * r2,
-                               uchar const          buf2[ static 32 ] ) {
+                               uchar const          buf2[ 32 ] ) {
   fd_ed25519_point_t * res = NULL;
   res = fd_ed25519_point_frombytes( r1, buf1 );
   if( res == NULL ) {
@@ -228,8 +228,8 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
 */
 fd_ed25519_point_t *
 fd_curve25519_affine_frombytes( fd_ed25519_point_t * r,
-                                uchar const          x[ static 32 ],
-                                uchar const          y[ static 32 ] ) {
+                                uchar const          x[ 32 ],
+                                uchar const          y[ 32 ] ) {
   fd_f25519_frombytes( r->X, x );
   fd_f25519_frombytes( r->Y, y );
   fd_f25519_set( r->Z, fd_f25519_one );

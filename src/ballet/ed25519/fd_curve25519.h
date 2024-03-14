@@ -127,7 +127,7 @@ fd_ed25519_point_eq_z1( fd_ed25519_point_t const * a,
    Returns s if canonical, NULL otherwise. */
 
 FD_25519_INLINE uchar const *
-fd_ed25519_scalar_validate( uchar const n[ static 32 ] ) {
+fd_ed25519_scalar_validate( uchar const n[ 32 ] ) {
   return fd_curve25519_scalar_validate( n );
 }
 
@@ -135,7 +135,7 @@ fd_ed25519_scalar_validate( uchar const n[ static 32 ] ) {
    n is a scalar. */
 fd_ed25519_point_t *
 fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
-                       uchar const                n[ static 32 ],
+                       uchar const                n[ 32 ],
                        fd_ed25519_point_t const * a );
 
 /* fd_ed25519_scalar_mul_base_const_time computes r = n * P, and returns r.
@@ -143,15 +143,15 @@ fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
    Note: const time implementation, safe to use with n secret. */
 fd_ed25519_point_t *
 fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
-                                       uchar const          n[ static 32 ] ); /* can be a secret */
+                                       uchar const          n[ 32 ] ); /* can be a secret */
 
 /* fd_ed25519_scalar_mul computes r = n1 * a + n2 * P, and returns r.
    n1, n2 are scalars. P is the base point. */
 fd_ed25519_point_t *
 fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
-                                   uchar const                n1[ static 32 ],
+                                   uchar const                n1[ 32 ],
                                    fd_ed25519_point_t const * a,
-                                   uchar const                n2[ static 32 ] );
+                                   uchar const                n2[ 32 ] );
 
 /* fd_ed25519_multi_scalar_mul computes r = n0 * a0 + n1 * a1 + ..., and returns r.
    n is a vector of sz scalars. a is a vector of sz points. */
@@ -176,7 +176,7 @@ fd_ed25519_multi_scalar_mul_base( fd_ed25519_point_t *     r,
    Cost: 1sqrt ~= 1inv ~= 250mul */
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
-                            uchar const          buf[ static 32 ] );
+                            uchar const          buf[ 32 ] );
 
 /* fd_ed25519_point_frombytes_2x deserializes 2x 32-byte buffers buf1, buf2
    resp. into points r1, r2, and returns r.
@@ -185,16 +185,16 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
    Cost: 2sqrt (executed concurrently if possible) */
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
-                               uchar const          buf1[ static 32 ],
+                               uchar const          buf1[ 32 ],
                                fd_ed25519_point_t * r2,
-                               uchar const          buf2[ static 32 ] );
+                               uchar const          buf2[ 32 ] );
 
 /* fd_ed25519_point_validate checks if buf represents a valid compressed point,
    by attempting to decompress it.
    Use fd_ed25519_point_frombytes if the decompressed point is needed.
    It returns 1 if buf represents a valid point, 0 if not. */
 FD_25519_INLINE int
-fd_ed25519_point_validate(uchar const buf[ static 32 ] ) {
+fd_ed25519_point_validate(uchar const buf[ 32 ] ) {
   fd_ed25519_point_t t[1];
   return !!fd_ed25519_point_frombytes( t, buf );
 }
@@ -203,7 +203,7 @@ fd_ed25519_point_validate(uchar const buf[ static 32 ] ) {
    a 32-byte buffer out, and returns out.
    out is in little endian form, according to RFC 8032. */
 uchar *
-fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
+fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a );
 
 /* fd_ed25519_affine_tobytes serializes a point a into
@@ -212,7 +212,7 @@ fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
    a is an affine point, i.e. a->Z == 1; compared to
    fd_ed25519_point_tobytes, this function doesn't require inv. */
 FD_25519_INLINE uchar *
-fd_ed25519_affine_tobytes( uchar                      out[ static 32 ],
+fd_ed25519_affine_tobytes( uchar                      out[ 32 ],
                            fd_ed25519_point_t const * a ) {
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, a );
@@ -232,8 +232,8 @@ fd_curve25519_into_precomputed( fd_ed25519_point_t * r );
 */
 fd_ed25519_point_t *
 fd_curve25519_affine_frombytes( fd_ed25519_point_t * r,
-                                uchar const          x[ static 32 ],
-                                uchar const          y[ static 32 ] );
+                                uchar const          x[ 32 ],
+                                uchar const          y[ 32 ] );
 
 fd_ed25519_point_t *
 fd_curve25519_into_affine( fd_ed25519_point_t * r );

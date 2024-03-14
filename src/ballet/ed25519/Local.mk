@@ -14,4 +14,4 @@ $(call run-unit-test,test_ed25519_signature_malleability)
 $(call run-unit-test,test_x25519)
 $(call run-unit-test,test_ristretto255)
 
-$(call make-unit-test,fd_curve25519_tables,fd_curve25519_tables,fd_ballet fd_util)
+#$(call make-unit-test,fd_curve25519_tables,fd_curve25519_tables,fd_ballet fd_util)

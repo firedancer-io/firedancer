@@ -18,7 +18,7 @@
  */
 
 static inline int FD_FN_SENSITIVE
-fd_x25519_is_zero_const_time( uchar const point[ static 32 ] ) {
+fd_x25519_is_zero_const_time( uchar const point[ 32 ] ) {
   //TODO: this is generally done by (x)or-ing the limbs, see also RFC 7748, page 13.
   int is_zero = 1;
   for( ulong i=0UL; i<32UL; i++ ) {
@@ -207,7 +207,7 @@ fd_x25519_montgomery_ladder( fd_f25519_t *       x2,
  */
 
 static inline void FD_FN_SENSITIVE
-fd_x25519_scalar_mul_const_time( uchar               out[ static 32 ],
+fd_x25519_scalar_mul_const_time( uchar               out[ 32 ],
                                  uchar const *       secret_scalar,
                                  fd_f25519_t const * point_x ) {
   fd_f25519_t x2[1], z2[1];
@@ -223,16 +223,16 @@ fd_x25519_scalar_mul_const_time( uchar               out[ static 32 ],
 static const uchar fd_x25519_basepoint[ 32 ] FD_X25519_ALIGN = { 9 };
 
 uchar * FD_FN_SENSITIVE
-fd_x25519_public( uchar       self_public_key [ static 32 ],
-                  uchar const self_private_key[ static 32 ] ) {
+fd_x25519_public( uchar       self_public_key [ 32 ],
+                  uchar const self_private_key[ 32 ] ) {
   /* IETF RFC 7748 Section 4.1 (page 3) */
   return fd_x25519_exchange( self_public_key, self_private_key, fd_x25519_basepoint );
 }
 
 uchar * FD_FN_SENSITIVE
-fd_x25519_exchange( uchar       shared_secret   [ static 32 ],
-                    uchar const self_private_key[ static 32 ],
-                    uchar const peer_public_key [ static 32 ] ) {
+fd_x25519_exchange( uchar       shared_secret   [ 32 ],
+                    uchar const self_private_key[ 32 ],
+                    uchar const peer_public_key [ 32 ] ) {
 
   /* Memory areas that will contain secrets */
   uchar secret_scalar[ 32UL ] FD_X25519_ALIGN;

@@ -149,9 +149,9 @@ fd_ed25519_point_dbl( fd_ed25519_point_t *       r,
 
 int
 fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
-                               uchar const          buf1[ static 32 ],
+                               uchar const          buf1[ 32 ],
                                fd_ed25519_point_t * r2,
-                               uchar const          buf2[ static 32 ] ) {
+                               uchar const          buf2[ 32 ] ) {
   //TODO: consider unifying code with ref
   return FD_R43X6_GE_DECODE2( r1->P, buf1, r2->P, buf2 );
 }
@@ -161,8 +161,8 @@ fd_ed25519_point_frombytes_2x( fd_ed25519_point_t * r1,
 */
 fd_ed25519_point_t *
 fd_curve25519_affine_frombytes( fd_ed25519_point_t * r,
-                                uchar const          _x[ static 32 ],
-                                uchar const          _y[ static 32 ] ) {
+                                uchar const          _x[ 32 ],
+                                uchar const          _y[ 32 ] ) {
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_f25519_frombytes( x, _x );
   fd_f25519_frombytes( y, _y );

@@ -97,13 +97,13 @@ fd_f25519_mul_121666( fd_f25519_t *       r,
    buf is in little endian form, according to RFC 8032. */
 fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
-                     uchar const   buf[ static 32 ] );
+                     uchar const   buf[ 32 ] );
 
 /* fd_f25519_tobytes serializes a fd_f25519_t element a into
    a 32-byte buffer out, and returns out.
    out is in little endian form, according to RFC 8032. */
 uchar *
-fd_f25519_tobytes( uchar               out[ static 32 ],
+fd_f25519_tobytes( uchar               out[ 32 ],
                    fd_f25519_t const * a );
 
 /* fd_f25519_set copies r = a, and returns r. */

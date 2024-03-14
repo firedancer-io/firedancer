@@ -38,8 +38,8 @@ FD_PROTOTYPES_BEGIN
    leaking private key info before returning.  Returns public_key. */
 
 uchar * FD_FN_SENSITIVE
-fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
-                                uchar const   private_key[ static 32 ],
+fd_ed25519_public_from_private( uchar         public_key [ 32 ],
+                                uchar const   private_key[ 32 ],
                                 fd_sha512_t * sha );
 
 /* fd_ed25519_sign signs a message according to the ED25519 standard.
@@ -65,11 +65,11 @@ fd_ed25519_public_from_private( uchar         public_key [ static 32 ],
    public_key and private_key for the duration the call.  Returns sig. */
 
 uchar * FD_FN_SENSITIVE
-fd_ed25519_sign( uchar         sig[ static 64 ],
+fd_ed25519_sign( uchar         sig[ 64 ],
                  uchar const   msg[], /* msg_sz */
                  ulong         msg_sz,
-                 uchar const   public_key[ static 32 ],
-                 uchar const   private_key[ static 32 ],
+                 uchar const   public_key[ 32 ],
+                 uchar const   private_key[ 32 ],
                  fd_sha512_t * sha );
 
 /* fd_ed25519_verify verifies message according to the ED25519 standard.
@@ -96,8 +96,8 @@ fd_ed25519_sign( uchar         sig[ static 64 ],
 int
 fd_ed25519_verify( uchar const   msg[], /* msg_sz */
                    ulong         msg_sz,
-                   uchar const   sig[ static 64 ],
-                   uchar const   public_key[ static 32 ],
+                   uchar const   sig[ 64 ],
+                   uchar const   public_key[ 32 ],
                    fd_sha512_t * sha );
 
 /* fd_ed25519_verify_batch_single_msg verifies a batch of signatures
@@ -124,8 +124,8 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
 int
 fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
                                     ulong const   msg_sz,
-                                    uchar const   signatures[ static 64 ], /* 64 * batch_sz */
-                                    uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
+                                    uchar const   signatures[ 64 ], /* 64 * batch_sz */
+                                    uchar const   pubkeys[ 32 ],    /* 32 * batch_sz */
                                     fd_sha512_t * shas[ 1 ],               /* batch_sz */
                                     uchar const   batch_sz );
 

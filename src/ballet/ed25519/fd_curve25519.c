@@ -24,7 +24,7 @@
 
 fd_ed25519_point_t *
 fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
-                            uchar const          buf[ static 32 ] ) {
+                            uchar const          buf[ 32 ] ) {
   fd_f25519_t x[1], y[1], t[1];
   fd_f25519_frombytes( y, buf );
   uchar expected_x_sign = buf[31] >> 7;
@@ -62,7 +62,7 @@ fd_ed25519_point_frombytes( fd_ed25519_point_t * r,
 }
 
 uchar *
-fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
+fd_ed25519_point_tobytes( uchar                      out[ 32 ],
                           fd_ed25519_point_t const * a ) {
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, a );
@@ -80,7 +80,7 @@ fd_ed25519_point_tobytes( uchar                      out[ static 32 ],
 
 fd_ed25519_point_t *
 fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
-                       uchar const                n[ static 32 ],
+                       uchar const                n[ 32 ],
                        fd_ed25519_point_t const * a ) {
   short nslide[256];
   fd_curve25519_scalar_wnaf( nslide, n, WNAF_BIT_SZ );
@@ -121,9 +121,9 @@ fd_ed25519_scalar_mul( fd_ed25519_point_t *       r,
 
 fd_ed25519_point_t *
 fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
-                                   uchar const                n1[ static 32 ],
+                                   uchar const                n1[ 32 ],
                                    fd_ed25519_point_t const * a,
-                                   uchar const                n2[ static 32 ] ) {
+                                   uchar const                n2[ 32 ] ) {
 
   short n1slide[256]; fd_curve25519_scalar_wnaf( n1slide, n1, WNAF_BIT_SZ );
   short n2slide[256]; fd_curve25519_scalar_wnaf( n2slide, n2, 8 );
@@ -154,11 +154,14 @@ fd_ed25519_double_scalar_mul_base( fd_ed25519_point_t *       r,
     else if( n1slide[i] < 0 ) { fd_ed25519_point_add_final_mul( r, t ); fd_ed25519_point_sub_with_opts( t, r, &ai[(-n1slide[i]) / 2], n1slide[i]==-1, 1, 1 ); }
     if(      n2slide[i] > 0 ) { fd_ed25519_point_add_final_mul( r, t ); fd_ed25519_point_add_with_opts( t, r, &fd_ed25519_base_point_wnaf_table[  n2slide[i]  / 2], 1, 1, 1 ); }
     else if( n2slide[i] < 0 ) { fd_ed25519_point_add_final_mul( r, t ); fd_ed25519_point_sub_with_opts( t, r, &fd_ed25519_base_point_wnaf_table[(-n2slide[i]) / 2], 1, 1, 1 ); }
-    fd_ed25519_point_add_final_mul_projective( r, t ); /* save 1mul */
+
+    /* ignore r->T because dbl doesn't need it, except in the last cycle */
+    if (i == 0) {
+      fd_ed25519_point_add_final_mul( r, t );            // compute r->T
+    } else {
+      fd_ed25519_point_add_final_mul_projective( r, t ); // ignore r->T
+    }
   }
-
-  /* we won't need r->T */
-
   return r;
 }
 

@@ -17,8 +17,8 @@
  */
 
 FD_25519_INLINE void FD_FN_SENSITIVE
-fd_ed25519_scalar_radix16( char        secret_e[ static 64 ], /* ouput: 64-entry in [-8;8] */
-                           uchar const secret_a[ static 32 ], /* input: 32-byte, assumes valid scalar */
+fd_ed25519_scalar_radix16( char        secret_e[ 64 ], /* ouput: 64-entry in [-8;8] */
+                           uchar const secret_a[ 32 ], /* input: 32-byte, assumes valid scalar */
                            char *      tmp_secret_carry ) {
   (*tmp_secret_carry) = 0;
 
@@ -98,7 +98,7 @@ fd_ed25519_table_select( fd_ed25519_point_t * r,
 
 fd_ed25519_point_t * FD_FN_SENSITIVE
 fd_ed25519_scalar_mul_base_const_time( fd_ed25519_point_t * r,
-                                       uchar const          secret_scalar[ static 32 ] ) { /* can be a secret */
+                                       uchar const          secret_scalar[ 32 ] ) { /* can be a secret */
 
   //TODO: add input ptr to secure memory from the caller?
 
