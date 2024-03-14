@@ -33,6 +33,11 @@ static void usage(char const * progname) {
   fprintf(stderr, "                --txnstatus true                  also ingest transaction status from rocksdb\n");
   fprintf(stderr, "              --genesis <file>                    also ingest a genesis file\n");
   fprintf(stderr, "              --shredcap <directory>              also ingest a shredcap\n");
+  fprintf(stderr, "              --trashhash <slot>                  use trashhash for invalid test cases\n");
+  fprintf(stderr, " --cmd minify --rocksdb <file>                    ingest full sized rocksdb\n");
+  fprintf(stderr, "              --minidb <file>                     output minified rocksdb\n");
+  fprintf(stderr, "              --startslot <file>                  start slot (only used for minify)");
+  fprintf(stderr, " --verifyfunky true                               verify database integrity\n");
   fprintf(stderr, " --wksp <name>                                    workspace name\n");
   fprintf(stderr, " --pages <count>                                  number of gigantic pages in anonymous workspace\n");
   fprintf(stderr, " --reset true                                     reset workspace before ingesting\n");
@@ -139,32 +144,34 @@ main( int     argc,
   fd_boot( &argc, &argv );
   fd_flamenco_boot( &argc, &argv );
 
-  char const * wkspname     = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--wksp",         NULL, NULL      );
-  ulong        pages        = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--pages",        NULL, ULONG_MAX );
+  char const * wkspname      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",          NULL, NULL      );
+  ulong        pages         = fd_env_strip_cmdline_ulong( &argc, &argv, "--pages",         NULL, ULONG_MAX );
   if( pages == ULONG_MAX )
-    pages        = fd_env_strip_cmdline_ulong               ( &argc, &argv, "--page-cnt",     NULL, 5 );
-  char const * reset        = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--reset",        NULL, "false"   );
-  char const * cmd          = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--cmd",          NULL, NULL      );
-  ulong        index_max    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--indexmax",     NULL, 450000000 );
-  ulong        xactions_max = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--txnmax",       NULL,      1000 );
-  char const * verifyfunky  = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--verifyfunky",  NULL, "false"   );
-  char const * snapshotfile = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--snapshotfile", NULL, NULL      );
-  char const * incremental  = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--incremental",  NULL, NULL      );
-  char const * genesis      = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--genesis",      NULL, NULL      );
-  char const * rocksdb_dir  = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--rocksdb",      NULL, NULL      );
-  char const * txnstatus    = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--txnstatus",    NULL, "false"   );
-  ulong        slot_history_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory", NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
-  ulong        shred_max    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--shredmax",     NULL, 1UL << 17 );
-  ulong        end_slot     = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--endslot",      NULL, ULONG_MAX );
-  char const * verifyhash   = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--verifyhash",   NULL, NULL      );
-  char const * verifyacchash = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--verifyacchash",   NULL, NULL      );
-  char const * backup       = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--backup",       NULL, NULL      );
-  char const * capture_fpath = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--capture",      NULL, NULL      );
-  char const * checkacchash = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--checkacchash", NULL, NULL      );
-  char const * shredcap     = fd_env_strip_cmdline_cstr     ( &argc, &argv, "--shredcap", NULL, NULL        );
-  ulong        trashhash    = fd_env_strip_cmdline_ulong    ( &argc, &argv, "--trashhash",    NULL, ULONG_MAX );
+    pages                    = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",      NULL, 5 );
+  char const * reset         = fd_env_strip_cmdline_cstr ( &argc, &argv, "--reset",         NULL, "false"   );
+  char const * cmd           = fd_env_strip_cmdline_cstr ( &argc, &argv, "--cmd",           NULL, NULL      );
+  ulong        index_max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--indexmax",      NULL, 450000000 );
+  ulong        xactions_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txnmax",        NULL,      1000 );
+  char const * verifyfunky   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyfunky",   NULL, "false"   );
+  char const * snapshotfile  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--snapshotfile",  NULL, NULL      );
+  char const * incremental   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--incremental",   NULL, NULL      );
+  char const * genesis       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--genesis",       NULL, NULL      );
+  char const * rocksdb_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--rocksdb",       NULL, NULL      );
+  char const * txnstatus     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--txnstatus",     NULL, "false"   );
+  ulong    slot_history_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--slothistory",   NULL, FD_BLOCKSTORE_SLOT_HISTORY_MAX );
+  ulong        shred_max     = fd_env_strip_cmdline_ulong( &argc, &argv, "--shredmax",      NULL, 1UL << 17 );
+  ulong        start_slot    = fd_env_strip_cmdline_ulong( &argc, &argv, "--startslot",     NULL, 0UL );
+  ulong        end_slot      = fd_env_strip_cmdline_ulong( &argc, &argv, "--endslot",       NULL, ULONG_MAX );
+  char const * verifyhash    = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyhash",    NULL, NULL      );
+  char const * verifyacchash = fd_env_strip_cmdline_cstr ( &argc, &argv, "--verifyacchash", NULL, NULL      );
+  char const * backup        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--backup",        NULL, NULL      );
+  char const * capture_fpath = fd_env_strip_cmdline_cstr ( &argc, &argv, "--capture",       NULL, NULL      );
+  char const * checkacchash  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--checkacchash",  NULL, NULL      );
+  char const * shredcap      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--shredcap",      NULL, NULL      );
+  ulong        trashhash     = fd_env_strip_cmdline_ulong( &argc, &argv, "--trashhash",     NULL, ULONG_MAX );
+  char const * mini_db_dir   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--minidb",        NULL, "false"   );
 #ifdef _ENABLE_LTHASH
-  char const * lthash       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",       NULL, "false"   );
+  char const * lthash        = fd_env_strip_cmdline_cstr ( &argc, &argv, "--lthash",        NULL, "false"   );
 #endif
 
   fd_wksp_t* wksp;
@@ -281,6 +288,43 @@ main( int     argc,
 
   if (cmd == NULL) {
     // Do nothing
+
+  } else if (strcmp(cmd, "minify") == 0) {
+    /* Example commmand:
+     fd_frank_ledger --cmd minify --rocksdb <LARGE_ROCKSDB> --minidb <MINI_ROCKSDB> 
+                     --startslot <START_SLOT> --end_slot <END_SLOT> 
+    */
+
+    fd_rocksdb_t big_rocksdb;
+    char *err = fd_rocksdb_init( &big_rocksdb, rocksdb_dir );
+    if ( err != NULL ) {
+      FD_LOG_ERR(("fd_rocksdb_init at path=%s returned error=%s", rocksdb_dir, err));
+    }
+
+    /* If the directory for the minified rocksdb already exists, error out */
+    struct stat statbuf;
+    if ( stat( mini_db_dir, &statbuf ) == 0 ) {
+      FD_LOG_ERR(("path for mini_db_dir=%s already exists", mini_db_dir));
+    }
+
+    /* Create a new smaller rocksdb */
+    fd_rocksdb_t mini_rocksdb;
+    fd_rocksdb_new( &mini_rocksdb, mini_db_dir );
+
+    /* Correctly bound off start and end slot */
+    ulong first_slot = fd_rocksdb_first_slot(&big_rocksdb, &err);
+    ulong last_slot  = fd_rocksdb_last_slot(&big_rocksdb, &err);
+    if ( start_slot < first_slot ) start_slot = first_slot;
+    if ( end_slot > last_slot )    end_slot = last_slot;
+
+    FD_LOG_NOTICE(("copying over rocks db for range [%lu, %lu]", start_slot, end_slot));
+
+    /* Copy over all columns except default */
+    for ( ulong cf_idx = 1; cf_idx < FD_ROCKSDB_CF_CNT; ++cf_idx ) {
+      fd_rocksdb_copy_over_range( &big_rocksdb, &mini_rocksdb, cf_idx, start_slot, end_slot );
+    }
+    FD_LOG_NOTICE(("copied over all columns except default"));
+    return 0;
 
   } else if (strcmp(cmd, "ingest") == 0) {
 

@@ -9,16 +9,30 @@
 #include "../types/fd_types.h"
 #include <rocksdb/c.h>
 
-#define FD_ROCKSDB_CF_CNT (8UL)
+#define FD_ROCKSDB_CF_CNT (22UL)
 
-#define FD_ROCKSDB_CFIDX_DEFAULT     (0UL)
-#define FD_ROCKSDB_CFIDX_META        (1UL)
-#define FD_ROCKSDB_CFIDX_ROOT        (2UL)
-#define FD_ROCKSDB_CFIDX_DATA_SHRED  (3UL)
-#define FD_ROCKSDB_CFIDX_BANK_HASHES (4UL)
-#define FD_ROCKSDB_CFIDX_TXN_STATUS  (5UL)
-#define FD_ROCKSDB_CFIDX_BLOCK_TIME  (6UL)
-#define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT (7UL)
+#define FD_ROCKSDB_CFIDX_DEFAULT                  (0UL)
+#define FD_ROCKSDB_CFIDX_META                     (1UL)
+#define FD_ROCKSDB_CFIDX_DEAD_SLOTS               (2UL)
+#define FD_ROCKSDB_CFIDX_DUPLICATE_SLOTS          (3UL) /* Usually empty */
+#define FD_ROCKSDB_CFIDX_ERASURE_META             (4UL)
+#define FD_ROCKSDB_CFIDX_ORPHANS                  (5UL) /* Usually empty */
+#define FD_ROCKSDB_CFIDX_BANK_HASHES              (6UL)
+#define FD_ROCKSDB_CFIDX_ROOT                     (7UL)
+#define FD_ROCKSDB_CFIDX_INDEX                    (8UL)
+#define FD_ROCKSDB_CFIDX_DATA_SHRED               (9UL)
+#define FD_ROCKSDB_CFIDX_CODE_SHRED               (10UL)
+#define FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       (11UL)
+#define FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       (12UL)
+#define FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        (13UL)
+#define FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX (14UL)
+#define FD_ROCKSDB_CFIDX_REWARDS                  (15UL)
+#define FD_ROCKSDB_CFIDX_BLOCKTIME                (16UL)
+#define FD_ROCKSDB_CFIDX_PERF_SAMPLES             (17UL)
+#define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             (18UL)
+#define FD_ROCKSDB_CFIDX_PROGRAM_COSTS            (19UL) /* Usually empty */
+#define FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         (20UL)
+#define FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         (21UL) /* Usually empty */
 
 /* Solana rocksdb client */
 struct fd_rocksdb {
@@ -28,6 +42,7 @@ struct fd_rocksdb {
   rocksdb_column_family_handle_t* cf_handles[ FD_ROCKSDB_CF_CNT ];
   rocksdb_options_t *             opts;
   rocksdb_readoptions_t *         ro;
+  rocksdb_writeoptions_t *        wo;
 };
 typedef struct fd_rocksdb fd_rocksdb_t;
 #define FD_ROCKSDB_FOOTPRINT sizeof(fd_rocksdb_t)
@@ -96,6 +111,15 @@ char *
 fd_rocksdb_init( fd_rocksdb_t * db,
                  char const *   db_name );
 
+/* fd_rocksdb_new: Creates a new rocksdb
+
+   The provided db_name has to the be the full path where the directory
+   will be created. The fd_rocksdb_t object will be initialized */
+
+void
+fd_rocksdb_new( fd_rocksdb_t * db, 
+                char const *   db_name );
+
 /* fd_rocksdb_destroy
 
    Frees up the internal data structures */
@@ -156,6 +180,24 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
                                ulong          slot,
                                void const *   sig,
                                ulong *        psz );
+
+/* fd_rocksdb_copy_over_range copies over all entries for a given column family
+   index into another rocksdb*/
+int
+fd_rocksdb_copy_over_range( fd_rocksdb_t * src,
+                            fd_rocksdb_t * dst,
+                            ulong          cf_idx,
+                            ulong          start_slot,
+                            ulong          end_slot );
+
+/* fd_rocksdb_insert_entry inserts a key, value pair into a given rocksdb*/
+int
+fd_rocksdb_insert_entry( fd_rocksdb_t * db,
+                         ulong          cf_idx,
+                         const char *   key, 
+                         ulong          key_len,
+                         const char *   value,
+                         ulong          value_len );
 
 /* Import from rocksdb into blockstore */
 

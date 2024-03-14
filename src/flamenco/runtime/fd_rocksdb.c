@@ -14,14 +14,29 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   fd_memset(db, 0, sizeof(fd_rocksdb_t));
 
   db->opts = rocksdb_options_create();
-  db->cfgs[ FD_ROCKSDB_CFIDX_DEFAULT     ] = "default";
-  db->cfgs[ FD_ROCKSDB_CFIDX_META        ] = "meta";
-  db->cfgs[ FD_ROCKSDB_CFIDX_ROOT        ] = "root";
-  db->cfgs[ FD_ROCKSDB_CFIDX_DATA_SHRED  ] = "data_shred";
-  db->cfgs[ FD_ROCKSDB_CFIDX_BANK_HASHES ] = "bank_hashes";
-  db->cfgs[ FD_ROCKSDB_CFIDX_TXN_STATUS  ] = "transaction_status";
-  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_TIME  ] = "blocktime";
-  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT ] = "block_height";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DEFAULT                  ] = "default";
+  db->cfgs[ FD_ROCKSDB_CFIDX_META                     ] = "meta";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DEAD_SLOTS               ] = "dead_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DUPLICATE_SLOTS          ] = "duplicate_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ERASURE_META             ] = "erasure_meta";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ORPHANS                  ] = "orphans";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BANK_HASHES              ] = "bank_hashes";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ROOT                     ] = "root";
+  db->cfgs[ FD_ROCKSDB_CFIDX_INDEX                    ] = "index";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DATA_SHRED               ] = "data_shred";
+  db->cfgs[ FD_ROCKSDB_CFIDX_CODE_SHRED               ] = "code_shred";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       ] = "transaction_status";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       ] = "address_signatures";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        ] = "transaction_memos";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX ] = "transaction_status_index";
+  db->cfgs[ FD_ROCKSDB_CFIDX_REWARDS                  ] = "rewards";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
+  db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             ] = "block_height";
+  db->cfgs[ FD_ROCKSDB_CFIDX_PROGRAM_COSTS            ] = "program_costs";
+  db->cfgs[ FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         ] = "optimistic_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         ] = "merkle_root_meta";
+
 
   rocksdb_options_t const * cf_options[ FD_ROCKSDB_CF_CNT ];
   for( ulong i=0UL; i<FD_ROCKSDB_CF_CNT; i++ )
@@ -44,6 +59,51 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   db->ro = rocksdb_readoptions_create();
 
   return NULL;
+}
+
+void 
+fd_rocksdb_new( fd_rocksdb_t * db,
+                char const *   db_name ) {
+  fd_memset(db, 0, sizeof(fd_rocksdb_t));
+
+  db->opts = rocksdb_options_create();
+  /* Create the db*/
+  rocksdb_options_set_create_if_missing(db->opts, 1);
+
+  db->cfgs[ FD_ROCKSDB_CFIDX_DEFAULT                  ] = "default";
+  db->cfgs[ FD_ROCKSDB_CFIDX_META                     ] = "meta";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DEAD_SLOTS               ] = "dead_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DUPLICATE_SLOTS          ] = "duplicate_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ERASURE_META             ] = "erasure_meta";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ORPHANS                  ] = "orphans";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BANK_HASHES              ] = "bank_hashes";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ROOT                     ] = "root";
+  db->cfgs[ FD_ROCKSDB_CFIDX_INDEX                    ] = "index";
+  db->cfgs[ FD_ROCKSDB_CFIDX_DATA_SHRED               ] = "data_shred";
+  db->cfgs[ FD_ROCKSDB_CFIDX_CODE_SHRED               ] = "code_shred";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       ] = "transaction_status";
+  db->cfgs[ FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       ] = "address_signatures";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        ] = "transaction_memos";
+  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX ] = "transaction_status_index";
+  db->cfgs[ FD_ROCKSDB_CFIDX_REWARDS                  ] = "rewards";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
+  db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";
+  db->cfgs[ FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             ] = "block_height";
+  db->cfgs[ FD_ROCKSDB_CFIDX_PROGRAM_COSTS            ] = "program_costs";
+  db->cfgs[ FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         ] = "optimistic_slots";
+  db->cfgs[ FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         ] = "merkle_root_meta";
+
+  /* Create the rocksdb */
+  char * err = NULL;
+  db->db = rocksdb_open(db->opts, db_name, &err);
+
+  db->opts = rocksdb_options_create();
+  db->wo = rocksdb_writeoptions_create();
+
+  /* Create column families, default already exists at index 0 */
+  for ( ulong i = 1; i < FD_ROCKSDB_CF_CNT; ++i ) {
+   db->cf_handles[i] = rocksdb_create_column_family(db->db, db->opts, db->cfgs[i], &err);
+  }
 }
 
 void fd_rocksdb_destroy(fd_rocksdb_t *db) {
@@ -72,7 +132,7 @@ void fd_rocksdb_destroy(fd_rocksdb_t *db) {
 }
 
 ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_ROOT]);
   rocksdb_iter_seek_to_last(iter);
   if (!rocksdb_iter_valid(iter)) {
     rocksdb_iter_destroy(iter);
@@ -89,7 +149,7 @@ ulong fd_rocksdb_last_slot(fd_rocksdb_t *db, char **err) {
 
 ulong fd_rocksdb_find_last_slot(fd_rocksdb_t *db, char **err) {
   ulong max_slot = 0;
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_ROOT]);
   rocksdb_iter_seek_to_first(iter);
   if (!rocksdb_iter_valid(iter)) {
     rocksdb_iter_destroy(iter);
@@ -117,7 +177,7 @@ ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err ) {
 
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[2]);
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_ROOT]);
   rocksdb_iter_seek_to_first(iter);
   if( FD_UNLIKELY( !rocksdb_iter_valid(iter) ) ) {
     rocksdb_iter_destroy(iter);
@@ -142,7 +202,7 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
 
   char *err = NULL;
   char *meta = rocksdb_get_cf(
-    db->db, db->ro, db->cf_handles[1], (const char *) &ks, sizeof(ks), &vallen, &err);
+    db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_META], (const char *) &ks, sizeof(ks), &vallen, &err);
 
   if (NULL != err) {
     FD_LOG_WARNING(( "%s", err ));
@@ -190,7 +250,7 @@ fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * self,
   self->db = db;
 
   if( FD_UNLIKELY( !self->iter ) )
-    self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->cf_handles[2]);
+    self->iter = rocksdb_create_iterator_cf(self->db->db, self->db->ro, self->db->cf_handles[FD_ROCKSDB_CFIDX_ROOT]);
 
   ulong ks = fd_ulong_bswap( slot );
 
@@ -273,7 +333,7 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
   char * err = NULL;
   char * res = rocksdb_get_cf(
       self->db, self->ro,
-      self->cf_handles[ FD_ROCKSDB_CFIDX_TXN_STATUS ],
+      self->cf_handles[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ],
       key, 80UL,
       psz,
       &err );
@@ -283,6 +343,74 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
     return NULL;
   }
   return res;
+}
+
+ulong
+fd_rocksdb_get_slot( ulong cf_idx, char const * key ) {
+  switch (cf_idx) {
+    case FD_ROCKSDB_CFIDX_TRANSACTION_STATUS:
+      return fd_ulong_bswap(*((ulong *) &key[72])); /* (signature,slot)*/
+    case FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES:
+      return fd_ulong_bswap(*((ulong *) &key[40])); /* (pubkey,slot,u32,signature) */
+    default: /* all other cfs have the slot at the start */
+      return fd_ulong_bswap( *((ulong *)&key[0]) ); /* The key is just the slot number */
+  }
+
+  return fd_ulong_bswap( *((ulong *)key) );
+}
+
+int
+fd_rocksdb_copy_over_range( fd_rocksdb_t * src,
+                            fd_rocksdb_t * dst,
+                            ulong          cf_idx,
+                            ulong          start_slot,
+                            ulong          end_slot ) {
+  if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS || cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS ){
+    FD_LOG_NOTICE(("fd_rocksdb_copy_over_range: skipping cf_idx=%lu", cf_idx));
+    return 0;
+  }
+
+  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( src->db, src->ro, src->cf_handles[cf_idx] );
+  if ( FD_UNLIKELY(iter == NULL) ) {
+    FD_LOG_ERR(("rocksdb_create_iterator_cf failed for cf_idx=%lu", cf_idx));
+  }
+
+  for (rocksdb_iter_seek_to_first(iter); rocksdb_iter_valid(iter); rocksdb_iter_next(iter)) {
+    ulong klen = 0;
+    char const * key = rocksdb_iter_key( iter, &klen ); // There is no need to free key
+
+    ulong slot = fd_rocksdb_get_slot( cf_idx, key );
+    if ( slot < start_slot ) {
+      continue;
+    }
+    else if ( slot > end_slot ) {
+      break;
+    }
+
+    ulong vlen = 0;
+    char const * value = rocksdb_iter_value( iter, &vlen );
+
+    fd_rocksdb_insert_entry( dst, cf_idx, key, klen, value, vlen );
+  }
+  rocksdb_iter_destroy(iter);
+  return 0;
+}
+
+int
+fd_rocksdb_insert_entry( fd_rocksdb_t * db,
+                         ulong          cf_idx,
+                         const char *   key,
+                         ulong          klen, 
+                         const char *   value,
+                         ulong          vlen )
+{
+  char * err = NULL;
+  rocksdb_put_cf( db->db, db->wo, db->cf_handles[cf_idx], 
+                  key, klen, value, vlen, &err );
+  if ( FD_UNLIKELY( err != NULL ) ) {
+    FD_LOG_WARNING(("rocksdb_put_cf failed with error=%d", err));
+  }
+  return 0;
 }
 
 int
@@ -298,7 +426,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   ulong start_idx = 0;
   ulong end_idx = m->received;
 
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[3]);
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
 
   char k[16];
   ulong slot_be = *((ulong *) &k[0]) = fd_ulong_bswap(slot);
@@ -374,7 +502,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     char * res = rocksdb_get_cf(
       db->db,
       db->ro,
-      db->cf_handles[ FD_ROCKSDB_CFIDX_BLOCK_TIME ],
+      db->cf_handles[ FD_ROCKSDB_CFIDX_BLOCKTIME ],
       (char const *)&slot_be, sizeof(ulong),
       &vallen,
       &err );
@@ -522,7 +650,7 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
   /* We need to track the payload size */
   ulong payload_sz = 0;
 
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf( db->db, db->ro, db->cf_handles[3] );
+  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf( db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED] );
 
   char k[16];
   ulong slot_be = *((ulong *) &k[0]) = fd_ulong_bswap( slot );
