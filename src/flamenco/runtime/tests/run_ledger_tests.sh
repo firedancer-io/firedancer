@@ -125,7 +125,7 @@ if [ ! -e dump/$LEDGER ]; then
       fi
     fi
   fi
-  gsutil cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
+  gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
   # curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 
@@ -174,7 +174,8 @@ ARGS=" --load test_ledger_backup \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
-  --allocator libc"
+  --allocator libc \
+  --tile-cpus 5-15"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
@@ -198,5 +199,3 @@ then
 fi
 
 rm $LOG
-
-

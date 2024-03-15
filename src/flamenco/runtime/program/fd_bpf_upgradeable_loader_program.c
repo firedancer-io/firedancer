@@ -675,7 +675,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     buffer_rec->meta->info.lamports  = 0;
 
     // TODO: deploy program
-    err = setup_program(&ctx, buffer_rec->data + BUFFER_METADATA_SIZE, SIZE_OF_PROGRAM + programdata_len);
+    err = setup_program(&ctx, buffer_rec->data + BUFFER_METADATA_SIZE, buffer_data_len);
     if (err != 0) {
       return err;
     }

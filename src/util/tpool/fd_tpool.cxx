@@ -1,4 +1,5 @@
 #include "fd_tpool.h"
+#include <malloc.h>
 
 struct fd_tpool_private_worker_cfg {
   fd_tpool_t * tpool;
@@ -23,6 +24,7 @@ fd_tpool_private_worker( int     argc,
   ulong        tile_idx   = cfg->tile_idx;
   void *       scratch    = cfg->scratch;
   ulong        scratch_sz = cfg->scratch_sz;
+  void *       local_alloc = NULL;
 
   fd_tpool_private_worker_t worker[1];
   FD_COMPILER_MFENCE();
@@ -30,10 +32,17 @@ fd_tpool_private_worker( int     argc,
   FD_COMPILER_MFENCE();
 
   worker->tile_idx   = (uint)tile_idx;
-  worker->scratch    = scratch;
-  worker->scratch_sz = scratch_sz;
 
-  if( scratch_sz ) fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
+  if( scratch_sz ) {
+    if (NULL == scratch)
+      local_alloc = scratch = memalign(fd_scratch_smem_align(), scratch_sz);
+    worker->scratch    = scratch;
+    worker->scratch_sz = scratch_sz;
+    fd_scratch_attach( scratch, fd_tpool_private_scratch_frame, scratch_sz, FD_TPOOL_WORKER_SCRATCH_DEPTH );
+  } else {
+    worker->scratch    = NULL;
+    worker->scratch_sz = 0;
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_IDLE;
@@ -77,7 +86,13 @@ fd_tpool_private_worker( int     argc,
 
   /* state is HALT, clean up and then reset back to BOOT */
 
-  if( scratch_sz ) fd_scratch_detach( NULL );
+
+  if( scratch_sz ) {
+    fd_scratch_detach( NULL );
+
+    if (NULL != local_alloc)
+      free(scratch);
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_BOOT;
@@ -176,18 +191,6 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   if( FD_UNLIKELY( tile_idx>=fd_tile_cnt() ) ) {
     FD_LOG_WARNING(( "invalid tile_idx" ));
     return NULL;
-  }
-
-  if( FD_UNLIKELY( scratch_sz ) ) {
-    if( FD_UNLIKELY( !scratch ) ) {
-      FD_LOG_WARNING(( "NULL scratch" ));
-      return NULL;
-    }
-
-    if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)scratch, FD_SCRATCH_SMEM_ALIGN ) ) ) {
-      FD_LOG_WARNING(( "misaligned scratch" ));
-      return NULL;
-    }
   }
 
   fd_tpool_private_worker_t ** worker     = fd_tpool_private_worker( tpool );

@@ -428,7 +428,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot );
     runtime_ctx->need_incr_snap = 0;
   }
-  
+
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
   while( !runtime_ctx->stopflag ) {
@@ -876,7 +876,7 @@ void snapshot_setup( char const * snapshot,
     /* close */
     pclose( fp );
   }
-  
+
   const char * p = strstr( snapshot, "incremental-snapshot-" );
   fd_snapshot_type_t snapshot_type = FD_SNAPSHOT_TYPE_UNSPECIFIED;
   if( p != NULL ) {
@@ -930,7 +930,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
                  &snapshot_setup_out );
 
   snapshot_slot = replay->smr = slot_ctx->slot_bank.slot;
-  
+
   slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
   FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
   slot_ctx->slot_bank.collected_fees = 0;
@@ -939,7 +939,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
   /* add it to the frontier */
   replay_slot_ctx->slot = snapshot_slot;
   fd_replay_frontier_ele_insert( replay->frontier, replay_slot_ctx, replay->pool );
-  
+
   /* fake the snapshot slot's block and mark it as executed */
   fd_blockstore_slot_map_t * slot_entry =
     fd_blockstore_slot_map_insert( fd_blockstore_slot_map( replay->blockstore ), snapshot_slot );
@@ -1054,9 +1054,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     tpool = fd_tpool_init( runtime_ctx->tpool_mem, args->tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 1; i < args->tcnt; ++i ) {
-      void * smem =
-          fd_valloc_malloc( valloc, fd_scratch_smem_align(), fd_scratch_smem_footprint( smax ) );
-      if( fd_tpool_worker_push( tpool, i, smem, smax ) == NULL )
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( smax ) ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }
