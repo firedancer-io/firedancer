@@ -488,18 +488,19 @@ fd_quic_init( fd_quic_t * quic ) {
   /* initial max streams is zero */
   /* we will send max_streams and max_data frames later to allow the peer to */
   /* send us data */
+  ulong initial_max_stream_data = config->initial_rx_max_stream_data;
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
   ulong idle_timeout_ms = (config->idle_timeout + 1000000UL - 1UL) / 1000000UL;
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, 0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         0                        );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_local,  initial_max_stream_data  );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_bidi_remote, initial_max_stream_data  );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        ); /* TODO */
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       10                       );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, disable_active_migration,            1                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, active_connection_id_limit,          limits->conn_id_cnt      );
@@ -846,18 +847,27 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
                    next_stream_id >= peer_sup_stream_id ) ) {
     /* this is a normal condition which occurs whenever we run up to
        the peer advertised limit and represents one form of flow control */
+    FD_LOG_WARNING(( "fd_quic_conn_new_stream - %s  failed.", conn->server?"SERVER":"CLIENT" ));
+#define DUMP( V, FMT ) FD_LOG_WARNING(( "%s -   " #V " = " FMT, __func__, (V) ));
+    DUMP( conn->state, "%x" );
+    DUMP( next_stream_id, "%lu" );
+    DUMP( peer_sup_stream_id, "%lu" );
     return NULL;
   }
 
   /* obtain a stream from stream_pool */
-  fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( conn->stream_pool );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( state->stream_pool );
 
   if( FD_UNLIKELY( !stream ) ) {
     /* no streams available in the stream pool */
+    FD_LOG_WARNING(( "fd_quic_conn_new_stream - %s  failed.", conn->server?"SERVER":"CLIENT" ));
+    DUMP( (void*)stream, "%p" );
     return NULL;
   }
 
   fd_quic_stream_init( stream );
+  FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
 
   /* stream tx_buf already set */
   stream->conn      = conn;
@@ -881,16 +891,19 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   stream->stream_flags = 0u;
 
   /* add to map of stream ids */
-  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
+  fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, stream->stream_id );
   if( FD_UNLIKELY( !entry ) ) {
+    FD_LOG_WARNING(( "fd_quic_conn_new_stream - %s  failed.", conn->server?"SERVER":"CLIENT" ));
+    DUMP( (void*)entry, "%p" );
     /* return stream to pool */
-    fd_quic_stream_pool_free( conn->stream_pool, stream );
-
-    FD_LOG_WARNING(( "Stream map full" ));
+    fd_quic_stream_pool_free( state->stream_pool, stream );
     fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR );
-
     return NULL;
   }
+
+  /* insert into used streams */
+  FD_QUIC_STREAM_LIST_REMOVE( stream );
+  FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
 
   /* generate a new stream id */
   conn->next_stream_id[type] = next_stream_id + 4U;
@@ -913,8 +926,11 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
                      fd_aio_pkt_info_t * batch,
                      ulong               batch_sz,
                      int                 fin ) {
-  if( FD_UNLIKELY( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ) )
+  FD_LOG_WARNING(( "fd_quic_stream_send stream_id: %lu  fin: %d  sz: %ld", stream->stream_id, fin, (ulong)batch[0].buf_sz ));
+  if( FD_UNLIKELY( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ) ) {
+    FD_LOG_WARNING(( "fd_quic_stream_send FIN" ));
     return FD_QUIC_SEND_ERR_STREAM_FIN;
+  }
 
   fd_quic_conn_t * conn = stream->conn;
 
@@ -932,7 +948,7 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) ) {
     if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE ||
         conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
-      return 1;
+      return FD_QUIC_SEND_ERR_STREAM_STATE;
     }
     return FD_QUIC_SEND_ERR_INVAL_CONN;
   }
@@ -942,7 +958,6 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   ulong allowed_conn   = conn->tx_max_data - conn->tx_tot_data;
   ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
   ulong allocated      = 0UL;
-
   ulong buffers_queued = 0;
 
   /* visit each buffer in batch and store in tx_buf if there is sufficient
@@ -976,6 +991,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
 
   /* insert into send list */
   if( !FD_QUIC_STREAM_ACTION( stream ) ) {
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+    FD_QUIC_STREAM_LIST_REMOVE( stream );
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
   }
   stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
@@ -1008,6 +1025,8 @@ fd_quic_stream_fin( fd_quic_stream_t * stream ) {
 
   /* insert into send list */
   if( !FD_QUIC_STREAM_ACTION( stream ) ) {
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+    FD_QUIC_STREAM_LIST_REMOVE( stream );
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
   }
   stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_TX_FIN; /* state immediately updated */
@@ -3053,40 +3072,49 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         }
         conn->tx_max_datagram_sz = (uint)tx_max_datagram_sz;
 
-        /* max streams
-           no streams allowed: min_stream_id[j] = sup_stream_id[j] = j
-           peer initialized to "no-streams", and later configured by peer->tp
-           target sup_stream_ids set from limits */
+  FD_LOG_WARNING(( "%s  fd_quic_tls_cb_handshake_complete  init conn %lu", conn->server ? "SERVER" : "CLIENT", conn->conn_idx ));
+
+
+        /* initial max_streams */
+
         fd_quic_limits_t * limits = &conn->quic->limits;
-        for( ulong j = 0; j < 4; ++j ) conn->min_stream_id[j]      = j; /* invariant: min_stream_id[j]%3     = j */
-        for( ulong j = 0; j < 4; ++j ) conn->sup_stream_id[j]      = j; /* invariant: sup_stream_id[j]%3     = j */
-        for( ulong j = 0; j < 4; ++j ) conn->peer_sup_stream_id[j] = j; /* invariant: peerup_stream_id[j]%3  = j */
-        for( ulong j = 0; j < 4; ++j ) conn->tgt_sup_stream_id[j]  = j; /* invariant: tgt_sup_stream_id[j]%3 = j */
-        for( ulong j = 0; j < 4; ++j ) conn->max_concur_streams[j] = 0; /* set below via set_max_streams         */
-        for( ulong j = 0; j < 4; ++j ) conn->cur_stream_cnt[j]     = 0;
+        if( conn->server ) {
+          /* other stream types (0x00 and 0x02) use set_max_streams */
+          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x00] );
+          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x02] );
+        } else {
+          /* other stream types (0x01 and 0x03) use set_max_streams */
+          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x01] );
+          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x03] );
+        }
+
         if( conn->server ) {
           /* see rfc9000 sec 2.1 */
           /* 0x01 server-initiated, bidirectional */
           conn->peer_sup_stream_id[0x01] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x01;
           /* 0x03 server-initiated, unidirectional */
           conn->peer_sup_stream_id[0x03] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x03;
-
-          /* other stream types (0x00 and 0x02) use set_max_streams */
-          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x00] );
-          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x02] );
         } else {
           /* 0x00 client-initiated, bidirectional */
           conn->peer_sup_stream_id[0x00] = ( (ulong)peer_tp->initial_max_streams_bidi << 2UL ) + 0x00;
           /* 0x02 client-initiated, unidirectional */
           conn->peer_sup_stream_id[0x02] = ( (ulong)peer_tp->initial_max_streams_uni  << 2UL ) + 0x02;
-
-          /* other stream types (0x01 and 0x03) use set_max_streams */
-          fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x01] );
-          fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x03] );
         }
 
-        /* try to allocate streams to connection */
-        fd_quic_assign_streams( conn->quic );
+        /* Trigger allocation of streams to connections */
+        state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
+
+        // /* ensure max_streams gets send */
+
+        // uint flag = ( stream_type & 2u ) ? FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR
+        //   : FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
+        // conn->flags         |= flag;
+        // conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+
+        // FD_LOG_WARNING(( "triggering max_streams %s", ( stream_type & 2 ) ? "UNIDIR" : "BIDIR" ));
+
+        /* ensure max_streams gets sent */
+        //fd_quic_reschedule_conn( conn, 0 );
 
         return;
       }
@@ -3178,7 +3206,39 @@ void
 fd_quic_service( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
+  /* dump connections */
+  ulong cnt = quic->limits.conn_cnt;
+  for( ulong j = 0; j < cnt; ++j ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
+    FD_LOG_WARNING(( "fd_quic_service - role: %u  conn_idx: %lu  total_weight: %lu  stream_map cnt: %lu",
+          (uint)quic->config.role, j, fd_quic_cs_tree_total( state->cs_tree ), fd_quic_stream_map_key_cnt( conn->stream_map ) ));
+    ulong used = 0;
+    ulong send = 0;
+    for( fd_quic_stream_t * cur = conn->used_streams->next;
+         cur != conn->used_streams;
+         cur = cur->next ) used++;
+    for( fd_quic_stream_t * cur = conn->send_streams->next;
+         cur != conn->send_streams;
+         cur = cur->next ) send++;
+    ulong   cs_tree_cnt = state->cs_tree->cnt;
+    ulong * values      = state->cs_tree->values;
+    FD_LOG_WARNING(( "  used: %lu  send: %lu", used, send ));
+    for( uint k = 0; k < 2; ++k ) {
+      ulong bidir    = k;
+      ulong conn_idx = j;
+      ulong node_idx = ( conn_idx << 1u ) + bidir;
+      FD_LOG_WARNING(( "    cs_tree value for bidir(%lu): %lu", bidir, values[node_idx+cs_tree_cnt] ));
+    }
+  }
+
   ulong now = fd_quic_now( quic );
+
+  /* do we need to assign streams to connections? */
+  if( 1 || FD_LIKELY( state->flags & FD_QUIC_FLAGS_ASSIGN_STREAMS ) ) {
+    FD_LOG_WARNING(( "fd_quic_service - calling fd_quic_assign_streams" ));
+    state->flags &= ~FD_QUIC_FLAGS_ASSIGN_STREAMS;
+    fd_quic_assign_streams( quic );
+  }
 
   /* service events */
   fd_quic_conn_t * conn = NULL;
@@ -4112,6 +4172,11 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
             frame.max_streams.stream_type = 1;
             frame.max_streams.max_streams = conn->sup_stream_id[stream_type_idx] >> 2;
 
+            FD_LOG_WARNING(( "%s sending max_streams frame for UNIDIR  streams: %lu  sup_stream_id: %lu",
+                conn->server?"SERVER":"CLIENT",
+                conn->sup_stream_id[stream_type_idx] >> 2,
+                conn->sup_stream_id[stream_type_idx] ));
+
             /* attempt to write into buffer */
             frame_sz = fd_quic_encode_max_streams_frame( payload_ptr,
                                                          (ulong)( payload_end - payload_ptr ),
@@ -4130,6 +4195,8 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
           }
 
           if( conn->flags & FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR ) {
+            FD_LOG_WARNING(( "sending max_streams frame for BIDIR" ));
+
             /* send max streams frame */
             ulong stream_type_idx = 0u | !conn->server;
             frame.max_streams.stream_type = 0;
@@ -4207,7 +4274,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
                   cur_stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
                   if( !FD_QUIC_STREAM_ACTION( cur_stream ) ) {
                     /* remove cur_stream from action list */
+  FD_LOG_WARNING(( "removing: %lu", cur_stream->stream_id ));
                     FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
+                    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
                   }
                 }
               }
@@ -4256,9 +4325,11 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
                 last_byte            = 0;
               }
 
-              if( over >= data_sz ) {
-                /* can't send in this packet */
-                break;
+              if( FD_UNLIKELY( over >= data_sz ) ) {
+                if( FD_UNLIKELY( !last_byte || !fin_state || data_sz != 0 ) ) {
+                  /* can't send anything in this packet */
+                  break;
+                }
               }
 
               /* adjust to fit */
@@ -4267,6 +4338,7 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
 
               /* do we still have data we can send? */
               if( data_sz > 0u || last_byte ) {
+                FD_LOG_WARNING(( "sending stream data stream_id: %lu", stream->stream_id ));
 
                 /* output */
                 frame_sz = fd_quic_encode_stream_frame( payload_ptr,
@@ -4472,7 +4544,9 @@ fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         }
         if( !FD_QUIC_STREAM_ACTION( stream ) ) {
           /* remove from list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
           FD_QUIC_STREAM_LIST_REMOVE( stream );
+          FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
         }
       } else {
         /* didn't send everything, so reset upd_pkt_number */
@@ -4682,6 +4756,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
     if( stream == used_sentinel ) break;
 
+    FD_LOG_WARNING(( "removing (used): %lu", stream->stream_id ));
+
     fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
   }
 
@@ -4691,6 +4767,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
     fd_quic_stream_t * stream = send_sentinel->next;
 
     if( stream == send_sentinel ) break;
+
+    FD_LOG_WARNING(( "removing (send): %lu", stream->stream_id ));
 
     fd_quic_stream_free( quic, conn, stream, FD_QUIC_NOTIFY_ABORT );
   }
@@ -4703,7 +4781,13 @@ fd_quic_conn_free( fd_quic_t *      quic,
 #if 1
     /* FIXME this is test code
      * should be replaced with other branch of #if 1 */
-    FD_LOG_ERR(( "fd_quic_conn_free, stream_map not empty" ));
+    FD_LOG_WARNING(( "fd_quic_conn_free, stream_map not empty" ));
+    for( ulong j = 0; j < fd_quic_stream_map_slot_cnt( conn->stream_map ); ++j ) {
+      if( conn->stream_map[j].stream_id != FD_QUIC_STREAM_ID_UNUSED ) {
+        FD_LOG_WARNING(( "  stream_id: %lu  stream: %p  state: %x", conn->stream_map[j].stream_id, (void*)conn->stream_map[j].stream, (uint)conn->stream_map[j].stream->state ));
+      }
+    }
+    FD_LOG_ERR(( "end of list" ));
 #else
     FD_LOG_WARNING(( "stream_map not empty. cnt: %lu",
           (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
@@ -5021,25 +5105,14 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->tls_hs              = NULL; /* created later */
 
   /* initialize stream_id members */
-  fd_quic_limits_t * limits = &conn->quic->limits;
   for( ulong j = 0; j < 4; ++j ) conn->min_stream_id[j]      = j; /* invariant: minup_stream_id[j]%3    = j */
   for( ulong j = 0; j < 4; ++j ) conn->sup_stream_id[j]      = j; /* invariant: sup_stream_id[j]%3      = j */
   for( ulong j = 0; j < 4; ++j ) conn->peer_sup_stream_id[j] = j; /* invariant: peer_sup_stream_id[j]%3 = j */
   for( ulong j = 0; j < 4; ++j ) conn->tgt_sup_stream_id[j]  = j; /* invariant: tgt_sup_stream_id[j]%3  = j */
+  for( ulong j = 0; j < 4; ++j ) conn->next_stream_id[j]     = j;
   for( ulong j = 0; j < 4; ++j ) conn->max_concur_streams[j] = 0; /* set below via set_max_streams          */
   for( ulong j = 0; j < 4; ++j ) conn->cur_stream_cnt[j]     = 0;
-
-  /* initial max_streams */
-
-  if( conn->server ) {
-    /* other stream types (0x00 and 0x02) use set_max_streams */
-    fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x00] );
-    fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x02] );
-  } else {
-    /* other stream types (0x01 and 0x03) use set_max_streams */
-    fd_quic_conn_set_max_streams( conn, 0, limits->initial_stream_cnt[0x01] );
-    fd_quic_conn_set_max_streams( conn, 1, limits->initial_stream_cnt[0x03] );
-  }
+  FD_LOG_WARNING(( "%s  fd_quic_conn_create  init conn %lu", conn->server ? "SERVER" : "CLIENT", conn->conn_idx ));
 
   /* points to free tx space */
   conn->tx_ptr = conn->tx_buf;
@@ -5051,12 +5124,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
      secrets and keys */
   conn->suites[ fd_quic_enc_level_initial_id ]
    = &state->crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
-
-  /* stream metadata */
-  conn->next_stream_id[0] = 0;
-  conn->next_stream_id[1] = 1;
-  conn->next_stream_id[2] = 2;
-  conn->next_stream_id[3] = 3;
 
   /* initialize packet metadata */
   ulong num_pkt_meta = conn->num_pkt_meta;
@@ -5123,7 +5190,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   fd_memset( conn->acks_tx_end, 0, sizeof( conn->acks_tx_end ) );
 
   /* flow control params */
-  conn->rx_max_data = state->initial_max_data; /* this is what we advertise initially */
+  conn->rx_max_data = 0; /* this is what we advertise initially */
   conn->tx_max_data = 0;
 
   /* no stream bytes sent or received yet */
@@ -5146,9 +5213,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   quic->metrics.conn_active_cnt++;
   quic->metrics.conn_created_cnt++;
 
-  /* try to assign streams */
-  fd_quic_assign_streams( quic );
-
   /* return connection */
   return conn;
 }
@@ -5159,6 +5223,8 @@ fd_quic_handshake_complete( fd_quic_conn_t * conn );
 
 ulong
 fd_quic_get_next_wakeup( fd_quic_t * quic ) {
+  if( fd_quic_get_state( quic )->flags ) return 0;
+
   fd_quic_state_t * state = fd_quic_get_state( quic );
   ulong t = ~(ulong)0;
   if( service_queue_cnt( state->service_queue ) ) {
@@ -5333,6 +5399,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
           /* if flags==0, the stream is not in the send list */
           if( !FD_QUIC_STREAM_ACTION( stream ) ) {
             /* insert into send list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+            FD_QUIC_STREAM_LIST_REMOVE( stream );
             FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
           }
 
@@ -5378,6 +5446,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
               if( FD_LIKELY( stream->stream_flags & FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA ) ) {
                 if( !FD_QUIC_STREAM_ACTION( stream ) ) {
                   /* add to list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+                  FD_QUIC_STREAM_LIST_REMOVE( stream );
                   FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
                 }
                 stream->stream_flags  |= FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
@@ -5561,10 +5631,12 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR ) {
+    FD_LOG_WARNING(( "clearing max_streams  FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_BIDIR" ));
     conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR;
   }
 
   if( flags & FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR ) {
+    FD_LOG_WARNING(( "clearing max_streams  FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR" ));
     conn->flags &= ~FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR;
   }
 
@@ -5596,7 +5668,9 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
             stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_MAX_STREAM_DATA;
             if( !FD_QUIC_STREAM_ACTION( stream ) ) {
               /* remove from list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
               FD_QUIC_STREAM_LIST_REMOVE( stream );
+              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
             }
           }
 
@@ -5684,8 +5758,25 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           }
         }
 
-        /* for convenience */
-        uint state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
+        /* For convenience */
+        /* Want to check TX and RX if BIDIR */
+        /* If not, check TX if self initiated, and RX if peer initiated */
+        uint all_state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
+        uint self           = (uint)conn->server == ( (uint)stream_id & 1U );
+        uint bidir          = !( ( (uint)stream_id & 2U ) >> 1U );
+        uint fin_state_mask = 0;
+        if( bidir ) {
+          fin_state_mask = all_state_mask;
+        } else {
+          if( self ) {
+            fin_state_mask |= FD_QUIC_STREAM_STATE_TX_FIN;
+          } else {
+            fin_state_mask |= FD_QUIC_STREAM_STATE_RX_FIN;
+          }
+        }
+
+        FD_LOG_WARNING(( "%s ack received - stream_id: %lu  state: %x", conn->server?"SERVER":"CLIENT",
+            stream->stream_id, stream->state ));
 
         /* move up tail, and adjust to maintain circular queue invariants, and send
            max_data and max_stream_data, if necessary */
@@ -5697,13 +5788,13 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
             fd_quic_reschedule_conn( conn, 0 );
           } else {
             /* if no data to send, check whether fin bits are set */
-            if( ( stream->state & state_mask ) == state_mask ) {
+            if( ( stream->state & fin_state_mask ) == fin_state_mask ) {
               /* fd_quic_stream_free also notifies the user */
               fd_quic_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
             }
           }
         } else if( tx_tail == stream->tx_buf.tail &&
-            ( stream->state & state_mask ) == state_mask ) {
+            ( stream->state & fin_state_mask ) == fin_state_mask ) {
           /* fd_quic_stream_free also notifies the user */
           fd_quic_stream_free( conn->quic, conn, stream, FD_QUIC_NOTIFY_END );
         }
@@ -5976,8 +6067,6 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn, uint stream_type ) {
   ulong sup_stream_id  = conn->sup_stream_id[stream_type];
   ulong min_stream_id  = conn->min_stream_id[stream_type];
 
-  int change = 0; /* indicates a change occurred */
-
   for( ulong j = min_stream_id; j < sup_stream_id; j += 4UL ) {
     ulong stream_id = j;
 
@@ -5990,18 +6079,10 @@ fd_quic_stream_reclaim( fd_quic_conn_t * conn, uint stream_type ) {
     if( stream_entry != NULL ) break;
 
     min_stream_id += 4U;
-
-    change = 1;
-
   }
 
-  if( FD_LIKELY( change ) ) {
-    /* store min_stream_id */
-    conn->min_stream_id[stream_type] = min_stream_id;
-
-    /* if any streams freed, assign them */
-    fd_quic_assign_streams( conn->quic );
-  }
+  /* store min_stream_id */
+  conn->min_stream_id[stream_type] = min_stream_id;
 }
 
 void
@@ -6010,6 +6091,8 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
   fd_quic_cb_stream_notify( quic, stream, stream->context, code );
 
   ulong stream_id = stream->stream_id;
+
+  FD_LOG_WARNING(( "%s fd_quic_stream_free stream_id: %lu", conn->server?"SERVER":"CLIENT", stream_id ));
 
   /* reclaim removes it from stream map */
   fd_quic_stream_map_t * stream_map   = conn->stream_map;
@@ -6022,17 +6105,29 @@ fd_quic_stream_free( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_stream_t *
   }
 
   /* remove from list - idempotent */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
   FD_QUIC_STREAM_LIST_REMOVE( stream );
   stream->stream_flags = FD_QUIC_STREAM_FLAGS_DEAD;
 
   /* add to stream_pool */
-  fd_quic_stream_pool_free( conn->stream_pool, stream );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_stream_pool_free( state->stream_pool, stream );
 
   /* decrement current stream count */
   ulong type = stream_id & 3UL;
   conn->cur_stream_cnt[type]--;
 
+  fd_quic_conn_update_max_streams( conn, (uint)type >> 1U );
+
   fd_quic_stream_reclaim( conn, stream_id & 3 );
+
+  FD_LOG_WARNING(( "fd_quic_stream_free - %s  max_concur_streams: %lu  cur_stream_cnt: %lu",
+      conn->server?"SERVER":"CLIENT", conn->max_concur_streams[type], conn->cur_stream_cnt[type] ));
+  if( FD_LIKELY( conn->max_concur_streams[type] > conn->cur_stream_cnt[type] ) ) {
+    /* Trigger allocation of streams to connections */
+    state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
+  }
+
 }
 
 /* retry sending stream data */
@@ -6090,7 +6185,7 @@ fd_quic_frame_handle_stream_frame(
     return data_sz;
   }
 
-  /* stream_id not available - protocol error */
+  /* stream_id outside allowed range - protocol error */
   if( FD_UNLIKELY( stream_id >= context.conn->sup_stream_id[stream_type] ) ) {
     fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_STREAM_LIMIT_ERROR );
     return FD_QUIC_PARSE_FAIL;
@@ -6101,19 +6196,6 @@ fd_quic_frame_handle_stream_frame(
   fd_quic_stream_map_t * stream_entry = fd_quic_stream_map_query( context.conn->stream_map, stream_id, NULL );
 
   if( FD_UNLIKELY( !stream_entry ) ) {
-    /* we need to know if client-initiated or server-initiated
-       we know peer initiated, so: */
-    uint initiator = !context.conn->server;
-
-    /* client chosen stream id must match type */
-    uint stream_id_initiator = stream_id & 1u;
-    if( FD_UNLIKELY( stream_id_initiator != initiator ) ) {
-      fd_quic_conn_error( context.conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
-
-      /* since we're terminating the connection, don't parse more */
-      return FD_QUIC_PARSE_FAIL;
-    }
-
     /* stream is dead. Assume a retransmit, and ack */
     return data_sz;
 
@@ -6127,6 +6209,11 @@ fd_quic_frame_handle_stream_frame(
     /* initialize stream members */
 
     fd_quic_stream_init( stream );
+
+    /* ensure stream is in used_stream list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+    FD_QUIC_STREAM_LIST_REMOVE( stream );
+    FD_QUIC_STREAM_LIST_INSERT_BEFORE( context.conn->used_streams, stream );
 
     /* bidirectional? */
     int bidir = !( ( (uint)stream_id >> 1u ) & 1u );
@@ -6226,6 +6313,8 @@ fd_quic_frame_handle_stream_frame(
 
     /* should we reclaim the stream */
     if( data->fin_opt ) {
+      FD_LOG_WARNING(( "received -  %s  fin_opt: %u  stream->state: %x",
+        conn->server?"SERVER":"CLIENT", (uint)data->fin_opt, stream->state ));
       stream->state |= FD_QUIC_STREAM_STATE_RX_FIN;
       if( stream->state & FD_QUIC_STREAM_STATE_TX_FIN ||
           stream->stream_id & ( FD_QUIC_TYPE_UNIDIR << 1u ) ) {
@@ -6239,6 +6328,8 @@ fd_quic_frame_handle_stream_frame(
 
     if( !FD_QUIC_STREAM_ACTION( stream ) ) {
       /* going from 0 to nonzero, so insert into action list */
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+      FD_QUIC_STREAM_LIST_REMOVE( stream );
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
     }
 
@@ -6252,7 +6343,7 @@ fd_quic_frame_handle_stream_frame(
       context.pkt->ack_flag |= ACK_FLAG_CANCEL;
 
       /* find pkt_meta, and induce a retry immediately */
-      fd_quic_stream_retry( conn->quic, conn, stream_id );
+      fd_quic_stream_retry( context.quic, conn, stream_id );
     } else if( offset == exp_offset && data->length == 0 && data->fin_opt ) {
       /* fin stream in zero-length packet */
       if( !( stream->state & FD_QUIC_STREAM_STATE_RX_FIN ) ) {
@@ -6349,6 +6440,8 @@ fd_quic_frame_handle_max_streams_frame(
   ulong peer_sup_stream_id = data->max_streams * 4UL + type;
   context.conn->peer_sup_stream_id[type] = fd_ulong_max( data->max_streams, peer_sup_stream_id );
 
+  FD_LOG_WARNING(( "received max_streams - peer_sup_stream_id: %lu", peer_sup_stream_id ));
+
   return 0;
 }
 
@@ -6421,7 +6514,9 @@ fd_quic_frame_handle_streams_blocked_frame(
 
   /* Attempt to assign streams */
   /* No guarantee is made */
-  fd_quic_assign_streams( context.quic );
+  /* Trigger allocation of streams to connections */
+  fd_quic_state_t * state = fd_quic_get_state( context.quic );
+  state->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
 
   return 0;
 }
@@ -6710,39 +6805,54 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
                             stream_pool_avail - unused_conns :
                             0UL;
 
+  FD_LOG_WARNING(( "%s", __func__ ));
+  DUMP( (uint)quic->config.role, "%u" );
+  DUMP( unused_conns, "%lu" );
+  DUMP( stream_pool_avail, "%lu" );
+  DUMP( avail_streams, "%lu" );
+  DUMP( fd_quic_cs_tree_total( cs_tree ), "%lu" );
+
   while( FD_LIKELY( avail_streams > 0UL ) ) {
     /* if total weights over all connections is zero, we're done */
     if( FD_UNLIKELY( fd_quic_cs_tree_total( cs_tree ) == 0 ) ) break;
 
     /* obtain stream from stream pool */
     fd_quic_stream_t * stream = fd_quic_stream_pool_alloc( stream_pool );
-    avail_streams--;
 
     /* if no streams available, we're done */
     if( FD_UNLIKELY( !stream ) ) break;
 
+    fd_quic_stream_init( stream );
+    FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
+
     /* choose weighted random cs_tree index */
     ulong idx = fd_quic_choose_weighted_index( cs_tree, rng );
 
-    /* idx maps to connection and stream_type thusly:  */
+    /* idx maps to connection and dirtype thusly:  */
     /*   idx = ( conn_idx << 1 ) + dirtype             */
     ulong conn_idx    =       ( idx >> 1UL );
-    uint  stream_type = (uint)( idx &  1UL );
+    uint  dirtype     = (uint)( idx &  1UL );
 
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, conn_idx );
+
+    FD_LOG_WARNING(( "conn_idx selected: %lu  conn: %p  state: %x", conn_idx, (void*)conn, (uint)conn->state ));
+    FD_LOG_WARNING(( "weight: %lu", fd_quic_cs_tree_get_weight( cs_tree, idx ) ));
+    FD_LOG_WARNING(( "total weight: %lu", fd_quic_cs_tree_total( cs_tree ) ));
+    uint stream_type = (dirtype<<1u) + (uint)!(conn->server);
+    FD_LOG_WARNING(( "srever: %u  conn->tgt_sup_stream_id: %lu  conn->sup_stream_id: %lu",
+        conn->server, conn->tgt_sup_stream_id[stream_type], conn->sup_stream_id[stream_type] ));
 
     /* assign stream to connection */
     int rtn = fd_quic_assign_stream( conn, stream_type, stream );
 
     /* if fails, return to pool and break */
     if( FD_UNLIKELY( rtn == FD_QUIC_FAILED ) ) {
+      FD_LOG_WARNING(( "fd_quic_assign_stream failed" ));
       fd_quic_stream_pool_free( stream_pool, stream );
       break;
     }
 
-    /* increment current stream count */
-    /* (keep these counter updates with the stream pool alloc/free for consistency */
-    conn->cur_stream_cnt[stream_type]++;
+    avail_streams--;
   }
 }
 
@@ -6752,16 +6862,22 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   ulong next_stream_id = conn->next_stream_id[stream_type];
 
   /* check if connection is allowed to be assigned the stream */
-  if( FD_UNLIKELY( next_stream_id >= conn->sup_stream_id[stream_type] ) ) {
+  if( FD_UNLIKELY( next_stream_id >= conn->tgt_sup_stream_id[stream_type] ) ) {
+    FD_LOG_WARNING(( "failed" ));
+    FD_LOG_WARNING(( " fails here: how can it, when weight should ensure next_stream_id < tgt_sup_stream_id?" ));
     return FD_QUIC_FAILED;
   }
 
   uint dirtype = ( (uint)stream_type & 2U ) >> 1U;
 
+  FD_LOG_WARNING(( "%s inserting stream_id %lu  stream_type: %lu", conn->server ? "SERVER" : "CLIENT", next_stream_id, stream_type ));
   fd_quic_stream_map_t * entry = fd_quic_stream_map_insert( conn->stream_map, next_stream_id );
   if( FD_UNLIKELY( !entry ) ) {
     /* stream_map should be large enough for maximum tgt_stream_id */
     /* TODO add metric */
+    ulong cap = fd_quic_stream_map_slot_cnt( conn->stream_map );
+    ulong used = fd_quic_stream_map_key_cnt( conn->stream_map );
+    FD_LOG_WARNING(( "failed  map capacity: %lu  used: %lu", cap, used ));
     return FD_QUIC_FAILED;
   }
 
@@ -6774,6 +6890,13 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   stream->stream_id = next_stream_id;
   stream->context   = NULL;
 
+  /* ensure stream is in used_stream list */
+
+  FD_LOG_WARNING(( "removing: %lu", stream->stream_id ));
+  FD_QUIC_STREAM_LIST_REMOVE( stream );
+  FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, stream );
+
+  FD_LOG_WARNING(( "fd_quic_assign_stream inserted into used_streams: %lu", stream->stream_id ));
   /* set the max stream data to the appropriate initial value */
   stream->tx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
                                    ? conn->tx_initial_max_stream_data_bidi_local
@@ -6783,6 +6906,11 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   stream->rx_max_stream_data = ( dirtype == FD_QUIC_TYPE_BIDIR )
                                    ? conn->rx_initial_max_stream_data_bidi_local
                                    : 0ul;
+
+  /* send a max data update to allow data on this stream */
+  conn->rx_max_data   += stream->rx_max_stream_data;
+  conn->flags         |= FD_QUIC_CONN_FLAGS_MAX_DATA;
+  conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
   /* set state depending on stream type */
   stream->state        = FD_QUIC_STREAM_STATE_UNUSED;
@@ -6800,7 +6928,31 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
   conn->flags         |= flag;
   conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
+  FD_LOG_WARNING(( "triggering max_streams %s", ( stream_type & 2 ) ? "UNIDIR" : "BIDIR" ));
+
+  /* ensure max_streams gets sent */
+  fd_quic_reschedule_conn( conn, 0 );
+
+  conn->next_stream_id[stream_type] = next_stream_id + 4UL;
+
+  /* increment current stream count */
+  conn->cur_stream_cnt[stream_type]++;
+
+  /* update max_streams & weight */
+
+  fd_quic_conn_update_max_streams( conn, (uint)stream_type >> 1U );
+
   return FD_QUIC_SUCCESS;
+}
+
+
+ulong
+fd_quic_cs_tree_get_weight( fd_quic_cs_tree_t * cs_tree, ulong idx ) {
+  ulong   cnt      = cs_tree->cnt;
+  ulong * values   = cs_tree->values;
+  ulong   node_idx = idx + cnt;
+
+  return values[node_idx];
 }
 
 
@@ -6836,24 +6988,53 @@ fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng ) {
   ulong   total    = values[1UL]; /* the root is at 1 */
 
   ulong   target   = fd_rng_private_roll64( rng, total ); /* return rand in [0,total) */
+  ulong orig_target = target;
 
-  // while( FD_LIKELY( node_idx < cnt ) ) {
-  //   ulong node_idx2 = node_idx << 1UL;
-  //   if( target <= values[node_idx2] ) {
-  //     node_idx = node_idx2;
-  //   } else {
-  //     node_idx = node_idx2 + 1;
-  //     target  -= values[node_idx2];
-  //   }
-  // }
+  if( target >= total ) {
+    FD_LOG_ERR(( "rng error" ));
+  }
 
+#if 1
+  while( FD_LIKELY( node_idx < cnt ) ) {
+    ulong node_idx2 = node_idx << 1UL;
+    if( target < values[node_idx2] ) {
+      node_idx = node_idx2;
+    } else {
+      node_idx = node_idx2 + 1;
+      target  -= values[node_idx2];
+    }
+  }
+#else
   while( FD_LIKELY( node_idx < cnt ) ) {
     ulong node_idx2 = node_idx << 1UL;
     ulong v         = values[node_idx2];
-    int   gt        = target > v;
-    /* */ node_idx  = node_idx2 + (ulong)gt;
-    ulong adj       = gt ? v : 0;
+    int   ge        = target >= v;
+    /* */ node_idx  = node_idx2 + (ulong)ge;
+    ulong adj       = ge ? v : 0;
     /* */ target   -= adj;
+  }
+#endif
+
+  ulong j = node_idx - cnt;
+
+  if( j > 1 ) {
+    FD_LOG_WARNING(( "chosen orig_target: %lu  idx: %lu  cnt: %lu", orig_target, j, cnt ));
+    for( uint k = 1; k < 2*cnt; ++k ) {
+      FD_LOG_WARNING(( "  k: %u  value: %lu", k, values[k] ));
+    }
+    node_idx = 1;
+    target = orig_target;
+    while( FD_LIKELY( node_idx < cnt ) ) {
+      ulong node_idx2 = node_idx << 1UL;
+      FD_LOG_WARNING(( "rerun  node_idx: %lu  values[node_idx]: %lu  node_idx2: %lu values[node_idx2]: %lu", node_idx, values[node_idx], node_idx2, values[node_idx2] ));
+      if( target < values[node_idx2] ) {
+        node_idx = node_idx2;
+      } else {
+        node_idx = node_idx2 + 1;
+        target  -= values[node_idx2];
+      }
+    }
+    FD_LOG_WARNING(( "rerun  cnt: %lu  node_idx: %lu  values[node_idx]: %lu", cnt, node_idx, values[node_idx] ));
   }
 
   /* index is (node_idx - cnt) */
@@ -6875,4 +7056,53 @@ void
 fd_quic_cs_tree_init( fd_quic_cs_tree_t * cs_tree, ulong cnt ) {
   fd_memset( cs_tree, 0, fd_quic_cs_tree_footprint( cnt ) );
   cs_tree->cnt = cnt;
+}
+
+void
+fd_quic_conn_update_max_streams( fd_quic_conn_t * conn, uint dirtype ) {
+  if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
+                && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
+    FD_LOG_ERR(( "fd_quic_conn_set_max_stream called with invalid type" ));
+    return;
+  }
+
+  fd_quic_t *       quic  = conn->quic;
+
+  /* TODO align usage of "type" and "dirtype"
+     perhaps:
+       dir        - direction: bidir or unidir
+       role       - client or server
+       type       - dir | role */
+  uint peer = (uint)!conn->server;
+  uint type = peer + ( (uint)dirtype << 1u );
+
+  /* store the desired value */
+  ulong max_concur_streams = conn->max_concur_streams[type];
+  ulong cur_stream_cnt     = conn->cur_stream_cnt[type];
+
+  /* how many remain */
+  ulong rem = fd_ulong_if( max_concur_streams > cur_stream_cnt,
+                           max_concur_streams - cur_stream_cnt,
+                           0UL );
+
+  /* set tgt_sup_stream_id */
+  conn->tgt_sup_stream_id[type] = conn->sup_stream_id[type] + ( rem << 2UL );
+
+  FD_LOG_WARNING(( "fd_quic_conn_update_max_streams - %s  setting max_streams for dirtype: %u",
+        conn->server?"SERVER":"CLIENT", dirtype ));
+  DUMP( peer, "%u" );
+  DUMP( type, "%u" );
+  DUMP( max_concur_streams, "%lu" );
+  DUMP( cur_stream_cnt, "%lu" );
+  DUMP( rem, "%lu" );
+  DUMP( conn->tgt_sup_stream_id[type], "%lu" );
+  DUMP( conn->sup_stream_id[type], "%lu" );
+
+
+  /* update the weight */
+
+  fd_quic_conn_update_weight( conn, dirtype );
+
+  /* reassign the streams */
+  fd_quic_get_state( quic )->flags |= FD_QUIC_FLAGS_ASSIGN_STREAMS;
 }

@@ -47,6 +47,7 @@ fd_quic_stream_pool_new( void * mem, ulong count, ulong tx_buf_sz ) {
   for( ulong j = 0; j < count; ++j ) {
     fd_quic_stream_t * stream = fd_quic_stream_new( (void*)( ul_mem + offs ), NULL, tx_buf_sz );
 
+    FD_QUIC_STREAM_LIST_INIT_STREAM( stream );
     FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
     pool->cur_cnt++;
 

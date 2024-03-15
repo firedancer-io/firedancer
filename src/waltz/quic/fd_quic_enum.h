@@ -58,10 +58,12 @@
    send failure.
    ...INVAL_STREAM: Not allowed to send for stream ID (e.g. not open)
    ...INVAL_CONN:   Connection not in valid state for sending
-   ...FIN:          Not allowed to send, stream finished */
+   ...FIN:          Not allowed to send, stream finished
+   ...STREAM_STATE: Stream is not (yet) in valid state to send */
 #define FD_QUIC_SEND_ERR_INVAL_STREAM (-1)
 #define FD_QUIC_SEND_ERR_INVAL_CONN   (-2)
 #define FD_QUIC_SEND_ERR_STREAM_FIN   (-3)
+#define FD_QUIC_SEND_ERR_STREAM_STATE (-3)
 
 /* FD_QUIC_MIN_CONN_ID_CNT: min permitted conn ID count per conn */
 #define FD_QUIC_MIN_CONN_ID_CNT (4UL)

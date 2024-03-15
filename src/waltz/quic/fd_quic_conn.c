@@ -150,6 +150,7 @@ fd_quic_conn_new( void *                   mem,
   /* Initialize streams */
 
   FD_QUIC_STREAM_LIST_SENTINEL( conn->send_streams );
+  FD_QUIC_STREAM_LIST_SENTINEL( conn->used_streams );
 
   /* Initialize stream hash map */
 
@@ -236,11 +237,14 @@ fd_quic_conn_set_max_streams( fd_quic_conn_t * conn, uint dirtype, ulong stream_
                            0UL );
 
   /* set tgt_sup_stream_id */
-  conn->tgt_sup_stream_id[type] = conn->sup_stream_id[type] + ( rem << 2UL ) + type;
+  conn->tgt_sup_stream_id[type] = conn->sup_stream_id[type] + ( rem << 2UL );
 
   /* update the weight */
 
   fd_quic_conn_update_weight( conn, dirtype );
+
+  /* reassign the streams */
+  fd_quic_assign_streams( conn->quic );
 }
 
 
@@ -260,6 +264,7 @@ fd_quic_conn_get_max_streams( fd_quic_conn_t * conn, uint dirtype ) {
    called whenever weight may have changed */
 void
 fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
+  FD_LOG_WARNING(( "WEIGHT updating weight for conn: %lu  dirtype: %u  state: %x", conn->conn_idx, dirtype, conn->state ));
   if( FD_UNLIKELY( dirtype != FD_QUIC_TYPE_UNIDIR
                 && dirtype != FD_QUIC_TYPE_BIDIR ) ) {
     FD_LOG_ERR(( "fd_quic_conn_update_weight called with invalid type" ));
@@ -278,6 +283,8 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
   ulong tgt_sup_stream_id = conn->tgt_sup_stream_id[type];
   ulong sup_stream_id     = conn->sup_stream_id[type];
 
+  FD_LOG_WARNING(( "WEIGHT type: %u  tgt_sup_stream_id: %lu  sup_stream_id: %lu", type, tgt_sup_stream_id, sup_stream_id ));
+
   /* update the cs_tree */
 
   /* determine the weight */
@@ -291,6 +298,5 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
   ulong               idx     = ( conn->conn_idx << 1UL ) + dirtype;
   fd_quic_cs_tree_update( cs_tree, idx, weight );
 
-  /* reassign the streams */
-  fd_quic_assign_streams( conn->quic );
+  /* don't assign streams here to avoid unwanted recursion */
 }

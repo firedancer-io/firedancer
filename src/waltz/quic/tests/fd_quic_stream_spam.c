@@ -112,6 +112,10 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
 
   /* Create new streams
      Stop when QUIC quota runs out or stack limit reached */
+   ulong streams = 0;
+
+   FD_LOG_WARNING(( "spam spam_pending_avail( pending ): %lu",
+     spam_pending_avail( pending ) ));
 
   for( ulong avail=spam_pending_avail( pending ); avail>0; avail-- ) {
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
@@ -120,7 +124,10 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     /* Insert stream into stack, set back reference */
     spam_pending_push( pending, stream );
     stream->context = &pending[ spam_pending_cnt( pending )-1UL ];
+    streams++;
   }
+
+  FD_LOG_WARNING(( "spam streams: %lu", streams ));
 
   /* Send streams */
 
@@ -136,6 +143,7 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
 
     /* Send data */
     int rc = fd_quic_stream_send( stream, batch, /* batch_cnt */ 1UL, /* fin */ 1 );
+    FD_LOG_WARNING(( "spam fd_quic_stream_send returned: %d", rc ));
     switch( rc ) {
     case 1:
       /* Stream send successful, close triggered via fin bit */
@@ -155,6 +163,8 @@ fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
     }
   }
 
+  FD_LOG_WARNING(( "spam streams_sent: %lu", streams_sent ));
+
   return streams_sent;
 }
 
@@ -164,6 +174,8 @@ fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
                             int                notify_type ) {
 
   /* Stream is about to be deallocated */
+
+  FD_LOG_WARNING(( "%s stream_id %lu closing", stream->conn->server?"SERVER":"CLIENT", stream->stream_id ));
 
   (void)stream;
   (void)notify_type;

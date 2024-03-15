@@ -55,6 +55,10 @@ typedef struct fd_quic_cs_tree fd_quic_cs_tree_t;
    lifetime of join. */
 
 struct __attribute__((aligned(16UL))) fd_quic_state_private {
+  /* Flags */
+  ulong flags;
+# define FD_QUIC_FLAGS_ASSIGN_STREAMS (1ul<<1ul)
+
   /* Pointer to TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
@@ -368,6 +372,10 @@ fd_quic_assign_stream( fd_quic_conn_t * conn, ulong stream_type, fd_quic_stream_
 void
 fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value );
 
+/* returns the weight for a particular idx */
+ulong
+fd_quic_cs_tree_get_weight( fd_quic_cs_tree_t * cs_tree, ulong idx );
+
 /* fd_quic_choose_weighted_index chooses an index in a random way by weight */
 ulong
 fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
@@ -399,6 +407,9 @@ fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
   ulong sz   = quic_state->conn_sz;
   return (fd_quic_conn_t*)( addr + idx * sz );
 }
+
+void
+fd_quic_conn_update_max_streams( fd_quic_conn_t * conn, uint dirtype );
 
 FD_PROTOTYPES_END
 

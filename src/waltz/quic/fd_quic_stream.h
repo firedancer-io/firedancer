@@ -122,6 +122,15 @@ struct fd_quic_stream {
   do {                                                         \
     FD_QUIC_STREAM_LIST_LINK( stream, stream );                \
     stream->sentinel = 1;                                      \
+    stream->stream_id = ~(0UL);                                \
+  } while(0)
+
+/* initialize non-sentinel stream
+   stream just points to itself, at first */
+#define FD_QUIC_STREAM_LIST_INIT_STREAM( stream )              \
+  do {                                                         \
+    FD_QUIC_STREAM_LIST_LINK( stream, stream );                \
+    stream->sentinel = 0;                                      \
   } while(0)
 
 /* insert new_stream after stream in list */

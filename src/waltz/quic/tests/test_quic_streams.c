@@ -2,6 +2,8 @@
 #include "fd_quic_test_helpers.h"
 #include "fd_quic_stream_spam.h"
 
+ulong recvd = 0;
+
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
@@ -30,6 +32,10 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
     FD_LOG_HEXDUMP_WARNING(( "FAIL: actual data",   data,                 data_sz    ));
     FD_LOG_ERR(( "received unexpected data" ));
   }
+
+  FD_LOG_WARNING(( "received data - stream_id: %lu", stream->stream_id ));
+
+  recvd++;
 }
 
 
@@ -97,14 +103,15 @@ main( int     argc,
   FD_LOG_NOTICE(( "Creating server QUIC" ));
 
   fd_quic_limits_t const quic_server_limits = {
-    .conn_cnt         = 2,
-    .conn_id_cnt      = 4,
-    .conn_id_sparsity = 4.0,
-    .handshake_cnt    = 10,
-    .stream_cnt       = { 20, 20, 20, 20 },
-    .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<15,
-    .stream_pool_cnt  = 128
+    .conn_cnt           = 2,
+    .conn_id_cnt        = 4,
+    .conn_id_sparsity   = 4.0,
+    .handshake_cnt      = 10,
+    .stream_cnt         = { 20, 20, 20, 20 },
+    .initial_stream_cnt = { 20, 20, 20, 20 },
+    .inflight_pkt_cnt   = 100,
+    .tx_buf_sz          = 1<<15,
+    .stream_pool_cnt    = 512
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
@@ -119,7 +126,7 @@ main( int     argc,
     .stream_cnt       = { 20, 20, 20, 20 },
     .inflight_pkt_cnt = 100,
     .tx_buf_sz        = 1<<21,
-    .stream_pool_cnt  = 128
+    .stream_pool_cnt  = 512
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
@@ -191,7 +198,7 @@ main( int     argc,
 
   long cum_sent_cnt = 0L;
 
-  for( unsigned j = 0; j < 5000; ++j ) {
+  while( recvd < 10000 ) {
     long sent_cnt = fd_quic_stream_spam_service( client_conn, spammer );
     FD_TEST( sent_cnt >= 0 );
     cum_sent_cnt += sent_cnt;
@@ -209,7 +216,7 @@ main( int     argc,
     if( next_wakeup > now ) {
       now = next_wakeup;
     } else {
-      now += (ulong)10e6;
+      //now += (ulong)10e6;
     }
 
     FD_LOG_DEBUG(( "running services at %lu", next_wakeup ));
@@ -217,6 +224,8 @@ main( int     argc,
     fd_quic_service( server_quic );
     fd_quic_service( client_quic );
   }
+
+  FD_LOG_NOTICE(( "received: %lu", recvd ));
 
   FD_LOG_NOTICE(( "Closing connection" ));
 

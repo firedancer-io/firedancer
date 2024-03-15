@@ -230,16 +230,16 @@ struct fd_quic_conn {
              0x02 Client-Initiated, Unidirectional
              0x03 Server-Initiated, Unidirectional */
 
-  /* stream pool */
-  /* when do we assign streams to connections?
-     can't increase max_stream_data until we have streams
-     Easiest to put under user control
-     
-     Maybe:
-       Assign N at initial connection creation
-       Add more via api call
-  */
-  fd_quic_stream_pool_t * stream_pool;
+//  /* stream pool */
+//  /* when do we assign streams to connections?
+//     can't increase max_stream_data until we have streams
+//     Easiest to put under user control
+//     
+//     Maybe:
+//       Assign N at initial connection creation
+//       Add more via api call
+//  */
+//  fd_quic_stream_pool_t * stream_pool;
   fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
 
   /* packet number info
