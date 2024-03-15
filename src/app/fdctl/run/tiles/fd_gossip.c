@@ -241,6 +241,15 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
   uchar mac[6] = {0};
 #ifdef FD_GOSSIP_DEMO
   populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port + (ushort)(tsorig % 16) );
+  /*
+  uint disc = FD_LOAD(uint, packet+sizeof(eth_ip_udp_t));
+  FD_LOG_WARNING(("PKT: %u", disc));
+  if( disc == 4 || disc == 5 ) {
+    FD_LOG_WARNING(("PING"));
+    populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
+  } else {
+  }
+  */
 #else
   populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
 #endif
@@ -274,7 +283,6 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen, 
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
-  g_num_packets_sent++;
 /*
   if(g_num_packets_sent > 1) {
     return;
@@ -285,7 +293,9 @@ gossip_send_packet( uchar const * msg,
 #else
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
+
 #endif
+  g_num_packets_sent++;
 }
 
 
@@ -414,30 +424,33 @@ after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
 
   ctx->mux_ctx = mux_ctx;
+  
   long now = fd_log_wallclock();
   g_num_packets_sent = 0;
+
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 
- 
 #ifdef FD_GOSSIP_DEMO
   if( now - ctx->last_shred_dest_push_time > (long)1e6 ) {
     ctx->last_shred_dest_push_time = now;
-    if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
-      fd_slot_hash_t slot_hashes[16];
-      for( ulong i = 0; i < 16; i++ ) {
-        slot_hashes[i].slot = fd_rng_ulong(ctx->rng);
-        memset(slot_hashes[i].hash.uc, 0, sizeof(fd_hash_t));
-      }
+    for( ulong j = 0; j < 256; j++) {
+      if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
+        fd_slot_hash_t slot_hashes[16];
+        for( ulong i = 0; i < 16; i++ ) {
+          slot_hashes[i].slot = fd_rng_ulong(ctx->rng);
+          memset(slot_hashes[i].hash.uc, 0, sizeof(fd_hash_t));
+        }
       
-      fd_crds_data_t crds_data;
-      fd_crds_data_new_disc( &crds_data, fd_crds_data_enum_accounts_hashes );
-      memcpy( crds_data.inner.accounts_hashes.from.key, ctx->gossip_config.public_key, sizeof(fd_pubkey_t) );
-      crds_data.inner.accounts_hashes.hashes_len = 16;
-      crds_data.inner.accounts_hashes.hashes = slot_hashes;
-      crds_data.inner.accounts_hashes.wallclock =  (ulong)fd_log_wallclock( ) / (ulong)1000000;
+        fd_crds_data_t crds_data;
+        fd_crds_data_new_disc( &crds_data, fd_crds_data_enum_accounts_hashes );
+        memcpy( crds_data.inner.accounts_hashes.from.key, ctx->gossip_config.public_key, sizeof(fd_pubkey_t) );
+        crds_data.inner.accounts_hashes.hashes_len = 16;
+        crds_data.inner.accounts_hashes.hashes = slot_hashes;
+        crds_data.inner.accounts_hashes.wallclock =  (ulong)fd_log_wallclock( ) / (ulong)1000000;
 
-      fd_gossip_push_value( ctx->gossip, &crds_data, NULL );
+        fd_gossip_push_value( ctx->gossip, &crds_data, NULL );
+      }
     }
   }
 #endif

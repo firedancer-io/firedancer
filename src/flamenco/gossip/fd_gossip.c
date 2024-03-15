@@ -17,7 +17,7 @@
 #define PACKET_DATA_SIZE 1232
 /* How long do we remember values (in millisecs) */
 #ifdef FD_GOSSIP_DEMO
-#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(100e1))   /* 1 minute */
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(20e1))   /* 1 minute */
 #else
 #define FD_GOSSIP_VALUE_EXPIRE ((ulong)(60e3))   /* 1 minute */
 #endif
@@ -349,7 +349,6 @@ fd_gossip_unlock( fd_gossip_t * gossip ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( gossip->lock ) = 0UL;
 }
-
 /* Convert my style of address to solana style */
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
@@ -464,7 +463,7 @@ fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
    value needs "fun" and "fun_arg" to be set. */
 static fd_pending_event_t *
 fd_gossip_add_pending( fd_gossip_t * glob, long when ) {
-  if (fd_pending_pool_free( glob->event_pool ) == 0)
+  if (fd_pending_pool_free( glob->event_pool ) == 0 )
     return NULL;
   fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
   ev->key = when;
@@ -480,7 +479,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 2000; i++)
+  for(ulong i = 0; i < 30; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
@@ -541,7 +540,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Keep pinging until we succeed */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e6 /* 200 ms */ );
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e7 /* 200 ms */ );
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
 #endif
@@ -738,7 +737,11 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 5 sec */
+#ifdef FD_GOSSIP_DEMO
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)5e7);
+#else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
+#endif
   if (ev) {
     ev->fun = fd_gossip_random_pull;
   }
@@ -838,6 +841,34 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     filter->filter.num_bits_set = num_bits_set[i];
     bitvec->bits.vec = bits + (i*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
+  }
+}
+
+static void
+fd_gossip_purge_expired_values( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
+  (void)arg;
+  ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
+  
+  /* Try again in 5 sec */
+#ifdef FD_GOSSIP_DEMO
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)50e6);
+#else
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
+#endif
+  if (ev) {
+    ev->fun = fd_gossip_purge_expired_values;
+  }
+  
+  for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
+       !fd_value_table_iter_done( glob->values, iter );
+       iter = fd_value_table_iter_next( glob->values, iter ) ) {
+    fd_value_elem_t * ele = fd_value_table_iter_ele( glob->values, iter );
+    fd_hash_t * hash = &(ele->key);
+    /* Purge expired values */
+    if (ele->wallclock < expire) {
+      fd_valloc_free( glob->valloc, ele->data );
+      fd_value_table_remove( glob->values, hash );
+    }
   }
 }
 
@@ -1079,7 +1110,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->datalen = datalen;
 
 #ifdef FD_GOSSIP_DEMO
-  for(ulong l = 0; l < 1000; l++ ) {
+  for(ulong l = 0; l < 100; l++ ) {
 #endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
@@ -1472,7 +1503,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Try again in 100 msec */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e3);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e4);
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
 #endif
@@ -1693,11 +1724,16 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 60 sec */
+#ifdef FD_GOSSIP_DEMO
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
+#else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
+#endif
   if (ev) {
     ev->fun = fd_gossip_log_stats;
   }
 
+  FD_LOG_NOTICE(("pending events %lu", fd_pending_pool_used( glob->event_pool )));
   FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
   FD_LOG_NOTICE(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
@@ -1751,7 +1787,11 @@ fd_gossip_start( fd_gossip_t * glob ) {
   ev->fun = fd_gossip_random_pull;
   ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
   ev->fun = fd_gossip_random_ping;
+#ifdef FD_GOSSIP_DEMO
+  ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
+#else
   ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
+#endif
   ev->fun = fd_gossip_log_stats;
   ev = fd_gossip_add_pending(glob, glob->now + (long)20e9);
   ev->fun = fd_gossip_refresh_push_states;
@@ -1759,6 +1799,8 @@ fd_gossip_start( fd_gossip_t * glob ) {
   ev->fun = fd_gossip_push;
   ev = fd_gossip_add_pending(glob, glob->now + (long)30e9);
   ev->fun = fd_gossip_make_prune;
+  ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
+  ev->fun = fd_gossip_purge_expired_values;
   fd_gossip_unlock( glob );
 
   return 0;
