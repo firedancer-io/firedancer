@@ -1,4 +1,7 @@
 ifdef FD_HAS_INT128
+$(call add-hdrs,fd_sysvar_cache.h)
+$(call add-objs,fd_sysvar_cache,fd_flamenco)
+
 $(call add-hdrs,fd_sysvar_clock.h)
 $(call add-objs,fd_sysvar_clock,fd_flamenco)
 
