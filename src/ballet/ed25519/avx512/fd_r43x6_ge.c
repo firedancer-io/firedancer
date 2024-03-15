@@ -150,6 +150,7 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
     y,                      /* Reduced */
     one,                    /* Reduced */
     fd_r43x6_mul( x, y ) ); /* in u44 */
+  FD_R43X6_QUAD_FOLD_UNSIGNED( *_P, *_P );
   return 0;
 
 fail:
@@ -234,6 +235,7 @@ fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
   fd_r43x6_t xya,  xyb;  FD_R43X6_MUL2_INL      ( xya,  xa,ya,     xyb,  xb,yb    );
 
   FD_R43X6_QUAD_PACK( *_Pa, xa,ya,one,xya );                       FD_R43X6_QUAD_PACK( *_Pb, xb,yb,one,xyb );
+  FD_R43X6_QUAD_FOLD_UNSIGNED( *_Pa, *_Pa );                       FD_R43X6_QUAD_FOLD_UNSIGNED( *_Pb, *_Pb );
   return 0;
 
 faila:
