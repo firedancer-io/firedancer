@@ -90,6 +90,7 @@ FD_PROTOTYPES_END
 /* VM register constants */
 
 #define FD_VM_REG_CNT (11UL)
+#define FD_VM_REG_MAX (16UL) /* Actual number of SBPF instruction src/dst register indices */
 
 #define FD_VM_SHADOW_REG_CNT (4UL)
 
