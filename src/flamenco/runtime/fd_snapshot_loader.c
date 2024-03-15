@@ -109,92 +109,90 @@ load_one_snapshot( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void
-fd_snapshot_load( const char **        snapshotfiles,
+fd_snapshot_load( const char *         snapshotfile,
                   fd_exec_slot_ctx_t * slot_ctx,
                   uint                 verify_hash,
-                  uint                 check_hash ) {
+                  uint                 check_hash,
+                  fd_snapshot_type_t   snapshot_type ) {
 
 
-  for (uint i = 0; snapshotfiles[i] != NULL; ++i) {
-    fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
-    fd_funk_txn_xid_t xid;
+  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_xid_t xid;
 
-    const char * snapshotfile = snapshotfiles[i];
+  size_t slen = strlen(snapshotfile);
+  const char *hptr = &snapshotfile[slen - 1];
+  while ((hptr >= snapshotfile) && (*hptr != '-'))
+    hptr--;
+  hptr++;
+  char hash[100];
+  size_t hlen = (size_t) ((&snapshotfile[slen - 1] - hptr) - 7);
+  if( hlen > sizeof(hash)-1U )
+    FD_LOG_ERR(( "invalid snapshot file %s", snapshotfile ));
+  memcpy(hash, hptr, hlen);
+  hash[hlen] = '\0';
 
-    size_t slen = strlen(snapshotfile);
-    const char *hptr = &snapshotfile[slen - 1];
-    while ((hptr >= snapshotfile) && (*hptr != '-'))
-      hptr--;
-    hptr++;
-    char hash[100];
-    size_t hlen = (size_t) ((&snapshotfile[slen - 1] - hptr) - 7);
-    if( hlen > sizeof(hash)-1U )
-      FD_LOG_ERR(( "invalid snapshot file %s", snapshotfile ));
-    memcpy(hash, hptr, hlen);
-    hash[hlen] = '\0';
+  fd_hash_t fhash;
+  if( FD_UNLIKELY( !fd_base58_decode_32( hash, fhash.uc ) ) )
+    FD_LOG_ERR(( "invalid snapshot hash" ));
 
-    fd_hash_t fhash;
-    if( FD_UNLIKELY( !fd_base58_decode_32( hash, fhash.uc ) ) )
-      FD_LOG_ERR(( "invalid snapshot hash" ));
+  FD_TEST(sizeof(xid) == sizeof(fhash));
+  memcpy(&xid, &fhash.ul[0], sizeof(xid));
 
-    FD_TEST(sizeof(xid) == sizeof(fhash));
-    memcpy(&xid, &fhash.ul[0], sizeof(xid));
+  fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
+  slot_ctx->funk_txn = child_txn;
 
-    fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
-    slot_ctx->funk_txn = child_txn;
+  fd_scratch_push();
+  load_one_snapshot( slot_ctx, snapshotfile );
+  fd_scratch_pop();
 
-    fd_scratch_push();
-    load_one_snapshot( slot_ctx, snapshotfile );
-    fd_scratch_pop();
+  // In order to calculate the snapshot hash, we need to know what features are active...
+  fd_features_restore( slot_ctx );
+  fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
-    // In order to calculate the snapshot hash, we need to know what features are active...
-    fd_features_restore( slot_ctx );
-    fd_calculate_epoch_accounts_hash_values( slot_ctx );
+  if (!FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+    /* We need to flush the incremental snapshot's changes if we are
+        using the OLD verification method.  Otherwise, iterating over
+        the root would only see the base snapshot's records. */
+    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+    slot_ctx->funk_txn = parent_txn;
+    child_txn = NULL;
+  }
 
-    if (!FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
-      /* We need to flush the incremental snapshot's changes if we are
-         using the OLD verification method.  Otherwise, iterating over
-         the root would only see the base snapshot's records. */
-      fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
-      slot_ctx->funk_txn = parent_txn;
-      child_txn = NULL;
-    }
+  if( verify_hash ) {
+    if (snapshot_type == FD_SNAPSHOT_TYPE_FULL) {
+      fd_hash_t accounts_hash;
+      fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 0);
 
-    if( verify_hash ) {
-      if (0 == i) {
-        fd_hash_t accounts_hash;
-        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 0);
+      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+        FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+      else
+        FD_LOG_INFO(("snapshot accounts_hash %32J verified successfully", accounts_hash.hash));
+    } else if (snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL) {
+      fd_hash_t accounts_hash;
 
-        if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
-          FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
-        else
-          FD_LOG_INFO(("snapshot accounts_hash %32J verified successfully", accounts_hash.hash));
-      } else if (1 == i) {
-        fd_hash_t accounts_hash;
-
-        if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
-          FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-          fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 1);
-        } else {
-          FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-          fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash, 0);
-        }
-
-        if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
-          FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
-        else
-          FD_LOG_INFO(("incremental accounts_hash %32J verified successfully", accounts_hash.hash));
+      if (FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+        FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
+        fd_snapshot_hash(slot_ctx, &accounts_hash, child_txn, check_hash, 1);
+      } else {
+        FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
+        fd_snapshot_hash(slot_ctx, &accounts_hash, NULL, check_hash, 0);
       }
-    }
 
-    /* flush if we haven't done so already */
-    if( child_txn ) {
-      fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
-      slot_ctx->funk_txn = parent_txn;
-      child_txn = NULL;
+      if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
+        FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
+      else
+        FD_LOG_INFO(("incremental accounts_hash %32J verified successfully", accounts_hash.hash));
+    } else {
+      FD_LOG_ERR(( "invalid snapshot type %u", snapshot_type ));
     }
   }
 
+  /* flush if we haven't done so already */
+  if( child_txn ) {
+    fd_funk_txn_publish( slot_ctx->acc_mgr->funk, child_txn, 0 );
+    slot_ctx->funk_txn = parent_txn;
+    child_txn = NULL;
+  }
   fd_hashes_load(slot_ctx);
 }
 

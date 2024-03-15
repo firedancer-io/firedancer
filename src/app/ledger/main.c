@@ -329,15 +329,12 @@ main( int     argc,
   } else if (strcmp(cmd, "ingest") == 0) {
 
     if( snapshotfile ) {
-      const char * snapshotfiles[3];
-      snapshotfiles[0] = snapshotfile;
-      snapshotfiles[1] = incremental;
-      snapshotfiles[2] = NULL;
-
-      fd_snapshot_load(snapshotfiles, slot_ctx, (verifyacchash != NULL), (checkacchash != NULL));
-
+      fd_snapshot_load( snapshotfile, slot_ctx, (verifyacchash != NULL), (checkacchash != NULL), FD_SNAPSHOT_TYPE_FULL );
       FD_LOG_NOTICE(("imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map ( funk, wksp ))));
-
+    }
+    if( incremental ) {
+      fd_snapshot_load( incremental,  slot_ctx, (verifyacchash != NULL), (checkacchash != NULL), FD_SNAPSHOT_TYPE_INCREMENTAL );
+      FD_LOG_NOTICE(("imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map ( funk, wksp ))));
     }
 
     if( genesis ) {

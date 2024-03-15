@@ -878,7 +878,9 @@ void snapshot_setup( char const * snapshot,
   }
   
   const char * p = strstr( snapshot, "incremental-snapshot-" );
+  fd_snapshot_type_t snapshot_type = FD_SNAPSHOT_TYPE_UNSPECIFIED;
   if( p != NULL ) {
+    snapshot_type = FD_SNAPSHOT_TYPE_INCREMENTAL;
     ulong i, j;
     if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
       FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
@@ -886,6 +888,7 @@ void snapshot_setup( char const * snapshot,
       FD_LOG_ERR( ( "ledger slot number does not match --incremental-snapshot, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, p ) );
     out->snapshot_slot = j;
   } else {
+    snapshot_type = FD_SNAPSHOT_TYPE_FULL;
     p = strstr( snapshot, "snapshot-" );
     if( p != NULL ) {
       if( sscanf( p, "snapshot-%lu", &out->snapshot_slot ) < 1 )
@@ -895,12 +898,10 @@ void snapshot_setup( char const * snapshot,
     }
   }
 
-  const char * snapshotfiles[2];
-  snapshotfiles[0] = snapshot;
-  snapshotfiles[1] = NULL;
-  fd_snapshot_load( snapshotfiles, exec_slot_ctx,
+  fd_snapshot_load( snapshot, exec_slot_ctx,
                     ((NULL != validate_snapshot) && (strcasecmp( validate_snapshot, "true" ) == 0)),
-                    ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0))
+                    ((NULL != check_hash) && (strcasecmp( check_hash, "true ") == 0)),
+                    snapshot_type
                   );
 
   fd_runtime_cleanup_incinerator( exec_slot_ctx );
