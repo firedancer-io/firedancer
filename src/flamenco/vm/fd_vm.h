@@ -35,22 +35,25 @@ struct fd_vm {
 
   ulong program_counter;            /* The current instruction index being executed, FIXME: NAME -> PC? */
   ulong instruction_counter;        /* The number of instructions which have been executed, FIXME: NAME -> IC? */
-  ulong compute_meter;              /* The remaining CUs left for the transaction */ /* FIXME: NAME -> CC? */
+  ulong compute_meter;              /* The remaining CUs left for the transaction */ /* FIXME: NAME -> CU? */
   ulong due_insn_cnt;               /* Currently executed instructions */ /* FIXME: DOCUMENT */
-  ulong previous_instruction_meter; /* Last value of remaining compute units */ /* FIXME: NAME -> CC_LAST? */
-  int   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the fault that occured, FIXME: NAME: FAULT? */
+  ulong previous_instruction_meter; /* Last value of remaining compute units */ /* FIXME: NAME -> CU_LAST? */
+  int   cond_fault;                 /* If non-zero, holds an FD_VM_ERR code describing the fault that occured, FIXME: REMOVE */
 
   /* External memory regions */
   /* FIXME: MAKE CALLDESTS AN INTERNAL MEMORY REGION IF TEXT_CNT
-     HAS A REASONABLY UPPER BOUND? */
+     HAS A REASONABLE UPPER BOUND (PROBABLY NOT, SEEMS TO BE A PROPERTY
+     OF THE PROGRAM AND NOT THE VM)? */
   /* FIXME: ADD BIT VECTOR TO FORBID BRANCHING INTO MULTIWORD
      INSTRUCTIONS (OR AS AN INTERNAL MEMORY REGION) AND/OR HAVE VALIDATE
-     COMPUTE. */
+     COMPUTE (PROBABLY NOT ... PROBABLY NEEDS TO BE A PROPERTY OF THE
+     PROGRAM AND NOT THE VM). */
 
   ulong const * text;       /* Program sBPF words, indexed [0,text_cnt) */
   ulong         text_cnt;   /* Program sBPF word count (FIXME: BOUNDS?) */
   ulong         text_off;   /* Relocation offset we must apply to indirect calls (callx/CALL_REGs)
-                               IMPORANT SAFETY TIP!  THIS IS IN BYTES (FIXME: SHOULD IT BE? MULTIPLE OF 8? LONG? BOUNDS?) */
+                               IMPORANT SAFETY TIP!  THIS IS IN BYTES (FIXME: SHOULD IT BE? MULTIPLE OF 8? LONG? BOUNDS?)
+                               IS THIS THE LOCATION OF TEXT RELATIVE TO RODATA? */
   ulong         entrypoint; /* Initial program counter */ /* FIXME: NAME, BOUNDS [0,TEXT_CNT)? */
   ulong const * calldests;  /* Bit vector of local functions that can be called into (FIXME: BIT INDEXED [0,TEXT_CNT)?) */
 
@@ -103,11 +106,60 @@ struct fd_vm {
 
   ulong log_sz; /* In [0,FD_VM_LOG_MAX] */
 
+  /* vm mem configuration */
+
+  /* The VM classifies the 64-bit VM address space into 6 regions:
+
+     0 - unmapped lo
+     1 - program  -> [FD_VM_MEM_MAP_PROGRAM_REGION_START,FD_VM_MEM_MAP_PROGRAM_REGION_START+4GiB)
+     2 - stack    -> [FD_VM_MEM_MAP_STACK_REGION_START,  FD_VM_MEM_MAP_STACK_REGION_START  +4GiB)
+     3 - heap     -> [FD_VM_MEM_MAP_HEAP_REGION_START,   FD_VM_MEM_MAP_HEAP_REGION_START   +4GiB)
+     4 - input    -> [FD_VM_MEM_MAP_INPUT_REGION_START,  FD_VM_MEM_MAP_INPUT_REGION_START  +4GiB)
+     5 - unmapped hi
+
+   The mappings for these regions are encoded in a software TLB
+   consisting of three 6-element arrays: region_haddr, region_ld_sz, and
+   region_st_sz.
+
+   region_haddr[i] gives the location in host address space of the first
+   byte in region i.  region_{ld,st}_sz[i] gives the number of mappable
+   bytes in this region for {loads,stores}.  Note that region_ld_sz[i] <
+   2^32.  Further note that a host memory regions,
+   [region_haddr,region_haddr+region_ld_sz), does not wrap around in
+   host address space and does not overlap with any other usages.
+
+   region_haddr[0] and region_haddr[5] are arbitrary; NULL is used as
+   the obvious default.
+
+   region_ld_sz[0] and region_ld_sz[5] are zero such that requests to
+   load data from a non-zero sz range in these regions will fail to map
+   to a host address range, making these regions unreadable.
+
+   region_st_sz[0], region_st_sz[1], and region_st_sz[5] are zero such
+   that requests to store data to any non-zero sz range these regions
+   will fail to map to a host address range, making these regions
+   unwriteable.
+
+   FIXME: If mapping outside the currently allocated heap region is
+   not allowed, sol_alloc_free will need to update the tlb arrays during
+   program execution (this is trivial).
+
+   FIXME: If mapping outside the current stack frame is not allowed,
+   pushing and popping stack frames will need to update the tlb arrays
+   during program execution (this is also trivial). */
+
+  ulong region_haddr[6];
+  uint  region_ld_sz[6];
+  uint  region_st_sz[6];
+
   /* Internal memory regions */
   /* FIXME: ALIGNMENT */
 
-  ulong          reg   [ FD_VM_REG_CNT         ]; /* registers (FIXME: USAGE) */
-  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is bottom/top */
+  ulong          reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT
+                                                     such that malformed SBPF instructions, which can have src/dst reg index in
+                                                     [0,FD_VM_REG_MAX), from being access info outside the VM register file. */
+  fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
+                                                     bottom/top */
   uchar          stack [ FD_VM_STACK_MAX       ]; /* stack (FIXME: USAGE) */
   uchar          heap  [ FD_VM_HEAP_MAX        ]; /* sol_alloc_free syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free */
   uchar          log   [ FD_VM_LOG_MAX         ]; /* sol_log_* syscalls log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free */
@@ -129,8 +181,6 @@ fd_vm_validate( fd_vm_t const * vm );
 /* fd_vm_exec runs the sBPF program in the VM until completion or a
    fault occurs.  Returns FD_VM_SUCCESS (0) on success and an FD_VM_ERR
    code (negative) on failure.  FIXME: DOCUMENT FAILURE REASONS */
-/* FIXME: PASS TRACE TO THIS DIRECTLY AND THEN SWITCH UNDER THE HOOD
-   (REMOVING TRACE FROM VM IN THE PROCESS?) MAKE TRACING COMPILE TIME? */
 
 int
 fd_vm_private_exec_trace( fd_vm_t * vm );
