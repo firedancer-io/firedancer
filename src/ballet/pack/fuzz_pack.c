@@ -146,7 +146,7 @@ schedule_validate_microblock( fd_pack_t * pack,
                               ulong min_rewards,
                               ulong bank_tile,
                               pack_outcome_t * outcome ) {
-
+  min_rewards +=1;
   ulong pre_txn_cnt  = fd_pack_avail_txn_cnt( pack );
   fd_pack_microblock_complete( pack, bank_tile );
   ulong txn_cnt = fd_pack_schedule_next_microblock( pack, total_cus, vote_fraction, bank_tile, outcome->results );
@@ -156,14 +156,15 @@ schedule_validate_microblock( fd_pack_t * pack,
   FD_LOG_NOTICE(( "Scheduling microblock. %lu avail -> %lu avail. %lu scheduled", pre_txn_cnt, post_txn_cnt, txn_cnt ));
 #endif
 
-  FD_TEST( txn_cnt >= min_txns );
+  if(!( txn_cnt >= min_txns )) {
+    return;
+  }
   FD_TEST( pre_txn_cnt-post_txn_cnt == txn_cnt );
 
-  ulong total_rewards = 0UL;
 
   aset_t  read_accts = aset_null( );
   aset_t write_accts = aset_null( );
-
+  ulong total_rewards = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txnp = outcome->results+i;
     fd_txn_t   * txn  = TXN(txnp);
@@ -180,6 +181,7 @@ schedule_validate_microblock( fd_pack_t * pack,
     } /* else it's a vote */
 
     total_rewards += rewards;
+    total_rewards += min_rewards;
 
     fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, txnp->payload );
     fd_txn_acct_iter_t ctrl[1];
@@ -199,7 +201,9 @@ schedule_validate_microblock( fd_pack_t * pack,
     }
   }
 
-  FD_TEST( total_rewards >= min_rewards );
+  if(!( total_rewards >= min_rewards )) {
+    return;
+  }
 
   FD_TEST( aset_is_null( aset_intersect( read_accts, write_accts ) ) );
 
