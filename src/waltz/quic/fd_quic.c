@@ -836,7 +836,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn,
   /* TODO do we need to check cur_stream_cnt vs limits? */
   /* The user is responsible for calling this, for setting limits, */
   /* and for setting stream_pool size */
-  /* Only current use cases for QUIC client size is for testing */
+  /* Only current use cases for QUIC client is for testing */
   /* So leaving this question unanswered for now */
 
   /* peer imposed limit on streams */
