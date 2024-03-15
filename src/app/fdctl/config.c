@@ -204,6 +204,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              gossip_dedup_tile_count                                   );
+  ENTRY_UINT  ( ., layout,              gossip_pre_dedup_tile_count                               );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
   ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );

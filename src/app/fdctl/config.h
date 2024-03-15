@@ -122,6 +122,7 @@ typedef struct {
     uint net_tile_count;
     uint verify_tile_count;
     uint gossip_dedup_tile_count;
+    uint gossip_pre_dedup_tile_count;
     uint bank_tile_count;
   } layout;
 

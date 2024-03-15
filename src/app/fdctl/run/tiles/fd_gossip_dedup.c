@@ -154,8 +154,7 @@ after_frag( void *             _ctx,
 
   int is_dup;
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, *signature );
-  // *opt_filter = is_dup;
-  *opt_filter = 0;
+  *opt_filter = is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
     *opt_chunk     = ctx->out_chunk;
     FD_STORE(ulong, signature, 0UL);

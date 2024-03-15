@@ -7,6 +7,7 @@
 #include "../../../../flamenco/types/fd_bincode.h"
 #include "../../../../flamenco/types/fd_types.h"
 #include "../../../../util/net/fd_eth.h"
+#include "../../../../util/net/fd_udp.h"
 
 #include <linux/unistd.h>
 
@@ -51,6 +52,12 @@ gossip_verify( fd_gossip_verify_ctx_t * ctx,
 
   return GOSSIP_VERIFY_SUCCESS;
 }
+
+typedef struct __attribute__((packed)) {
+  fd_eth_hdr_t eth[1];
+  fd_ip4_hdr_t ip4[1];
+  fd_udp_hdr_t udp[1];
+} eth_ip_udp_t;
 
 /* The verify tile is a wrapper around the mux tile, that also verifies
    incoming transaction signatures match the data being signed.
@@ -197,6 +204,7 @@ after_frag( void *             _ctx,
   fd_gossip_verify_ctx_t * ctx = (fd_gossip_verify_ctx_t *)_ctx;
 
   ulong network_hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
+  eth_ip_udp_t * hdr = (eth_ip_udp_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   uchar * udp_payload = ((uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ) + network_hdr_sz);
   ulong payload_sz = (*opt_sz - network_hdr_sz);
@@ -310,6 +318,8 @@ after_frag( void *             _ctx,
         pubkey    = &gmsg->inner.ping.from;
         res |= gossip_verify( ctx, gmsg->inner.ping.token.uc, 32UL, signature, pubkey );
         sig = signature->ul[0];
+        sig ^= fd_disco_netmux_sig_ip_addr(*opt_sig);
+        sig ^= hdr->udp->net_sport;
         break;
       }
       case fd_gossip_msg_enum_pong: {
@@ -317,6 +327,8 @@ after_frag( void *             _ctx,
         pubkey    = &gmsg->inner.pong.from;
         res |= gossip_verify( ctx, gmsg->inner.pong.token.uc, 32UL, signature, pubkey );
         sig = signature->ul[0];
+        sig ^= fd_disco_netmux_sig_ip_addr(*opt_sig);
+        sig ^= hdr->udp->net_sport;
         break;
       }
     }
