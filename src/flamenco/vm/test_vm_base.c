@@ -36,6 +36,7 @@ FD_STATIC_ASSERT( FD_VM_ERR_BAD_CALL                    ==-26, vm_err );
 /* Verify limits */
 
 FD_STATIC_ASSERT( FD_VM_REG_CNT       ==11UL, vm_reg );
+FD_STATIC_ASSERT( FD_VM_REG_MAX       ==16UL, vm_reg );
 FD_STATIC_ASSERT( FD_VM_SHADOW_REG_CNT== 4UL, vm_reg );
 
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_MAX==64UL,          vm_stack );

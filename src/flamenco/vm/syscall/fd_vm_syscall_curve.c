@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 
+#include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../../ballet/ed25519/fd_ristretto255.h"
 
