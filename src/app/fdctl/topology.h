@@ -64,7 +64,8 @@
 #define FD_TOPO_WKSP_KIND_REPLAY       (33UL)
 #define FD_TOPO_WKSP_KIND_GOSSIP_VERIFY      (34UL)
 #define FD_TOPO_WKSP_KIND_GOSSIP_DEDUP       (35UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_GOSSIP_DEDUP+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_GOSSIP_PRE_DEDUP       (36UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_GOSSIP_PRE_DEDUP+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -108,6 +109,7 @@
 #define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (27UL)
 #define FD_TOPO_LINK_KIND_NETMUX_TO_NET       (28UL)
 #define FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP     (29UL)
+#define FD_TOPO_LINK_KIND_PRE_DEDUP_TO_VERIFY (30UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -131,7 +133,8 @@
 #define FD_TOPO_TILE_KIND_REPLAY    (16UL)
 #define FD_TOPO_TILE_KIND_GOSSIP_VERIFY (17UL)
 #define FD_TOPO_TILE_KIND_GOSSIP_DEDUP  (18UL)
-#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_GOSSIP_DEDUP+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP  (19UL)
+#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP+1 ) /* Keep updated with maximum tile IDX */
 
 #define FD_TOPO_KIND_TVU            (0UL)
 #define FD_TOPO_KIND_FIREDANCER     (1UL)
@@ -267,6 +270,10 @@ typedef struct {
       ulong tcache_depth;
     } dedup;
 
+    struct {
+      ulong tcache_depth;
+      ushort gossip_listen_port;
+    } gossip_pre_dedup;
 
     struct {
       ulong tcache_depth;
@@ -481,6 +488,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_REPLAY:   return "replay";
     case FD_TOPO_WKSP_KIND_GOSSIP_VERIFY: return "gverify";
     case FD_TOPO_WKSP_KIND_GOSSIP_DEDUP:  return "gdedup";
+    case FD_TOPO_WKSP_KIND_GOSSIP_PRE_DEDUP:  return "gpdedup";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -521,6 +529,7 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_STORE_TO_REPAIR:     return "store_repair";
     case FD_TOPO_LINK_KIND_NETMUX_TO_NET:       return "netmux_net";
     case FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP:     return "dedup_gossip";
+    case FD_TOPO_LINK_KIND_PRE_DEDUP_TO_VERIFY: return "prededup_verify";
     default: FD_LOG_ERR(( "unknown link kind %lu", kind )); return NULL;
   }
 }
@@ -562,6 +571,7 @@ fd_topo_tile_kind_str( ulong kind ) {
     case FD_TOPO_TILE_KIND_REPLAY:      return "replay";
     case FD_TOPO_TILE_KIND_GOSSIP_VERIFY: return "gverify";
     case FD_TOPO_TILE_KIND_GOSSIP_DEDUP: return "gdedup";
+    case FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP: return "gpdedup";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }
