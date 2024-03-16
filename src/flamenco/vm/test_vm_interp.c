@@ -13,57 +13,58 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
 }
 
 static void
-test_program_success( char *        test_case_name,
-                      ulong         expected_result,
-                      ulong const * text,
-                      ulong         text_cnt ) {
+test_program_success( char *               test_case_name,
+                      ulong                expected_result,
+                      ulong const *        text,
+                      ulong                text_cnt,
+                      fd_sbpf_syscalls_t * syscalls ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint()) );
-  FD_TEST( syscalls );
-
-  fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
-
   fd_vm_t vm = {
-    .entrypoint                 = 0,
-    .syscalls                   = syscalls,
-    .program_counter            = 0,
-    .instruction_counter        = 0,
-    .compute_meter              = FD_VM_COMPUTE_UNIT_LIMIT,
-    .due_insn_cnt               = 0,
-    .previous_instruction_meter = FD_VM_COMPUTE_UNIT_LIMIT,
-    .text                       = text,
-    .text_cnt                   = text_cnt,
-    .heap_max                   = FD_VM_HEAP_DEFAULT,
-    .heap_sz                    = 0UL,
-    .trace                      = NULL
+    .instr_ctx = NULL, /* FIXME: HMMM */
+    .heap_max  = FD_VM_HEAP_DEFAULT,
+    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT,
+    .rodata    = (uchar *)text,
+    .rodata_sz = 8UL*text_cnt,
+    .text      = text,
+    .text_cnt  = text_cnt,
+    .text_off  = 0,
+    .entry_pc  = 0,
+    .calldests = NULL,     /* FIXME: HMMM */
+    .syscalls  = syscalls,
+    .input     = NULL,
+    .input_sz  = 0,
+    .trace     = NULL
   };
+
+  /* FIXME: GROSS */
+  vm.pc        = vm.entry_pc;
+  vm.ic        = 0UL;
+  vm.cu        = vm.entry_cu;
+  vm.frame_cnt = 0UL;
+  vm.heap_sz   = 0UL;
+  vm.log_sz    = 0UL;
+  fd_vm_mem_cfg( &vm );
 
   int err = fd_vm_validate( &vm );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "validation failed: %i-%s", err, fd_vm_strerror( err ) ));
 
   long dt = -fd_log_wallclock();
-  fd_vm_exec( &vm ); /* FIXME: GET ERR AND LOG */
+  err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
-  free( syscalls );
   if( FD_UNLIKELY( vm.reg[0]!=expected_result ) ) {
-    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm.reg[0],              vm.reg[0]                       ));
-    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm.program_counter,     vm.program_counter              ));
-    FD_LOG_WARNING(( "Cond fault: %i (%s)",   vm.cond_fault,          fd_vm_strerror( vm.cond_fault ) ));
-    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm.instruction_counter, vm.instruction_counter          ));
+    FD_LOG_WARNING(( "Interp err: %i (%s)",   err,       fd_vm_strerror( err ) ));
+    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm.reg[0], vm.reg[0]             ));
+    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm.pc,     vm.pc                 ));
+    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm.ic,     vm.ic                 ));
   }
-//FD_LOG_NOTICE(( "Instr counter: %lu", vm.instruction_counter ));
+//FD_LOG_NOTICE(( "Instr counter: %lu", vm.ic ));
   FD_TEST( vm.reg[0]==expected_result );
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
-//FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.instruction_counter ));
-//FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.instruction_counter / (double) dt)));
+//FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.ic ));
+//FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.ic / (double) dt)));
 }
-
-#define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
-    fd_sbpf_instr_t _text[ text_cnt ] = { __VA_ARGS__ };                            \
-    test_program_success( (test_case_name), (expected_result), (ulong const *)fd_type_pun( _text ), text_cnt ); /* FIXME: GROSS */ \
-  } while(0)
 
 static void
 generate_random_alu_instrs( fd_rng_t * rng,
@@ -159,12 +160,23 @@ generate_random_alu64_instrs( fd_rng_t * rng,
   text[text_cnt-1UL] = fd_sbpf_ulong( instr );
 }
 
+static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
+
+  FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
+
+# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
+    fd_sbpf_instr_t _text[ text_cnt ] = { __VA_ARGS__ };                             \
+    test_program_success( (test_case_name), (expected_result), (ulong const *)fd_type_pun( _text ), text_cnt, syscalls ); /* FIXME: GROSS */ \
+  } while(0)
 
   TEST_PROGRAM_SUCCESS("add", 0x3, 5,
     FD_SBPF_INSTR(FD_SBPF_OP_MOV_IMM,   FD_SBPF_R0,  0,      0, 0),
@@ -844,19 +856,21 @@ main( int     argc,
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success("alu_bench", 0x0, text, text_cnt );
+  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success("alu64_bench", 0x0, text, text_cnt );
+  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success("alu_bench_short", 0x0, text, text_cnt );
+  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success("alu64_bench_short", 0x0, text, text_cnt );
+  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls );
 
   free( text );
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );

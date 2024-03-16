@@ -117,15 +117,13 @@ cmd_validate( char const * bin_path ) {
   fd_vm_tool_prog_create( &tool_prog, bin_path );
 
   fd_vm_t vm = {
-    .entrypoint          = tool_prog.prog->entry_pc,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = tool_prog.prog->text,
-    .text_cnt            = tool_prog.prog->text_cnt,
-    .text_off            = tool_prog.prog->text_off, /* FIXME: WHAT IF TEXT OFF NOT MULTIPLE OF 8 */
-    .calldests           = tool_prog.prog->calldests,
-    .syscalls            = tool_prog.syscalls,
-    .trace               = NULL
+    .text      = tool_prog.prog->text,
+    .text_cnt  = tool_prog.prog->text_cnt,
+    .text_off  = tool_prog.prog->text_off,
+    .entry_pc  = tool_prog.prog->entry_pc,
+    .calldests = tool_prog.prog->calldests,
+    .syscalls  = tool_prog.syscalls,
+    .trace     = NULL
   };
 
   /* FIXME: DO WE REALLY NEED THE WHOLE VM TO VALIDATE? */
@@ -185,43 +183,47 @@ cmd_trace( char const * bin_path,
   ulong event_data_max = 2048UL;  /* 2 KiB memory range captures by default */
   fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( aligned_alloc(
     fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) ); /* logs details */
-  if( FD_UNLIKELY( !trace ) ) FD_LOG_ERR(( "Unable to construct trace" ));
+  if( FD_UNLIKELY( !trace ) ) {
+    FD_LOG_WARNING(( "unable to create trace" ));
+    return FD_VM_ERR_INVAL; /* FIXME: ERR CODE */
+  }
 
   /* FIXME: Gross init */
   fd_vm_t vm = {
-    .entrypoint          = tool_prog.prog->entry_pc,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = tool_prog.prog->text,
-    .text_cnt            = tool_prog.prog->text_cnt,
-    .text_off            = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata, /* Note: byte offset (FIXME: WHAT IF MISALIGNED) */
-    .syscalls            = tool_prog.syscalls,
-    .calldests           = tool_prog.prog->calldests,
-    .input               = input,
-    .input_sz            = input_sz,
-    .rodata              = tool_prog.prog->rodata,
-    .rodata_sz           = tool_prog.prog->rodata_sz,
-    .trace               = trace
+    .instr_ctx = NULL, /* FIXME */
+    .heap_max  = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
+    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
+    .rodata    = tool_prog.prog->rodata,
+    .rodata_sz = tool_prog.prog->rodata_sz,
+    .text      = tool_prog.prog->text,
+    .text_cnt  = tool_prog.prog->text_cnt,
+    .text_off  = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
+    .entry_pc  = tool_prog.prog->entry_pc,
+    .calldests = tool_prog.prog->calldests,
+    .syscalls  = tool_prog.syscalls,
+    .input     = input,
+    .input_sz  = input_sz,
+    .trace     = trace
   };
 
+  /* FIXME: MOVE TO EXEC */
   vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  int err = fd_vm_exec( &vm );
+  int exec_err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
   printf( "Frame 0\n" );
-  int trace_err = fd_vm_trace_printf( vm.trace, vm.syscalls ); /* logs details */
-  if( FD_UNLIKELY( trace_err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", trace_err, fd_vm_strerror( trace_err ) ));
+  int err = fd_vm_trace_printf( vm.trace, vm.syscalls ); /* logs details */
+  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
+
+  printf( "Interp_res:          %i (%s)\n", exec_err, fd_vm_strerror( exec_err ) );
+  printf( "Return value:        %lu\n",     vm.reg[0]                            );
+  printf( "Instruction counter: %lu\n",     vm.ic                                );
+  printf( "Time:                %lu\n",     dt                                   );
 
   free( fd_vm_trace_delete( fd_vm_trace_leave( trace ) ) ); /* logs details */
-
-  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err )                     );
-  printf( "Return value:        %lu\n",     vm.reg[0]                                      );
-  printf( "Fault code:          %i\n",      vm.cond_fault, fd_vm_strerror( vm.cond_fault ) );
-  printf( "Instruction counter: %lu\n",     vm.instruction_counter                         );
-  printf( "Time:                %lu\n",     dt                                             );
 
   return err;
 }
@@ -237,35 +239,36 @@ cmd_run( char const * bin_path,
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
   fd_vm_t vm = {
-    .entrypoint          = tool_prog.prog->entry_pc,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = tool_prog.prog->text,
-    .text_cnt            = tool_prog.prog->text_cnt,
-    .text_off            = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata, /* Note: byte offset (FIXME: WHAT IF NOT ALIGNED 8) */
-    .syscalls            = tool_prog.syscalls,
-    .calldests           = tool_prog.prog->calldests,
-    .input               = input,
-    .input_sz            = input_sz,
-    .rodata              = tool_prog.prog->rodata,
-    .rodata_sz           = tool_prog.prog->rodata_sz,
-    .trace               = NULL
+    .instr_ctx = NULL, /* FIXME */
+    .heap_max  = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
+    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT, /* FIXME: CONFIGURE */
+    .rodata    = tool_prog.prog->rodata,
+    .rodata_sz = tool_prog.prog->rodata_sz,
+    .text      = tool_prog.prog->text,
+    .text_cnt  = tool_prog.prog->text_cnt,
+    .text_off  = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
+    .entry_pc  = tool_prog.prog->entry_pc,
+    .calldests = tool_prog.prog->calldests,
+    .syscalls  = tool_prog.syscalls,
+    .input     = input,
+    .input_sz  = input_sz,
+    .trace     = NULL
   };
 
-  vm.reg[ 1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
+  /* FIXME: MOVE TO EXEC */
+  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   long dt = -fd_log_wallclock();
-  int err = fd_vm_exec( &vm );
+  int exec_err = fd_vm_exec( &vm );
   dt += fd_log_wallclock();
 
-  printf( "Interp_res:          %i (%s)\n", err, fd_vm_strerror( err )           );
+  printf( "Interp_res:          %i (%s)\n", exec_err, fd_vm_strerror( exec_err ) );
   printf( "Return value:        %lu\n",     vm.reg[0]                            );
-  printf( "Fault code:          %i (%s)\n", vm.cond_fault, fd_vm_strerror( err ) );
-  printf( "Instruction counter: %lu\n",     vm.instruction_counter               );
+  printf( "Instruction counter: %lu\n",     vm.ic                                );
   printf( "Time:                %lu\n",     dt                                   );
 
-  return err;
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -285,8 +288,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "disasm --program-file %s", program_file ));
 
     int err = cmd_disasm( program_file );
-
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "disasm failed (%i-%s)", err, fd_vm_strerror( err ) ));
+
     FD_LOG_NOTICE(( "disasm success" ));
 
   } else if( !strcmp( cmd, "validate" ) ) {
@@ -298,8 +301,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "validate --program-file %s", program_file ));
 
     int err = cmd_validate( program_file );
-
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
+
     FD_LOG_NOTICE(( "validate success" ));
 
   } else if( !strcmp( cmd, "trace" ) ) {
@@ -313,8 +316,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "trace --program-file %s --input-file %s", program_file, input_file ));
 
     int err = cmd_trace( program_file, input_file );
-
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "trace failed (%i-%s)", err, fd_vm_strerror( err ) ));
+
     FD_LOG_NOTICE(( "trace success" ));
 
   } else if( !strcmp( cmd, "run" ) ) {
@@ -328,8 +331,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "run --program-file %s --input-file %s", program_file, input_file ));
 
     int err = cmd_run( program_file, input_file );
-
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "run failed (%i-%s)", err, fd_vm_strerror( err ) ));
+
     FD_LOG_NOTICE(( "run success" ));
 
   } else {
