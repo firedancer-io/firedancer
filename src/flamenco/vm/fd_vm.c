@@ -16,9 +16,20 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_IO:    return "IO input-output error";
   case FD_VM_ERR_AGAIN: return "AGAIN try again later";
 
+  /* VM exec error codes */
+
+  case FD_VM_ERR_SIGTEXT:   return "SIGTEXT illegal program counter";
+  case FD_VM_ERR_SIGSPLIT:  return "SIGSPLIT split multiword instruction";
+  case FD_VM_ERR_SIGCALL:   return "SIGCALL illegal call";
+  case FD_VM_ERR_SIGSTACK:  return "SIGSTACK call depth limit exceeded";
+  case FD_VM_ERR_SIGILL:    return "SIGILL illegal instruction";
+  case FD_VM_ERR_SIGSEGV:   return "SIGSEGV illegal memory address";
+  case FD_VM_ERR_SIGBUS:    return "SIGBUS misaligned memory address";
+  case FD_VM_ERR_SIGRDONLY: return "SIGRDONLY illegal write";
+  case FD_VM_ERR_SIGCOST:   return "SIGCOST compute unit limit exceeded";
+
   /* VM syscall error codes */
 
-  case FD_VM_ERR_BUDGET:                       return "BUDGET compute budget exceeded";
   case FD_VM_ERR_ABORT:                        return "ABORT";                        /* FIXME: description */
   case FD_VM_ERR_PANIC:                        return "PANIC";                        /* FIXME: description */
   case FD_VM_ERR_MEM_OVERLAP:                  return "MEM_OVERLAP";                  /* FIXME: description */
@@ -26,7 +37,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_RETURN_DATA_TOO_LARGE:        return "RETURN_DATA_TOO_LARGE";        /* FIXME: description */
   case FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED: return "INVOKE_CONTEXT_BORROW_FAILED"; /* FIXME: description */
 
-  /* sBPF validation error codes */
+  /* VM validate error codes */
 
   case FD_VM_ERR_INVALID_OPCODE:    return "INVALID_OPCODE detected an invalid opcode";
   case FD_VM_ERR_INVALID_SRC_REG:   return "INVALID_SRC_REG detected an invalid source register";
@@ -38,11 +49,6 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_INCOMPLETE_LDQ:    return "INCOMPLETE_LDQ detected an incomplete ldq at program end";
   case FD_VM_ERR_LDQ_NO_ADDL_IMM:   return "LDQ_NO_ADDL_IMM detected a ldq without an addl imm following it";
   case FD_VM_ERR_NO_SUCH_EXT_CALL:  return "NO_SUCH_EXT_CALL detected a call imm with no function was registered for that immediate";
-
-  /* VM fault error codes */
-
-  case FD_VM_ERR_MEM_TRANS: return "MEM_TRANS"; /* FIXME: description */
-  case FD_VM_ERR_BAD_CALL:  return "BAD_CALL";  /* FIXME: description */
 
   default: break;
   }

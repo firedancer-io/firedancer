@@ -173,7 +173,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
      usage above */
 
   char msg[1024];
-  int msg_len = sprintf( msg, "Program consumption: %lu units remaining\n", vm->compute_meter );
+  int msg_len = sprintf( msg, "Program consumption: %lu units remaining\n", vm->cu );
   fd_vm_log_append( vm, msg, (ulong)msg_len );
 
   *_ret = 0UL;

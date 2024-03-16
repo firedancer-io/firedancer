@@ -9,16 +9,16 @@ test_vm_syscall_sol_memset( char const * test_case_name,
                             ulong        dst_haddr,
                             ulong        val,
                             ulong        sz,
-                            ulong        expected_ret_code,
-                            int          expected_syscall_ret ) {
+                            ulong        expected_ret,
+                            int          expected_err ) {
   set_memory_region( vm->heap, vm->heap_max );
 
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_memset( vm, dst_vaddr, val, sz, 0, 0, &ret_code );
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_memset( vm, dst_vaddr, val, sz, 0, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
 
-  if( !ret_code && !syscall_ret ) {
+  if( !ret && !err ) {
     char expected_block[sz];
     memset( expected_block, (int)val, sz);
     FD_TEST( !memcmp( (void *)dst_haddr, expected_block, sz ) );
@@ -35,16 +35,16 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
                             ulong        src_haddr,
                             ulong        dst_haddr,
                             ulong        sz,
-                            ulong        expected_ret_code,
-                            int          expected_syscall_ret ) {
+                            ulong        expected_ret,
+                            int          expected_err ) {
   set_memory_region( vm->heap, vm->heap_max );
 
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_memcpy(vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret_code);
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_memcpy( vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
 
-  if( !ret_code && !syscall_ret ) FD_TEST( !memcmp( (void *)dst_haddr, (void *)src_haddr, sz ) );
+  if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, (void *)src_haddr, sz ) );
 
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
@@ -59,14 +59,14 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
                             ulong        haddr_2,
                             ulong        host_cmp_result_addr,
                             ulong        sz,
-                            ulong        expected_ret_code,
-                            int          expected_syscall_ret ) {
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_memcmp( vm, vaddr_1, vaddr_2, sz, vm_cmp_result_addr, 0, &ret_code);
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
+                            ulong        expected_ret,
+                            int          expected_err ) {
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_memcmp( vm, vaddr_1, vaddr_2, sz, vm_cmp_result_addr, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
 
-  if( !ret_code && !syscall_ret ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
+  if( !ret && !err ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
 
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
@@ -79,19 +79,19 @@ test_vm_syscall_sol_memmove( char const * test_case_name,
                              ulong        src_haddr,
                              ulong        dst_haddr,
                              ulong        sz,
-                             ulong        expected_ret_code,
-                             int          expected_syscall_ret ) {
+                             ulong        expected_ret,
+                             int          expected_err ) {
   set_memory_region( vm->heap, vm->heap_max );
 
   void * temp = malloc( sz ); /* FIXME: So gross */
   FD_TEST( temp );
   memcpy( temp, (void *)src_haddr, sz );
 
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_memmove( vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret_code );
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
-  if( !ret_code && !syscall_ret ) FD_TEST( !memcmp( (void *)dst_haddr, temp, sz ) );
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_memmove( vm, dst_vaddr, src_vaddr, sz, 0, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
+  if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, temp, sz ) );
 
   free( temp );
 
@@ -103,15 +103,15 @@ test_vm_syscall_sol_log( char const *            test_case_name,
                          fd_vm_t *               vm,
                          ulong                   msg_vaddr,
                          ulong                   msg_len,
-                         ulong                   expected_ret_code,
-                         int                     expected_syscall_ret,
+                         ulong                   expected_ret,
+                         int                     expected_err,
                          uchar *                 expected_log,
                          ulong                   expected_log_sz ) {
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_log(vm, msg_vaddr, msg_len, 0, 0, 0, &ret_code);
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
-  if( !ret_code && !syscall_ret )
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_log( vm, msg_vaddr, msg_len, 0, 0, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
+  if( !ret && !err )
     FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
@@ -124,15 +124,15 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
                             ulong                   r3,
                             ulong                   r4,
                             ulong                   r5,
-                            ulong                   expected_ret_code,
-                            int                     expected_syscall_ret,
+                            ulong                   expected_ret,
+                            int                     expected_err,
                             uchar *                 expected_log,
                             ulong                   expected_log_sz ) {
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_log_64(vm, r1, r2, r3, r4, r5, &ret_code);
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
-  if( !ret_code && !syscall_ret )
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_log_64( vm, r1, r2, r3, r4, r5, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
+  if( !ret && !err )
     FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
@@ -142,15 +142,15 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
                               fd_vm_t *               vm,
                               ulong                   data_vaddr,
                               ulong                   data_len,
-                              ulong                   expected_ret_code,
-                              int                     expected_syscall_ret,
+                              ulong                   expected_ret,
+                              int                     expected_err,
                               uchar *                 expected_log,
                               ulong                   expected_log_sz ) {
-  ulong ret_code    = 0UL;
-  int   syscall_ret = fd_vm_syscall_sol_log_data(vm, data_vaddr, data_len, 0, 0, 0, &ret_code);
-  FD_TEST( ret_code==expected_ret_code );
-  FD_TEST( syscall_ret==expected_syscall_ret );
-  if( !ret_code && !syscall_ret )
+  ulong ret = 0UL;
+  int   err = fd_vm_syscall_sol_log_data( vm, data_vaddr, data_len, 0, 0, 0, &ret );
+  FD_TEST( ret==expected_ret );
+  FD_TEST( err==expected_err );
+  if( !ret && !err )
     FD_TEST( fd_vm_log_sz( vm )==expected_log_sz && !memcmp( fd_vm_log( vm ), expected_log, fd_vm_log_sz( vm ) ) );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
@@ -167,21 +167,30 @@ main( int     argc,
   set_memory_region( rodata, rodata_sz );
 
   fd_vm_t vm = {
-    .entrypoint          = 0,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = NULL,
-    .text_cnt            = 0,
-    .text_off            = 0,
-    .syscalls            = NULL,
-    .calldests           = NULL,
-    .input               = NULL,
-    .input_sz            = 0,
-    .rodata              = rodata,
-    .rodata_sz           = rodata_sz,
-    .heap_max            = FD_VM_HEAP_DEFAULT,
-    .compute_meter       = FD_VM_COMPUTE_UNIT_LIMIT,
+    .instr_ctx = NULL,
+    .heap_max  = FD_VM_HEAP_DEFAULT,
+    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT,
+    .rodata    = rodata,
+    .rodata_sz = rodata_sz,
+    .text      = NULL,
+    .text_cnt  = 0,
+    .text_off  = 0,
+    .entry_pc  = 0,
+    .calldests = NULL,
+    .syscalls  = NULL,
+    .input     = NULL,
+    .input_sz  = 0,
+    .trace     = NULL
   };
+
+  /* FIXME: GROSS */
+  vm.pc        = vm.entry_pc;
+  vm.ic        = 0UL;
+  vm.cu        = vm.entry_cu;
+  vm.frame_cnt = 0UL;
+  vm.heap_sz   = 0UL;
+  vm.log_sz    = 0UL;
+  fd_vm_mem_cfg( &vm );
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset at the heap region without offset",
                               &vm,

@@ -17,12 +17,6 @@
    completed successfully.  FD_VM_ERR_* are negative integers and
    returned to indicate an operation that failed and why. */
 
-/* FIXME: consider disambiguating PERM case into something like ACCES
-   (e.g. out of bounds VM memory request), FAULT/BUS cases (e.g.
-   misaligned VM memory access), PERM (e.g. disallowed VM memory access
-   like writing read-only memory) and maybe making MEM_OVERLAP something
-   like INVAL). */
-
 /* "Standard" Firedancer error codes (FIXME: harmonize and consolidate) */
 
 #define FD_VM_SUCCESS   ( 0) /* success */
@@ -34,19 +28,33 @@
 #define FD_VM_ERR_EMPTY (-6) /* nothing to do */
 #define FD_VM_ERR_IO    (-7) /* input-output error */
 
+/* VM exec error codes:  These are only produced by the VM itself. */
+
+#define FD_VM_ERR_SIGTEXT   ( -8) /* illegal program counter (e.g. execution ran off end of program, jump to outside the program) */
+#define FD_VM_ERR_SIGSPLIT  ( -9) /* split multiword instruction (e.g. jump into the middle of a multiword instruction) */
+#define FD_VM_ERR_SIGCALL   (-10) /* illegal call (e.g. call target is not the start of function) */
+#define FD_VM_ERR_SIGSTACK  (-11) /* call depth limit exceeded */
+#define FD_VM_ERR_SIGILL    (-12) /* illegal instruction (e.g. opcode is not valid) */
+#define FD_VM_ERR_SIGSEGV   (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
+#define FD_VM_ERR_SIGBUS    (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
+#define FD_VM_ERR_SIGRDONLY (-15) /* illegal write (e.g. write to a read only address) */
+#define FD_VM_ERR_SIGCOST   (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
+
+/* FIXME: Are these exact matches to Solana?  If so, provide link, if
+   not, document and refine name / consolidate further. */
+
 /* VM syscall error codes.  These are only produced by fd_vm_syscall
    implementations.  FIXME: Consider having syscalls return standard
    error codes and then provide detail like this through an info arg.
    FIXME: Are these exact matches to Solana?  If so, provide link?  If
    not document and refine names / consolidate further. */
 
-#define FD_VM_ERR_BUDGET                       ( -8) /* compute budget exceeded (FIXME: fault error code) */
-#define FD_VM_ERR_ABORT                        ( -9) /* FIXME: description */
-#define FD_VM_ERR_PANIC                        (-10) /* FIXME: description */
-#define FD_VM_ERR_MEM_OVERLAP                  (-11) /* FIXME: description */
-#define FD_VM_ERR_INSTR_ERR                    (-12) /* FIXME: description */
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-13) /* FIXME: description */
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-14) /* FIXME: description */
+#define FD_VM_ERR_ABORT                        (-17) /* FIXME: description */
+#define FD_VM_ERR_PANIC                        (-18) /* FIXME: description */
+#define FD_VM_ERR_MEM_OVERLAP                  (-19) /* FIXME: description */
+#define FD_VM_ERR_INSTR_ERR                    (-20) /* FIXME: description */
+#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-21) /* FIXME: description */
+#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-22) /* FIXME: description */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -54,23 +62,16 @@
    info arg.  FIXME: Are these exact matches to Solana?  If so, provide
    link, if not, document and refine name / consolidate further. */
 
-#define FD_VM_ERR_INVALID_OPCODE    (-15) /* detected an invalid opcode */
-#define FD_VM_ERR_INVALID_SRC_REG   (-16) /* detected an invalid source register */
-#define FD_VM_ERR_INVALID_DST_REG   (-17) /* detected an invalid destination register */
-#define FD_VM_ERR_INF_LOOP          (-18) /* detected an infinite loop */
-#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-19) /* detected an out of bounds jump */
-#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-20) /* detected a jump to an addl imm */
-#define FD_VM_ERR_INVALID_END_IMM   (-21) /* detected an invalid immediate for an endianness conversion instruction */
-#define FD_VM_ERR_INCOMPLETE_LDQ    (-22) /* detected an incomplete ldq at program end */
-#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-23) /* detected a ldq without an addl imm following it */
-#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-24) /* detected a call imm with no function was registered for that immediate */
-
-/* VM fault error codes.  This are only produced by the vm interpreter.
-   FIXME: Are these exact matches to Solana?  If so, provide link, if
-   not, document and refine name / consolidate further. */
-
-#define FD_VM_ERR_MEM_TRANS (-25) /* FIXME: description */
-#define FD_VM_ERR_BAD_CALL  (-26) /* FIXME: description */
+#define FD_VM_ERR_INVALID_OPCODE    (-23) /* detected an invalid opcode */
+#define FD_VM_ERR_INVALID_SRC_REG   (-24) /* detected an invalid source register */
+#define FD_VM_ERR_INVALID_DST_REG   (-25) /* detected an invalid destination register */
+#define FD_VM_ERR_INF_LOOP          (-26) /* detected an infinite loop */
+#define FD_VM_ERR_JMP_OUT_OF_BOUNDS (-27) /* detected an out of bounds jump */
+#define FD_VM_ERR_JMP_TO_ADDL_IMM   (-28) /* detected a jump to an addl imm */
+#define FD_VM_ERR_INVALID_END_IMM   (-29) /* detected an invalid immediate for an endianness conversion instruction */
+#define FD_VM_ERR_INCOMPLETE_LDQ    (-30) /* detected an incomplete ldq at program end */
+#define FD_VM_ERR_LDQ_NO_ADDL_IMM   (-31) /* detected a ldq without an addl imm following it */
+#define FD_VM_ERR_NO_SUCH_EXT_CALL  (-32) /* detected a call imm with no function was registered for that immediate */
 
 FD_PROTOTYPES_BEGIN
 
@@ -605,7 +606,10 @@ fd_vm_trace_printf( fd_vm_trace_t      const * trace,
    syscalls retains a read-only interest in name (e.g. use an infinite
    lifetime cstr here).  (This function is exposed to allow VM users to
    add custom syscalls but most use cases probably should just call
-   fd_vm_syscall_register_slot below.) */
+   fd_vm_syscall_register_slot below.)
+
+   IMPORTANT SAFETY TIP!  See notes in syscall/fd_vm_syscall.h on what a
+   syscall should expect to see and what to return. */
 
 int
 fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
