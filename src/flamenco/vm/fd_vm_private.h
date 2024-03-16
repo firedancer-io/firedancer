@@ -26,28 +26,23 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_vm_cu API *******************************************************/
 
-/* fd_vm_consume_compute consumes `cost` compute units from vm.  Returns
-   FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET (negative) on
-   failure.  On return, the compute_meter is updated (to zero in the
-   ERR_BUDGET case). */
+/* FIXME: OPTIMIZE FUNCTION SIGNATURE OF THIS FOR USE CASE */
 
-/* FIXME: OPTIMIZE FUNCTION SIGNATURE FOR USE CASE */
+/* fd_vm_consume_compute consumes `cost` compute units from vm.  Returns
+   FD_VM_SUCCESS (0) on success (vm->cu will be strictly positive with
+   cost deducted from its value on entry) and FD_VM_ERR_SIGCOST
+   (negative) on failure.
+
+   fd_vm_consume_mem is identical except that it consumes 'sz' bytes
+   equivalent compute units from vm. */
 
 static inline int
 fd_vm_consume_compute( fd_vm_t * vm,
                        ulong     cost ) {
-  ulong compute_meter = vm->compute_meter;
-  ulong consumed      = fd_ulong_min( cost, compute_meter );
-  vm->compute_meter   = compute_meter - consumed;
-  return consumed<=cost ? FD_VM_SUCCESS : FD_VM_ERR_BUDGET; /* cmov */
+  ulong cu_before = vm->cu;
+  vm->cu = cu_before - fd_ulong_min( cost, cu_before );
+  return fd_int_if( cost<cu_before, FD_VM_SUCCESS, FD_VM_ERR_SIGCOST ); /* cmov */
 }
-
-/* fd_vm_consume_mem consumes 'sz' bytes equivalent compute units from
-   vm.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR_BUDGET
-   (negative) on failure.  On return, the compute_meter is updated (to
-   zero in the ERR_BUDGET case). */
-
-/* FIXME: OPTIMIZE FUNCTION SIGNATURE FOR USE CASE */
 
 static inline int
 fd_vm_consume_mem( fd_vm_t * vm,
@@ -233,66 +228,6 @@ fd_vm_translate_slice_vm_to_host_const( fd_vm_t * vm,
   if( vm->check_size && FD_UNLIKELY( fd_ulong_sat_mul( sz, sizeof(fd_vm_vec_t) )>LONG_MAX ) ) return NULL;
   return (fd_vm_vec_t const *)fd_vm_translate_vm_to_host_const( vm, vaddr, sz, align );
 }
-
-/* fd_vm_stack API ****************************************************/
-
-/* FIXME: CONSIDER HANDLING THE STACK POINTER REG IN HERE TOO! */
-
-/* fd_vm_stack_empty/full returns 1 if the stack is empty/full and 0 if
-   not.  Assumes vm is valid. */
-
-FD_FN_PURE static inline int fd_vm_stack_is_empty( fd_vm_t const * vm ) { return !vm->frame_cnt;                       }
-FD_FN_PURE static inline int fd_vm_stack_is_full ( fd_vm_t const * vm ) { return vm->frame_cnt==FD_VM_STACK_FRAME_MAX; }
-
-/* FIXME: consider zero copy API and/or failure free API? */
-
-/* fd_vm_stack_reset pops all frames off the stack.  Assumes vm is
-   valid.  Returns FD_VM_SUCCESS (0). */
-
-static inline int
-fd_vm_stack_reset( fd_vm_t * vm ) {
-  vm->frame_cnt = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-/* fd_vm_stack_push pushes a new frame onto the VM stack.  Assumes vm,
-   rip and reg is valid.  Returns FD_VM_SUCCESS (0) on success or
-   FD_VM_ERR_FULL (negative) on failure. */
-
-static inline int
-fd_vm_stack_push( fd_vm_t *   vm,
-                  ulong       rip,
-                  ulong const reg[ FD_VM_SHADOW_REG_CNT ] ) {
-  ulong frame_idx = vm->frame_cnt;
-  if( FD_UNLIKELY( frame_idx>=FD_VM_STACK_FRAME_MAX ) ) return FD_VM_ERR_FULL;
-  fd_vm_shadow_t * shadow = vm->shadow + frame_idx;
-  shadow->rip = rip;
-  memcpy( shadow->reg, reg, FD_VM_SHADOW_REG_CNT*sizeof(ulong) );
-  vm->frame_cnt = frame_idx + 1UL;
-  return FD_VM_SUCCESS;
-}
-
-/* fd_vm_stack_pop pops a frame off the VM stack.  Assumes vm, _rip and
-   reg are valid.  Returns FD_VM_SUCCESS (0) on success and
-   FD_VM_ERR_EMPTY (negative) on failure.  On success, *_rip and reg[*]
-   hold the values popped off the stack on return.  These are unchanged
-   otherwise. */
-
-static inline int
-fd_vm_stack_pop( fd_vm_t * vm,
-                 ulong *   _rip,
-                 ulong     reg[ FD_VM_SHADOW_REG_CNT ] ) {
-  ulong frame_idx = vm->frame_cnt;
-  if( FD_UNLIKELY( !frame_idx ) ) return FD_VM_ERR_EMPTY;
-  frame_idx--;
-  fd_vm_shadow_t * shadow = vm->shadow + frame_idx;
-  *_rip = shadow->rip;
-  memcpy( reg, shadow->reg, FD_VM_SHADOW_REG_CNT*sizeof(ulong) );
-  vm->frame_cnt = frame_idx;
-  return FD_VM_SUCCESS;
-}
-
-/* FIXME: Consider a fd_vm_heap API here */
 
 /* fd_vm_log API ******************************************************/
 

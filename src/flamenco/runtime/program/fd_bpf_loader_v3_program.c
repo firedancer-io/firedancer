@@ -165,25 +165,20 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
 
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
   fd_vm_t vm = {
-    .entrypoint                 = prog->entry_pc,
-    .syscalls                   = syscalls,
-    .calldests                  = prog->calldests,
-    .program_counter            = 0,
-    .instruction_counter        = 0,
-    .compute_meter              = ctx.txn_ctx->compute_meter,
-    .due_insn_cnt               = 0,
-    .previous_instruction_meter = ctx.txn_ctx->compute_meter,
-    .text                       = (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
-    .text_cnt                   = prog->text_cnt,
-    .text_off                   = prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
-    .input                      = input,
-    .input_sz                   = input_sz,
-    .rodata                     = fd_sbpf_validated_program_rodata( prog ),
-    .rodata_sz                  = prog->rodata_sz,
-    .trace                      = NULL,
-    .instr_ctx                  = &ctx,
-    .heap_max                   = ctx.txn_ctx->heap_size, /* TODO configure heap allocator */
-    .heap_sz                    = 0UL
+    .instr_ctx = &ctx,
+    .heap_max  = ctx.txn_ctx->heap_size, /* TODO configure heap allocator */
+    .entry_cu  = ctx.txn_ctx->compute_meter,
+    .rodata    = fd_sbpf_validated_program_rodata( prog ),
+    .rodata_sz = prog->rodata_sz,
+    .text      = (ulong *)((ulong)fd_sbpf_validated_program_rodata( prog ) + (ulong)prog->text_off), /* Note: text_off is byte offset */
+    .text_cnt  = prog->text_cnt,
+    .text_off  = prog->text_off,
+    .entry_pc  = prog->entry_pc,
+    .calldests = prog->calldests,
+    .syscalls  = syscalls,
+    .input     = input,
+    .input_sz  = input_sz,
+    .trace     = NULL
   };
 
 #ifdef FD_DEBUG_SBPF_TRACES
@@ -199,41 +194,39 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) );
-  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) ); /* FIXME: is this necessary? */
 
-//int err = fd_vm_validate( &vm );
-//if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
+//int validate_err = fd_vm_validate( &vm );
+//if( FD_UNLIKELY( validate_err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", validate_err, fd_vm_strerror( validate_err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  int err = fd_vm_exec( &vm );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_exec failed (%i-%s)", err, fd_vm_strerror( err ) ));
+  int exec_err = fd_vm_exec( &vm );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 if( FD_UNLIKELY( vm.trace ) ) {
-  err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscalls );
+  int err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscalls );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
   fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm.trace ) ) );
 }
 #endif
 
-  ctx.txn_ctx->compute_meter = vm.compute_meter;
+  ctx.txn_ctx->compute_meter = vm.cu;
 
-//FD_LOG_DEBUG(( "fd_vm_exec success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
+//FD_LOG_DEBUG(( "fd_vm_exec: %i-%s, ic: %lu, pc: %lu, ep: %lu, r0: %lu, cu: %lu, frame_cnt: %lu",
+//               exec_err, fd_vm_strerror( exec_err ), vm.ic, vm.pc, vm.entry_pc, vm.reg[0], vm.cu, vm.frame_cnt ));
 //FD_LOG_WARNING(( "log coll - len: %lu %s", vm.log_collector.buf ));
 
-  if( FD_UNLIKELY( vm.reg[0] ) ) {
-    fd_valloc_free( ctx.valloc, input);
-    //FD_LOG_WARNING(( "reg[0] fail" ));
-    //TODO: vm should report this error
+  if( FD_UNLIKELY( exec_err ) ) {
+    fd_valloc_free( ctx.valloc, input );
+    //FD_LOG_WARNING(("fd_vm_exec failed (%i-%s)", exec_err, fd_log_strerror( exec_err ) ));
+    // TODO: vm should report this error
     return -1;
   }
 
-  if( vm.cond_fault ) {
-    fd_valloc_free( ctx.valloc, input);
-    //FD_LOG_WARNING(("cond_fault fail"));
-    // TODO: vm should report this error
+  if( FD_UNLIKELY( vm.reg[0] ) ) {
+    fd_valloc_free( ctx.valloc, input );
+    //FD_LOG_WARNING(( "reg[0] %lu", vm.reg[0] ));
+    //TODO: vm should report this error
     return -1;
   }
 
@@ -283,22 +276,20 @@ setup_program( fd_exec_instr_ctx_t * ctx,
   }
 
   fd_vm_t vm = {
-    .entrypoint          = prog->entry_pc,
-    .syscalls            = syscalls,
-    .calldests           = prog->calldests,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = prog->text,
-    .text_cnt            = prog->text_cnt,
-    .text_off            = prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
-    .input               = NULL,
-    .input_sz            = 0,
-    .rodata              = prog->rodata,
-    .rodata_sz           = prog->rodata_sz,
-    .trace               = NULL,
-    .instr_ctx           = ctx,
-    .heap_max            = ctx->txn_ctx->heap_size, /* TODO configure heap allocator */
-    .heap_sz             = 0UL
+    .instr_ctx = ctx,
+    .heap_max  = ctx->txn_ctx->heap_size,
+    .entry_cu  = ctx->txn_ctx->compute_meter,
+    .rodata    = prog->rodata,
+    .rodata_sz = prog->rodata_sz,
+    .text      = prog->text,
+    .text_cnt  = prog->text_cnt,
+    .text_off  = prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
+    .entry_pc  = prog->entry_pc,
+    .calldests = prog->calldests,
+    .syscalls  = syscalls,
+    .input     = NULL,
+    .input_sz  = 0,
+    .trace     = NULL
   };
 
   int err = fd_vm_validate( &vm );
