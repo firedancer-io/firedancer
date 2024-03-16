@@ -74,22 +74,30 @@ main( int     argc,
   };
 
   fd_vm_t vm = {
-    .entrypoint          = 0,
-    .syscalls            = NULL,
-    .calldests           = NULL,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .text                = NULL,
-    .text_cnt            = 0,
-    .text_off            = 0,
-    .input               = NULL,
-    .input_sz            = 0,
-    .rodata              = rodata,
-    .rodata_sz           = rodata_sz,
-    .heap_max            = FD_VM_HEAP_DEFAULT,
-    /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
-    .instr_ctx           = &instr_ctx,
+    .heap_max  = FD_VM_HEAP_DEFAULT,
+    .entry_cu  = FD_VM_COMPUTE_UNIT_LIMIT,
+    .rodata    = rodata,
+    .rodata_sz = rodata_sz,
+    .text      = NULL,
+    .text_cnt  = 0,
+    .text_off  = 0,
+    .entry_pc  = 0,
+    .calldests = NULL,
+    .syscalls  = NULL,
+    .input     = NULL,
+    .input_sz  = 0,
+    .trace     = NULL,
+    .instr_ctx = &instr_ctx, /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
   };
+
+  /* FIXME: GROSS */
+  vm.pc        = vm.entry_pc;
+  vm.ic        = 0UL;
+  vm.cu        = vm.entry_cu;
+  vm.frame_cnt = 0UL;
+  vm.heap_sz   = 0UL;
+  vm.log_sz    = 0UL;
+  fd_vm_mem_cfg( &vm );
 
   ulong scalar_vaddr = 0;
   ulong point_vaddr = 0;

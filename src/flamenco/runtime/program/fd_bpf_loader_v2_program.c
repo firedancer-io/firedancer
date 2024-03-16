@@ -95,25 +95,20 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   }
 
   fd_vm_t vm = {
-    .entrypoint                 = prog->entry_pc,
-    .syscalls                   = syscalls,
-    .calldests                  = prog->calldests,
-    .program_counter            = 0,
-    .instruction_counter        = 0,
-    .compute_meter              = ctx.txn_ctx->compute_meter,
-    .due_insn_cnt               = 0,
-    .previous_instruction_meter = ctx.txn_ctx->compute_meter,
-    .text                       = prog->text,
-    .text_cnt                   = prog->text_cnt,
-    .text_off                   = prog->text_off, /* FIXME: what if text_off is not multiple of 8 */
-    .input                      = input,
-    .input_sz                   = input_sz,
-    .rodata                     = prog->rodata,
-    .rodata_sz                  = prog->rodata_sz,
-    .trace                      = NULL,
-    .instr_ctx                  = &ctx,
-    .heap_max                   = FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
-    .heap_sz                    = 0UL,
+    .instr_ctx = &ctx,
+    .heap_max  = FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
+    .entry_cu  = ctx.txn_ctx->compute_meter,
+    .rodata    = prog->rodata,
+    .rodata_sz = prog->rodata_sz,
+    .text      = prog->text,
+    .text_cnt  = prog->text_cnt,
+    .text_off  = prog->text_off,
+    .entry_pc  = prog->entry_pc,
+    .calldests = prog->calldests,
+    .syscalls  = syscalls,
+    .input     = input,
+    .input_sz  = input_sz,
+    .trace     = NULL
   };
 
 #ifdef FD_DEBUG_SBPF_TRACES
@@ -129,40 +124,38 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
 }
 #endif
 
-  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) );
-  vm.reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm.reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+  memset( vm.reg, 0, FD_VM_REG_CNT*sizeof(ulong) ); /* FIXME: Is this necessary? */
 
-//int err = fd_vm_validate( &vm );
-//if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", err, fd_vm_strerror( err ) ));
+//int validate_err = fd_vm_validate( &vm );
+//if( FD_UNLIKELY( validate_err ) ) FD_LOG_ERR(( "fd_vm_validate failed (%i-%s)", validate_err, fd_vm_strerror( validate_err ) ));
 //FD_LOG_WARNING(( "fd_vm_validate success" ));
 
-  int err = fd_vm_exec( &vm );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vm_exec failed (%i-%s)", err, fd_vm_strerror( err ) ));
+  int exec_err = fd_vm_exec( &vm );
 
 #ifdef FD_DEBUG_SBPF_TRACES
 if( FD_UNLIKELY( vm.trace ) ) {
-  err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscall_map );
+  int err = fd_vm_trace_printf( vm.trace, vm.text, vm.text_cnt, vm.syscall_map );
   if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
   fd_valloc_free( ctx.txn_ctx->valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm.trace ) ) );
 }
 #endif
 
-  ctx.txn_ctx->compute_meter = vm.compute_meter;
+  ctx.txn_ctx->compute_meter = vm.cu;
 
-  fd_valloc_free( ctx.valloc,  fd_sbpf_program_delete( prog ) );
-  fd_valloc_free( ctx.valloc,  fd_sbpf_syscalls_delete( syscalls ) );
-  fd_valloc_free( ctx.valloc, rodata);
+  fd_valloc_free( ctx.valloc, fd_sbpf_program_delete( prog ) );
+  fd_valloc_free( ctx.valloc, fd_sbpf_syscalls_delete( syscalls ) );
+  fd_valloc_free( ctx.valloc, rodata );
 
-//FD_LOG_WARNING(( "fd_vm_exec success: %i, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", err, vm.instruction_counter, vm.program_counter, vm.entrypoint, vm.reg[0], vm.cond_fault, vm.compute_meter ));
-//FD_LOG_WARNING(( "log coll: %s", vm.log_collector.buf ));
+//FD_LOG_WARNING(( "fd_vm_exec: %i-%s, ic: %lu, pc: %lu, ep: %lu, r0: %lu, cu: %lu, frame_cnt: %lu",
+//                 exec_err, fd_vm_strerror( exec_err ), vm.ic, vm.pc, vm.entry_pc, vm.reg[0], vm.cu, vm.frame_cnt ));
+//FD_LOG_WARNING(( "log: %s", vm.log_sz ? vm.log : "" )); /* What if log msg not '\0' terminated */
 
-  if( FD_UNLIKELY( vm.reg[0] ) ) {
+  if( FD_UNLIKELY( exec_err ) ) {
     fd_valloc_free( ctx.valloc, input);
     return -1;
   }
 
-  if( vm.cond_fault ) {
+  if( FD_UNLIKELY( vm.reg[0] ) ) {
     fd_valloc_free( ctx.valloc, input);
     return -1;
   }
