@@ -11,27 +11,33 @@ FD_STATIC_ASSERT( FD_VM_ERR_FULL                        == -5, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_EMPTY                       == -6, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_IO                          == -7, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_BUDGET                      == -8, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       == -9, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-10, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-11, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-12, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-13, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-14, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGTEXT                     == -8, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGSPLIT                    == -9, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGCALL                     ==-10, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGSTACK                    ==-11, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGILL                      ==-12, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGSEGV                     ==-13, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGBUS                      ==-14, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGRDONLY                   ==-15, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGCOST                     ==-16, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-15, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-16, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-17, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-18, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-19, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-20, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-21, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-22, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-23, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-24, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       ==-17, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-18, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-19, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-20, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-21, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-22, vm_err );
 
-FD_STATIC_ASSERT( FD_VM_ERR_MEM_TRANS                   ==-25, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_BAD_CALL                    ==-26, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-23, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-24, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_DST_REG             ==-25, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INF_LOOP                    ==-26, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_OUT_OF_BOUNDS           ==-27, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_JMP_TO_ADDL_IMM             ==-28, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INVALID_END_IMM             ==-29, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_INCOMPLETE_LDQ              ==-30, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_LDQ_NO_ADDL_IMM             ==-31, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_NO_SUCH_EXT_CALL            ==-32, vm_err );
 
 /* Verify limits */
 
@@ -104,8 +110,6 @@ FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
 #if 0 /* FIXME: MOVE TESTING TO VM */
 static fd_vm_log_collector_t lc[1];
 static uchar lc_mirror[ FD_VM_LOG_MAX ];
-
-static fd_vm_shadow_t shadow[1];
 #endif
 
 int
@@ -128,7 +132,16 @@ main( int     argc,
   TEST( FD_VM_ERR_EMPTY                        );
   TEST( FD_VM_ERR_IO                           );
 
-  TEST( FD_VM_ERR_BUDGET                       );
+  TEST( FD_VM_ERR_SIGTEXT                      );
+  TEST( FD_VM_ERR_SIGSPLIT                     );
+  TEST( FD_VM_ERR_SIGCALL                      );
+  TEST( FD_VM_ERR_SIGSTACK                     );
+  TEST( FD_VM_ERR_SIGILL                       );
+  TEST( FD_VM_ERR_SIGSEGV                      );
+  TEST( FD_VM_ERR_SIGBUS                       );
+  TEST( FD_VM_ERR_SIGRDONLY                    );
+  TEST( FD_VM_ERR_SIGCOST                      );
+
   TEST( FD_VM_ERR_ABORT                        );
   TEST( FD_VM_ERR_PANIC                        );
   TEST( FD_VM_ERR_MEM_OVERLAP                  );
@@ -146,9 +159,6 @@ main( int     argc,
   TEST( FD_VM_ERR_INCOMPLETE_LDQ               );
   TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
   TEST( FD_VM_ERR_NO_SUCH_EXT_CALL             );
-
-  TEST( FD_VM_ERR_MEM_TRANS                    );
-  TEST( FD_VM_ERR_BAD_CALL                     );
 # undef TEST
 
 #if 0 /* FIXME: MOVE COVERAGE TO VM */
@@ -204,52 +214,6 @@ main( int     argc,
 
     lc_mirror_used = 0UL;
     lc_mirror_avail = FD_VM_LOG_MAX;
-  }
-
-  FD_LOG_NOTICE(( "Testing fd_vm_shadow" ));
-
-  FD_TEST( fd_vm_shadow_wipe( shadow )==shadow );
-  uchar * _shadow = (uchar *)shadow;
-  for( ulong off=0UL; off<sizeof(fd_vm_shadow_t); off++ ) FD_TEST( !_shadow[off] );
-
-  ulong shadow_mirror[ FD_VM_STACK_FRAME_MAX ][ 5 ];
-  ulong shadow_mirror_cnt = 0UL;
-
-  for( ulong iter=0UL; iter<1000000UL; iter++ ) {
-    ulong r[5];
-
-    FD_TEST( fd_vm_shadow_is_empty( shadow )==(shadow_mirror_cnt==0UL)                   );
-    FD_TEST( fd_vm_shadow_is_full ( shadow )==(shadow_mirror_cnt>=FD_VM_STACK_FRAME_MAX) );
-
-    int op = (int)(fd_rng_uint( rng ) & 1U);
-    switch( op ) {
-
-    default:
-    case 0: { /* Push */
-      for( ulong i=0UL; i<5UL; i++ ) r[i] = fd_rng_ulong( rng );
-      int err = fd_vm_shadow_push( shadow, r[4], r );
-      if( FD_UNLIKELY( shadow_mirror_cnt>=FD_VM_STACK_FRAME_MAX ) ) FD_TEST( err==FD_VM_ERR_FULL );
-      else {
-        FD_TEST( !err );
-        memcpy( shadow_mirror[ shadow_mirror_cnt ], r, 5UL*sizeof(ulong) );
-        shadow_mirror_cnt++;
-      }
-      break;
-    }
-
-    case 1: { /* Pop */
-      ulong r[5];
-      int err = fd_vm_shadow_pop( shadow, r+4, r );
-      if( FD_UNLIKELY( !shadow_mirror_cnt ) ) FD_TEST( err==FD_VM_ERR_EMPTY );
-      else {
-        FD_TEST( !err );
-        FD_TEST( !memcmp( shadow_mirror[ shadow_mirror_cnt-1UL ], r, 5UL*sizeof(ulong) ) );
-        shadow_mirror_cnt--;
-      }
-      break;
-    }
-
-    }
   }
 #endif
 
