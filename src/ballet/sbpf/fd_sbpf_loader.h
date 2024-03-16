@@ -17,7 +17,6 @@
 /* FIXME make error types more specific */
 #define FD_SBPF_ERR_INVALID_ELF (1)
 
-
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests is a bit vector of valid call destinations.
@@ -28,12 +27,17 @@
 #include "../../util/tmpl/fd_set_dynamic.c"
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
-   ctx is the executor context.  Returns 0 on suceess or an integer
-   error code on failure. */
+   vm is a handle to the running VM.  Returns 0 on suceess or an integer
+   error code on failure.
+
+   IMPORTANT SAFETY TIP!  See notes in
+   flamenco/vm/syscall/fd_vm_syscall.h on what a syscall should expect
+   to see and expect to return. */
+
 /* FIXME: THIS BELONGS IN FLAMENCO/VM */
 
 typedef int
-(*fd_sbpf_syscall_func_t)( void *  ctx,
+(*fd_sbpf_syscall_func_t)( void *  vm,
                            ulong   arg0,
                            ulong   arg1,
                            ulong   arg2,
@@ -119,7 +123,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong * text;
   ulong   text_cnt;  /* instruction count */
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) */
+  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
 
   /* Bit vector of valid call destinations (bit count is rodata_sz) */
   fd_sbpf_calldests_t * calldests;

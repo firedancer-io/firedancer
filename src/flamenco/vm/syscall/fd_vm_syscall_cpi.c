@@ -943,12 +943,12 @@ fd_vm_syscall_cpi_c( void *  _vm,
 
   ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
   if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
-  vm->instr_ctx->txn_ctx->compute_meter = vm->compute_meter;
+  vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
-  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->compute_meter, vm->instr_ctx->txn_ctx->compute_meter, vm->compute_meter - vm->instr_ctx->txn_ctx->compute_meter));
-  vm->compute_meter = vm->instr_ctx->txn_ctx->compute_meter;
-  // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->compute_meter, err_exec ));
+  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->cu, vm->instr_ctx->txn_ctx->compute_meter, vm->cu - vm->instr_ctx->txn_ctx->compute_meter));
+  vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
+  // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->cu, err_exec ));
 
   *_ret = instr_exec_res;
   if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
@@ -1056,12 +1056,12 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
   if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
 
-  vm->instr_ctx->txn_ctx->compute_meter = vm->compute_meter;
+  vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
-  FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->compute_meter, vm->instr_ctx->txn_ctx->compute_meter, vm->compute_meter - vm->instr_ctx->txn_ctx->compute_meter));
-  vm->compute_meter = vm->instr_ctx->txn_ctx->compute_meter;
-  FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->compute_meter, err_exec ));
+  FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->cu, vm->instr_ctx->txn_ctx->compute_meter, vm->cu - vm->instr_ctx->txn_ctx->compute_meter));
+  vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
+  FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->cu, err_exec ));
 
   *_ret = instr_exec_res;
   if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
