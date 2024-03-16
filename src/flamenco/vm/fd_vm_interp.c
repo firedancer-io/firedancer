@@ -3,84 +3,58 @@
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 
 int
-fd_vm_private_exec_notrace( fd_vm_t * vm ) {
+fd_vm_exec_notrace( fd_vm_t * vm ) {
+
+  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
+
+  /* Unpack the VM configuration */
+
+  int   check_align = vm->check_align;
+  ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
+  ulong heap_max    = vm->heap_max;
 
   ulong const * FD_RESTRICT text          = vm->text;
   ulong                     text_cnt      = vm->text_cnt;
-  ulong                     text_word_off = vm->text_off / 8UL; /* FIXME: HMMM ... MULTIPLE OF 8? SIGNED? ETC */
-  ulong                     entrypoint    = vm->entrypoint;
+  ulong                     text_word_off = vm->text_off / 8UL;
+  ulong                     entry_pc      = vm->entry_pc;
   ulong const * FD_RESTRICT calldests     = vm->calldests;
 
-  fd_sbpf_syscalls_t const * syscalls = vm->syscalls;
+  fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
-  fd_vm_mem_cfg( vm );
+  fd_vm_mem_cfg( vm ); /* unpacks input and rodata */
   ulong const * FD_RESTRICT region_haddr = vm->region_haddr;
   uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
   uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg; /* Indexed [0,FD_VM_REG_MAX) */
+  /* Initialize the VM state */
 
-  int check_align = vm->check_align;
+  vm->pc        = vm->entry_pc;
+  vm->ic        = 0UL;
+  vm->cu        = vm->entry_cu;
+  vm->frame_cnt = 0UL;
 
-  ulong pc                         = entrypoint;
-  ulong ic                         = vm->instruction_counter;
-  ulong compute_meter              = vm->compute_meter;
-  ulong due_insn_cnt               = vm->due_insn_cnt;
-  ulong previous_instruction_meter = vm->previous_instruction_meter;
+  vm->heap_sz = 0UL;
+  vm->log_sz  = 0UL;
 
-  ulong skipped_insns = 0UL;
-  ulong start_pc      = pc;
+  /* FIXME: Zero out reg, shadow, stack and heap here? */
+
+  ulong * FD_RESTRICT reg = vm->reg;
+  reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+
+  fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
+
+  /* Run the VM */
 
   int err = FD_VM_SUCCESS;
 
-  // let heap_size = compute_budget.heap_size.unwrap_or(HEAP_LENGTH);
-  // let _ = invoke_context.consume_checked(
-  //     ((heap_size as u64).saturating_div(32_u64.saturating_mul(1024)))
-  //         .saturating_sub(1)
-  //         .saturating_mul(compute_budget.heap_cost),
-  // );
-
-  ulong heap_cus_consumed = fd_ulong_sat_mul( fd_ulong_sat_sub( vm->heap_max/(32*1024), 1 ), FD_VM_HEAP_COST );
-  int heap_err = fd_vm_consume_compute( vm, heap_cus_consumed );
-  compute_meter = vm->compute_meter;
-  if( FD_UNLIKELY( heap_err ) ) goto sigheap;
-
 # include "fd_vm_interp_core.c"
 
-  /* FIXME: PROBABLY SHOULD ADD A SIGTEXT FOR A PROGRAM COUNTER GOING
-     OUT OF BOUNDS, A SIGRODATA FOR A PROGRAM TRYING TO WRITE READ-ONLY
-     REGIONS, A SIGSTACK FOR HITTING STACK FRAME LIMITS, ETC. */
-  /* FIXME: FIX ERROR CODES */
-sigheap: err = FD_VM_ERR_MEM_TRANS; goto interp_halt;
-sigill:  err = FD_VM_ERR_MEM_TRANS; goto interp_halt;
-sigsegv: err = FD_VM_ERR_MEM_TRANS; goto interp_halt;
-sigbus:  err = FD_VM_ERR_MEM_TRANS; goto interp_halt;
-sigcall: /* FIXME: sets err */      goto interp_halt;
-sigcost:
-  compute_meter              = 0;                   /* FIXME: HMMM */
-  due_insn_cnt               = 0;                   /* FIXME: HMMM */
-  previous_instruction_meter = 0;                   /* FIXME: HMMM */
-  err                        = FD_VM_ERR_MEM_TRANS;
-  goto interp_halt;
-
-interp_halt:
-
-  vm->compute_meter              = compute_meter;
-  vm->due_insn_cnt               = fd_ulong_sat_add( due_insn_cnt, 1 );
-  vm->previous_instruction_meter = previous_instruction_meter;
-
-  vm->compute_meter              = fd_ulong_sat_sub(vm->compute_meter, vm->due_insn_cnt);
-  vm->due_insn_cnt               = 0;
-  vm->previous_instruction_meter = vm->compute_meter;
-  vm->program_counter            = pc;
-  vm->instruction_counter        = ic;
-  vm->cond_fault                 = err; /* FIXME: REMOVE THIS */
-
-  return FD_VM_SUCCESS; /* FIXME: return err ... such currently causes runtime tests to fail because of runtime error handling not correct yet */
+  return err;
 }
 
 int
-fd_vm_private_exec_trace( fd_vm_t * vm ) {
+fd_vm_exec_trace( fd_vm_t * vm ) {
 #if 1
   (void)vm;
   return FD_VM_ERR_UNSUP;
