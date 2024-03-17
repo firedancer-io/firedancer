@@ -83,6 +83,29 @@ fd_shredder_delete( void *          mem      ) {
 
 
 fd_shredder_t *
+fd_shredder_skip_batch( fd_shredder_t * shredder,
+                        ulong           entry_batch_sz,
+                        ulong           slot ) {
+
+  if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL;
+
+  if( FD_UNLIKELY( slot != shredder->slot ) ) {
+    shredder->data_idx_offset   = 0UL;
+    shredder->parity_idx_offset = 0UL;
+  }
+
+  ulong data_shred_cnt        =  fd_shredder_count_data_shreds( entry_batch_sz );
+  ulong parity_shred_cnt      =  fd_shredder_count_parity_shreds( entry_batch_sz );
+
+  shredder->data_idx_offset   += data_shred_cnt;
+  shredder->parity_idx_offset += parity_shred_cnt;
+  shredder->slot              =  slot;
+
+  return shredder;
+}
+
+
+fd_shredder_t *
 fd_shredder_init_batch( fd_shredder_t *               shredder,
                         void const    *               entry_batch,
                         ulong                         entry_batch_sz,
