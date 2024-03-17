@@ -194,7 +194,7 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
    On success:
    - If opt_out_rec!=NULL, sets *opt_out_rec to a pointer to writable
-     funk rec.  Suitable as rec parameter to fd_acc_mgr_commit_raw.
+     funk rec.
    - Returns pointer to mutable account metadata and data analogous to
      fd_acc_mgr_view_raw.
    - IMPORTANT:  Return value may point to the same memory region as a
@@ -224,26 +224,6 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
                    int                     do_create,
                    ulong                   min_data_sz,
                    fd_borrowed_account_t * account );
-
-/* fd_acc_mgr_commit_raw finalizes a writable transaction.
-   Re-calcluates the account hash.  If the hash changed, persists the
-   record to the database.  If uncache is 1, calls fd_funk_val_uncache.
-   raw points to the first byte of the account's meta.  (DO NOT POINT
-   "raw" INTO THE ACCOUNT DATA REGION) */
-
-int
-fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
-                       fd_funk_rec_t *     rec,
-                       fd_pubkey_t const * pubkey,
-                       void *              raw,
-                       fd_exec_slot_ctx_t * slot_ctx );
-
-static inline int
-fd_acc_mgr_commit( fd_acc_mgr_t *          acc_mgr,
-                   fd_borrowed_account_t * account,
-                   fd_exec_slot_ctx_t *    slot_ctx ) {
-  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
-}
 
 /* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
    and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'
