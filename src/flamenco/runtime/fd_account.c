@@ -53,11 +53,9 @@ fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
   } while(0);
 
   if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &
-                  ( lamports < account->const_meta->info.lamports ) ) )
+                   ( lamports < account->const_meta->info.lamports ) ) )
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
 
-  /* TODO: This is a slow O(n) search through the account access list
-          Consider caching the access flags in fd_borrowed_account_t. */
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) )
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
 
@@ -101,7 +99,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
   /* TODO make_data_mut */
 
   do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
+    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, data_sz, &account );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
@@ -133,8 +131,13 @@ fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
   if( old_len == new_len )
     return 1;
 
+  do {
+    int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, new_len, &account );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+  } while(0);
+
   if( new_len > old_len )
-    fd_memset( account->data + account->meta->dlen, 0, new_len - old_len );
+    fd_memset( account->data + old_len, 0, new_len - old_len );
 
   account->meta->dlen = new_len;
 
