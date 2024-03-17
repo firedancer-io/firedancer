@@ -46,7 +46,7 @@ help:
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
-	# "make all" is equivalent to "make bin include lib unit-test"
+	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
