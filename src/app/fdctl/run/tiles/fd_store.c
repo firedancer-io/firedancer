@@ -1,11 +1,15 @@
 #include "tiles.h"
 
 typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+} fd_store_in_ctx_t;
+
+typedef struct {
   uchar __attribute__((aligned(32UL))) mem[ FD_SHRED_STORE_MTU ];
 
-  fd_wksp_t * in_mem;
-  ulong       in_chunk0;
-  ulong       in_wmark;
+  fd_store_in_ctx_t in[ 32 ];
 } fd_store_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -56,10 +60,10 @@ during_frag( void * _ctx,
 
   fd_store_ctx_t * ctx = (fd_store_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz>FD_SHRED_STORE_MTU || sz<32UL ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_SHRED_STORE_MTU || sz<32UL ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
 
   fd_memcpy( ctx->mem, src, sz );
 }
@@ -115,9 +119,14 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
   FD_LOG_NOTICE(( "Got blockstore" ));
 
-  ctx->in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
-  ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+
+    ctx->in[i].mem    = link_wksp->wksp;
+    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
+    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
