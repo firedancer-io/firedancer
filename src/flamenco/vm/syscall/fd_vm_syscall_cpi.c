@@ -451,11 +451,11 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
       return FD_VM_ERR_INVAL;
     }
   } else {
-    ulong tot_sz;
-    int too_long  = __builtin_umull_overflow( acct_cnt, sizeof(fd_vm_c_account_meta_t), &tot_sz );
-        too_long |= __builtin_uaddl_overflow( tot_sz, data_sz, &tot_sz );
-    if( FD_UNLIKELY( too_long ) ) {
+    // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
+    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( sizeof(fd_vm_c_account_meta_t), acct_cnt ), data_sz );
+    if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
+      // SyscallError::InstructionTooLarge
       return FD_VM_ERR_INVAL;
     }
   }
