@@ -219,8 +219,10 @@ after_frag( void *             _ctx,
     fd_bincode_decode_ctx_t decode_ctx = { .data = udp_payload, .dataend = udp_payload + payload_sz, .valloc = fd_scratch_virtual() };
     fd_gossip_msg_t gmsg[1];
     if ( FD_BINCODE_SUCCESS != fd_gossip_msg_decode( gmsg, &decode_ctx ) ) {
-      FD_LOG_ERR(( "Gossip message decode failed" ));
+      *opt_filter = 1;
+      return;
     }
+
     int res = 0;
 
     fd_signature_t * signature = NULL;

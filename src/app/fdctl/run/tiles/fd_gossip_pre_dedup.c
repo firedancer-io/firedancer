@@ -44,6 +44,9 @@ typedef struct {
     ulong * tcache_sync;    /* == fd_tcache_oldest_laddr( tcache ), local join to the oldest key in the tcache */
     ulong * tcache_ring;
     ulong * tcache_map;
+
+    ulong   non_dup_cnt;
+    ulong   decode_fail_cnt;
 } fd_gossip_pre_dedup_ctx_t;
 
 typedef struct __attribute__((packed)) {
@@ -164,14 +167,21 @@ after_frag( void *             _ctx,
     FD_LOG_ERR( ("invalid payload_sz(%x)", payload_sz) );
   }
 
-  int is_dup = 0;
   ulong hash  = 0;
 
   FD_SCRATCH_SCOPE_BEGIN {
     fd_bincode_decode_ctx_t decode_ctx = { .data = udp_payload, .dataend = udp_payload + payload_sz, .valloc = fd_scratch_virtual() };
     fd_gossip_msg_t gmsg[1];
     if ( FD_BINCODE_SUCCESS != fd_gossip_msg_decode( gmsg, &decode_ctx ) ) {
-      FD_LOG_ERR(( "Gossip message decode failed" ));
+      ctx->decode_fail_cnt++;
+      *opt_filter = 1;
+      return;
+    }
+
+    if( decode_ctx.data != decode_ctx.dataend ) {
+      ctx->decode_fail_cnt++;
+      *opt_filter = 1;
+      return;
     }
 
     switch ( gmsg->discriminant ) {
@@ -264,9 +274,12 @@ after_frag( void *             _ctx,
   ulong time = (ulong)fd_log_wallclock() / 10000000000UL;
   hash ^= time;
 
+  int is_dup;
   FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, hash );
   *opt_filter = is_dup;
+  ctx->non_dup_cnt += !is_dup;
   if( FD_LIKELY( !*opt_filter ) ) {
+    // FD_LOG_WARNING(("ndc: %lu", ctx->non_dup_cnt));
     *opt_chunk     = ctx->out_chunk;
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, *opt_sz, ctx->out_chunk0, ctx->out_wmark );
   }
@@ -276,9 +289,9 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );  
   fd_gossip_pre_dedup_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossip_pre_dedup_ctx_t ), sizeof( fd_gossip_pre_dedup_ctx_t ) );
-  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( tile->gossip_pre_dedup.tcache_depth, 0) ), tile->gossip_pre_dedup.tcache_depth, 0 ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, fd_tcache_footprint( tile->gossip_pre_dedup.tcache_depth, 0 ) ), tile->gossip_pre_dedup.tcache_depth, 0 ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_new failed" ));
 
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
@@ -321,6 +334,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->round_robin_id = tile->kind_id;
 
   ctx->seed = 42;
+  ctx->non_dup_cnt = 0;
+  ctx->decode_fail_cnt = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
