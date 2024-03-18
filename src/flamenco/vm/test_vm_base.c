@@ -53,7 +53,8 @@ FD_STATIC_ASSERT( FD_VM_STACK_MAX      ==64UL*0x2000UL, vm_stack );
 FD_STATIC_ASSERT( FD_VM_HEAP_DEFAULT== 32UL*1024UL, vm_heap );
 FD_STATIC_ASSERT( FD_VM_HEAP_MAX    ==256UL*1024UL, vm_heap );
 
-FD_STATIC_ASSERT( FD_VM_LOG_MAX==10000UL, vm_log );
+FD_STATIC_ASSERT( FD_VM_LOG_MAX ==10000UL, vm_log );
+FD_STATIC_ASSERT( FD_VM_LOG_TAIL==128UL,   vm_log );
 
 /* FIXME: COVER MEMORY MAP */
 
@@ -160,62 +161,6 @@ main( int     argc,
   TEST( FD_VM_ERR_LDQ_NO_ADDL_IMM              );
   TEST( FD_VM_ERR_NO_SUCH_EXT_CALL             );
 # undef TEST
-
-#if 0 /* FIXME: MOVE COVERAGE TO VM */
-  FD_LOG_NOTICE(( "Testing fd_vm_log" ));
-
-  FD_TEST( fd_vm_log_collector_flush( lc )==lc );
-
-  uchar const * lc_buf = fd_vm_log_collector_buf( lc ); FD_TEST( lc_buf );
-  FD_TEST( fd_vm_log_collector_buf_max  ( lc )==FD_VM_LOG_MAX );
-  FD_TEST( fd_vm_log_collector_buf_used ( lc )==0UL                         );
-  FD_TEST( fd_vm_log_collector_buf_avail( lc )==FD_VM_LOG_MAX );
-
-  ulong lc_mirror_used  = 0UL;
-  ulong lc_mirror_avail = FD_VM_LOG_MAX;
-
-  for( ulong trial=0UL; trial<100000UL; trial++ ) {
-
-    for( ulong iter=0UL; iter<10UL; iter++ ) {
-
-      /* Make a random message */
-      uchar msg[ FD_VM_LOG_MAX*2UL ];
-      ulong msg_sz = fd_rng_ulong_roll( rng, FD_VM_LOG_MAX*2UL );
-      uchar byte   = fd_rng_uchar( rng );
-      for( ulong msg_off=0UL; msg_off<msg_sz; msg_off++ ) msg[ msg_off ] = byte++;
-
-      /* Append it to the mirror */
-      ulong cpy_sz = fd_ulong_min( msg_sz, lc_mirror_avail );
-      if( FD_LIKELY( cpy_sz ) ) memcpy( lc_mirror + lc_mirror_used, msg, cpy_sz );
-      lc_mirror_used  += cpy_sz;
-      lc_mirror_avail -= cpy_sz;
-
-      /* Append it to the log collector */
-      FD_TEST( fd_vm_log_collector_append( lc, msg, msg_sz )==lc );
-
-      /* Test append was successful */
-      FD_TEST( fd_vm_log_collector_buf      ( lc )==lc_buf          );
-      FD_TEST( fd_vm_log_collector_buf_max  ( lc )==FD_VM_LOG_MAX   );
-      FD_TEST( fd_vm_log_collector_buf_used ( lc )==lc_mirror_used  );
-      FD_TEST( fd_vm_log_collector_buf_avail( lc )==lc_mirror_avail );
-      FD_TEST( !memcmp( lc_buf, lc_mirror, lc_mirror_used )         );
-    }
-
-    /* Get ready for next trial */
-
-    if( fd_rng_uint( rng ) & 1U ) FD_TEST( fd_vm_log_collector_flush( lc )==lc );
-    else {
-      FD_TEST( fd_vm_log_collector_wipe( lc )==lc );
-      for( ulong lc_off=0UL; lc_off<FD_VM_LOG_MAX; lc_off++ ) FD_TEST( !lc_buf[ lc_off ] );
-    }
-    FD_TEST( fd_vm_log_collector_buf_max  ( lc )==FD_VM_LOG_MAX );
-    FD_TEST( fd_vm_log_collector_buf_used ( lc )==0UL           );
-    FD_TEST( fd_vm_log_collector_buf_avail( lc )==FD_VM_LOG_MAX );
-
-    lc_mirror_used = 0UL;
-    lc_mirror_avail = FD_VM_LOG_MAX;
-  }
-#endif
 
   FD_LOG_NOTICE(( "Testing fd_vm_disasm" ));
 

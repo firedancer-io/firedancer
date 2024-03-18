@@ -26,7 +26,45 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_vm_cu API *******************************************************/
 
-/* FIXME: OPTIMIZE FUNCTION SIGNATURE OF THIS FOR USE CASE */
+/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
+/* FD_VM_CU_UPDATE charges the vm cost compute units.  If the vm does
+   not have more than cost cu available, this will cause the caller to
+   zero out the vm->cu and return with FD_VM_ERR_SIGCOST.  If
+   successful, on exit, vm->cu will be positive and at most the value it
+   was on entry.  This macro is robust.  This is meant to be used by
+   syscall implementations and strictly conforms with the vm-syscall ABI
+   interface.
+
+   FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
+   compute units.  Behavior is otherwise identical to FD_VM_CU_UPDATE.
+   FIXME: THIS API PROBABLY BELONGS IN SYSCALL CPI LAND. */
+
+#define FD_VM_CU_UPDATE( vm, cost ) (__extension__({ \
+    fd_vm_t * _vm   = (vm);                          \
+    ulong     _cost = (cost);                        \
+    ulong     _cu   = _vm->cu;                       \
+    if( FD_UNLIKELY( _cost>=_cu ) ) {                \
+      _vm->cu = 0UL;                                 \
+      return FD_VM_ERR_SIGCOST;                      \
+    }                                                \
+    _vm->cu = _cu - _cost;                           \
+  }))
+
+
+/* FIXME: IS THIS MORE A CPI THING? */
+#define FD_VM_CU_MEM_UPDATE( vm, sz ) (__extension__({                                        \
+    fd_vm_t * _vm   = (vm);                                                                   \
+    ulong     _sz   = (sz);                                                                   \
+    ulong     _cost = fd_ulong_max( FD_VM_MEM_OP_BASE_COST, _sz / FD_VM_CPI_BYTES_PER_UNIT ); \
+    ulong     _cu   = _vm->cu;                                                                \
+    if( FD_UNLIKELY( _cost>=_cu ) ) {                                                         \
+      _vm->cu = 0UL;                                                                          \
+      return FD_VM_ERR_SIGCOST;                                                               \
+    }                                                                                         \
+    _vm->cu = _cu - _cost;                                                                    \
+  }))
+
+/* FIXME: THESE APIS ARE DEPRECATED */
 
 /* fd_vm_consume_compute consumes `cost` compute units from vm.  Returns
    FD_VM_SUCCESS (0) on success (vm->cu will be strictly positive with
@@ -130,7 +168,10 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    empty ranges and NULL vaddr handling is defined in the application.
 
    Requires ~O(10) fast branchless assembly instructions with 2 L1 cache
-   hit loads and pretty good ILP. */
+   hit loads and pretty good ILP.
+
+   fd_vm_mem_haddr_fast is when the vaddr is for use when it is already
+   known that the vaddr region has a valid mapping. */
 
 FD_FN_PURE static inline ulong
 fd_vm_mem_haddr( ulong         vaddr,
@@ -146,14 +187,22 @@ fd_vm_mem_haddr( ulong         vaddr,
   return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
+FD_FN_PURE static inline ulong
+fd_vm_mem_haddr_fast( ulong         vaddr,
+                      ulong const * vm_region_haddr ) { /* indexed [0,6) */
+  ulong region = vaddr >> 32;
+  ulong offset = vaddr & 0xffffffffUL;
+  return vm_region_haddr[ region ] + offset;
+}
+
 /* fd_vm_mem_ld_N loads N bytes from the host address location haddr,
    zero extends it to a ulong and returns the ulong.  haddr need not be
    aligned. */
 
-static inline ulong fd_vm_mem_ld_1( ulong haddr ) { return (ulong)*(uchar const *)haddr; }
-static inline ulong fd_vm_mem_ld_2( ulong haddr ) { ushort t; memcpy( &t, (void const *)haddr, sizeof(ushort) ); return (ulong)t; }
-static inline ulong fd_vm_mem_ld_4( ulong haddr ) { uint   t; memcpy( &t, (void const *)haddr, sizeof(uint)   ); return (ulong)t; }
-static inline ulong fd_vm_mem_ld_8( ulong haddr ) { ulong  t; memcpy( &t, (void const *)haddr, sizeof(ulong)  ); return (ulong)t; }
+FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) { return (ulong)*(uchar const *)haddr; }
+FD_FN_PURE static inline ulong fd_vm_mem_ld_2( ulong haddr ) { ushort t; memcpy( &t, (void const *)haddr, sizeof(ushort) ); return (ulong)t; }
+FD_FN_PURE static inline ulong fd_vm_mem_ld_4( ulong haddr ) { uint   t; memcpy( &t, (void const *)haddr, sizeof(uint)   ); return (ulong)t; }
+FD_FN_PURE static inline ulong fd_vm_mem_ld_8( ulong haddr ) { ulong  t; memcpy( &t, (void const *)haddr, sizeof(ulong)  ); return (ulong)t; }
 
 /* fd_vm_mem_st_N stores val in little endian order to the host address
    location haddr.  haddr need not be aligned. */
@@ -162,6 +211,49 @@ static inline void fd_vm_mem_st_1( ulong haddr, uchar  val ) { *(uchar *)haddr =
 static inline void fd_vm_mem_st_2( ulong haddr, ushort val ) { memcpy( (void *)haddr, &val, sizeof(ushort) ); }
 static inline void fd_vm_mem_st_4( ulong haddr, uint   val ) { memcpy( (void *)haddr, &val, sizeof(uint)   ); }
 static inline void fd_vm_mem_st_8( ulong haddr, ulong  val ) { memcpy( (void *)haddr, &val, sizeof(ulong)  ); }
+
+/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
+/* FD_VM_MEM_HADDR_LD returns a read only pointer to the first byte
+   in the host address space corresponding to vm's virtual address range
+   [vaddr,vaddr+sz).  If the vm has check_align enabled, the vaddr
+   should be aligned to align and the returned pointer will be similarly
+   aligned.  Align is assumed to be a power of two <= 8 (FIXME: CHECK
+   THIS LIMIT).
+
+   If the virtual address range cannot be mapped to the host address
+   space completely and/or (when applicable) vaddr is not appropriately
+   aligned, this will cause the caller to return FD_VM_ERR_SIGSEGV.
+   This macro is robust.  This is meant to be used by syscall
+   implementations and strictly conforms with the vm-syscall ABI
+   interface.
+
+   FD_VM_MEM_HADDR_ST returns a read-write pointer but is otherwise
+   identical to FD_VM_MEM_HADDR_LD.
+
+   FD_VM_MEM_HADDR_LD_FAST and FD_VM_HADDR_ST_FAST are for use when the
+   corresponding vaddr region it known to correctly resolve (e.g.  a
+   syscall has already done preflight checks on them). */
+
+#define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
+    fd_vm_t const * _vm     = (vm);                                                                       \
+    ulong           _vaddr  = (vaddr);                                                                    \
+    int             _sigbus = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    ulong           _haddr  = fd_vm_mem_haddr( _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0UL ); \
+    if( FD_UNLIKELY( (!_haddr) | _sigbus) ) return FD_VM_ERR_SIGSEGV;                                     \
+    (void const *)_haddr;                                                                                 \
+  }))
+
+#define FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
+    fd_vm_t const * _vm     = (vm);                                                                       \
+    ulong           _vaddr  = (vaddr);                                                                    \
+    int             _sigbus = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
+    ulong           _haddr  = fd_vm_mem_haddr( _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0UL ); \
+    if( FD_UNLIKELY( (!_haddr) | _sigbus) ) return FD_VM_ERR_SIGSEGV;                                     \
+    (void *)_haddr;                                                                                       \
+  }))
+
+#define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vaddr), (vm)->region_haddr ))
+#define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vaddr), (vm)->region_haddr ))
 
 /* FIXME: THE BELOW TRANSLATE APIS ARE ALL DEPRECATED */
 
@@ -244,29 +336,42 @@ FD_FN_CONST static inline ulong         fd_vm_log_max( fd_vm_t const * vm ) { (v
 FD_FN_PURE  static inline ulong         fd_vm_log_sz ( fd_vm_t const * vm ) { return vm->log_sz;                 }
 FD_FN_PURE  static inline ulong         fd_vm_log_rem( fd_vm_t const * vm ) { return FD_VM_LOG_MAX - vm->log_sz; }
 
-/* fd_vm_log_prepare cancels any message currently in preparation and
-   starts zero-copy preparation of a new VM log message.  There are
-   fd_vm_log_rem bytes available at the returned location (IMPORTANT
-   SAFETY TIP!  THIS COULD BE ZERO IF THE VM LOG BUFFER IS FULL).  The
-   lifetime of the returned location is the lesser of the lifetime of
-   the vm or until the prepare is published or cancelled.  The caller is
-   free to clobber any bytes in this region while it is preparing the
-   message.
+/* fd_vm_log_prepare starts zero-copy preparation of a new vm log
+   message.  The lifetime of the returned location is the lesser of the
+   lifetime of the vm or until the prepare is published or cancelled.
+   The caller is free to clobber any bytes in this region while it is
+   preparing the message.  This region has arbitrary alignment.
 
-   fd_vm_log_publish appends the first sz bytes of the prepare region to
-   the VM log.  Assumes vm is valid with a message in preparation and sz
-   is in [0,rem].  Returns vm.  There is no message in preparation on
-   return.
+   fd_vm_log_prepare_max returns the number bytes available in the log
+   preparation region.  Will be at least FD_VM_LOG_TAIL and at most
+   FD_VM_LOG_MAX+FD_VM_LOG_TAIL.  Assumes there is a message in
+   preparation.
 
    fd_vm_log_cancel stops preparing a message in preparation without
-   publishing it.  Returns vm.  There is no message in preparation on
-   return.
+   publishing it.  Assumes there is a message in preparation.  Returns
+   vm.  There is no message in preparation on return.
 
-   These assume vm valid. */
+   fd_vm_log_publish appends the leading fd_vm_log_rem bytes of the
+   prepare region to the VM log.  Assumes there is message in
+   preparation and sz is in [0,prepare_max].  Returns vm.  There is no
+   message in preparation on return.
 
-FD_FN_PURE  static inline void *    fd_vm_log_prepare( fd_vm_t * vm           ) { return vm->log + vm->log_sz; }
-/**/        static inline fd_vm_t * fd_vm_log_publish( fd_vm_t * vm, ulong sz ) { vm->log_sz += sz; return vm; }
-FD_FN_CONST static inline fd_vm_t * fd_vm_log_cancel ( fd_vm_t * vm           ) { return vm;                   }
+   These all assume vm valid. */
+
+FD_FN_PURE static inline ulong
+fd_vm_log_prepare_max( fd_vm_t const * vm ) {
+  return FD_VM_LOG_MAX + FD_VM_LOG_TAIL - vm->log_sz;
+}
+
+FD_FN_PURE  static inline void *    fd_vm_log_prepare( fd_vm_t * vm ) { return vm->log + vm->log_sz; }
+FD_FN_CONST static inline fd_vm_t * fd_vm_log_cancel ( fd_vm_t * vm ) { return vm;                   }
+
+static inline fd_vm_t *
+fd_vm_log_publish( fd_vm_t * vm,
+                   ulong     sz ) {
+  vm->log_sz = fd_ulong_min( FD_VM_LOG_MAX, vm->log_sz + sz );
+  return vm;
+}
 
 /* fd_vm_log_reset resets the VM's log to empty and cancels any messages
    in preparation.  Assumes vm is valid. */
