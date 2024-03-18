@@ -696,12 +696,8 @@ topo_initialize( config_t * config ) {
      will never send more than one leader message until the pack tile
      must acknowledge it with a packing done frag, so there will be at
      most one in flight at any time. */
-  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  /* These pack to bank links are reliable, but they are flow controlled
-     by the busy flag that sits between them.  We don't mark them
-     reliable here because it creates a reliable link loop (poh -> pack
-     -> bank) which leads to credit starvation. */
-  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
