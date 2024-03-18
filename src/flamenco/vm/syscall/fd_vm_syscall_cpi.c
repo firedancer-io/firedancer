@@ -464,7 +464,7 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
     }
   } else {
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1114
-    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( sizeof(fd_vm_c_account_meta_t), acct_cnt ), data_sz );
+    ulong tot_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_VM_C_ACCOUNT_META_SIZE, acct_cnt ), data_sz );
     if ( FD_UNLIKELY( tot_sz > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
       FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
       // SyscallError::InstructionTooLarge
@@ -562,7 +562,7 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
 
   /* Translate array of seeds.  Each seed is an array of byte arrays. */
   fd_vm_vec_t const * seeds =
-    fd_vm_translate_vm_to_host_const( vm, signers_seeds_va, signers_seeds_cnt*sizeof(fd_vm_vec_t), FD_VM_VEC_ALIGN );
+    fd_vm_translate_vm_to_host_const( vm, signers_seeds_va, signers_seeds_cnt*FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
   if( FD_UNLIKELY( !seeds ) ) return FD_VM_ERR_PERM;
 
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
@@ -577,7 +577,7 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
 
     /* Translate inner seed slice.  Each element points to a byte array. */
     fd_vm_vec_t const * seed =
-      fd_vm_translate_vm_to_host_const( vm, seeds[i].addr, seeds[i].len * sizeof(fd_vm_vec_t), FD_VM_VEC_ALIGN );
+      fd_vm_translate_vm_to_host_const( vm, seeds[i].addr, seeds[i].len * FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
     if( FD_UNLIKELY( !seed ) ) return FD_VM_ERR_PERM;
 
     /* Derive PDA */
@@ -1015,7 +1015,7 @@ fd_vm_syscall_cpi_c( void *  _vm,
   /* Translate instruction ********************************************/
 
   fd_vm_c_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host_const( vm, instruction_va, sizeof(fd_vm_c_instruction_t), FD_VM_C_INSTRUCTION_ALIGN );
+    fd_vm_translate_vm_to_host_const( vm, instruction_va, FD_VM_C_INSTRUCTION_SIZE, FD_VM_C_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
@@ -1033,7 +1033,7 @@ fd_vm_syscall_cpi_c( void *  _vm,
 
   fd_vm_c_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const( vm, instruction->accounts_addr,
-                                      instruction->accounts_len*sizeof(fd_vm_c_account_meta_t), FD_VM_C_ACCOUNT_META_ALIGN );
+                                      instruction->accounts_len*FD_VM_C_ACCOUNT_META_SIZE, FD_VM_C_ACCOUNT_META_ALIGN );
   // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
   if( FD_UNLIKELY( !accounts && instruction->accounts_len ) ) {
     return FD_VM_ERR_PERM;
@@ -1059,7 +1059,7 @@ fd_vm_syscall_cpi_c( void *  _vm,
 
   fd_vm_c_account_info_t const * acc_infos =
     fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
-                                      acct_info_cnt*sizeof(fd_vm_c_account_info_t), FD_VM_C_ACCOUNT_INFO_ALIGN );
+                                      acct_info_cnt*FD_VM_C_ACCOUNT_INFO_SIZE, FD_VM_C_ACCOUNT_INFO_ALIGN );
   if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
@@ -1145,7 +1145,7 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   /* Translate instruction ********************************************/
 
   fd_vm_rust_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host_const( vm, instruction_va, sizeof(fd_vm_rust_instruction_t), FD_VM_RUST_INSTRUCTION_ALIGN );
+    fd_vm_translate_vm_to_host_const( vm, instruction_va, FD_VM_RUST_INSTRUCTION_SIZE, FD_VM_RUST_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
@@ -1163,7 +1163,7 @@ fd_vm_syscall_cpi_rust( void *  _vm,
 
   fd_vm_rust_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const( vm, instruction->accounts.addr,
-                                      instruction->accounts.len*sizeof(fd_vm_rust_account_meta_t), FD_VM_RUST_ACCOUNT_META_ALIGN );
+                                      instruction->accounts.len*FD_VM_RUST_ACCOUNT_META_SIZE, FD_VM_RUST_ACCOUNT_META_ALIGN );
   // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
   if( FD_UNLIKELY( !accounts && instruction->accounts.len ) ) {
     return FD_VM_ERR_PERM;
@@ -1187,7 +1187,7 @@ fd_vm_syscall_cpi_rust( void *  _vm,
 
   fd_vm_rust_account_info_t const * acc_infos =
     fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
-                                      acct_info_cnt*sizeof(fd_vm_rust_account_info_t), FD_VM_RUST_ACCOUNT_INFO_ALIGN );
+                                      acct_info_cnt*FD_VM_RUST_ACCOUNT_INFO_SIZE, FD_VM_RUST_ACCOUNT_INFO_ALIGN );
   if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
