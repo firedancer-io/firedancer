@@ -144,7 +144,9 @@ struct fd_vm {
                                                      FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
                                                      current stack frame.  Aligned 8. */
   uchar          heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-  uchar          log   [ FD_VM_LOG_MAX         ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.  Aligned 8. */
+  uchar          log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
+                                                              Aligned 8.  Includes a tail region large enough so various string
+                                                              operations can clobber to simplify a lot of string parsing code. */
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */

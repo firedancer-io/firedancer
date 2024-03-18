@@ -22,7 +22,18 @@
    - vm->cu will include the 1 cu cost of the syscall instruction.
      Further, it will be positive.
 
-   It is the syscalls responsibility to deduct from vm->cu its specific
+   r1,r2,r3,r4,r5 are the values in r1,r2,r3,r4,r5 at time of the
+   syscall.
+
+   When a syscall implementation returns FD_VM_SUCCESS, *_r0 should hold
+   the application return error value it wants to place in r0.
+
+   When an syscall implementation returns FD_VM_ERR, the syscall is
+   considered to have faulted the VM.  It ideally should not have set
+   *_r0 or updated vm->cu (or changed any other vm state though that
+   often isn't practical).
+
+   It is the syscall's responsibility to deduct from vm->cu its specific
    cost model (not including the syscall instruction itself).  As such,
    when a syscall returns SIGCOST, ideally, it should also have set
    vm->cu to zero.  When it returns anything else, it should have set cu
@@ -32,19 +43,21 @@
    strictly enforce this and other similar risks that can affect
    bookkeeping, on return from a syscall, the VM will:
 
+   FIXME: ADD NO SETTING OF R0 ON FAILURE TO VM_INTERP.
+
    - Ignore updates to pc, ic and frame_cnt.
    - Ignore updates to cu that increase it.
    - Treat updates to cu that zero it as SIGCOST.
    - Treat SIGCOST returns that didn't update cu to zero as zeroing it. */
 
-#define FD_VM_SYSCALL_DECL(name)    \
-int                                 \
-fd_vm_syscall_##name( void *  _vm,  \
-                      ulong   arg0, \
-                      ulong   arg1, \
-                      ulong   arg2, \
-                      ulong   arg3, \
-                      ulong   arg4, \
+#define FD_VM_SYSCALL_DECL(name)   \
+int                                \
+fd_vm_syscall_##name( void *  _vm, \
+                      ulong   r1,  \
+                      ulong   r2,  \
+                      ulong   r3,  \
+                      ulong   r4,  \
+                      ulong   r5,  \
                       ulong * _ret )
 
 FD_PROTOTYPES_BEGIN
@@ -56,15 +69,15 @@ FD_PROTOTYPES_BEGIN
 
    Inputs:
 
-     arg0 - ignored
-     arg1 - ignored
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - ignored
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     FD_VM_ERR_ABORT: *_ret=0. (FIXME: SHOULD IT DO THIS?)
+     FD_VM_ERR_ABORT: *_ret unchanged.  vm state unchanged.
 
    FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
@@ -75,24 +88,24 @@ FD_VM_SYSCALL_DECL( abort );
 
    Inputs:
 
-     arg0 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - msg_sz, FIXME: IS 0 OKAY?
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
+     r2 - msg_sz, FIXME: IS 0 OKAY?
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_MEM_OVERLAP: bad address range.  *_ret unchanged.
-     Compute budget decremented.  (FIXME: PROBABLY SHOULD BE ERR_PERM TO
-     BE CONSISTENT WITH OTHER SYSCALLS).
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged. vm->cu
+     decremented and positive.
 
-     FD_VM_ERR_PANIC: *_ret unchanged.  Compute budget decremented.
+     FD_VM_ERR_PANIC: *_ret unchanged. *_ret unchanged. vm->cu
+     decremented and positive.
 
-   IMPORANT SAFETY TIP!  All VM_ERR cases fail the transaction so it is
+   IMPORTANT SAFETY TIP!  All VM_ERR cases fail the transaction so it is
    okay for a PANIC to return non-panic error codes (such might be
    useful for additional disambiguation of error cases). */
 
@@ -103,27 +116,25 @@ FD_VM_SYSCALL_DECL( sol_panic );
 
    Inputs:
 
-     arg0 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - msg_sz, FIXME: IS 0 OKAY?
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - msg, byte VM pointer, indexed [0,msg_sz), FIXME: WHEN IS NULL OKAY?
+     r2 - msg_sz, FIXME: IS 0 OKAY?
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
-     budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and positive.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     IMPORANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the log collector
-     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... LIKEWISE
-     SEEMS LIKE THERE MIGHT BE OTHER ERROR CASES LIKE NON-PRINTABLE
-     CHARACTERS, NO CSTR '\0'-TERMINATION AND/OR OTHER STRING
-     SANTIZATION NEEDED GIVEN THE COMMENT IN LOG_PANIC). */
+     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+
+     IMPORTANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the syscall log
+     when called. */
 
 FD_VM_SYSCALL_DECL( sol_log );
 
@@ -132,24 +143,22 @@ FD_VM_SYSCALL_DECL( sol_log );
 
    Inputs:
 
-     arg0 - ulong
-     arg1 - ulong
-     arg2 - ulong
-     arg3 - ulong
-     arg4 - ulong
+     r1 - ulong
+     r2 - ulong
+     r3 - ulong
+     r4 - ulong
+     r5 - ulong
 
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
-     budget decremented.
+     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     IMPORANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the log collector
-     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
+     IMPORTANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the syscall log
+     when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_64 );
 
@@ -158,24 +167,25 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
 
    Inputs:
 
-     arg0 - pubkey, byte VM pointer, indexed [0,32)
-     arg1 - ignored
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - pubkey, byte VM pointer, indexed [0,32)
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range.  *_ret unchanged.  Compute
-     budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and positive.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     IMPORANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the log collector
-     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
+     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+
+     IMPORTANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the syscall log
+     when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
@@ -184,24 +194,24 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
    Inputs:
 
-     arg0 - ignored
-     arg1 - ignored
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - ignored
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED: NULL vm handle passed.
-     (FIXME: WHY DON'T OTHER SYSCALLS NEED TO CHECK VM?)
-
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     IMPORANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the log collector
-     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR) */
+     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.  The
+     value logged will be the value of cu when between when the syscall
+     completed and the next interation starts and will be positive.
+
+     IMPORTANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the syscall log
+     when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
@@ -210,11 +220,11 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
    Inputs:
 
-     arg0 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
-     arg1 - cnt, FIXME: IS 0 OKAY?
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r0 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
+     r1 - cnt, FIXME: IS 0 OKAY?
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
 
      slice[i] holds the ulong pair:
        mem, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
@@ -223,19 +233,16 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range for slice and/or slice[i].mem
-     (including slice not 8 byte aligned if the VM has check_align set).
-     Compute budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and positive.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     IMPORANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the log collector
-     when called (FIXME: CHECK THIS IS CORRECT BEHAVIOR ... SEEMS LIKE
-     THERE MIGHT BE OTHER ERROR CASES LIKE NON-PRINTABLE CHARACTERS, NO
-     CSTR '\0'-TERMINATION AND/OR OTHER STRING SANTIZATION NEEDED GIVEN
-     THE COMMENT IN LOG_PANIC). */
+     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+
+     IMPORTANT SAFETY TIP!  The log message might have been silently
+     truncated if not enough room for the message in the syscall log
+     when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_data );
 
