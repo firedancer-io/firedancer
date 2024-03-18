@@ -14,6 +14,7 @@
 /* FIXME: MOVE FD_VM_RUST_VEC_T FROM SYSCALL/FD_VM_CPI.H HERE TOO? */
 
 #define FD_VM_VEC_ALIGN (8UL)
+#define FD_VM_VEC_SIZE  (16UL)
 
 struct __attribute__((packed)) fd_vm_vec {
   ulong addr; /* FIXME: NAME -> VADDR */
