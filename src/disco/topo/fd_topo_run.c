@@ -7,6 +7,8 @@
 #include <signal.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/syscall.h>
+#include <linux/futex.h>
 #include <sys/resource.h>
 #include <sys/prctl.h>
 
@@ -49,9 +51,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   int                  allow_fd,
                   volatile int *       wait,
                   volatile int *       debugger,
-                  fd_topo_run_tile_t * tile_run,
-                  ulong (* tile_align     )( fd_topo_tile_t const * tile ),
-                  ulong (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
+                  fd_topo_run_tile_t * tile_run ) {
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
 
   check_wait_debugger( pid, wait, debugger );
@@ -60,7 +60,8 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
 
-  void * tile_mem = (uchar*)topo->workspaces[ tile->wksp_id ].wksp + tile->user_mem_offset;
+  void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   if( FD_UNLIKELY( tile_run->privileged_init ) )
     tile_run->privileged_init( topo, tile, tile_mem );
 
@@ -96,7 +97,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
               seccomp_filter );
 
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
-  fd_topo_fill_tile( topo, tile, FD_TOPO_FILL_MODE_JOIN, tile_align, tile_footprint );
+  fd_topo_fill_tile( topo, tile );
 
   FD_TEST( tile->cnc );
   FD_TEST( tile->metrics );
@@ -177,10 +178,9 @@ typedef struct {
   fd_topo_t *        topo;
   fd_topo_tile_t *   tile;
   fd_topo_run_tile_t tile_run;
-  ulong (* tile_align     )( fd_topo_tile_t const * tile );
-  ulong (* tile_footprint )( fd_topo_tile_t const * tile );
   uint               uid;
   uint               gid;
+  int *              done_futex;
   volatile int       copied;
 } fd_topo_run_thread_args_t;
 
@@ -194,8 +194,17 @@ run_tile_thread_main( void * _args ) {
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", args.tile->name, args.tile->kind_id ) );
   if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run, args.tile_align, args.tile_footprint );
-  FD_LOG_ERR(( "fd_topo_run_tile() returned" ));
+  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  if( FD_UNLIKELY( args.done_futex ) ) {
+    for(;;) {
+      if( FD_LIKELY( INT_MAX==FD_ATOMIC_CAS( args.done_futex, INT_MAX, (int)args.tile->id ) ) ) break;
+      FD_SPIN_PAUSE();
+    }
+    if( FD_UNLIKELY( -1==syscall( SYS_futex, args.done_futex, FUTEX_WAKE, INT_MAX, NULL, NULL, 0 ) ) )
+      FD_LOG_ERR(( "futex(FUTEX_WAKE) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  } else {
+    FD_LOG_ERR(( "fd_topo_run_tile() returned" ));
+  }
   return NULL;
 }
 
@@ -203,13 +212,15 @@ static inline pthread_t
 run_tile_thread( fd_topo_t *         topo,
                  fd_topo_tile_t *    tile,
                  fd_topo_run_tile_t  tile_run,
-                 ulong (* tile_align     )( fd_topo_tile_t const * tile ),
-                 ulong (* tile_footprint )( fd_topo_tile_t const * tile ),
                  uint                uid,
                  uint                gid,
+                 int *               done_futex,
                  fd_cpuset_t const * floating_cpu_set,
                  int                 floating_priority ) {
-  void * stack = fd_tile_private_stack_new( 1, tile->cpu_idx );
+  /* TODO: Use a better CPU idx for the stack if tile is floating */
+  ulong stack_cpu_idx = 0UL;
+  if( FD_LIKELY( tile->cpu_idx<65535UL ) ) stack_cpu_idx = tile->cpu_idx;
+  void * stack = fd_tile_private_stack_new( 1, stack_cpu_idx );
 
   pthread_attr_t attr[ 1 ];
   if( FD_UNLIKELY( pthread_attr_init( attr ) ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -229,14 +240,13 @@ run_tile_thread( fd_topo_t *         topo,
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_topo_run_thread_args_t args = {
-    .topo           = topo,
-    .tile           = tile,
-    .tile_run       = tile_run,
-    .tile_align     = tile_align,
-    .tile_footprint = tile_footprint,
-    .uid            = uid,
-    .gid            = gid,
-    .copied         = 0,
+    .topo       = topo,
+    .tile       = tile,
+    .tile_run   = tile_run,
+    .uid        = uid,
+    .gid        = gid,
+    .done_futex = done_futex,
+    .copied     = 0,
   };
 
   pthread_t pthread;
@@ -251,9 +261,8 @@ fd_topo_run_single_process( fd_topo_t * topo,
                             int         solana_labs,
                             uint        uid,
                             uint        gid,
-                            fd_topo_run_tile_t (* tile_run       )( fd_topo_tile_t * tile ),
-                            ulong              (* tile_align     )( fd_topo_tile_t const * tile ),
-                            ulong              (* tile_footprint )( fd_topo_tile_t const * tile ) ) {
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ),
+                            int *       done_futex ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
@@ -269,7 +278,7 @@ fd_topo_run_single_process( fd_topo_t * topo,
     if( solana_labs==1 && !tile->is_labs ) continue;
 
     fd_topo_run_tile_t run_tile = tile_run( tile );
-    run_tile_thread( topo, tile, run_tile, tile_align, tile_footprint, uid, gid, floating_cpu_set, save_priority );
+    run_tile_thread( topo, tile, run_tile, uid, gid, done_futex, floating_cpu_set, save_priority );
   }
 
   fd_sandbox( 0, uid, gid, 0, 0, NULL, 0, NULL );

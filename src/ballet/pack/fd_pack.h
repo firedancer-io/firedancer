@@ -58,15 +58,17 @@ fd_pack_footprint( ulong pack_depth,
    local address space with the required alignment and footprint.
    pack_depth, bank_tile_cnt, and max_txn_per_microblock are as above.
    The pack object will produce at most max_microblocks_per_block
-   non-empty microblocks in a block.  rng is a local join to a random
-   number generator used to perturb estimates.
+   non-empty microblocks in a block.  Additionally, each block will have
+   at most max_data_bytes_per_block of microblock data (transaction and
+   microblock headers), assuming empty microblocks are ignored.  rng is
+   a local join to a random number generator used to perturb estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
 void * fd_pack_new( void * mem,
     ulong pack_depth, ulong bank_tile_cnt, ulong max_txn_per_microblock,
-    ulong max_microblocks_per_block, fd_rng_t * rng );
+    ulong max_microblocks_per_block, ulong max_data_bytes_per_block, fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -78,14 +80,29 @@ fd_pack_t * fd_pack_join( void * mem );
    scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
-FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
+FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack );
 
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,
    FD_PACK_MAX_BANK_TILES]. */
-FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
+FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
 
+/* fd_pack_set_block_limits: Updates the limits provided fd_pack_new to
+   the new values.  Future any future microblocks produced by this pack
+   object will not cause a block to have more than
+   max_microblocks_per_block non-empty microblocks or more than
+   max_data_bytes_per_block data bytes (counting microblock headers as
+   before).  Limits are inclusive, as per ususal (i.e. a block may have
+   exactly max_microblocks_per_block microblocks, but not more).  pack
+   must be a valid local join.
+
+   The typical place to call this is immediately after
+   fd_pack_end_block; if this is called after some microblocks have been
+   produced for the current block, and the current block already exceeds
+   the limits, all the remaining microblocks in the block will be empty,
+   but the call is valid. */
+void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block, ulong max_data_bytes_per_block );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future
@@ -111,6 +128,11 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
       transaction.
     * UNAFFORDABLE: the fee payer could not afford the transaction fee
       (not yet implemented).
+    * ADDR_LUT: the transaction tried to load an account from an address
+      lookup table, which is not yet supported.
+    * EXPIRED: the transaction was already expired upon insertion based
+      on the provided value of expires_at compared to the last call to
+      fd_pack_expire_before.
     * TOO_LARGE: the transaction requested too many CUs and would never
       be scheduled if it had been accepted.
     * ESTIMATION_FAIL: estimation of the transaction's compute cost and
@@ -134,17 +156,21 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
 #define FD_PACK_INSERT_REJECT_PRIORITY        (-1)
 #define FD_PACK_INSERT_REJECT_DUPLICATE       (-2)
 #define FD_PACK_INSERT_REJECT_UNAFFORDABLE    (-3)
-#define FD_PACK_INSERT_REJECT_EXPIRED         (-4)
-#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-5)
-#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-6)
-#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-7)
-#define FD_PACK_INSERT_REJECT_FULL            (-8)
+#define FD_PACK_INSERT_REJECT_ADDR_LUT        (-4)
+#define FD_PACK_INSERT_REJECT_EXPIRED         (-5)
+#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-6)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-7)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-8)
+#define FD_PACK_INSERT_REJECT_FULL            (-9)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF  8
-#define FD_PACK_INSERT_RETVAL_CNT 12
+#define FD_PACK_INSERT_RETVAL_OFF  9
+#define FD_PACK_INSERT_RETVAL_CNT 13
+
+FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_FULL>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -240,6 +266,13 @@ void fd_pack_clear_all( fd_pack_t * pack );
    and returns ownership of the memory to the caller.  Returns mem. */
 void * fd_pack_leave(  fd_pack_t * pack );
 void * fd_pack_delete( void      * mem  );
+
+/* fd_pack_verify (for debugging use primarily) checks to ensure several
+   invariants are satisfied.  scratch must point to the first byte of a
+   piece of memory meeting the same alignment and footprint constraints
+   as pack.  Returns 0 on success and a negative value on failure
+   (logging a warning with details). */
+int fd_pack_verify( fd_pack_t * pack, void * scratch );
 
 FD_PROTOTYPES_END
 #endif /*HEADER_fd_src_ballet_pack_fd_pack_h*/

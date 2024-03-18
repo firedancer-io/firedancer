@@ -30,8 +30,10 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
 typedef struct fd_shred34 fd_shred34_t;
 
 struct fd_became_leader {
-  /* Start time of the slot in nanoseconds. */
+  /* Start and end time of the slot in nanoseconds (from
+     fd_log_wallclock()). */
   long   slot_start_ns;
+  long   slot_end_ns;
 
   /* An opaque pointer to a Rust Arc<Bank> object, which should only
      be used with fd_ext_* functions to execute transactions or drop
@@ -40,79 +42,33 @@ struct fd_became_leader {
      should release it when done, other tiles should ignore and never
      use the bank. */
   void const * bank;
+
+  /* The maximum number of microblocks that pack is allowed to put
+     into the block. This allows PoH to accurately track and make sure
+     microblocks do not need to be dropped. */
+  ulong max_microblocks_in_slot;
+
+  /* The number of ticks (effectively empty microblocks) that the PoH
+     tile will put in the block.  This is used to adjust some pack
+     limits. */
+  ulong ticks_per_slot;
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
 struct fd_microblock_trailer {
-  /* A *const SanitizedTransation pointer, created by the bank which
-     the PoH tile should use to commit the transactions.  This is a
-     Rust ABI compatible array of SanitizedTransaction-s.  It is not
-     heap allocated and should not be freed.  It lives in workspace
-     memory for the bank tile that sent the microblock.  The bank
-     tile promises it won't reclaim this memory until the PoH tile
-     indicates it's done, by pushing a busy sequence number greater
-     or equal to the busy_seq given below. */
-  void * abi_txns;
-
-  /* Opaque pointer to Rust Box<LoadAndExecuteOutput> object, created
-     by the bank before executing the microblock.  Ownership belongs
-     to the PoH tile when it receives the microblock, and it will
-     need to be freed. */
-  void * load_and_execute_output;
-
-  /* Opaque pointer to Rust Box<PreBalanceInfo> object, created by
-     the bank before executing the microblock.  Ownership belongs
-     to the PoH tile when it receives the microblock, and it will
-     need to be freed. */
-  void * pre_balance_info;
-
-  /* The sequence number of the mcache frag that this microblock was
-     sent from pack to bank with.  This is the sequence number we
-     need to report back in the bank busy fseq to tell the bank that
-     the transactions have been committed and the relevant accounts
-     can now be reused. */
-  ulong  busy_seq;
+  /* The hash of the transactions in the microblock, ready to be
+     mixed into PoH. */
+  uchar hash[ 32UL ];
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
-FD_FN_CONST fd_topo_run_tile_t *
-fd_topo_tile_to_config( fd_topo_tile_t const * tile );
-
-static inline ulong
-fdctl_tile_align( fd_topo_tile_t const * tile ) {
-  fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
-  if( FD_LIKELY( config->scratch_align ) ) return config->scratch_align();
-  return 1UL;
-}
-
-static inline ulong
-fdctl_tile_footprint( fd_topo_tile_t const * tile ) {
-  fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
-  if( FD_LIKELY( config->scratch_footprint ) ) return config->scratch_footprint( tile );
-  return 0UL;
-}
-
-static inline fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile ) {
-  return *fd_topo_tile_to_config( tile );
-}
-
-extern fd_topo_run_tile_t fd_tile_net;
-extern fd_topo_run_tile_t fd_tile_netmux;
-extern fd_topo_run_tile_t fd_tile_quic;
-extern fd_topo_run_tile_t fd_tile_verify;
-extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_pack;
-extern fd_topo_run_tile_t fd_tile_bank;
-extern fd_topo_run_tile_t fd_tile_poh;
-extern fd_topo_run_tile_t fd_tile_shred;
-extern fd_topo_run_tile_t fd_tile_store;
-extern fd_topo_run_tile_t fd_tile_sign;
-extern fd_topo_run_tile_t fd_tile_metric;
-
-void *
-fd_wksp_pod_map1( uchar const * pod,
-                  char const *  format,
-                  ... );
+struct fd_microblock_bank_trailer {
+  /* An opauque pointer to the bank to use when executing and committing
+     transactions.  The lifetime of the bank is owned by the PoH tile,
+     which guarantees it is valid while pack or bank tiles might be
+     using it. */
+  void const * bank;
+};
+typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */

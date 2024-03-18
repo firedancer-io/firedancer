@@ -26,7 +26,7 @@ fini_perm( fd_caps_ctx_t *  caps,
 
 static void
 init( config_t * const config ) {
-  uint tiles              = config->layout.verify_tile_count;
+  uint tiles              = config->layout.net_tile_count;
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 

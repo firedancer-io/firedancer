@@ -45,7 +45,7 @@ fd_exec_instr_ctx_delete( void * mem );
 
 int
 fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t *    ctx,
-                                    uchar                    idx,
+                                    ulong                    idx,
                                     fd_borrowed_account_t ** account );
 int
 fd_instr_borrowed_account_view( fd_exec_instr_ctx_t *    ctx,
@@ -53,7 +53,7 @@ fd_instr_borrowed_account_view( fd_exec_instr_ctx_t *    ctx,
                                 fd_borrowed_account_t ** account );
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t *    ctx,
-                                      uchar                    idx,
+                                      ulong                    idx,
                                       ulong                    min_data_sz,
                                       fd_borrowed_account_t ** account );
 int

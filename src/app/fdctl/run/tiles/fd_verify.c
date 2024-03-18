@@ -33,6 +33,19 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_verify_ctx_t ) );
 }
 
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)sig;
+
+  fd_verify_ctx_t * ctx = (fd_verify_ctx_t *)_ctx;
+  if( FD_LIKELY( (seq % ctx->round_robin_cnt) != ctx->round_robin_idx ) ) *opt_filter = 1;
+}
+
 /* during_frag is called between pairs for sequence number checks, as
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, see fd_dedup.c for why we do this.*/
@@ -124,6 +137,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
   if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
 
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
+  ctx->round_robin_idx = tile->kind_id;
+
   for ( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sha512_t ), sizeof( fd_sha512_t ) ) ) );
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
@@ -138,19 +154,21 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ link->wksp_id ];
 
-    ctx->in[i].mem = link_wksp->wksp;
-    if( FD_UNLIKELY( !strcmp( link->name, "quic_verify" ) ) ) {
-      ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->dcache );
+    if( FD_UNLIKELY( link->is_reasm ) ) {
+      fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->reasm_obj_id ].wksp_id ];
+      ctx->in[i].mem = link_wksp->wksp;
+      ctx->in[i].chunk0 = fd_laddr_to_chunk( ctx->in[i].mem, link->reasm );
       ctx->in[i].wmark  = ctx->in[i].chunk0 + (link->depth+link->burst-1) * FD_TPU_REASM_CHUNK_MTU;
     } else {
+      fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      ctx->in[i].mem = link_wksp->wksp;
       ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
       ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
     }
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->links[ tile->out_link_id_primary ].wksp_id ].wksp;
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
@@ -184,9 +202,11 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_topo_run_tile_t fd_tile_verify = {
+  .name                     = "verify",
   .mux_flags                = FD_MUX_FLAG_COPY, /* must copy frags for tile isolation and security */
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .populate_allowed_seccomp = populate_allowed_seccomp,

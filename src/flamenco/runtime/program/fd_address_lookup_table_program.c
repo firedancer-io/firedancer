@@ -1,4 +1,5 @@
 #include "fd_address_lookup_table_program.h"
+#include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
@@ -254,7 +255,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L109-L118 */
-  FD_LOG_ERR(( "TODO: Derive PDA" ));
+  FD_LOG_WARNING(( "TODO: Derive PDA" ));
 
   (void)derivation_slot;
   (void)payer_key;
@@ -268,16 +269,20 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
   ulong tbl_acct_data_len = 0x38UL;
-  ulong required_lamports = fd_rent_exempt_minimum_balance( ctx->slot_ctx, tbl_acct_data_len );
-        required_lamports = fd_ulong_max( required_lamports, 1UL );
-        required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  ulong required_lamports = 0UL;
+  do {
+    int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, tbl_acct_data_len, &required_lamports );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
+  required_lamports = fd_ulong_max( required_lamports, 1UL );
+  required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports > 0UL ) {
-    FD_LOG_ERR(( "TODO system program CPI" ));
+    FD_LOG_WARNING(( "TODO system program CPI" ));
   }
 
-  FD_LOG_ERR(( "TODO system program CPI" ));
+  FD_LOG_WARNING(( "TODO system program CPI" ));
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
@@ -539,7 +544,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L308 */
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
-    int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
@@ -566,8 +571,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  ulong required_lamports =
-    fd_rent_exempt_minimum_balance( ctx->slot_ctx, new_table_data_sz );
+  ulong required_lamports = 0UL;
+  do {
+    int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, new_table_data_sz, &required_lamports );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
   required_lamports = fd_ulong_max    ( required_lamports, 1UL );
   required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
@@ -592,10 +600,11 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
-    FD_LOG_ERR(( "TODO: System program CPI" ));
-
     (void)lut_key;
     (void)payer_key;
+
+    FD_LOG_WARNING(( "TODO: System program CPI" ));
+    return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -869,9 +878,10 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
-  /* TODO handle is_early_verification_of_account_modifications_enabled */
-  FD_LOG_ERR(( "TODO: fd_borrowed_account_checked_add_lamports" ));
-  (void)withdrawn_lamports;
+  do {
+    int err = fd_account_checked_add_lamports( ctx, ACC_IDX_RECIPIENT, withdrawn_lamports );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
 
   /* Delete LUT account ***********************************************/
 

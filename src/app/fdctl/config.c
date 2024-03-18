@@ -3,6 +3,8 @@
 
 #include "run/run.h"
 
+#include "../../disco/topo/fd_topob.h"
+#include "../../disco/topo/fd_pod_format.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/tile/fd_tile_private.h"
@@ -202,6 +204,7 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
+  ENTRY_UINT  ( ., layout,              quic_tile_count                                           );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
@@ -469,220 +472,374 @@ username_to_uid( char * username ) {
   FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
 }
 
+FD_FN_CONST fd_topo_run_tile_t *
+fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
+  fd_topo_run_tile_t ** run = TILES;
+  while( *run ) {
+    if( FD_LIKELY( !strcmp( (*run)->name, tile->name ) ) ) return *run;
+    run++;
+  }
+  FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
+}
+
+ulong
+fdctl_obj_align( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
+    fd_topo_tile_t const * tile = NULL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( FD_LIKELY( topo->tiles[ i ].tile_obj_id==obj->id ) ) {
+        tile = &topo->tiles[ i ];
+        break;
+      }
+    }
+    fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
+    if( FD_LIKELY( config->scratch_align ) ) return config->scratch_align();
+    return 1UL;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
+    return fd_mcache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
+    return fd_dcache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
+    return fd_cnc_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
+    return fd_tpu_reasm_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
+    return fd_fseq_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
+    return FD_METRICS_ALIGN;
+  } else {
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    return 0UL;
+  }
+}
+
+ulong
+fdctl_obj_footprint( fd_topo_t const *     topo,
+                     fd_topo_obj_t const * obj ) {
+  #define VAL(name) (__extension__({                                                               \
+      ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
+      if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
+      __x; }))
+  
+  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
+    fd_topo_tile_t const * tile = NULL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( FD_LIKELY( topo->tiles[ i ].tile_obj_id==obj->id ) ) {
+        tile = &topo->tiles[ i ];
+        break;
+      }
+    }
+    fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
+    if( FD_LIKELY( config->scratch_footprint ) ) return config->scratch_footprint( tile );
+    return 0UL;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
+    return fd_mcache_footprint( VAL("depth"), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
+    return fd_dcache_footprint( fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1), 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
+    return fd_cnc_footprint( 0UL );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
+    return fd_tpu_reasm_footprint( VAL("depth"), VAL("burst") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
+    return fd_fseq_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
+    return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+  } else {
+    FD_LOG_ERR(( "unknown object `%s`", obj->name ));
+    return 0UL;
+  }
+#undef VAL
+}
+
+ulong
+fdctl_obj_loose( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
+    fd_topo_tile_t const * tile = NULL;
+    for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+      if( FD_LIKELY( topo->tiles[ i ].tile_obj_id==obj->id ) ) {
+        tile = &topo->tiles[ i ];
+        break;
+      }
+    }
+    fd_topo_run_tile_t * config = fd_topo_tile_to_config( tile );
+    if( FD_LIKELY( config->loose_footprint ) ) return config->loose_footprint( tile );
+  }
+  return 0UL;
+}
+
+fd_topo_run_tile_t
+fdctl_tile_run( fd_topo_tile_t * tile ) {
+  return *fd_topo_tile_to_config( tile );
+}
+
 /* topo_initialize initializes the provided topology structure from the
    user configuration.  This should be called exactly once immediately
    after Firedancer is booted. */
 static void
 topo_initialize( config_t * config ) {
-  fd_topo_t * topo = &config->topo;
+  ulong net_tile_cnt    = config->layout.net_tile_count;
+  ulong quic_tile_cnt   = config->layout.quic_tile_count;
+  ulong verify_tile_cnt = config->layout.verify_tile_count;
+  ulong bank_tile_cnt   = config->layout.bank_tile_count;
 
-  strncpy( topo->app_name, config->name, sizeof( topo->app_name ) );
+  fd_topo_t topo[1] = { fd_topob_new( config->name ) };
 
-  /* Static configuration of all workspaces in the topology.  Workspace
-     sizing will be determined dynamically at runtime based on how much
-     space will be allocated from it. */
-  ulong wksp_cnt = 0;
+  /*             topo, name */
+  fd_topob_wksp( topo, "netmux_inout" );
+  fd_topob_wksp( topo, "quic_verify"  );
+  fd_topob_wksp( topo, "verify_dedup" );
+  fd_topob_wksp( topo, "dedup_pack"   );
+  fd_topob_wksp( topo, "pack_bank"    );
+  fd_topob_wksp( topo, "bank_poh"     );
+  fd_topob_wksp( topo, "bank_busy"    );
+  fd_topob_wksp( topo, "poh_shred"    );
+  fd_topob_wksp( topo, "shred_store"  );
+  fd_topob_wksp( topo, "stake_out"    );
+  fd_topob_wksp( topo, "metric_in"    );
 
-#define WKSP( name1 ) do {                                                                            \
-    topo->workspaces[ wksp_cnt ] = (fd_topo_wksp_t){ .id = wksp_cnt };                                \
-    FD_TEST( strlen( name1 ) < sizeof( topo->workspaces[ wksp_cnt ].name ) );                         \
-    strncpy( topo->workspaces[ wksp_cnt ].name, name1, sizeof( topo->workspaces[ wksp_cnt ].name ) ); \
-    wksp_cnt++;                                                                                       \
-  } while(0)
+  fd_topob_wksp( topo, "quic_sign"  );
+  fd_topob_wksp( topo, "sign_quic"  );
+  fd_topob_wksp( topo, "shred_sign" );
+  fd_topob_wksp( topo, "sign_shred" );
 
-  WKSP( "netmux_inout" );
-  WKSP( "quic_verify"  );
-  WKSP( "verify_dedup" );
-  WKSP( "dedup_pack"   );
-  WKSP( "pack_bank"    );
-  WKSP( "bank_poh"     );
-  WKSP( "bank_busy"    );
-  WKSP( "poh_shred"    );
-  WKSP( "shred_store"  );
-  WKSP( "stake_out"    );
-  WKSP( "metric_in"    );
+  fd_topob_wksp( topo, "net"    );
+  fd_topob_wksp( topo, "netmux" );
+  fd_topob_wksp( topo, "quic"   );
+  fd_topob_wksp( topo, "verify" );
+  fd_topob_wksp( topo, "dedup"  );
+  fd_topob_wksp( topo, "pack"   );
+  fd_topob_wksp( topo, "bank"   );
+  fd_topob_wksp( topo, "poh"    );
+  fd_topob_wksp( topo, "shred"  );
+  fd_topob_wksp( topo, "store"  );
+  fd_topob_wksp( topo, "sign"   );
+  fd_topob_wksp( topo, "metric" );
 
-  WKSP( "quic_sign"  );
-  WKSP( "sign_quic"  );
-  WKSP( "shred_sign" );
-  WKSP( "sign_shred" );
+  #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  WKSP( "net"    );
-  WKSP( "netmux" );
-  WKSP( "quic"   );
-  WKSP( "verify" );
-  WKSP( "dedup"  );
-  WKSP( "pack"   );
-  WKSP( "bank"   );
-  WKSP( "poh"    );
-  WKSP( "shred"  );
-  WKSP( "store"  );
-  WKSP( "sign"   );
-  WKSP( "metric" );
-
-  topo->wksp_cnt = wksp_cnt;
-
-  /* Static listing of all links in the topology. */
-  ulong link_cnt = 0;
-
-#define LINK( cnt, name1, wksp, depth1, mtu1, burst1 ) do {                                   \
-    for( ulong i=0; i<cnt; i++ ) {                                                            \
-      topo->links[ link_cnt ] = (fd_topo_link_t){ .id      = link_cnt,                        \
-                                                  .kind_id = i,                               \
-                                                  .wksp_id = fd_topo_find_wksp( topo, wksp ), \
-                                                  .depth   = depth1,                          \
-                                                  .mtu     = mtu1,                            \
-                                                  .burst   = burst1 };                        \
-      FD_TEST( strlen( name1 ) < sizeof( topo->links[ link_cnt ].name ) );                    \
-      strncpy( topo->links[ link_cnt ].name, name1, sizeof( topo->links[ link_cnt ].name ) ); \
-      link_cnt++;                                                                             \
-    }                                                                                         \
-  } while(0)
-
-  LINK( config->layout.net_tile_count,    "net_netmux",   "netmux_inout", config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                "netmux_out",   "netmux_inout", config->tiles.net.send_buffer_size,       0UL,                    1UL );
-  LINK( config->layout.verify_tile_count, "quic_netmux",  "netmux_inout", config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( 1,                                "shred_netmux", "netmux_inout", config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  LINK( config->layout.verify_tile_count, "quic_verify",  "quic_verify",  config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
-  LINK( config->layout.verify_tile_count, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  LINK( 1,                                "dedup_pack",   "dedup_pack",   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  /* FD_TOPO_LINK_KIND_GOSSIP_TO_PACK could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
-  LINK( 1,                                "gossip_pack",  "dedup_pack",   config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  LINK( 1,                                "stake_out",    "stake_out",    128UL,                                    32UL + 40200UL * 40UL,  1UL );
-  LINK( 1,                                "pack_bank",    "pack_bank",    128UL,                                    USHORT_MAX,             1UL );
-  LINK( config->layout.bank_tile_count,   "bank_poh",     "bank_poh",     128UL,                                    USHORT_MAX,             1UL );
-  LINK( 1,                                "poh_shred",    "poh_shred",    128UL,                                    USHORT_MAX,             1UL );
-  LINK( 1,                                "crds_shred",   "poh_shred",    128UL,                                    8UL  + 40200UL * 38UL,  1UL );
+  /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                    burst */
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_netmux",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       0UL,                    1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_netmux",  "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  /**/                 fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
+  FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
+  /**/                 fd_topob_link( topo, "gossip_pack",  "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    32UL + 40200UL * 40UL,  1UL );
+  /**/                 fd_topob_link( topo, "pack_bank",    "pack_bank",    0,        128UL,                                    USHORT_MAX,             1UL );
+  FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_poh",     "bank_poh",     0,        128UL,                                    USHORT_MAX,             1UL );
+  /**/                 fd_topob_link( topo, "poh_pack",     "bank_poh",     0,        128UL,                                    sizeof(fd_became_leader_t), 1UL );
+  /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    USHORT_MAX,             1UL );
+  /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    0,        128UL,                                    8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  LINK( 1,                                "shred_store",  "shred_store",  128UL,                                    4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+  /**/                 fd_topob_link( topo, "shred_store",  "shred_store",  0,        16384UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
-  LINK( config->layout.verify_tile_count, "quic_sign",    "quic_sign",    128UL,                                    130UL,                  1UL );
-  LINK( config->layout.verify_tile_count, "sign_quic",    "sign_quic",    128UL,                                    64UL,                   1UL );
-  LINK( 1,                                "shred_sign",   "shred_sign",   128UL,                                    32UL,                   1UL );
-  LINK( 1,                                "sign_shred",   "sign_shred",   128UL,                                    64UL,                   1UL );
-
-  topo->link_cnt = link_cnt;
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                  1UL );
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                   1UL );
+  /**/                 fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                   1UL );
+  /**/                 fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                   1UL );
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
 
-  ulong tile_cnt = 0UL;
+  ulong affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, tile_to_cpu );
 
-#define TILE( cnt, name1, wksp, is_labs1, tile_to_cpu, out_link_id_primary1 ) do {                \
-    ulong wksp_id = fd_topo_find_wksp( topo, wksp );                                              \
-    if( FD_UNLIKELY( wksp_id==ULONG_MAX ) )                                                       \
-      FD_LOG_ERR(( "could not find workspace %s", wksp ));                                        \
-    for( ulong i=0; i<cnt; i++ ) {                                                                \
-      topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,                \
-                                                  .kind_id             = i,                       \
-                                                  .wksp_id             = wksp_id,                 \
-                                                  .in_cnt              = 0,                       \
-                                                  .is_labs             = is_labs1,                \
-                                                  .cpu_idx             = tile_to_cpu[ tile_cnt ], \
-                                                  .out_link_id_primary = out_link_id_primary1,    \
-                                                  .out_cnt             = 0 };                     \
-      FD_TEST( strlen( name1 ) < sizeof( topo->tiles[ tile_cnt ].name ) );                        \
-      strncpy( topo->tiles[ tile_cnt ].name, name1, sizeof( topo->tiles[ tile_cnt ].name ) );     \
-      tile_cnt++;                                                                                 \
-    }                                                                                             \
-  } while(0)
+  /*                                  topo, tile_name, tile_wksp, cnc_wksp,    metrics_wksp, cpu_idx,                     is_labs, out_link,       out_link_kind_id */
+  FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "net_netmux",   i   );
+  /**/                 fd_topob_tile( topo, "netmux",  "netmux",  "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "netmux_out",   0UL );
+  FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "quic_verify",  i   );
+  FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "verify_dedup", i   );
+  /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "dedup_pack",   0UL );
+  /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "pack_bank",    0UL );
+  FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       "bank_poh",     i   );
+  /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       "poh_shred",    0UL );
+  /**/                 fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "shred_store",  0UL );
+  /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       NULL,           0UL );
+  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       NULL,           0UL );
 
-  TILE( config->layout.net_tile_count,    "net",    "net",    0, tile_to_cpu, fd_topo_find_link( topo, "net_netmux",   i ) );
-  TILE( 1,                                "netmux", "netmux", 0, tile_to_cpu, fd_topo_find_link( topo, "netmux_out",   i ) );
-  TILE( config->layout.verify_tile_count, "quic",   "quic",   0, tile_to_cpu, fd_topo_find_link( topo, "quic_verify",  i ) );
-  TILE( config->layout.verify_tile_count, "verify", "verify", 0, tile_to_cpu, fd_topo_find_link( topo, "verify_dedup", i ) );
-  TILE( 1,                                "dedup",  "dedup",  0, tile_to_cpu, fd_topo_find_link( topo, "dedup_pack",   i ) );
-  TILE( 1,                                "pack",   "pack",   0, tile_to_cpu, fd_topo_find_link( topo, "pack_bank",    i ) );
-  TILE( config->layout.bank_tile_count,   "bank",   "bank",   1, tile_to_cpu, fd_topo_find_link( topo, "bank_poh",     i ) );
-  TILE( 1,                                "poh",    "poh",    1, tile_to_cpu, fd_topo_find_link( topo, "poh_shred",    i ) );
-  TILE( 1,                                "shred",  "shred",  0, tile_to_cpu, fd_topo_find_link( topo, "shred_store",  i ) );
-  TILE( 1,                                "store",  "store",  1, tile_to_cpu, ULONG_MAX                                    );
-  TILE( 1,                                "sign",   "sign",   0, tile_to_cpu, ULONG_MAX                                    );
-  TILE( 1,                                "metric", "metric", 0, tile_to_cpu, ULONG_MAX                                    );
+  if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
+    FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+                 "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
+                 "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
+                 topo->tile_cnt, affinity_tile_cnt ));
+  if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
+    FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+                     "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
+                     "individual tile counts in the [layout] section of the configuration file.",
+                     topo->tile_cnt, affinity_tile_cnt ));
 
-  topo->tile_cnt = tile_cnt;
+  /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
+  FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "net_netmux",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(quic_tile_cnt)   fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "quic_netmux",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "shred_netmux", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(quic_tile_cnt)   fd_topob_tile_in(  topo, "quic",    i,            "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_netmux",  i                                                  );
+  /* All verify tiles read from all QUIC tiles, packets are round robin. */
+  FOR(verify_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
+                       fd_topob_tile_in(  topo, "verify",  i,            "metric_in", "quic_verify",  j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers, verify tiles may be overrun */
+  FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "dedup",   0UL,          "metric_in", "verify_dedup", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "dedup_pack",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "gossip_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /* The PoH to pack link is reliable, and must be.  The fragments going
+     across here are "you became leader" which pack must respond to
+     by publishing microblocks, otherwise the leader TPU will hang
+     forever.
 
-  if( FD_UNLIKELY( affinity_tile_cnt<config->topo.tile_cnt ) ) FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
-                                                                            "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
-                                                                            "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
-                                                                            config->topo.tile_cnt, affinity_tile_cnt ));
-  if( FD_UNLIKELY( affinity_tile_cnt>config->topo.tile_cnt ) ) FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
-                                                                                "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
-                                                                                "individual tile counts in the [layout] section of the configuration file.",
-                                                                                 config->topo.tile_cnt, affinity_tile_cnt ));
-
-#define TILE_IN( name, kind_id, link, link_id, reliable, poll ) do {                        \
-    ulong tile_id = fd_topo_find_tile( topo, name, kind_id );                               \
-    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                               \
-      FD_LOG_ERR(( "could not find tile %s:%lu", name, kind_id ));                          \
-    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                        \
-    tile->in_link_id      [ tile->in_cnt ] = fd_topo_find_link( topo, link, link_id );      \
-    tile->in_link_reliable[ tile->in_cnt ] = reliable;                                      \
-    tile->in_link_poll    [ tile->in_cnt ] = poll;                                          \
-    tile->in_cnt++;                                                                         \
-  } while(0)
-
-  /* TILE_OUT is used for specifying additional, non-primary outs for
-     the tile.  The primary output link is specified with the TILE macro
-     above and will not appear as a TILE_OUT. */
-#define TILE_OUT( name, kind_id, link, link_id ) do {                                       \
-    ulong tile_id = fd_topo_find_tile( topo, name, kind_id );                               \
-    if( FD_UNLIKELY( tile_id == ULONG_MAX ) )                                               \
-      FD_LOG_ERR(( "could not find tile %s:%lu", name, kind_id ));                          \
-    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];                                        \
-    tile->out_link_id[ tile->out_cnt ] = fd_topo_find_link( topo, link, link_id );          \
-    tile->out_cnt++;                                                                        \
-  } while(0)
-
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  "net",    i,   "netmux_out",   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.net_tile_count; i++ )    TILE_IN(  "netmux", 0UL, "net_netmux",   i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  "netmux", 0UL, "quic_netmux",  i,   0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                                                      TILE_IN(  "netmux", 0UL, "shred_netmux", 0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  "quic",   i,   "netmux_out",   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_OUT( "quic",   i,   "quic_netmux",  i      );
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  "verify", i,   "quic_verify",  i,   0, 1 ); /* No reliable consumers, verify tiles may be overrun */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) TILE_IN(  "dedup",  0UL, "verify_dedup", i,   1, 1 );
-  /**/                                                      TILE_IN(  "pack",   0UL, "dedup_pack",   0UL, 1, 1 );
-  /**/                                                      TILE_IN(  "pack",   0UL, "gossip_pack",  0UL, 1, 1 );
-  /**/                                                      TILE_IN(  "pack",   0UL, "poh_shred",    0UL, 1, 1 );
+     It's marked as unreliable since otherwise we have a reliable credit
+     loop which will also starve the pack tile.  This is OK because we
+     will never send more than one leader message until the pack tile
+     must acknowledge it with a packing done frag, so there will be at
+     most one in flight at any time. */
+  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "poh_pack",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /* These pack to bank links are reliable, but they are flow controlled
      by the busy flag that sits between them.  We don't mark them
      reliable here because it creates a reliable link loop (poh -> pack
      -> bank) which leads to credit starvation. */
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  "bank",   i,   "pack_bank",    0UL, 0, 1 );
-  /* Same as above. */
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  "bank",   i,   "poh_shred",    0UL, 0, 1 );
-  for( ulong i=0; i<config->layout.bank_tile_count; i++ )   TILE_IN(  "poh",    0UL, "bank_poh",     i,   1, 1 );
-  /**/                                                      TILE_IN(  "poh",    0UL, "stake_out",    0UL, 1, 1 );
-  /**/                                                      TILE_IN(  "shred",  0UL, "netmux_out",   0UL, 0, 1 ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                                                      TILE_IN(  "shred",  0UL, "poh_shred",    0UL, 1, 1 );
-  /**/                                                      TILE_IN(  "shred",  0UL, "stake_out",    0UL, 1, 1 );
-  /**/                                                      TILE_IN(  "shred",  0UL, "crds_shred",   0UL, 1, 1 );
-  /**/                                                      TILE_OUT( "shred",  0UL, "shred_netmux", 0UL       );
-  /**/                                                      TILE_IN(  "store",  0UL, "shred_store",  0UL, 1, 1 );
+  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "bank",   i,             "metric_in", "pack_bank",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                       fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
+  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "crds_shred",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_out( topo, "shred",  0UL,                        "shred_netmux", 0UL                                                );
+  /**/                 fd_topob_tile_in(  topo, "store",  0UL,           "metric_in", "shred_store",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* Sign links don't need to be reliable because they are synchronous,
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by the mux, instead the tiles will
      read the sign responses out of band in a dedicated spin loop. */
-  for( ulong i=0; i<config->layout.verify_tile_count; i++ ) {
-    /**/                                                    TILE_IN(  "sign",   0UL, "quic_sign",      i, 0, 1 );
-    /**/                                                    TILE_OUT( "quic",     i, "quic_sign",      i    );
-    /**/                                                    TILE_IN(  "quic",     i, "sign_quic",      i, 0, 0 );
-    /**/                                                    TILE_OUT( "sign",   0UL, "sign_quic",      i    );
+
+  for( ulong i=0UL; i<quic_tile_cnt; i++ ) {
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "quic_sign",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "quic",     i,                        "quic_sign",      i                                                  );
+    /**/               fd_topob_tile_in(  topo, "quic",     i,           "metric_in", "sign_quic",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
   }
 
-  /**/                                                      TILE_IN(  "sign",   0UL, "shred_sign",   0UL, 0, 1 );
-  /**/                                                      TILE_OUT( "shred",  0UL, "shred_sign",   0UL    );
-  /**/                                                      TILE_IN(  "shred",  0UL, "sign_shred",   0UL, 0, 0 );
-  /**/                                                      TILE_OUT( "sign",   0UL, "sign_shred",   0UL    );
+  /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "shred",  0UL,                        "shred_sign",   0UL                                                  );
+  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "sign_shred",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",   0UL                                                  );
 
   /* PoH tile represents the Solana Labs address space, so it's
      responsible for publishing Solana Labs provided data to
      these links. */
-  /**/                                                      TILE_OUT( "poh",    0UL, "gossip_pack",  0UL    );
-  /**/                                                      TILE_OUT( "poh",    0UL, "stake_out",    0UL    );
-  /**/                                                      TILE_OUT( "poh",    0UL, "crds_shred",   0UL    );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_pack",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "stake_out",    0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "crds_shred",   0UL                                                  );
+
+  /* There is a special fseq that sits between the pack, bank, an poh
+     tiles to indicate when the bank/poh tiles are done processing a
+     microblock.  Pack uses this to determine when to "unlock" accounts
+     that it marked as locked because they were being used. */
+
+  for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
+    fd_topo_obj_t * busy_obj = fd_topob_obj( topo, "fseq", "bank_busy" );
+
+    fd_topo_tile_t * bank_tile = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
+    fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "poh", 0UL ) ];
+    fd_topo_tile_t * pack_tile = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+    fd_topob_tile_uses( topo, bank_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, poh_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, pack_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
+  }
+
+  /* There's another special fseq that's used to communicate the shred
+     version from the Solana Labs boot path to the shred tile. */
+  fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
+  fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "poh", 0UL ) ];
+  fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", 0UL ) ];
+  fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+
+    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) ) ) {
+      strncpy( tile->net.app_name,     config->name,                sizeof(tile->net.app_name) );
+      strncpy( tile->net.interface,    config->tiles.net.interface, sizeof(tile->net.interface) );
+      memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
+
+      tile->net.xdp_aio_depth     = config->tiles.net.xdp_aio_depth;
+      tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
+      tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
+      tile->net.src_ip_addr       = config->tiles.net.ip_addr;
+      tile->net.shred_listen_port = config->tiles.shred.shred_listen_port;
+      tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
+      tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
+      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
+      strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
+
+      tile->quic.depth                          = topo->links[ tile->out_link_id_primary ].depth;
+      tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
+      tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
+      tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
+      tile->quic.max_inflight_quic_packets      = config->tiles.quic.max_inflight_quic_packets;
+      tile->quic.tx_buf_size                    = config->tiles.quic.tx_buf_size;
+      tile->quic.ip_addr                        = config->tiles.net.ip_addr;
+      tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
+      tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
+      tile->quic.retry                          = config->tiles.quic.retry;
+      tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
+      tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
+      strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
+
+      tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
+      tile->pack.bank_tile_count          = config->layout.bank_tile_count;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
+      strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
+
+      tile->poh.bank_cnt = config->layout.bank_tile_count;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
+      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
+      strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
+
+      tile->shred.depth                  = topo->links[ tile->out_link_id_primary ].depth;
+      tile->shred.ip_addr                = config->tiles.net.ip_addr;
+      tile->shred.fec_resolver_depth     = config->tiles.shred.max_pending_shred_sets;
+      tile->shred.expected_shred_version = config->consensus.expected_shred_version;
+      tile->shred.shred_listen_port      = config->tiles.shred.shred_listen_port;
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
+      strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
+      tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+
+    } else {
+      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
+    }
+  }
+
+  fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+  config->topo = *topo;
 }
 
 static void
@@ -1015,69 +1172,7 @@ config_parse( int *      pargc,
   }
 
   validate_ports( config );
-
   topo_initialize( config );
-  fd_topo_validate( &config->topo );
-
-  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) ) ) {
-      strncpy( tile->net.app_name, config->name, sizeof(tile->net.app_name) );
-      strncpy( tile->net.interface, config->tiles.net.interface, sizeof(tile->net.interface) );
-      tile->net.xdp_aio_depth = config->tiles.net.xdp_aio_depth;
-      tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
-      tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
-      tile->net.src_ip_addr      = config->tiles.net.ip_addr;
-      tile->net.allow_ports[ 0 ] = config->tiles.quic.regular_transaction_listen_port;
-      tile->net.allow_ports[ 1 ] = config->tiles.quic.quic_transaction_listen_port;
-      tile->net.allow_ports[ 2 ] = config->tiles.shred.shred_listen_port;
-      memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "netmux" ) ) ) {
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
-      tile->quic.depth = config->topo.links[ tile->out_link_id_primary ].depth;
-      tile->quic.reasm_cnt = config->tiles.quic.txn_reassembly_count;
-      tile->quic.max_concurrent_connections = config->tiles.quic.max_concurrent_connections;
-      tile->quic.max_concurrent_handshakes = config->tiles.quic.max_concurrent_handshakes;
-      tile->quic.max_inflight_quic_packets = config->tiles.quic.max_inflight_quic_packets;
-      tile->quic.tx_buf_size = config->tiles.quic.tx_buf_size;
-      tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
-      tile->quic.ip_addr = config->tiles.net.ip_addr;
-      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
-      tile->quic.quic_transaction_listen_port = config->tiles.quic.quic_transaction_listen_port;
-      tile->quic.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
-      tile->quic.idle_timeout_millis = config->tiles.quic.idle_timeout_millis;
-      strncpy( tile->quic.identity_key_path, config->consensus.identity_path, sizeof(tile->quic.identity_key_path) );
-      tile->quic.retry = config->tiles.quic.retry;
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "dedup" ) ) ) {
-      tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
-      tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
-      tile->pack.bank_tile_count = config->layout.bank_tile_count;
-      strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
-      tile->poh.bank_cnt = config->layout.bank_tile_count;
-      strncpy( tile->poh.identity_key_path, config->consensus.identity_path, sizeof(tile->poh.identity_key_path) );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      tile->shred.depth = config->topo.links[ tile->out_link_id_primary ].depth;
-      tile->shred.ip_addr = config->tiles.net.ip_addr;
-      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
-      tile->shred.fec_resolver_depth = config->tiles.shred.max_pending_shred_sets;
-      strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
-      tile->shred.expected_shred_version = config->consensus.expected_shred_version;
-      tile->shred.shred_listen_port = config->tiles.shred.shred_listen_port;
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "store" ) ) ) {
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {
-      strncpy( tile->sign.identity_key_path, config->consensus.identity_path, sizeof(tile->sign.identity_key_path) );
-    } else if( FD_UNLIKELY( !strcmp( tile->name, "metric" ) ) ) {
-      tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
-    } else {
-      FD_LOG_ERR(( "unknown tile name %s", tile->name ));
-    }
-  }
-
-  fd_topo_fill( &config->topo, FD_TOPO_FILL_MODE_FOOTPRINT, fdctl_tile_align, fdctl_tile_footprint );
 }
 
 int

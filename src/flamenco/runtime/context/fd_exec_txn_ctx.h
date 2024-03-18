@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_txn_ctx_h
 
 #include "../fd_runtime.h"
+#include "../fd_executor.h"
 #include "../../../util/fd_util_base.h"
 
 #include "../fd_borrowed_account.h"
@@ -79,6 +80,20 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
+
+
+static inline int
+fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
+                     ulong               cus ) {
+  ulong new_cus   =  txn_ctx->compute_meter - cus;
+  int   underflow = (txn_ctx->compute_meter < cus);
+  if( FD_UNLIKELY( underflow ) ) {
+    txn_ctx->compute_meter = 0UL;
+    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+  }
+  txn_ctx->compute_meter = new_cus;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
 
 FD_PROTOTYPES_END
 

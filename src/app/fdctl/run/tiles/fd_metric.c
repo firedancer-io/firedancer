@@ -257,9 +257,6 @@ prometheus_print( fd_topo_t * topo,
   PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, "bank", FD_METRICS_BANK_TOTAL, FD_METRICS_BANK, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
-  PRINT( "\n" );
-  result = prometheus_print1( topo, out, out_len, "poh", FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
-  if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* Now backfill Content-Length */
   ulong printed;
@@ -481,6 +478,7 @@ populate_allowed_fds( void * scratch,
 }
 
 fd_topo_run_tile_t fd_tile_metric = {
+  .name                     = "metric",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .rlimit_file_cnt          = MAX_CONNS+1,

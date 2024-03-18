@@ -128,7 +128,6 @@ typedef struct {
 
   uint                 src_ip_addr;
   uchar                src_mac_addr[ 6 ];
-  ushort               shred_listen_port;
 
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
@@ -262,17 +261,16 @@ finalize_new_cluster_contact_info( fd_shred_ctx_t * ctx ) {
 }
 
 static void
-before_frag( void * _ctx,
+before_frag( void * ctx,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
              int *  opt_filter ) {
+  (void)ctx;
   (void)seq;
 
-  fd_shred_ctx_t * ctx = (fd_shred_ctx_t *)_ctx;
-
   if( FD_LIKELY( in_idx==NET_IN_IDX ) ) {
-    *opt_filter = fd_disco_netmux_sig_port( sig )!=ctx->shred_listen_port;
+    *opt_filter = fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
   } else if( FD_LIKELY( in_idx==POH_IN_IDX ) ) {
     *opt_filter = fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
   }
@@ -433,7 +431,7 @@ send_shred( fd_shred_ctx_t *      ctx,
   ulong pkt_sz = shred_sz + sizeof(eth_ip_udp_t);
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong   sig = fd_disco_netmux_sig( dest->ip4, dest->port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_SHRED, (ushort)0 );
+  ulong   sig = fd_disco_netmux_sig( 0U, 0U, dest->ip4, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
       pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
@@ -636,7 +634,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong shred_store_mcache_depth = tile->shred.depth;
   if( topo->links[ tile->out_link_id_primary ].depth != shred_store_mcache_depth )
-    FD_LOG_ERR(( "shred tile in depths are not equal" ));
+    FD_LOG_ERR(( "shred tile out depths are not equal %lu %lu",
+                 topo->links[ tile->out_link_id_primary ].depth, shred_store_mcache_depth ));
 
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
@@ -700,11 +699,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong expected_shred_version = tile->shred.expected_shred_version;
   if( FD_LIKELY( !expected_shred_version ) ) {
-    ulong * gossip_shred_version = (ulong*)tile->extra[0];
+    ulong busy_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
+    FD_TEST( busy_obj_id!=ULONG_MAX );
+    ulong * gossip_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
     FD_LOG_INFO(( "Waiting for shred version to be determined via gossip." ));
-    while( !expected_shred_version ) {
+    do {
       expected_shred_version = FD_VOLATILE_CONST( *gossip_shred_version );
-    }
+    } while( expected_shred_version==ULONG_MAX );
   }
 
   if( FD_UNLIKELY( expected_shred_version > USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
@@ -742,19 +743,19 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* The networking in mcache contains frags from several dcaches, so
      use the entire wksp data region as the chunk bounds. */
-  ctx->net_in_mem    = topo->workspaces[ netmux_shred_link->wksp_id ].wksp;
+  ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_shred_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_in_chunk0 = fd_disco_compact_chunk0( ctx->net_in_mem );
   ctx->net_in_wmark  = fd_disco_compact_wmark ( ctx->net_in_mem, netmux_shred_link->mtu );
 
-  ctx->poh_in_mem    = topo->workspaces[ poh_shred_link->wksp_id ].wksp;
+  ctx->poh_in_mem    = topo->workspaces[ topo->objs[ poh_shred_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, poh_shred_link->dcache );
   ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, poh_shred_link->dcache, poh_shred_link->mtu );
 
-  ctx->stake_in_mem    = topo->workspaces[ stake_in_link->wksp_id ].wksp;
+  ctx->stake_in_mem    = topo->workspaces[ topo->objs[ stake_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );
   ctx->stake_in_wmark  = fd_dcache_compact_wmark ( ctx->stake_in_mem, stake_in_link->dcache, stake_in_link->mtu );
 
-  ctx->contact_in_mem    = topo->workspaces[ contact_in_link->wksp_id ].wksp;
+  ctx->contact_in_mem    = topo->workspaces[ topo->objs[ contact_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->contact_in_chunk0 = fd_dcache_compact_chunk0( ctx->contact_in_mem, contact_in_link->dcache );
   ctx->contact_in_wmark  = fd_dcache_compact_wmark ( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
@@ -765,13 +766,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
   ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  ctx->net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
   fd_topo_link_t * store_out = &topo->links[ tile->out_link_id_primary ];
 
-  ctx->store_out_mem    = topo->workspaces[ store_out->wksp_id ].wksp;
+  ctx->store_out_mem    = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
@@ -786,7 +787,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->src_ip_addr = tile->shred.ip_addr;
   fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
-  ctx->shred_listen_port = tile->shred.shred_listen_port;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.pos            = 0UL;
@@ -822,13 +822,22 @@ populate_allowed_fds( void * scratch,
   return out_cnt;
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_shred = {
+  .name                     = "shred",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 4UL,
   .mux_ctx                  = mux_ctx,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

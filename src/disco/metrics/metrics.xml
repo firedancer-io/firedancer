@@ -26,11 +26,13 @@ metric introduced.
 </enum>
 
 <enum name="PackTxnInsertReturn">
-  <int value="-8" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
-  <int value="-7" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
-  <int value="-6" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
-  <int value="-5" name="TooLarge" label="Transaction requests too many CUs" />
-  <int value="-4" name="Expired" label="Transaction already expired" />
+  <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
+  <int value="-9" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
+  <int value="-8" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+  <int value="-7" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-6" name="TooLarge" label="Transaction requests too many CUs" />
+  <int value="-5" name="Expired" label="Transaction already expired" />
+  <int value="-4" name="AddrLut" label="Transaction loaded accounts from a lookup table" />
   <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
   <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
   <int value="-1" name="Priority" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
@@ -38,6 +40,14 @@ metric introduced.
   <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
   <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
   <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
+</enum>
+<enum name="PackTxnSchedule">
+  <int value="0" name="Taken" label="Pack included the transaction in the microblock" />
+  <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
+  <int value="2" name="FastPath" label="Pack skipped the transaction because of account conflicts using the fast bitvector check" />
+  <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
+  <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
+  <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
 </enum>
 
 <enum name="BankSlotAcquire">
@@ -191,14 +201,6 @@ metric introduced.
 </group>
 
 <group name="PohTile" tile="poh">
-    <counter name="MicroblockTooEarly" summary="Received a microblock but it was for a slot that's after the current leader bank." />
-    <counter name="MicroblockTooLate" summary="Received a microblock but it was for a slot that's before the current leader bank." />
-    <counter name="MicroblockNoLongerLeader" summary="Received a microblock that was on time, but we are no longer leader at the target slot." />
-    <counter name="ReplayTooEarly" summary="Received a notification of a new bank but it was for a slot that's earlier than the current time." />
-    <counter name="ReplayTooLate" summary="Received a notification of a new bank but it was for a slot that's later than the current time." />
-    <counter name="ReplayNoLongerLeader" summary="Received a notification of a new bank that was on time, but we are no longer leader at the target slot." />
-    <counter name="LeaderSlotMissedBackpressure" summary="Couldn't tell pack to start packing, because the PoH tile was backpressured." />
-    <counter name="NoLeaderBank" summary="Got sent transactions for a valid leader slot, but we did not have a leader bank available." />
 </group>
 
 <group name="Quic" tile="quic">
@@ -247,8 +249,9 @@ metric introduced.
   <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
 
   <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
-  <counter name="TransactionSkipped" summary="The number of times pack considered a transaction but skipped it due to account conflicts" />
-  <!-- TODO: Add more reasons after performance improvement PR -->
+  <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
+  <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
+
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />

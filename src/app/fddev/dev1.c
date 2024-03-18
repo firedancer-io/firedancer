@@ -62,7 +62,7 @@ dev1_cmd_fn( args_t *         args,
 
     fd_topo_tile_t * tile = &config->topo.tiles[ tile_id ];
     fd_topo_run_tile_t run_tile = fdctl_tile_run( tile );
-    fd_topo_run_tile( &config->topo, tile, config->development.sandbox, config->uid, config->gid, -1, NULL, NULL, &run_tile, fdctl_tile_align, fdctl_tile_footprint );
+    fd_topo_run_tile( &config->topo, tile, config->development.sandbox, config->uid, config->gid, -1, NULL, NULL, &run_tile );
   }
 
   /* main functions should exit_group and never return, but just in case */

@@ -115,7 +115,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
   FD_LOG_NOTICE(( "Got blockstore" ));
 
-  ctx->in_mem = topo->workspaces[ topo->links[ tile->in_link_id[ 0UL ] ].wksp_id ].wksp;
+  ctx->in_mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache );
   ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, topo->links[ tile->in_link_id[ 0UL ] ].dcache, topo->links[ tile->in_link_id[ 0UL ] ].mtu );
 
@@ -124,13 +124,22 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
+static long
+lazy( fd_topo_tile_t * tile ) {
+  (void)tile;
+  /* See explanation in fd_pack */
+  return 128L * 300L;
+}
+
 fd_topo_run_tile_t fd_tile_store = {
+  .name                     = "store",
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .mux_metrics_write        = metrics_write,
+  .lazy                     = lazy,
   .populate_allowed_seccomp = NULL,
   .populate_allowed_fds     = NULL,
   .scratch_align            = scratch_align,

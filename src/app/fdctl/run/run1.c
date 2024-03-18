@@ -50,7 +50,7 @@ tile_main( void * _args ) {
   }
 
   fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
-  fd_topo_run_tile( &args->config->topo, args->tile, 1, args->config->uid, args->config->gid, args->pipefd, wait, debug, &run_tile, fdctl_tile_align, fdctl_tile_footprint );
+  fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, args->config->uid, args->config->gid, args->pipefd, wait, debug, &run_tile );
   return 0;
 }
 
