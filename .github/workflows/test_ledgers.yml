@@ -28,4 +28,4 @@ jobs:
       - name: make ${{ matrix.test_case }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
-          make ${{ matrix.test_case }}
+          EXTRAS="asan" make ${{ matrix.test_case }}
