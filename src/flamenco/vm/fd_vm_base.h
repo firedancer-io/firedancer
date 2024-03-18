@@ -109,7 +109,8 @@ FD_PROTOTYPES_END
 
 /* VM log constants */
 
-#define FD_VM_LOG_MAX (10000UL)
+#define FD_VM_LOG_MAX  (10000UL)
+#define FD_VM_LOG_TAIL (128UL)   /* Large enough to cover the worst case syscall log tail clobbering in string parsing */
 
 /* VM memory map constants */
 
