@@ -78,7 +78,7 @@ typedef struct fd_vm_sol_account_meta fd_vm_sol_account_meta_t;
 #define FD_VM_C_ACCOUNT_INFO_SIZE  (61UL)
 
 struct fd_vm_c_account_info {
-  ulong key_addr;
+  ulong pubkey_addr;
   ulong lamports_addr;
   ulong data_sz;
   ulong data_addr;
