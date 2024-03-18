@@ -428,6 +428,7 @@ typedef struct {
 
   fd_poh_in_ctx_t bank_in[ 32 ];
   fd_poh_in_ctx_t stake_in;
+  fd_poh_in_ctx_t pack_in;
 
   fd_wksp_t * shred_out_mem;
   ulong       shred_out_chunk0;
@@ -802,9 +803,30 @@ fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully p
 
   int leader_before_reset = ctx->hashcnt>=ctx->next_leader_slot_hashcnt;
 
+  ulong reset_hashcnt = (reset_bank_slot+1UL)*ctx->hashcnt_per_slot;
+
+   if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
+   /* If we notified the banking stage that we were leader for a slot,
+      it's already sending microblocks which we won't be able to tell
+      which fork of the slot they are for, so we can't become leader
+      again for that slot.  This will cause the in-flight microblocks
+      to be dropped. */
+     ctx->last_hashcnt = (1UL+(ctx->hashcnt/ctx->hashcnt_per_slot))*ctx->hashcnt_per_slot;
+   } else if( FD_LIKELY( ctx->last_hashcnt ) ) {
+     /* Otherwise, we just need to roll the prior last_hashcnt value
+        forward.  We can't become leader in any slot we have ever
+        published in, even if we get reset back in the past due to forks
+        having different clock skews. */
+     ctx->last_hashcnt = fd_ulong_max( reset_hashcnt,
+                                       (1UL+(ctx->last_hashcnt-1UL)/ctx->hashcnt_per_slot)*ctx->hashcnt_per_slot );
+   } else {
+     /* If we don't have a last_hashcnt, then we can freely publish into
+        the slot. */
+     ctx->last_hashcnt = reset_hashcnt;
+   }
+
   memcpy( ctx->hash, reset_blockhash, 32UL );
-  ctx->hashcnt             = (reset_bank_slot+1UL)*ctx->hashcnt_per_slot;
-  ctx->last_hashcnt        = ctx->hashcnt;
+  ctx->hashcnt             = reset_hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
   ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
@@ -1002,6 +1024,26 @@ during_housekeeping( void * ctx ) {
   FD_COMPILER_MFENCE();
 }
 
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)seq;
+
+  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
+  if( FD_UNLIKELY( in_idx==ctx->pack_in_idx ) ) {
+    if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
+                   fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
+      ulong slot = fd_disco_poh_sig_slot( sig );
+      if( FD_UNLIKELY( slot<ctx->hashcnt/ctx->hashcnt_per_slot ) ) *opt_filter = 1;
+      return;
+    }
+  }
+}
+
 static inline void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -1029,11 +1071,12 @@ during_frag( void * _ctx,
        exact bound for once we receive them. */
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) {
       FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
+      fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->pack_in.mem, chunk );
       FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                     ctx->hashcnt/ctx->hashcnt_per_slot,
                     ctx->microblocks_lower_bound,
-                    fd_disco_poh_sig_slot( sig ) ));
-      ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - fd_disco_poh_sig_slot( sig );
+                    done_packing->microblocks_in_slot ));
+      ctx->microblocks_lower_bound += ctx->max_microblocks_per_slot - done_packing->microblocks_in_slot;
     }
     *opt_filter = 1;
     return;
@@ -1398,6 +1441,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache );
   ctx->stake_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].dcache, topo->links[ tile->in_link_id[ ctx->stake_in_idx ] ].mtu );
 
+  ctx->pack_in.mem    = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->pack_in.chunk0 = fd_dcache_compact_chunk0( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache );
+  ctx->pack_in.wmark  = fd_dcache_compact_wmark ( ctx->stake_in.mem, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].dcache, topo->links[ tile->in_link_id[ ctx->pack_in_idx ] ].mtu );
+
   ctx->shred_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->shred_out_chunk0 = fd_dcache_compact_chunk0( ctx->shred_out_mem, topo->links[ tile->out_link_id_primary ].dcache );
   ctx->shred_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
@@ -1431,6 +1478,7 @@ fd_topo_run_tile_t fd_tile_poh = {
   .mux_ctx                  = mux_ctx,
   .mux_after_credit         = after_credit,
   .mux_during_housekeeping  = during_housekeeping,
+  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
   .lazy                     = lazy,
