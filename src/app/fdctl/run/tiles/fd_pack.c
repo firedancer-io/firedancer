@@ -167,22 +167,21 @@ after_credit( void *             _ctx,
   /* If we time out on our slot, then stop being leader. */
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
-    ctx->leader_slot = ULONG_MAX;
-    fd_pack_end_block( ctx->pack );
-
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
          if it receives the maximum allowed microblocks, since it knows
-         there is nothing left to receive.  In that case, we actually
-         must not send a DONE_PACKING notification, because it would
-         cause PoH to end the next slot that it has already started
-         waiting for microblocks on.
+         there is nothing left to receive.  In that case, we don't need
+         to send a DONE_PACKING notification, since they are already on
+         the next slot.  If we did send one it would just get dropped. */
+      fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+      done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
 
-         We reuse the slot field when sending this message to send the
-         microblock count for the slot instead, since the slot is
-         already known to the PoH tile (they told us to pack for it). */
-      fd_mux_publish( mux, fd_disco_poh_sig( ctx->slot_microblock_cnt, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_mux_publish( mux, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
+      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
+
+    ctx->leader_slot = ULONG_MAX;
+    fd_pack_end_block( ctx->pack );
     ctx->slot_microblock_cnt = 0UL;
     return;
   }

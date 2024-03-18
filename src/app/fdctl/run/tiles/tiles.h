@@ -62,6 +62,11 @@ struct fd_microblock_trailer {
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
+struct fd_done_packing {
+   ulong microblocks_in_slot;
+};
+typedef struct fd_done_packing fd_done_packing_t;
+
 struct fd_microblock_bank_trailer {
   /* An opauque pointer to the bank to use when executing and committing
      transactions.  The lifetime of the bank is owned by the PoH tile,
