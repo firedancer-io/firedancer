@@ -41,6 +41,7 @@ typedef struct fd_vm_rc_refcell fd_vm_rc_refcell_t;
    invocation syscall API. */
 
 #define FD_VM_C_INSTRUCTION_ALIGN (8UL)
+#define FD_VM_C_INSTRUCTION_SIZE  (40UL)
 
 struct __attribute__((packed)) fd_vm_c_instruction {
   ulong  program_id_addr;
@@ -53,7 +54,7 @@ struct __attribute__((packed)) fd_vm_c_instruction {
 typedef struct fd_vm_c_instruction fd_vm_c_instruction_t;
 
 #define FD_VM_C_ACCOUNT_META_ALIGN (8UL)
-
+#define FD_VM_C_ACCOUNT_META_SIZE  (10UL)
 struct fd_vm_c_account_meta {
   ulong pubkey_addr;
   uchar is_writable;
@@ -74,6 +75,7 @@ struct fd_vm_sol_account_meta {
 typedef struct fd_vm_sol_account_meta fd_vm_sol_account_meta_t;
 
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
+#define FD_VM_C_ACCOUNT_INFO_SIZE  (61UL)
 
 struct fd_vm_c_account_info {
   ulong key_addr;
@@ -95,6 +97,7 @@ typedef struct fd_vm_c_account_info fd_vm_c_account_info_t;
 /* fd_vm_rust_vec_t is Rust type Vec<_> using the default allocator. */
 
 #define FD_VM_RUST_VEC_ALIGN (8UL)
+#define FD_VM_RUST_VEC_SIZE  (24UL)
 
 struct __attribute__((packed)) fd_vm_rust_vec {
   ulong addr;
@@ -107,6 +110,7 @@ typedef struct fd_vm_rust_vec fd_vm_rust_vec_t;
 #define FD_VM_RUST_RC_ALIGN (8UL)
 
 #define FD_VM_RUST_INSTRUCTION_ALIGN (8UL)
+#define FD_VM_RUST_INSTRUCTION_SIZE  (80UL)
 
 struct __attribute__((packed)) fd_vm_rust_instruction {
   fd_vm_rust_vec_t accounts;    /* points to fd_vm_rust_account_meta_t */
@@ -117,6 +121,7 @@ struct __attribute__((packed)) fd_vm_rust_instruction {
 typedef struct fd_vm_rust_instruction fd_vm_rust_instruction_t;
 
 #define FD_VM_RUST_ACCOUNT_META_ALIGN (1UL)
+#define FD_VM_RUST_ACCOUNT_META_SIZE  (34UL)
 
 struct __attribute__((packed)) fd_vm_rust_account_meta {
   uchar pubkey[32];
@@ -127,6 +132,7 @@ struct __attribute__((packed)) fd_vm_rust_account_meta {
 typedef struct fd_vm_rust_account_meta fd_vm_rust_account_meta_t;
 
 #define FD_VM_RUST_ACCOUNT_INFO_ALIGN (8UL)
+#define FD_VM_RUST_ACCOUNT_INFO_SIZE  (48UL)
 
 struct __attribute__((packed)) fd_vm_rust_account_info {
   ulong pubkey_addr;          /* points to uchar[32] */
