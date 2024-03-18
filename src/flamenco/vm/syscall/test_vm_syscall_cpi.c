@@ -16,7 +16,7 @@ FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, is_writable )==8UL, layout )
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_meta_t, is_signer   )==9UL, layout );
 FD_STATIC_ASSERT( sizeof  ( fd_vm_c_account_meta_t              )==16UL, layout );
 
-FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, key_addr      )== 0UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, pubkey_addr   )== 0UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, lamports_addr )== 8UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, data_sz       )==16UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_vm_c_account_info_t, data_addr     )==24UL, layout );
