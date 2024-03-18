@@ -181,16 +181,43 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
                                void const *   sig,
                                ulong *        psz );
 
-/* fd_rocksdb_copy_over_range copies over all entries for a given column family
-   index into another rocksdb*/
-int
-fd_rocksdb_copy_over_range( fd_rocksdb_t * src,
-                            fd_rocksdb_t * dst,
-                            ulong          cf_idx,
-                            ulong          start_slot,
-                            ulong          end_slot );
+/* fd_rocksdb_copy_over_slot_indexed_range copies over all entries for a
+   given column family index into another rocksdb assuming that the key
+   is prefixed with the slot number. This includes column families where
+   the key is just the slot number but also ones where the key starts with
+   the slot number. */
 
-/* fd_rocksdb_insert_entry inserts a key, value pair into a given rocksdb*/
+int
+fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
+                                         fd_rocksdb_t * dst,
+                                         ulong          cf_idx,
+                                         ulong          start_slot,
+                                         ulong          end_slot );
+
+/* fd_rocksdb_copy_over_txn_status_range copies over all transaction statuses 
+   within a block range assuming the blockstore contains relevant pointers to
+   the transactions within the range. The blockstore object must be populated
+   with the relevant block range. */
+
+int
+fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
+                                       fd_rocksdb_t *    dst,
+                                       fd_blockstore_t * blockstore,
+                                       ulong             start_slot,
+                                       ulong             end_slot );
+
+/* fd_rocksdb_copy_over_txn_status constructs a key to query a transaction 
+   status and copies over the entry into another rocksdb. The index is used
+   to specify which transaction. */
+
+void
+fd_rocksdb_copy_over_txn_status( fd_rocksdb_t * src,
+                                 fd_rocksdb_t * dst,
+                                 ulong          slot,
+                                 void const *   sig );
+
+/* fd_rocksdb_insert_entry inserts a key, value pair into a given rocksdb */
+
 int
 fd_rocksdb_insert_entry( fd_rocksdb_t * db,
                          ulong          cf_idx,

@@ -299,7 +299,8 @@ process_bank( fd_solcap_chunk_t const * chunk,
               int                       verbose,
               long                      chunk_gaddr,
               ulong                     start_slot,
-              ulong                     end_slot ) {
+              ulong                     end_slot,
+              int                       has_txns ) {
 
 # define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
   if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT ) ) {
@@ -335,7 +336,7 @@ process_bank( fd_solcap_chunk_t const * chunk,
   }
 
   /* Write YAML */
-  if ( verbose < 3 )
+  if ( verbose < 3 || !has_txns )
     printf( "- slot: %lu\n", meta.slot );
 
   printf( 
@@ -379,17 +380,21 @@ process_bank( fd_solcap_chunk_t const * chunk,
 static ulong
 process_txn( fd_solcap_chunk_t const * chunk,
              FILE *                    file,
+             int                       verbose,
              long                      chunk_gaddr,
              ulong                     prev_slot,
              ulong                     start_slot,
              ulong                     end_slot ) {
+
+if ( verbose < 3 )
+  return 0;
 
 # define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
   if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_TRANSACTION_FOOTPRINT ) ) {
     FD_LOG_ERR(( "invalid transaction meta size (%lu)", chunk->meta_sz ));
   }
 
-  /* Read bank preimage meta */
+  /* Read transaction meta */
 
   uchar meta_buf[ 128UL ];
   if( FD_UNLIKELY( 0!=fseek( file, chunk_gaddr + (long)chunk->meta_coff, SEEK_SET ) ) ) {
@@ -399,7 +404,7 @@ process_txn( fd_solcap_chunk_t const * chunk,
     FD_LOG_ERR(( "fread transaction meta failed (%d-%s)", errno, strerror( errno ) ));
   }
 
-  /* Deserialize bank preimage meta */
+  /* Deserialize transaction meta */
 
   pb_istream_t stream = pb_istream_from_buffer( meta_buf, chunk->meta_sz );
 
@@ -420,19 +425,30 @@ process_txn( fd_solcap_chunk_t const * chunk,
       "  - txns:\n", meta.slot
     );
   }
+
   printf(
-    "    - txn_sig:    '%64J'\n"
-    "      txn_err:    %d\n"
-    "      custom_err: %u\n"
-    "      explorer:   'https://explorer.solana.com/tx/%64J'\n"
-    "      solscan:    'https://solscan.io/tx/%64J'\n"
-    "      solanafm:   'https://solana.fm/tx/%64J'\n",
+    "    - txn_sig:        '%64J'\n"
+    "      txn_err:         %d\n",
     meta.txn_sig,
-    meta.txn_err,
-    meta.custom_err,
-    meta.txn_sig,
-    meta.txn_sig,
-    meta.txn_sig );
+    meta.fd_txn_err );
+
+  if ( verbose >= 4 ) {
+    printf(
+      "      custom_err:      %u\n"
+      "      solana_txn_err:  %d\n"
+      "      cus_used:        %lu\n"
+      "      solana_cus_used: %lu\n"
+      "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
+      "      solscan:        'https://solscan.io/tx/%64J'\n"
+      "      solanafm:       'https://solana.fm/tx/%64J'\n",
+      meta.fd_custom_err,
+      meta.solana_txn_err,
+      meta.fd_cus_used,
+      meta.solana_cus_used,
+      meta.txn_sig,
+      meta.txn_sig,
+      meta.txn_sig );
+  }
 
   return meta.slot;
 }
@@ -523,10 +539,11 @@ main( int     argc,
     fd_solcap_chunk_t const * chunk = fd_solcap_chunk_iter_item( iter );
     if( FD_UNLIKELY( !chunk ) ) FD_LOG_ERR(( "fd_solcap_chunk_item() failed" ));
 
+    /* TODO: figure out how to make solana.solcap yamls print slot */
     if( chunk->magic == FD_SOLCAP_V1_BANK_MAGIC )
-      process_bank( chunk, file, verbose, chunk_gaddr, start_slot, end_slot );
-    else if ( verbose >= 3 && chunk->magic == FD_SOLCAP_V1_TRXN_MAGIC )
-      previous_slot = process_txn( chunk, file, chunk_gaddr, previous_slot, start_slot, end_slot );
+      process_bank( chunk, file, verbose, chunk_gaddr, start_slot, end_slot, previous_slot != 0 );
+    else if ( chunk->magic == FD_SOLCAP_V1_TRXN_MAGIC )
+      previous_slot = process_txn( chunk, file, verbose, chunk_gaddr, previous_slot, start_slot, end_slot );
   }
 
   /* Cleanup */

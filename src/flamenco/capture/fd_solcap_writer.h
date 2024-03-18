@@ -136,7 +136,10 @@ int fd_solcap_write_transaction( fd_solcap_writer_t * writer,
                                  void const *         txn_sig,
                                  int                  txn_err,
                                  uint                 custom_err,
-                                 ulong                slot );
+                                 ulong                slot,
+                                 ulong                fd_cus,
+                                 ulong                solana_cus,
+                                 ulong                solana_err );
 
 int fd_solcap_write_transaction2( fd_solcap_writer_t * writer,
                                   fd_solcap_Transaction * txn );

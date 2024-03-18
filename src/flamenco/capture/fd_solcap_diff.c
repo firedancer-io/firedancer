@@ -5,6 +5,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../runtime/fd_runtime.h"
 #include "../types/fd_types_yaml.h"
+#include "../nanopb/pb_decode.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -155,7 +156,7 @@ fd_solcap_differ_sync( fd_solcap_differ_t * diff, ulong start_slot, ulong end_sl
     ulong slot0 = diff->preimage[ 0 ].slot;
     ulong slot1 = diff->preimage[ 1 ].slot;
 
-    /* Handle cases where slot is skipped in one or the other*/
+    /* Handle cases where slot is skipped in one or the other */
     if ( FD_UNLIKELY( prev_slot0 < slot1 && slot0 > slot1 ) ) {
       FD_LOG_WARNING(("Slot range (%lu,%lu) skipped in file=%s\n", 
                       diff->file_paths[0], prev_slot0, slot0));
@@ -740,6 +741,104 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
   return 1;
 }
 
+static void fd_solcap_transaction_diff( fd_solcap_chunk_t const * chunk,
+                                        FILE * file,                  
+                                        long  chunk_gaddr,
+                                        ulong start_slot,
+                                        ulong end_slot ) {
+  # define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
+  if( FD_UNLIKELY( chunk->meta_sz > FD_SOLCAP_TRANSACTION_FOOTPRINT ) ) {
+    FD_LOG_ERR(( "invalid transaction meta size (%lu)", chunk->meta_sz ));
+  }
+
+  /* Read transaction meta */
+
+  uchar meta_buf[ 128UL ];
+  if( FD_UNLIKELY( 0!=fseek( file, chunk_gaddr + (long)chunk->meta_coff, SEEK_SET ) ) ) {
+    FD_LOG_ERR(( "fseek transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( chunk->meta_sz != fread( meta_buf, 1UL, chunk->meta_sz, file ) ) ) {
+    FD_LOG_ERR(( "fread transaction meta failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Deserialize transaction meta */
+
+  pb_istream_t stream = pb_istream_from_buffer( meta_buf, chunk->meta_sz );
+
+  fd_solcap_Transaction meta;
+  if( FD_UNLIKELY( !pb_decode( &stream, fd_solcap_Transaction_fields, &meta ) ) ) {
+    FD_LOG_HEXDUMP_DEBUG(( "transaction meta", meta_buf, chunk->meta_sz ));
+    FD_LOG_ERR(( "pb_decode transaction meta failed (%s)", PB_GET_ERROR(&stream) ));
+  }
+
+  if ( meta.slot < start_slot || meta.slot > end_slot ) {
+    return;
+  }
+
+  /* Only print a diff if cus or transaction reuslt is different */
+  if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) || 
+        meta.fd_cus_used != meta.solana_cus_used ) {
+    printf(
+      "    - slot:            %lu\n"
+      "      txn_sig:        '%64J'\n"
+      "      txn_err:         %d\n"
+      "      solana_txn_err:  %lu\n"
+      "      cus_used:        %lu\n"
+      "      solana_cus_used: %lu\n"
+      "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
+      "      solscan:        'https://solscan.io/tx/%64J'\n"
+      "      solanafm:       'https://solana.fm/tx/%64J'\n",
+      meta.slot,
+      meta.txn_sig,
+      meta.fd_txn_err,
+      meta.solana_txn_err,
+      meta.fd_cus_used,
+      meta.solana_cus_used,
+      meta.txn_sig,
+      meta.txn_sig,
+      meta.txn_sig );
+    
+  }
+}
+
+static void
+fd_solcap_iter_transactions( FILE * file ) {
+
+  /* Reset file pointer to start of file */
+  if ( FD_UNLIKELY( fseek( file, 0, SEEK_SET ) != 0 ) ) {
+    FD_LOG_ERR(( "fseek to start of file failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  /* Seek first chunk */
+  fd_solcap_fhdr_t fhdr[1];
+  ulong n = fread( fhdr, sizeof(fd_solcap_fhdr_t), 1UL, file );
+  if( FD_UNLIKELY( n != 1UL ) ) {
+    FD_LOG_ERR(( "fread file header failed (%d-%s)", errno, strerror( errno ) ));
+  }
+  int err = fseek( file, (long)fhdr->chunk0_foff - (long)sizeof(fd_solcap_fhdr_t), SEEK_CUR );
+  if( FD_UNLIKELY( err<0L ) ) {
+    FD_LOG_ERR(( "fseek chunk0 failed (%d-%s)", errno, strerror( errno ) ));
+  }
+
+  fd_solcap_chunk_iter_t iter[1];
+  fd_solcap_chunk_iter_new( iter, file );
+  for(;;) {
+    long chunk_gaddr = fd_solcap_chunk_iter_find( iter, FD_SOLCAP_V1_TRXN_MAGIC );
+    if( FD_UNLIKELY( chunk_gaddr<0L ) ) {
+      int err = fd_solcap_chunk_iter_err( iter );
+      if( err==0 ) break;
+      FD_LOG_ERR(( "fd_solcap_chunk_iter_next() failed (%d-%s)", err, strerror( err ) ));
+    }
+
+    if( fd_solcap_chunk_iter_done( iter ) ) break;
+
+    fd_solcap_chunk_t const * chunk = fd_solcap_chunk_iter_item( iter );
+    if( FD_UNLIKELY( !chunk ) ) FD_LOG_ERR(( "fd_solcap_chunk_item() failed" ));
+
+    fd_solcap_transaction_diff( chunk, file, chunk_gaddr, 0, ULONG_MAX );
+  }
+}
+
 static void
 usage( void ) {
   fprintf( stderr,
@@ -857,7 +956,7 @@ main( int     argc,
                             -res, strerror( -res ) ));
   if( res==0 ) FD_LOG_ERR(( "Captures don't share any slots" ));
 
-  /* Diff each block */
+  /* Diff each block for accounts and hashes */
 
   for(;;) {
     if( FD_UNLIKELY( fd_solcap_diff_bank( diff ) ) ) break;
@@ -868,6 +967,16 @@ main( int     argc,
       FD_LOG_ERR(( "fd_solcap_differ_sync failed (%d-%s)",
                    -res, strerror( -res ) ));
     if( res==0 ) break;
+  }
+
+  /* Check both files for transaction info and produce diff if possible. The
+     assumption being made here is that only one of the two files will contain
+     transaction info: we expect that only the firedancer solcap will provide 
+     it. However, we don't know which file is the firedancer solcap.  */
+  if ( verbose >= 3 ) {
+    printf( "\nTransaction diff:\n" );
+    fd_solcap_iter_transactions( cap_file[0] );
+    fd_solcap_iter_transactions( cap_file[1] );
   }
 
   /* Cleanup */

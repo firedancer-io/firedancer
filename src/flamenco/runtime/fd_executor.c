@@ -668,8 +668,6 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
     }
 
-
-
     return 0;
   } FD_SCRATCH_SCOPE_END;
 }

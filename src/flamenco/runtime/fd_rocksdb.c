@@ -339,6 +339,7 @@ fd_rocksdb_get_txn_status_raw( fd_rocksdb_t * self,
       &err );
 
   if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(("err=%s", err));
     free( err );
     return NULL;
   }
@@ -360,22 +361,25 @@ fd_rocksdb_get_slot( ulong cf_idx, char const * key ) {
 }
 
 int
-fd_rocksdb_copy_over_range( fd_rocksdb_t * src,
-                            fd_rocksdb_t * dst,
-                            ulong          cf_idx,
-                            ulong          start_slot,
-                            ulong          end_slot ) {
-  if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS || cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS ){
-    FD_LOG_NOTICE(("fd_rocksdb_copy_over_range: skipping cf_idx=%lu", cf_idx));
+fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
+                                         fd_rocksdb_t * dst,
+                                         ulong          cf_idx,
+                                         ulong          start_slot,
+                                         ulong          end_slot ) {
+  if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  || 
+       cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
+       cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ||
+       cf_idx == FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES ) {
+    FD_LOG_NOTICE(("fd_rocksdb_copy_over_range: skipping cf_idx=%lu because not slot indexed", cf_idx));
     return 0;
   }
 
   rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( src->db, src->ro, src->cf_handles[cf_idx] );
-  if ( FD_UNLIKELY(iter == NULL) ) {
+  if ( FD_UNLIKELY( iter == NULL ) ) {
     FD_LOG_ERR(("rocksdb_create_iterator_cf failed for cf_idx=%lu", cf_idx));
   }
 
-  for (rocksdb_iter_seek_to_first(iter); rocksdb_iter_valid(iter); rocksdb_iter_next(iter)) {
+  for ( rocksdb_iter_seek_to_first( iter ); rocksdb_iter_valid( iter ); rocksdb_iter_next( iter ) ) {
     ulong klen = 0;
     char const * key = rocksdb_iter_key( iter, &klen ); // There is no need to free key
 
@@ -392,8 +396,67 @@ fd_rocksdb_copy_over_range( fd_rocksdb_t * src,
 
     fd_rocksdb_insert_entry( dst, cf_idx, key, klen, value, vlen );
   }
-  rocksdb_iter_destroy(iter);
+  rocksdb_iter_destroy( iter );
   return 0;
+}
+
+int
+fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
+                                       fd_rocksdb_t *    dst,
+                                       fd_blockstore_t * blockstore,
+                                       ulong             start_slot,
+                                       ulong             end_slot ) {
+  /* Look up the blocks data and iterate through its transactions */
+  fd_blockstore_slot_map_t * block_map = fd_blockstore_slot_map( blockstore );
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
+
+  for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
+    fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, slot, NULL );
+    if( FD_LIKELY( block_entry ) ) {
+      uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
+      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, block_entry->block.txns_gaddr );
+      ulong last_txn_off = ULONG_MAX;
+      for ( ulong j = 0; j < block_entry->block.txns_cnt; ++j ) {
+        fd_blockstore_txn_key_t sig;
+        fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
+        if( txns[j].txn_off != last_txn_off ) {
+          last_txn_off = txns[j].txn_off;
+          fd_rocksdb_copy_over_txn_status( src, dst, slot, &sig );
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+void
+fd_rocksdb_copy_over_txn_status( fd_rocksdb_t * src,
+                                 fd_rocksdb_t * dst,
+                                 ulong          slot,
+                                 void const *   sig ) {
+  ulong slot_be = fd_ulong_bswap( slot );
+
+  /* Construct RocksDB query key */
+  /* TODO: Replace with constants */
+  char key[ 80 ];
+  memset( key,      0,        8UL );
+  memcpy( key+ 8UL, sig,     64UL );
+  memcpy( key+72UL, &slot_be, 8UL );
+
+  /* Query record */
+  ulong sz;
+  char * err = NULL;
+  char * res = rocksdb_get_cf(
+      src->db, src->ro, src->cf_handles[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ],
+      key, 80UL, &sz, &err );
+
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(("err=%s", err));
+    free( err );
+    return;
+  }
+
+  fd_rocksdb_insert_entry( dst, FD_ROCKSDB_CFIDX_TRANSACTION_STATUS, key, 80UL, res, sz );
 }
 
 int
@@ -409,6 +472,7 @@ fd_rocksdb_insert_entry( fd_rocksdb_t * db,
                   key, klen, value, vlen, &err );
   if ( FD_UNLIKELY( err != NULL ) ) {
     FD_LOG_WARNING(("rocksdb_put_cf failed with error=%d", err));
+    return -1;
   }
   return 0;
 }

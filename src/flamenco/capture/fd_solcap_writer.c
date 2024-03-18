@@ -546,15 +546,21 @@ int fd_solcap_write_transaction( fd_solcap_writer_t * writer,
                                  void const *         txn_sig,
                                  int                  txn_err,
                                  uint                 custom_err,
-                                 ulong                slot ) {
+                                 ulong                slot,
+                                 ulong                fd_cus,
+                                 ulong                solana_cus,
+                                 ulong                solana_err ) {
   
   if( FD_LIKELY( !writer ) ) return 0;
 
   fd_solcap_Transaction txn_pb[1];
   memcpy( txn_pb->txn_sig, txn_sig, 64UL );
-  txn_pb->txn_err     = txn_err;
-  txn_pb->custom_err  = custom_err;
-  txn_pb->slot        = slot;
+  txn_pb->slot             = slot;
+  txn_pb->fd_txn_err       = txn_err;
+  txn_pb->fd_custom_err    = custom_err;
+  txn_pb->solana_txn_err   = solana_err;
+  txn_pb->fd_cus_used      = fd_cus;
+  txn_pb->solana_cus_used  = solana_cus;
 
   return fd_solcap_write_transaction2( writer, txn_pb );
 }

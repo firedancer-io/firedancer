@@ -149,12 +149,5 @@ else
   else
       echo -e "\n${GREEN}Diff output written to $DIFF_OUTPUT${NC}"
   fi
-fi 
-
-if [ -z "$DIFF_OUTPUT" ]; then 
-  "$OBJDIR"/bin/fd_solcap_yaml "$FD_SOLCAP" -v 3
-else 
-  "$OBJDIR"/bin/fd_solcap_yaml "$FD_SOLCAP" -v 3 1>> "$DIFF_OUTPUT"
 fi
-
 echo -e "\nScript completed."

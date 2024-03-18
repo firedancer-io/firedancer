@@ -22,6 +22,9 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
 
+#include "../nanopb/pb_decode.h"
+#include "../types/fd_solana_block.pb.h"
+
 #include "fd_system_ids.h"
 #include "../vm/fd_vm_context.h"
 #include "fd_blockstore.h"
@@ -889,10 +892,34 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
+      /* For ledgers that contain txn status decode and write out for solcap */
       if ( capture_ctx != NULL ) {
+        /* Look up solana-side transaction status details */
+        fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
         uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
+        void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
+
+        fd_solblock_TransactionStatusMeta txn_status = {0};
+        /* Need to handle case for ledgers where transaction status is not available.
+           This case will be handled in fd_solcap_diff. */
+        ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+        ulong solana_cus_consumed = ULONG_MAX;
+        ulong solana_txn_err      = 0;
+        if ( meta != NULL ) {
+          pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
+          if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
+            FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
+          }
+          solana_cus_consumed = txn_status.compute_units_consumed; 
+          if ( txn_status.has_err ) {
+            solana_txn_err = txn_status.err.err->bytes[0];
+          }
+        }
+
         fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err, 
-                                     txn_ctx->custom_err, slot_ctx->slot_bank.slot );
+                                     txn_ctx->custom_err, slot_ctx->slot_bank.slot,
+                                     fd_cus_consumed, solana_cus_consumed, solana_txn_err );
       }
 
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {

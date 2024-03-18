@@ -319,13 +319,30 @@ main( int     argc,
 
     FD_LOG_NOTICE(("copying over rocks db for range [%lu, %lu]", start_slot, end_slot));
 
-    /* Copy over all columns except default */
+    /* Copy over all slot indexed columns */
     for ( ulong cf_idx = 1; cf_idx < FD_ROCKSDB_CF_CNT; ++cf_idx ) {
-      fd_rocksdb_copy_over_range( &big_rocksdb, &mini_rocksdb, cf_idx, start_slot, end_slot );
+      fd_rocksdb_copy_over_slot_indexed_range( &big_rocksdb, &mini_rocksdb, cf_idx, 
+                                               start_slot, end_slot );
     }
-    FD_LOG_NOTICE(("copied over all columns except default"));
-    return 0;
+    FD_LOG_NOTICE(("copied over all slot indexed columns"));
 
+    /* Copy over transactions. This is more complicated because first, a temporary
+       blockstore will be populated. This will be used to look up transactions
+       which can be quickly queried */
+    
+    /* Ingest block range into blockstore */
+    slot_ctx->slot_bank.slot = start_slot;
+    ingest_rocksdb( slot_ctx, rocksdb_dir, end_slot, blockstore, 0, ULONG_MAX );
+
+    fd_rocksdb_copy_over_txn_status_range( &big_rocksdb, &mini_rocksdb, blockstore,
+                                           start_slot, end_slot );
+    FD_LOG_NOTICE(("copied over all transaction statuses"));
+
+    /* TODO: Currently, the address signatures column family isn't copied as it
+             is indexed on the pubkey */
+
+    return 0;
+    
   } else if (strcmp(cmd, "ingest") == 0) {
 
     if( snapshotfile ) {

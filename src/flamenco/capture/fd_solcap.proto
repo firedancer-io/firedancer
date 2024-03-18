@@ -75,3 +75,14 @@ message AccountMeta {
     int64 data_coff = 6;
     uint64 data_sz = 7;
 }
+
+message Transaction {
+  bytes txn_sig = 1
+      [(nanopb).max_size = 64, (nanopb).fixed_length = true];
+  uint64 slot = 2;
+  int32 fd_txn_err = 3;
+  uint32 fd_custom_err = 4;
+  uint64 solana_txn_err = 5;
+  uint64 fd_cus_used = 6;
+  uint64 solana_cus_used = 7;
+}
