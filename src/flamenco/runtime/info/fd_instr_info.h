@@ -5,7 +5,7 @@
 #include "../../types/fd_types.h"
 #include "../fd_borrowed_account.h"
 
-
+// TODO: rename to _MASK
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
