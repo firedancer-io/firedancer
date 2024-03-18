@@ -235,6 +235,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.dedup,         signature_cache_size                                      );
 
   ENTRY_UINT  ( ., tiles.pack,          max_pending_transactions                                  );
+  ENTRY_UINT  ( ., tiles.pack,          receive_buffer_size                                       );
 
   ENTRY_UINT  ( ., tiles.shred,         max_pending_shred_sets                                    );
   ENTRY_USHORT( ., tiles.shred,         shred_listen_port                                         );
@@ -626,7 +627,7 @@ topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
-  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
+  /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.pack.receive_buffer_size,   FD_TPU_DCACHE_MTU,      1UL );
   /* gossip_pack could be FD_TPU_MTU for now, since txns are not parsed, but better to just share one size for all the ins of pack */
   /**/                 fd_topob_link( topo, "gossip_pack",  "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /**/                 fd_topob_link( topo, "stake_out",    "stake_out",    0,        128UL,                                    32UL + 40200UL * 40UL,  1UL );

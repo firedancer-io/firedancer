@@ -5,6 +5,7 @@
 #include "../run/run.h"
 #include "../run/tiles/tiles.h"
 #include "../../../disco/fd_disco.h"
+#include "../../../disco/topo/fd_topob.h"
 
 #include <stdio.h>
 #include <signal.h>
@@ -399,9 +400,39 @@ signal1( int sig ) {
   exit_group( 0 );
 }
 
+static void
+add_bench_topo( fd_topo_t * topo,
+                ushort      send_to_port,
+                uint        send_to_ip_addr,
+                ushort      rpc_port,
+                uint        rpc_ip_addr ) {
+  (void)topo;
+
+  ulong benchg_tile_cnt = 4UL;
+
+  fd_topob_wksp( topo, "bench" );
+  fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
+
+  fd_topo_tile_t *bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", USHORT_MAX, 0, "bencho_out", 0 );
+  bencho->bencho.rpc_port    = rpc_port;
+  bencho->bencho.rpc_ip_addr = rpc_ip_addr;
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ )  fd_topob_tile( topo, "benchg", "bench", "bench", "bench", USHORT_MAX, 0, "benchg_s", i );
+  fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", USHORT_MAX, 0, NULL, 0 );
+  benchs->benchs.send_to_ip_addr = send_to_ip_addr;
+  benchs->benchs.send_to_port    = send_to_port;
+
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_tile_in( topo, "benchs", 0, "bench", "benchg_s", i, 1, 1 );
+
+  fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );
+}
+
 void
 monitor_cmd_fn( args_t *         args,
                 config_t * const config ) {
+  add_bench_topo( &config->topo, 0, 0, 0, 0 );
+
   struct sigaction sa = {
     .sa_handler = signal1,
     .sa_flags   = 0,

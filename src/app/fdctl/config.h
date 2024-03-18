@@ -187,6 +187,7 @@ typedef struct {
 
     struct {
       uint max_pending_transactions;
+      uint receive_buffer_size;
     } pack;
 
     struct {

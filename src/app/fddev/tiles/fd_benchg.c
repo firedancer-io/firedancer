@@ -2,6 +2,8 @@
 
 #include <linux/unistd.h>
 
+#define BENCH_ACCT_NUM (128UL)
+
 typedef struct {
   fd_rng_t rng[ 1 ];
   fd_sha512_t sha[ 1 ];
@@ -13,9 +15,8 @@ typedef struct {
   int   has_recent_blockhash;
   uchar recent_blockhash[ 32 ];
 
-  ulong sender_cnt;
-  uchar sender_public_key[ 128UL ][ 32UL ];
-  uchar sender_private_key[ 128UL ][ 32UL ];
+  uchar sender_public_key[ BENCH_ACCT_NUM ][ 32UL ];
+  uchar sender_private_key[ BENCH_ACCT_NUM ][ 32UL ];
 
   fd_wksp_t * mem;
   ulong       out_chunk0;
@@ -89,7 +90,7 @@ after_credit( void *             _ctx,
     .lamports = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
   };
 
-  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, ctx->sender_cnt-1UL );
+  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, BENCH_ACCT_NUM-1UL );
   receiver_idx = fd_ulong_if( receiver_idx>=ctx->sender_idx, receiver_idx+1UL, receiver_idx );
 
   fd_memcpy( transfer->fee_payer, ctx->sender_public_key[ ctx->sender_idx ], 32UL );
@@ -106,7 +107,7 @@ after_credit( void *             _ctx,
   fd_mux_publish( mux, 0UL, ctx->out_chunk, sizeof(*transfer), 0UL, 0UL, 0UL );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(*transfer), ctx->out_chunk0, ctx->out_wmark );
 
-  ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->sender_cnt;
+  ctx->sender_idx = (ctx->sender_idx + 1UL) % BENCH_ACCT_NUM;
   if( FD_UNLIKELY( !ctx->sender_idx ) ) {
     if( FD_UNLIKELY( ctx->changed_blockhash ) ) ctx->lamport_idx = 1UL;
     else                                        ctx->lamport_idx++;
@@ -147,10 +148,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0UL, 0UL ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 
-  ctx->sender_cnt = 128UL;
-  for( ulong i=0UL; i<ctx->sender_cnt; i++ ) {
+  for( ulong i=0UL; i<BENCH_ACCT_NUM; i++ ) {
     fd_memset( ctx->sender_private_key[ i ], 0, 32UL );
     ctx->sender_private_key[ i ][ 0 ] = (uchar)i;
+    ctx->sender_private_key[ i ][ 1 ] = (uchar)(i / 256UL);
     fd_ed25519_public_from_private( ctx->sender_public_key[ i ], ctx->sender_private_key[ i ] , ctx->sha );
   }
 

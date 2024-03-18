@@ -44,10 +44,11 @@ init( config_t * const config ) {
 
   FILE * f = fopen( initial_accounts, "w" );
   FD_TEST( f );
-  for( ulong i=0UL; i<128UL; i++ ) {
-    /* Fund the first 128 accounts with some lamports for benchmarking... temporary hack */
+  for( ulong i=0UL; i<1024UL; i++ ) {
+    /* Fund the first 1024 accounts with some lamports for benchmarking... temporary hack */
     uchar privkey[ 64 ] = {0};
     privkey[ 0 ] = (uchar)i;
+    privkey[ 1 ] = (uchar)(i / 256UL);
     uchar pubkey[ 64 ];
     fd_sha512_t sha[1];
     fd_sha512_join( fd_sha512_new( sha ) );
@@ -56,7 +57,7 @@ init( config_t * const config ) {
     char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
     FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
-    FD_TEST( fprintf( f, "  balance: 500000000000000\n" ) >= 0 );
+    FD_TEST( fprintf( f, "  balance: 50000000000000\n" ) >= 0 );
     FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
     FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
     FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
@@ -66,11 +67,11 @@ init( config_t * const config ) {
   ADD1( "fddev" );
 
   ADD( "--faucet-pubkey", faucet );
-  ADD( "--hashes-per-tick", "sleep" );
+  // ADD( "--hashes-per-tick", "sleep" );
   // MAINNET VALUES
-  // ADD( "--hashes-per-tick", "12500" );
-  // ADD( "--target-tick-duration", "6" );
-  // ADD( "--ticks-per-slot", "64" );
+  ADD( "--hashes-per-tick", "12500" );
+  ADD( "--target-tick-duration", "6250" );
+  ADD( "--ticks-per-slot", "64" );
   ADDU( "--faucet-lamports", 500000000000000000UL );
   ADD( "--bootstrap-validator", config->consensus.identity_path ); ADD1( vote ); ADD1( stake );
   ADD( "--ledger", config->ledger.path );
