@@ -962,8 +962,33 @@ translate_and_update_accounts( fd_vm_t *       vm,
   CROSS PROGRAM INVOCATION (C ABI)
  **********************************************************************/
 
-/* fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c. */
+/*
+fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c.
 
+TODO: factor out common code and separate translation logic. Can possibly use a similar factoring to 
+Solana's SyscallInvokeSigned trait: https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L434
+
+https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L694
+
+https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L716
+
+Corresponding entrypoint in Solana code: https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/program.rs#L317
+
+The VM is zero-copy, in that we don't copy objects to a VM heap, but instead
+pass around pointers which we convert between vm and host address space.
+
+In order to execute the cross-program instruction, we call back into the executor.
+As the executor is running in host address space, we need to convert the vm address 
+space objects into the host address space, and then dispatch the call to the executor.
+
+Flow should follow the following, as in CPI common:
+https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1060
+
+TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
+https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
+- Programs owned by the bpf_loader_deprecated should set this to false.
+- All other programs should set this to true.
+*/
 int
 fd_vm_syscall_cpi_c( void *  _vm,
                      ulong   instruction_va,
@@ -972,6 +997,12 @@ fd_vm_syscall_cpi_c( void *  _vm,
                      ulong   signers_seeds_va,
                      ulong   signers_seeds_cnt,
                      ulong * _ret ) {
+
+  // TODO: does it matter that the order of operations here has been rearranged?
+
+  // TODO: why does the Solana code use custom conversion functions, and we 
+  // only use one vm_to_host function for everything?
+
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
@@ -988,29 +1019,44 @@ fd_vm_syscall_cpi_c( void *  _vm,
     fd_vm_translate_vm_to_host_const( vm, instruction_va, sizeof(fd_vm_c_instruction_t), FD_VM_C_INSTRUCTION_ALIGN );
   if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
 
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
+    fd_vm_consume_compute( vm,
+     fd_ulong_if( FD_VM_CPI_BYTES_PER_UNIT, 
+      instruction->data_len/FD_VM_CPI_BYTES_PER_UNIT, ULONG_MAX ) );
+
+  /* Translate signers ************************************************/
+
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
+  err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  /* Translate accounts *************************************************/
+
   fd_vm_c_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const( vm, instruction->accounts_addr,
                                       instruction->accounts_len*sizeof(fd_vm_c_account_meta_t), FD_VM_C_ACCOUNT_META_ALIGN );
-  if( FD_UNLIKELY( !accounts ) ) return FD_VM_ERR_PERM;
+  // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
+  if( FD_UNLIKELY( !accounts && instruction->accounts_len ) ) {
+    return FD_VM_ERR_PERM;
+  }
+
+  /* Translate data *************************************************/
 
   uchar const * data = fd_vm_translate_vm_to_host_const( vm, instruction->data_addr, instruction->data_len, alignof(uchar) );
   if( FD_UNLIKELY( !data ) ) return FD_VM_ERR_PERM;
+
+  /* Authorized program check *************************************************/
+
+  uchar const * program_id = fd_vm_translate_vm_to_host_const( vm, instruction->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) );
+  if( FD_UNLIKELY( check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, instruction->data_len ) ) )
+    return FD_VM_ERR_PERM;
 
   /* Instruction checks ***********************************************/
 
   err = fd_vm_syscall_cpi_check_instruction( vm, instruction->accounts_len, instruction->data_len );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* Translate signers ************************************************/
-
-  /* Order of operations is liberally rearranged.
-     For inputs that cause multiple errors, this means that Solana Labs
-     and Firedancer may return different error codes (as we abort at the
-     first error).  (See above) */
-
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
-  err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* Translate account infos ******************************************/
 
   fd_vm_c_account_info_t const * acc_infos =
     fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
@@ -1018,7 +1064,6 @@ fd_vm_syscall_cpi_c( void *  _vm,
   if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
-
   fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
   for( ulong i=0UL; i<acct_info_cnt; i++ ) {
     fd_pubkey_t const * acct_addr =
@@ -1115,11 +1160,22 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
   if( FD_UNLIKELY( err ) ) return err;
 
+  /* Translate accounts *************************************************/
+
   fd_vm_rust_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const( vm, instruction->accounts.addr,
                                       instruction->accounts.len*sizeof(fd_vm_rust_account_meta_t), FD_VM_RUST_ACCOUNT_META_ALIGN );
+  // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
+  if( FD_UNLIKELY( !accounts && instruction->accounts.len ) ) {
+    return FD_VM_ERR_PERM;
+  }
+
+  /* Translate data *************************************************/
 
   uchar const * data = fd_vm_translate_vm_to_host_const( vm, instruction->data.addr, instruction->data.len, alignof(uchar) );
+
+  /* Authorized program check *************************************************/
+
   if( FD_UNLIKELY( check_authorized_program( instruction->pubkey, vm->instr_ctx->slot_ctx, data, instruction->data.len ) ) )
     return FD_VM_ERR_PERM;
 
@@ -1136,7 +1192,6 @@ fd_vm_syscall_cpi_rust( void *  _vm,
   if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
 
   /* Collect pubkeys */
-
   fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
   for( ulong i=0UL; i<acct_info_cnt; i++ ) {
     fd_pubkey_t const * acct_addr =
