@@ -191,10 +191,8 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633.
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
-      int flags = callee_instr->acct_flags[i];
-      flags |= instruction_accounts[i].is_signer ? (uchar)FD_INSTR_ACCT_FLAGS_IS_SIGNER : (uchar)0U;
-      flags |= instruction_accounts[i].is_writable ? (uchar)FD_INSTR_ACCT_FLAGS_IS_WRITABLE : (uchar)0U;
-      callee_instr->acct_flags[i] = (uchar)flags;
+      callee_instr->acct_flags[i] |= ( !!(instruction_accounts[i].is_signer) * FD_INSTR_ACCT_FLAGS_IS_SIGNER );
+      callee_instr->acct_flags[i] |= ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE );
     } else {
       // TODO: return InstructionError::NotEnoughAccountKeys
       return 1;
