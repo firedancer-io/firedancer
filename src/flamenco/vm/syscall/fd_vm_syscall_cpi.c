@@ -958,290 +958,104 @@ translate_and_update_accounts( fd_vm_t *       vm,
   return 0;
 }
 
-/**********************************************************************
-  CROSS PROGRAM INVOCATION (C ABI)
- **********************************************************************/
-
 /*
-fd_vm_syscall_cpi_c implements Solana VM syscall sol_invoked_signed_c.
-
-TODO: factor out common code and separate translation logic. Can possibly use a similar factoring to 
-Solana's SyscallInvokeSigned trait: https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L434
-
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L694
-
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L716
-
-Corresponding entrypoint in Solana code: https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/program.rs#L317
-
-The VM is zero-copy, in that we don't copy objects to a VM heap, but instead
-pass around pointers which we convert between vm and host address space.
-
-In order to execute the cross-program instruction, we call back into the executor.
-As the executor is running in host address space, we need to convert the vm address 
-space objects into the host address space, and then dispatch the call to the executor.
-
-Flow should follow the following, as in CPI common:
-https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1060
-
 TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
 - Programs owned by the bpf_loader_deprecated should set this to false.
 - All other programs should set this to true.
 */
-int
-fd_vm_syscall_cpi_c( void *  _vm,
-                     ulong   instruction_va,
-                     ulong   acct_infos_va,
-                     ulong   acct_info_cnt,
-                     ulong   signers_seeds_va,
-                     ulong   signers_seeds_cnt,
-                     ulong * _ret ) {
 
-  // TODO: does it matter that the order of operations here has been rearranged?
 
-  // TODO: why does the Solana code use custom conversion functions, and we 
-  // only use one vm_to_host function for everything?
+/**********************************************************************
+  CROSS PROGRAM INVOCATION (C ABI)
+ **********************************************************************/
 
-  fd_vm_t * vm = (fd_vm_t *)_vm;
+#define VM_SYSCALL_CPI_FUNC                    fd_vm_syscall_cpi_c
+#define VM_SYSCALL_CPI_INSTR_T                 fd_vm_c_instruction_t
+#define VM_SYSCALL_CPI_INSTR_ALIGN             (FD_VM_C_INSTRUCTION_ALIGN)
+#define VM_SYSCALL_CPI_INSTR_SIZE              (FD_VM_C_INSTRUCTION_SIZE)
+#define VM_SYSCALL_CPI_INSTR_DATA_ADDR         data_addr
+#define VM_SYSCALL_CPI_INSTR_DATA_LEN          data_len
+#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR         accounts_addr
+#define VM_SYSCALL_CPI_INSTR_ACCS_LEN          accounts_len
+#define VM_SYSCALL_CPI_ACC_META_T              fd_vm_c_account_meta_t
+#define VM_SYSCALL_CPI_ACC_META_ALIGN          (FD_VM_C_ACCOUNT_META_ALIGN)
+#define VM_SYSCALL_CPI_ACC_META_SIZE           (FD_VM_C_ACCOUNT_META_SIZE)
+#define VM_SYSCALL_CPI_ACC_INFO_T              fd_vm_c_account_info_t
+#define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_C_ACCOUNT_INFO_ALIGN)
+#define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_C_ACCOUNT_INFO_SIZE)
+#define VM_SYSCALL_CPI_CONV_FUNC               fd_vm_syscall_cpi_c_instruction_to_instr
+#define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (1)
+#define VM_SYSCALL_ACC_INFO_INNER              c_acct_infos
+#define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_c
 
-  int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
-  if( FD_UNLIKELY( err ) ) return err;
+#define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) \
+  fd_vm_translate_vm_to_host_const( vm, instr->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) )
 
-  /* Pre-flight checks ************************************************/
+#include "fd_vm_syscall_common.c"
 
-  err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx);
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate instruction ********************************************/
-
-  fd_vm_c_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host_const( vm, instruction_va, FD_VM_C_INSTRUCTION_SIZE, FD_VM_C_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
-
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
-    fd_vm_consume_compute( vm,
-     fd_ulong_if( FD_VM_CPI_BYTES_PER_UNIT, 
-      instruction->data_len/FD_VM_CPI_BYTES_PER_UNIT, ULONG_MAX ) );
-
-  /* Translate signers ************************************************/
-
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
-  err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate accounts *************************************************/
-
-  fd_vm_c_account_meta_t const * accounts =
-    fd_vm_translate_vm_to_host_const( vm, instruction->accounts_addr,
-                                      instruction->accounts_len*FD_VM_C_ACCOUNT_META_SIZE, FD_VM_C_ACCOUNT_META_ALIGN );
-  // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
-  if( FD_UNLIKELY( !accounts && instruction->accounts_len ) ) {
-    return FD_VM_ERR_PERM;
-  }
-
-  /* Translate data *************************************************/
-
-  uchar const * data = fd_vm_translate_vm_to_host_const( vm, instruction->data_addr, instruction->data_len, alignof(uchar) );
-  if( FD_UNLIKELY( !data ) ) return FD_VM_ERR_PERM;
-
-  /* Authorized program check *************************************************/
-
-  uchar const * program_id = fd_vm_translate_vm_to_host_const( vm, instruction->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( FD_UNLIKELY( check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, instruction->data_len ) ) )
-    return FD_VM_ERR_PERM;
-
-  /* Instruction checks ***********************************************/
-
-  err = fd_vm_syscall_cpi_check_instruction( vm, instruction->accounts_len, instruction->data_len );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate account infos ******************************************/
-
-  fd_vm_c_account_info_t const * acc_infos =
-    fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
-                                      acct_info_cnt*FD_VM_C_ACCOUNT_INFO_SIZE, FD_VM_C_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
-
-  /* Collect pubkeys */
-  fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
-  for( ulong i=0UL; i<acct_info_cnt; i++ ) {
-    fd_pubkey_t const * acct_addr =
-      fd_vm_translate_vm_to_host_const( vm, acc_infos[i].key_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  // FD_LOG_DEBUG(( "CPI9: %lu %lx %32J", i, acc_infos[i].key_addr, acct_addr->uc ));
-    if( FD_UNLIKELY( !acct_addr ) ) {
-      FD_LOG_WARNING(("Translate failed %lu", i));
-      return FD_VM_ERR_PERM;
-    }
-    memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
-  }
-
-  fd_instruction_account_t instruction_accounts[256];
-  ulong instruction_accounts_cnt;
-  fd_instr_info_t cpi_instr;
-
-  fd_vm_syscall_cpi_c_instruction_to_instr( vm, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
-  err = fd_vm_prepare_instruction(vm->instr_ctx->instr, &cpi_instr, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "PREPARE FAILED" ));
-    return err;
-  }
-
-  ulong callee_account_keys[256];
-  ulong caller_accounts_to_update[256];
-  ulong update_len = 0;
-  fd_vm_account_info_t acc_info = {.discriminant = 1, .inner = {.c_acct_infos = acc_infos }};
-  err = translate_and_update_accounts(vm, instruction_accounts, instruction_accounts_cnt, acct_keys, &acc_info, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "translate failed %d", err ));
-    return err;
-  }
-
-  ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
-  vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
-  int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &cpi_instr );
-  ulong instr_exec_res = (ulong)err_exec;
-  // FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->cu, vm->instr_ctx->txn_ctx->compute_meter, vm->cu - vm->instr_ctx->txn_ctx->compute_meter));
-  vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
-  // FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->cu, err_exec ));
-
-  *_ret = instr_exec_res;
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
-
-  for( ulong i = 0; i < update_len; i++ ) {
-    fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
-    err = fd_vm_cpi_update_caller_account_c(vm, &acc_infos[caller_accounts_to_update[i]], callee);
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-
-  caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
-
-  return FD_VM_SUCCESS;
-}
+#undef VM_SYSCALL_CPI_FUNC                    
+#undef VM_SYSCALL_CPI_INSTR_T                 
+#undef VM_SYSCALL_CPI_INSTR_ALIGN             
+#undef VM_SYSCALL_CPI_INSTR_SIZE              
+#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR         
+#undef VM_SYSCALL_CPI_INSTR_DATA_LEN         
+#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR 
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
+#undef VM_SYSCALL_CPI_ACC_META_T              
+#undef VM_SYSCALL_CPI_ACC_META_ALIGN          
+#undef VM_SYSCALL_CPI_ACC_META_SIZE           
+#undef VM_SYSCALL_CPI_ACC_INFO_T              
+#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
+#undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
+#undef VM_SYSCALL_CPI_CONV_FUNC               
+#undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
+#undef VM_SYSCALL_ACC_INFO_INNER              
+#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
+#undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
 
 /**********************************************************************
    CROSS PROGRAM INVOCATION (Rust ABI)
  **********************************************************************/
 
-int
-fd_vm_syscall_cpi_rust( void *  _vm,
-                        ulong   instruction_va,
-                        ulong   acct_infos_va,
-                        ulong   acct_info_cnt,
-                        ulong   signers_seeds_va,
-                        ulong   signers_seeds_cnt,
-                        ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
+#define VM_SYSCALL_CPI_FUNC                    fd_vm_syscall_cpi_rust
+#define VM_SYSCALL_CPI_INSTR_T                 fd_vm_rust_instruction_t
+#define VM_SYSCALL_CPI_INSTR_ALIGN             (FD_VM_RUST_INSTRUCTION_ALIGN)
+#define VM_SYSCALL_CPI_INSTR_SIZE              (FD_VM_RUST_INSTRUCTION_SIZE)
+#define VM_SYSCALL_CPI_INSTR_DATA_ADDR         data.addr
+#define VM_SYSCALL_CPI_INSTR_DATA_LEN          data.len
+#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR         accounts.addr
+#define VM_SYSCALL_CPI_INSTR_ACCS_LEN          accounts.len
+#define VM_SYSCALL_CPI_ACC_META_T              fd_vm_rust_account_meta_t
+#define VM_SYSCALL_CPI_ACC_META_ALIGN          (FD_VM_RUST_ACCOUNT_META_ALIGN)
+#define VM_SYSCALL_CPI_ACC_META_SIZE           (FD_VM_RUST_ACCOUNT_META_SIZE)
+#define VM_SYSCALL_CPI_ACC_INFO_T              fd_vm_rust_account_info_t
+#define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_RUST_ACCOUNT_INFO_ALIGN)
+#define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_RUST_ACCOUNT_INFO_SIZE)
+#define VM_SYSCALL_CPI_CONV_FUNC               fd_vm_syscall_cpi_rust_instruction_to_instr
+#define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (0)
+#define VM_SYSCALL_ACC_INFO_INNER              rust_acct_infos
+#define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_rust
 
-  int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
-  if( FD_UNLIKELY( err ) ) return err;
+#define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) instr->pubkey
 
-  /* Pre-flight checks ************************************************/
+#include "fd_vm_syscall_common.c"
 
-  err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate instruction ********************************************/
-
-  fd_vm_rust_instruction_t const * instruction =
-    fd_vm_translate_vm_to_host_const( vm, instruction_va, FD_VM_RUST_INSTRUCTION_SIZE, FD_VM_RUST_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_ERR_PERM;
-
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) )
-    fd_vm_consume_compute( vm,
-     fd_ulong_if( FD_VM_CPI_BYTES_PER_UNIT, 
-      instruction->data.len/FD_VM_CPI_BYTES_PER_UNIT, ULONG_MAX ) );
-
-  /* Translate signers ************************************************/
-
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
-  err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate accounts *************************************************/
-
-  fd_vm_rust_account_meta_t const * accounts =
-    fd_vm_translate_vm_to_host_const( vm, instruction->accounts.addr,
-                                      instruction->accounts.len*FD_VM_RUST_ACCOUNT_META_SIZE, FD_VM_RUST_ACCOUNT_META_ALIGN );
-  // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
-  if( FD_UNLIKELY( !accounts && instruction->accounts.len ) ) {
-    return FD_VM_ERR_PERM;
-  }
-
-  /* Translate data *************************************************/
-
-  uchar const * data = fd_vm_translate_vm_to_host_const( vm, instruction->data.addr, instruction->data.len, alignof(uchar) );
-
-  /* Authorized program check *************************************************/
-
-  if( FD_UNLIKELY( check_authorized_program( instruction->pubkey, vm->instr_ctx->slot_ctx, data, instruction->data.len ) ) )
-    return FD_VM_ERR_PERM;
-
-  /* Instruction checks ***********************************************/
-
-  err = fd_vm_syscall_cpi_check_instruction( vm, instruction->accounts.len, instruction->data.len );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* Translate account infos ******************************************/
-
-  fd_vm_rust_account_info_t const * acc_infos =
-    fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
-                                      acct_info_cnt*FD_VM_RUST_ACCOUNT_INFO_SIZE, FD_VM_RUST_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
-
-  /* Collect pubkeys */
-  fd_pubkey_t acct_keys[ acct_info_cnt ];  /* FIXME get rid of VLA */
-  for( ulong i=0UL; i<acct_info_cnt; i++ ) {
-    fd_pubkey_t const * acct_addr =
-      fd_vm_translate_vm_to_host_const( vm, acc_infos[i].pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_ERR_PERM;
-    memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
-  }
-
-  fd_instruction_account_t instruction_accounts[256];
-  ulong instruction_accounts_cnt;
-  fd_instr_info_t cpi_instr;
-
-  fd_vm_syscall_cpi_rust_instruction_to_instr( vm, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
-  err = fd_vm_prepare_instruction(vm->instr_ctx->instr, &cpi_instr, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(("PREPARE FAILED"));
-    return err;
-  }
-
-  ulong callee_account_keys[256];
-  ulong caller_accounts_to_update[256];
-  ulong update_len = 0;
-  fd_vm_account_info_t acc_info = {.discriminant = 0, .inner = {.rust_acct_infos = acc_infos }};
-  err = translate_and_update_accounts(vm, instruction_accounts, instruction_accounts_cnt, acct_keys, &acc_info, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "translate failed %d", err ));
-    return err;
-  }
-
-  ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
-
-  vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
-  int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &cpi_instr );
-  ulong instr_exec_res = (ulong)err_exec;
-  FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->cu, vm->instr_ctx->txn_ctx->compute_meter, vm->cu - vm->instr_ctx->txn_ctx->compute_meter));
-  vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
-  FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->cu, err_exec ));
-
-  *_ret = instr_exec_res;
-  if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
-
-  for( ulong i = 0; i < update_len; i++ ) {
-    fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
-    err = fd_vm_cpi_update_caller_account_rust(vm, &acc_infos[caller_accounts_to_update[i]], callee);
-    if( FD_UNLIKELY( err ) ) return err;
-  }
-
-  caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
-  if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
-
-  return FD_VM_SUCCESS;
-}
+#undef VM_SYSCALL_CPI_FUNC                    
+#undef VM_SYSCALL_CPI_INSTR_T                 
+#undef VM_SYSCALL_CPI_INSTR_ALIGN             
+#undef VM_SYSCALL_CPI_INSTR_SIZE              
+#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR         
+#undef VM_SYSCALL_CPI_INSTR_DATA_LEN          
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
+#undef VM_SYSCALL_CPI_ACC_META_T              
+#undef VM_SYSCALL_CPI_ACC_META_ALIGN          
+#undef VM_SYSCALL_CPI_ACC_META_SIZE           
+#undef VM_SYSCALL_CPI_ACC_INFO_T              
+#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
+#undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
+#undef VM_SYSCALL_CPI_CONV_FUNC               
+#undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
+#undef VM_SYSCALL_ACC_INFO_INNER              
+#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
+#undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
