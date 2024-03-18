@@ -236,20 +236,12 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
              ulong   tsorig ) {
   uchar * packet = fd_chunk_to_laddr( g_net_out_mem, g_net_out_chunk );
 
+
   eth_ip_udp_t * hdr = (eth_ip_udp_t *)packet;
   memset(packet, 0, sizeof(eth_ip_udp_t));
   uchar mac[6] = {0};
 #ifdef FD_GOSSIP_DEMO
   populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port + (ushort)(tsorig % 16) );
-  /*
-  uint disc = FD_LOAD(uint, packet+sizeof(eth_ip_udp_t));
-  FD_LOG_WARNING(("PKT: %u", disc));
-  if( disc == 4 || disc == 5 ) {
-    FD_LOG_WARNING(("PING"));
-    populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
-  } else {
-  }
-  */
 #else
   populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
 #endif
@@ -263,6 +255,13 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
  
   ulong packet_sz = payload_sz + sizeof(eth_ip_udp_t);
   fd_memcpy( packet+sizeof(eth_ip_udp_t), payload, payload_sz );
+#ifdef FD_GOSSIP_DEMO
+  if( fd_rng_ulong( ctx->rng ) % (1024UL) == 0 ) {
+    uchar * mod_payload = packet+sizeof(eth_ip_udp_t);
+    ulong rand_idx = fd_rng_ulong( ctx->rng ) % payload_sz;
+    mod_payload[rand_idx] = fd_rng_uchar( ctx->rng );
+  }
+#endif
 
   hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ), 
                                       *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ), 
