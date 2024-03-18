@@ -120,6 +120,11 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     // TODO: FD_UNLIKELY? Need to check which branch is more common by running against a mainnet ledger
     // TODO: this code would maybe be easier to read if we inverted the branches
     if( duplicate_index!=ULONG_MAX ) {
+      if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
+        // TODO: return InstructionError::NotEnoughAccountKeys
+        return 1;
+      }
+
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[duplicate_index];
       instruction_account->is_signer   |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
@@ -160,17 +165,16 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
-    fd_borrowed_account_t borrowed_account;
-    fd_memcpy(borrowed_account.pubkey, &caller_instr->acct_pubkeys[instruction_account->index_in_caller], sizeof(fd_pubkey_t));
+    fd_pubkey_t const * pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
 
     // Check that the account is not read-only in the caller but writable in the callee
-    if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, borrowed_account.pubkey) ) ) {
+    if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, pubkey) ) ) {
       // TODO: return InstructionError::PrivilegeEscalation
       return 1;
     }
 
     // If the account is signed in the callee, it must be signed by the caller or the program
-    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, borrowed_account.pubkey) || is_signer(borrowed_account.pubkey, signers, signers_cnt)) ) ) {
+    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, pubkey) || is_signer(pubkey, signers, signers_cnt)) ) ) {
       // TODO: return InstructionError::PrivilegeEscalation
       return 1;
     }
