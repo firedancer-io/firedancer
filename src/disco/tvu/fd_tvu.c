@@ -76,6 +76,7 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #ifdef FD_HAS_LIBMICROHTTP
 #include "../rpc/fd_rpc_service.h"
 #endif
@@ -894,18 +895,21 @@ void snapshot_setup( char const * snapshot,
     snapshot_type = FD_SNAPSHOT_TYPE_INCREMENTAL;
     ulong i, j;
     if( sscanf( p, "incremental-snapshot-%lu-%lu", &i, &j ) < 2 )
-      FD_LOG_ERR( ( "--incremental value is badly formatted" ) );
+      FD_LOG_ERR( ( "--incremental value is badly formatted: %s", snapshot ) );
     if( i != exec_slot_ctx->slot_bank.slot )
       FD_LOG_ERR( ( "ledger slot number does not match --incremental-snapshot, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, p ) );
+    if( fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, i, NULL ) !=
+        fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, j, NULL ) )
+      FD_LOG_ERR( ( "we do not support an incremental snapshot spanning an epoch boundary" ) );
     out->snapshot_slot = j;
   } else {
     snapshot_type = FD_SNAPSHOT_TYPE_FULL;
     p = strstr( snapshot, "snapshot-" );
     if( p != NULL ) {
       if( sscanf( p, "snapshot-%lu", &out->snapshot_slot ) < 1 )
-        FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+        FD_LOG_ERR( ( "--snapshot-file value is badly formatted: %s", snapshot ) );
     } else {
-      FD_LOG_ERR( ( "--snapshot-file value is badly formatted" ) );
+      FD_LOG_ERR( ( "--snapshot-file value is badly formatted: %s", snapshot ) );
     }
   }
 

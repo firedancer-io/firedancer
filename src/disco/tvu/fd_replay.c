@@ -602,6 +602,10 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   shred->slot,
                   shred->idx ) );
   fd_pubkey_t const *  leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  if( FD_UNLIKELY(!leader) ) {
+    FD_LOG_WARNING( ( "unable to get current leader, ignoring turbine packet" ) );
+    return;
+  }
   fd_fec_set_t const * out_fec_set = NULL;
   fd_shred_t const *   out_shred   = NULL;
   int                  rc          = fd_fec_resolver_add_shred(
