@@ -26,6 +26,13 @@
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
 
+/* We schedule two virtual bank tiles for each physical bank tile so
+   that we can overlap scheduling and execution of microblocks.  This
+   reduces latency.  It's not the optimal way to do it, since pack
+   doesn't realize that the first microblock for a bank must have ended
+   before the second starts, but it's definitely simpler. */
+#define FD_PACK_BANK_OVERSUBSCRIPTION (2UL)
+
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondance between transactions and parity shreds is somewhat
@@ -99,8 +106,12 @@ typedef struct {
 
   ulong    bank_cnt;
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
-  ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
-  long     bank_ready_at[ FD_PACK_PACK_MAX_OUT  ];
+
+  /* bank_expect and bank_ready_at are indexed with the virtual bank
+     index. Virtual bank i corresponds to physical bank
+     i/FD_PACK_BANK_OVERSUBSCRIPTION. */
+  ulong    bank_expect[ FD_PACK_PACK_MAX_OUT * FD_PACK_BANK_OVERSUBSCRIPTION ];
+  long     bank_ready_at[ FD_PACK_PACK_MAX_OUT * FD_PACK_BANK_OVERSUBSCRIPTION ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -124,7 +135,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
-                                                     tile->pack.bank_tile_count,
+                                                     tile->pack.bank_tile_count * FD_PACK_BANK_OVERSUBSCRIPTION,
                                                      MAX_TXN_PER_MICROBLOCK ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -193,19 +204,20 @@ after_credit( void *             _ctx,
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
 
-  ulong bank_cnt = ctx->bank_cnt;
+  ulong v_bank_cnt = ctx->bank_cnt * FD_PACK_BANK_OVERSUBSCRIPTION;
 
   /* Randomize the starting point for the loop so that bank tile 0
      doesn't always get the best transactions. */
-  ulong offset = fd_rng_ulong_roll( ctx->rng, bank_cnt );
+  ulong offset = fd_rng_ulong_roll( ctx->rng, v_bank_cnt );
 
   /* Is it time to schedule the next microblock? For each banking
      thread, if it's not busy... */
-  for( ulong _i=0UL; _i<bank_cnt; _i++ ) {
-    ulong i = (_i + offset)%bank_cnt;
+  for( ulong _i=0UL; _i<v_bank_cnt; _i++ ) {
+    ulong i = (_i + offset)%v_bank_cnt;
 
     /* optimize for the case we send a microblock */
-    if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
+    if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i/FD_PACK_BANK_OVERSUBSCRIPTION] )==ctx->bank_expect[i]) &
+                   (ctx->bank_ready_at[i]<now) ) ) {
 
       fd_pack_microblock_complete( ctx->pack, i );
       /* TODO: record metrics for expire */
@@ -224,7 +236,7 @@ after_credit( void *             _ctx,
         fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
         trailer->bank = ctx->leader_bank;
 
-        ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i );
+        ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i/FD_PACK_BANK_OVERSUBSCRIPTION );
         fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
         ctx->bank_expect[ i ] = *mux->seq-1UL;
         ctx->bank_ready_at[i] = now + MICROBLOCK_DURATION_NS;
@@ -390,7 +402,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
   if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt, tile->pack.bank_tile_count ));
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK );
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions,
+                                            tile->pack.bank_tile_count * FD_PACK_BANK_OVERSUBSCRIPTION, MAX_TXN_PER_MICROBLOCK );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
@@ -398,7 +411,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK,
+                                         tile->pack.max_pending_transactions,
+                                         tile->pack.bank_tile_count * FD_PACK_BANK_OVERSUBSCRIPTION, MAX_TXN_PER_MICROBLOCK,
                                          0UL, 0UL, rng ) ); /* initialize with microblock limits at 0 */
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
@@ -412,10 +426,13 @@ unprivileged_init( fd_topo_t *      topo,
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
     ctx->bank_current[ i ] = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
-    ctx->bank_expect[ i ] = ULONG_MAX;
     if( FD_UNLIKELY( !ctx->bank_current[ i ] ) ) FD_LOG_ERR(( "banking tile %lu has no busy flag", i ));
-    ctx->bank_ready_at[ i ] = 0L;
     FD_TEST( ULONG_MAX==fd_fseq_query( ctx->bank_current[ i ] ) );
+  }
+
+  for( ulong i=0UL; i<tile->pack.bank_tile_count * FD_PACK_BANK_OVERSUBSCRIPTION; i++ ) {
+    ctx->bank_ready_at[ i ] = 0L;
+    ctx->bank_expect[ i ] = ULONG_MAX;
   }
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
