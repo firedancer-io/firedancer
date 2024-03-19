@@ -893,7 +893,7 @@ typedef struct accounts_hash accounts_hash_t;
 
 int
 fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn, ulong do_hash_verify, int with_dead ) {
-  FD_LOG_NOTICE(("accounts_hash start for txn %p", (void *)child_txn));
+  FD_LOG_NOTICE(("accounts_hash start for txn %p, do_hash_verify=%s, with_dead=%s", (void *)child_txn, do_hash_verify ? "true" : "false", with_dead ? "true": "false"));
 
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
   fd_wksp_t *     wksp = fd_funk_wksp( funk );
@@ -905,15 +905,33 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
   fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
   FD_TEST(NULL != pairs);
 
+  fd_blake3_t *b3 = NULL;
+  fd_scratch_push();
+
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
     if ( !fd_funk_key_is_acc( rec->pair.key ) )
       continue;
 
     fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
-    int is_dead = (metadata->info.lamports == 0) | ((metadata->info.executable & ~1) != 0);
-    /* Why check the executable high bits??? Aren't those just garbage?? */
+    int is_empty = (metadata->info.lamports == 0);
 
-    if( !is_dead && do_hash_verify ) {
+    if (is_empty) {
+      if (with_dead) {
+        pairs[num_pairs].pubkey = (const fd_pubkey_t *)rec->pair.key->uc;
+
+        fd_hash_t *hash = fd_scratch_alloc(alignof(fd_hash_t), sizeof(fd_hash_t));
+        if (NULL == b3)
+          b3 = fd_scratch_alloc(alignof(fd_blake3_t), sizeof(fd_blake3_t));
+        fd_blake3_init  ( b3 );
+        fd_blake3_append( b3, rec->pair.key->uc,   sizeof( fd_pubkey_t ) );
+        fd_blake3_fini  ( b3, hash );
+
+        pairs[num_pairs].hash = hash;
+        num_pairs++;
+        continue;
+      } else
+        continue;
+    } else if( do_hash_verify ) {
       uchar hash[32];
       ulong old_slot = slot_ctx->slot_bank.slot;
       slot_ctx->slot_bank.slot = metadata->slot;
@@ -924,11 +942,9 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
       }
     }
 
-    // Should this just be the dead check?!
-    if( is_dead ) {
-      if( !with_dead )
-        continue;
-    }
+    if ((metadata->info.executable & ~1) != 0)
+      continue;
+
     // FD_LOG_DEBUG(( "including %s account %32J => %32J (modified at slot %lu)",
     //                is_dead ? "dead" : "live",
     //                rec->pair.key->uc,
@@ -943,6 +959,7 @@ fd_accounts_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
   fd_hash_account_deltas( pairs, num_pairs, accounts_hash, slot_ctx );
 
   fd_valloc_free( slot_ctx->valloc, pairs );
+  fd_scratch_pop();
 
   FD_LOG_INFO(("accounts_hash %32J", accounts_hash->hash));
 

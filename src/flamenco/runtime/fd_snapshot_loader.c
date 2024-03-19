@@ -115,6 +115,20 @@ fd_snapshot_load( const char *         snapshotfile,
                   uint                 check_hash,
                   fd_snapshot_type_t   snapshot_type ) {
 
+  switch (snapshot_type) {
+  case FD_SNAPSHOT_TYPE_UNSPECIFIED:
+    FD_LOG_ERR(("fd_snapshot_load(%s, verify-hash=%s, check-hash=%s, FD_SNAPSHOT_TYPE_UNSPECIFIED)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
+    break;
+  case FD_SNAPSHOT_TYPE_FULL:
+    FD_LOG_NOTICE(("fd_snapshot_load(%s, verify-hash=%s, check-hash=%s, FD_SNAPSHOT_TYPE_FULL)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
+    break;
+  case FD_SNAPSHOT_TYPE_INCREMENTAL:
+    FD_LOG_NOTICE(("fd_snapshot_load(%s, verify-hash=%s, check-hash=%s, FD_SNAPSHOT_TYPE_INCREMENTAL)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
+    break;
+  default:
+    FD_LOG_ERR(("fd_snapshot_load(%s, verify-hash=%s, check-hash=%s, huh?)", snapshotfile, verify_hash ? "true" : "false", check_hash ? "true" : "false"));
+    break;
+  }
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t xid;
@@ -150,6 +164,7 @@ fd_snapshot_load( const char *         snapshotfile,
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
   if (!FD_FEATURE_ACTIVE(slot_ctx, incremental_snapshot_only_incremental_hash_calculation)) {
+    FD_LOG_WARNING(("flushing accounts to the root since this is not a incremental hash"));
     /* We need to flush the incremental snapshot's changes if we are
         using the OLD verification method.  Otherwise, iterating over
         the root would only see the base snapshot's records. */
@@ -166,7 +181,7 @@ fd_snapshot_load( const char *         snapshotfile,
       if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
         FD_LOG_ERR(("snapshot accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
       else
-        FD_LOG_INFO(("snapshot accounts_hash %32J verified successfully", accounts_hash.hash));
+        FD_LOG_NOTICE(("snapshot accounts_hash %32J verified successfully", accounts_hash.hash));
     } else if (snapshot_type == FD_SNAPSHOT_TYPE_INCREMENTAL) {
       fd_hash_t accounts_hash;
 
@@ -181,7 +196,7 @@ fd_snapshot_load( const char *         snapshotfile,
       if (memcmp(fhash.uc, accounts_hash.uc, 32) != 0)
         FD_LOG_ERR(("incremental accounts_hash %32J != %32J", accounts_hash.hash, fhash.uc));
       else
-        FD_LOG_INFO(("incremental accounts_hash %32J verified successfully", accounts_hash.hash));
+        FD_LOG_NOTICE(("incremental accounts_hash %32J verified successfully", accounts_hash.hash));
     } else {
       FD_LOG_ERR(( "invalid snapshot type %u", snapshot_type ));
     }
