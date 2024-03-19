@@ -494,103 +494,6 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_t * vm,
   CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
 
-static int
-fd_vm_cpi_update_caller_account_rust( fd_vm_t *            vm,
-                                      fd_vm_rust_account_info_t const * caller_acc_info,
-                                      fd_pubkey_t const *               callee_acc_pubkey ) {
-  fd_borrowed_account_t * callee_acc_rec = NULL;
-  int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_acc_pubkey, &callee_acc_rec );
-  ulong updated_lamports, data_len;
-  uchar const * updated_owner = NULL;
-  if( FD_UNLIKELY( err ) ) {
-    // TODO: do we need to do something anyways
-    updated_lamports = 0;
-    data_len = 0;
-  } else {
-    updated_lamports = callee_acc_rec->const_meta->info.lamports;
-    data_len = callee_acc_rec->const_meta->dlen;
-    updated_owner = callee_acc_rec->const_meta->info.owner;
-  }
-
-  fd_vm_rc_refcell_t const * caller_acc_lamports_box =
-    fd_vm_translate_vm_to_host_const( vm, caller_acc_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_PERM;
-
-  ulong * caller_acc_lamports =
-    fd_vm_translate_vm_to_host( vm, caller_acc_lamports_box->addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
-  *caller_acc_lamports = updated_lamports;
-
-  fd_vm_rc_refcell_vec_t * caller_acc_data_box =
-    fd_vm_translate_vm_to_host( vm, caller_acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_PERM;
-
-  uchar * caller_acc_data =
-    fd_vm_translate_vm_to_host( vm, caller_acc_data_box->addr, caller_acc_data_box->len, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
-
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
-  else                fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
-
-  // TODO: deal with all functionality in update_caller_account
-  if( !data_len ) fd_memset(caller_acc_data, 0, caller_acc_data_box->len );
-  if( caller_acc_data_box->len!=data_len ) {
-    caller_acc_data_box->len = data_len;
-    ulong * caller_len =
-      fd_vm_translate_vm_to_host( vm, fd_ulong_sat_sub(caller_acc_data_box->addr, sizeof(ulong)), sizeof(ulong), alignof(ulong) );
-    *caller_len = data_len;
-    // TODO return instruction error account data size too small.
-  }
-
-  fd_memcpy( caller_acc_data, callee_acc_rec->const_data, data_len );
-
-  return 0;
-}
-
-static int
-fd_vm_cpi_update_caller_account_c( fd_vm_t *         vm,
-                                   fd_vm_c_account_info_t const * caller_acc_info,
-                                   fd_pubkey_t const *            callee_acc_pubkey ) {
-  fd_borrowed_account_t * callee_acc_rec =NULL;
-  int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_acc_pubkey, &callee_acc_rec );
-  ulong updated_lamports, data_len;
-  uchar const * updated_owner = NULL;
-  if( FD_UNLIKELY( err ) ) {
-    // TODO: do we need to do something anyways
-    updated_lamports = 0;
-    data_len = 0;
-  } else {
-    updated_lamports = callee_acc_rec->const_meta->info.lamports;
-    data_len = callee_acc_rec->const_meta->dlen;
-    updated_owner = callee_acc_rec->const_meta->info.owner;
-  }
-
-  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( vm, caller_acc_info->lamports_addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
-  *caller_acc_lamports = updated_lamports;
-
-  uchar * caller_acc_data = fd_vm_translate_vm_to_host( vm, caller_acc_info->data_addr, caller_acc_info->data_sz, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
-
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
-  else                fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
-
-  // TODO: deal with all functionality in update_caller_account
-  if( !data_len ) fd_memset( caller_acc_data, 0, caller_acc_info->data_sz );
-  if( caller_acc_info->data_sz!=data_len ) {
-    ulong * caller_len =
-      fd_vm_translate_vm_to_host( vm, fd_ulong_sat_sub(caller_acc_info->data_addr, sizeof(ulong)), sizeof(ulong), alignof(ulong) );
-    *caller_len = data_len;
-    // TODO return instruction error account data size too small.
-  }
-
-  fd_memcpy( caller_acc_data, callee_acc_rec->const_data, data_len );
-
-  return 0;
-}
-
 /* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1319 */
 static ulong
 fd_vm_cpi_update_callee_account( fd_vm_t * vm,
@@ -611,7 +514,6 @@ fd_vm_cpi_update_callee_account( fd_vm_t * vm,
   }
 
   fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
-
   uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
   if( callee_acc_metadata->info.lamports!=caller_account->lamports ) callee_acc_metadata->info.lamports = caller_account->lamports;
 
@@ -701,9 +603,6 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_C_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_C_ACCOUNT_INFO_SIZE)
 
-// TODO: remove these
-#define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_c
-
 // Instruction accessors
 #define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data_addr
 #define VM_SYSCALL_CPI_INSTR_DATA_LEN( instr )  instr->data_len
@@ -735,7 +634,10 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
   uchar * decl = fd_vm_translate_vm_to_host( vm, acc_info->data_addr, acc_info->data_sz, alignof(uchar) ); \
   if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) //TODO: we don't set this for C?
 
 #include "fd_vm_syscall_common.c"
 
@@ -758,7 +660,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_INFO_SIZE
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
-#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
 #undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
 
 /**********************************************************************
@@ -775,9 +677,6 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_T              fd_vm_rust_account_info_t
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_RUST_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_RUST_ACCOUNT_INFO_SIZE)
-
-// TODO: remove these
-#define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_rust
 
 // Instruction accessors
 #define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data.addr
@@ -802,12 +701,15 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 
 // TODO: define a refcell macro to simplify this boilerplate
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
-  fd_vm_rc_refcell_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN ); \
+  fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN ); \
   if( FD_UNLIKELY( !FD_EXPAND_THEN_CONCAT2(decl, _box) ) ) return FD_VM_ERR_PERM; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr; \
   uchar * decl = fd_vm_translate_vm_to_host( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, FD_EXPAND_THEN_CONCAT2(decl, _box)->len, alignof(uchar) ); \
   if ( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
 
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
+  FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
 
 #include "fd_vm_syscall_common.c"
 
@@ -831,5 +733,5 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_ACC_INFO_SIZE
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
-#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
 #undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
