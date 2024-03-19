@@ -670,16 +670,14 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   /* Insert the shred */
 
-  if( fd_blockstore_shred_pool_free( shred_pool ) == 0 ) { return FD_BLOCKSTORE_ERR_SHRED_FULL; }
-
-  fd_blockstore_shred_t * ele = fd_blockstore_shred_pool_ele_acquire( shred_pool );
-  if( FD_UNLIKELY( !ele ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
-  ele->key = shred_key;
-  ele->hdr = *shred;
+  if( FD_UNLIKELY( !fd_blockstore_shred_pool_free( shred_pool ) ) ) {
+    return FD_BLOCKSTORE_ERR_SHRED_FULL;
+  }
+  fd_blockstore_shred_t * ele = fd_blockstore_shred_pool_ele_acquire( shred_pool ); /* always non-NULL */
+  ele->key                    = shred_key;
+  ele->hdr                    = *shred;
   fd_memcpy( &ele->raw, shred, fd_shred_sz( shred ) );
-  fd_blockstore_shred_map_t * insert =
-      fd_blockstore_shred_map_ele_insert( shred_map, ele, shred_pool );
-  if( FD_UNLIKELY( !insert ) ) return FD_BLOCKSTORE_ERR_SHRED_FULL;
+  fd_blockstore_shred_map_ele_insert( shred_map, ele, shred_pool ); /* always non-NULL */
 
   /* Update shred's associated slot meta */
 
