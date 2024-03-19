@@ -21,13 +21,14 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t * ctx,
   static char const pda_marker[] = {"ProgramDerivedAddress"};
 
   if( seed_sz > 32UL ) {
-    /* This is obviously a bug on Solana's part */
+    /* This error code is obviously a bug on Solana's part */
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if( 0==memcmp( &owner[32UL - sizeof(pda_marker)-1], pda_marker, sizeof(pda_marker)-1 ) ) {
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+  if( 0==memcmp( owner+11, pda_marker, 21UL ) ) {
+    /* This error code is obviously a bug on Solana's part */
+    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_PROGRAM_ID;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -73,12 +74,12 @@ fd_system_program_any_signed( fd_instr_info_t const * info,
    that the result matches some expected value. */
 
 static int
-fd_system_program_pda_verify( fd_exec_instr_ctx_t * ctx,
-                              fd_pubkey_t const *   expected,
-                              fd_pubkey_t const *   base,
-                              char const *          seed,
-                              ulong                 seed_sz,
-                              fd_pubkey_t const *   owner ) {
+verify_seed_address( fd_exec_instr_ctx_t * ctx,
+                     fd_pubkey_t const *   expected,
+                     fd_pubkey_t const *   base,
+                     char const *          seed,
+                     ulong                 seed_sz,
+                     fd_pubkey_t const *   owner ) {
 
   fd_pubkey_t actual[1];
   do {
@@ -458,7 +459,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L361-L367 */
 
   do {
-    int err = fd_system_program_pda_verify(
+    int err = verify_seed_address(
         ctx,
         &instr->acct_pubkeys[1],
         &args->base,
@@ -551,7 +552,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L526-L532 */
 
   do {
-    int err = fd_system_program_pda_verify(
+    int err = verify_seed_address(
         ctx,
         account->pubkey,
         &args->base,
@@ -608,7 +609,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L546-L552 */
 
   do {
-    int err = fd_system_program_pda_verify(
+    int err = verify_seed_address(
         ctx,
         account->pubkey,
         &args->base,
@@ -713,6 +714,7 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
     { .data    = data,
       .dataend = data + ctx.instr->data_sz,
       .valloc  = fd_scratch_virtual() };
+  /* Fail if the number of bytes consumed by deserialize exceeds 1232 */
   if( fd_system_program_instruction_decode( &instruction, &decode ) ||
       (ulong)data + 1232UL < (ulong)decode.data )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

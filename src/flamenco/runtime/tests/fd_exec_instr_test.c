@@ -87,6 +87,15 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
 }
 
 static int
+fd_double_is_normal( double x ) {
+	union {
+    double d;
+    ulong  ul;
+  } u = { .d = x };
+  return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
+}
+
+static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
@@ -200,7 +209,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc );
   slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_insert_tail( recent_block_hashes );
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
@@ -254,7 +263,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
-    if( ( isnan( rent->exemption_threshold )       ) |
+    if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
         ( rent->exemption_threshold     <      0.0 ) |
         ( rent->exemption_threshold     >    999.0 ) |
         ( rent->lamports_per_uint8_year > UINT_MAX ) |
@@ -266,8 +275,10 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-    if( last )
+    if( last ) {
       *recent_block_hash = *last;
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+    }
   }
 
   /* Load instruction accounts */
