@@ -238,6 +238,13 @@ after_credit( void *             _ctx,
       }
     }
   }
+
+  /* Did we send the maximum allowed microblocks? Then end the slot. */
+  if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
+    ctx->leader_slot = ULONG_MAX;
+    ctx->slot_microblock_cnt = 0UL;
+    fd_pack_end_block( ctx->pack );
+  }
 }
 
 /* At this point, we have started receiving frag seq with details in
