@@ -8,23 +8,28 @@
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-
-/* TODO Move this out */
+#include "../../../ballet/utf8/fd_utf8.h"
 
 static int
-fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
-                            char const * seed,
-                            ulong        seed_sz,
-                            uchar const  owner[ static 32 ],
-                            uchar        out  [ static 32 ] ) {
+fd_pubkey_create_with_seed( fd_exec_instr_ctx_t * ctx,
+                            uchar const           base [ static 32 ],
+                            char const *          seed,
+                            ulong                 seed_sz,
+                            uchar const           owner[ static 32 ],
+                            uchar                 out  [ static 32 ] ) {
 
   static char const pda_marker[] = {"ProgramDerivedAddress"};
 
-  if( seed_sz > 32UL )
-    return FD_EXECUTOR_SYSTEM_ERR_MAX_SEED_LENGTH_EXCEEDED;
+  if( seed_sz > 32UL ) {
+    /* This is obviously a bug on Solana's part */
+    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
-  if( memcmp( &owner[32UL - sizeof(pda_marker)-1], pda_marker, sizeof(pda_marker)-1 ) == 0 )
-    return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
+  if( 0==memcmp( &owner[32UL - sizeof(pda_marker)-1], pda_marker, sizeof(pda_marker)-1 ) ) {
+    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
+    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
@@ -40,19 +45,18 @@ fd_pubkey_create_with_seed( uchar const  base [ static 32 ],
 
 /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
 
-   any_instr_is_signer matches
+   fd_system_program_any_signed matches
    solana_system_program::system_processor::Address::is_signer
    Scans instruction accounts for matching signer.
-   THIS IS NOTABLY DIFFERENT FROM fd_instr_acc_is_signer(_idx).
 
-   Returns 1 if any instruction account with the given pubkey is a
+   Returns 1 if *any* instruction account with the given pubkey is a
    signer and 0 otherwise.  Note that the same account/pubkey can be
    specified as multiple different instruction accounts that might not
    all have the signer bit. */
 
-FD_FN_PURE static int
-any_instr_acc_is_signer( fd_instr_info_t const * info,
-                         fd_pubkey_t const *     pubkey ) {
+FD_FN_PURE int
+fd_system_program_any_signed( fd_instr_info_t const * info,
+                              fd_pubkey_t const *     pubkey ) {
   int is_signer = 0;
   for( ulong j=0UL; j < info->acct_cnt; j++ )
     is_signer |=
@@ -79,6 +83,7 @@ fd_system_program_pda_verify( fd_exec_instr_ctx_t * ctx,
   fd_pubkey_t actual[1];
   do {
     int err = fd_pubkey_create_with_seed(
+        ctx,
         base->uc,
         seed,
         seed_sz,
@@ -126,21 +131,13 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L197-L205 */
 
-  if( transfer_amount > from->starting_lamports ) {
+  if( transfer_amount > from->const_meta->info.lamports ) {
     /* TODO Log: "Transfer: insufficient lamports {}, need {} */
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L207 */
-
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, 0UL ) ) )
-    return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
-
-  do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, from_acct_idx, 0UL, &from );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
 
   do {
     int err = fd_account_checked_sub_lamports( ctx, from_acct_idx, transfer_amount );
@@ -189,7 +186,6 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
 
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, system_transfer_zero_check )
       && transfer_amount == 0UL ) {
-    FD_LOG_WARNING(( "BRUH" ));
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
@@ -221,7 +217,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
-  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, authority ) ) ) {
     /* TODO Log: "Allocate 'to' account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -244,12 +240,6 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L108 */
-
-  do {
-    /* Implicit upgrade to writable */
-    int err = fd_instr_borrowed_account_modify_idx( ctx, acct_idx, space, &account );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
 
   do {
     int err = FD_EXECUTOR_INSTR_ERR_FATAL;  /* 'FATAL', in case set_data_length doesn't initialize this value */
@@ -281,7 +271,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
-  if( FD_UNLIKELY( !any_instr_acc_is_signer( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, authority ) ) ) {
     /* TODO Log: "Assign: account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -324,9 +314,8 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
                                   ulong                 to_acct_idx,
                                   ulong                 lamports,
                                   ulong                 space,
-                                  fd_pubkey_t const *   owner ) {
-
-  /* Assumes to_acct_idx has no write handle */
+                                  fd_pubkey_t const *   owner,
+                                  fd_pubkey_t const *   authority ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L160-L161 */
 
@@ -350,7 +339,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L171 */
 
   do {
-    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, space, owner, to->pubkey );
+    int err = fd_system_program_allocate_and_assign( ctx, to_acct_idx, space, owner, authority );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -388,7 +377,8 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
       to_acct_idx,
       create_acc->lamports,
       create_acc->space,
-      &create_acc->owner );
+      &create_acc->owner,
+      &ctx->instr->acct_pubkeys[to_acct_idx] );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L381-L393
@@ -488,7 +478,8 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
       to_acct_idx,
       args->lamports,
       args->space,
-      &args->owner );
+      &args->owner,
+      &args->base );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L504-L516
@@ -642,6 +633,10 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   return 0;
 }
 
+/* Convenience macro for fd_utf8_verify */
+
+#define VERIFY_SEED_UTF8( seed ) ( fd_utf8_verify( (char const *)(seed), (seed##_len) ) )
+
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L405-L422
 
    Matches Solana Labs system_processor SystemInstruction::TransferWithSeed { ... } => { ... } */
@@ -680,6 +675,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   fd_pubkey_t address_from_seed[1];
   do {
     int err = fd_pubkey_create_with_seed(
+        ctx,
         ctx->instr->acct_pubkeys[ from_base_idx ].uc,
         (char const *)args->from_seed,
         args->from_seed_len,
@@ -715,9 +711,10 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   fd_system_program_instruction_t instruction;
   fd_bincode_decode_ctx_t decode =
     { .data    = data,
-      .dataend = &data[ctx.instr->data_sz],
+      .dataend = data + ctx.instr->data_sz,
       .valloc  = fd_scratch_virtual() };
-  if( fd_system_program_instruction_decode( &instruction, &decode ) )
+  if( fd_system_program_instruction_decode( &instruction, &decode ) ||
+      (ulong)data + 1232UL < (ulong)decode.data )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
   int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
@@ -739,6 +736,8 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
+    if( !VERIFY_SEED_UTF8( instruction.inner.create_account_with_seed.seed ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_create_account_with_seed(
         &ctx, &instruction.inner.create_account_with_seed );
     break;
@@ -768,18 +767,24 @@ fd_system_program_execute( fd_exec_instr_ctx_t ctx ) {
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
+    if( !VERIFY_SEED_UTF8( instruction.inner.allocate_with_seed.seed ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_allocate_with_seed(
         &ctx, &instruction.inner.allocate_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
+    if( !VERIFY_SEED_UTF8( instruction.inner.assign_with_seed.seed ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_assign_with_seed(
         &ctx, &instruction.inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
+    if( !VERIFY_SEED_UTF8( instruction.inner.transfer_with_seed.from_seed ) )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     result = fd_system_program_exec_transfer_with_seed(
         &ctx, &instruction.inner.transfer_with_seed );
     break;
