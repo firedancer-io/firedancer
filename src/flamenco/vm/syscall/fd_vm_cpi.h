@@ -148,21 +148,4 @@ struct __attribute__((packed)) fd_vm_rust_account_info {
 
 typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
 
-union fd_vm_account_info_inner {
-  fd_vm_rust_account_info_t const * rust_acct_infos;
-  fd_vm_c_account_info_t    const *    c_acct_infos;
-};
-
-typedef union fd_vm_account_info_inner fd_vm_account_info_inner_t;
-
-struct __attribute__((packed)) fd_vm_account_info {
-  uint discriminant;
-# define FD_VM_ACCOUNT_INFO_RUST (0U)
-# define FD_VM_ACCOUNT_INFO_C    (1U)
-
-  fd_vm_account_info_inner_t inner;
-};
-
-typedef struct fd_vm_account_info fd_vm_account_info_t;
-
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */
