@@ -79,6 +79,34 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
 }
 
 #define VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC FD_EXPAND_THEN_CONCAT2(from_account_info_, VM_SYSCALL_CPI_ABI)
+static int
+VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC( fd_vm_t *            vm,
+                                   VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
+                                   fd_caller_account_t *             out ) {
+
+  /* Caller account lamports */
+  VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
+  out->lamports = *caller_acc_lamports;
+
+  /* Caller account owner */
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
+
+  /* FIXME: TEST? */
+  fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
+
+  /* Caller account data */
+
+  VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
+
+  int err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  out->serialized_data = caller_acc_data;
+  out->serialized_data_len = caller_acc_data_len;
+  out->executable = account_info->executable;
+  out->rent_epoch = account_info->rent_epoch;
+  return 0;
+}
 
 /* FIXME: PREFIX */
 /* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L971 */
