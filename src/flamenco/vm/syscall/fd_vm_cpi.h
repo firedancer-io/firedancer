@@ -54,7 +54,7 @@ struct __attribute__((packed)) fd_vm_c_instruction {
 typedef struct fd_vm_c_instruction fd_vm_c_instruction_t;
 
 #define FD_VM_C_ACCOUNT_META_ALIGN (8UL)
-#define FD_VM_C_ACCOUNT_META_SIZE  (10UL)
+#define FD_VM_C_ACCOUNT_META_SIZE  (16UL)
 struct fd_vm_c_account_meta {
   ulong pubkey_addr;
   uchar is_writable;
@@ -75,7 +75,7 @@ struct fd_vm_sol_account_meta {
 typedef struct fd_vm_sol_account_meta fd_vm_sol_account_meta_t;
 
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
-#define FD_VM_C_ACCOUNT_INFO_SIZE  (61UL)
+#define FD_VM_C_ACCOUNT_INFO_SIZE  (56UL)
 
 struct fd_vm_c_account_info {
   ulong pubkey_addr;
