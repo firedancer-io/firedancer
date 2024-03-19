@@ -97,6 +97,20 @@ fd_topo_tvu( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC, FD_TOPO_WKSP_KIND_METRIC, ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_TVU,    FD_TOPO_WKSP_KIND_TVU,    fd_topo_find_link( topo, FD_TOPO_LINK_KIND_TVU_TO_NETMUX,   i ) );
 
+  /* TODO: LML we need to replace all the special cases introduced by this PR for a partially managed tpool and spawned pthreads in TVU. */
+  /*       When we define the tiles in this topology the FD_TOPO_TILE_KIND_TVU_THREAD tiles ***MUST*** be defined last                   */
+  /*       because in tiles/fd_tvu.c we blindly assume the last tvu_unmanaged_cpus tiles are the FD_TOPO_TILE_KIND_TVU_THREAD tiles.      */
+  for( ulong i=0; i< config->tiles.tvu.tcnt; i++ ) {
+    topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,
+                                                .kind                = FD_TOPO_TILE_KIND_TVU_THREAD,
+                                                .kind_id             = i,
+                                                .wksp_id             = FD_TOPO_WKSP_KIND_TVU,
+                                                .in_cnt              = 0,
+                                                .out_link_id_primary = 255,
+                                                .out_cnt             = 0 };
+    tile_cnt++;
+  }
+
   topo->tile_cnt = tile_cnt;
 
 
@@ -154,4 +168,5 @@ fd_topo_tvu( config_t * config ) {
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_REPAIR_TO_SIGN,  0UL    );
   /**/                                                      TILE_IN(  FD_TOPO_TILE_KIND_TVU,    0UL, FD_TOPO_LINK_KIND_SIGN_TO_REPAIR,  0UL, 0, 0 );
   /**/                                                      TILE_OUT( FD_TOPO_TILE_KIND_SIGN, 0UL, FD_TOPO_LINK_KIND_SIGN_TO_REPAIR,  0UL    );
+
 }

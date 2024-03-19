@@ -189,7 +189,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   }
 
   if( FD_UNLIKELY( tile_idx>=fd_tile_cnt() ) ) {
-    FD_LOG_WARNING(( "invalid tile_idx" ));
+    FD_LOG_WARNING(( "invalid tile_idx tile_idx less than fd_tile_cnt() (%lu<%lu)", tile_idx, fd_tile_cnt() ));
     return NULL;
   }
 

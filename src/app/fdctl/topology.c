@@ -651,6 +651,7 @@ fd_topo_validate( fd_topo_t const * topo ) {
 
   /* Tile out is valid */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    if( FD_UNLIKELY( topo->tiles[ i ].kind == FD_TOPO_TILE_KIND_TVU_THREAD ) ) continue;
     if( FD_UNLIKELY( topo->tiles[ i ].out_link_id_primary >= topo->link_cnt && topo->tiles[ i ].out_link_id_primary != ULONG_MAX ) )
       FD_LOG_ERR(( "tile %lu has invalid out link %lu", i, topo->tiles[ i ].out_link_id_primary ));
   }

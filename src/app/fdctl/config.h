@@ -219,6 +219,8 @@ typedef struct {
       ushort tvu_port;
       ushort tvu_fwd_port;
       ushort rpc_listen_port;
+      ulong  tcnt;
+      ulong  txn_max;
     } tvu;
 
     struct {

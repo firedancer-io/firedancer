@@ -52,6 +52,19 @@ main( int     argc,
 
   fd_tvu_main_setup( state, NULL, NULL, NULL, 0, NULL, args);
 
+  if( args->tcnt == ULONG_MAX ) { args->tcnt = fd_tile_cnt(); }
+  fd_tpool_t * tpool = NULL;
+  if( args->tcnt > 1 ) {
+    tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
+    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    for( ulong i = 1; i < args->tcnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 32UL<<20UL ) ) == NULL )
+        FD_LOG_ERR( ( "failed to launch worker" ) );
+    }
+  }
+  state->tpool       = tpool;
+  state->max_workers = args->tcnt;
+
   // TODO: tracing, captures, and capitalization is broken
 #if 0
   state.map = capitalization_map_join(capitalization_map_new(state.capitalization_map_mem));

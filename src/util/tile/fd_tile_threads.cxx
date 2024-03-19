@@ -267,6 +267,14 @@ fd_tile_private_manager( void * _args ) {
   void * stack    = args->stack;
   ulong  stack_sz = args->stack_sz;
 
+  FD_LOG_DEBUG(( "fd_tile: id=%lu idx=%lu fd_log_thread_id=%lu fd_tile_private_id0=%lu fd_tile_private_id1=%lu fd_tile_private_cnt=%lu",
+                 id, idx, fd_log_thread_id(), fd_tile_private_id0, fd_tile_private_id1, fd_tile_private_cnt ));
+  FD_LOG_DEBUG(( "%u %u %u %u thread_id=%lu", 
+                 id ==fd_log_thread_id(),
+                 idx==(id-fd_tile_private_id0),
+                 (fd_tile_private_id0<id) & (id<fd_tile_private_id1),
+                 fd_tile_private_cnt==(fd_tile_private_id1-fd_tile_private_id0),
+                 fd_log_thread_id()));
   if( FD_UNLIKELY( !( (id ==fd_log_thread_id()                                       ) &
                       (idx==(id-fd_tile_private_id0)                                 ) &
                       ((fd_tile_private_id0<id) & (id<fd_tile_private_id1)           ) &
@@ -526,24 +534,8 @@ fd_tile_private_cpus_parse( char const * cstr,
 static fd_tile_private_cpu_config_t fd_tile_private_cpu_config_save[1];
 
 void
-fd_tile_private_boot( int *    pargc,
-                      char *** pargv ) {
-  FD_LOG_INFO(( "fd_tile: boot" ));
-
-  /* Extract the tile configuration from the command line */
-
-  char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
-  if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
-  else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
-  ushort tile_to_cpu[ FD_TILE_MAX ];
-  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
-
-  if( FD_UNLIKELY( !tile_cnt ) ) {
-    FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
-    tile_to_cpu[0] = (ushort)65535;
-    tile_cnt       = 1UL;
-  }
-
+fd_tile_private_boot( ushort * tile_to_cpu, ulong tile_cnt ) {
+  fd_log_private_thread_id_set_init_reset( 0UL );
   fd_tile_private_id0 = fd_log_thread_id();
   fd_tile_private_id1 = fd_tile_private_id0 + tile_cnt;
   fd_tile_private_cnt = tile_cnt;
@@ -743,6 +735,42 @@ fd_tile_private_boot( int *    pargc,
   fd_memcpy( fd_tile_private_cpu_id, tile_to_cpu, fd_tile_private_cnt*sizeof(ushort) );
 
   FD_LOG_INFO(( "fd_tile: boot success" ));
+}
+
+void
+fd_tile_private_boot_str( char const * cpus ) {
+  FD_LOG_INFO(( "fd_tile: boot" ));
+
+  /* Extract the tile configuration from the command line */
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  ulong  tile_cnt = fd_tile_private_cpus_parse( cpus, tile_to_cpu );
+#if 0
+  FD_LOG_NOTICE(("input %s tile_cnt=%lu", cpus, tile_cnt));
+  for( ulong i=0; i<tile_cnt; i++ ) FD_LOG_NOTICE((" tile_to_cpu[%lu]=%u", i, tile_to_cpu[i]));
+#endif
+
+  if( FD_UNLIKELY( !tile_cnt ) ) {
+    FD_LOG_INFO(( "fd_tile: no cpus specified; treating thread group as single tile running on O/S assigned cpu(s)" ));
+    tile_to_cpu[0] = (ushort)65535;
+    tile_cnt       = 1UL;
+  }
+
+  fd_tile_private_boot( tile_to_cpu, tile_cnt );
+}
+
+void
+fd_tile_private_boot_env( int *    pargc,
+                          char *** pargv ) {
+  FD_LOG_INFO(( "fd_tile: boot" ));
+
+  /* Extract the tile configuration from the command line */
+
+  char const * cpus = fd_env_strip_cmdline_cstr( pargc, pargv, "--tile-cpus", "FD_TILE_CPUS", NULL );
+
+  if( !cpus ) FD_LOG_INFO(( "fd_tile: --tile-cpus not specified" ));
+  else        FD_LOG_INFO(( "fd_tile: --tile-cpus \"%s\"", cpus ));
+
+  fd_tile_private_boot_str( cpus );
 }
 
 void

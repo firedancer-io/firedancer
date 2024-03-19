@@ -498,7 +498,7 @@ topology = "tvu"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-29"
+    affinity = "0-39"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -769,6 +769,8 @@ topology = "tvu"
         rpc_listen_port    = 12000
         snapshot = ""
         incremental_snapshot = ""
+        tcnt        = 13
+        txn_max     = 1000
 
     [tiles.gossip]
         gossip_peer_addr = "147.75.87.77:8020"

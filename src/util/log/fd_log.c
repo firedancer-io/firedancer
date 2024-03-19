@@ -99,6 +99,12 @@ static FD_TL ulong fd_log_private_thread_id;      /* 0 at thread start */
 static FD_TL int   fd_log_private_thread_id_init; /* 0 at thread start */
 
 void
+fd_log_private_thread_id_set_init_reset( ulong thread_id ) {
+  fd_log_private_thread_id      = thread_id;
+  fd_log_private_thread_id_init = 0;
+}
+
+void
 fd_log_private_thread_id_set( ulong thread_id ) {
   fd_log_private_thread_id      = thread_id;
   fd_log_private_thread_id_init = 1;

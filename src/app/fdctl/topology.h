@@ -110,28 +110,29 @@
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
    kind in the application. */
-#define FD_TOPO_TILE_KIND_NET       ( 0UL)
-#define FD_TOPO_TILE_KIND_NETMUX    ( 1UL)
-#define FD_TOPO_TILE_KIND_QUIC      ( 2UL)
-#define FD_TOPO_TILE_KIND_VERIFY    ( 3UL)
-#define FD_TOPO_TILE_KIND_DEDUP     ( 4UL)
-#define FD_TOPO_TILE_KIND_PACK      ( 5UL)
-#define FD_TOPO_TILE_KIND_BANK      ( 6UL)
-#define FD_TOPO_TILE_KIND_POH       ( 7UL)
-#define FD_TOPO_TILE_KIND_SHRED     ( 8UL)
-#define FD_TOPO_TILE_KIND_EXT_STORE ( 9UL)
-#define FD_TOPO_TILE_KIND_SIGN      (10UL)
-#define FD_TOPO_TILE_KIND_METRIC    (11UL)
-#define FD_TOPO_TILE_KIND_GOSSIP    (12UL)
-#define FD_TOPO_TILE_KIND_REPAIR    (13UL)
-#define FD_TOPO_TILE_KIND_TVU       (14UL)
-#define FD_TOPO_TILE_KIND_STORE     (15UL)
-#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_NET        ( 0UL)
+#define FD_TOPO_TILE_KIND_NETMUX     ( 1UL)
+#define FD_TOPO_TILE_KIND_QUIC       ( 2UL)
+#define FD_TOPO_TILE_KIND_VERIFY     ( 3UL)
+#define FD_TOPO_TILE_KIND_DEDUP      ( 4UL)
+#define FD_TOPO_TILE_KIND_PACK       ( 5UL)
+#define FD_TOPO_TILE_KIND_BANK       ( 6UL)
+#define FD_TOPO_TILE_KIND_POH        ( 7UL)
+#define FD_TOPO_TILE_KIND_SHRED      ( 8UL)
+#define FD_TOPO_TILE_KIND_EXT_STORE  ( 9UL)
+#define FD_TOPO_TILE_KIND_SIGN       (10UL)
+#define FD_TOPO_TILE_KIND_METRIC     (11UL)
+#define FD_TOPO_TILE_KIND_GOSSIP     (12UL)
+#define FD_TOPO_TILE_KIND_REPAIR     (13UL)
+#define FD_TOPO_TILE_KIND_TVU        (14UL)
+#define FD_TOPO_TILE_KIND_TVU_THREAD (15UL)
+#define FD_TOPO_TILE_KIND_STORE      (16UL)
+#define FD_TOPO_TILE_KIND_MAX        ( FD_TOPO_TILE_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
 
-#define FD_TOPO_KIND_TVU            (0UL)
-#define FD_TOPO_KIND_FIREDANCER     (1UL)
-#define FD_TOPO_KIND_FRANKENDANCER  (2UL)
-#define FD_TOPO_KIND_MAX            ( FD_TOPO_KIND_FRANKENDANCER+1 )
+#define FD_TOPO_KIND_TVU             (0UL)
+#define FD_TOPO_KIND_FIREDANCER      (1UL)
+#define FD_TOPO_KIND_FRANKENDANCER   (2UL)
+#define FD_TOPO_KIND_MAX             ( FD_TOPO_KIND_FRANKENDANCER+1 )
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -312,6 +313,8 @@ typedef struct {
       ushort tvu_port;
       ushort tvu_fwd_port;
       ushort rpc_listen_port;
+      ulong  tcnt;
+      ulong  txn_max;
     } tvu;
     struct {
       char    gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
@@ -528,22 +531,23 @@ fd_topo_tile_kind_is_labs( ulong kind ) {
 FD_FN_CONST static inline char *
 fd_topo_tile_kind_str( ulong kind ) {
   switch ( kind ) {
-    case FD_TOPO_TILE_KIND_NET:        return "net";
-    case FD_TOPO_TILE_KIND_NETMUX:     return "netmux";
-    case FD_TOPO_TILE_KIND_QUIC:       return "quic";
-    case FD_TOPO_TILE_KIND_VERIFY:     return "verify";
-    case FD_TOPO_TILE_KIND_DEDUP:      return "dedup";
-    case FD_TOPO_TILE_KIND_PACK:       return "pack";
-    case FD_TOPO_TILE_KIND_BANK:       return "bank";
-    case FD_TOPO_TILE_KIND_POH:        return "poh";
-    case FD_TOPO_TILE_KIND_SHRED:      return "shred";
-    case FD_TOPO_TILE_KIND_EXT_STORE:  return "estore";
-    case FD_TOPO_TILE_KIND_SIGN:       return "sign";
-    case FD_TOPO_TILE_KIND_METRIC:     return "metric";
-    case FD_TOPO_TILE_KIND_GOSSIP:     return "gossip";
-    case FD_TOPO_TILE_KIND_REPAIR:     return "repair";
-    case FD_TOPO_TILE_KIND_TVU:        return "tvu";
-    case FD_TOPO_TILE_KIND_STORE:      return "store";
+    case FD_TOPO_TILE_KIND_NET:         return "net";
+    case FD_TOPO_TILE_KIND_NETMUX:      return "netmux";
+    case FD_TOPO_TILE_KIND_QUIC:        return "quic";
+    case FD_TOPO_TILE_KIND_VERIFY:      return "verify";
+    case FD_TOPO_TILE_KIND_DEDUP:       return "dedup";
+    case FD_TOPO_TILE_KIND_PACK:        return "pack";
+    case FD_TOPO_TILE_KIND_BANK:        return "bank";
+    case FD_TOPO_TILE_KIND_POH:         return "poh";
+    case FD_TOPO_TILE_KIND_SHRED:       return "shred";
+    case FD_TOPO_TILE_KIND_EXT_STORE:   return "estore";
+    case FD_TOPO_TILE_KIND_SIGN:        return "sign";
+    case FD_TOPO_TILE_KIND_METRIC:      return "metric";
+    case FD_TOPO_TILE_KIND_GOSSIP:      return "gossip";
+    case FD_TOPO_TILE_KIND_REPAIR:      return "repair";
+    case FD_TOPO_TILE_KIND_TVU:         return "tvu";
+    case FD_TOPO_TILE_KIND_TVU_THREAD:  return "tvu-res";
+    case FD_TOPO_TILE_KIND_STORE:       return "store";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

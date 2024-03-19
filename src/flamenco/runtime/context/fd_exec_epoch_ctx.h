@@ -30,6 +30,7 @@ struct __attribute__((aligned(8UL))) fd_exec_epoch_ctx {
   fd_features_t        features;
   fd_epoch_bank_t      epoch_bank;
   fd_bank_match_t *    bank_matches;
+  volatile ulong       bank_matches_lock;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN     (alignof(fd_exec_epoch_ctx_t))

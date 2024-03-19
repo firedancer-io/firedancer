@@ -86,16 +86,17 @@ RUST_LOG=trace solana-validator \
     --log validator.log &
 
 sleep 55
-
 while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
   sleep 1
 done
-
 wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
+
+cp "$SCRIPT_DIR/shenanigans.sh" .
 
 echo "[tiles.tvu]
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
   snapshot = \"$(echo snapshot*)\"
+  incremental_snapshot = \"http://localhost:8899/incremental-snapshot.tar.bz2\"
   page_cnt = 25
   validate_snapshot = \"true\"
   check_hash = \"true\"

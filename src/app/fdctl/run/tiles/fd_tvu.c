@@ -27,6 +27,8 @@ ushort          g_repair_listen_port;
 ushort          g_tvu_port;
 ushort          g_tvu_fwd_port;
 ushort          g_rpc_listen_port;
+ulong           g_tcnt;
+ulong           g_txn_max;
 
 /* Inspired from tiles/fd_shred.c */
 fd_wksp_t *     g_net_in;
@@ -302,16 +304,12 @@ during_housekeeping( void * ctx ) {
 
 #include "../../../../util/tile/fd_tile_private.h"
 /* Temporary hack until we get the tiles right */
-void cpuset_hack( void ) {
-  FD_CPUSET_DECL( cpu_set );
-  fd_cpuset_insert( cpu_set, 25 );
-  fd_cpuset_insert( cpu_set, 26 );
-  fd_cpuset_insert( cpu_set, 27 );
-  fd_cpuset_insert( cpu_set, 28 );
-
-  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-    FD_LOG_ERR(( "fd_cpuset_setaffinity failed" ));
+void tpool_boot( ushort first_cpu, ulong tcnt ) {
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  for( ushort i=0; i<tcnt; i++ ) {
+    tile_to_cpu[ i ] = (ushort)(first_cpu+i);
   }
+  fd_tile_private_boot( tile_to_cpu, tcnt );
 }
 
 static void
@@ -319,7 +317,6 @@ privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
   g_wksp = topo->workspaces[ tile->wksp_id ].wksp;
-  // cpuset_hack();
   
   strncpy( g_repair_peer_id, tile->tvu.repair_peer_id, sizeof(g_repair_peer_id) );
   strncpy( g_repair_peer_addr, tile->tvu.repair_peer_addr, sizeof(g_repair_peer_addr) );
@@ -340,12 +337,18 @@ privileged_init( fd_topo_t *      topo,
   g_tvu_port = tile->tvu.tvu_port;
   g_tvu_fwd_port = tile->tvu.tvu_fwd_port;
   g_rpc_listen_port = tile->tvu.rpc_listen_port;
+  g_tcnt           = tile->tvu.tcnt;
+  g_txn_max        = tile->tvu.txn_max;
 
   FD_TEST( g_gossip_listen_port!=0 );
   FD_TEST( g_repair_listen_port!=0 );
   FD_TEST( g_tvu_port!=0 );
   FD_TEST( g_tvu_fwd_port!=0 );
   FD_TEST( g_rpc_listen_port!=0 );
+  FD_TEST( g_tcnt != 0 );
+  FD_TEST( g_txn_max != 0 );
+
+  tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt);
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
@@ -472,8 +475,8 @@ doit( void ) {
     .allocator            = "libc",
     .index_max            = ULONG_MAX,
     .page_cnt             = g_page_cnt,
-    .tcnt                 = 1,
-    .txn_max              = 1000, // TODO: LML add --txnmax to default.toml
+    .tcnt                 = g_tcnt,
+    .txn_max              = g_txn_max,
     .rpc_port             = g_rpc_listen_port,
   };
   fd_tvu_main_setup( &runtime_ctx,

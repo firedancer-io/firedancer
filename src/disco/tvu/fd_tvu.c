@@ -319,7 +319,7 @@ struct fd_turbine_thread_args {
   fd_replay_t *  replay;
 };
 
-static void * fd_turbine_thread( void * ptr );
+static int fd_turbine_thread( int argc, char ** argv );
 
 struct fd_repair_thread_args {
   volatile int * stopflag;
@@ -327,7 +327,7 @@ struct fd_repair_thread_args {
   fd_replay_t *  replay;
 };
 
-static void * fd_repair_thread( void * ptr );
+static int fd_repair_thread( int argc, char ** argv );
 
 struct fd_gossip_thread_args {
   volatile int * stopflag;
@@ -335,7 +335,7 @@ struct fd_gossip_thread_args {
   fd_replay_t *  replay;
 };
 
-static void * fd_gossip_thread( void * ptr );
+static int fd_gossip_thread( int argc, char ** argv );
 
 static fd_exec_slot_ctx_t *
 fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
@@ -395,29 +395,41 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
   if( fd_gossip_update_tvu_addr( runtime_ctx->gossip, tvu_addr, tvu_fwd_addr ) )
     FD_LOG_ERR( ( "error setting gossip tvu" ) );
 
+  if( runtime_args->tcnt < 3 )
+    FD_LOG_ERR(( "tcnt parameter must be >= 3 in live case" ));
+  
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .stopflag = &runtime_ctx->stopflag, .tvu_fd = tvu_fd, .replay = replay };
-  pthread_t turb_thread;
-  int rc = pthread_create( &turb_thread, NULL, fd_turbine_thread, &ttarg );
-  if (rc)
-    FD_LOG_ERR( ( "error creating turbine thread: %s", strerror(errno) ) );
+  fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, (char**)&ttarg );
+  if( tile == NULL )
+    FD_LOG_ERR( ( "error creating turbine thread" ) );
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
     { .stopflag = &runtime_ctx->stopflag, .repair_fd = repair_fd, .replay = replay };
-  pthread_t repair_thread;
-  rc = pthread_create( &repair_thread, NULL, fd_repair_thread, &reparg );
-  if (rc)
-    FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
+  tile = fd_tile_exec_new( 2, fd_repair_thread, 0, (char**)&reparg );
+  if( tile == NULL )
+    FD_LOG_ERR( ( "error creating repair thread:" ) );
 
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
     { .stopflag = &runtime_ctx->stopflag, .gossip_fd = gossip_fd, .replay = replay };
-  pthread_t gossip_thread;
-  rc = pthread_create( &gossip_thread, NULL, fd_gossip_thread, &gosarg );
-  if (rc)
-    FD_LOG_ERR( ( "error creating repair thread: %s", strerror(errno) ) );
+  tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, (char**)&gosarg );
+  if( tile == NULL )
+    FD_LOG_ERR( ( "error creating repair thread" ) );
+
+  fd_tpool_t * tpool = NULL;
+  if( runtime_args->tcnt > 3 ) {
+    tpool = fd_tpool_init( runtime_ctx->tpool_mem, runtime_args->tcnt - 3 );
+    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
+    for( ulong i = 4; i < runtime_args->tcnt; ++i ) {
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 32UL<<20UL ) ) == NULL )
+        FD_LOG_ERR( ( "failed to launch worker" ) );
+    }
+  }
+  replay->tpool       = runtime_ctx->tpool       = tpool;
+  replay->max_workers = runtime_ctx->max_workers = runtime_args->tcnt-3;
 
   if( runtime_ctx->need_incr_snap ) {
     /* Wait for first turbine packet before grabbing the incremental snapshot */
@@ -462,10 +474,6 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     nanosleep(&ts, NULL);
   }
 
-  pthread_join( turb_thread, NULL );
-  pthread_join( repair_thread, NULL );
-  pthread_join( gossip_thread, NULL );
-
   close( gossip_fd );
   close( repair_fd );
   close( tvu_fd );
@@ -485,9 +493,10 @@ fd_tvu_setup_scratch( fd_valloc_t valloc ) {
   return smax;
 }
 
-static void *
-fd_turbine_thread( void * ptr ) {
-  struct fd_turbine_thread_args * args = (struct fd_turbine_thread_args *)ptr;
+static int
+fd_turbine_thread( int argc, char ** argv ) {
+  (void)argc;
+  struct fd_turbine_thread_args * args = (struct fd_turbine_thread_args *)argv;
   volatile int * stopflag = args->stopflag;
   int tvu_fd = args->tvu_fd;
 
@@ -524,12 +533,13 @@ fd_turbine_thread( void * ptr ) {
       fd_replay_turbine_rx( args->replay, shred, msgs[i].msg_len );
     }
   }
-  return NULL;
+  return 0;
 }
 
-static void *
-fd_repair_thread( void * ptr ) {
-  struct fd_repair_thread_args * args = (struct fd_repair_thread_args *)ptr;
+static int
+fd_repair_thread( int argc, char ** argv ) {
+  (void)argc;
+  struct fd_repair_thread_args * args = (struct fd_repair_thread_args *)argv;
   volatile int * stopflag = args->stopflag;
   int repair_fd = args->repair_fd;
   fd_repair_t * repair = args->replay->repair;
@@ -562,12 +572,13 @@ fd_repair_thread( void * ptr ) {
       fd_repair_recv_packet( repair, bufs[i], msgs[i].msg_len, &from );
     }
   }
-  return NULL;
+  return 0;
 }
 
-static void *
-fd_gossip_thread( void * ptr ) {
-  struct fd_gossip_thread_args * args = (struct fd_gossip_thread_args *)ptr;
+static int
+fd_gossip_thread( int argc, char ** argv ) {
+  (void)argc;
+  struct fd_gossip_thread_args * args = (struct fd_gossip_thread_args *)argv;
   volatile int * stopflag = args->stopflag;
   int gossip_fd = args->gossip_fd;
   fd_gossip_t * gossip = args->replay->gossip;
@@ -600,7 +611,7 @@ fd_gossip_thread( void * ptr ) {
       fd_gossip_recv_packet( gossip, bufs[i], msgs[i].msg_len, &from );
     }
   }
-  return NULL;
+  return 0;
 }
 
 typedef struct {
@@ -1001,7 +1012,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
 
-  ulong smax = fd_tvu_setup_scratch( valloc );
+  fd_tvu_setup_scratch( valloc );
 
   turbine_setup_t turbine_setup_out = {0};
   turbine_setup( wksp, &turbine_setup_out );
@@ -1048,18 +1059,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   /* Thread pool                                                        */
   /**********************************************************************/
 
-  if( args->tcnt == ULONG_MAX ) { args->tcnt = fd_tile_cnt(); }
-  fd_tpool_t * tpool = NULL;
-  if( args->tcnt > 1 ) {
-    tpool = fd_tpool_init( runtime_ctx->tpool_mem, args->tcnt );
-    if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
-    for( ulong i = 1; i < args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( smax ) ) == NULL )
-        FD_LOG_ERR( ( "failed to launch worker" ) );
-    }
-  }
-  runtime_ctx->tpool       = tpool;
-  runtime_ctx->max_workers = args->tcnt;
+  runtime_ctx->tpool       = NULL;
+  runtime_ctx->max_workers = 0;
 
   if( runtime_ctx->live ) {
 #ifdef FD_HAS_LIBMICROHTTP
@@ -1145,9 +1146,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     fd_memset( bank_matches_mem, 0, fd_bank_match_map_footprint( bank_matches_lg_slot_cnt ) );
     replay_setup_out.replay->epoch_ctx->bank_matches = fd_bank_match_map_join(
         fd_bank_match_map_new( bank_matches_mem, bank_matches_lg_slot_cnt ) );
+    replay_setup_out.replay->epoch_ctx->bank_matches_lock = 0;
 
-    replay_setup_out.replay->tpool       = tpool;
-    replay_setup_out.replay->max_workers = args->tcnt;
     replay_setup_out.replay->repair      = repair;
     replay_setup_out.replay->gossip      = gossip;
 

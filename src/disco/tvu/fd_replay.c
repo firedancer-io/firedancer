@@ -400,14 +400,15 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
-  FD_LOG_NOTICE( ( "slot: %lu", slot ) );
-  FD_LOG_NOTICE( ( "first turbine: %lu, curr turbine: %lu, behind: %lu",
+  FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current executed: %d, caught up: %d",
                    replay->first_turbine_slot,
                    replay->curr_turbine_slot,
-                   replay->curr_turbine_slot - slot ) );
+                   replay->curr_turbine_slot - slot,
+                   slot,
+                   slot > replay->first_turbine_slot ) );
   FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
 
-  fd_vote_bank_match_check( child->slot_ctx.epoch_ctx->bank_matches, slot, &child->slot_ctx.slot_bank.banks_hash, 1 );
+  fd_vote_bank_match_check( child->slot_ctx.epoch_ctx->bank_matches, slot, &child->slot_ctx.slot_bank.banks_hash, 1, &child->slot_ctx.epoch_ctx->bank_matches_lock );
   
 
   //   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =

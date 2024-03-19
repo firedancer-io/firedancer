@@ -161,8 +161,11 @@ int fd_tile_exec_done( fd_tile_exec_t const * exec );
 /* These functions are for fd_util internal use only. */
 
 void
-fd_tile_private_boot( int *    pargc,
-                      char *** pargv );
+fd_tile_private_boot_env( int *    pargc,
+                          char *** pargv );
+
+void
+fd_tile_private_boot( ushort * tile_to_cpu, ulong tile_cnt );
 
 void
 fd_tile_private_halt( void );

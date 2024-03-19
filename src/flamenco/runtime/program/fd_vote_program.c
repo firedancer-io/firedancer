@@ -1769,7 +1769,8 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   fd_vote_lockout_t * last_vote = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
   if( FD_LIKELY( last_vote ) ) {
     fd_vote_bank_match_check(
-        ctx.epoch_ctx->bank_matches, last_vote->slot, &vote_state_update->hash, 0 );
+        /* TODO: LML the cast to volatile ulong * is gross and required because ctx.epoch_ctx is const */
+        ctx.epoch_ctx->bank_matches, last_vote->slot, &vote_state_update->hash, 0, (volatile ulong *)&ctx.epoch_ctx->bank_matches_lock );
   }
 
   rc = do_process_vote_state_update(
@@ -2698,8 +2699,24 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_
   convert_to_current( self, ctx );
 }
 
+static void
+fd_vote_program_match_lock( volatile ulong * lock ) {
+  for(;;) {
+    if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0UL, 1UL) ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_vote_program_match_unlock( volatile ulong * lock ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *lock ) = 0UL;
+}
+
 void
-fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t const * bank_hash, int ours ) {
+fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t const * bank_hash, int ours, volatile ulong * lock ) {
+  fd_vote_program_match_lock( lock );
   if( FD_UNLIKELY( bank_matches ) ) {
 
     fd_bank_match_t * bank_match = fd_bank_match_map_query( bank_matches, slot, NULL );
@@ -2755,4 +2772,5 @@ fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t 
       FD_LOG_DEBUG( ( "other bank hash is not ready: %lu", slot ) );
     }
   }
+  fd_vote_program_match_unlock( lock ); 
 }

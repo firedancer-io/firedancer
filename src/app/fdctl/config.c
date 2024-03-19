@@ -264,6 +264,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_USHORT( ., tiles.tvu,           tvu_port                                                  );
   ENTRY_USHORT( ., tiles.tvu,           tvu_fwd_port                                              );
   ENTRY_USHORT( ., tiles.tvu,           rpc_listen_port                                           );
+  ENTRY_UINT  ( ., tiles.tvu,           tcnt                                                      );
+  ENTRY_UINT  ( ., tiles.tvu,           txn_max                                                   );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
@@ -733,6 +735,8 @@ config_tiles( config_t * config ) {
         tile->tvu.tvu_port           = config->tiles.tvu.tvu_port;
         tile->tvu.tvu_fwd_port       = config->tiles.tvu.tvu_fwd_port;
         tile->tvu.rpc_listen_port    = config->tiles.tvu.rpc_listen_port;
+        tile->tvu.tcnt               = config->tiles.tvu.tcnt;
+        tile->tvu.txn_max            = config->tiles.tvu.txn_max;
         break;
       case FD_TOPO_TILE_KIND_GOSSIP:
         tile->gossip.gossip_listen_port =  config->tiles.gossip.gossip_listen_port;
@@ -754,6 +758,8 @@ config_tiles( config_t * config ) {
         fd_memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        break;
+      case FD_TOPO_TILE_KIND_TVU_THREAD:
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

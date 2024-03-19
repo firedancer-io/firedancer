@@ -1,0 +1,37 @@
+name: testnet
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+jobs:
+  testnet:
+    runs-on: testnet
+    env:
+      CC: gcc
+    strategy:
+      matrix:
+        test_case:
+          - test-tvu-testnet.sh
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - name: really make sure fddev is not running
+        run: |
+          sudo killall fddev || true
+      - uses: ./.github/actions/hugepages
+
+      - name: build
+        run: |
+          . "$HOME/.cargo/env"
+          . /opt/rh/gcc-toolset-12/enable
+          ./contrib/make-j fddev all
+
+      - name: ./${{ matrix.test_case }}
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          ./${{ matrix.test_case }}

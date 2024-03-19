@@ -213,6 +213,8 @@ tile_main( void * _args ) {
 void
 run1_cmd_fn( args_t *         args,
              config_t * const config ) {
+  if( args->run1.tile_kind == FD_TOPO_TILE_KIND_TVU_THREAD ) return;
+
   ulong pid = (ulong)getpid1(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
 

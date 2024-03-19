@@ -200,6 +200,7 @@ run_firedancer_threaded( config_t * config ) {
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    if( tile->kind == FD_TOPO_TILE_KIND_TVU_THREAD ) continue;
 
     ulong cpu_idx = tile_to_cpu[ i ];
     void * stack = fd_tile_private_stack_new( 1, cpu_idx );

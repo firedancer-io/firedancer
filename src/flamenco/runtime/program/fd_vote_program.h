@@ -91,7 +91,8 @@ void
 fd_vote_bank_match_check( fd_bank_match_t * bank_matches,
                           ulong             slot,
                           fd_hash_t const * bank_hash,
-                          int               ours );
+                          int               ours,
+                          volatile ulong  * lock );
 
 int
 fd_vote_decode_compact_update( fd_exec_instr_ctx_t              ctx,
