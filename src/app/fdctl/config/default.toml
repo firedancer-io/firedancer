@@ -721,15 +721,13 @@ dynamic_port_range = "8900-9000"
         # a period of time.  Once this timeout is reached the connection
         # will be terminated.
         #
-        # An idle connection will be terminated if it remains idle longer than
-        # some threshold. "idle_timeout_millis" represents this threshold in
-        # milliseconds
+        # An idle connection will be terminated if it remains idle
+        # longer than this threshold.
         idle_timeout_millis = 10000
 
-        # Whether QUIC RETRY is enabled
-        # QUIC RETRY is a feature to combat New Connection Request spamming
-        #
-        # This is a boolean
+        # QUIC retry is a feature to combat new connection request
+        # spamming.  See rfc9000 8.1.2 for more details.  This flag
+        # determines whether the feature is enabled in the validator.
         retry = true
 
     # Verify tiles perform signature verification of incoming
@@ -820,8 +818,7 @@ dynamic_port_range = "8900-9000"
     # endpoint.
     [tiles.metric]
         # The port to listen on for HTTP request for Prometheus metrics.
-        # Firedancer serves metrics at a URI like
-        # 127.0.0.1:7999/metrics
+        # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
 # These options can be useful for development, but should not be used
@@ -852,28 +849,29 @@ dynamic_port_range = "8900-9000"
     # `--no-clone` argument to `fddev`.
     no_clone = false
 
-    # Firedancer currently hosts a Solana Labs client as a child process when
-    # it starts up, to provide functionality that has not yet been implemented.
-    # For development sometimes it is desirable to not launch this subprocess,
-    # although it will prevent the validator from operating correctly.
+    # Firedancer currently hosts a Solana Labs client as a child process
+    # when it starts up, to provide functionality that has not yet been
+    # implemented. For development sometimes it is desirable to not
+    # launch this subprocess, although it will prevent the validator
+    # from operating correctly.
     #
-    # In development, you can disable solana for testing and debugging with
-    # the `--no-solana-labs` argument to `fddev`.
+    # In development, you can disable solana for testing and debugging
+    # with the `--no-solana-labs` argument to `fddev`.
     no_solana_labs = false
 
-    # Sometimes, it may be useful to run a bootstrap firedancer validator,
-    # either for development or for testing purposes.  The `fddev` tool is
-    # provided for this purpose, which creates the bootstrap keys and does
-    # the cluster genesis using some parameters that are typically useful
-    # for development.
+    # Sometimes, it may be useful to run a bootstrap firedancer
+    # validator, either for development or for testing purposes.  The
+    # `fddev` tool is provided for this purpose, which creates the
+    # bootstrap keys and does the cluster genesis using some parameters
+    # that are typically useful for development.
     #
     # Enabling this allows de-coupling the genesis and key creation from
-    # the validator startup.  The bootstrap validator can then be started
-    # up with `fdctl`.  It will expect the genesis to already exist at
-    # [ledger.path].  The keys used during genesis should be the same as
-    # the ones supplied in the [consensus.identity_path] and
-    # [consensus.vote_account_path].  This option will not be effective if
-    # [gossip.entrypoints] is non-empty.
+    # the validator startup.  The bootstrap validator can then be
+    # started up with `fdctl`.  It will expect the genesis to already
+    # exist at [ledger.path].  The keys used during genesis should be
+    # the same as the ones supplied in the [consensus.identity_path] and
+    # [consensus.vote_account_path].  This option will not be effective
+    # if [gossip.entrypoints] is non-empty.
     bootstrap = false
 
     # It can be convenient during development to use a network namespace
@@ -918,8 +916,59 @@ dynamic_port_range = "8900-9000"
         interface1_mac = "52:F1:7E:DA:2C:E1"
         # IP address of the second network namespace.
         interface1_addr = "198.18.0.2"
+
     [development.gossip]
-        # Under normal operating conditions, a validator should always reach out to a host located on the public internet.
-        # This configuration item allows Firedancer to gossip with nodes located on a private internet (rfc1918).
-        # This option is passed to the Solana Labs client with the `--allow-private-addr` flag.
+        # Under normal operating conditions, a validator should always
+        # reach out to a host located on the public internet.  If this
+        # value is true, it allows the validator to gossip with nodes
+        # configuration item allows Firedancer to gossip with nodes
+        # located on a private internet (rfc1918).
+        #
+        # This option is passed to the Solana Labs client with the
+        # `--allow-private-addr` flag.
         allow_private_address = false
+
+    [development.genesis]
+        # When creating a new chain from genesis during development,
+        # this option can be used to specify the number of hashes in
+        # each tick of the proof history component.
+        #
+        # A value of one is the default, and will be used to mean that
+        # the proof of history component will run in low power mode,
+        # and use one hash per tick.  This is equivalent to a value of
+        # "sleep" when providing hashes-per-tick to the Solana Labs
+        # genesis.
+        #
+        # A value of zero means the genesis will automatically determine
+        # the number of hashes in each tick based on how many hashes
+        # the generating computer can do in the target tick duration
+        # specified below.
+        #
+        # A value of 12500 is the same as mainnet, devnet, and testnet.
+        #
+        # This value specifies the initial value for chain in the
+        # genesis, but it might be immediately overriden at runtime if
+        # the related features which increase this value are enabled.
+        # The features are like update_hashes_per_tick2.
+        hashes_per_tick = 1
+
+        # How long each tick of the proof of history component should
+        # take, in microseconds.  This value specifies the initial value
+        # of the chain and it will not change at runtime.  The default
+        # value used here is the same as mainnet, devnet, and testnet.
+        target_tick_duration_micros = 6250
+
+        # The number of ticks in each slot.  This value specifies the
+        # initial value of the chain and it will not change at runtime.
+        # The default value used here is the same as mainnet, devnet,
+        # and testnet.
+        ticks_per_slot = 64
+
+        # The count of accounts to pre-fund in the genesis block with
+        # SOL.  Useful for benchmarking and development.  The specific
+        # accounts that will be funded are those with private-keys of
+        # 0, 1, 2, .... N.
+        fund_initial_accounts = 1024
+
+        # The amount of SOL to pre-fund each account with.
+        fund_initial_amount_lamports = 50000000000000

@@ -60,6 +60,7 @@ solana_labs_thread_main( void * _args ) {
 
 static void
 add_bench_topo( fd_topo_t * topo,
+                ulong       accounts_cnt,
                 ushort      send_to_port,
                 uint        send_to_ip_addr,
                 ushort      rpc_port,
@@ -75,7 +76,10 @@ add_bench_topo( fd_topo_t * topo,
   fd_topo_tile_t *bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", USHORT_MAX, 0, "bencho_out", 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
-  for( ulong i=0UL; i<benchg_tile_cnt; i++ )  fd_topob_tile( topo, "benchg", "bench", "bench", "bench", USHORT_MAX, 0, "benchg_s", i );
+  for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", USHORT_MAX, 0, "benchg_s", i );
+    benchg->benchg.accounts_cnt = accounts_cnt;
+  }
   fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", USHORT_MAX, 0, NULL, 0 );
   benchs->benchs.send_to_ip_addr = send_to_ip_addr;
   benchs->benchs.send_to_port    = send_to_port;
@@ -93,7 +97,8 @@ bench_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  add_bench_topo( &config->topo, config->tiles.quic.regular_transaction_listen_port, config->tiles.net.ip_addr,
+  add_bench_topo( &config->topo, config->development.genesis.fund_initial_accounts,
+                  config->tiles.quic.regular_transaction_listen_port, config->tiles.net.ip_addr,
                   config->rpc.port, config->tiles.net.ip_addr );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
