@@ -10,6 +10,7 @@
 #include "../../types/fd_types.h"
 
 #include "fd_tower_ctx.h"
+#include "../sysvar/fd_sysvar_cache.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
@@ -35,6 +36,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_pubkey_t const *      leader; /* Current leader */
   fd_slot_bank_t           slot_bank;
+  fd_sysvar_cache_t *      sysvar_cache;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))
@@ -52,7 +54,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 FD_PROTOTYPES_BEGIN
 
 void *
-fd_exec_slot_ctx_new( void * mem );
+fd_exec_slot_ctx_new( void *      mem,
+                      fd_valloc_t valloc );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_join( void * mem );

@@ -6,7 +6,8 @@
 #include <time.h>
 
 void *
-fd_exec_slot_ctx_new( void * mem ) {
+fd_exec_slot_ctx_new( void *      mem,
+                      fd_valloc_t valloc ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -19,11 +20,13 @@ fd_exec_slot_ctx_new( void * mem ) {
 
   fd_memset(mem, 0, FD_EXEC_SLOT_CTX_FOOTPRINT);
 
-  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
+  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
+  self->valloc = valloc;
 
   self->rng = fd_rng_join( fd_rng_new(&self->rnd_mem, (uint) time(0), 0) );
 
   fd_slot_bank_new(&self->slot_bank);
+  self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
@@ -84,6 +87,9 @@ fd_exec_slot_ctx_delete( void * mem ) {
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
   fd_slot_bank_destroy(&hdr->slot_bank, &ctx);
+
+  fd_valloc_free( hdr->valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
+  hdr->sysvar_cache = NULL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;

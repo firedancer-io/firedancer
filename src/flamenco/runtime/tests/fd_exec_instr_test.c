@@ -155,7 +155,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem  ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   epoch_ctx->valloc = fd_scratch_virtual();
@@ -195,7 +195,6 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->epoch_ctx = epoch_ctx;
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->acc_mgr   = acc_mgr;
-  slot_ctx->valloc    = fd_scratch_virtual();
 
   /* TODO: Restore slot_bank */
 
@@ -246,6 +245,31 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ )
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
       return 0;
+
+  /* Restore sysvar cache */
+
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  /* Handle undefined behavior if sysvars are malicious (!!!) */
+
+  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( rent ) {
+    if( ( isnan( rent->exemption_threshold )       ) |
+        ( rent->exemption_threshold     <      0.0 ) |
+        ( rent->exemption_threshold     >    999.0 ) |
+        ( rent->lamports_per_uint8_year > UINT_MAX ) |
+        ( rent->burn_percent            >      100 ) )
+      return 0;
+  }
+
+  /* Override most recent blockhash if given */
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+    if( last )
+      *recent_block_hash = *last;
+  }
 
   /* Load instruction accounts */
 
