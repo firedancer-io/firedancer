@@ -2,6 +2,7 @@
 #include "fd_topo.h"
 
 #include "../../util/tile/fd_tile_private.h"
+#include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>
 #include <signal.h>
@@ -11,6 +12,8 @@
 #include <linux/futex.h>
 #include <sys/resource.h>
 #include <sys/prctl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 static void
 initialize_logging( char const * tile_name,
@@ -208,6 +211,72 @@ run_tile_thread_main( void * _args ) {
   return NULL;
 }
 
+void *
+fd_topo_tile_stack_new( int          optimize,
+                        char const * app_name,
+                        char const * tile_name,
+                        ulong        tile_kind_id,
+                        ulong        cpu_idx ) {
+  uchar * stack = NULL;
+
+  if( FD_LIKELY( optimize ) ) {
+    char name[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu.wksp", app_name, tile_name, tile_kind_id ) );
+
+    ulong sub_page_cnt[ 1 ] = { 6 };
+    ulong sub_cpu_idx [ 1 ] = { cpu_idx };
+    int err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
+      char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
+      FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( FD_SHMEM_HUGE_PAGE_SZ ) ));
+      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
+                   "with %lu %s pages. Firedancer has successfully reserved enough memory "
+                   "for all of its workspaces during the `hugetlbfs` configure step, so it is "
+                   "likely you have unused files left over in this directory which are consuming "
+                   "memory.",
+                   name, mount_path, sub_page_cnt[ 0 ], fd_shmem_page_sz_to_cstr( FD_SHMEM_HUGE_PAGE_SZ ) ));
+    }
+    else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
+
+    stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL );
+    if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
+
+    /* Make space for guard lo and guard hi */
+    if( FD_UNLIKELY( fd_shmem_release( stack, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
+      FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
+    stack += FD_SHMEM_HUGE_PAGE_SZ;
+    if( FD_UNLIKELY( fd_shmem_release( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
+      FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
+  } else {
+    ulong mmap_sz = FD_TILE_PRIVATE_STACK_SZ + 2UL*FD_SHMEM_NORMAL_PAGE_SZ;
+    stack = (uchar *)mmap( NULL, mmap_sz, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, (off_t)0 );
+    if( FD_UNLIKELY( stack==MAP_FAILED ) )
+      FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* Make space for guard lo and guard hi */
+    if( FD_UNLIKELY( munmap( stack, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+      FD_LOG_WARNING(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    stack += FD_SHMEM_NORMAL_PAGE_SZ;
+
+    if( FD_UNLIKELY( munmap( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_NORMAL_PAGE_SZ ) ) )
+      FD_LOG_WARNING(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Create the guard regions in the extra space */
+  void * guard_lo = (void *)(stack - FD_SHMEM_NORMAL_PAGE_SZ );
+  if( FD_UNLIKELY( mmap( guard_lo, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_lo ) )
+    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  void * guard_hi = (void *)(stack + FD_TILE_PRIVATE_STACK_SZ);
+  if( FD_UNLIKELY( mmap( guard_hi, FD_SHMEM_NORMAL_PAGE_SZ, PROT_NONE,
+                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, (off_t)0 )!=guard_hi ) )
+    FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return stack;
+}
+
 static inline pthread_t
 run_tile_thread( fd_topo_t *         topo,
                  fd_topo_tile_t *    tile,
@@ -220,7 +289,7 @@ run_tile_thread( fd_topo_t *         topo,
   /* TODO: Use a better CPU idx for the stack if tile is floating */
   ulong stack_cpu_idx = 0UL;
   if( FD_LIKELY( tile->cpu_idx<65535UL ) ) stack_cpu_idx = tile->cpu_idx;
-  void * stack = fd_tile_private_stack_new( 1, stack_cpu_idx );
+  void * stack = fd_topo_tile_stack_new( 1, topo->app_name, tile->name, tile->kind_id, stack_cpu_idx );
 
   pthread_attr_t attr[ 1 ];
   if( FD_UNLIKELY( pthread_attr_init( attr ) ) ) FD_LOG_ERR(( "pthread_attr_init() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

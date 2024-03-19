@@ -195,8 +195,7 @@ run_solana_cmd_fn( args_t *         args,
   fd_log_thread_set( "solana-labs" );
 
   /* Run Solana Labs with an optimized huge page stack on numa node 0 ... */
-  void * stack = fd_tile_private_stack_new( 1, 0UL );
-  if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
+  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
 
   /* Also clone Solana Labs into PID namespaces so it cannot signal
      other tile or the parent. */

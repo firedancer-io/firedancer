@@ -127,7 +127,7 @@ typedef struct {
   struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
-  } shmem;
+  } hugetlbfs;
 
   struct {
     int sandbox;

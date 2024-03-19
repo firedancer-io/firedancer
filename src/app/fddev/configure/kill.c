@@ -69,8 +69,8 @@ maybe_kill( config_t * const config,
   char line[ 4096 ];
   while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
     if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-    if( FD_UNLIKELY( strstr( line, config->shmem.gigantic_page_mount_path ) ||
-                      strstr( line, config->shmem.huge_page_mount_path ) ) ) {
+    if( FD_UNLIKELY( strstr( line, config->hugetlbfs.gigantic_page_mount_path ) ||
+                      strstr( line, config->hugetlbfs.huge_page_mount_path ) ) ) {
       killed = 1;
       FD_LOG_NOTICE(( "killing process `%s` (%lu): has a workspace file descriptor open", proc_cmdline, pid ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));

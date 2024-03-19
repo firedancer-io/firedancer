@@ -17,8 +17,7 @@ extern configure_stage_t keys;
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &_kill,
   &netns,
-  &large_pages,
-  &shmem,
+  &hugetlbfs,
   &sysctl,
   &xdp,
   &xdp_leftover,

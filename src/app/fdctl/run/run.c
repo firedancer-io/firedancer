@@ -338,8 +338,7 @@ clone_firedancer( config_t * const config,
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   struct pidns_clone_args args = { .config = config, .closefd = close_fd, .pipefd = pipefd, };
 
-  void * stack = fd_tile_private_stack_new( 0, 65535UL );
-  if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
+  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

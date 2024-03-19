@@ -233,8 +233,8 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
-  ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
-  ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
+  ENTRY_STR   ( ., hugetlbfs,           gigantic_page_mount_path                                  );
+  ENTRY_STR   ( ., hugetlbfs,           huge_page_mount_path                                      );
 
   ENTRY_STR   ( ., tiles.net,           interface                                                 );
   ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );

@@ -84,12 +84,10 @@ fd_topo_create_workspaces( fd_topo_t * topo ) {
       char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
       FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
-                   "with %lu %s pages. The memory needed should already be successfully "
-                   "reserved by the `large-pages` configure step, so there are two "
-                   "likely reasons. You might have workspaces leftover in the same "
-                   "directory from an older release of Firedancer which can be removed "
-                   "with `fdctl configure fini workspace`, or another process on the "
-                   "system is using the pages we reserved.",
+                   "with %lu %s pages. Firedancer has successfully reserved enough memory "
+                   "for all of its workspaces during the `hugetlbfs` configure step, so it is "
+                   "likely you have unused files left over in this directory which are consuming "
+                   "memory.",
                    name, mount_path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
     else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
@@ -253,7 +251,8 @@ fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
 }
 
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo ) {
+fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       int         include_anonymous ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_HUGE_PAGE_SZ ) ) {
@@ -261,9 +260,13 @@ fd_topo_huge_page_cnt( fd_topo_t * topo ) {
     }
   }
 
+  /* The stack huge pages are also placed in the hugetlbfs. */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ] );
   }
+
+  /* No anonymous huge pages in use yet. */
+  (void)include_anonymous;
 
   return result;
 }
@@ -314,7 +317,7 @@ fd_topo_print_log( int         stdout,
   PRINT( "\nSUMMARY\n" );
 
   /* The logic to compute number of stack pages is taken from
-     fd_tile_thread.cxx, in function fd_tile_private_stack_new, and this
+     fd_tile_thread.cxx, in function fd_topo_tile_stack_new, and this
      should match that. */
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 
@@ -332,7 +335,7 @@ fd_topo_print_log( int         stdout,
     (total_bytes % (1 << 30)) / (1 << 20),
     (total_bytes % (1 << 20)) / (1 << 10) );
   PRINT("  %23s: %lu\n", "Required Gigantic Pages", fd_topo_gigantic_page_cnt( topo ) );
-  PRINT("  %23s: %lu\n", "Required Huge Pages", fd_topo_huge_page_cnt( topo ) );
+  PRINT("  %23s: %lu\n", "Required Huge Pages", fd_topo_huge_page_cnt( topo, 1 ) );
   PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
 
   PRINT( "\nWORKSPACES\n");

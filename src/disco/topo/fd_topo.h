@@ -445,6 +445,26 @@ fd_topo_wksp_apply( fd_topo_t * topo,
 void
 fd_topo_fill( fd_topo_t * topo );
 
+/* fd_topo_tile_stack_new creates a new huge page optimized stack for
+   provided tile.  The stack is placed in a workspace in the hugetlbfs
+   mount.
+   
+   If optimize is 1, fd_topo_tile_stack_new creates a new huge page
+   optimized stack for the provided tile.  The stack will be placed
+   in a workspace in the hugetlbfs, with a name determined by the
+   provided app_name, tile_name, and tile_kind_id arguments.
+   
+   If optimize is 0, fd_topo_tile_stack_new creates a new regular
+   page backed stack, which is not placed in the hugetlbfs.  In
+   this case cpu_idx and the other arguments are ignored. */
+
+void *
+fd_topo_tile_stack_new( int          optimize,
+                        char const * app_name,
+                        char const * tile_name,
+                        ulong        tile_kind_id,
+                        ulong        cpu_idx );
+
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
    that thread to the given UID and GID and then runs the tile in it.
@@ -557,12 +577,14 @@ fd_topo_mlock( fd_topo_t * topo );
 FD_FN_PURE ulong
 fd_topo_gigantic_page_cnt( fd_topo_t * topo );
 
-/* This returns the number of gigantic pages needed by the topology.
-   It includes pages needed by the workspaces, as well as additional
-   allocations like huge pages for process stacks and private key
-   storage. */
+/* This returns the number of huge pages in the application needed by
+   the topology.  It includes pages needed by things placed in the
+   hugetlbfs (workspaces, process stacks).  If include_anonymous is
+   true, it also includes anonymous hugepages which are needed but
+   are not placed in the hugetlbfs. */
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo );
+fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       int         include_anonymous );
 
 /* Check all invariants of the given topology to make sure it is valid.
    An invalid topology will cause the program to abort with an error
