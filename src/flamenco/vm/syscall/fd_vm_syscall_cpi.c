@@ -678,69 +678,6 @@ check_authorized_program( uchar const *        program_id,
          is_precompile(program_id);
 }
 
-/* FIXME: PREFIX */
-static int
-from_account_info_rust( fd_vm_t *            vm,
-                        fd_vm_rust_account_info_t const * account_info,
-                        fd_caller_account_t *             out ) {
-  fd_vm_rc_refcell_t const * caller_acc_lamports_box =
-    fd_vm_translate_vm_to_host_const( vm, account_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_lamports_box ) ) return FD_VM_ERR_PERM;
-
-  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( vm, caller_acc_lamports_box->addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
-
-  out->lamports = *caller_acc_lamports;
-
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  /* FIXME: TEST? */
-  fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
-
-  fd_vm_rc_refcell_vec_t * caller_acc_data_box =
-    fd_vm_translate_vm_to_host( vm, account_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN );
-  if( FD_UNLIKELY( !caller_acc_data_box ) ) return FD_VM_ERR_PERM;
-
-  int err = fd_vm_consume_compute( vm, caller_acc_data_box->len / FD_VM_CPI_BYTES_PER_UNIT );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  uchar * caller_acc_data = fd_vm_translate_vm_to_host( vm, caller_acc_data_box->addr, caller_acc_data_box->len, alignof(uchar) );
-  if( FD_UNLIKELY( !caller_acc_data ) ) return FD_VM_ERR_PERM;
-
-  out->serialized_data = caller_acc_data;
-  out->serialized_data_len = caller_acc_data_box->len;
-  out->executable = FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->executable;
-  out->rent_epoch = FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->rent_epoch;
-  return 0;
-}
-
-/* FIXME: PREFIX */
-static int
-from_account_info_c( fd_vm_t * vm,
-                     fd_vm_c_account_info_t const * account_info,
-                     fd_caller_account_t * out ) {
-
-  ulong * caller_acc_lamports = fd_vm_translate_vm_to_host( vm, account_info->lamports_addr, sizeof(ulong), alignof(ulong) );
-  if( FD_UNLIKELY( !caller_acc_lamports ) ) return FD_VM_ERR_PERM;
-
-  out->lamports = *caller_acc_lamports;
-
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  /* FIXME: TEST? */
-  fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
-
-  int err = fd_vm_consume_compute( vm, account_info->data_sz / FD_VM_CPI_BYTES_PER_UNIT );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  uchar * caller_acc_data = fd_vm_translate_vm_to_host( vm, account_info->data_addr, account_info->data_sz, alignof(uchar) );
-  /* FIXME: TEST? */
-
-  out->serialized_data = caller_acc_data;
-  out->serialized_data_len = account_info->data_sz;
-  out->executable = FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->executable;
-  out->rent_epoch = FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->rent_epoch;
-  return 0;
-}
-
 /*
 TODO: check_align is set wrong in the runtime, ensure that it is set correctly:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L869-L881.
@@ -765,8 +702,6 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_C_ACCOUNT_INFO_SIZE)
 
 // TODO: remove these
-#define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (1)
-#define VM_SYSCALL_ACC_INFO_INNER              c_acct_infos
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_c
 
 // Instruction accessors
@@ -787,28 +722,43 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) \
   fd_vm_translate_vm_to_host_const( vm, acc_meta->pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) )
 
+#define VM_SYSCALL_CALLER_ACC_DATA( vm, acc_info, decl ) \
+  uchar * decl = fd_vm_translate_vm_to_host( vm, acc_info->data_addr, acc_info->data_sz, alignof(uchar) ); \
+  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
+// Account Info accessors
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
+  ulong * decl = fd_vm_translate_vm_to_host( vm, acc_info->lamports_addr, sizeof(ulong), alignof(ulong) ); \
+  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM;
+
+#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
+  uchar * decl = fd_vm_translate_vm_to_host( vm, acc_info->data_addr, acc_info->data_sz, alignof(uchar) ); \
+  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
 #include "fd_vm_syscall_common.c"
 
-#undef VM_SYSCALL_CPI_ABI                    
-#undef VM_SYSCALL_CPI_INSTR_T                 
-#undef VM_SYSCALL_CPI_INSTR_ALIGN             
-#undef VM_SYSCALL_CPI_INSTR_SIZE              
-#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR         
-#undef VM_SYSCALL_CPI_INSTR_DATA_LEN         
-#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR 
-#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
-#undef VM_SYSCALL_CPI_ACC_META_T              
-#undef VM_SYSCALL_CPI_ACC_META_ALIGN          
-#undef VM_SYSCALL_CPI_ACC_META_SIZE      
+#undef VM_SYSCALL_CPI_ABI
+#undef VM_SYSCALL_CPI_INSTR_T
+#undef VM_SYSCALL_CPI_INSTR_ALIGN
+#undef VM_SYSCALL_CPI_INSTR_SIZE
+#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR
+#undef VM_SYSCALL_CPI_INSTR_DATA_LEN
+#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
+#undef VM_SYSCALL_CPI_ACC_META_T
+#undef VM_SYSCALL_CPI_ACC_META_ALIGN
+#undef VM_SYSCALL_CPI_ACC_META_SIZE
 #undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
 #undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
 #undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY
-#undef VM_SYSCALL_CPI_ACC_INFO_T              
-#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
-#undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
-#undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
-#undef VM_SYSCALL_ACC_INFO_INNER              
-#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
+#undef VM_SYSCALL_CPI_ACC_INFO_T
+#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN
+#undef VM_SYSCALL_CPI_ACC_INFO_SIZE
+#undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC
 #undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
 
 /**********************************************************************
@@ -827,8 +777,6 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_RUST_ACCOUNT_INFO_SIZE)
 
 // TODO: remove these
-#define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (0)
-#define VM_SYSCALL_ACC_INFO_INNER              rust_acct_infos
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_rust
 
 // Instruction accessors
@@ -844,30 +792,44 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_META_IS_SIGNER( acc_meta ) acc_meta->is_signer
 
 // The Rust Account Meta ABI stores the pubkey inline in the data structure, so no need to translate
-// FIXME: does this need to be a pointer?
 #define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
+
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
+  fd_vm_rc_refcell_t const * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN ); \
+  if( FD_UNLIKELY( !FD_EXPAND_THEN_CONCAT2(decl, _box) ) ) return FD_VM_ERR_PERM; \
+  ulong * decl = fd_vm_translate_vm_to_host( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, sizeof(ulong), alignof(ulong) ); \
+  if ( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM;
+
+// TODO: define a refcell macro to simplify this boilerplate
+#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
+  fd_vm_rc_refcell_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN ); \
+  if( FD_UNLIKELY( !FD_EXPAND_THEN_CONCAT2(decl, _box) ) ) return FD_VM_ERR_PERM; \
+  uchar * decl = fd_vm_translate_vm_to_host( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, FD_EXPAND_THEN_CONCAT2(decl, _box)->len, alignof(uchar) ); \
+  if ( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+
 
 #include "fd_vm_syscall_common.c"
 
-#undef VM_SYSCALL_CPI_ABI                    
-#undef VM_SYSCALL_CPI_INSTR_T                 
-#undef VM_SYSCALL_CPI_INSTR_ALIGN             
-#undef VM_SYSCALL_CPI_INSTR_SIZE              
-#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR         
-#undef VM_SYSCALL_CPI_INSTR_DATA_LEN          
-#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
-#undef VM_SYSCALL_CPI_ACC_META_T              
-#undef VM_SYSCALL_CPI_ACC_META_ALIGN          
+#undef VM_SYSCALL_CPI_ABI
+#undef VM_SYSCALL_CPI_INSTR_T
+#undef VM_SYSCALL_CPI_INSTR_ALIGN
+#undef VM_SYSCALL_CPI_INSTR_SIZE
+#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR
+#undef VM_SYSCALL_CPI_INSTR_DATA_LEN
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
+#undef VM_SYSCALL_CPI_ACC_META_T
+#undef VM_SYSCALL_CPI_ACC_META_ALIGN
 #undef VM_SYSCALL_CPI_ACC_META_SIZE   
 #undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
 #undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
-#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY      
+#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
-#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN  
-#undef VM_SYSCALL_CPI_ACC_INFO_T              
-#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
-#undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
-#undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
-#undef VM_SYSCALL_ACC_INFO_INNER              
-#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
+#undef VM_SYSCALL_CPI_ACC_INFO_T
+#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN
+#undef VM_SYSCALL_CPI_ACC_INFO_SIZE
+#undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC
 #undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
