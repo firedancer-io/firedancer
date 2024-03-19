@@ -95,8 +95,8 @@ VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC( fd_vm_t *            vm,
   fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
 
   /* Caller account data */
-
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
+  (void)caller_acc_data_vm_addr;
 
   int err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
   if( FD_UNLIKELY( err ) ) return err;
@@ -167,6 +167,57 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( fd_vm_t *       vm,
       if( !found ) return 1002;
     }
   }
+  return 0;
+}
+
+#define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_cpi_update_caller_acc_, VM_SYSCALL_CPI_ABI)
+static int
+VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
+                                      VM_SYSCALL_CPI_ACC_INFO_T const * caller_acc_info,
+                                      fd_pubkey_t const *               callee_acc_pubkey ) {
+  fd_borrowed_account_t * callee_acc_rec = NULL;
+  int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_acc_pubkey, &callee_acc_rec );
+  ulong updated_lamports, data_len;
+  uchar const * updated_owner = NULL;
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_DEBUG(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
+    // TODO: do we need to do something anyways
+    updated_lamports = 0;
+    data_len = 0;
+  } else {
+    updated_lamports = callee_acc_rec->const_meta->info.lamports;
+    data_len = callee_acc_rec->const_meta->dlen;
+    updated_owner = callee_acc_rec->const_meta->info.owner;
+  }
+
+  /* Update the caller account lamports */
+  VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, caller_acc_info, caller_acc_lamports );
+  *caller_acc_lamports = updated_lamports;
+
+  /* Update the caller account data */
+  VM_SYSCALL_CPI_ACC_INFO_DATA( vm, caller_acc_info, caller_acc_data );
+
+  /* Update the caller account owner */
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
+  if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
+  else                fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
+
+  // TODO: deal with all functionality in update_caller_account
+  if( !data_len ) fd_memset( caller_acc_data, 0, caller_acc_data_len );
+  if( caller_acc_data_len != data_len ) {
+    // FIXME: should this fail the transaction?
+    FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_len, data_len ));
+
+    // Update the caller data_len
+    VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, data_len );
+    ulong * caller_len =
+      fd_vm_translate_vm_to_host( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), sizeof(ulong), alignof(ulong) );
+    *caller_len = data_len;
+    // TODO return instruction error account data size too small.
+  }
+
+  fd_memcpy( caller_acc_data, callee_acc_rec->const_data, data_len );
+
   return 0;
 }
 
@@ -292,6 +343,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   return FD_VM_SUCCESS;
 }
 
+#undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC
 #undef VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC
 #undef VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC
 #undef VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC
