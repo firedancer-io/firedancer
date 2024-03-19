@@ -332,9 +332,9 @@ typedef struct {
 typedef struct {
   /* Static configuration determined at genesis creation time.  See
      long comment above for more information. */
-  ulong hashcnt_duration_ns;
-  ulong hashcnt_per_tick;
-  ulong ticks_per_slot;
+  double hashcnt_duration_ns;
+  ulong  hashcnt_per_tick;
+  ulong  ticks_per_slot;
 
   /* Derived from the above configuration, but we precompute it. */
   ulong hashcnt_per_slot;
@@ -533,7 +533,7 @@ extern                  void fd_ext_poh_register_tick( void const * bank, uchar 
    will just issue a nonblocking send on the channel. */
 
 CALLED_FROM_RUST void
-fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */
+fd_ext_poh_initialize( double        hashcnt_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */
                        ulong         hashcnt_per_tick,    /* See clock comments above, will be 12,500 for mainnet-beta. */
                        ulong         ticks_per_slot,      /* See clock comments above, will almost always be 64. */
                        ulong         tick_height,         /* The counter (height) of the tick to start hashing on top of. */
@@ -691,7 +691,7 @@ CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot ) {
   ulong leader_start_hashcnt = slot*ctx->hashcnt_per_slot;
-  long slot_start_ns = ctx->reset_slot_start_ns + (long)((leader_start_hashcnt-ctx->reset_slot_hashcnt)*ctx->hashcnt_duration_ns);
+  long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(leader_start_hashcnt-ctx->reset_slot_hashcnt)*ctx->hashcnt_duration_ns);
 
   /* No need to check flow control, there are always credits became when we
      are leader, we will not "become" leader again until we are done, so at
@@ -701,7 +701,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
 
   fd_became_leader_t * leader = (fd_became_leader_t *)dst;
   leader->slot_start_ns           = slot_start_ns;
-  leader->slot_end_ns             = slot_start_ns + (long)(ctx->hashcnt_duration_ns * ctx->hashcnt_per_slot);
+  leader->slot_end_ns             = slot_start_ns + (long)(ctx->hashcnt_duration_ns * (double)ctx->hashcnt_per_slot);
   leader->bank                    = ctx->current_leader_bank;
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
@@ -884,7 +884,7 @@ after_credit( void *             _ctx,
   /* Now figure out how many hashes are needed to "catch up" the hash
      count to the current system clock. */
   long now = fd_log_wallclock();
-  ulong target_hash_cnt = ctx->reset_slot_hashcnt + (ulong)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns;
+  ulong target_hash_cnt = ctx->reset_slot_hashcnt + (ulong)((double)(now - ctx->reset_slot_start_ns) / ctx->hashcnt_duration_ns);
 
   /* If we are the leader, always leave enough capacity in the slot so
      that we can mixin any potential microblocks still coming from the
