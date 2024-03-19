@@ -110,6 +110,7 @@ echo "[tiles.tvu]
   page_cnt = 25
   validate_snapshot = \"true\"
   check_hash = \"true\"
+  solcap_path = \"fddev.solcap\"
 " > fddev.toml
 
 timeout 90 fddev --no-sandbox --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true

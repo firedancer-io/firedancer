@@ -33,6 +33,7 @@ echo "[tiles.tvu]
   page_cnt = 250
   validate_snapshot = \"true\"
   check_hash = \"true\"
+  solcap_path = \"fddev.solcap\"
 " > fddev.toml
 
 cp "$SCRIPT_DIR/shenanigans.sh" .

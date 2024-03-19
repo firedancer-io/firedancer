@@ -771,6 +771,7 @@ topology = "tvu"
         incremental_snapshot = ""
         tcnt        = 13
         txn_max     = 1000
+        solcap_path = ""
 
     [tiles.gossip]
         gossip_peer_addr = "147.75.87.77:8020"

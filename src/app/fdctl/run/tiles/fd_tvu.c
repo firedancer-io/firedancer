@@ -18,6 +18,7 @@ char            g_tvu_fwd_addr[ 22 ]; // len('255.255.255.255:65535') == 22
 char            g_load[ PATH_MAX ];
 char            g_snapshot[ PATH_MAX ];
 char            g_incremental_snapshot[ PATH_MAX ];
+char            g_solcap_path[ PATH_MAX ];
 char            g_validate_snapshot[ 22 ];
 char            g_check_hash[ 22 ];
 char            g_shredlog_fpath[ PATH_MAX ];
@@ -60,6 +61,8 @@ uchar g_tvu_fwd_buffer[ FD_NET_MTU ];
 fd_topo_link_t * g_sign_in = NULL;
 fd_topo_link_t * g_sign_out = NULL;
 uchar const * g_identity_key = NULL;
+
+fd_runtime_ctx_t  runtime_ctx;
 
 typedef struct {
   int socket_fd;
@@ -313,6 +316,25 @@ void tpool_boot( ushort first_cpu, ulong tcnt ) {
 }
 
 static void
+signal_handler( int sig ) {
+  fd_tvu_main_teardown( &runtime_ctx, NULL );
+  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
+  else                           exit_group( 128+SIGTERM );
+}
+
+static void
+install_signal_handler( void ) {
+  struct sigaction sa = {
+    .sa_handler = signal_handler,
+    .sa_flags   = 0,
+  };
+  if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
@@ -329,6 +351,7 @@ privileged_init( fd_topo_t *      topo,
   strncpy( g_shredlog_fpath, tile->tvu.shredlog_fpath, sizeof(g_shredlog_fpath) );
   strncpy( g_snapshot, tile->tvu.snapshot, sizeof(g_snapshot) );
   strncpy( g_incremental_snapshot, tile->tvu.incremental_snapshot, sizeof(g_incremental_snapshot) );
+  strncpy( g_solcap_path, tile->tvu.solcap_path, sizeof(g_solcap_path) );
   strncpy( g_validate_snapshot, tile->tvu.validate_snapshot, sizeof(g_validate_snapshot) );
   strncpy( g_check_hash, tile->tvu.check_hash, sizeof(g_check_hash) );
   g_page_cnt = tile->tvu.page_cnt;
@@ -361,6 +384,8 @@ privileged_init( fd_topo_t *      topo,
   g_sign_in = &topo->links[ tile->in_link_id[ 1 ] ];
   g_sign_out = &topo->links[ tile->out_link_id[ 0 ] ];
   g_identity_key = identity_key;
+
+  install_signal_handler();
 
   (void)topo;
   (void)tile;
@@ -440,7 +465,6 @@ fd_tile_config_t fd_tile_tvu = {
 static int
 doit( void ) {
   fd_flamenco_boot(NULL, NULL);
-  fd_runtime_ctx_t runtime_ctx;
   memset(&runtime_ctx, 0, sizeof(runtime_ctx));
 
   fd_replay_t * replay = NULL;
@@ -472,6 +496,7 @@ doit( void ) {
     .incremental_snapshot = g_incremental_snapshot,
     .validate_snapshot    = g_validate_snapshot,
     .check_hash           = g_check_hash,
+    .capture_fpath        = g_solcap_path,
     .allocator            = "libc",
     .index_max            = ULONG_MAX,
     .page_cnt             = g_page_cnt,

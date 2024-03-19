@@ -221,6 +221,7 @@ typedef struct {
       ushort rpc_listen_port;
       ulong  tcnt;
       ulong  txn_max;
+      char   solcap_path[ PATH_MAX ];
     } tvu;
 
     struct {

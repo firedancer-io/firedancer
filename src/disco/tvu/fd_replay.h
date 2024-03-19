@@ -234,7 +234,8 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                         ulong                  slot,
                         fd_replay_slot_ctx_t * parent_slot_ctx,
                         uchar const *          block,
-                        ulong                  block_sz );
+                        ulong                  block_sz,
+                        fd_capture_ctx_t *     capture_ctx );
 
 /* fd_replay_slot_repair repairs all the missing shreds for slot. */
 void

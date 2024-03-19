@@ -463,7 +463,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       fd_replay_slot_ctx_t * parent_slot_ctx =
         fd_replay_slot_prepare( replay_tmp, i, &block, &block_sz );
       if( FD_LIKELY( parent_slot_ctx ) ) {
-        fd_replay_slot_execute( replay_tmp, i, parent_slot_ctx, block, block_sz );
+        fd_replay_slot_execute( replay_tmp, i, parent_slot_ctx, block, block_sz, runtime_ctx->capture_ctx );
         if( i > 64U )
           replay->smr = fd_ulong_max( replay->smr, i - 64U );
         replay->now = now = fd_log_wallclock();
@@ -1007,7 +1007,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
   solcap_setup_t solcap_setup_out = {0};
-  if( args->capture_fpath ) {
+  if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
     solcap_setup( args->capture_fpath, valloc, &solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out.capture_file;
     runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
