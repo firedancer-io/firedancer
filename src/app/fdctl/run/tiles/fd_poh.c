@@ -1065,18 +1065,20 @@ publish_microblock( fd_poh_ctx_t *     ctx,
   fd_entry_batch_header_t * header = (fd_entry_batch_header_t *)dst;
   header->hashcnt_delta = hashcnt_delta;
   fd_memcpy( header->hash, ctx->hash, 32UL );
-  header->txn_cnt = txn_cnt;
 
   dst += sizeof(fd_entry_batch_header_t);
   ulong payload_sz = 0UL;
+  ulong included_txn_cnt = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)(ctx->_txns + i*sizeof(fd_txn_p_t));
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
     fd_memcpy( dst, txn->payload, txn->payload_sz );
     payload_sz += txn->payload_sz;
-    dst += txn->payload_sz;
+    dst        += txn->payload_sz;
+    included_txn_cnt++;
   }
+  header->txn_cnt = included_txn_cnt;
 
   /* We always have credits to publish here, because we have a burst
      value of 3 credits, and at most we will publish_tick() once and
