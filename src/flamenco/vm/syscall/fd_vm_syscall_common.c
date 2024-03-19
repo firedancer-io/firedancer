@@ -78,6 +78,70 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
 
 }
 
+#define VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC FD_EXPAND_THEN_CONCAT2(from_account_info_, VM_SYSCALL_CPI_ABI)
+
+/* FIXME: PREFIX */
+/* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L971 */
+#define VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC FD_EXPAND_THEN_CONCAT2(translate_and_update_accounts_, VM_SYSCALL_CPI_ABI)
+static int
+VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( fd_vm_t *       vm,
+                               fd_instruction_account_t *   instruction_accounts,
+                               ulong                        instruction_accounts_cnt,
+                               fd_pubkey_t const *          account_info_keys,
+                               VM_SYSCALL_CPI_ACC_INFO_T    const * account_infos,
+                               ulong                        account_info_cnt,
+                               ulong *                      out_callee_indices,
+                               ulong *                      out_caller_indices,
+                               ulong *                      out_len ) {
+
+  for( ulong i=0UL; i<instruction_accounts_cnt; i++ ) {
+    if( i!=instruction_accounts[i].index_in_callee ) continue;
+
+    fd_pubkey_t const * callee_account = &vm->instr_ctx->instr->acct_pubkeys[instruction_accounts[i].index_in_caller];
+    fd_pubkey_t const * account_key = &vm->instr_ctx->txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
+    fd_borrowed_account_t * acc_rec = NULL;
+    fd_account_meta_t const * acc_meta = NULL;
+    // FIXME: should this check be here?
+    // int view_err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_account, &acc_rec );
+    // if( (!view_err || view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT) && acc_rec ) {
+    //   acc_meta = acc_rec->const_meta;
+    // } else {
+    //   FD_LOG_DEBUG(( "account missing in translation - acc: %32J", callee_account->key ));
+    // }
+    fd_instr_borrowed_account_view( vm->instr_ctx, callee_account, &acc_rec );
+    acc_meta = acc_rec->const_meta;
+
+    if( acc_meta && fd_account_is_executable(vm->instr_ctx, acc_meta, NULL) ) {
+      // FD_LOG_DEBUG(("CPI Acc data len %lu", acc_meta->dlen));
+      int err = fd_vm_consume_compute( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
+      if( FD_UNLIKELY( err ) ) return err;
+    } else {
+      uint found = 0;
+      for( ulong j=0; j < account_info_cnt; j++ ) {
+        if( !memcmp( account_key->uc, account_info_keys[j].uc, sizeof(fd_pubkey_t) ) ) {
+          fd_caller_account_t caller_account;
+          int err = VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC( vm, &account_infos[j], &caller_account );
+          if( FD_UNLIKELY( err ) ) return err;
+
+          // FD_LOG_DEBUG(("CPI Acc data len %lu for %32J", caller_account.serialized_data_len, account_key->uc));
+          if( FD_UNLIKELY( acc_meta && fd_vm_cpi_update_callee_account(vm, &caller_account, callee_account) ) ) return 1001;
+
+          if (instruction_accounts[i].is_writable) {
+            out_callee_indices[*out_len] = instruction_accounts[i].index_in_caller;
+            out_caller_indices[*out_len] = j;
+            (*out_len)++;
+          }
+          found = 1;
+        }
+      }
+
+      // TODO: magic number?
+      if( !found ) return 1002;
+    }
+  }
+  return 0;
+}
+
 #define VM_SYSCALL_CPI_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_, VM_SYSCALL_CPI_ABI)
 int
 VM_SYSCALL_CPI_FUNC( void *  _vm,
@@ -168,8 +232,8 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong update_len = 0;
-  fd_vm_account_info_t acc_info = {.discriminant = VM_SYSCALL_ACC_INFO_DISCRIMINANT, .inner = {.VM_SYSCALL_ACC_INFO_INNER = acc_infos }};
-  err = translate_and_update_accounts(vm, instruction_accounts, instruction_accounts_cnt, acct_keys, &acc_info, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
+
+  err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(vm, instruction_accounts, instruction_accounts_cnt, acct_keys, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &update_len);
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "translate failed %lu", err ));
     return err;
@@ -200,5 +264,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   return FD_VM_SUCCESS;
 }
 
+#undef VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC
+#undef VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC
 #undef VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC
 #undef VM_SYSCALL_CPI_FUNC
