@@ -42,40 +42,44 @@ init( config_t * const config ) {
   char initial_accounts[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( initial_accounts, PATH_MAX, NULL, "%s/initial-accounts.yaml", config->scratch_directory ) );
 
-  FILE * f = fopen( initial_accounts, "w" );
-  FD_TEST( f );
-  for( ulong i=0UL; i<128UL; i++ ) {
-    /* Fund the first 128 accounts with some lamports for benchmarking... temporary hack */
-    uchar privkey[ 64 ] = {0};
-    privkey[ 0 ] = (uchar)i;
-    uchar pubkey[ 64 ];
-    fd_sha512_t sha[1];
-    fd_sha512_join( fd_sha512_new( sha ) );
-    fd_ed25519_public_from_private( pubkey, privkey, sha );
-
-    char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
-    FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
-    FD_TEST( fprintf( f, "  balance: 500000000000000\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
-  }
-  FD_TEST( !fclose( f ) );
-
   ADD1( "fddev" );
 
   ADD( "--faucet-pubkey", faucet );
-  ADD( "--hashes-per-tick", "sleep" );
-  // MAINNET VALUES
-  // ADD( "--hashes-per-tick", "12500" );
-  // ADD( "--target-tick-duration", "6" );
-  // ADD( "--ticks-per-slot", "64" );
   ADDU( "--faucet-lamports", 500000000000000000UL );
+
   ADD( "--bootstrap-validator", config->consensus.identity_path ); ADD1( vote ); ADD1( stake );
   ADD( "--ledger", config->ledger.path );
   ADD( "--cluster-type", "development" );
-  ADD( "--primordial-accounts-file", initial_accounts );
+
+  if( 0UL==config->development.genesis.hashes_per_tick ) ADD( "--hashes-per-tick", "auto" );
+  else if( 1UL==config->development.genesis.hashes_per_tick ) ADD( "--hashes-per-tick", "sleep" );
+  else ADDU( "--hashes-per-tick", config->development.genesis.hashes_per_tick );
+
+  ADDU( "--target-tick-duration", config->development.genesis.target_tick_duration_micros );
+  ADDU( "--ticks-per-slot", config->development.genesis.ticks_per_slot );
+
+  if( FD_LIKELY( config->development.genesis.fund_initial_accounts ) ) {
+    FILE * f = fopen( initial_accounts, "w" );
+    FD_TEST( f );
+    for( ulong i=0UL; i<config->development.genesis.fund_initial_accounts; i++ ) {
+      uchar privkey[ 32 ] = {0};
+      FD_STORE( ulong, privkey, i );
+      uchar pubkey[ 32 ];
+      fd_sha512_t sha[1];
+      fd_sha512_join( fd_sha512_new( sha ) );
+      fd_ed25519_public_from_private( pubkey, privkey, sha );
+
+      char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
+      FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
+      FD_TEST( fprintf( f, "  balance: %lu\n", config->development.genesis.fund_initial_amount_lamports ) >= 0 );
+      FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
+      FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
+      FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
+    }
+    FD_TEST( !fclose( f ) );
+    ADD( "--primordial-accounts-file", initial_accounts );
+  }
 
   /* these are copied out of the output of `solana/fetch-spl.sh` ... need to
      figure out what to do here long term. */

@@ -200,6 +200,10 @@ typedef struct {
       ushort rpc_port;
       uint   rpc_ip_addr;
     } bencho;
+
+    struct {
+      ulong accounts_cnt;
+    } benchg;
   };
 } fd_topo_tile_t;
 
