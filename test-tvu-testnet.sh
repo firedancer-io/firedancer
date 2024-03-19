@@ -5,7 +5,7 @@ IFS=$'\n\t'
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # create temporary files in the user's home directory because it's likely to be on a large disk
-TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
+TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-testnet.XXXXXX)
 cd $TMPDIR
 
 cleanup() {
@@ -37,11 +37,27 @@ echo "[tiles.tvu]
 
 cp "$SCRIPT_DIR/shenanigans.sh" .
 
-timeout 600 fddev --no-sandbox --no-solana-labs --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) || true
+fddev --no-sandbox --no-solana-labs --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) &
+FDDEV_PID=$!
 
-grep -q "evaluated block successfully" $(readlink -f fddev.log)
+CAUGHT_UP=0
+set +x
+for i in $(seq 1 600); do
+  if grep -q "caught up: 1" $(readlink -f fddev.log); then
+    CAUGHT_UP=1
+    break
+  fi
+  sleep 1
+done
+set -x
+
 if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
   echo "*** BANK HASH MISMATCH ***"
+fi
+
+if [ $CAUGHT_UP -eq 0 ]; then
+  echo "fddev failed to catch up"
+  exit 1
 fi
 
 # TODO: LML once we figure out what's breaking incremental snapshots on testnet do this instead of the above which just checks for block execution
