@@ -297,152 +297,6 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
   return FD_VM_SUCCESS;
 }
 
-// FIXME: NEED TO DO IS_DUPLICATE INIT HERE
-static void
-fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_t * vm,
-                                          fd_vm_c_instruction_t const * cpi_instr,
-                                          fd_vm_c_account_meta_t const * cpi_acct_metas,
-                                          fd_pubkey_t const * signers,
-                                          ulong signers_cnt,
-                                          uchar const * cpi_instr_data,
-                                          fd_instr_info_t * instr ) {
-  fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
-  for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
-    fd_pubkey_t const * program_id_pubkey =
-      fd_vm_translate_vm_to_host_const( vm, cpi_instr->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-    if( !memcmp( program_id_pubkey->uc, &txn_accs[i], sizeof(fd_pubkey_t) ) ) {
-      instr->program_id = (uchar)i;
-      instr->program_id_pubkey = txn_accs[i];
-      break;
-    }
-  }
-
-  ulong starting_lamports_h = 0;
-  ulong starting_lamports_l = 0;
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, 256);
-  for( ulong i=0UL; i<cpi_instr->accounts_len; i++ ) {
-    fd_vm_c_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
-    fd_pubkey_t const * acct_pubkey =
-      fd_vm_translate_vm_to_host_const( vm, cpi_acct_meta->pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-    //FD_LOG_DEBUG(("Accounts cnt %lu, account %32J addr %lu", vm->instr_ctx->txn_ctx->accounts_cnt, acct_pubkey->uc, cpi_acct_meta->pubkey_addr));
-    for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( acct_pubkey->uc, &txn_accs[j], sizeof( fd_pubkey_t ) ) ) {
-        // TODO: error if not found, if flags are wrong;
-        memcpy( instr->acct_pubkeys[i].uc, acct_pubkey->uc, sizeof( fd_pubkey_t ) );
-        instr->acct_txn_idxs[i] = (uchar)j;
-        instr->acct_flags[i] = 0;
-        instr->borrowed_accounts[i] = &vm->instr_ctx->txn_ctx->borrowed_accounts[j];
-
-        instr->is_duplicate[i] = acc_idx_seen[j];
-        if( FD_LIKELY( !acc_idx_seen[j] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[j] = 1;
-          if( instr->borrowed_accounts[i]->const_meta )
-            starting_lamports += instr->borrowed_accounts[i]->const_meta->info.lamports;
-        }
-         // TODO: should check the parent has writable flag set
-
-        if( cpi_acct_meta->is_writable && fd_instr_acc_is_writable( vm->instr_ctx->instr, acct_pubkey) ) {
-          instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-        }
-        // TODO: should check the parent has signer flag set
-        if( cpi_acct_meta->is_signer ) {
-          instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        } else {
-          for( ulong k=0UL; k<signers_cnt; k++ ) {
-            if( !memcmp( &signers[k], acct_pubkey->uc, sizeof( fd_pubkey_t ) ) ) {
-              instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-              break;
-            }
-          }
-        }
-
-        // FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)vm->instr_ctx->instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, acct_pubkey, instr->acct_flags[i] ));
-
-        break;
-      }
-    }
-  }
-
-  instr->starting_lamports_h = starting_lamports_h;
-  instr->starting_lamports_l = starting_lamports_l;
-  instr->data_sz             = (ushort)cpi_instr->data_len;
-  instr->data                = (uchar *)cpi_instr_data;
-  instr->acct_cnt            = (ushort)cpi_instr->accounts_len;
-
-}
-
-static void
-fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_t const * vm,
-                                             fd_vm_rust_instruction_t const * cpi_instr,
-                                             fd_vm_rust_account_meta_t const * cpi_acct_metas,
-                                             fd_pubkey_t const * signers,
-                                             ulong signers_cnt,
-                                             uchar const * cpi_instr_data,
-                                             fd_instr_info_t * instr ) {
-
-  fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
-  for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ )
-    if( !memcmp( &cpi_instr->pubkey, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
-      // TODO: error if not found
-      instr->program_id = (uchar)i;
-      instr->program_id_pubkey = txn_accs[i];
-      break;
-    }
-
-  ulong starting_lamports = 0UL;
-  uchar acc_idx_seen[256];
-  memset(acc_idx_seen, 0, 256);
-  // FD_LOG_DEBUG(("Accounts cnt %lu %lu", vm->instr_ctx->txn_ctx->accounts_cnt, vm->instr_ctx->txn_ctx->txn_descriptor->acct_addr_cnt));
-  for( ulong i=0UL; i<cpi_instr->accounts.len; i++ ) {
-    fd_vm_rust_account_meta_t const * cpi_acct_meta = &cpi_acct_metas[i];
-
-    for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( &cpi_acct_meta->pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) ) ) {
-        // TODO: error if not found, if flags are wrong;
-        memcpy( instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, sizeof( fd_pubkey_t ) );
-        instr->acct_txn_idxs[i] = (uchar)j;
-        instr->acct_flags[i] = 0;
-        instr->borrowed_accounts[i] = &vm->instr_ctx->txn_ctx->borrowed_accounts[j];
-
-        instr->is_duplicate[i] = acc_idx_seen[j];
-        if( FD_LIKELY( !acc_idx_seen[j] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[j] = 1;
-          if( instr->borrowed_accounts[i]->const_meta )
-            starting_lamports += instr->borrowed_accounts[i]->const_meta->info.lamports;
-        }
-
-        // TODO: should check the parent has writable flag set
-        if( cpi_acct_meta->is_writable && fd_instr_acc_is_writable( vm->instr_ctx->instr, (fd_pubkey_t*)cpi_acct_meta->pubkey) )
-          instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-
-        // TODO: should check the parent has signer flag set
-        if( cpi_acct_meta->is_signer ) instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        else
-          for( ulong k = 0; k < signers_cnt; k++ ) {
-            if( !memcmp( &signers[k], &cpi_acct_meta->pubkey, sizeof( fd_pubkey_t ) ) ) {
-              instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-              break;
-            }
-          }
-
-        // FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)vm->instr_ctx->instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, instr->acct_flags[i] ));
-
-        break;
-      }
-    }
-  }
-
-  instr->data_sz             = (ushort)cpi_instr->data.len;
-  instr->data                = (uchar *)cpi_instr_data;
-  instr->acct_cnt            = (ushort)cpi_instr->accounts.len;
-  instr->starting_lamports_h = starting_lamports_h;
-  instr->starting_lamports_l = starting_lamports_l;
-
-}
-
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct
    count and data sz checks.  Also consumes compute units proportional
    to instruction data size. */
@@ -926,6 +780,7 @@ translate_and_update_accounts( fd_vm_t *       vm,
         if( !memcmp( account_key->uc, account_info_keys[j].uc, sizeof(fd_pubkey_t) ) ) {
           fd_caller_account_t caller_account;
           int err;
+          // TODO: remove discriminant from account_info, have two different account_info types
           switch (account_info->discriminant) {
             case FD_VM_ACCOUNT_INFO_RUST: {
               err = from_account_info_rust(vm, &account_info->inner.rust_acct_infos[j], &caller_account);
@@ -970,31 +825,43 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
   CROSS PROGRAM INVOCATION (C ABI)
  **********************************************************************/
 
-#define VM_SYSCALL_CPI_FUNC                    fd_vm_syscall_cpi_c
+#define VM_SYSCALL_CPI_ABI                     c
 #define VM_SYSCALL_CPI_INSTR_T                 fd_vm_c_instruction_t
 #define VM_SYSCALL_CPI_INSTR_ALIGN             (FD_VM_C_INSTRUCTION_ALIGN)
 #define VM_SYSCALL_CPI_INSTR_SIZE              (FD_VM_C_INSTRUCTION_SIZE)
-#define VM_SYSCALL_CPI_INSTR_DATA_ADDR         data_addr
-#define VM_SYSCALL_CPI_INSTR_DATA_LEN          data_len
-#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR         accounts_addr
-#define VM_SYSCALL_CPI_INSTR_ACCS_LEN          accounts_len
 #define VM_SYSCALL_CPI_ACC_META_T              fd_vm_c_account_meta_t
 #define VM_SYSCALL_CPI_ACC_META_ALIGN          (FD_VM_C_ACCOUNT_META_ALIGN)
 #define VM_SYSCALL_CPI_ACC_META_SIZE           (FD_VM_C_ACCOUNT_META_SIZE)
 #define VM_SYSCALL_CPI_ACC_INFO_T              fd_vm_c_account_info_t
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_C_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_C_ACCOUNT_INFO_SIZE)
-#define VM_SYSCALL_CPI_CONV_FUNC               fd_vm_syscall_cpi_c_instruction_to_instr
+
+// TODO: remove these
 #define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (1)
 #define VM_SYSCALL_ACC_INFO_INNER              c_acct_infos
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_c
 
+// Instruction accessors
+#define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data_addr
+#define VM_SYSCALL_CPI_INSTR_DATA_LEN( instr )  instr->data_len
+#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR( instr ) instr->accounts_addr
+#define VM_SYSCALL_CPI_INSTR_ACCS_LEN( instr )  instr->accounts_len
+
+// The C ABI requires that we translate the program ID as it stores a pointer
 #define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) \
   fd_vm_translate_vm_to_host_const( vm, instr->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) )
 
+// Account Meta accessors
+#define VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( acc_meta ) acc_meta->is_writable
+#define VM_SYSCALL_CPI_ACC_META_IS_SIGNER( acc_meta ) acc_meta->is_signer
+
+// The C ABI requires that we translate the account meta pubkey as it stores a pointer
+#define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) \
+  fd_vm_translate_vm_to_host_const( vm, acc_meta->pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) )
+
 #include "fd_vm_syscall_common.c"
 
-#undef VM_SYSCALL_CPI_FUNC                    
+#undef VM_SYSCALL_CPI_ABI                    
 #undef VM_SYSCALL_CPI_INSTR_T                 
 #undef VM_SYSCALL_CPI_INSTR_ALIGN             
 #undef VM_SYSCALL_CPI_INSTR_SIZE              
@@ -1004,11 +871,13 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
 #undef VM_SYSCALL_CPI_ACC_META_T              
 #undef VM_SYSCALL_CPI_ACC_META_ALIGN          
-#undef VM_SYSCALL_CPI_ACC_META_SIZE           
+#undef VM_SYSCALL_CPI_ACC_META_SIZE      
+#undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
+#undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
+#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_T              
 #undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
 #undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
-#undef VM_SYSCALL_CPI_CONV_FUNC               
 #undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
 #undef VM_SYSCALL_ACC_INFO_INNER              
 #undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
@@ -1018,30 +887,41 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
    CROSS PROGRAM INVOCATION (Rust ABI)
  **********************************************************************/
 
-#define VM_SYSCALL_CPI_FUNC                    fd_vm_syscall_cpi_rust
+#define VM_SYSCALL_CPI_ABI                     rust
 #define VM_SYSCALL_CPI_INSTR_T                 fd_vm_rust_instruction_t
 #define VM_SYSCALL_CPI_INSTR_ALIGN             (FD_VM_RUST_INSTRUCTION_ALIGN)
 #define VM_SYSCALL_CPI_INSTR_SIZE              (FD_VM_RUST_INSTRUCTION_SIZE)
-#define VM_SYSCALL_CPI_INSTR_DATA_ADDR         data.addr
-#define VM_SYSCALL_CPI_INSTR_DATA_LEN          data.len
-#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR         accounts.addr
-#define VM_SYSCALL_CPI_INSTR_ACCS_LEN          accounts.len
 #define VM_SYSCALL_CPI_ACC_META_T              fd_vm_rust_account_meta_t
 #define VM_SYSCALL_CPI_ACC_META_ALIGN          (FD_VM_RUST_ACCOUNT_META_ALIGN)
 #define VM_SYSCALL_CPI_ACC_META_SIZE           (FD_VM_RUST_ACCOUNT_META_SIZE)
 #define VM_SYSCALL_CPI_ACC_INFO_T              fd_vm_rust_account_info_t
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_RUST_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_RUST_ACCOUNT_INFO_SIZE)
-#define VM_SYSCALL_CPI_CONV_FUNC               fd_vm_syscall_cpi_rust_instruction_to_instr
+
+// TODO: remove these
 #define VM_SYSCALL_ACC_INFO_DISCRIMINANT       (0)
 #define VM_SYSCALL_ACC_INFO_INNER              rust_acct_infos
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  fd_vm_cpi_update_caller_account_rust
 
+// Instruction accessors
+#define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data.addr
+#define VM_SYSCALL_CPI_INSTR_DATA_LEN( instr )  instr->data.len
+#define VM_SYSCALL_CPI_INSTR_ACCS_ADDR( instr ) instr->accounts.addr
+#define VM_SYSCALL_CPI_INSTR_ACCS_LEN( instr )  instr->accounts.len
+// The Rust ABI already has the the pubkey in host space
 #define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) instr->pubkey
+
+// Account Meta accessors
+#define VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( acc_meta ) acc_meta->is_writable
+#define VM_SYSCALL_CPI_ACC_META_IS_SIGNER( acc_meta ) acc_meta->is_signer
+
+// The Rust Account Meta ABI stores the pubkey inline in the data structure, so no need to translate
+// FIXME: does this need to be a pointer?
+#define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
 
 #include "fd_vm_syscall_common.c"
 
-#undef VM_SYSCALL_CPI_FUNC                    
+#undef VM_SYSCALL_CPI_ABI                    
 #undef VM_SYSCALL_CPI_INSTR_T                 
 #undef VM_SYSCALL_CPI_INSTR_ALIGN             
 #undef VM_SYSCALL_CPI_INSTR_SIZE              
@@ -1050,11 +930,15 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_INSTR_ACCS_LEN          
 #undef VM_SYSCALL_CPI_ACC_META_T              
 #undef VM_SYSCALL_CPI_ACC_META_ALIGN          
-#undef VM_SYSCALL_CPI_ACC_META_SIZE           
+#undef VM_SYSCALL_CPI_ACC_META_SIZE   
+#undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
+#undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
+#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY      
+#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN  
 #undef VM_SYSCALL_CPI_ACC_INFO_T              
 #undef VM_SYSCALL_CPI_ACC_INFO_ALIGN          
 #undef VM_SYSCALL_CPI_ACC_INFO_SIZE           
-#undef VM_SYSCALL_CPI_CONV_FUNC               
 #undef VM_SYSCALL_ACC_INFO_DISCRIMINANT       
 #undef VM_SYSCALL_ACC_INFO_INNER              
 #undef VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC  
