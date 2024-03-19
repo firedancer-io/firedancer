@@ -572,7 +572,7 @@ dynamic_port_range = "8900-9000"
 #                                pages]
 #        +-- scratch1.wksp
 #        +-- scratch2.wksp
-[shmem]
+[hugetlbfs]
     # The absolute path to a directory in the filesystem.  Firedancer
     # will mount the hugetlbfs filesystem for gigantic pages at this
     # path, or if the path already exists, will use it as-is.  If the

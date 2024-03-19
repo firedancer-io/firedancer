@@ -3,8 +3,7 @@
 #include "configure/configure.h"
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
-  &large_pages,
-  &shmem,
+  &hugetlbfs,
   &sysctl,
   &xdp,
   &xdp_leftover,

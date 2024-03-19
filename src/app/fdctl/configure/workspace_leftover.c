@@ -38,8 +38,8 @@ check_page_size( char * name,
 
 static configure_result_t
 check( config_t * const config ) {
-  const char * huge     = config->shmem.huge_page_mount_path;
-  const char * gigantic = config->shmem.gigantic_page_mount_path;
+  const char * huge     = config->hugetlbfs.huge_page_mount_path;
+  const char * gigantic = config->hugetlbfs.gigantic_page_mount_path;
 
   struct stat st;
   int result1 = stat( huge, &st );
@@ -55,7 +55,7 @@ check( config_t * const config ) {
   if( FD_UNLIKELY( !result1 || !result2 ) ) CONFIGURE_OK();
 
   ulong expected[ 2 ] = {
-    fd_topo_huge_page_cnt( &config->topo ),
+    fd_topo_huge_page_cnt( &config->topo, 1 ),
     fd_topo_gigantic_page_cnt( &config->topo )
   };
 
@@ -101,8 +101,8 @@ fini( config_t * const config ) {
     char line[ 4096 ];
     while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
       if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
-      if( FD_UNLIKELY( strstr( line, config->shmem.gigantic_page_mount_path ) ||
-                       strstr( line, config->shmem.huge_page_mount_path ) ) ) {
+      if( FD_UNLIKELY( strstr( line, config->hugetlbfs.gigantic_page_mount_path ) ||
+                       strstr( line, config->hugetlbfs.huge_page_mount_path ) ) ) {
         FD_LOG_WARNING(( "process `%lu`:`%s` has a workspace file descriptor open in `/proc/%lu/maps`", pid, self_cmdline, pid ));
         break;
       }

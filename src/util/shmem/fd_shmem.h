@@ -430,9 +430,11 @@ fd_shmem_acquire( ulong page_sz,
 /* fd_shmem_release releases page_cnt page_sz pages of memory allocated
    by fd_shmem_acquire.  This always succeeds from the caller's POV but
    logs details if there is any wonkiness under the hood.  It is fine to
-   release subregions of individual previous acquisitions. */
+   release subregions of individual previous acquisitions.
+   
+   Returns 0 if successful, -1 for any errors. */
 
-void
+int
 fd_shmem_release( void * mem,
                   ulong  page_sz,
                   ulong  page_cnt );

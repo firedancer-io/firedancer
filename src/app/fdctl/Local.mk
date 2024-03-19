@@ -27,9 +27,8 @@ $(call add-objs,run/tiles/fd_sign,fd_fdctl)
 
 # fdctl configure stages
 $(call add-objs,configure/configure,fd_fdctl)
-$(call add-objs,configure/large_pages,fd_fdctl)
+$(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
-$(call add-objs,configure/shmem,fd_fdctl)
 $(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/xdp_leftover,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)

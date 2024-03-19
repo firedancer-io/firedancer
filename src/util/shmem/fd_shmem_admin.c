@@ -546,34 +546,37 @@ done:
   return err ? NULL : mem;
 }
 
-void
+int
 fd_shmem_release( void * mem,
                   ulong  page_sz,
                   ulong  page_cnt ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
     FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
     FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
-    return;
+    return -1;
   }
 
   ulong sz = page_sz*page_cnt;
 
-  if( FD_UNLIKELY( munmap( mem, sz ) ) )
+  int result = munmap( mem, sz );
+  if( FD_UNLIKELY( result ) )
     FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, fd_io_strerror( errno ) ));
+
+  return result;
 }
 
 /* SHMEM PARSING APIS *************************************************/
