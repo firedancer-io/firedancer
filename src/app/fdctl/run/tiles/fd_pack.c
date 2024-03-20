@@ -110,7 +110,36 @@ typedef struct {
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
+
+  struct {
+    uint metric_state;
+    long metric_state_begin;
+    long metric_timing[ 16 ];
+  };
 } fd_pack_ctx_t;
+
+
+#define FD_PACK_METRIC_STATE_TRANSACTIONS 0
+#define FD_PACK_METRIC_STATE_BANKS        1
+#define FD_PACK_METRIC_STATE_LEADER       2
+#define FD_PACK_METRIC_STATE_MICROBLOCKS  3
+
+/* Updates one component of the metric state.  If the state has changed,
+   records the change. */
+static inline void
+update_metric_state( fd_pack_ctx_t * ctx,
+                     long            effective_as_of,
+                     int             type,
+                     int             status ) {
+  uint current_state = fd_uint_insert_bit( ctx->metric_state, type, status );
+  if( FD_UNLIKELY( current_state!=ctx->metric_state ) ) {
+    FD_LOG_INFO(( "Transitioning to state %x by setting bit %i to %i", current_state, type, status ));
+    ctx->metric_timing[ ctx->metric_state ] += effective_as_of - ctx->metric_state_begin;
+    ctx->metric_state_begin = effective_as_of;
+    ctx->metric_state = current_state;
+  }
+}
+
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -138,7 +167,8 @@ static inline void
 metrics_write( void * _ctx ) {
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
-  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,  ctx->insert_result );
+  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
+  FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
 }
@@ -183,6 +213,9 @@ after_credit( void *             _ctx,
     ctx->leader_slot = ULONG_MAX;
     fd_pack_end_block( ctx->pack );
     ctx->slot_microblock_cnt = 0UL;
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
     return;
   }
 
@@ -198,6 +231,8 @@ after_credit( void *             _ctx,
      doesn't always get the best transactions. */
   ulong offset = fd_rng_ulong_roll( ctx->rng, bank_cnt );
 
+  int any_ready = 0;
+  int any_scheduled = 0;
   /* Is it time to schedule the next microblock? For each banking
      thread, if it's not busy... */
   for( ulong _i=0UL; _i<bank_cnt; _i++ ) {
@@ -205,6 +240,7 @@ after_credit( void *             _ctx,
 
     /* optimize for the case we send a microblock */
     if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
+      any_ready = 1;
 
       fd_pack_microblock_complete( ctx->pack, i );
       /* TODO: record metrics for expire */
@@ -217,6 +253,7 @@ after_credit( void *             _ctx,
       fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
 
       if( FD_LIKELY( schedule_cnt ) ) {
+        any_scheduled = 1;
         ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
         ulong chunk  = ctx->out_chunk;
         ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
@@ -237,9 +274,16 @@ after_credit( void *             _ctx,
       }
     }
   }
+  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,       any_ready     );
+  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
+  now = fd_log_wallclock();
+  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
     ctx->leader_slot = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     fd_pack_end_block( ctx->pack );
@@ -288,6 +332,7 @@ during_frag( void * _ctx,
     ctx->slot_end_ns = 0L;
     ctx->_slot_end_ns = became_leader->slot_end_ns;
 
+    update_metric_state( ctx, fd_log_wallclock(), FD_PACK_METRIC_STATE_LEADER, 1 );
     return;
   }
 
@@ -363,6 +408,7 @@ after_frag( void *             _ctx,
   (void)mux;
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+  long now = fd_log_wallclock();
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
@@ -370,13 +416,14 @@ after_frag( void *             _ctx,
   } else {
     /* Normal transaction case */
     long insert_duration = -fd_tickcount();
-    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)(fd_log_wallclock()-LONG_MIN) );
+    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)(now-LONG_MIN) );
     insert_duration      += fd_tickcount();
     ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
     fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
 
     ctx->cur_spot = NULL;
   }
+  update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 }
 
 static void
@@ -437,6 +484,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
+  ctx->metric_state = 0;
+  ctx->metric_state_begin = fd_log_wallclock();
+  memset( ctx->metric_timing, '\0', 16*sizeof(long) );
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
 
