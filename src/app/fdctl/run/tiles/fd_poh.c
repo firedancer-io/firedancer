@@ -1038,7 +1038,21 @@ before_frag( void * _ctx,
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ||
                    fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       ulong slot = fd_disco_poh_sig_slot( sig );
-      if( FD_UNLIKELY( slot<ctx->hashcnt/ctx->hashcnt_per_slot ) ) *opt_filter = 1;
+
+      /* The following sequence is possible...
+      
+          1. We become leader in slot 10
+          2. While leader, we switch to a fork that is on slot 8, where we are leader
+          3. We get the in-flight microblocks for slot 10
+
+        These in-flight microblocks need to be dropped, so we check
+        against the hashcnt high water mark (last_hashcnt) rather than the current
+        hashcnt here when determining what to drop.
+
+        We know if the slot is lower than the high water mark it's from a stale
+        leader slot, because we will not become leader for the same slot twice
+        even if we are reset back in time (to prevent duplicate blocks). */
+      if( FD_UNLIKELY( slot<ctx->last_hashcnt/ctx->hashcnt_per_slot ) ) *opt_filter = 1;
       return;
     }
   }
