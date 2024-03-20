@@ -77,7 +77,7 @@ add_bench_topo( fd_topo_t * topo,
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", USHORT_MAX, 0, "benchg_s", i );
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", (ushort)i, 0, "benchg_s", i );
     benchg->benchg.accounts_cnt = accounts_cnt;
   }
   fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", USHORT_MAX, 0, NULL, 0 );
