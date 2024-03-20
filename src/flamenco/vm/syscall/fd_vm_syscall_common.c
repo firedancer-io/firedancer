@@ -214,35 +214,28 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
   // the callee's changes.
   fd_borrowed_account_t * callee_acc_rec = NULL;
   int err = fd_instr_borrowed_account_view( vm->instr_ctx, pubkey, &callee_acc_rec );
-  ulong updated_lamports, updated_data_len;
-  uchar const * updated_owner = NULL;
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_DEBUG(( "account missing while updating CPI caller account - key: %32J", pubkey ));
-    // TODO: do we need to do something anyways
-    updated_lamports = 0;
-    updated_data_len = 0;
-  } else {
-    updated_lamports = callee_acc_rec->const_meta->info.lamports;
-    updated_data_len = callee_acc_rec->const_meta->dlen;
-    updated_owner = callee_acc_rec->const_meta->info.owner;
+  if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
+    return 1;
   }
-
-  /* Update the caller account lamports */
+  
+  /* Update the caller account lamports with the value from the callee */
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, caller_acc_info, caller_acc_lamports );
-  *caller_acc_lamports = updated_lamports;
+  *caller_acc_lamports = callee_acc_rec->const_meta->info.lamports;;
 
-  /* Update the caller account owner */
+  /* Update the caller account owner with the value from the callee */
+  uchar const * updated_owner = callee_acc_rec->const_meta->info.owner;
   uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
   if ( !caller_acc_owner ) return FD_VM_ERR_PERM;
   if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
   else                fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
 
-  /* Update the caller account data */
+  /* Update the caller account data with the value from the callee */
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, caller_acc_info, caller_acc_data );
 
-  // TODO: deal with all functionality in update_caller_account
+  ulong const updated_data_len = callee_acc_rec->const_meta->dlen;
   if( !updated_data_len ) fd_memset( caller_acc_data, 0, caller_acc_data_len );
-  if( caller_acc_data_len != updated_data_len ) {
+
+  if( caller_acc_data_len != updated_data_len ) {    
     // FIXME: missing MAX_PERMITTED_DATA_INCREASE check from solana
     // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1342
 
@@ -250,16 +243,19 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
     // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
     // I don't think we do but need to double-check.
 
-    // FIXME: should this fail the transaction?
     FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", pubkey, caller_acc_data_len, updated_data_len ));
 
-    // Update the caller data_len
     VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, updated_data_len );
+
+    // Update the serialized len field 
+    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1437
     ulong * caller_len =
       fd_vm_translate_vm_to_host( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), sizeof(ulong), alignof(ulong) );
     if (FD_UNLIKELY( !caller_len )) return FD_VM_ERR_PERM;
     *caller_len = updated_data_len;
-    // TODO return instruction error account data size too small.
+
+    // FIXME return instruction error account data size too small in the same scenarios solana does
+    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534
   }
 
   fd_memcpy( caller_acc_data, callee_acc_rec->const_data, updated_data_len );
@@ -340,6 +336,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   ulong instruction_accounts_cnt;
   fd_instr_info_t cpi_instr;
 
+  // This instruction is the CPI instruction which will be executed.
   // FIXME: what if this fails?
   VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, instruction, accounts, signers, signers_seeds_cnt, data, &cpi_instr );
   err = fd_vm_prepare_instruction(vm->instr_ctx->instr, &cpi_instr, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
