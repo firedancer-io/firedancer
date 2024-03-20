@@ -51,7 +51,7 @@ generate_keypair( const char * keyfile,
 
   long bytes_produced = 0L;
   while( FD_LIKELY( bytes_produced<32 ) ) {
-    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), GRND_RANDOM );
+    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), 0 );
     if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create keypair, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     bytes_produced += n;
   }
