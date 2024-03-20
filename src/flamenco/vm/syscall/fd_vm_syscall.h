@@ -30,25 +30,25 @@
 
    When an syscall implementation returns FD_VM_ERR, the syscall is
    considered to have faulted the VM.  It ideally should not have set
-   *_r0 or updated vm->cu (or changed any other vm state though that
-   often isn't practical).
+   *_r0 (or changed any vm state, except vm->cu, though that often isn't
+   practical).
 
    It is the syscall's responsibility to deduct from vm->cu its specific
    cost model (not including the syscall instruction itself).  As such,
-   when a syscall returns SIGCOST, ideally, it should also have set
-   vm->cu to zero.  When it returns anything else, it should have set cu
-   to something in [1,cu_at_function_entry].
+   when a syscall returns SIGCOST, it should have set vm->cu to zero.
+   When it returns anything else, it should have set cu to something in
+   [1,cu_at_function_entry].
 
    To mitigate risks of from syscall implementations that do not
    strictly enforce this and other similar risks that can affect
    bookkeeping, on return from a syscall, the VM will:
 
-   FIXME: ADD NO SETTING OF R0 ON FAILURE TO VM_INTERP.
-
    - Ignore updates to pc, ic and frame_cnt.
    - Ignore updates to cu that increase it.
    - Treat updates to cu that zero it as SIGCOST.
-   - Treat SIGCOST returns that didn't update cu to zero as zeroing it. */
+   - Treat SIGCOST returns that didn't update cu to zero as zeroing it.
+
+   FIXME: ADD NO SETTING OF R0 ON VM_ERR IN VM_INTERP. */
 
 #define FD_VM_SYSCALL_DECL(name)   \
 int                                \
@@ -77,7 +77,7 @@ FD_PROTOTYPES_BEGIN
 
    Return:
 
-     FD_VM_ERR_ABORT: *_ret unchanged.  vm state unchanged.
+     FD_VM_ERR_ABORT: *_ret unchanged.  vm->cu unchanged.
 
    FIXME: SHOULD THIS BE NAMED "SOL_ABORT"? */
 
@@ -99,15 +99,11 @@ FD_VM_SYSCALL_DECL( abort );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged. vm->cu
-     decremented and positive.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.
 
      FD_VM_ERR_PANIC: *_ret unchanged. *_ret unchanged. vm->cu
-     decremented and positive.
-
-   IMPORTANT SAFETY TIP!  All VM_ERR cases fail the transaction so it is
-   okay for a PANIC to return non-panic error codes (such might be
-   useful for additional disambiguation of error cases). */
+     decremented and vm->cu>0. */
 
 FD_VM_SYSCALL_DECL( sol_panic );
 
@@ -128,18 +124,18 @@ FD_VM_SYSCALL_DECL( sol_panic );
      vm->cu==0.
 
      FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
-     decremented and positive.
+     decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
-     IMPORTANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the syscall log
+     IMPORTANT SAFETY TIP!  The log message will be silently truncated
+     if there was not enough room for the message in the syscall log
      when called. */
 
 FD_VM_SYSCALL_DECL( sol_log );
 
 /* syscall(5c2a3178) "sol_log_64_"
-   Write args0:4 to the log as a hexadecimal
+   Write r1:5 to the log as a hexadecimal
 
    Inputs:
 
@@ -154,16 +150,16 @@ FD_VM_SYSCALL_DECL( sol_log );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
-     IMPORTANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the syscall log
+     IMPORTANT SAFETY TIP!  The log message will be silently truncated
+     if there was not enough room for the message in the syscall log
      when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_64 );
 
 /* syscall(7ef088ca) "sol_log_pubkey"
-   Write Base58 encoding of 32 byte array to log.
+   Write the base58 encoding of 32 byte array to the log.
 
    Inputs:
 
@@ -179,12 +175,12 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
      vm->cu==0.
 
      FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
-     decremented and positive.
+     decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
-     IMPORTANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the syscall log
+     IMPORTANT SAFETY TIP!  The log message will be silently truncated
+     if there was not enough room for the message in the syscall log
      when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_pubkey );
@@ -205,26 +201,27 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
      vm->cu==0.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.  The
-     value logged will be the value of cu when between when the syscall
-     completed and the next interation starts and will be positive.
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     The value logged will be the value of cu when between when the
+     syscall completed and the next interation starts and will be
+     postive.
 
-     IMPORTANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the syscall log
+     IMPORTANT SAFETY TIP!  The log message will be silently truncated
+     if there was not enough room for the message in the syscall log
      when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
 /* syscall(FIXME) "sol_log_data"
-   Write Base64 encoded bytes to log.
+   Write the base64 encoded cnt data slices to the log.
 
    Inputs:
 
-     r0 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
-     r1 - cnt, FIXME: IS 0 OKAY?
-     r2 - ignored
+     r1 - slice, ulong pair VM pointer, indexed [0,cnt), FIXME: WHEN IS NULL OKAY?
+     r2 - cnt, FIXME: IS 0 OKAY?
      r3 - ignored
      r4 - ignored
+     r5 - ignored
 
      slice[i] holds the ulong pair:
        mem, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
@@ -236,12 +233,12 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
      vm->cu==0.
 
      FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
-     decremented and positive.
+     decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0. vm->cu decremented and positive.
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
 
-     IMPORTANT SAFETY TIP!  The log message might have been silently
-     truncated if not enough room for the message in the syscall log
+     IMPORTANT SAFETY TIP!  The log message will be silently truncated
+     if there was not enough room for the message in the syscall log
      when called. */
 
 FD_VM_SYSCALL_DECL( sol_log_data );
@@ -251,15 +248,15 @@ FD_VM_SYSCALL_DECL( sol_log_data );
 
    Inputs:
 
-     arg0 - sz, ignored if vaddr is not 0
-     arg1 - free_vaddr, byte VM pointer
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - sz, ignored if vaddr is not 0
+     r2 - free_vaddr, byte VM pointer
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     All cases return FD_VM_SUCCESS.
+     All cases return FD_VM_SUCCESS and leave vm->cu unchanged.
 
      If free_vaddr is 0, this is "malloc"-like:
 
@@ -284,10 +281,7 @@ FD_VM_SYSCALL_DECL( sol_log_data );
      If vaddr is not-zero, this is "free"-like.  Since the underlying
      implementation is necessarily a bump allocator (see implementation
      for more details), the specific value is ignored and *_ret=0 on
-     return.
-
-   FIXME: SHOULD THIS NOT DECREMENT THE VM->CU?  E.G. SZ=0
-   INFINITE LOOP) */
+     return. */
 
 FD_VM_SYSCALL_DECL( sol_alloc_free );
 
@@ -296,30 +290,28 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
 
    Inputs:
 
-     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg2 - sz, FIXME: IS 0 okay?
-     arg3 - ignored
-     arg4 - ignored
+     r1 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r2 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?  FIXME: WHEN IS SRC==DST OKAY?
+     r3 - sz, FIXME: IS 0 okay?
+     r4 - ignored
+     r5 - ignored
 
   Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
-
-     FD_VM_ERR_PERM: bad address range for src and/or bad address range
-     for dst.  *_ret unchanged.  Compute budget decremented.
+     vm->cu==0.
 
      FD_VM_ERR_MEM_OVERLAP: address ranges for src and dst overlap
-     (either partially or fully ... FIXME: CHECK IF EXACT OVERLAP IS
-     PERMITTED).  Empty address ranges are considered to never overlap
-     (FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.  Compute budget
-     decremented.  FIXME: CONSIDER MERGING THIS ERR CODE WITH PERM?
+     (either partially or fully).  Empty address ranges are considered
+     to never overlap (FIXME: CHECK THIS IS DESIRED).  *_ret unchanged.
+     vm->cu decremented and vm->cu>0.  FIXME: CONSIDER USING A DIFFERENT
+     ERR CODE?
 
-     FD_VM_SUCCESS: success.  *_ret=0.  On return, dst[i]==src[i] for i
-     in [0,sz).  Compute budget decremented.  IMPORTANT SAFETY TIP!  The
-     current Solana cost model has sz==0 at zero cost so sz==0 always
-     succeeds. */
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.
+
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     On return, dst[i]==src[i] for i in [0,sz). */
 
 FD_VM_SYSCALL_DECL( sol_memcpy );
 
@@ -328,27 +320,30 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
 
    Inputs:
 
-     arg0 - m0, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - m1, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg2 - sz, FIXME: IS SZ 0 OKAY?
-     arg3 - out, int VM pointer
-     arg4 - ignored
+     r1 - m0, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r2 - m1, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r3 - sz, FIXME: IS SZ 0 OKAY?
+     r4 - out, int VM pointer
+     r5 - ignored
 
   Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_out and *_ret
-     unchanged.  Compute budget decremented.
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range for m0, m1 and/or out (including
-     out not 4 byte aligned if the VM has check_align set).  *_out and
-     *_ret unchanged.  Compute budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range (including out not 4 byte
+     aligned).  *_ret unchanged.  vm->cu decremented and vm->cu>0.
+     Strict alignment is only required when the VM has check_align set.
 
-     FD_VM_SUCCESS: success.  *_out will hold a positive / zero /
-     negative number if the region at m0 lexicographically compares
-     strictly greater than / equal to / strictly less than the region at
-     m1.  Specifically, if the regions different, *_out will be
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     On return, *_out will hold a positive / zero / negative number if
+     the region at m0 lexicographically compares strictly greater than /
+     equal to / strictly less than the region at m1 when treated as
+     uchars.  Specifically, if the regions are different, *_out will be
      (int)m0[i] - (int)m1[i] where i is the first differing byte.
-     Compute budget decremented. */
+
+     IMPORANT SAFETY TIP!  Note that, strangely, this returns the result
+     in memory instead via *_ret like a libc-style memcmp would. */
 
 FD_VM_SYSCALL_DECL( sol_memcmp );
 
@@ -357,22 +352,22 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
 
    Inputs:
 
-     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - c, bits [8,64) ignored
-     arg2 - sz, FIXME: IS SZ 0 OKAY?
-     arg3 - ignored
-     arg4 - ignored
+     r1 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r2 - c, bits [8,64) ignored (FIXME: CHECK SOLANA DOES THIS)
+     r3 - sz, FIXME: IS SZ 0 OKAY?
+     r4 - ignored
+     r5 - ignored
 
   Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range for dst.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-     On return, dst[i]==(c & 255UL) for i in [0,sz). */
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     On return, dst[i]==(uchar)(c & 255UL) for i in [0,sz). */
 
 FD_VM_SYSCALL_DECL( sol_memset );
 
@@ -381,25 +376,27 @@ FD_VM_SYSCALL_DECL( sol_memset );
 
    Inputs:
 
-     arg0 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
-     arg2 - sz, FIXME: IS SZ 0 OKAY?
-     arg3 - ignored
-     arg4 - ignored
+     r1 - dst, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r2 - src, byte VM pointer, indexed [0,sz), FIXME: WHEN IS NULL OKAY?
+     r3 - sz, FIXME: IS SZ 0 OKAY?
+     r4 - ignored
+     r5 - ignored
 
   Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu==0.
 
-     FD_VM_ERR_PERM: bad address range for src and/or dst.  *_ret
-     unchanged.  Compute budget decremented.
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  On return,
-     dst[i]==src_as_it_was_before_the_call[i] for i in [0,sz).  Compute
-     budget decremented. */
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     On return, dst[i]==src_as_it_was_before_the_call[i] for i in
+     [0,sz). */
 
 FD_VM_SYSCALL_DECL( sol_memmove );
+
+/* fd_vm_syscall_runtime **********************************************/
 
 /* syscall(FIXME) "sol_get_clock_sysvar"
    syscall(FIXME) "sol_get_epoch_schedule_sysvar"
@@ -409,19 +406,22 @@ FD_VM_SYSCALL_DECL( sol_memmove );
 
    Inputs:
 
-     arg0 - out, {clock,schedule,fees,rent} VM pointer
-     arg1 - ignored
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - out, {clock,schedule,fees,rent} VM pointer
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_ERR_PERM: bad address range for out.  *_ret unchanged.
-     Compute budget decremented.  out should have:
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
+
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.  out should have:
                 | align | sz
        clock    |     8 | 40
        schedule |     1 | 40 ... FIXME: CHECK THIS IS CORRECT!
@@ -429,8 +429,8 @@ FD_VM_SYSCALL_DECL( sol_memmove );
        rent     |     8 | 24
      Strict alignment is only required when the VM has check_align set.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  On return, *out will hold the
-     value of the appropriate sysvar.  Compute budget decremented. */
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
+     On return, *out will hold the value of the appropriate sysvar. */
 
 FD_VM_SYSCALL_DECL( sol_get_clock_sysvar          );
 FD_VM_SYSCALL_DECL( sol_get_epoch_schedule_sysvar );
@@ -441,60 +441,68 @@ FD_VM_SYSCALL_DECL( sol_get_rent_sysvar           );
 
    Inputs:
 
-     arg0 - ignored
-     arg1 - ignored
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - ignored
+     r2 - ignored
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_SUCCESS: success.  *_ret=stack_height.  Compute budget
-     decremented. */
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
+
+     FD_VM_ERR_SIGSEGV: bad address range.  *_ret unchanged.  vm->cu
+     decremented and vm->cu>0.
+
+     FD_VM_SUCCESS: success.  *_ret=stack_height.  vm->cu decremented
+     and vm->cu>0. */
 
 FD_VM_SYSCALL_DECL( sol_get_stack_height );
-
-/* FIXME: NOT IMPLEMENTED YET ... IGNORES ALL ARGUMENTS AND RETURNS
-   FD_VM_ERR_UNSUP.  (MAYBE GROUP WITH CPI OR PDA?)*/
-
-FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* syscall(FIXME) "sol_get_return_data"
    Get the return data and program id associated with it.
 
    Inputs:
 
-     arg0 - dst, byte VM pointer, indexed [0,dst_max), FIXME: WHEN IS NULL OKAY? (PROBABLY "ignored when dst_max==0")
-     arg1 - dst_max, FIXME: IS 0 OKAY? (PROBABLY)
-     arg2 - program_id, byte VM pointer, indexed [0,32), FIXME: PROBABLY "ignored when dst_max==0"
-     arg3 - ignored
-     arg4 - ignored
+     r1 - dst, byte VM pointer, indexed [0,dst_max), FIXME: WHEN IS NULL OKAY?
+     r2 - dst_max, FIXME: IS 0 OKAY?
+     r3 - program_id, byte VM pointer, indexed [0,32)
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
-     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     FD_VM_ERR_SIGCALL: the VM is not running within the Solana runtime.
+     *_ret unchanged.  vm->cu unchanged.
 
-     FD_VM_ERR_PERM: bad address range for dst and/or program_id.  *_ret
-     unchanged.  Compute budget decremented.
+     FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
+     vm->cu==0.
 
      FD_VM_ERR_MEM_OVERLAP: dst and program_id address ranges overlap.
-     *_ret unchanged.  Compute budget decremented.  (FIXME: ERR CODE)
+     *_ret unchanged.  vm->cu decremented and vm->cu>0.  (FIXME: ERR
+     CODE) (FIXME: overlap currently checked against the acutal amount
+     copied into dst which is <=dst_max ... DOUBLE CHECK THIS AGAINST
+     THE SOLANA IMPLEMENTATION.)
 
-     FD_VM_SUCCESS: success.  *_ret=return_data_sz.  Compute budget
-     decremented.  If dst_max was non-zero, dst holds
-     min(return_data_sz,dst_max) bytes of return data (as such, if
-     return_data_sz>dst_max, the value returned in the buffer was
+     FD_VM_ERR_SIGSEGV: bad address range for dst and/or program_id.
+     *_ret unchanged.  Compute budget decremented.  (FIXME: dst address
+     range currently checked aginst the actual amount copied into dst,
+     which is <=dst_max ... DOUBLE CHECK THIS AGAINST THE SOLANA
+     IMPLEMENTATION.)
+
+     FD_VM_SUCCESS: success.  *_ret=return_data_sz.  vm->cu decremented
+     and vm->cu>0.  On return, if dst_max was non-zero, dst holds the
+     leading min(return_data_sz,dst_max) bytes of return data (as such,
+     if return_data_sz>dst_max, the value returned in the buffer was
      truncated).  Any trailing bytes of dst are unchanged.  program_id
      holds the program_id associated with the return data.
 
      If dst_max was zero, dst and program_id are untouched.  (FIXME: IS
-     THIS CORRECT BEHAVIOR FOR PROGRAM_ID?)
-
-   FIXME: MAYBE GROUP WITH CPI OR PDA? */
+     THIS CORRECT BEHAVIOR FOR PROGRAM_ID?) */
 
 FD_VM_SYSCALL_DECL( sol_get_return_data );
 
@@ -504,28 +512,31 @@ FD_VM_SYSCALL_DECL( sol_get_return_data );
 
    Inputs:
 
-     arg0 - src, byte VM pointer, indexed [0,src_sz), FIXME: WHEN IS NULL OKAY?
-     arg1 - src_sz, FIXME: IS 0 OKAY?
-     arg2 - ignored
-     arg3 - ignored
-     arg4 - ignored
+     r1 - src, byte VM pointer, indexed [0,src_sz), FIXME: WHEN IS NULL OKAY?
+     r2 - src_sz, FIXME: IS 0 OKAY?
+     r3 - ignored
+     r4 - ignored
+     r5 - ignored
 
    Return:
 
      FD_VM_ERR_SIGCOST: insufficient compute budget.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu decremented and vm->cu>0.
 
      FD_VM_ERR_RETURN_DATA_TOO_LARGE: src_sz too large.  *_ret
-     unchanged.  Compute budget decremented.
+     unchanged.  vm->cu decremented and vm->cu>0.
 
      FD_VM_ERR_PERM: bad address range for src.  *_ret unchanged.
-     Compute budget decremented.
+     vm->cu decremented and vm->cu>0.
 
-     FD_VM_SUCCESS: success.  *_ret=0.  Compute budget decremented.
-
-   FIXME: MAYBE GROUP WITH CPI OR PDA? */
+     FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0. */
 
 FD_VM_SYSCALL_DECL( sol_set_return_data );
+
+/* FIXME: NOT IMPLEMENTED YET ... IGNORES ALL ARGUMENTS AND RETURNS
+   FD_VM_ERR_UNSUP.  (MAYBE GROUP WITH CPI OR PDA?)*/
+
+FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
 /* fd_vm_syscall_pda **************************************************/
 

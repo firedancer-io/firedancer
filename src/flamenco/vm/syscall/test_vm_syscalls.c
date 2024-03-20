@@ -215,7 +215,7 @@ main( int     argc,
                               0UL,
                               0UL,
                               100UL,
-                              0UL, FD_VM_ERR_PERM );
+                              0UL, FD_VM_ERR_SIGSEGV );
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy at the heap region",
                               &vm,
@@ -244,7 +244,7 @@ main( int     argc,
                               (ulong)&vm.heap[0],
                               (ulong)&vm.rodata[0],
                               100UL,
-                              0UL, FD_VM_ERR_PERM );
+                              0UL, FD_VM_ERR_SIGSEGV );
 
   // test we cannot copy more than the available size from the read-only region
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy from read only region to heap region",
@@ -254,7 +254,7 @@ main( int     argc,
                               (ulong)&vm.rodata[0],
                               (ulong)&vm.heap[0],
                               rodata_sz + 1UL,
-                              0UL, FD_VM_ERR_PERM );
+                              0UL, FD_VM_ERR_SIGSEGV );
 
   // test we cannot copy overlapping regions in heap where src is before dst
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy overlapping regions in heap - src before dst",
@@ -314,7 +314,7 @@ main( int     argc,
                                (ulong)&vm.heap[0],
                                (ulong)&vm.rodata[0],
                                100UL,
-                               0UL, FD_VM_ERR_PERM );
+                               0UL, FD_VM_ERR_SIGSEGV );
 
   // test for memcmp at the heap region
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp at the heap region",
@@ -350,7 +350,7 @@ main( int     argc,
                               (ulong)&vm.rodata[100],
                               (ulong)&vm.rodata[200],
                               100UL,
-                              0UL, FD_VM_ERR_PERM );
+                              0UL, FD_VM_ERR_SIGSEGV );
 
   uchar expected_log[ FD_VM_LOG_MAX ];
   ulong expected_log_sz = 0UL;
