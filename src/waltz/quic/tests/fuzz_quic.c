@@ -163,7 +163,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
                                         .handshake_cnt = 10,
                                         .stream_cnt = {0, 0, 10, 0},
                                         .initial_stream_cnt = {0, 0, 10, 0 },
-                                        .stream_pool_cnt = 200,
+                                        .stream_pool_cnt = 20,
                                         .inflight_pkt_cnt = 1024,
                                         .tx_buf_sz = 1 << 14};
 
