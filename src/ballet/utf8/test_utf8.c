@@ -73,6 +73,23 @@ main( int     argc,
     }
   }
 
+  /* Prevent OOB reads (caught by ASan) */
+
+  for( ulong j=0UL; j<=UCHAR_MAX; j++ ) {
+    uchar oob[1] = { (uchar)j };
+    int res = fd_utf8_verify( (char const *)oob, 1 );
+    FD_TEST( res==0 || res==1 );  /* prevent optimizing out value */
+  }
+
+  uchar oob2[1] = { (uchar)0xdf };
+  FD_TEST( !fd_utf8_verify( (char const *)oob2, 1 ) );
+
+  uchar oob3[2] = { (uchar)0xe0, (uchar)0xa0 };
+  FD_TEST( !fd_utf8_verify( (char const *)oob3, 2 ) );
+
+  uchar oob4[3] = { (uchar)0xf0, (uchar)0x90, (uchar)0x80 };
+  FD_TEST( !fd_utf8_verify( (char const *)oob4, 3 ) );
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
