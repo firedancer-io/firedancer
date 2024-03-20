@@ -1100,10 +1100,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->cumulative_block_cost += status.cus_scheduled;
   pack->data_bytes_consumed   += status.bytes_scheduled;
 
-  pack->microblock_cnt += (ulong)(scheduled>0UL);
-  pack->outstanding_microblock_mask |= 1UL << bank_tile;
-
-  if( FD_LIKELY( scheduled ) ) pack->data_bytes_consumed += MICROBLOCK_DATA_OVERHEAD;
+  ulong nonempty = (ulong)(scheduled>0UL);
+  pack->microblock_cnt              += nonempty;
+  pack->outstanding_microblock_mask |= nonempty << bank_tile;
+  pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
   /* Update metrics counters */
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
