@@ -116,6 +116,7 @@ metric introduced.
     <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
     <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
+    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
 </group>
 

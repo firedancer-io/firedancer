@@ -585,6 +585,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         hist = hist_ovrnp_ticks;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
+        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
       }
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
