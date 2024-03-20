@@ -149,7 +149,7 @@ dynamic_port_range = "8900-9000"
     #
     # The ledger path constructed here is passed to the Solana Labs
     # client with the `--ledger` argument.
-    path = ""
+    path = "/data/{name}/ledger"
 
     # Absolute directory path to place the accounts database in.  If
     # this is empty, it will default to the `accounts` subdirectory of
@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-21"
+    affinity = "f3,4-15,f2,16-19,f2,20,f2"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Solana Labs (Agave)
@@ -534,11 +534,11 @@ dynamic_port_range = "8900-9000"
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.
-    verify_tile_count = 10
+    verify_tile_count = 12
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
-    bank_tile_count = 2
+    bank_tile_count = 4
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
@@ -967,7 +967,7 @@ dynamic_port_range = "8900-9000"
         # genesis, but it might be immediately overriden at runtime if
         # the related features which increase this value are enabled.
         # The features are like update_hashes_per_tick2.
-        hashes_per_tick = 1
+        hashes_per_tick = 12500
 
         # How long each tick of the proof of history component should
         # take, in microseconds.  This value specifies the initial value
@@ -985,7 +985,7 @@ dynamic_port_range = "8900-9000"
         # SOL.  Useful for benchmarking and development.  The specific
         # accounts that will be funded are those with private-keys of
         # 0, 1, 2, .... N.
-        fund_initial_accounts = 1024
+        fund_initial_accounts = 8192
 
         # The amount of SOL to pre-fund each account with.
         fund_initial_amount_lamports = 50000000000000
