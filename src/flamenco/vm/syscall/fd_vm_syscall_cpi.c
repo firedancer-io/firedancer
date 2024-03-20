@@ -361,8 +361,6 @@ static inline void * fd_vm_syscall_pdas_delete( fd_vm_syscall_pdas_t * pdas ) { 
 
 static void
 fd_vm_syscall_pda_next( fd_vm_syscall_pdas_t *       pdas ) {
-  FD_TEST( pdas->idx < FD_CPI_MAX_SIGNER_CNT );
-
   fd_sha256_t * sha = fd_sha256_join( pdas->sha );
   fd_sha256_init  ( sha );
   fd_sha256_leave ( sha );
@@ -407,7 +405,13 @@ fd_vm_syscall_pda_fini( fd_vm_t const * vm,
 /* fd_vm_syscall_cpi_derive_signers loads a vector of PDA derive
    paths provided by the user.  Part of fd_vm_syscall_cpi_{c,rust}.
    This code was implemented twice in Solana Labs (for C and Rust ABIs
-   respectively), but the logic is identical. */
+   respectively), but the logic is identical. The memory layout of the 
+   paramaters is identical in either case, so we don't need to templatize 
+   this function.
+   
+   This function corresponds to solana_bpf_loader_program::syscalls::cpi::SyscallInvokeSigned{C/Rust}::translate_signers
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L749
+*/
 
 static int
 fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
@@ -415,15 +419,17 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
                                    ulong                  signers_seeds_va,
                                    ulong                  signers_seeds_cnt ) {
 
+  // FIXME: behaviour if seeds is 0? or seeds contains an empty array?
+  // Rust just returns an empty valid array in host space in this case, we should probably
+  // do the same.
+
   /* Translate array of seeds.  Each seed is an array of byte arrays. */
   fd_vm_vec_t const * seeds =
     fd_vm_translate_vm_to_host_const( vm, signers_seeds_va, signers_seeds_cnt*FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
   if( FD_UNLIKELY( !seeds ) ) return FD_VM_ERR_PERM;
 
-  if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
-    return FD_VM_ERR_INVAL;
-  }
-  /* Create program addresses */
+  /* Create program addresses. */
+  if ( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) return FD_VM_ERR_INVAL;
 
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
 
@@ -431,12 +437,13 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
     if( FD_UNLIKELY( seeds[i].len > FD_VM_CPI_SEED_MAX ) ) return FD_VM_ERR_INVAL;
 
     /* Translate inner seed slice.  Each element points to a byte array. */
+    // FIXME: if seed is NULL (the array contains an empty array), this is a valid mapping
+    // but fd_vm_translate_vm_to_host_const does not handle this case correctly.
     fd_vm_vec_t const * seed =
       fd_vm_translate_vm_to_host_const( vm, seeds[i].addr, seeds[i].len * FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
     if( FD_UNLIKELY( !seed ) ) return FD_VM_ERR_PERM;
 
     /* Derive PDA */
-
     fd_vm_syscall_pda_next( pdas );
 
     if( FD_UNLIKELY( !seed ) ) {
@@ -460,6 +467,7 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
 
       /* Translate inner seed limb (type &[u8]) */
       uchar const * seed_limb = fd_vm_translate_vm_to_host_const( vm, seed[j].addr, seed[j].len, alignof(uchar) );
+      // FIXME: check if translation failed
       fd_vm_syscall_pda_seed_append( pdas, seed_limb, seed[j].len );
     }
 
@@ -555,19 +563,33 @@ check_id( uchar const * program_id,
   return !memcmp( program_id, loader, sizeof(fd_pubkey_t) );
 }
 
-/* FIXME: PREFIX */
+/* fd_vm_syscall_cpi_is_precompile returns true if the given program_id
+   corresponds to a precompile. It does this by checking against a hardcoded
+   list of known pre-compiles.
+
+   This mirrors the behaviour in solana_sdk::precompiles::is_precompile
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
+ */
 static inline int
-is_precompile( uchar const * program_id ) {
-  return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) ||
+fd_vm_syscall_cpi_is_precompile( uchar const * program_id ) {
+  return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
 
-/* FIXME: PREFIX / RET TYPE? (THIS BRANCH NEST MAKES BABIES CRY) */
+/* fd_vm_syscall_cpi_check_authorized_program corresponds to 
+solana_bpf_loader_program::syscalls::cpi::check_authorized_program:
+https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1032
+
+It determines if the given program_id is authorized to execute a CPI call.
+
+FIXME: return type
+ */
 static inline ulong
-check_authorized_program( uchar const *        program_id,
+fd_vm_syscall_cpi_check_authorized_program( uchar const *        program_id,
                           fd_exec_slot_ctx_t * slot_ctx,
                           uchar const *        instruction_data,
                           ulong                instruction_data_len ) {
+  /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
   return check_id( program_id, fd_solana_native_loader_id.key                 )                 ||
          check_id( program_id, fd_solana_bpf_loader_program_id.key            )                 ||
          check_id( program_id, fd_solana_bpf_loader_deprecated_program_id.key )                 ||
@@ -577,7 +599,7 @@ check_authorized_program( uchar const *        program_id,
              ( FD_FEATURE_ACTIVE( slot_ctx, enable_bpf_loader_set_authority_checked_ix ) &&
                (instruction_data_len != 0 && instruction_data[0] == 4) )                    ||
              (instruction_data_len != 0 && instruction_data[0] == 5)                        ) ) ||
-         is_precompile(program_id);
+         fd_vm_syscall_cpi_is_precompile(program_id);
 }
 
 /*
