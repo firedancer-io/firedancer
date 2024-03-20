@@ -28,14 +28,16 @@ FD_FN_PURE int
 fd_utf8_verify( char const * str,
                 ulong        sz ) {
 
-  char const *       cur = str;
-  char const * const end = cur+sz;
+  uchar const *       cur = (uchar const *)str;
+  uchar const * const end = cur+sz;
 
   while( cur<end ) {
-    uint c0 = (uchar)*cur;
+    uint c0 = *cur;
     if( c0>=0x80U ) {
-      cur++;
       ulong width = fd_utf8_char_width[ c0 ];
+      if( FD_UNLIKELY( width > (ulong)(end-cur) ) )
+        return 0;
+      cur++;
       switch( width ) {
       case 2: {
         schar c1 = (schar)( *cur++ );
@@ -44,8 +46,8 @@ fd_utf8_verify( char const * str,
         break;
       }
       case 3: {
-        uchar c1 = (uchar)( *cur++ );
-        schar c2 = (schar)( *cur++ );
+        uint c1 =          *cur++;
+         int c2 = (schar)( *cur++ );
         if( FD_UNLIKELY(
             !(   ( (c0==0xe0)&           (c1>=0xa0)&(c1<=0xbf) )
                | ( (c0>=0xe1)&(c0<=0xec)&(c1>=0x80)&(c1<=0xbf) )
@@ -56,9 +58,9 @@ fd_utf8_verify( char const * str,
         break;
       }
       case 4: {
-        uchar c1 = (uchar)( *cur++ );
-        schar c2 = (schar)( *cur++ );
-        schar c3 = (schar)( *cur++ );
+        uint c1 =          *cur++;
+         int c2 = (schar)( *cur++ );
+         int c3 = (schar)( *cur++ );
         if( FD_UNLIKELY(
             !(   ( (c0==0xf0)&           (c1>=0x90)&(c1<=0xbf) )
                | ( (c0>=0xf1)&(c0<=0xf3)&(c1>=0x80)&(c1<=0xbf) )
