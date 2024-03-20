@@ -9,7 +9,6 @@
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_account.h"
 
-
 int
 fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
                      FD_PARAM_UNUSED ulong   r1,
@@ -272,9 +271,9 @@ int
 fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               /**/            ulong   sz,
                               /**/            ulong   free_vaddr,
-                              FD_PARAM_UNUSED ulong   arg2,
-                              FD_PARAM_UNUSED ulong   arg3,
-                              FD_PARAM_UNUSED ulong   arg4,
+                              FD_PARAM_UNUSED ulong   r3,
+                              FD_PARAM_UNUSED ulong   r4,
+                              FD_PARAM_UNUSED ulong   r5,
                               /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
@@ -320,11 +319,11 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      than it actually is.  This is also an example of how quickly
      mistakes fossilize and become a thorn-in-the-side forever.
 
-     IMPORANT SAFETY TIP!  heap_start must be non zero and both
+     IMPORTANT SAFETY TIP!  heap_start must be non zero and both
      heap_start and heap_end should have an alignment of at least 8.
      This existing runtime policies around heap implicitly satisfy this.
 
-     IMPORANT SAFETY TIP!  The specification for Rust's align_offset
+     IMPORTANT SAFETY TIP!  The specification for Rust's align_offset
      doesn't seem to be provide a strong guarantee that it will return
      the minimal positive offset necessary to align pointers.  It is
      possible for a "conforming" Rust compiler to break consensus by
@@ -362,37 +361,37 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong   dst_vaddr,
                           /**/            ulong   src_vaddr,
                           /**/            ulong   sz,
-                          FD_PARAM_UNUSED ulong   arg3,
-                          FD_PARAM_UNUSED ulong   arg4,
+                          FD_PARAM_UNUSED ulong   r3,
+                          FD_PARAM_UNUSED ulong   r4,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_mem( vm, sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* FIXME: check cu model (this model seems to be using CPI related
+     parameters!) */
+  /* FIXME: confirm exact handling matches Solana for the NULL, sz==0
+     and/or dst==src cases (see other mem syscalls ... they don't all
+     fault in the same way though in principle that shouldn't break
+     consensus).  Except for fixing the overflow risk from wrapping
+     ranges (the below is computed as though the ranges are in exact
+     math and don't overlap), the below handling matches the original
+     implementation. */
+  /* FIXME: consider what err code to use on overlap case further */
+  /* FIXME: use overlap logic from runtime? */
 
-  /* Check for overlap */
-  /* FIXME: DOES THIS LOGIC WORK IF DST_VADDR+SZ OR SRC_VADDR+SZ
-     OVERFLOW?  SEE THE LOGIC USED FOR GET/SET_RETURN_DATA. */
+  FD_VM_CU_MEM_UPDATE( vm, sz );
 
-  if( FD_UNLIKELY( ( (dst_vaddr<=src_vaddr) & (src_vaddr<(dst_vaddr+sz)) ) |
-                   ( (src_vaddr<=dst_vaddr) & (dst_vaddr<(src_vaddr+sz)) ) ) ) return FD_VM_ERR_MEM_OVERLAP;
-
-  /* FIXME: CONSIDER MOVING THIS SHORT-CIRCUIT ABOVE THE OVERLAPPING
-     SHORTCUT (AND MAYBE THE COST MODEL AS SZ==0 COSTS NOTHING IN THE
-     CURRENT COST MODEL). */
+  if( FD_UNLIKELY( ((src_vaddr> dst_vaddr) & ((src_vaddr-dst_vaddr)<sz)) |
+                   ((dst_vaddr>=src_vaddr) & ((dst_vaddr-src_vaddr)<sz)) ) ) return FD_VM_ERR_MEM_OVERLAP;
 
   if( FD_UNLIKELY( !sz ) ) {
     *_ret = 0;
     return FD_VM_SUCCESS;
   }
 
-  void *       dst_haddr = fd_vm_translate_vm_to_host      ( vm, dst_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+  void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+  void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
 
-  void const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
-
-  memcpy( dst_haddr, src_haddr, sz );
+  memcpy( dst, src, sz );
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -404,21 +403,27 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
                           /**/            ulong   m1_vaddr,
                           /**/            ulong   sz,
                           /**/            ulong   out_vaddr,
-                          FD_PARAM_UNUSED ulong   arg4,
+                          FD_PARAM_UNUSED ulong   r4,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_mem( vm, sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* FIXME: check cu model (this model seems to be using CPI related
+     parameters!) */
+  /* FIXME: confirm exact handling matches Solana for the NULL and/or
+     sz==0 cases (see other mem syscalls ... they don't all fault in the
+     same way though in principle that shouldn't break consensus).  The
+     below handling matches the original implementation. */
 
-  uchar const * m0_haddr = fd_vm_translate_vm_to_host_const( vm, m0_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !m0_haddr ) ) return FD_VM_ERR_PERM;
+  FD_VM_CU_MEM_UPDATE( vm, sz );
 
-  uchar const * m1_haddr = fd_vm_translate_vm_to_host_const( vm, m1_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !m1_haddr ) ) return FD_VM_ERR_PERM;
+  uchar const * m0 = (uchar const *)FD_VM_MEM_HADDR_LD( vm, m0_vaddr, 1UL, sz );
+  uchar const * m1 = (uchar const *)FD_VM_MEM_HADDR_LD( vm, m1_vaddr, 1UL, sz );
 
-  int * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(int), alignof(int) );
-  if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
+  /* Silly that this doesn't use r0 to return ... slower, more edge
+     case, different from libc style memcmp, harder to callers to use,
+     etc ... probably too late to do anything about it now ... sigh */
+
+  void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, 4UL, 4UL );
 
   /* Note: though this behaves like a normal C-style memcmp, we can't
      use the compilers / libc memcmp directly because the specification
@@ -427,15 +432,16 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
 
   int out = 0;
   for( ulong i=0UL; i<sz; i++ ) {
-    int i0 = (int)m0_haddr[i];
-    int i1 = (int)m1_haddr[i];
+    int i0 = (int)m0[i];
+    int i1 = (int)m1[i];
     if( i0!=i1 ) {
       out = i0 - i1;
       break;
     }
   }
 
-  *out_haddr = out; /* Sigh ... silly that this doesn't use ret (like other syscalls) for this ... Slower and more edge cases. */
+  memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
+
   *_ret = 0;
   return FD_VM_SUCCESS;
 }
@@ -445,19 +451,24 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
                           /**/            ulong   dst_vaddr,
                           /**/            ulong   c,
                           /**/            ulong   sz,
-                          FD_PARAM_UNUSED ulong   arg3,
-                          FD_PARAM_UNUSED ulong   arg4,
+                          FD_PARAM_UNUSED ulong   r4,
+                          FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_mem( vm, sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* FIXME: check cu model (this model seems to be using CPI related
+     parameters!) */
+  /* FIXME: confirm exact handling matches Solana for the NULL and/or
+     sz==0 cases (see other mem syscalls ... they don't all fault in the
+     same way though in principle that shouldn't break consensus).  The
+     below handling matches the original implementation. */
 
-  void * dst_haddr = fd_vm_translate_vm_to_host( vm, dst_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+  FD_VM_CU_MEM_UPDATE( vm, sz );
+
+  void * dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
 
   int b = (int)(c & 255UL);
-  if( FD_LIKELY( sz ) ) memset( dst_haddr, b, sz ); /* Sigh ... avoid UB around sz==0 */
+  if( FD_LIKELY( sz ) ) memset( dst, b, sz ); /* Sigh ... avoid UB around sz==0 */
 
   *_ret = 0;
   return FD_VM_SUCCESS;
@@ -468,283 +479,23 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            /**/            ulong   dst_vaddr,
                            /**/            ulong   src_vaddr,
                            /**/            ulong   sz,
-                           FD_PARAM_UNUSED ulong   arg3,
-                           FD_PARAM_UNUSED ulong   arg4,
+                           FD_PARAM_UNUSED ulong   r4,
+                           FD_PARAM_UNUSED ulong   r5,
                            /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_mem( vm, sz );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* FIXME: confirm exact handling matches Solana for the NULL and/or
+     sz==0 cases (see other mem syscalls ... they don't all fault in the
+     same way though in principle that shouldn't break consensus).  The
+     below handling matches the original implementation. */
 
-  void *       dst_haddr = fd_vm_translate_vm_to_host      ( vm, dst_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
+  FD_VM_CU_MEM_UPDATE( vm, sz );
 
-  void const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, sz, alignof(uchar) );
-  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
+  void *       dst = FD_VM_MEM_HADDR_ST( vm, dst_vaddr, 1UL, sz );
+  void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, 1UL, sz );
 
-  if( FD_LIKELY( sz ) ) memmove( dst_haddr, src_haddr, sz ); /* Sigh ... avoid UB around sz==0 */
-
-  *_ret = 0;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
-                                    /**/            ulong   out_vaddr,
-                                    FD_PARAM_UNUSED ulong   arg1,
-                                    FD_PARAM_UNUSED ulong   arg2,
-                                    FD_PARAM_UNUSED ulong   arg3,
-                                    FD_PARAM_UNUSED ulong   arg4,
-                                    /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
-     NOT SURE WHAT THIS IS */
-  FD_TEST( vm->instr_ctx->instr );
-
-  /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
-     DISTIBUTED OBJECT AS JOIN/LEAVE PAIR). */
-  fd_sol_sysvar_clock_t clock[1];
-  fd_sol_sysvar_clock_new( clock );
-  fd_sysvar_clock_read( clock, vm->instr_ctx->slot_ctx );
-
-  void * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_sol_sysvar_clock_t), FD_SOL_SYSVAR_CLOCK_ALIGN );
-  if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
-
-  /* FIXME: SHOULD THE ADDRESS CHECK BE BEFORE THE READ?  AND MAYBE JUST
-     DO THE READ DIRECTLY INTO OUT_HADDR TO AVOID THE EXTRA MEMCPY? */
-  memcpy( out_haddr, clock, sizeof(fd_sol_sysvar_clock_t ) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
-                                             /**/            ulong   out_vaddr,
-                                             FD_PARAM_UNUSED ulong   arg1,
-                                             FD_PARAM_UNUSED ulong   arg2,
-                                             FD_PARAM_UNUSED ulong   arg3,
-                                             FD_PARAM_UNUSED ulong   arg4,
-                                             /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
-     NOT SURE WHAT THIS IS */
-  FD_TEST( vm->instr_ctx->instr );
-
-  /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
-     DISTIBUTED OBJECT AS JOIN/LEAVE PAIR) */
-  fd_epoch_schedule_t schedule[1]; /* FIXME: RENAME SOL_SYSVAR_SCHEDULE_T? */
-  fd_epoch_schedule_new( schedule );
-  fd_sysvar_epoch_schedule_read( schedule, vm->instr_ctx->slot_ctx );
-
-  void * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_epoch_schedule_t), FD_EPOCH_SCHEDULE_ALIGN );
-  if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
-
-  /* FIXME: SHOULD THE ADDRESS CHECK BE BEFORE THE READ?  AND MAYBE JUST
-     DO THE READ DIRECTLY INTO OUT_HADDR TO AVOID THE EXTRA MEMCPY? */
-  memcpy( out_haddr, schedule, sizeof(fd_epoch_schedule_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
-                                   /**/            ulong   out_vaddr,
-                                   FD_PARAM_UNUSED ulong   arg1,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
-     NOT SURE WHAT THIS IS */
-  FD_TEST( vm->instr_ctx->instr );
-
-  /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_fees_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
-     DISTIBUTED OBJECT AS JOIN/LEAVE PAIR) */
-  fd_sysvar_fees_t fees[1]; /* FIXME: RENAME FD_SOL_SYSVAR_FEES_T? */
-  fd_sysvar_fees_new( fees );
-  fd_sysvar_fees_read( fees, vm->instr_ctx->slot_ctx );
-
-  /* FIXME: SHOULD THE ADDRESS CHECK BE BEFORE THE READ?  AND MAYBE JUST
-     DO THE READ DIRECTLY INTO OUT_HADDR TO AVOID THE EXTRA MEMCPY? */
-  void * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_sysvar_fees_t), FD_SYSVAR_FEES_ALIGN );
-  if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out_haddr, fees, sizeof(fd_sysvar_fees_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
-                                   /**/            ulong   out_vaddr,
-                                   FD_PARAM_UNUSED ulong   arg1,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: DON'T USE FD_TEST HERE ... SHOULD ONLY BE FOR UNIT TESTS,
-     NOT SURE WHAT THIS IS */
-  FD_TEST( vm->instr_ctx->instr );
-
-  /* FIXME: IS SAT ADD REALLY NEEDED HERE? */
-  int err = fd_vm_consume_compute( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  /* FIXME: IF NEW IS CALLED, IMPLIES THERE SHOULD BE DELETE (AND, IF A
-     DISTIBUTED OBJECT AS JOIN/LEAVE PAIR) */
-  fd_rent_t rent[1]; /* FIXME: RENAME FD_SOL_SYSVAR_RENT_T? */
-  fd_rent_new( rent );
-  fd_sysvar_rent_read( rent, vm->instr_ctx->slot_ctx );
-
-  /* FIXME: SHOULD THE ADDRESS CHECK BE BEFORE THE READ?  AND MAYBE JUST
-     DO THE READ DIRECTLY INTO OUT_HADDR TO AVOID THE EXTRA MEMCPY? */
-  void * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_rent_t), FD_RENT_ALIGN );
-  if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
-
-  memcpy( out_haddr, rent, sizeof(fd_rent_t) );
-
-  *_ret = 0UL;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
-                                    FD_PARAM_UNUSED ulong   arg0,
-                                    FD_PARAM_UNUSED ulong   arg1,
-                                    FD_PARAM_UNUSED ulong   arg2,
-                                    FD_PARAM_UNUSED ulong   arg3,
-                                    FD_PARAM_UNUSED ulong   arg4,
-                                    /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  *_ret = vm->instr_ctx->txn_ctx->instr_stack_sz;
-  return FD_VM_SUCCESS;
-}
-
-/* FIXME: PREFIX? */
-/* FIXME: BRANCHLESS? */
-/* FIXME: SEE MEMCPY ABOVE? */
-
-static inline int
-is_nonoverlapping( ulong src, ulong src_sz,    /* Assumes src_sz>0 and [src,src+src_sz) does not wrap */
-                   ulong dst, ulong dst_sz ) { /* Assumes dst_sz>0 and [dst,dst+dst_sz) does not wrap */
-  if( src>dst ) return (src-dst)>=dst_sz;
-  else          return (dst-src)>=src_sz;
-}
-
-int
-fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
-                                   /**/            ulong   dst_vaddr,
-                                   /**/            ulong   dst_max,
-                                   /**/            ulong   program_id_vaddr,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  int err = fd_vm_consume_compute( vm, FD_VM_SYSCALL_BASE_COST );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_ctx->return_data;
-
-  ulong return_data_sz = return_data->len;
-
-  ulong cpy_sz = fd_ulong_min( return_data_sz, dst_max );
-  if( FD_LIKELY( cpy_sz ) ) {
-
-    /* FIXME: Assumes non-zero denom */
-    ulong cost = fd_ulong_sat_add( cpy_sz, sizeof(fd_pubkey_t) ) / FD_VM_CPI_BYTES_PER_UNIT;
-    err = fd_vm_consume_compute( vm, cost );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    uchar * dst_haddr = fd_vm_translate_vm_to_host( vm, dst_vaddr, cpy_sz, alignof(uchar) );
-    if( FD_UNLIKELY( !dst_haddr ) ) return FD_VM_ERR_PERM;
-
-    memcpy( dst_haddr, return_data->data, cpy_sz );
-
-    /* FIXME: CHECK alignof(fd_pubkey_t)==1 IS CORRECT */
-    fd_pubkey_t * program_id_haddr = fd_vm_translate_vm_to_host( vm, program_id_vaddr, sizeof(fd_pubkey_t), alignof(fd_pubkey_t) );
-    if( FD_UNLIKELY( !program_id_haddr) ) return FD_VM_ERR_PERM;
-
-    /* At this point, cpy_sz>0, sizeof(fd_pubkey_t)>0 and ranges do not
-       wrap (FIXME: ASSUMES FD_VM_XLAT HAS THE PROPERTY IT FAILS
-       OVERLAPPING RANGES) */
-    if( FD_UNLIKELY( !is_nonoverlapping( (ulong)dst_haddr, cpy_sz, (ulong)program_id_haddr, sizeof(fd_pubkey_t) ) ) )
-      return FD_VM_ERR_MEM_OVERLAP; /* FIXME: Error code? */
-
-    memcpy( program_id_haddr->uc, return_data->program_id.uc, sizeof(fd_pubkey_t) );
-
-  }
-
-  *_ret = return_data_sz;
-  return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
-                                   /**/            ulong   src_vaddr,
-                                   /**/            ulong   src_sz,
-                                   FD_PARAM_UNUSED ulong   arg2,
-                                   FD_PARAM_UNUSED ulong   arg3,
-                                   FD_PARAM_UNUSED ulong   arg4,
-                                   /**/            ulong * _ret ) {
-  fd_vm_t * vm = (fd_vm_t *)_vm;
-
-  /* FIXME: Assumes non-zero denom */
-  ulong cost = fd_ulong_sat_add( src_sz / FD_VM_CPI_BYTES_PER_UNIT, FD_VM_SYSCALL_BASE_COST );
-  int   err  = fd_vm_consume_compute( vm, cost );
-  if( FD_UNLIKELY( err ) ) return err;
-
-  if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) return FD_VM_ERR_RETURN_DATA_TOO_LARGE;
-
-  uchar const * src_haddr = fd_vm_translate_vm_to_host_const( vm, src_vaddr, src_sz, alignof(uchar) );
-  if( FD_UNLIKELY( !src_haddr ) ) return FD_VM_ERR_PERM;
-
-  fd_exec_instr_ctx_t * instr_ctx = vm->instr_ctx;
-
-  fd_pubkey_t const    * program_id  = &instr_ctx->instr->program_id_pubkey;
-  fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
-
-  memcpy( return_data->program_id.uc, program_id->uc, sizeof(fd_pubkey_t) );
-
-  return_data->len = src_sz;
-  if( FD_LIKELY( src_sz ) ) memcpy( return_data->data, src_haddr, src_sz );
+  if( FD_LIKELY( sz ) ) memmove( dst, src, sz ); /* Sigh ... avoid UB around sz==0 */
 
   *_ret = 0;
   return FD_VM_SUCCESS;
-}
-
-int
-fd_vm_syscall_sol_get_processed_sibling_instruction( FD_PARAM_UNUSED void *  _vm,
-                                                     FD_PARAM_UNUSED ulong   arg0,
-                                                     FD_PARAM_UNUSED ulong   arg1,
-                                                     FD_PARAM_UNUSED ulong   arg2,
-                                                     FD_PARAM_UNUSED ulong   arg3,
-                                                     FD_PARAM_UNUSED ulong   arg4,
-                                                     FD_PARAM_UNUSED ulong * _ret ) {
-  return FD_VM_ERR_UNSUP;
 }
