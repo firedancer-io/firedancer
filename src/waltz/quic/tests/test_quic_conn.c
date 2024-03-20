@@ -380,10 +380,7 @@ main( int argc, char ** argv ) {
 
   state = 1;
 
-  ulong j = 0;
   while( k < 4000 && !done ) {
-    j++;
-
     my_stream_meta_t * meta = NULL;
     now += 50000;
 
