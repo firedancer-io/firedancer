@@ -60,8 +60,6 @@ cat <<EOF
     - Fetches dependencies from Git repos into $(pwd)/opt/git
 
     install
-    - Runs 'fetch'
-    - Runs 'check'
     - Builds dependencies
     - Installs all project dependencies into prefix $(pwd)/opt
 
@@ -462,7 +460,7 @@ if [[ $# -eq 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
-  echo "[~] Running $0 install"
+  echo "[~] Running $0 fetch check install"
 
   read -r -p "[?] Continue? (y/N) " choice
   case "$choice" in
@@ -497,8 +495,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     install)
       shift
-      fetch
-      check
       install
       ;;
     *)
