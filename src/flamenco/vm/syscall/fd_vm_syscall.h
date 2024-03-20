@@ -6,6 +6,7 @@
 #include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+/* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
 #define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 #define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 
