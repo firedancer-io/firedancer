@@ -14,10 +14,14 @@ typedef struct {
 
   int   has_recent_blockhash;
   uchar recent_blockhash[ 32 ];
+  uchar staged_blockhash[ 32 ];
 
   ulong acct_cnt;
   fd_pubkey_t * acct_public_keys;
   fd_pubkey_t * acct_private_keys;
+
+  ulong benchg_cnt;
+  ulong benchg_idx;
 
   fd_wksp_t * mem;
   ulong       out_chunk0;
@@ -112,10 +116,15 @@ after_credit( void *             _ctx,
 
   ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
   if( FD_UNLIKELY( !ctx->sender_idx ) ) {
-    if( FD_UNLIKELY( ctx->changed_blockhash ) ) ctx->lamport_idx = 1UL;
-    else                                        ctx->lamport_idx++;
-
-    ctx->changed_blockhash = 0;
+    if( FD_UNLIKELY( ctx->changed_blockhash ) ) {
+      ctx->lamport_idx = 1UL+ctx->benchg_idx;
+      ctx->changed_blockhash = 0;
+      fd_memcpy( ctx->recent_blockhash, ctx->staged_blockhash, 32UL );
+    } else {
+      /* Increments of the number of generators so there are never
+         duplicate transactions generated. */
+      ctx->lamport_idx += ctx->benchg_cnt;
+    }
   }
 }
 
@@ -136,9 +145,16 @@ during_frag( void * _ctx,
 
   fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
 
-  fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
-  ctx->has_recent_blockhash = 1;
-  ctx->changed_blockhash    = 1;
+  if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
+    fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
+    ctx->has_recent_blockhash = 1;
+    ctx->changed_blockhash    = 0;
+  } else {
+    if( FD_UNLIKELY( !memcmp( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL ) ) ) return;
+
+    fd_memcpy( ctx->staged_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
+    ctx->changed_blockhash    = 1;
+  }
 }
 
 static void
@@ -163,8 +179,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_recent_blockhash = 0;
 
   ctx->sender_idx        = 0UL;
-  ctx->lamport_idx       = 0UL;
+  ctx->lamport_idx       = 1UL+tile->kind_id;
   ctx->changed_blockhash = 0;
+
+  ctx->benchg_cnt = fd_topo_tile_name_cnt( topo, "benchg" );
+  ctx->benchg_idx = tile->kind_id;
 
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache );
