@@ -323,6 +323,20 @@
    Solana Labs directly. */
 #define GRACE_SLOTS (2UL)
 
+/* The maximum number of microblocks that pack is allowed to pack into a
+   single slot.  This is not consensus critical, and pack could, if we
+   let it, produce as many microblocks as it wants, and the slot would
+   still be valid.
+
+   We have this here instead so that PoH can estimate slot completion,
+   and keep the hashcnt up to date as pack progresses through packing
+   the slot.  If this upper bound was not enforced, PoH could tick to
+   the last hash of the slot and have no hashes left to mixin incoming
+   microblocks from pack, so this upper bound is a coordination
+   mechanism so that PoH can progress hashcnts while the slot is active,
+   and know that pack will not need those hashcnts later to do mixins. */
+#define MAX_MICROBLOCKS_PER_SLOT (16384UL)
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -578,8 +592,7 @@ fd_ext_poh_initialize( double        hashcnt_duration_ns, /* See clock comments 
     /* Low power producer, maximum of one microblock per tick in the slot */
     ctx->max_microblocks_per_slot = ctx->ticks_per_slot;
   } else {
-    /* We can set this to more or less whatever we want. */
-    ctx->max_microblocks_per_slot = ctx->hashcnt_per_tick-1UL;
+    ctx->max_microblocks_per_slot = MAX_MICROBLOCKS_PER_SLOT;
   }
 
   fd_ext_poh_write_unlock();
@@ -921,9 +934,10 @@ after_credit( void *             _ctx,
      pack tile for this slot. */
   ulong current_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
+  ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks + max_remaining_microblocks/ctx->hashcnt_per_tick;
   ulong restricted_hashcnt;
-  if( FD_LIKELY( is_leader ) ) restricted_hashcnt = fd_ulong_if( (current_slot+1UL)*ctx->hashcnt_per_slot>=max_remaining_microblocks, (current_slot+1UL)*ctx->hashcnt_per_slot-max_remaining_microblocks, 0UL );
-  else                         restricted_hashcnt = fd_ulong_if( (current_slot+2UL)*ctx->hashcnt_per_slot>=max_remaining_microblocks, (current_slot+2UL)*ctx->hashcnt_per_slot-max_remaining_microblocks, 0UL );
+  if( FD_LIKELY( is_leader ) ) restricted_hashcnt = fd_ulong_if( (current_slot+1UL)*ctx->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, (current_slot+1UL)*ctx->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+  else                         restricted_hashcnt = fd_ulong_if( (current_slot+2UL)*ctx->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, (current_slot+2UL)*ctx->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
   target_hash_cnt = fd_ulong_min( target_hash_cnt, restricted_hashcnt );
 
   if( FD_LIKELY( ctx->hashcnt_per_tick!=1UL && (target_hash_cnt%ctx->hashcnt_per_tick)==(ctx->hashcnt_per_tick-1UL)) ) {
