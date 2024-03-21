@@ -134,8 +134,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
   (void)caller_acc_data_vm_addr;
 
-  err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
-  if( FD_UNLIKELY( err ) ) return err;
+  FD_VM_CU_MEM_UPDATE( vm, caller_acc_data_len );
 
   // Update the account data, if the account data can be changed.
   int err1;
@@ -226,8 +225,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     // If the account is known and executable, we only need to consume the compute units.
     // Executable accounts can't be modified, so we don't need to update the callee account.
     if( known_account && fd_account_is_executable(vm->instr_ctx, acc_meta, NULL) ) {
-      int err = fd_vm_consume_compute( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
-      if( FD_UNLIKELY( err ) ) return err;
+      FD_VM_CU_MEM_UPDATE( vm, acc_meta->dlen );
       continue;
     }
 
@@ -359,11 +357,10 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
                      ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
-  if( FD_UNLIKELY( err ) ) return err;
+  FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
 
   /* Pre-flight checks ************************************************/
-  err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
+  int err = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, vm->instr_ctx->slot_ctx );
   if( FD_UNLIKELY( err ) ) return err;
   
   /* Translate instruction ********************************************/
@@ -372,9 +369,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   if( FD_UNLIKELY( !cpi_instruction ) ) return FD_VM_ERR_PERM;
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    fd_vm_consume_compute( vm,
-      fd_ulong_if( FD_VM_CPI_BYTES_PER_UNIT, 
-        VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction )/FD_VM_CPI_BYTES_PER_UNIT, ULONG_MAX ) );
+    FD_VM_CU_MEM_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
   }
 
   /* Derive PDA signers ************************************************/
@@ -447,20 +442,22 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
   if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
   
-  vm->instr_ctx->txn_ctx->compute_meter = vm->compute_meter;
+  // Set the transaction compute meter to be the same as the VM's compute meter,
+  // so that the callee cannot use compute units that the caller has already used.
+  vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
 
-  // Actually perform the execution
+  // Execute the CPI instruction
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 
-  // TODO: harmonise CU usage using kevin's macros
-  FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", vm->compute_meter, vm->instr_ctx->txn_ctx->compute_meter, vm->compute_meter - vm->instr_ctx->txn_ctx->compute_meter));
-  vm->compute_meter = vm->instr_ctx->txn_ctx->compute_meter;
-  FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *_ret, vm->compute_meter, err_exec ));
+  // Set the CU meter to the instruction context's transaction context's compute meter,
+  // so that the caller can't use compute units that the callee has already used.
+  vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
 
   *_ret = instr_exec_res;
   if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
 
+  // Update the caller accounts with any changes made by the callee during CPI execution
   for( ulong i = 0; i < caller_accounts_to_update_len; i++ ) {
     fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
     err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], callee);
