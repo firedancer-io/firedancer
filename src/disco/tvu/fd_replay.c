@@ -1,4 +1,5 @@
 #include "fd_replay.h"
+#include "../shred/fd_shred_cap.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
 
 void *
@@ -200,51 +201,6 @@ fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
   return i;
 }
 
-#define FD_SHRED_PCAP_OK 0
-#define FD_SHRED_PCAP_ERR -1
-
-int
-fd_replay_shred_logging( fd_replay_t * replay, fd_shred_t const * shred ) {
-  if ( replay->shred_log_fd == NULL ) return 0;
-  ulong n = fwrite( shred, fd_shred_sz(shred), 1UL, replay->shred_log_fd);
-
-  if ( FD_UNLIKELY( n != 1UL ) ) {
-    FD_LOG_WARNING(( "failed at logging shred idx=%d for slot#%d", shred->idx, shred->slot ));
-    return FD_SHRED_PCAP_ERR;
-  } else {
-    FD_LOG_NOTICE ( ( "logging shred idx=%d for slot#%u", shred->idx, shred->slot ) );
-    return FD_SHRED_PCAP_OK;
-  }
-}
-
-int
-fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred ) {
-  fd_blockstore_t * blockstore = replay->blockstore;
-
-  fd_blockstore_start_write( blockstore );
-  /* TODO remove this check when we can handle duplicate shreds and blocks */
-  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
-    fd_blockstore_end_write( blockstore );
-    return FD_BLOCKSTORE_OK;
-  }
-  int rc = fd_blockstore_shred_insert( blockstore, shred );
-
-  /* TODO @yunzhang: write to pcap */
-  fd_replay_shred_logging(replay, shred);
-
-  fd_blockstore_end_write( blockstore );
-
-  /* FIXME */
-  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
-    FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
-  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
-    fd_replay_add_pending( replay, shred->slot, 0 );
-  } else {
-    fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
-  }
-  return rc;
-}
-
 fd_replay_slot_ctx_t *
 fd_replay_slot_prepare( fd_replay_t *  replay,
                         ulong          slot,
@@ -365,6 +321,8 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                         uchar const *          block,
                         ulong                  block_sz,
                         fd_capture_ctx_t *     capture_ctx ) {
+  fd_shred_cap_mark_stable(replay, slot);
+
   ulong txn_cnt                   = 0;
   parent->slot_ctx.slot_bank.slot = slot;
   FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
@@ -638,8 +596,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
       FD_LOG_DEBUG(
           ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
       int rc = fd_blockstore_shred_insert( blockstore, data_shred );
-      /* TODO @yunzhang: write to pcap */
-      fd_replay_shred_logging(replay, data_shred);
+      /* TODO @yunzhang: write to shred_cap */
+      fd_shred_cap_archive(replay, data_shred, FD_SHRED_CAP_FLAG_MARK_TURBINE(0));
 
       if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
         if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) { replay->first_turbine_slot = slot; }
@@ -661,5 +619,29 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
 void
 fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
   FD_LOG_DEBUG( ( "[repair] rx shred - slot: %lu idx: %u", shred->slot, shred->idx ) );
-  fd_replay_shred_insert( replay, shred );
+  fd_blockstore_t * blockstore = replay->blockstore;
+
+  fd_blockstore_start_write( blockstore );
+  /* TODO remove this check when we can handle duplicate shreds and blocks */
+  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
+    fd_blockstore_end_write( blockstore );
+    return;
+    //return FD_BLOCKSTORE_OK;
+  }
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
+
+  /* TODO @yunzhang: write to shred_cap */
+  fd_shred_cap_archive(replay, shred, FD_SHRED_CAP_FLAG_MARK_REPAIR(0));
+
+  fd_blockstore_end_write( blockstore );
+
+  /* FIXME */
+  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
+    FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
+  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    fd_replay_add_pending( replay, shred->slot, 0 );
+  } else {
+    fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
+  }
+  //return rc;
 }
