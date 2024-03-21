@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <unistd.h> 
+#include <unistd.h>
 #include "../../util/bits/fd_bits.h"
 
 char *
@@ -61,7 +61,7 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   return NULL;
 }
 
-void 
+void
 fd_rocksdb_new( fd_rocksdb_t * db,
                 char const *   db_name ) {
   fd_memset(db, 0, sizeof(fd_rocksdb_t));
@@ -366,7 +366,9 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
                                          ulong          cf_idx,
                                          ulong          start_slot,
                                          ulong          end_slot ) {
-  if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  || 
+  FD_LOG_NOTICE(("fd_rocksdb_copy_over_slot_indexed_range: %d", cf_idx));
+
+  if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  ||
        cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
        cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ||
        cf_idx == FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES ) {
@@ -411,6 +413,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
+    FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %d", slot));
     fd_blockstore_slot_map_t * block_entry = fd_blockstore_slot_map_query( block_map, slot, NULL );
     if( FD_LIKELY( block_entry ) ) {
       uchar * data = fd_wksp_laddr_fast( wksp, block_entry->block.data_gaddr );
@@ -463,12 +466,12 @@ int
 fd_rocksdb_insert_entry( fd_rocksdb_t * db,
                          ulong          cf_idx,
                          const char *   key,
-                         ulong          klen, 
+                         ulong          klen,
                          const char *   value,
                          ulong          vlen )
 {
   char * err = NULL;
-  rocksdb_put_cf( db->db, db->wo, db->cf_handles[cf_idx], 
+  rocksdb_put_cf( db->db, db->wo, db->cf_handles[cf_idx],
                   key, klen, value, vlen, &err );
   if ( FD_UNLIKELY( err != NULL ) ) {
     FD_LOG_WARNING(("rocksdb_put_cf failed with error=%d", err));
@@ -685,7 +688,7 @@ int
 fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
                                     fd_slot_meta_t *           metadata,
                                     fd_io_buffered_ostream_t * ostream,
-                                    fd_io_buffered_ostream_t * bank_hash_ostream ) {  
+                                    fd_io_buffered_ostream_t * bank_hash_ostream ) {
   ulong slot = metadata->slot;
 
   /* pre_slot_hdr_file_offset is the current offset within the file, but
@@ -710,7 +713,7 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
   slot_hdr.last_index            = metadata->last_index;
   slot_hdr.parent_slot           = metadata->parent_slot;
   fd_io_buffered_ostream_write( ostream, &slot_hdr, FD_SHREDCAP_SLOT_HDR_FOOTPRINT );
-  
+
   /* We need to track the payload size */
   ulong payload_sz = 0;
 
@@ -770,7 +773,7 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     char shred_buf[ FD_SHREDCAP_SHRED_MAX ];
     char * shred_buf_ptr = shred_buf;
     ushort shred_sz = (ushort)fd_shred_sz( shred );
-    uint shred_boundary_sz = (uint)fd_uint_align_up( shred_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT, 
+    uint shred_boundary_sz = (uint)fd_uint_align_up( shred_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT,
                                                      FD_SHREDCAP_ALIGN ) - FD_SHREDCAP_SHRED_HDR_FOOTPRINT;
 
     fd_memset( shred_buf_ptr, 0, shred_boundary_sz );
@@ -782,7 +785,7 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
 
     /* Skip ahead and populate rest of buffer with shred and write out */
     fd_memcpy( shred_buf_ptr + FD_SHREDCAP_SHRED_HDR_FOOTPRINT, shred, shred_boundary_sz );
-    fd_io_buffered_ostream_write( ostream, shred_buf_ptr, 
+    fd_io_buffered_ostream_write( ostream, shred_buf_ptr,
                                   shred_boundary_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT );
 
     payload_sz += shred_boundary_sz + FD_SHREDCAP_SHRED_HDR_FOOTPRINT;
@@ -795,21 +798,21 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     FD_LOG_ERR(( "lseek error when seeking to current position" ));
   }
 
-  if ( FD_UNLIKELY( pre_slot_processed_file_offset == pre_slot_hdr_file_offset ) ) { 
+  if ( FD_UNLIKELY( pre_slot_processed_file_offset == pre_slot_hdr_file_offset ) ) {
     /* This case is when the payload from the shreds is smaller than the free
        space from the write buffer. This means that the buffer was not flushed
        at any point. This case is highly unlikely */
     fd_io_buffered_ostream_flush( ostream );
   }
 
-  /* Safely assume that the buffer was flushed to the file at least once. Store 
+  /* Safely assume that the buffer was flushed to the file at least once. Store
      original seek position, skip to position with payload_sz in header, write
      updated payload sz, and then reset seek position. */
   long original_offset = lseek( ostream->fd, 0, SEEK_CUR );
   if ( FD_UNLIKELY( original_offset == -1 ) ) {
     FD_LOG_ERR(( "lseek error when seeking to current position" ));
   }
-  long payload_sz_file_offset = pre_slot_hdr_file_offset_real + 
+  long payload_sz_file_offset = pre_slot_hdr_file_offset_real +
                                 (long)FD_SHREDCAP_SLOT_HDR_PAYLOAD_SZ_OFFSET;
 
   long offset;
