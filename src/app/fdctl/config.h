@@ -133,6 +133,7 @@ typedef struct {
     int no_solana_labs;
     int bootstrap;
     uint debug_tile;
+
     struct {
       int  enabled;
       char interface0     [ 256 ];
@@ -142,9 +143,18 @@ typedef struct {
       char interface1_mac [ 32 ];
       char interface1_addr[ 32 ];
     } netns;
+
     struct {
       int allow_private_address;
     } gossip;
+
+    struct {
+      ulong hashes_per_tick;
+      ulong target_tick_duration_micros;
+      ulong ticks_per_slot;
+      ulong fund_initial_accounts;
+      ulong fund_initial_amount_lamports;
+    } genesis;
   } development;
 
   struct {

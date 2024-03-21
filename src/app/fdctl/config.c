@@ -86,12 +86,36 @@ static int parse_key_value( config_t *   config,
       }                                                                           \
       *dst = '\0';                                                                \
       char * endptr;                                                              \
-      unsigned long int result = strtoul( value, &endptr, 10 );                   \
+      ulong result = strtoul( value, &endptr, 10 );                               \
       if( FD_UNLIKELY( *endptr != '\0' || result > UINT_MAX ) ) {                 \
         FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
         return 1;                                                                 \
       }                                                                           \
       config->esection edot ekey = (uint)result;                                  \
+      return 1;                                                                   \
+    }                                                                             \
+  } while( 0 )
+
+#define ENTRY_ULONG(edot, esection, ekey) do {                                    \
+    if( FD_UNLIKELY( !strcmp( section, #esection ) && !strcmp( key, #ekey ) ) ) { \
+      if( FD_UNLIKELY( strlen( value ) < 1 ) ) {                                  \
+        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
+        return 1;                                                                 \
+      }                                                                           \
+      char * src = value;                                                         \
+      char * dst = value;                                                         \
+      while( *src ) {                                                             \
+        if( *src != '_' ) *dst++ = *src;                                          \
+        src++;                                                                    \
+      }                                                                           \
+      *dst = '\0';                                                                \
+      char * endptr;                                                              \
+      ulong result = strtoul( value, &endptr, 10 );                               \
+      if( FD_UNLIKELY( *endptr!='\0' ) ) {                                        \
+        FD_LOG_ERR(( "invalid value for %s.%s: `%s`", section, key, value ));     \
+        return 1;                                                                 \
+      }                                                                           \
+      config->esection edot ekey = result;                                        \
       return 1;                                                                   \
     }                                                                             \
   } while( 0 )
@@ -254,7 +278,13 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.netns,   interface1_mac                                            );
   ENTRY_STR   ( ., development.netns,   interface1_addr                                           );
 
-  ENTRY_BOOL  ( ., development.gossip, allow_private_address                                      );
+  ENTRY_BOOL  ( ., development.gossip,  allow_private_address                                     );
+
+  ENTRY_UINT  ( ., development.genesis, hashes_per_tick                                           );
+  ENTRY_UINT  ( ., development.genesis, target_tick_duration_micros                               );
+  ENTRY_UINT  ( ., development.genesis, ticks_per_slot                                            );
+  ENTRY_UINT  ( ., development.genesis, fund_initial_accounts                                     );
+  ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
   
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;

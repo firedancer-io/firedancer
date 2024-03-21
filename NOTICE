@@ -399,3 +399,13 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
 ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+=======================================================================
+
+The UTF-8 validator in src/ballet/fd_utf8.c is derived from the Rust
+standard library taken ca 2023-May.
+
+Source: https://github.com/rust-lang/rust/blob/master/library/core/src/str/validations.rs
+
+See https://github.com/rust-lang/rust/blob/master/LICENSE-APACHE for
+license information.  SPDX-License-Identifier: MIT or Apache-2.0

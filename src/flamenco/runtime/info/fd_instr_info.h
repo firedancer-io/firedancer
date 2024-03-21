@@ -39,17 +39,6 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }
 
-static inline int
-fd_instr_acc_is_signer( fd_instr_info_t const * instr,
-                        fd_pubkey_t const *     acc ) {
-
-  for( ulong i=0UL; i < instr->acct_cnt; i++ )
-    if( 0==memcmp( &instr->acct_pubkeys[i], acc, sizeof(fd_pubkey_t) ) )
-      return fd_instr_acc_is_signer_idx( instr, (uchar)i );
-
-  return 0;
-}
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h */

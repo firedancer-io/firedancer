@@ -50,6 +50,25 @@ metric introduced.
   <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
 </enum>
 
+<enum name="PackTimingState">
+  <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
+  <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
+  <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader?" />
+  <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader?" />
+  <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
+  <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
+  <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
+  <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
+  <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+  <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+  <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+  <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
+  <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
+  <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
+  <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
+  <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
+</enum>
+
 <enum name="BankSlotAcquire">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="TooHigh" label="Too high" />
@@ -116,6 +135,7 @@ metric introduced.
     <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
     <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
+    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
 </group>
 
@@ -243,6 +263,7 @@ metric introduced.
   <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
   <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
   <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
+  <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
 
   <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
   <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />

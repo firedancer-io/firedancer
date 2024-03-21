@@ -7,6 +7,9 @@
 #define FD_PCAP_ITER_TYPE_ETHERNET (0UL)
 #define FD_PCAP_ITER_TYPE_COOKED   (1UL)
 
+#define FD_PCAP_LINK_LAYER_ETHERNET (  1U)
+#define FD_PCAP_LINK_LAYER_USER0    (147U)
+
 /* Opaque handle of a pcap iterator */
 
 struct fd_pcap_iter;
@@ -111,13 +114,15 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
                          ulong *          pld_sz,
                          long *           _pkt_ts );
 
-/* fd_pcap_fwrite_hdr write a little endian 2.4 Ethernet pcap header to
-   the stream pointed to by file.  Same semantics as fwrite (returns
-   number of headers written, which should be 1 on success and 0 on
-   failure). */
+/* fd_pcap_fwrite_hdr write a little endian 2.4 pcap header to the
+   stream pointed to by file.  link_layer_type should be one of the
+   FD_PCAP_LINK_LAYER_* values defined above.  Same semantics as fwrite
+   (returns number of headers written, which should be 1 on success and
+   0 on failure). */
 
 ulong
-fd_pcap_fwrite_hdr( void * file );
+fd_pcap_fwrite_hdr( void * file,
+                    uint   link_layer_type );
 
 /* fd_pcap_fwrite_pkt writes the pcap ethernet frame formed by
    concatenating hdr/payload/fcs to appropriate for a pcap file at time

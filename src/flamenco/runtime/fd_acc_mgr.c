@@ -231,25 +231,6 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   return ret;
 }
 
-int
-fd_acc_mgr_commit_raw( fd_acc_mgr_t *       acc_mgr,
-                       fd_funk_rec_t *      rec,
-                       fd_pubkey_t const *  pubkey,
-                       void *               raw_acc,
-                       fd_exec_slot_ctx_t * slot_ctx ) {
-
-  (void)acc_mgr;
-  (void)rec;
-  (void)pubkey;
-
-  fd_account_meta_t * m = (fd_account_meta_t *)raw_acc;
-  m->slot = slot_ctx->slot_bank.slot;
-
-  /* TODO do hashing work here? */
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err ) {
   switch( err ) {

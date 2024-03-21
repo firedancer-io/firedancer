@@ -1,5 +1,7 @@
 #include "../../fdctl/run/tiles/tiles.h"
 
+#include "../../../flamenco/types/fd_types_custom.h"
+
 #include <linux/unistd.h>
 
 typedef struct {
@@ -12,10 +14,14 @@ typedef struct {
 
   int   has_recent_blockhash;
   uchar recent_blockhash[ 32 ];
+  uchar staged_blockhash[ 32 ];
 
-  ulong sender_cnt;
-  uchar sender_public_key[ 128UL ][ 32UL ];
-  uchar sender_private_key[ 128UL ][ 32UL ];
+  ulong acct_cnt;
+  fd_pubkey_t * acct_public_keys;
+  fd_pubkey_t * acct_private_keys;
+
+  ulong benchg_cnt;
+  ulong benchg_idx;
 
   fd_wksp_t * mem;
   ulong       out_chunk0;
@@ -33,6 +39,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_benchg_ctx_t ), sizeof( fd_benchg_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -89,29 +97,34 @@ after_credit( void *             _ctx,
     .lamports = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
   };
 
-  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, ctx->sender_cnt-1UL );
+  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, ctx->acct_cnt-1UL );
   receiver_idx = fd_ulong_if( receiver_idx>=ctx->sender_idx, receiver_idx+1UL, receiver_idx );
 
-  fd_memcpy( transfer->fee_payer, ctx->sender_public_key[ ctx->sender_idx ], 32UL );
-  fd_memcpy( transfer->dest_acct, ctx->sender_public_key[ receiver_idx ], 32UL );
+  fd_memcpy( transfer->fee_payer, ctx->acct_public_keys[ ctx->sender_idx ].uc, 32UL );
+  fd_memcpy( transfer->dest_acct, ctx->acct_public_keys[ receiver_idx ].uc, 32UL );
   fd_memcpy( transfer->recent_blockhash, ctx->recent_blockhash, 32UL );
 
   fd_ed25519_sign( transfer->signature,
                    &(transfer->_sig_cnt),
                    sizeof(*transfer)-65UL,
-                   ctx->sender_public_key[ ctx->sender_idx ],
-                   ctx->sender_private_key[ ctx->sender_idx ],
+                   ctx->acct_public_keys[ ctx->sender_idx ].uc,
+                   ctx->acct_private_keys[ ctx->sender_idx ].uc,
                    ctx->sha );
 
   fd_mux_publish( mux, 0UL, ctx->out_chunk, sizeof(*transfer), 0UL, 0UL, 0UL );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(*transfer), ctx->out_chunk0, ctx->out_wmark );
 
-  ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->sender_cnt;
+  ctx->sender_idx = (ctx->sender_idx + 1UL) % ctx->acct_cnt;
   if( FD_UNLIKELY( !ctx->sender_idx ) ) {
-    if( FD_UNLIKELY( ctx->changed_blockhash ) ) ctx->lamport_idx = 1UL;
-    else                                        ctx->lamport_idx++;
-
-    ctx->changed_blockhash = 0;
+    if( FD_UNLIKELY( ctx->changed_blockhash ) ) {
+      ctx->lamport_idx = 1UL+ctx->benchg_idx;
+      ctx->changed_blockhash = 0;
+      fd_memcpy( ctx->recent_blockhash, ctx->staged_blockhash, 32UL );
+    } else {
+      /* Increments of the number of generators so there are never
+         duplicate transactions generated. */
+      ctx->lamport_idx += ctx->benchg_cnt;
+    }
   }
 }
 
@@ -132,9 +145,16 @@ during_frag( void * _ctx,
 
   fd_benchg_ctx_t * ctx = (fd_benchg_ctx_t *)_ctx;
 
-  fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
-  ctx->has_recent_blockhash = 1;
-  ctx->changed_blockhash    = 1;
+  if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
+    fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
+    ctx->has_recent_blockhash = 1;
+    ctx->changed_blockhash    = 0;
+  } else {
+    if( FD_UNLIKELY( !memcmp( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL ) ) ) return;
+
+    fd_memcpy( ctx->staged_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
+    ctx->changed_blockhash    = 1;
+  }
 }
 
 static void
@@ -143,22 +163,27 @@ unprivileged_init( fd_topo_t *      topo,
                    void *           scratch ) {
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchg_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchg_ctx_t ), sizeof( fd_benchg_ctx_t ) );
+  ctx->acct_public_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
+  ctx->acct_private_keys = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pubkey_t ), sizeof( fd_pubkey_t ) * tile->benchg.accounts_cnt );
 
   FD_TEST( fd_rng_join( fd_rng_new( ctx->rng, 0UL, 0UL ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 
-  ctx->sender_cnt = 128UL;
-  for( ulong i=0UL; i<ctx->sender_cnt; i++ ) {
-    fd_memset( ctx->sender_private_key[ i ], 0, 32UL );
-    ctx->sender_private_key[ i ][ 0 ] = (uchar)i;
-    fd_ed25519_public_from_private( ctx->sender_public_key[ i ], ctx->sender_private_key[ i ] , ctx->sha );
+  ctx->acct_cnt = tile->benchg.accounts_cnt;
+  for( ulong i=0UL; i<ctx->acct_cnt; i++ ) {
+    fd_memset( ctx->acct_private_keys[ i ].uc, 0, 32UL );
+    FD_STORE( ulong, ctx->acct_private_keys[ i ].uc, i );
+    fd_ed25519_public_from_private( ctx->acct_public_keys[ i ].uc, ctx->acct_private_keys[ i ].uc , ctx->sha );
   }
 
   ctx->has_recent_blockhash = 0;
 
   ctx->sender_idx        = 0UL;
-  ctx->lamport_idx       = 0UL;
+  ctx->lamport_idx       = 1UL+tile->kind_id;
   ctx->changed_blockhash = 0;
+
+  ctx->benchg_cnt = fd_topo_tile_name_cnt( topo, "benchg" );
+  ctx->benchg_idx = tile->kind_id;
 
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id_primary ].dcache );

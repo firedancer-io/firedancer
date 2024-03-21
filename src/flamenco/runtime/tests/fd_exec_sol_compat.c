@@ -16,10 +16,12 @@ static sol_compat_features_t features;
 static ulong hardcoded_features[] =
   { 0xd924059c5749c4c1,  // secp256k1_program_enabled
     0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
+    0x50a615bae8ca3874,  // native_programs_consume_cu
   };
 
 static ulong supported_features[] =
   { 0xe8f97382b03240a1,  // system_transfer_zero_check
+    0x10a1e092dd7f1573,  // dedupe_config_program_signers
   };
 
 static       uchar *     smem;

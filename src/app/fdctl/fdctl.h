@@ -59,6 +59,11 @@ typedef union {
     const char * dst_ip;
     ushort dst_port;
   } txn;
+
+  struct {
+    char link_name[ 13UL ];
+    char pcap_path[ 256UL ];
+  } dump;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

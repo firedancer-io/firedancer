@@ -930,6 +930,7 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
 
       if( !(use->in_use_by & bank_tile_mask) ) use_by_bank[use_by_bank_cnt++] = *use;
       use->in_use_by |= bank_tile_mask;
+      use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
 
 
       release_result_t ret = release_bit_reference( pack, &acct_addr );
@@ -1027,8 +1028,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
       FD_PACK_BITSET_CLEARN( bitset_w_in_use,  q->bit );
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
     }
-    use->in_use_by &= ~FD_PACK_IN_USE_BIT_CLEARED;
-    if( FD_LIKELY( !use->in_use_by ) ) acct_uses_remove( pack->acct_in_use, use );
+    if( FD_LIKELY( !(use->in_use_by & ~FD_PACK_IN_USE_BIT_CLEARED) ) ) acct_uses_remove( pack->acct_in_use, use );
   }
 
   pack->use_by_bank_cnt[bank_tile] = 0UL;
@@ -1100,10 +1100,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->cumulative_block_cost += status.cus_scheduled;
   pack->data_bytes_consumed   += status.bytes_scheduled;
 
-  pack->microblock_cnt += (ulong)(scheduled>0UL);
-  pack->outstanding_microblock_mask |= 1UL << bank_tile;
-
-  if( FD_LIKELY( scheduled ) ) pack->data_bytes_consumed += MICROBLOCK_DATA_OVERHEAD;
+  ulong nonempty = (ulong)(scheduled>0UL);
+  pack->microblock_cnt              += nonempty;
+  pack->outstanding_microblock_mask |= nonempty << bank_tile;
+  pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
   /* Update metrics counters */
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
@@ -1397,10 +1397,77 @@ fd_pack_verify( fd_pack_t * pack,
     }
   }
 
+  bitset_map_leave( bitset_copy );
+
   VERIFY_TEST( total_references==0UL, "extra references in bitset mapping" );
   VERIFY_TEST( txn_cnt==sig2txn_key_cnt( pack->signature_map ), "extra signatures in sig2txn" );
 
   bitset_map_join( _bitset_map_orig );
+
+  ulong max_acct_in_flight = pack->bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->max_txn_per_microblock + 1UL);
+  int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
+
+  void * _acct_in_use_copy = scratch;
+  void * _acct_in_use_orig = acct_uses_leave( pack->acct_in_use );
+  fd_memcpy( _acct_in_use_copy, _acct_in_use_orig, acct_uses_footprint( lg_uses_tbl_sz ) );
+
+  fd_pack_addr_use_t * acct_in_use_copy = acct_uses_join( _acct_in_use_copy );
+
+  FD_PACK_BITSET_DECLARE(  w_complement );
+  FD_PACK_BITSET_DECLARE( rw_complement );
+  FD_PACK_BITSET_COPY(  w_complement, full );
+  FD_PACK_BITSET_COPY( rw_complement, full );
+
+  FD_PACK_BITSET_DECLARE( rw_bitset );  FD_PACK_BITSET_COPY( rw_bitset, pack->bitset_rw_in_use );
+  FD_PACK_BITSET_DECLARE(  w_bitset );  FD_PACK_BITSET_COPY(  w_bitset, pack->bitset_w_in_use  );
+
+
+  ulong const EMPTY_MASK = ~(FD_PACK_IN_USE_WRITABLE | FD_PACK_IN_USE_BIT_CLEARED);
+
+  for( ulong bank=0UL; bank<pack->bank_tile_cnt; bank++ ) {
+
+    fd_pack_addr_use_t const * base = pack->use_by_bank[ bank ];
+    ulong bank_mask = 1UL << bank;
+
+    for( ulong i=0UL; i<pack->use_by_bank_cnt[ bank ]; i++ ) {
+      fd_pack_addr_use_t * use = acct_uses_query( acct_in_use_copy, base[i].key, NULL );
+      VERIFY_TEST( use, "acct in use by bank not in acct_in_use, or in uses_by_bank twice" );
+
+      VERIFY_TEST( use->in_use_by & bank_mask, "acct in uses_by_bank doesn't have corresponding bit set in acct_in_use, or it was in the list twice" );
+
+      fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, base[i].key, NULL );
+      /* The normal case is that the acct->bit mapping is preserved
+         while in use by other transactions in the pending list.  This
+         might not always happen though.  It's okay for the mapping to
+         get deleted while the acct is in use, which is noted with
+         BIT_CLEARED.  If that is set, the mapping may not exist, or it
+         may have been re-created, perhaps with a different bit. */
+      if( q==NULL ) VERIFY_TEST( use->in_use_by & FD_PACK_IN_USE_BIT_CLEARED, "acct in use not in acct_to_bitset, but not marked as cleared" );
+      else if( !(use->in_use_by & FD_PACK_IN_USE_BIT_CLEARED) ) {
+        FD_PACK_BITSET_CLEAR( bit );
+        FD_PACK_BITSET_SETN( bit, q->bit );
+        if( q->bit<FD_PACK_BITSET_MAX ) {
+          VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, rw_bitset, rw_bitset ), "missing from rw bitset" );
+          if( use->in_use_by & FD_PACK_IN_USE_WRITABLE ) {
+            VERIFY_TEST( !FD_PACK_BITSET_INTERSECT4_EMPTY( bit, bit, w_bitset, w_bitset ), "missing from w bitset" );
+            FD_PACK_BITSET_CLEARN( w_complement, q->bit );
+          }
+        }
+        FD_PACK_BITSET_CLEARN( rw_complement, q->bit );
+      }
+      if( use->in_use_by & FD_PACK_IN_USE_WRITABLE ) VERIFY_TEST( (use->in_use_by & EMPTY_MASK)==bank_mask, "writable, but in use by multiple" );
+
+      use->in_use_by &= ~bank_mask;
+      if( !(use->in_use_by & EMPTY_MASK) ) acct_uses_remove( acct_in_use_copy, use );
+    }
+  }
+  VERIFY_TEST( acct_uses_key_cnt( acct_in_use_copy )==0UL, "stray uses in acct_in_use" );
+  VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY( rw_complement, rw_complement, rw_bitset,  rw_bitset ), "extra in rw bitset" );
+  VERIFY_TEST( FD_PACK_BITSET_INTERSECT4_EMPTY(  w_complement,  w_complement,  w_bitset,   w_bitset ), "extra in w bitset" );
+
+  acct_uses_leave( acct_in_use_copy );
+
+  acct_uses_join( _acct_in_use_orig );
   return 0;
 }
 

@@ -87,6 +87,15 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
 }
 
 static int
+fd_double_is_normal( double x ) {
+	union {
+    double d;
+    ulong  ul;
+  } u = { .d = x };
+  return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
+}
+
+static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
@@ -110,7 +119,6 @@ _load_account( fd_borrowed_account_t *           acc,
                                /* min_data_sz */ size,
                                acc );
   assert( err==FD_ACC_MGR_SUCCESS );
-
   fd_memcpy( acc->data, state->data->bytes, size );
 
   acc->starting_lamports     = state->lamports;
@@ -155,7 +163,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem  ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   epoch_ctx->valloc = fd_scratch_virtual();
@@ -195,14 +203,13 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->epoch_ctx = epoch_ctx;
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->acc_mgr   = acc_mgr;
-  slot_ctx->valloc    = fd_scratch_virtual();
 
   /* TODO: Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc );
   slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_insert_tail( recent_block_hashes );
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
   fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
@@ -246,6 +253,33 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ )
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
       return 0;
+
+  /* Restore sysvar cache */
+
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  /* Handle undefined behavior if sysvars are malicious (!!!) */
+
+  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( rent ) {
+    if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
+        ( rent->exemption_threshold     <      0.0 ) |
+        ( rent->exemption_threshold     >    999.0 ) |
+        ( rent->lamports_per_uint8_year > UINT_MAX ) |
+        ( rent->burn_percent            >      100 ) )
+      return 0;
+  }
+
+  /* Override most recent blockhash if given */
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+    if( last ) {
+      *recent_block_hash = *last;
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+    }
+  }
 
   /* Load instruction accounts */
 
@@ -622,13 +656,9 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   /* Allocate space for captured accounts */
 
   fd_funk_t *     funk     = runner->funk;
-  fd_wksp_t *     wksp     = fd_wksp_containing( funk );
-  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
   fd_funk_txn_t * funk_txn = ctx->funk_txn;
 
-  ulong modified_acct_cnt = 0UL;
-  for( fd_funk_rec_t const * trec=fd_funk_txn_rec_head( funk_txn, rec_map ); trec; trec=fd_funk_rec_next( trec, rec_map ) )
-    modified_acct_cnt++;
+  ulong modified_acct_cnt = ctx->txn_ctx->accounts_cnt;
 
   fd_exec_test_acct_state_t * modified_accts =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
@@ -640,21 +670,11 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   effects->modified_accounts       = modified_accts;
   effects->modified_accounts_count = 0UL;
 
-  /* Capture accounts
-     Note - This also exports accounts that were not modified */
+  /* Capture borrowed accounts */
 
-  for( fd_funk_rec_t const * trec=fd_funk_txn_rec_head( funk_txn, rec_map ); trec; trec=fd_funk_rec_next( trec, rec_map ) ) {
-    fd_funk_rec_key_t const * rkey = fd_funk_rec_key( trec );
-    if( !fd_funk_key_is_acc( rkey ) ) continue;
-    fd_pubkey_t const * key = fd_funk_key_to_acc( rkey );
-
-    uchar const * rec_data = fd_funk_val_const( trec, wksp );
-    assert( rec_data );
-
-    fd_account_meta_t const * meta = (fd_account_meta_t *)rec_data;
-    assert( meta->magic == FD_ACCOUNT_META_MAGIC );
-    uchar const * data = rec_data + meta->dlen;
-    assert( meta->dlen <= FD_ACC_SZ_MAX );
+  for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
+    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[j];
+    if( !acc->meta ) continue;
 
     ulong modified_idx = effects->modified_accounts_count;
     assert( modified_idx < modified_acct_cnt );
@@ -664,34 +684,40 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
     /* Copy over account content */
 
     out_acct->has_address = 1;
-    memcpy( out_acct->address, key, sizeof(fd_pubkey_t) );
+    memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
 
     out_acct->has_lamports = 1;
-    out_acct->lamports     = meta->info.lamports;
+    out_acct->lamports     = acc->meta->info.lamports;
 
     out_acct->data =
       FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                  PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen ) );
+                                  PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       _context_destroy( runner, ctx );
       return 0UL;
     }
-    out_acct->data->size = (pb_size_t)meta->dlen;
-    fd_memcpy( out_acct->data->bytes, data, meta->dlen );
+    out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+    fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
 
     out_acct->has_executable = 1;
-    out_acct->executable     = meta->info.executable;
+    out_acct->executable     = acc->meta->info.executable;
 
     out_acct->has_rent_epoch = 1;
-    out_acct->rent_epoch     = meta->info.rent_epoch;
+    out_acct->rent_epoch     = acc->meta->info.rent_epoch;
 
     out_acct->has_owner = 1;
-    memcpy( out_acct->owner, meta->info.owner, sizeof(fd_pubkey_t) );
+    memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;
+
+    /* Delete funk record */
+    fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc->pubkey );
+    fd_funk_rec_t const * rec_ = fd_funk_rec_query( funk, funk_txn, &rec_key );
+    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_ );
+    fd_funk_rec_remove( funk, rec, 1 );
   }
 
-  /* TODO capture CUs consumed */
+  /* TODO verify that there are no outstanding funk records */
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   _context_destroy( runner, ctx );

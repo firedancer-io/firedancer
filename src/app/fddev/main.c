@@ -35,6 +35,7 @@ static action_t DEV_ACTIONS[] = {
   { .name = "dev1",  .args = dev1_cmd_args,  .fn = dev1_cmd_fn,  .perm = dev_cmd_perm },
   { .name = "txn",   .args = txn_cmd_args,   .fn = txn_cmd_fn,   .perm = txn_cmd_perm },
   { .name = "bench", .args = bench_cmd_args, .fn = bench_cmd_fn, .perm = bench_cmd_perm },
+  { .name = "dump",  .args = dump_cmd_args,  .fn = dump_cmd_fn,  .perm = NULL         },
 };
 
 extern fd_topo_run_tile_t fd_tile_net;
