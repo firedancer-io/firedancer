@@ -972,3 +972,19 @@ dynamic_port_range = "8900-9000"
 
         # The amount of SOL to pre-fund each account with.
         fund_initial_amount_lamports = 50000000000000
+
+    [development.bench]
+        # How many benchg tiles to run when benchmarking.  benchg tiles
+        # are responsible for generating and signing outgoing
+        # transactions to the validator which is expensive.
+        benchg_tile_count = 4
+
+        # Which cores to run the benchmarking tiles on.  By default the
+        # cores will be floating but to get good performance
+        # measurements on your machine, you should create a topology
+        # where these generators get their own cores.
+        #
+        # The tiles included in this affinity are,
+        #
+        #      bencho, benchg1, .... benchgN, benchs
+        affinity = "f6"

@@ -59,28 +59,37 @@ solana_labs_thread_main( void * _args ) {
 }
 
 static void
-add_bench_topo( fd_topo_t * topo,
-                ulong       accounts_cnt,
-                ushort      send_to_port,
-                uint        send_to_ip_addr,
-                ushort      rpc_port,
-                uint        rpc_ip_addr ) {
+add_bench_topo( fd_topo_t *  topo,
+                char const * affinity,
+                ulong        benchg_tile_cnt,
+                ulong        accounts_cnt,
+                ushort       send_to_port,
+                uint         send_to_ip_addr,
+                ushort       rpc_port,
+                uint         rpc_ip_addr ) {
   (void)topo;
-
-  ulong benchg_tile_cnt = 4UL;
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
 
-  fd_topo_tile_t *bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", USHORT_MAX, 0, "bencho_out", 0 );
+  ushort tile_to_cpu[ FD_TILE_MAX ];
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
+  ulong affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, tile_to_cpu );
+
+  if( FD_UNLIKELY( affinity_tile_cnt<benchg_tile_cnt+2UL ) )
+    FD_LOG_ERR(( "The benchmark topology you are using has %lu tiles, but the CPU affinity specified "
+                "in the [development.bench.affinity] only provides for %lu cores. ",
+                  topo->tile_cnt, affinity_tile_cnt ));
+
+  fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", tile_to_cpu[ 0 ], 0, "bencho_out", 0 );
   bencho->bencho.rpc_port    = rpc_port;
   bencho->bencho.rpc_ip_addr = rpc_ip_addr;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
-    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", USHORT_MAX, 0, "benchg_s", i );
+    fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", tile_to_cpu[ i+1UL ], 0, "benchg_s", i );
     benchg->benchg.accounts_cnt = accounts_cnt;
   }
-  fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", USHORT_MAX, 0, NULL, 0 );
+  fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt ], 0, NULL, 0 );
   benchs->benchs.send_to_ip_addr = send_to_ip_addr;
   benchs->benchs.send_to_port    = send_to_port;
 
@@ -97,9 +106,14 @@ bench_cmd_fn( args_t *         args,
               config_t * const config ) {
   (void)args;
 
-  add_bench_topo( &config->topo, config->development.genesis.fund_initial_accounts,
-                  config->tiles.quic.regular_transaction_listen_port, config->tiles.net.ip_addr,
-                  config->rpc.port, config->tiles.net.ip_addr );
+  add_bench_topo( &config->topo,
+                  config->development.bench.affinity,
+                  config->development.bench.benchg_tile_count,
+                  config->development.genesis.fund_initial_accounts,
+                  config->tiles.quic.regular_transaction_listen_port,
+                  config->tiles.net.ip_addr,
+                  config->rpc.port,
+                  config->tiles.net.ip_addr );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
