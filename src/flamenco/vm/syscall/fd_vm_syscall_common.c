@@ -97,34 +97,81 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   return FD_VM_SUCCESS;
 }
 
-#define VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_from_account_info_, VM_SYSCALL_CPI_ABI)
+/* 
+fd_vm_syscall_cpi_update_callee_acc_{rust/c} corresponds to solana_bpf_loader_program::syscalls::cpi::update_callee_account:
+https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1302
+
+This function should be called before the CPI instruction is executed. It's purpose is to 
+update the callee account's view (the copy of the account stored in the instruction context's
+borrowed accounts cache) of the given account. The caller may have made changes to the account
+before the CPI instruction is executed. This function updates the borrowed accounts cache with
+these changes.
+*/
+#define VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_update_callee_acc_, VM_SYSCALL_CPI_ABI)
 static int
-VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC( fd_vm_t *            vm,
-                                   VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
-                                   fd_caller_account_t *             out ) {
+VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
+                                      VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
+                                      fd_pubkey_t const * callee_acc_pubkey ) {
 
-  /* Caller account lamports */
+  fd_borrowed_account_t * callee_acc = NULL;
+  int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
+
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_DEBUG(( "account missing while updating CPI callee account - key: %32J", callee_acc_pubkey ));
+    // TODO: do we need to do something anyways?
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !callee_acc->meta ) ) {
+    FD_LOG_DEBUG(( "account is not modifiable - key: %32J", callee_acc_pubkey ));
+    return 0;
+  }
+
+  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
+  uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
+
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
-  out->lamports = *caller_acc_lamports;
+  if( callee_acc_metadata->info.lamports!=*caller_acc_lamports ) callee_acc_metadata->info.lamports = *caller_acc_lamports;
 
-  /* Caller account owner */
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-
-  /* FIXME: TEST? */
-  fd_memcpy(out->owner.uc, caller_acc_owner, sizeof(fd_pubkey_t));
-
-  /* Caller account data */
+  // FIXME: do we also need to consume the compute units if the account is not known?
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
   (void)caller_acc_data_vm_addr;
 
-  int err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
+  err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
   if( FD_UNLIKELY( err ) ) return err;
 
-  out->serialized_data = caller_acc_data;
-  out->serialized_data_len = caller_acc_data_len;
-  out->executable = account_info->executable;
-  out->rent_epoch = account_info->rent_epoch;
+  int err1;
+  int err2;
+  if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc_metadata, caller_acc_data_len, &err1 ) &&
+      fd_account_can_data_be_changed( vm->instr_ctx, callee_acc_metadata, callee_acc_pubkey,                   &err2 ) ) {
+  //if ( FD_UNLIKELY( err1 || err2 ) ) return 1;
+    err1 = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, caller_acc_data_len, &callee_acc);
+    if( err1 ) return 1;
+    callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
+    callee_acc->meta->dlen = caller_acc_data_len;
+    fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
+  }
+
+  if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
+      fd_account_is_executable(vm->instr_ctx, callee_acc_metadata, NULL)!=account_info->executable ) {
+    fd_pubkey_t const * program_acc = &vm->instr_ctx->instr->acct_pubkeys[vm->instr_ctx->instr->program_id];
+    fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc_metadata, (char)account_info->executable);
+  }
+
+  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
+  // TODO: err if translation fails?
+  if (memcmp(callee_acc_metadata->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
+    fd_memcpy(callee_acc_metadata->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
+  }
+
+  if( !is_disable_cpi_setting_executable_and_rent_epoch_active         &&
+      callee_acc_metadata->info.rent_epoch!=account_info->rent_epoch ) {
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) ) return 1;
+    else callee_acc_metadata->info.rent_epoch = account_info->rent_epoch;
+  }
+
   return 0;
+
 }
 
 /* 
@@ -133,7 +180,7 @@ solana_bpf_loader_program::syscalls::cpi::translate_and_update_accounts:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L954-L1085
 
 It translates the caller accounts to the host address space, and then calls 
-fd_vm_cpi_update_callee_account to update the borrowed account with any changes
+fd_vm_syscall_cpi_update_callee_acc to update the borrowed account with any changes
 the caller has made to the account during execution before this CPI call.
 
 It also populates the out_callee_indices and out_caller_indices arrays:
@@ -209,11 +256,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       found = 1;
 
       // Update the callee account to reflect any changes the caller has made
-      // TODO: do we need this?
-      fd_caller_account_t caller_account;
-      int err = VM_SYSCALL_CPI_FROM_ACC_INFO_FUNC( vm, &account_infos[j], &caller_account );
-      if( FD_UNLIKELY( err ) ) return err;
-      if( FD_UNLIKELY( acc_meta && fd_vm_cpi_update_callee_account(vm, &caller_account, callee_account) ) ) {
+      if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account) ) ) {
         // TODO: which error code does this correspond to?
         return 1001;
       }
