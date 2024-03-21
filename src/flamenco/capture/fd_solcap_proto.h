@@ -144,7 +144,7 @@ typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
 /* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
    memory buffer for the account table. */
 
-#define FD_SOLCAP_ACC_TBL_CNT (4096U)
+#define FD_SOLCAP_ACC_TBL_CNT (8192U)
 
 /* FD_SOLCAP_FILE_META_FOOTPRINT is the max size of the FileMeta
    Protobuf struct. */

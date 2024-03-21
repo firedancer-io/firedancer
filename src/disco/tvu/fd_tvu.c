@@ -398,7 +398,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
   if( runtime_args->tcnt < 3 )
     FD_LOG_ERR(( "tcnt parameter must be >= 3 in live case" ));
-  
+
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
     { .stopflag = &runtime_ctx->stopflag, .tvu_fd = tvu_fd, .replay = replay };
@@ -473,6 +473,8 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     /* Allow other threads to add pendings */
     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
     nanosleep(&ts, NULL);
+    if (NULL != runtime_ctx->capture_file)
+      fflush(runtime_ctx->capture_file);
   }
 
   close( gossip_fd );
@@ -710,6 +712,7 @@ void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_
   out->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
   FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
+  FD_LOG_WARNING(( "solcap setup successfully to %s", capture_fpath));
 }
 typedef struct {
   fd_blockstore_t * blockstore;
@@ -947,7 +950,6 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
   snapshot_slot = replay->smr = slot_ctx->slot_bank.slot;
 
   slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
-  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 

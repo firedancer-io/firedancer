@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -euxo pipefail
 IFS=$'\n\t'
 
@@ -9,10 +10,10 @@ TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
 cd $TMPDIR
 
 cleanup() {
-  sudo killall solana-validator || true
-  sudo killall fddev || true
+  sudo killall -q solana-validator || true
+  sudo killall -q fddev || true
   fddev configure fini all >/dev/null 2>&1 || true
-  rm -rf "$TMPDIR"
+  # rm -rf "$TMPDIR"
 }
 
 trap cleanup EXIT SIGINT SIGTERM
@@ -20,8 +21,8 @@ trap cleanup EXIT SIGINT SIGTERM
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR=$SCRIPT_DIR
 
-sudo killall fddev || true
-sudo killall solana-validator || true
+sudo killall -q fddev || true
+sudo killall -q solana-validator || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -89,13 +90,12 @@ sleep 55
 while [ $(solana -u localhost epoch-info --output json | jq .blockHeight) -le 150 ]; do
   sleep 1
 done
-wget --trust-server-names http://localhost:8899/snapshot.tar.bz2
 
 cp "$SCRIPT_DIR/shenanigans.sh" .
 
 echo "[tiles.tvu]
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
-  snapshot = \"$(echo snapshot*)\"
+  snapshot = \"http://localhost:8899/snapshot.tar.bz2\"
   incremental_snapshot = \"http://localhost:8899/incremental-snapshot.tar.bz2\"
   page_cnt = 25
   validate_snapshot = \"true\"

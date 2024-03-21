@@ -135,12 +135,6 @@ unmarshal_bank_preimage( cJSON const *            json,
 
   cJSON * head = (cJSON *)json;
 
-  // The strucutre of 1.18 is different to 1.17, and includes bank_hash_details
-  cJSON * bank_hash_details = cJSON_GetObjectItem( head, "bank_hash_details" );
-  if ( bank_hash_details != NULL ) {
-    head = cJSON_GetArrayItem(bank_hash_details, 0);
-  }
-
   cJSON * slot = cJSON_GetObjectItem( head, "slot" );
   out->slot = slot ? slot->valueulong : 0UL;
 
@@ -228,6 +222,7 @@ void write_slots( const char * in_path,
 
     char path_buf[ 256UL ];
     char * path_buf_ptr = path_buf;
+    fd_memset( path_buf_ptr, '\0', sizeof( path_buf ) );
     fd_memcpy( path_buf_ptr, in_path, strlen( in_path ) );
     fd_memcpy( path_buf_ptr + strlen( in_path ), ent->d_name, strlen( ent->d_name ) );
     FD_LOG_NOTICE(( "Reading input file=%s", path_buf_ptr ));
@@ -235,6 +230,12 @@ void write_slots( const char * in_path,
     cJSON * json = read_json_file( wksp, alloc, path_buf_ptr );
     if( FD_UNLIKELY( !json ) ) {
       FD_LOG_ERR(( "Failed to read input file=%s", path_buf_ptr ));
+    }
+
+    // The structure of 1.18 is different to 1.17, and includes bank_hash_details
+    cJSON * bank_hash_details = cJSON_GetObjectItem( json, "bank_hash_details" );
+    if ( bank_hash_details != NULL ) {
+      json = cJSON_GetArrayItem( bank_hash_details, 0 );
     }
 
     fd_solcap_BankPreimage preimg[1] = {{0}};
