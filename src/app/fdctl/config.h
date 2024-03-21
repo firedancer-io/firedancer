@@ -157,6 +157,11 @@ typedef struct {
       ulong fund_initial_accounts;
       ulong fund_initial_amount_lamports;
     } genesis;
+
+    struct {
+      uint benchg_tile_count;
+      char affinity[ AFFINITY_SZ ];
+    } bench;
   } development;
 
   struct {

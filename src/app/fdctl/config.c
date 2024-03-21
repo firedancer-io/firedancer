@@ -286,7 +286,10 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., development.genesis, ticks_per_slot                                            );
   ENTRY_UINT  ( ., development.genesis, fund_initial_accounts                                     );
   ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
-  
+
+  ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
+  ENTRY_STR   ( ., development.bench,   affinity                                                  );
+
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
 }
