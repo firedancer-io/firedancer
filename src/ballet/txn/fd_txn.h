@@ -691,7 +691,6 @@ fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
     if (idx < (txn->acct_addr_cnt + txn->addr_table_adtl_writable_cnt)) {
       return 1;
     }
-    return 0;
   }
 
   if (idx < (txn->signature_cnt - txn->readonly_signed_cnt))

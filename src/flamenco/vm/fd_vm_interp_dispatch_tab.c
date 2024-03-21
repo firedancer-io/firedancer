@@ -334,39 +334,32 @@ INSTR_POST_CODE
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
 BRANCH_PRE_CODE
-  if ( (ulong)(pc + (int)instr.imm + 1L) < ctx->instrs_sz ) {
+  compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
+  ctx->compute_meter = compute_meter;
+  due_insn_cnt = 0;
+  ctx->due_insn_cnt = 0;
+  fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
+  if( syscall_entry_imm==NULL ) {
+    // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
     register_file[10] += 0x2000;
-    cond_fault = 0;
+    // FIXME: stack overflow fault.
     fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-    pc += (int)instr.imm;
-  } else {
-    compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
-    ctx->compute_meter = compute_meter;
-    due_insn_cnt = 0;
-    ctx->due_insn_cnt = 0;
-    fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
-    if( syscall_entry_imm==NULL ) {
-      // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
-      register_file[10] += 0x2000;
-      // FIXME: stack overflow fault.
-      fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-      uint target_pc = fd_pchash_inverse( instr.imm );
-      if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz) {
-        pc = (long)(target_pc) - 1L;
-      } else if( instr.imm==0x71e3cf81 ) {
-        pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
-      } else {
-        // TODO: real error for nonexistent func
-        cond_fault = 1;
-      }
+    uint target_pc = fd_pchash_inverse( instr.imm );
+    if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz) {
+      pc = (long)(target_pc) - 1L;
+    } else if( instr.imm==0x71e3cf81 ) {
+      pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
     } else {
-      ctx->compute_meter = compute_meter;
-      cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
-      compute_meter = ctx->compute_meter;
+      // TODO: real error for nonexistent func
+      cond_fault = 1;
     }
-    previous_instruction_meter = compute_meter;
-    ctx->previous_instruction_meter = previous_instruction_meter;
+  } else {
+    ctx->compute_meter = compute_meter;
+    cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+    compute_meter = ctx->compute_meter;
   }
+  previous_instruction_meter = compute_meter;
+  ctx->previous_instruction_meter = previous_instruction_meter;
   goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
 BRANCH_POST_CODE

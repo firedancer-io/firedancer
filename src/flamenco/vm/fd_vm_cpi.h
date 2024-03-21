@@ -73,6 +73,17 @@ struct fd_vm_c_account_meta {
 
 typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
 
+/* Solana stores pubkey within account meta struct and is used to check if 
+   instructions are too large. 
+   https://github.com/solana-labs/solana/blob/9f6ef2fe629d59d93d227d4561d8f7d5a2fd5f2f/sdk/program/src/instruction.rs#L548 */
+struct fd_vm_sol_account_meta {
+  fd_pubkey_t pubkey;
+  uchar is_signer;
+  uchar is_writable;
+};
+
+typedef struct fd_vm_sol_account_meta fd_vm_sol_account_meta_t;
+
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
 
 struct fd_vm_c_account_info {

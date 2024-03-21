@@ -864,11 +864,12 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_exec_context_t const * ctx,
       return FD_VM_SYSCALL_ERR_INVAL;
     }
   } else {
-    ulong tot_sz;
-    int too_long  = __builtin_umull_overflow( acct_cnt, sizeof(fd_vm_c_account_meta_t), &tot_sz );
-        too_long |= __builtin_uaddl_overflow( tot_sz, data_sz, &tot_sz );
-    if( FD_UNLIKELY( too_long ) ) {
-      FD_LOG_WARNING(( "cpi: instruction too long (%#lx)", tot_sz ));
+    /* Enforce instruction limit */
+    ulong tot_sz = acct_cnt;
+    tot_sz = fd_ulong_sat_mul( tot_sz, sizeof(fd_vm_sol_account_meta_t) );
+    tot_sz = fd_ulong_sat_add( tot_sz, data_sz );
+    if( FD_UNLIKELY( tot_sz > vm_compute_budget.max_cpi_instruction_size ) ) {
+      FD_LOG_WARNING(( "cpi: instruction too long (%lu)", tot_sz ));
       return FD_VM_SYSCALL_ERR_INVAL;
     }
   }

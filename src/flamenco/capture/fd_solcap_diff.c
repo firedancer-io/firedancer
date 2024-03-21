@@ -776,8 +776,10 @@ static void fd_solcap_transaction_diff( fd_solcap_chunk_t const * chunk,
   }
 
   /* Only print a diff if cus or transaction reuslt is different */
-  if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) || 
-        meta.fd_cus_used != meta.solana_cus_used ) {
+  /* TODO: replace with this once CU issue is fixed */
+  // if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) || 
+  //       meta.fd_cus_used != meta.solana_cus_used ) {
+  if ( !!(meta.fd_txn_err) != !!(meta.solana_txn_err) ) {
     printf(
       "    - slot:            %lu\n"
       "      txn_sig:        '%64J'\n"

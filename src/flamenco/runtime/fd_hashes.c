@@ -351,11 +351,14 @@ fd_account_hash_task( void *tpool,
     fd_hash_account_current( task_info->acc_hash->hash, acc_meta, acc_key->key, acc_data, slot_ctx );
   }
 
+  /* TODO: when feature flag skip_rent_rewrites is active, when we skip the rent
+     rewrite we no longer include it in the account hash */
+
   /* If hash didn't change, nothing to do */
   if( memcmp( task_info->acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) != 0 ) {
     task_info->hash_changed = 1;
   } else if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot )
-    && acc_meta->slot == slot_ctx->slot_bank.slot ) {
+             && acc_meta->slot == slot_ctx->slot_bank.slot ) {
     /* Even if the hash didnt change, in this scenario, the record did! */
     task_info->hash_changed = 1;
   }
@@ -710,9 +713,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
     /* If hash didn't change, nothing to do */
     if( 0==memcmp( acc_hash->hash, acc_meta->hash, sizeof(fd_hash_t) ) ) {
-      /* But in this esoteric confluence of features, there is something to do! */
       if( FD_FEATURE_ACTIVE( slot_ctx, account_hash_ignore_slot )
-        && !FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites )
         && acc_meta->slot == slot_ctx->slot_bank.slot ) {
         /* no-op */
       } else {

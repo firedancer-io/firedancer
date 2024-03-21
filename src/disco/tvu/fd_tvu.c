@@ -425,7 +425,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     tpool = fd_tpool_init( runtime_ctx->tpool_mem, runtime_args->tcnt - 3 );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 4; i < runtime_args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 32UL<<20UL ) ) == NULL )
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }

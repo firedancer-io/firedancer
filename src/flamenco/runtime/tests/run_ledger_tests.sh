@@ -101,6 +101,10 @@ while [[ $# -gt 0 ]]; do
         NOREPLAY=1
         shift
         ;;
+    --zst)
+        ZST=1
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -114,7 +118,11 @@ done
 
 if [ ! -e dump/$LEDGER ]; then
   mkdir -p dump
-  echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+  if [[ -n "$ZST" ]]; then
+    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
+  else
+    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+  fi
   if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
     if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
       if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
@@ -125,7 +133,11 @@ if [ ! -e dump/$LEDGER ]; then
       fi
     fi
   fi
-  gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
+  if [[ -n "$ZST" ]]; then
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d | tar xf - -C ./dump
+  else
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C ./dump
+  fi
   # curl -o - -L -q https://github.com/firedancer-io/firedancer-testbins/raw/main/$LEDGER.tar.gz | tar zxf - -C ./dump
 fi
 

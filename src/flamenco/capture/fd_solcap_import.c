@@ -143,7 +143,10 @@ unmarshal_bank_preimage( cJSON const *            json,
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "accounts_delta_hash" ), out->account_delta_hash ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( head, "last_blockhash"      ), out->poh_hash           ) );
 
-  out->signature_cnt = cJSON_GetObjectItem( head, "signature_count" )->valueulong;
+  if ( cJSON_GetObjectItem( head, "signature_count" ) != NULL )
+    out->signature_cnt = cJSON_GetObjectItem( head, "signature_count" )->valueulong;
+  else 
+    out->signature_cnt = 0;
 
   cJSON * accs = cJSON_GetObjectItem( head, "accounts" );
   FD_TEST( accs );

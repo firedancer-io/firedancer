@@ -202,7 +202,7 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
 #ifdef FD_DEBUG_SBPF_TRACES
 uchar * signature = (uchar*)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64("4WXg62VFzRTT5ixeYmH7U8ucEXHvWSVkpbPkieDgnFNiUovnfseyaVt1wiHFG6KSE2fcepscDkun6pEGukd1kApi", sig);
+fd_base58_decode_64("46mXgo95nA6vC7jTYJP3pCE5U1BpSgV7sZnQHpbHmrbPMDqRGes3jrvYEZUk8TfnhUgkpmNN73q7A3GcBVZTg3gq", sig);
 if (memcmp(signature, sig, 64) == 0) {
     fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
 }

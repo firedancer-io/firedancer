@@ -85,8 +85,9 @@ static int transfer( fd_exec_instr_ctx_t               ctx,
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  if (sender_rec->const_meta->dlen > 0)
+  if (sender_rec->const_meta->dlen > 0) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   if (sender_rec->const_meta->info.lamports < requested_lamports) {
     ctx.txn_ctx->custom_err = 1;
@@ -314,8 +315,9 @@ static int create_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  if (from_rec->const_meta->dlen > 0)
+  if (from_rec->const_meta->dlen > 0) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   fd_borrowed_account_t * to_rec = NULL;
   err = fd_instr_borrowed_account_view( &ctx, (fd_pubkey_t *)to, &to_rec );
@@ -415,7 +417,7 @@ int fd_executor_system_program_execute_instruction(
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  int   result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   switch (instruction.discriminant) {
   case fd_system_program_instruction_enum_transfer: {

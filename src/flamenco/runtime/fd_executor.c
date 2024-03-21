@@ -36,6 +36,30 @@
 #include <unistd.h>  /* write(3) */
 #include <time.h>
 
+/* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
+static inline
+int fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
+{
+  uint is_program = 0;
+  for ( ulong j = 0; j < txn_ctx->txn_descriptor->instr_cnt; j++ ) {
+    if ( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
+      is_program = 1;
+      break;
+    }
+  }
+
+  uint bpf_upgradeable_in_txn = 0;
+  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &txn_ctx->accounts[j];
+    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+      bpf_upgradeable_in_txn = 1;
+      break;
+    }
+  }
+  return (is_program && !bpf_upgradeable_in_txn);
+}
+
+
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   /* TODO: replace with proper lookup table */
@@ -333,11 +357,13 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
 #ifdef VLOG
-   if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
-     FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-   } else {
-     FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
-   }
+  if ( 142 == ctx->slot_ctx->slot_bank.slot ) {
+    if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+    } else {
+      FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
+    }
+  }
 #endif
 
     txn_ctx->instr_stack_sz--;
@@ -349,15 +375,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
-//  uint bpf_upgradeable_in_txn = 0;
-//  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-//    fd_pubkey_t * acc = &txn_ctx->accounts[i];
-//    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
-//      bpf_upgradeable_in_txn = 1;
-//      break;
-//    }
-//  }
-
   ulong j = 0;
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t * acc = &txn_ctx->accounts[i];
@@ -370,17 +387,9 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       // FD_LOG_WARNING(( "fd_acc_mgr_view(%32J) failed (%d-%s)", acc->uc, err, fd_acc_mgr_strerror( err ) ));
     }
 
-//    uint is_executable = borrowed_account->const_meta != NULL && borrowed_account->const_meta->info.executable;
     if( fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i ) ) {
-//      if ( is_executable ) {
-//        if ( bpf_upgradeable_in_txn && memcmp( borrowed_account->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) == 0 ) {
-//          void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
-//          fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-//        }
-//      } else {
         void * borrowed_account_data = fd_valloc_malloc( txn_ctx->valloc, 8UL, fd_borrowed_account_raw_size( borrowed_account ) );
         fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-//      }
     }
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
@@ -615,15 +624,21 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       int exec_result = fd_execute_instr( txn_ctx, &instrs[i] );
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
-        if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
-#ifdef VLOG
-          FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
-#endif
-        } else {
-#ifdef VLOG
-          FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
-#endif
+  #ifdef VLOG
+        if ( 142 == txn_ctx->slot_ctx->slot_bank.slot ) {
+  #endif
+          if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+  #ifdef VLOG
+            FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %64J", exec_result, txn_ctx->custom_err, sig ));
+  #endif
+          } else {
+  #ifdef VLOG
+            FD_LOG_WARNING(( "fd_execute_instr failed (%d) index %u for %64J", exec_result, i, sig ));
+  #endif
+          }
+  #ifdef VLOG
         }
+  #endif
         if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
           if( ret != FD_ACC_MGR_SUCCESS ) {
@@ -658,9 +673,16 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
       fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
-      if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) || acc_rec->const_meta->info.executable ) {
+      /* An account writable iff it is writable AND it is not being demoted.
+         If this criteria is not met, the account should not be marked as touched
+         via updating its most recent slot. */
+      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) && 
+                        !fd_txn_account_is_demotion( txn_ctx, (int)i );
+      if( !is_writable ) {
         continue;
       }
+
+      acc_rec->meta->slot = txn_ctx->slot_ctx->slot_bank.slot;
 
       if( acc_rec->meta->info.lamports == 0 ) {
         acc_rec->meta->dlen = 0;

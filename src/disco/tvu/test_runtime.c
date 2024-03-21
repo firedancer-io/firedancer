@@ -58,7 +58,7 @@ main( int     argc,
     tpool = fd_tpool_init( state->tpool_mem, args->tcnt );
     if( tpool == NULL ) FD_LOG_ERR( ( "failed to create thread pool" ) );
     for( ulong i = 1; i < args->tcnt; ++i ) {
-      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 32UL<<20UL ) ) == NULL )
+      if( fd_tpool_worker_push( tpool, i, NULL, fd_scratch_smem_footprint( 256UL<<20UL ) ) == NULL )
         FD_LOG_ERR( ( "failed to launch worker" ) );
     }
   }

@@ -22,26 +22,8 @@ fd_murmur3_32( void const * data,
    the call instruction immediate.  Equivalent to fd_murmur3_32 with
    zero seed and pc serialized to little-endian ulong. */
 
-static inline uint
-fd_pchash( uint pc ) {
-  uint x = pc;
-  x *= 0xcc9e2d51U;
-  x  = fd_uint_rotate_left( x, 15 );
-  x *= 0x1b873593U;
-  x  = fd_uint_rotate_left( x, 13 );
-  x *= 5;
-  x += 0xe6546b64U;
-  x  = fd_uint_rotate_left( x, 13 );
-  x *= 5;
-  x += 0xe6546b64U;
-  x ^= 8;
-  x ^= x >> 16;
-  x *= 0x85ebca6bU;
-  x ^= x >> 13;
-  x *= 0xc2b2ae35U;
-  x ^= x >> 16;
-  return x;
-}
+uint
+fd_pchash( uint pc );
 
 /* Inverse of the above.  E.g.:
      fd_pchash_inverse( fd_pchash( (uint)x ) )==(uint)x

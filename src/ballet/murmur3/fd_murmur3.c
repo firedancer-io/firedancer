@@ -59,3 +59,24 @@ fd_murmur3_32( void const * _data,
                uint         seed ) {
   return fd_murmur3_32_( _data, sz, seed );
 }
+
+uint
+fd_pchash( uint pc ) {
+  uint x = pc;
+  x *= 0xcc9e2d51U;
+  x  = fd_uint_rotate_left( x, 15 );
+  x *= 0x1b873593U;
+  x  = fd_uint_rotate_left( x, 13 );
+  x *= 5;
+  x += 0xe6546b64U;
+  x  = fd_uint_rotate_left( x, 13 );
+  x *= 5;
+  x += 0xe6546b64U;
+  x ^= 8;
+  x ^= x >> 16;
+  x *= 0x85ebca6bU;
+  x ^= x >> 13;
+  x *= 0xc2b2ae35U;
+  x ^= x >> 16;
+  return x;
+}

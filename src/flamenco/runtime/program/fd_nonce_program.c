@@ -386,8 +386,9 @@ int fd_initialize_nonce_account(
   if( FD_UNLIKELY( 0!=memcmp( &txn_accs[instr_acc_idxs[2]], fd_sysvar_rent_id.key, sizeof(fd_pubkey_t) ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  if (!fd_instr_acc_is_signer_idx(ctx.instr, 0))
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
+  // if (!fd_instr_acc_is_signer_idx(ctx.instr, 0)) {
+  //   return FD_EXECUTOR_INSTR_ERR_INVALID_ARG; // Really? This was the error?!
+  // }
 
   fd_borrowed_account_t * me_rec = NULL;
   int err = fd_instr_borrowed_account_view(&ctx,  (fd_pubkey_t *) me, & me_rec);
@@ -460,7 +461,6 @@ int fd_initialize_nonce_account(
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   }
-
   return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 }
 
