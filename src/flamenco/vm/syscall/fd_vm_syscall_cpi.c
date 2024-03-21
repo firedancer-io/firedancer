@@ -502,7 +502,16 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_t * vm,
   CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
 
-/* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1319 */
+/* 
+fd_vm_cpi_update_callee_account corresponds to solana_bpf_loader_program::syscalls::cpi::update_callee_account:
+https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1302
+
+This function should be called before the CPI instruction is executed. It's purpose is to 
+update the callee account's view (the copy of the account stored in the instruction context's
+borrowed accounts cache) of the given account. The caller may have made changes to the account
+before the CPI instruction is executed. This function updates the borrowed accounts cache with
+these changes.
+*/
 static ulong
 fd_vm_cpi_update_callee_account( fd_vm_t * vm,
                                  fd_caller_account_t const * caller_account,
@@ -558,7 +567,7 @@ fd_vm_cpi_update_callee_account( fd_vm_t * vm,
 
 /* FIXME: PREFIX */
 static inline int
-check_id( uchar const * program_id,
+check_id( fd_pubkey_t const * program_id,
           uchar const * loader ) {
   return !memcmp( program_id, loader, sizeof(fd_pubkey_t) );
 }
@@ -571,7 +580,7 @@ check_id( uchar const * program_id,
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
  */
 static inline int
-fd_vm_syscall_cpi_is_precompile( uchar const * program_id ) {
+fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
   return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
          check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
@@ -585,7 +594,7 @@ It determines if the given program_id is authorized to execute a CPI call.
 FIXME: return type
  */
 static inline ulong
-fd_vm_syscall_cpi_check_authorized_program( uchar const *        program_id,
+fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                           fd_exec_slot_ctx_t * slot_ctx,
                           uchar const *        instruction_data,
                           ulong                instruction_data_len ) {
