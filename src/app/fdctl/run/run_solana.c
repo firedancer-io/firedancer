@@ -140,6 +140,20 @@ solana_labs_boot( config_t * config ) {
   FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
+  FD_CPUSET_DECL( floating_cpu_set );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
+    FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ushort solana_labs_cpu[ FD_TILE_MAX ];
+  ulong labs_cpu_cnt = fd_tile_private_cpus_parse( config->layout.solana_labs_affinity, solana_labs_cpu );
+  FD_CPUSET_DECL( cpu_set );
+  for( ulong i=0UL; i<labs_cpu_cnt; i++ ) {
+    fd_cpuset_insert( cpu_set, solana_labs_cpu[ i ] );
+  }
+
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) )
+    FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   /* solana labs main will exit(1) if it fails, so no return code */
   fd_ext_validator_main( (const char **)argv );
 }

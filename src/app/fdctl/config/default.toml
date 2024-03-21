@@ -498,6 +498,23 @@ dynamic_port_range = "8900-9000"
     # that the Solana network can run as fast as possible.
     affinity = "0-21"
 
+    # In addition to the Firedancer tiles which use a core each, the
+    # current version of Firedancer hosts a Solana Labs (Agave)
+    # validator as a subprocess.
+    #
+    # This affinity congtrols which logical CPU cores the Solana Labs
+    # subprocess and all of its threads are allowed to run on.  This is
+    # specified in the same format as the above Firedancer affinity.
+    #
+    # It is strongly suggested that you do not overlap the Firedancer
+    # affinity with the Solana Labs affinity, as Firedancer tiles expect
+    # to have exclusive use of their core.  Unexpected latency  spikes
+    # due to context switching may decrease performance overall.
+    #
+    # An empty string here will not affine the process, and it will run
+    # be free to run on any floating core.
+    solana_labs_affinity = "22-31"
+
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
     # there are less net tiles than queues, some queues will not get
