@@ -3,19 +3,6 @@
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../runtime/fd_account.h"
 
-/* Representation of a caller account, used to update callee accounts. */
-
-struct fd_caller_account {
-  ulong       lamports;
-  fd_pubkey_t owner;
-  uchar *     serialized_data;
-  ulong       serialized_data_len;
-  uchar       executable;
-  ulong       rent_epoch;
-};
-
-typedef struct fd_caller_account fd_caller_account_t;
-
 /* FIXME: PREFIX NAME / ALGO EFFICIENCY */
 static inline int
 is_signer( fd_pubkey_t const * account,
@@ -501,69 +488,6 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_t * vm,
 /**********************************************************************
   CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
-
-/* 
-fd_vm_cpi_update_callee_account corresponds to solana_bpf_loader_program::syscalls::cpi::update_callee_account:
-https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1302
-
-This function should be called before the CPI instruction is executed. It's purpose is to 
-update the callee account's view (the copy of the account stored in the instruction context's
-borrowed accounts cache) of the given account. The caller may have made changes to the account
-before the CPI instruction is executed. This function updates the borrowed accounts cache with
-these changes.
-*/
-static ulong
-fd_vm_cpi_update_callee_account( fd_vm_t * vm,
-                                 fd_caller_account_t const * caller_account,
-                                 fd_pubkey_t const * callee_acc_pubkey,
-                                 ulong callee_acc_idx ) {
-
-  fd_borrowed_account_t * callee_acc = NULL;
-  int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
-
-  if( FD_UNLIKELY( err ) ) {
-    // TODO: do we need to do something anyways?
-    return 0;
-  }
-
-  if( FD_UNLIKELY( !callee_acc->meta ) ) {
-    return 0;
-  }
-
-  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
-  uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
-  if( callee_acc_metadata->info.lamports!=caller_account->lamports ) callee_acc_metadata->info.lamports = caller_account->lamports;
-
-  int err1;
-  int err2;
-  if( fd_account_can_data_be_resized( vm->instr_ctx->instr, callee_acc_metadata, caller_account->serialized_data_len, &err1 ) &&
-      fd_account_can_data_be_changed( vm->instr_ctx->instr, callee_acc_idx, &err2 ) ) {
-  //if ( FD_UNLIKELY( err1 || err2 ) ) return 1;
-    err1 = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, caller_account->serialized_data_len, &callee_acc);
-    if( err1 ) return 1;
-    callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
-    callee_acc->meta->dlen = caller_account->serialized_data_len;
-    fd_memcpy( callee_acc->data, caller_account->serialized_data, caller_account->serialized_data_len );
-  }
-
-  if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable( callee_acc_metadata )!=caller_account->executable ) {
-    fd_pubkey_t const * program_acc = &vm->instr_ctx->instr->acct_pubkeys[vm->instr_ctx->instr->program_id];
-    fd_account_set_executable2(vm->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
-  }
-
-  if (memcmp(callee_acc_metadata->info.owner, caller_account->owner.uc, sizeof(fd_pubkey_t))) {
-    fd_memcpy(callee_acc_metadata->info.owner, caller_account->owner.uc, sizeof(fd_pubkey_t));
-  }
-
-  if( !is_disable_cpi_setting_executable_and_rent_epoch_active         &&
-      callee_acc_metadata->info.rent_epoch!=caller_account->rent_epoch ) {
-    if( FD_UNLIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) ) return 1;
-    else callee_acc_metadata->info.rent_epoch = caller_account->rent_epoch;
-  }
-
-  return 0;
-}
 
 /* FIXME: PREFIX */
 static inline int
