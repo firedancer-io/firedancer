@@ -115,23 +115,20 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
 
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
-
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_DEBUG(( "account missing while updating CPI callee account - key: %32J", callee_acc_pubkey ));
-    // TODO: do we need to do something anyways?
-    return 0;
+    // No need to do anything if the account is missing from the borrowed accounts cache
+    return FD_VM_SUCCESS;
   }
 
   if( FD_UNLIKELY( !callee_acc->meta ) ) {
+    // If the account is not modifiable, we can't change it (and it can't have been changed by the callee)
     FD_LOG_DEBUG(( "account is not modifiable - key: %32J", callee_acc_pubkey ));
-    return 0;
+    return FD_VM_SUCCESS;
   }
-
-  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
-  uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
-
+  
+  // Update the lamports
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
-  if( callee_acc_metadata->info.lamports!=*caller_acc_lamports ) callee_acc_metadata->info.lamports = *caller_acc_lamports;
+  if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) callee_acc->meta->info.lamports = *caller_acc_lamports;
 
   // FIXME: do we also need to consume the compute units if the account is not known?
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
@@ -140,38 +137,37 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
   err = fd_vm_consume_compute( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
   if( FD_UNLIKELY( err ) ) return err;
 
+  // Update the account data, if the account data can be changed.
   int err1;
   int err2;
-  if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc_metadata, caller_acc_data_len, &err1 ) &&
-      fd_account_can_data_be_changed( vm->instr_ctx, callee_acc_metadata, callee_acc_pubkey,                   &err2 ) ) {
-  //if ( FD_UNLIKELY( err1 || err2 ) ) return 1;
-    err1 = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, caller_acc_data_len, &callee_acc);
-    if( err1 ) return 1;
-    callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
+  if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
+      fd_account_can_data_be_changed( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
+      // We must ignore the errors here, as they are informational and do not mean the result is invalid.
+      // TODO: not pass informational errors like this?
     callee_acc->meta->dlen = caller_acc_data_len;
     fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
   }
 
+  int is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(vm->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
   if( !is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable(vm->instr_ctx, callee_acc_metadata, NULL)!=account_info->executable ) {
+      fd_account_is_executable(vm->instr_ctx, callee_acc->meta, NULL)!=account_info->executable ) {
     fd_pubkey_t const * program_acc = &vm->instr_ctx->instr->acct_pubkeys[vm->instr_ctx->instr->program_id];
-    fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc_metadata, (char)account_info->executable);
+    fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc->meta, (char)account_info->executable);
   }
 
   uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  // TODO: err if translation fails?
-  if (memcmp(callee_acc_metadata->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
-    fd_memcpy(callee_acc_metadata->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
+  if ( !caller_acc_owner ) return FD_VM_ERR_PERM;
+  if (memcmp(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
+    fd_memcpy(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
   }
 
   if( !is_disable_cpi_setting_executable_and_rent_epoch_active         &&
-      callee_acc_metadata->info.rent_epoch!=account_info->rent_epoch ) {
+      callee_acc->meta->info.rent_epoch!=account_info->rent_epoch ) {
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, enable_early_verification_of_account_modifications ) ) ) return 1;
-    else callee_acc_metadata->info.rent_epoch = account_info->rent_epoch;
+    else callee_acc->meta->info.rent_epoch = account_info->rent_epoch;
   }
 
-  return 0;
-
+  return FD_VM_SUCCESS;
 }
 
 /* 
@@ -180,7 +176,7 @@ solana_bpf_loader_program::syscalls::cpi::translate_and_update_accounts:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L954-L1085
 
 It translates the caller accounts to the host address space, and then calls 
-fd_vm_syscall_cpi_update_callee_acc to update the borrowed account with any changes
+fd_vm_syscall_cpi_update_callee_acc to update the callee borrowed account with any changes
 the caller has made to the account during execution before this CPI call.
 
 It also populates the out_callee_indices and out_caller_indices arrays:
@@ -400,7 +396,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
     VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
     VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ),
     alignof(uchar) );
-  // if (FD_UNLIKELY( !data )) return FD_VM_ERR_PERM;
+  if (FD_UNLIKELY( !data )) return FD_VM_ERR_PERM;
 
   /* Authorized program check *************************************************/
 
@@ -434,10 +430,10 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
     return err;
   }
 
+  // Update the callee accounts with any changes made by the caller prior to this CPI execution
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
-
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len);
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "translate failed %lu", err ));
