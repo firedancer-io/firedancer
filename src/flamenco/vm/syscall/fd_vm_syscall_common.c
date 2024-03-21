@@ -342,17 +342,21 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
   return 0;
 }
 
-/* Same logic as cpi_common:
-https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1060 */
+/* fd_vm_syscall_cpi_{rust/c} is the entrypoint for the sol_invoke_signed_{rust/c} syscall.
+
+The bulk of the high-level logic mirrors Solana's cpi_common entrypoint function at
+https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1060
+The only differences should be in the order of the error checks, which does not affect consensus.
+*/
 #define VM_SYSCALL_CPI_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_, VM_SYSCALL_CPI_ABI)
 int
 VM_SYSCALL_CPI_FUNC( void *  _vm,
-                        ulong   instruction_va,
-                        ulong   acct_infos_va,
-                        ulong   acct_info_cnt,
-                        ulong   signers_seeds_va,
-                        ulong   signers_seeds_cnt,
-                        ulong * _ret ) {
+                     ulong   instruction_va,
+                     ulong   acct_infos_va,
+                     ulong   acct_info_cnt,
+                     ulong   signers_seeds_va,
+                     ulong   signers_seeds_cnt,
+                     ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   int err = fd_vm_consume_compute( vm, FD_VM_INVOKE_UNITS );
