@@ -110,7 +110,7 @@ these changes.
 #define VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_update_callee_acc_, VM_SYSCALL_CPI_ABI)
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
-                                      VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
+                                      VM_SYSCALL_CPI_ACC_INFO_T * account_info,
                                       fd_pubkey_t const * callee_acc_pubkey ) {
 
   fd_borrowed_account_t * callee_acc = NULL;
@@ -200,7 +200,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
                               fd_vm_t *                        vm,
                               fd_instruction_account_t const * instruction_accounts,
                               ulong const                      instruction_accounts_cnt,
-                              VM_SYSCALL_CPI_ACC_INFO_T const  * account_infos,
+                              VM_SYSCALL_CPI_ACC_INFO_T *      account_infos,
                               ulong const                      account_infos_length,
                               ulong *                          out_callee_indices,
                               ulong *                          out_caller_indices,
@@ -282,9 +282,9 @@ TODO: error codes
 */
 #define VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_cpi_update_caller_acc_, VM_SYSCALL_CPI_ABI)
 static int
-VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
-                                      VM_SYSCALL_CPI_ACC_INFO_T const * caller_acc_info,
-                                      fd_pubkey_t const *               pubkey ) {
+VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                  vm,
+                                      VM_SYSCALL_CPI_ACC_INFO_T * caller_acc_info,
+                                      fd_pubkey_t const *         pubkey ) {
 
   // Look up the borrowed account from the instruction context, which will contain
   // the callee's changes.
@@ -397,10 +397,11 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Translate account infos ******************************************/
-  VM_SYSCALL_CPI_ACC_INFO_T const * acc_infos =
-    FD_VM_MEM_HADDR_LD( vm, 
+  VM_SYSCALL_CPI_ACC_INFO_T * acc_infos =
+    FD_VM_MEM_HADDR_ST( vm, 
                         acct_infos_va,
-                        acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE, VM_SYSCALL_CPI_ACC_INFO_ALIGN );
+                        VM_SYSCALL_CPI_ACC_INFO_ALIGN,
+                        acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE );
 
   // Create the instruction to execute (in the input format the FD runtime expects) from
   // the translated CPI ABI inputs.

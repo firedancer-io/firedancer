@@ -584,7 +584,8 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) //FIXME: need to set for C
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) \
+  acc_info->data_sz = len;
 
 #include "fd_vm_syscall_common.c"
 
