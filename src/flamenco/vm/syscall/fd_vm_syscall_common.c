@@ -154,8 +154,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
     fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc->meta, (char)account_info->executable);
   }
 
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, account_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if ( !caller_acc_owner ) return FD_VM_ERR_PERM;
+  /* TODO: can this be read-only? */
+  uchar const * caller_acc_owner = FD_VM_MEM_HADDR_LD( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
   if (memcmp(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
     fd_memcpy(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
   }
@@ -234,9 +234,8 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     for( ulong j=0; j < account_infos_length; j++ ) {
 
       // Look up the pubkey to see if it is the account we're looking for
-      fd_pubkey_t const * acct_addr = fd_vm_translate_vm_to_host_const( 
-        vm, account_infos[j].pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-      if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_ERR_PERM;
+      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
+        vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
       if( memcmp( account_key->uc, acct_addr->uc, sizeof(fd_pubkey_t) ) != 0 ) {
         continue;
       }
@@ -301,8 +300,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
 
   /* Update the caller account owner with the value from the callee */
   uchar const * updated_owner = callee_acc_rec->const_meta->info.owner;
-  uchar * caller_acc_owner = fd_vm_translate_vm_to_host( vm, caller_acc_info->owner_addr, sizeof(fd_pubkey_t), alignof(uchar) );
-  if ( !caller_acc_owner ) return FD_VM_ERR_PERM;
+  uchar * caller_acc_owner = FD_VM_MEM_HADDR_ST( vm, caller_acc_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
   if( updated_owner ) fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
   else                fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
 
@@ -326,9 +324,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                        vm,
 
     // Update the serialized len field 
     // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1437
-    ulong * caller_len =
-      fd_vm_translate_vm_to_host( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), sizeof(ulong), alignof(ulong) );
-    if (FD_UNLIKELY( !caller_len )) return FD_VM_ERR_PERM;
+    ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), alignof(ulong), sizeof(ulong) );
     *caller_len = updated_data_len;
 
     // FIXME return instruction error account data size too small in the same scenarios solana does
@@ -365,8 +361,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
   
   /* Translate instruction ********************************************/
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
-    fd_vm_translate_vm_to_host_const( vm, instruction_va, VM_SYSCALL_CPI_INSTR_SIZE, VM_SYSCALL_CPI_INSTR_ALIGN );
-  if( FD_UNLIKELY( !cpi_instruction ) ) return FD_VM_ERR_PERM;
+    FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
 
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
     FD_VM_CU_MEM_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) );
@@ -379,23 +374,16 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
 
   /* Translate CPI account metas *************************************************/
   VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
-    fd_vm_translate_vm_to_host_const( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
-                                      VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE, VM_SYSCALL_CPI_ACC_META_ALIGN );
-
-  // FIXME: what to do in the case where we have no accounts? At the moment this "works" almost by accident
-  // This is another case where we are not correctly handling translation of empty arrays
-  if( FD_UNLIKELY( !cpi_account_metas && VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ) ) ) {
-    return FD_VM_ERR_PERM;
-  }
+    FD_VM_MEM_HADDR_LD( vm, VM_SYSCALL_CPI_INSTR_ACCS_ADDR( cpi_instruction ),
+                        VM_SYSCALL_CPI_ACC_META_ALIGN,
+                        VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction )*VM_SYSCALL_CPI_ACC_META_SIZE );
 
   /* Translate instruction data *************************************************/
 
-  uchar const * data = fd_vm_translate_vm_to_host_const( 
-    vm, 
-    VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
-    VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ),
-    alignof(uchar) );
-  if (FD_UNLIKELY( !data )) return FD_VM_ERR_PERM;
+  uchar const * data = FD_VM_MEM_HADDR_LD( 
+    vm, VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
+    alignof(uchar),
+    VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ));
 
   /* Authorized program check *************************************************/
 
@@ -410,9 +398,9 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
 
   /* Translate account infos ******************************************/
   VM_SYSCALL_CPI_ACC_INFO_T const * acc_infos =
-    fd_vm_translate_vm_to_host_const( vm, acct_infos_va,
-                                      acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE, VM_SYSCALL_CPI_ACC_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_ERR_PERM;
+    FD_VM_MEM_HADDR_LD( vm, 
+                        acct_infos_va,
+                        acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE, VM_SYSCALL_CPI_ACC_INFO_ALIGN );
 
   // Create the instruction to execute (in the input format the FD runtime expects) from
   // the translated CPI ABI inputs.
