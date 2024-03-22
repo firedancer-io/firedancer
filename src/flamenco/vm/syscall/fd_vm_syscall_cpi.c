@@ -587,7 +587,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) \
   acc_info->data_sz = len;
 
-#include "fd_vm_syscall_common.c"
+#include "fd_vm_syscall_cpi_common.c"
 
 #undef VM_SYSCALL_CPI_ABI
 #undef VM_SYSCALL_CPI_INSTR_T
@@ -666,7 +666,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
   FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
 
-#include "fd_vm_syscall_common.c"
+#include "fd_vm_syscall_cpi_common.c"
 
 #undef VM_SYSCALL_CPI_ABI
 #undef VM_SYSCALL_CPI_INSTR_T
