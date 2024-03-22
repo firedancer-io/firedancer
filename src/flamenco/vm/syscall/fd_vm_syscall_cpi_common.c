@@ -1,3 +1,19 @@
+/* This file contains all the logic that is common to both the C and Rust 
+   CPI syscalls (sol_invoke_signed_{rust/c}). As such, all of the functions in 
+   here are templated and will be instantiated for both the C and Rust CPI ABIs.
+
+   The only difference between the C and Rust CPI syscalls is the ABI data layout
+   of the paramaters to these calls - all the logic is identical. As such, we have
+   defined a series of macros to abstract away the ABI differences from the CPI implementation.
+
+   The entry-point for these syscalls is VM_SYSCALL_CPI_ENTRYPOINT.
+
+   Note that the code for these syscalls could be simplified somewhat, but we have opted to keep 
+   it as close to the Solana code as possible to make it easier to audit that we execute equivalently.
+   Most of the top-level functions in this file correspond directly to functions in the Solana codebase
+   and links to the source have been provided.
+ */
+
 /* fd_vm_syscall_cpi_instruction_to_instr_{c/rust} takes the translated
    CPI ABI structures (instruction and account meta list), and uses these
    to populate a fd_instr_info_t struct. This struct can then be given to the
@@ -24,8 +40,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
 
-  // Find the index of the CPI instruction's program account in the transaction
-  // FIXME: what if this is not present?
+  /* Find the index of the CPI instruction's program account in the transaction */
+  /* TODO: what if this is not present? */
   fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
   for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
@@ -36,21 +52,16 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
     }
   }
 
-  // Iterate over the instruction accounts
+  /* Calculate summary information for the account list */
   ulong starting_lamports = 0UL;
   uchar acc_idx_seen[256] = {0};
-  
-  // Iterate over all the accounts laid out in the CPI
   for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
-    uchar const * pubkey = VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, cpi_acct_meta );
-    if (FD_UNLIKELY( !pubkey )) return FD_VM_ERR_PERM;
-
-    // FIXME: error if translation failed
+    uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
 
     for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
       if( !memcmp( pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) ) ) {
-        // TODO: error if not found, if flags are wrong;
+        /* TODO: error if not found, if flags are wrong */
         memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
         out_instr->acct_txn_idxs[i] = (uchar)j;
         out_instr->acct_flags[i] = 0;
@@ -61,21 +72,21 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
           if( out_instr->borrowed_accounts[i]->const_meta ) {
-            // TODO: what if this account is borrowed as writable?
+            /* TODO: what if this account is borrowed as writable? */
             starting_lamports += out_instr->borrowed_accounts[i]->const_meta->info.lamports;
           }
         }
 
-        // TODO: should check the parent has writable flag set
+        /* TODO: should check the parent has writable flag set */
         if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) && fd_instr_acc_is_writable( vm->instr_ctx->instr, (fd_pubkey_t*)pubkey) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
 
-        // TODO: should check the parent has signer flag set
+        /* TODO: should check the parent has signer flag set */
         if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
           out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
         } else {
-          // If this account is a signer in the transaction list, then mark as signer
+          /* If this account is a signer in the transaction list, then mark as signer */
           for( ulong k = 0; k < signers_cnt; k++ ) {
             if( !memcmp( &signers[k], pubkey, sizeof( fd_pubkey_t ) ) ) {
               out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
@@ -101,48 +112,58 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
 fd_vm_syscall_cpi_update_callee_acc_{rust/c} corresponds to solana_bpf_loader_program::syscalls::cpi::update_callee_account:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1302
 
-This function should be called before the CPI instruction is executed. It's purpose is to 
-update the callee account's view (the copy of the account stored in the instruction context's
-borrowed accounts cache) of the given account. The caller may have made changes to the account
-before the CPI instruction is executed. This function updates the borrowed accounts cache with
-these changes.
+(the copy of the account stored in the instruction context's
+borrowed accounts cache)
+
+This function should be called before the CPI instruction is executed. Its purpose is to 
+update the callee account's view of the given account with any changes the caller may made 
+to the account before the CPI instruction is executed. 
+
+The callee's view of the account is the borrowed accounts cache, so to update the
+callee account we look up the account in the borrowed accounts cache and update it.
+
+Paramaters:
+- vm: pointer to the virtual machine handle
+- account_info: account info object
+- callee_acc_pubkey: pubkey of the account. this is used to look up the account in the borrowed accounts cache
+  (TODO: this seems redundant? we can probably remove this, as the account_info contains the pubkey)
 */
 #define VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_update_callee_acc_, VM_SYSCALL_CPI_ABI)
 static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
-                                      VM_SYSCALL_CPI_ACC_INFO_T * account_info,
+                                      VM_SYSCALL_CPI_ACC_INFO_T const * account_info,
                                       fd_pubkey_t const * callee_acc_pubkey ) {
 
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify(vm->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
   if( FD_UNLIKELY( err ) ) {
-    // No need to do anything if the account is missing from the borrowed accounts cache
+    /* No need to do anything if the account is missing from the borrowed accounts cache */
     return FD_VM_SUCCESS;
   }
 
   if( FD_UNLIKELY( !callee_acc->meta ) ) {
-    // If the account is not modifiable, we can't change it (and it can't have been changed by the callee)
+    /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
     FD_LOG_DEBUG(( "account is not modifiable - key: %32J", callee_acc_pubkey ));
     return FD_VM_SUCCESS;
   }
   
-  // Update the lamports
+  /* Update the lamports */
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
   if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) callee_acc->meta->info.lamports = *caller_acc_lamports;
 
-  // FIXME: do we also need to consume the compute units if the account is not known?
+  /* FIXME: do we also need to consume the compute units if the account is not known? */
   VM_SYSCALL_CPI_ACC_INFO_DATA( vm, account_info, caller_acc_data );
   (void)caller_acc_data_vm_addr;
 
   FD_VM_CU_MEM_UPDATE( vm, caller_acc_data_len );
 
-  // Update the account data, if the account data can be changed.
+  /* Update the account data, if the account data can be changed */
   int err1;
   int err2;
   if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err1 ) &&
       fd_account_can_data_be_changed( vm->instr_ctx, callee_acc->meta, callee_acc_pubkey, &err2 ) ) {
-      // We must ignore the errors here, as they are informational and do not mean the result is invalid.
-      // TODO: not pass informational errors like this?
+      /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
+      /* TODO: not pass informational errors like this? */
     callee_acc->meta->dlen = caller_acc_data_len;
     fd_memcpy( callee_acc->data, caller_acc_data, caller_acc_data_len );
   }
@@ -154,7 +175,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t * vm,
     fd_account_set_executable(vm->instr_ctx, program_acc, callee_acc->meta, (char)account_info->executable);
   }
 
-  /* TODO: can this be read-only? */
   uchar const * caller_acc_owner = FD_VM_MEM_HADDR_LD( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
   if (memcmp(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t))) {
     fd_memcpy(callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t));
@@ -197,18 +217,18 @@ Populates the given out_callee_indices and out_caller_indices arrays:
 #define VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_translate_and_update_accounts_, VM_SYSCALL_CPI_ABI)
 static int
 VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( 
-                              fd_vm_t *                        vm,
-                              fd_instruction_account_t const * instruction_accounts,
-                              ulong const                      instruction_accounts_cnt,
-                              VM_SYSCALL_CPI_ACC_INFO_T *      account_infos,
-                              ulong const                      account_infos_length,
-                              ulong *                          out_callee_indices,
-                              ulong *                          out_caller_indices,
-                              ulong *                          out_len ) {
+                              fd_vm_t *                         vm,
+                              fd_instruction_account_t const *  instruction_accounts,
+                              ulong const                       instruction_accounts_cnt,
+                              VM_SYSCALL_CPI_ACC_INFO_T const * account_infos,
+                              ulong const                       account_infos_length,
+                              ulong *                           out_callee_indices,
+                              ulong *                           out_caller_indices,
+                              ulong *                           out_len ) {
 
   for( ulong i=0UL; i<instruction_accounts_cnt; i++ ) {
     if( i!=instruction_accounts[i].index_in_callee ) {
-      // Skip duplicate accounts
+      /* Skip duplicate accounts */
       continue;
     }
 
@@ -216,31 +236,34 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_pubkey_t const * account_key = &vm->instr_ctx->txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
     fd_borrowed_account_t * acc_rec = NULL;
     int err = fd_instr_borrowed_account_view( vm->instr_ctx, callee_account, &acc_rec );
-    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) return 1000;
+    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
+      /* TODO: magic number */
+      return 1000;
+    }
 
-    // const_meta is NULL if the account is a new account (it doesn't exist in Funk at the time of the transaction)
+    /* const_meta is NULL if the account is a new account (it doesn't exist in Funk at the time of the transaction) */
     fd_account_meta_t const * acc_meta = acc_rec->const_meta;
     uchar known_account = !!acc_meta;
 
-    // If the account is known and executable, we only need to consume the compute units.
-    // Executable accounts can't be modified, so we don't need to update the callee account.
+    /* If the account is known and executable, we only need to consume the compute units.
+       Executable accounts can't be modified, so we don't need to update the callee account. */
     if( known_account && fd_account_is_executable(vm->instr_ctx, acc_meta, NULL) ) {
       FD_VM_CU_MEM_UPDATE( vm, acc_meta->dlen );
       continue;
     }
 
-    // Find the indicies of the account in the caller and callee instructions
+    /* Find the indicies of the account in the caller and callee instructions */
     uint found = 0;
     for( ulong j=0; j < account_infos_length; j++ ) {
 
-      // Look up the pubkey to see if it is the account we're looking for
+      /* Look up the pubkey to see if it is the account we're looking for */
       fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
         vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
       if( memcmp( account_key->uc, acct_addr->uc, sizeof(fd_pubkey_t) ) != 0 ) {
         continue;
       }
 
-      // Record the indicies of this account
+      /* Record the indicies of this account */
       if (instruction_accounts[i].is_writable) {
         out_callee_indices[*out_len] = instruction_accounts[i].index_in_caller;
         out_caller_indices[*out_len] = j;
@@ -248,15 +271,17 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       }
       found = 1;
 
-      // Update the callee account to reflect any changes the caller has made
+      /* Update the callee account to reflect any changes the caller has made */
       if( FD_UNLIKELY( acc_meta && VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], callee_account) ) ) {
-        // TODO: which error code does this correspond to?
+        
         return 1001;
       }
     }
 
-    // TODO: which error code should this return?
-    if( !found ) return 1002;
+    if( !found ) {
+      /* TODO: magic number */
+      return 1002;
+    }
   }
   
   return FD_VM_SUCCESS;
@@ -286,8 +311,8 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                  vm,
                                       VM_SYSCALL_CPI_ACC_INFO_T * caller_acc_info,
                                       fd_pubkey_t const *         pubkey ) {
 
-  // Look up the borrowed account from the instruction context, which will contain
-  // the callee's changes.
+  /* Look up the borrowed account from the instruction context, which will contain
+    the callee's changes. */
   fd_borrowed_account_t * callee_acc_rec = NULL;
   int err = fd_instr_borrowed_account_view( vm->instr_ctx, pubkey, &callee_acc_rec );
   if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
@@ -311,46 +336,61 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                  vm,
   if( !updated_data_len ) fd_memset( caller_acc_data, 0, caller_acc_data_len );
 
   if( caller_acc_data_len != updated_data_len ) {    
-    // FIXME: missing MAX_PERMITTED_DATA_INCREASE check from solana
-    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1342
+    /* FIXME: missing MAX_PERMITTED_DATA_INCREASE check from solana
+       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1342 */
 
-    // FIXME: do we need to zero the memory that was previously used, if the new data_len is smaller?
-    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
-    // I don't think we do but need to double-check.
+    /* FIXME: do we need to zero the memory that was previously used, if the new data_len is smaller?
+      https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
+      I don't think we do but need to double-check. */
 
     FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", pubkey, caller_acc_data_len, updated_data_len ));
 
     VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, updated_data_len );
 
-    // Update the serialized len field 
-    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1437
+    /* Update the serialized len field 
+       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1437 */
     ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), alignof(ulong), sizeof(ulong) );
     *caller_len = updated_data_len;
 
-    // FIXME return instruction error account data size too small in the same scenarios solana does
-    // https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534
+    /* FIXME return instruction error account data size too small in the same scenarios solana does
+       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534 */
   }
 
   fd_memcpy( caller_acc_data, callee_acc_rec->const_data, updated_data_len );
 
-  return 0;
+  return FD_VM_SUCCESS;
 }
 
-/* fd_vm_syscall_cpi_{rust/c} is the entrypoint for the sol_invoke_signed_{rust/c} syscall.
+/* fd_vm_syscall_cpi_{rust/c} is the entrypoint for the sol_invoke_signed_{rust/c} syscalls.
 
 The bulk of the high-level logic mirrors Solana's cpi_common entrypoint function at
 https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1060
 The only differences should be in the order of the error checks, which does not affect consensus.
+
+100-foot flow:
+- Translate the CPI ABI structures to the FD runtime's instruction format
+- Update the callee accounts with any changes made by the caller prior to this CPI instruction
+- Dispatch the instruction to the FD runtime (actually making the CPI call)
+- Update the caller accounts with any changes made by the callee during CPI execution
+
+Paramaters:
+- vm: pointer to the virtual machine handle
+- instruction_va: vm address of the instruction to execute, which will be in the language-specific ABI format.
+- acct_infos_va: vm address of the account infos, which will be in the language-specific ABI format.
+- acct_info_cnt: number of account infos
+- signers_seeds_va: vm address of the signers seeds
+- signers_seeds_cnt: number of signers seeds
+- _ret: pointer to the return value
 */
-#define VM_SYSCALL_CPI_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_, VM_SYSCALL_CPI_ABI)
+#define VM_SYSCALL_CPI_ENTRYPOINT FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_, VM_SYSCALL_CPI_ABI)
 int
-VM_SYSCALL_CPI_FUNC( void *  _vm,
-                     ulong   instruction_va,
-                     ulong   acct_infos_va,
-                     ulong   acct_info_cnt,
-                     ulong   signers_seeds_va,
-                     ulong   signers_seeds_cnt,
-                     ulong * _ret ) {
+VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
+                           ulong   instruction_va,
+                           ulong   acct_infos_va,
+                           ulong   acct_info_cnt,
+                           ulong   signers_seeds_va,
+                           ulong   signers_seeds_cnt,
+                           ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_UPDATE( vm, FD_VM_INVOKE_UNITS );
@@ -387,7 +427,7 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
 
   /* Authorized program check *************************************************/
 
-  fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, cpi_instruction );
+  fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, cpi_instruction );
   if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->slot_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) )
     return FD_VM_ERR_PERM;
 
@@ -403,50 +443,45 @@ VM_SYSCALL_CPI_FUNC( void *  _vm,
                         VM_SYSCALL_CPI_ACC_INFO_ALIGN,
                         acct_info_cnt*VM_SYSCALL_CPI_ACC_INFO_SIZE );
 
-  // Create the instruction to execute (in the input format the FD runtime expects) from
-  // the translated CPI ABI inputs.
+  /* Create the instruction to execute (in the input format the FD runtime expects) from
+     the translated CPI ABI inputs. */
   fd_instr_info_t instruction_to_execute;
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, signers, signers_seeds_cnt, data, &instruction_to_execute );
   if( FD_UNLIKELY( err ) ) return err;
 
-  // Prepare the instruction for execution
+  /* Prepare the instruction for execution in the runtime. This is required by the runtime
+     before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction(vm->instr_ctx->instr, &instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(("PREPARE FAILED"));
-    return err;
-  }
+  if( FD_UNLIKELY( err ) ) return err;
 
-  // Update the callee accounts with any changes made by the caller prior to this CPI execution
+  /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len);
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "translate failed %lu", err ));
-    return err;
-  }
+  if( FD_UNLIKELY( err ) ) return err;
 
   ulong caller_lamports = fd_instr_info_sum_account_lamports( vm->instr_ctx->instr );
   if( caller_lamports!=vm->instr_ctx->instr->starting_lamports ) return FD_VM_ERR_INSTR_ERR;
   
-  // Set the transaction compute meter to be the same as the VM's compute meter,
-  // so that the callee cannot use compute units that the caller has already used.
+  /* Set the transaction compute meter to be the same as the VM's compute meter,
+     so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
 
-  // Execute the CPI instruction
+  /* Execute the CPI instruction in the runtime */
   int err_exec = fd_execute_instr( vm->instr_ctx->txn_ctx, &instruction_to_execute );
   ulong instr_exec_res = (ulong)err_exec;
 
-  // Set the CU meter to the instruction context's transaction context's compute meter,
-  // so that the caller can't use compute units that the callee has already used.
+  /* Set the CU meter to the instruction context's transaction context's compute meter,
+     so that the caller can't use compute units that the callee has already used. */
   vm->cu = vm->instr_ctx->txn_ctx->compute_meter;
 
   *_ret = instr_exec_res;
   if( FD_UNLIKELY( instr_exec_res ) ) return FD_VM_ERR_INSTR_ERR;
 
-  // Update the caller accounts with any changes made by the callee during CPI execution
+  /* Update the caller accounts with any changes made by the callee during CPI execution */
   for( ulong i = 0; i < caller_accounts_to_update_len; i++ ) {
     fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
     err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], callee);
