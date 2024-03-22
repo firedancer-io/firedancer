@@ -343,8 +343,7 @@ static inline fd_vm_syscall_pdas_t * fd_vm_syscall_pdas_join( void * mem ) { ret
 static inline void * fd_vm_syscall_pdas_leave( fd_vm_syscall_pdas_t * pdas ) { return (void *)pdas; }
 static inline void * fd_vm_syscall_pdas_delete( fd_vm_syscall_pdas_t * pdas ) { return (void *)pdas; }
 
-/* fd_vm_syscall_pda_next starts the calculation of a program derived
-   address.  Panics if called more than FD_CPI_MAX_SIGNER_CNT times. */
+/* fd_vm_syscall_pda_next starts the calculation of a program derived address. */
 
 static void
 fd_vm_syscall_pda_next( fd_vm_syscall_pdas_t *       pdas ) {
@@ -406,14 +405,8 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
                                    ulong                  signers_seeds_va,
                                    ulong                  signers_seeds_cnt ) {
 
-  // FIXME: behaviour if seeds is 0? or seeds contains an empty array?
-  // Rust just returns an empty valid array in host space in this case, we should probably
-  // do the same.
-
   /* Translate array of seeds.  Each seed is an array of byte arrays. */
-  fd_vm_vec_t const * seeds =
-    fd_vm_translate_vm_to_host_const( vm, signers_seeds_va, signers_seeds_cnt*FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
-  if( FD_UNLIKELY( !seeds ) ) return FD_VM_ERR_PERM;
+  fd_vm_vec_t const * seeds = FD_VM_MEM_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
 
   /* Create program addresses. */
   if ( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) return FD_VM_ERR_INVAL;
@@ -423,12 +416,11 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
     /* Check seed count (avoid overflow) */
     if( FD_UNLIKELY( seeds[i].len > FD_VM_CPI_SEED_MAX ) ) return FD_VM_ERR_INVAL;
 
+    /* If we have no seeds, then we should do nothing. */
+    if( FD_UNLIKELY( seeds[i].len == 0 ) ) continue;
+
     /* Translate inner seed slice.  Each element points to a byte array. */
-    // FIXME: if seed is NULL (the array contains an empty array), this is a valid mapping
-    // but fd_vm_translate_vm_to_host_const does not handle this case correctly.
-    fd_vm_vec_t const * seed =
-      fd_vm_translate_vm_to_host_const( vm, seeds[i].addr, seeds[i].len * FD_VM_VEC_SIZE, FD_VM_VEC_ALIGN );
-    if( FD_UNLIKELY( !seed ) ) return FD_VM_ERR_PERM;
+    fd_vm_vec_t const * seed = FD_VM_MEM_HADDR_LD( vm, seeds[i].addr, FD_VM_VEC_ALIGN, seeds[i].len * FD_VM_VEC_SIZE );
 
     /* Derive PDA */
     fd_vm_syscall_pda_next( pdas );
@@ -452,9 +444,12 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_t * vm,
       /* TODO use constant */
       if( FD_UNLIKELY( seed[j].len > 32 ) ) return FD_VM_ERR_INVAL;
 
+      /* If the seed is an empty array, then we should do nothing. */
+      if ( FD_UNLIKELY( seed[j].len == 0 ) ) continue;
+
       /* Translate inner seed limb (type &[u8]) */
-      uchar const * seed_limb = fd_vm_translate_vm_to_host_const( vm, seed[j].addr, seed[j].len, alignof(uchar) );
-      // FIXME: check if translation failed
+      uchar const * seed_limb = FD_VM_MEM_HADDR_LD( vm, seed[j].addr, alignof(uchar), seed[j].len );
+
       fd_vm_syscall_pda_seed_append( pdas, seed_limb, seed[j].len );
     }
 
