@@ -332,7 +332,7 @@ main( int     argc,
 
   /* Cleanup */
 
-  fd_wksp_free_laddr( fd_solcap_writer_delete( fd_solcap_writer_fini( writer ) ) );
+  fd_wksp_free_laddr( fd_solcap_writer_delete( fd_solcap_writer_flush( writer ) ) );
   fclose( out_file );
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   FD_TEST( fd_scratch_frame_used()==0UL );

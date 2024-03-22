@@ -64,13 +64,12 @@ fd_solcap_writer_t *
 fd_solcap_writer_init( fd_solcap_writer_t * writer,
                        void *               stream );
 
-/* fd_solcap_writer_fini finishes any outstanding writes and yields
-   ownership of the stream handle back to the caller of init.  Does not
-   flush the underlying stream.  Always returns writer for convenience.
-   If an error occurs, writes reason to log. */
+/* fd_solcap_writer_flush finishes any outstanding writes and yields
+   ownership of the stream handle back to the caller of init. Always returns 
+   writer for convenience. If an error occurs, writes reason to log. */
 
 fd_solcap_writer_t *
-fd_solcap_writer_fini( fd_solcap_writer_t * writer );
+fd_solcap_writer_flush( fd_solcap_writer_t * writer );
 
 /* fd_solcap_writer_t user API *****************************************
 

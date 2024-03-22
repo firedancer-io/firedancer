@@ -204,12 +204,15 @@ fd_solcap_writer_init( fd_solcap_writer_t * writer,
   return writer;
 }
 
-/* fd_solcap_writer_fini writes the file header. */
+/* fd_solcap_writer_flush writes the file header. */
 
 fd_solcap_writer_t *
-fd_solcap_writer_fini( fd_solcap_writer_t * writer ) {
+fd_solcap_writer_flush( fd_solcap_writer_t * writer ) {
 
   if( FD_LIKELY( !writer ) ) return NULL;
+
+  /* Flush stream */
+  fflush( writer->file );
 
   /* Remember stream cursor */
 

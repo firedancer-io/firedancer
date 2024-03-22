@@ -474,7 +474,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
     nanosleep(&ts, NULL);
     if (NULL != runtime_ctx->capture_file)
-      fflush(runtime_ctx->capture_file);
+      fd_solcap_writer_flush( runtime_ctx->capture_ctx->capture );
   }
 
   close( gossip_fd );
@@ -1265,7 +1265,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
 void
 fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
   if( tvu_args->capture_file != NULL) {
-    fd_solcap_writer_fini( tvu_args->capture_ctx->capture );
+    fd_solcap_writer_flush( tvu_args->capture_ctx->capture );
     fd_valloc_free( tvu_args->slot_ctx->valloc, fd_capture_ctx_delete( tvu_args->capture_ctx ) );
     fclose( tvu_args->capture_file );
   }

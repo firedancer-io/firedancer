@@ -464,7 +464,7 @@ main( int     argc,
       fd_genesis_solana_destroy(&genesis_block, &ctx2);
 
       if( capture_ctx )  {
-        fd_solcap_writer_fini( capture_ctx->capture );
+        fd_solcap_writer_flush( capture_ctx->capture );
         fclose( capture_file );
       }
     }

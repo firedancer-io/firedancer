@@ -316,25 +316,6 @@ void tpool_boot( ushort first_cpu, ulong tcnt ) {
 }
 
 static void
-signal_handler( int sig ) {
-  fd_tvu_main_teardown( &runtime_ctx, NULL );
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
-  else                           exit_group( 128+SIGTERM );
-}
-
-static void
-install_signal_handler( void ) {
-  struct sigaction sa = {
-    .sa_handler = signal_handler,
-    .sa_flags   = 0,
-  };
-  if( FD_UNLIKELY( sigaction( SIGTERM, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
-    FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-}
-
-static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
@@ -384,8 +365,6 @@ privileged_init( fd_topo_t *      topo,
   g_sign_in = &topo->links[ tile->in_link_id[ 1 ] ];
   g_sign_out = &topo->links[ tile->out_link_id[ 0 ] ];
   g_identity_key = identity_key;
-
-  install_signal_handler();
 
   (void)topo;
   (void)tile;
