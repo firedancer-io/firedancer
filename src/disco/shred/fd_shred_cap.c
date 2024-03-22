@@ -5,6 +5,8 @@
 
 int
 fd_shred_cap_mark_stable( fd_replay_t * replay, ulong slot ) {
+  if( replay->shred_cap == NULL ) return FD_SHRED_CAP_OK;
+
   if (replay->stable_slot_start == 0)
     replay->stable_slot_start = slot;
   if (slot > replay->stable_slot_end)
