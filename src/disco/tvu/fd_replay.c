@@ -324,6 +324,7 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   fd_shred_cap_mark_stable(replay, slot);
 
   ulong txn_cnt                   = 0;
+  parent->slot_ctx.slot_bank.prev_slot = parent->slot_ctx.slot_bank.slot;
   parent->slot_ctx.slot_bank.slot = slot;
   FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
                                         capture_ctx,

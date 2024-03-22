@@ -1,8 +1,0 @@
-topology = "tvu"
-[tiles.tvu]
-  gossip_peer_addr = "139.178.68.207:8001"
-  incremental_snapshot = "http://entrypoint3.testnet.solana.com:8899/incremental-snapshot.tar.bz2"
-  load = "/data/asiegel/test_backup"
-  rpc_listen_port = 8123
-  page_cnt = 200
-

@@ -47,3 +47,12 @@ deps-bundle.tar.zst
 dump
 test.solcap
 test_ledger_backup
+
+test.yaml
+fddev.yaml
+
+local.toml
+testnet.toml
+mainnet.toml
+*.shredcap
+
