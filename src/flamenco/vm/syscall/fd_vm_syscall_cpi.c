@@ -3,9 +3,9 @@
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../runtime/fd_account.h"
 
-/* FIXME: PREFIX NAME / ALGO EFFICIENCY */
+/* FIXME: ALGO EFFICIENCY */
 static inline int
-is_signer( fd_pubkey_t const * account,
+fd_vm_syscall_cpi_is_signer( fd_pubkey_t const * account,
            fd_pubkey_t const * signers,
            ulong               signers_cnt ) {
   for( ulong i=0UL; i<signers_cnt; i++ ) if( !memcmp( account->uc, signers[i].uc, sizeof(fd_pubkey_t) ) ) return 1;
@@ -13,14 +13,17 @@ is_signer( fd_pubkey_t const * account,
 }
 
 /*
-fd_vm_prepare_instruction populates instruction_accounts and instruction_accounts_cnt,
-laying out in memory each instruction account needed for a CPI call, and their privileges.
-
-As part of this, it unifies the privileges for each duplicated account, ensuring that 
-each duplicate account referenced has the same privileges.
+fd_vm_prepare_instruction populates instruction_accounts and instruction_accounts_cnt
+with the instruction accounts ready for execution.
 
 The majority of this logic is taken from
-https://github.com/solana-labs/solana/blob/v1.17.22/program-runtime/src/invoke_context.rs#L535
+https://github.com/solana-labs/solana/blob/v1.17.22/program-runtime/src/invoke_context.rs#L535,
+and is not vm-specific, but a part of the runtime.
+TODO: should we move this out of the CPI section?
+
+The bulk of the logic is concerned with unifying the privileges for each duplicated account, 
+ensuring that each duplicate account referenced has the same privileges. It also performs some 
+priviledge checks, for example ensuring the necessary signatures are present.
 
 TODO: instruction calling convention: const parameters after non-const.
 
@@ -67,14 +70,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   ulong duplicate_indicies_cnt = 0;
   ulong duplicate_indices[256] = {0};
 
-  // Normalize the privileges of each instruction account in the callee, after de-duping 
-  // the account references.
-  // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595
+  /* Normalize the privileges of each instruction account in the callee, after de-duping 
+     the account references.
+    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595 */
   for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
     fd_pubkey_t const * callee_pubkey = &callee_instr->acct_pubkeys[i];
 
-    // Find the corresponding transaction account index for this callee instruction account
-    // TODO: passing in the transaction indicies would mean we didn't have to do this
+    /* Find the corresponding transaction account index for this callee instruction account */
+    /* TODO: passing in the transaction indicies would mean we didn't have to do this */
     ushort index_in_transaction = USHORT_MAX;
     for( ulong j=0UL; j<instr_ctx->txn_ctx->accounts_cnt; j++ ) {
       if( !memcmp( instr_ctx->txn_ctx->accounts[j].uc, callee_pubkey->uc, sizeof(fd_pubkey_t) ) ) {
@@ -83,15 +86,15 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
     }
     if( index_in_transaction==USHORT_MAX) {
-      // In this case the callee instruction is referencing an unknown account not listed in the 
-      // transactions accounts.
-      // TODO: return InstructionError::MissingAccount
+      /* In this case the callee instruction is referencing an unknown account not listed in the 
+         transactions accounts.
+         TODO: return InstructionError::MissingAccount */
       return 1;
     }
 
-    // If there was an instruction account before this one which referenced the same
-    // transaction account index, find it's index in the deduplicated_instruction_accounts
-    // array.
+    /* If there was an instruction account before this one which referenced the same
+       transaction account index, find it's index in the deduplicated_instruction_accounts
+       array. */
     ulong duplicate_index = ULONG_MAX;
     for( ulong j=0UL; j<deduplicated_instruction_accounts_cnt; j++ ) {
       if( deduplicated_instruction_accounts[j].index_in_transaction==index_in_transaction ) {
@@ -100,12 +103,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
     }
 
-    // If this was account referenced in a previous iteration, update the flags to include those set
-    // in this iteration. This ensures that after all the iterations, the de-duplicated account flags 
-    // for each account are the union of all the flags in all the references to that account in this instruction.
-    // 
-    // TODO: FD_UNLIKELY? Need to check which branch is more common by running against a mainnet ledger
-    // TODO: this code would maybe be easier to read if we inverted the branches
+    FD_LOG_DEBUG(( "Duplicate index %lu for %32J", duplicate_index, callee_pubkey->uc ));
+
+    /* If this was account referenced in a previous iteration, update the flags to include those set
+       in this iteration. This ensures that after all the iterations, the de-duplicated account flags 
+       for each account are the union of all the flags in all the references to that account in this instruction. */
+    
+    /* TODO: FD_UNLIKELY? Need to check which branch is more common by running against a larger mainnet ledger */
+    /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
         // TODO: return InstructionError::NotEnoughAccountKeys
@@ -117,13 +122,13 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       instruction_account->is_signer   |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
       instruction_account->is_writable |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
     } else {
-      // In the case where the callee instruction is NOT a duplicate, we need to 
-      // create the deduplicated_instruction_accounts fd_instruction_account_t object.
+      /* In the case where the callee instruction is NOT a duplicate, we need to 
+         create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
-      // Find the index of the instruction account in the caller instruction
+      /* Find the index of the instruction account in the caller instruction */
       ushort index_in_caller = USHORT_MAX;
       for( ulong j=0UL; j<caller_instr->acct_cnt; j++ ) {
-        // TODO: passing transaction indicies in would also allow us to remove these memcmp's
+        /* TODO: passing transaction indicies in would also allow us to remove these memcmp's */
         if( !memcmp( caller_instr->acct_pubkeys[j].uc, callee_instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) ) ) {
           index_in_caller = (ushort)j;
           break;
@@ -131,14 +136,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       }
 
       if( index_in_caller==USHORT_MAX ) {
-        // TODO: return InstructionError::MissingAccount
+        /* TODO: return InstructionError::MissingAccount */
         return 1;
       }
 
-      // Add the instruction account to the duplicate indicies array
+      /* Add the instruction account to the duplicate indicies array */
       duplicate_indices[duplicate_indicies_cnt++] = deduplicated_instruction_accounts_cnt;
 
-      // Initialize the instruction account in the deduplicated_instruction_accounts array
+      /* Initialize the instruction account in the deduplicated_instruction_accounts array */
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[deduplicated_instruction_accounts_cnt++];
       instruction_account->index_in_callee      = (ushort)i;
       instruction_account->index_in_caller      = index_in_caller;
@@ -148,34 +153,35 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
   }
 
-  // Check the normalized account permissions for privilege escalation.
-  // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624
+  /* Check the normalized account permissions for privilege escalation.
+     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624 */
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
     fd_pubkey_t const * pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
 
-    // Check that the account is not read-only in the caller but writable in the callee
+    /* Check that the account is not read-only in the caller but writable in the callee */
     if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, pubkey) ) ) {
-      // TODO: return InstructionError::PrivilegeEscalation
+      /* TODO: return InstructionError::PrivilegeEscalation */
       return 1;
     }
 
-    // If the account is signed in the callee, it must be signed by the caller or the program
-    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, pubkey) || is_signer(pubkey, signers, signers_cnt)) ) ) {
-      // TODO: return InstructionError::PrivilegeEscalation
+    /* If the account is signed in the callee, it must be signed by the caller or the program */
+    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, pubkey) || fd_vm_syscall_cpi_is_signer(pubkey, signers, signers_cnt)) ) ) {
+      FD_LOG_DEBUG(( "PREP: %32J %lu %lu %lu %lu", pubkey->uc, instruction_account->is_signer, fd_instr_acc_is_signer(instr_ctx->instr, pubkey), fd_vm_syscall_cpi_is_signer(pubkey, signers, signers_cnt), signers_cnt ));
+      /* TODO: return InstructionError::PrivilegeEscalation */
       return 1;
     }
   }
 
-  // Copy the accounts with their normalised permissions over to the final instruction_accounts array,
-  // and set the callee_instr acct_flags.
+  /* Copy the accounts with their normalised permissions over to the final instruction_accounts array,
+     and set the callee_instr acct_flags. */
   for (ulong i = 0; i < duplicate_indicies_cnt; i++) {
     ulong duplicate_index = duplicate_indices[i];
 
-    // Failing this condition is technically impossible, but it is probably safest to keep this in 
-    // so that we throw InstructionError::NotEnoughAccountKeys at the same point at Solana does,
-    // in the event any surrounding code is changed.
-    // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633.
+    /* Failing this condition is technically impossible, but it is probably safest to keep this in 
+       so that we throw InstructionError::NotEnoughAccountKeys at the same point at Solana does,
+       in the event any surrounding code is changed.
+       https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633 */
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
       callee_instr->acct_flags[i] |= ( !!(instruction_accounts[i].is_signer) * FD_INSTR_ACCT_FLAGS_IS_SIGNER );
@@ -186,8 +192,8 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
   }
 
-  // Check that the program account is executable
-  // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648
+  /* Check that the program account is executable
+     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
   fd_borrowed_account_t * program_rec = NULL;
   int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &instr_ctx->instr->program_id_pubkey, &program_rec );
 
@@ -197,9 +203,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
-  if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
-    // TODO: log "Account {} is not executable"
-    // TODO: return InstructionError::AccountNotExecutable
+  if( FD_UNLIKELY( !fd_account_is_executable(instr_ctx, program_meta, NULL) ) ) {
+    /* TODO: log "Account {} is not executable" */
+    /* TODO: return InstructionError::AccountNotExecutable */
     return 1;
   }
 
@@ -257,7 +263,7 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
                                    ulong acct_info_cnt,
                                    fd_exec_slot_ctx_t const * slot_ctx ) {
 
-  // https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602
+  /* https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
   if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
     // TODO: return SyscallError::TooManySigners
     FD_LOG_WARNING(("TODO: return too many signers" ));
@@ -274,9 +280,9 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
   } else {
     ulong adjusted_len = fd_ulong_sat_mul( acct_info_cnt, sizeof( fd_pubkey_t ) );
     if ( FD_UNLIKELY( adjusted_len > FD_VM_MAX_CPI_INSTRUCTION_SIZE ) ) {
-      // Cap the number of account_infos a caller can pass to approximate
-      // maximum that accounts that could be passed in an instruction
-      // TODO: return SyscallError::TooManyAccounts
+      /* Cap the number of account_infos a caller can pass to approximate
+         maximum that accounts that could be passed in an instruction
+         TODO: return SyscallError::TooManyAccounts */
       return FD_VM_ERR_INVAL;
     }
   }
@@ -484,9 +490,8 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_t * vm,
   CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
 
-/* FIXME: PREFIX */
 static inline int
-check_id( fd_pubkey_t const * program_id,
+fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
           uchar const * loader ) {
   return !memcmp( program_id, loader, sizeof(fd_pubkey_t) );
 }
@@ -500,8 +505,8 @@ check_id( fd_pubkey_t const * program_id,
  */
 static inline int
 fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
-  return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
-         check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
+  return fd_vm_syscall_cpi_check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) |
+         fd_vm_syscall_cpi_check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to 
@@ -518,10 +523,10 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                           uchar const *        instruction_data,
                           ulong                instruction_data_len ) {
   /* FIXME: do this in a branchless manner? using bitwise comparison would probably be faster */
-  return check_id( program_id, fd_solana_native_loader_id.key                 )                 ||
-         check_id( program_id, fd_solana_bpf_loader_program_id.key            )                 ||
-         check_id( program_id, fd_solana_bpf_loader_deprecated_program_id.key )                 ||
-         ( check_id( program_id, fd_solana_bpf_loader_upgradeable_program_id.key ) &&
+  return fd_vm_syscall_cpi_check_id( program_id, fd_solana_native_loader_id.key                 )                 ||
+         fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_program_id.key            )                 ||
+         fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_deprecated_program_id.key )                 ||
+         ( fd_vm_syscall_cpi_check_id( program_id, fd_solana_bpf_loader_upgradeable_program_id.key ) &&
            ( (instruction_data_len == 0 || instruction_data[0] != 3)                        ||
              (instruction_data_len != 0 && instruction_data[0] == 4)                        ||
              ( FD_FEATURE_ACTIVE( slot_ctx, enable_bpf_loader_set_authority_checked_ix ) &&
@@ -553,29 +558,21 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_C_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_C_ACCOUNT_INFO_SIZE)
 
-// Instruction accessors
+/* VM_SYSCALL_CPI_INSTR_T accessors */
 #define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data_addr
 #define VM_SYSCALL_CPI_INSTR_DATA_LEN( instr )  instr->data_len
 #define VM_SYSCALL_CPI_INSTR_ACCS_ADDR( instr ) instr->accounts_addr
 #define VM_SYSCALL_CPI_INSTR_ACCS_LEN( instr )  instr->accounts_len
-
-// The C ABI requires that we translate the program ID as it stores a pointer
-#define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) \
+#define VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, instr ) \
   FD_VM_MEM_HADDR_LD( vm, instr->program_id_addr, alignof(uchar), sizeof(fd_pubkey_t)  )
 
-// Account Meta accessors
+/* VM_SYSCALL_CPI_ACC_META_T accessors */
 #define VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( acc_meta ) acc_meta->is_writable
 #define VM_SYSCALL_CPI_ACC_META_IS_SIGNER( acc_meta ) acc_meta->is_signer
-
-// The C ABI requires that we translate the account meta pubkey as it stores a pointer
-#define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) \
+#define VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, acc_meta ) \
   FD_VM_MEM_HADDR_LD( vm, acc_meta->pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) )
 
-#define VM_SYSCALL_CALLER_ACC_DATA( vm, acc_info, decl ) \
-  uchar * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
-  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
-
-// Account Info accessors
+/* VM_SYSCALL_CPI_ACC_INFO_T accessors */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
   ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
@@ -593,23 +590,23 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_INSTR_T
 #undef VM_SYSCALL_CPI_INSTR_ALIGN
 #undef VM_SYSCALL_CPI_INSTR_SIZE
+#undef VM_SYSCALL_CPI_ACC_META_T
+#undef VM_SYSCALL_CPI_ACC_META_ALIGN
+#undef VM_SYSCALL_CPI_ACC_META_SIZE
+#undef VM_SYSCALL_CPI_ACC_INFO_T
+#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN
+#undef VM_SYSCALL_CPI_ACC_INFO_SIZE
 #undef VM_SYSCALL_CPI_INSTR_DATA_ADDR
 #undef VM_SYSCALL_CPI_INSTR_DATA_LEN
 #undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
 #undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
-#undef VM_SYSCALL_CPI_ACC_META_T
-#undef VM_SYSCALL_CPI_ACC_META_ALIGN
-#undef VM_SYSCALL_CPI_ACC_META_SIZE
+#undef VM_SYSCALL_CPI_INSTR_PROGRAM_ID
 #undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
 #undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
-#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY
-#undef VM_SYSCALL_CPI_ACC_INFO_T
-#undef VM_SYSCALL_CPI_ACC_INFO_ALIGN
-#undef VM_SYSCALL_CPI_ACC_INFO_SIZE
+#undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
-#undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
 
 /**********************************************************************
    CROSS PROGRAM INVOCATION (Rust ABI)
@@ -626,21 +623,19 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #define VM_SYSCALL_CPI_ACC_INFO_ALIGN          (FD_VM_RUST_ACCOUNT_INFO_ALIGN)
 #define VM_SYSCALL_CPI_ACC_INFO_SIZE           (FD_VM_RUST_ACCOUNT_INFO_SIZE)
 
-// Instruction accessors
+/* VM_SYSCALL_CPI_INSTR_T accessors */
 #define VM_SYSCALL_CPI_INSTR_DATA_ADDR( instr ) instr->data.addr
 #define VM_SYSCALL_CPI_INSTR_DATA_LEN( instr )  instr->data.len
 #define VM_SYSCALL_CPI_INSTR_ACCS_ADDR( instr ) instr->accounts.addr
 #define VM_SYSCALL_CPI_INSTR_ACCS_LEN( instr )  instr->accounts.len
-// The Rust ABI already has the the pubkey in host space
-#define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) instr->pubkey
+#define VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, instr ) instr->pubkey
 
-// Account Meta accessors
+/* VM_SYSCALL_CPI_ACC_META_T accessors */
 #define VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( acc_meta ) acc_meta->is_writable
 #define VM_SYSCALL_CPI_ACC_META_IS_SIGNER( acc_meta ) acc_meta->is_signer
+#define VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
 
-// The Rust Account Meta ABI stores the pubkey inline in the data structure, so no need to translate
-#define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
-
+/* VM_SYSCALL_CPI_ACC_INFO_T accessors */
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
@@ -672,21 +667,20 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 #undef VM_SYSCALL_CPI_INSTR_T
 #undef VM_SYSCALL_CPI_INSTR_ALIGN
 #undef VM_SYSCALL_CPI_INSTR_SIZE
-#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR
-#undef VM_SYSCALL_CPI_INSTR_DATA_LEN
-#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
 #undef VM_SYSCALL_CPI_ACC_META_T
 #undef VM_SYSCALL_CPI_ACC_META_ALIGN
-#undef VM_SYSCALL_CPI_ACC_META_SIZE   
-#undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
-#undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
-#undef VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY
-#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
-#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
+#undef VM_SYSCALL_CPI_ACC_META_SIZE
 #undef VM_SYSCALL_CPI_ACC_INFO_T
 #undef VM_SYSCALL_CPI_ACC_INFO_ALIGN
 #undef VM_SYSCALL_CPI_ACC_INFO_SIZE
+#undef VM_SYSCALL_CPI_INSTR_DATA_ADDR
+#undef VM_SYSCALL_CPI_INSTR_DATA_LEN
+#undef VM_SYSCALL_CPI_INSTR_ACCS_ADDR
+#undef VM_SYSCALL_CPI_INSTR_ACCS_LEN
+#undef VM_SYSCALL_CPI_INSTR_PROGRAM_ID
+#undef VM_SYSCALL_CPI_ACC_META_IS_WRITABLE
+#undef VM_SYSCALL_CPI_ACC_META_IS_SIGNER
+#undef VM_SYSCALL_CPI_ACC_META_PUBKEY
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
-#undef VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR
