@@ -11,6 +11,8 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   int                      trace_dirfd;
   int                      trace_mode;
   fd_solcap_writer_t *     capture;
+  ulong                    checkpt_slot; /* Must be a rooted slot */
+  char const *             checkpt_path;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() )

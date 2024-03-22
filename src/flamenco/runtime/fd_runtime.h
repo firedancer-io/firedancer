@@ -109,6 +109,8 @@ struct fd_runtime_args {
   ulong        tcnt;
   ulong        txn_max;
   ushort       rpc_port;
+  ulong        checkpt_slot;
+  char const * checkpt_path;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 

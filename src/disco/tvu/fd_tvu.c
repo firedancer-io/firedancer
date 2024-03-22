@@ -712,7 +712,6 @@ void solcap_setup( char const * capture_fpath, fd_valloc_t valloc, solcap_setup_
   out->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
 
   FD_TEST( fd_solcap_writer_init( out->capture_ctx->capture, out->capture_file ) );
-  FD_LOG_WARNING(( "solcap setup successfully to %s", capture_fpath));
 }
 typedef struct {
   fd_blockstore_t * blockstore;
@@ -1014,6 +1013,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     runtime_ctx->capture_file = solcap_setup_out.capture_file;
     runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
   }
+  
+  runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
+  runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
 
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
@@ -1254,6 +1256,8 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->retrace       = fd_env_strip_cmdline_int( &argc, &argv, "--retrace", NULL, 0 );
   args->abort_on_mismatch =
       (uchar)fd_env_strip_cmdline_int( &argc, &argv, "--abort-on-mismatch", NULL, 0 );
+  args->checkpt_slot = fd_env_strip_cmdline_ulong( &argc, &argv, "--checkpt-slot", NULL, 0 );
+  args->checkpt_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--checkpt-path", NULL, NULL );
 
   return 0;
 }
