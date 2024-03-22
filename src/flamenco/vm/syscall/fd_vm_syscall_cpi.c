@@ -561,7 +561,7 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 
 // The C ABI requires that we translate the program ID as it stores a pointer
 #define VM_SYSCALL_CPI_TRANSLATE_PROGRAM_ID_ADDR( vm, instr ) \
-  fd_vm_translate_vm_to_host_const( vm, instr->program_id_addr, sizeof(fd_pubkey_t), alignof(uchar) )
+  FD_VM_MEM_HADDR_LD( vm, instr->program_id_addr, alignof(uchar), sizeof(fd_pubkey_t)  )
 
 // Account Meta accessors
 #define VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( acc_meta ) acc_meta->is_writable
@@ -569,25 +569,22 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 
 // The C ABI requires that we translate the account meta pubkey as it stores a pointer
 #define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) \
-  fd_vm_translate_vm_to_host_const( vm, acc_meta->pubkey_addr, sizeof(fd_pubkey_t), alignof(uchar) )
+  FD_VM_MEM_HADDR_LD( vm, acc_meta->pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) )
 
 #define VM_SYSCALL_CALLER_ACC_DATA( vm, acc_info, decl ) \
-  uchar * decl = fd_vm_translate_vm_to_host( vm, acc_info->data_addr, acc_info->data_sz, alignof(uchar) ); \
-  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  uchar * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
 // Account Info accessors
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
-  ulong * decl = fd_vm_translate_vm_to_host( vm, acc_info->lamports_addr, sizeof(ulong), alignof(ulong) ); \
-  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM;
+  ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
-  uchar * decl = fd_vm_translate_vm_to_host( vm, acc_info->data_addr, acc_info->data_sz, alignof(uchar) ); \
-  if( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
+  uchar * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->data_addr, alignof(uchar), acc_info->data_sz ); \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) //TODO: we don't set this for C?
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) //FIXME: need to set for C
 
 #include "fd_vm_syscall_common.c"
 
@@ -643,20 +640,27 @@ https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1
 // The Rust Account Meta ABI stores the pubkey inline in the data structure, so no need to translate
 #define VM_SYSCALL_CPI_TRANSLATE_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
 
-#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
-  fd_vm_rc_refcell_t const * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->lamports_box_addr, sizeof(fd_vm_rc_refcell_t), FD_VM_RC_REFCELL_ALIGN ); \
-  if( FD_UNLIKELY( !FD_EXPAND_THEN_CONCAT2(decl, _box) ) ) return FD_VM_ERR_PERM; \
-  ulong * decl = fd_vm_translate_vm_to_host( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, sizeof(ulong), alignof(ulong) ); \
-  if ( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM;
+/* The lamports and the account data are stored behind RefCells,
+   so we have an additional layer of indirection to unwrap. */
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
+    /* Translate the pointer to the RefCell */                                                                         \
+    fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
+    /* Translate the pointer to the underlying data */                                                                 \
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(ulong), sizeof(ulong) );  
 
-// TODO: define a refcell macro to simplify this boilerplate
-#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
-  fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) = fd_vm_translate_vm_to_host( vm, acc_info->data_box_addr, sizeof(fd_vm_rc_refcell_vec_t), FD_VM_RC_REFCELL_ALIGN ); \
-  if( FD_UNLIKELY( !FD_EXPAND_THEN_CONCAT2(decl, _box) ) ) return FD_VM_ERR_PERM; \
-  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr; \
-  uchar * decl = fd_vm_translate_vm_to_host( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, FD_EXPAND_THEN_CONCAT2(decl, _box)->len, alignof(uchar) ); \
-  if ( FD_UNLIKELY( !decl ) ) return FD_VM_ERR_PERM; \
-  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+/* TODO: possibly define a refcell unwrapping macro to simplify this? */
+#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                       \
+    /* Translate the pointer to the RefCell */                                                                   \
+    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
+      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
+    /* Declare the vm addr of the underlying data, as we sometimes need it later */                              \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;                     \
+    /* Translate the pointer to the underlying data */                                                           \
+    uchar * decl = FD_VM_MEM_HADDR_ST(                                                                           \
+      vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _box)->len );   \
+    /* Declare the size of the underlying data */                                                                \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;                          
 
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
   FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
