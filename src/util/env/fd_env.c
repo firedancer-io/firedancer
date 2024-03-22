@@ -11,6 +11,7 @@
 #include "fd_env.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #define FD_ENV_STRIP_CMDLINE_IMPL( T, what )                                   \
 T                                                                              \
@@ -67,6 +68,37 @@ fd_env_strip_cmdline_contains( int * pargc, char *** pargv, char const * key ) {
     (*pargv)[new_argc] = NULL; /* ANSI - argv is NULL terminated */
   }
   return found;
+}
+
+
+int fd_env_strip_cmdline_bool(int *pargc, char ***pargv, const char *key, int *value) {
+    int found = 0;
+    if (key && pargc && pargv && value) {
+        for (int arg = 0; arg < *pargc; arg++) {
+            if (!strcmp((*pargv)[arg], key)) {
+                found = 1; // Mark key as found
+                if (arg + 1 < *pargc) { // Ensure next argument exists
+                    arg++; // Move to value of the flag
+                    if (!strcmp((*pargv)[arg], "true") || !strcmp((*pargv)[arg], "1")) {
+                        *value = 1;
+                    } else if (!strcmp((*pargv)[arg], "false") || !strcmp((*pargv)[arg], "0")) {
+                        *value = 0;
+                    } else {
+                        fprintf(stderr, "Error: Invalid value for %s. Use true/false or 1/0.\n", key);
+                        return -1; // Error code for invalid argument
+                    }
+                } else {
+                    *value = 1; // No argument implies true
+                }
+            } else if (arg > 0 && !strcmp((*pargv)[arg-1], key)) {
+                // Skip value already processed
+            } else {
+                (*pargv)[(*pargc) - arg - 1] = (*pargv)[arg]; // Shift arguments
+            }
+        }
+        (*pargv)[*pargc - 1] = NULL; // Ensure NULL termination
+    }
+    return found;
 }
 
 #else

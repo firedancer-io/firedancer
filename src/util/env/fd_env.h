@@ -66,4 +66,5 @@ fd_env_strip_cmdline_contains( int *        pargc,
                                char ***     pargv,
                                char const * key );
 
+int fd_env_strip_cmdline_bool(int *pargc, char ***pargv, const char *key, int *value);
 #endif /* HEADER_fd_src_env_fd_env_h */
