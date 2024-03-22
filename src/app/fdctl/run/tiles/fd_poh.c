@@ -1211,8 +1211,14 @@ after_frag( void *             _ctx,
 
   ulong txn_cnt = (*opt_sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
   fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
-  ulong sanitized_txn_cnt = 0UL;
-  for( ulong i=0; i<txn_cnt; i++ ) { sanitized_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS); }
+  ulong executed_txn_cnt = 0UL;
+  for( ulong i=0; i<txn_cnt; i++ ) { executed_txn_cnt += !!(txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS); }
+
+  /* We don't publish transactions that fail to execute.  If all the
+     transctions failed to execute, the microblock would be empty, causing
+     solana labs to think it's a tick and complain.  Instead we just skip
+     the microblock and don't hash or update the hashcnt. */
+  if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
 
   uchar data[ 64 ];
   fd_memcpy( data, ctx->hash, 32UL );
