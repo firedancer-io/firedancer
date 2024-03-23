@@ -16,6 +16,18 @@ enabled( config_t * const config ) {
   return 1;
 }
 
+static void
+init_perm( fd_caps_ctx_t *  caps,
+           config_t * const config ) {
+  (void)config;
+
+  /* Solana Labs tries to increase the RLIMIT_NOFILE even when just
+     performing genesis, so we need to ensure it's allowed here as
+     well. */
+  fd_caps_check_resource( caps, NAME, RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+}
+
+
 extern void fd_ext_genesis_main( const char ** args );
 
 static void
@@ -196,7 +208,7 @@ configure_stage_t genesis = {
   .name            = NAME,
   .always_recreate = 1,
   .enabled         = enabled,
-  .init_perm       = NULL,
+  .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,
   .fini            = fini,
