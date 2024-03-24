@@ -60,6 +60,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   ulong flags;
 # define FD_QUIC_FLAGS_ASSIGN_STREAMS (1ul<<1ul)
 
+  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
+
   /* Pointer to TLS state (part of quic memory region) */
 
   fd_quic_tls_t * tls;
@@ -383,8 +385,11 @@ fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
 
 /* fd_quic_cs_tree_total returns the total value across all the leaves in */
 /* the supplied cs_tree                                                   */
-ulong
-fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree );
+static inline ulong
+fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree ) {
+  /* total is the value at node_idx = 1 (which is the root) */
+  return cs_tree->values[1UL];
+}
 
 /* fd_quic_cs_tree_footprint returns the amount of memory required for a  */
 /* cs_tree over cnt elements                                              */
