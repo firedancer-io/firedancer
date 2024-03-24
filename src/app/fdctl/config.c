@@ -823,6 +823,7 @@ topo_initialize( config_t * config ) {
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
       tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
+      tile->quic.stream_pool_cnt                = config->tiles.quic.stream_pool_cnt;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
 

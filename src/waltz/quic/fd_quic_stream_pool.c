@@ -1,4 +1,5 @@
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_private.h"
 
 #include "../../util/fd_util.h"
 
@@ -94,6 +95,11 @@ fd_quic_stream_pool_alloc( fd_quic_stream_pool_t * pool ) {
   FD_QUIC_STREAM_LIST_REMOVE( stream );
   pool->cur_cnt--;
 
+  FD_LOG_WARNING(( "fd_quic_stream_pool_alloc - remain: %lu  cap: %lu,  used: %lu",
+        pool->cur_cnt,
+        pool->cap,
+        pool->cap - pool->cur_cnt ));
+
   return stream;
 }
 
@@ -107,6 +113,16 @@ fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool,
                           fd_quic_stream_t *      stream ) {
   FD_QUIC_STREAM_LIST_INSERT_BEFORE( pool->head, stream );
   pool->cur_cnt++;
+
+  FD_LOG_WARNING(( "fd_quic_stream_pool_free - remain: %lu  cap: %lu,  used: %lu",
+        pool->cur_cnt,
+        pool->cap,
+        pool->cap - pool->cur_cnt ));
 }
 
-
+void
+fd_quic_stream_pool_free_batch( void ) {
+  /* TODO
+   * stream pool and used/send lists are both doubly linked lists
+   * so this can be achieved in O(1) */
+}

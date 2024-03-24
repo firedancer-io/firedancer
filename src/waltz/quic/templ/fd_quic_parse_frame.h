@@ -50,6 +50,8 @@
         return FD_QUIC_PARSE_FAIL;                                                  \
       }                                                                             \
       p += rc;                                                                      \
+      FD_LOG_WARNING(( "FRAME " #NAME " pkt_number: %lu", pkt->pkt_number )); \
+      fd_quic_dump_struct_##NAME( data ); \
       rc = fd_quic_frame_handle_##NAME( frame_context, data,                        \
                                         p, (ulong)(p_end-p) );                      \
       if( rc == FD_QUIC_PARSE_FAIL ) {                                              \

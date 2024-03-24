@@ -13,7 +13,7 @@ extern ulong fd_quic_conn_id_hash_seed;
 #define FD_QUIC_MAX_CONN_ID_SZ 20
 
 /* max number of connection ids per connection */
-#define FD_QUIC_MAX_CONN_ID_PER_CONN 4
+#define FD_QUIC_MAX_CONN_ID_PER_CONN 16
 
 /* Firedancer connection ids will sized thus */
 #define FD_QUIC_CONN_ID_SZ 8

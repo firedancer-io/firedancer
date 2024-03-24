@@ -168,7 +168,7 @@ X( preferred_address,                                                           
 X( active_connection_id_limit,                                                         \
   0x0e,                                                                                \
   VARINT,                                                                              \
-  DFT_UNKNOWN,                                                                         \
+  2,                                                                                   \
   "This is an integer value specifying the maximum number of connection IDs from "     \
   "the peer that an endpoint is willing to store. This value includes the "            \
   "connection ID received during the handshake, that received in the "                 \

@@ -14,6 +14,8 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 
+#include "time.h"
+
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing.
    FIXME not fully implemented (#256) */
@@ -59,6 +61,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   /* Flags */
   ulong flags;
 # define FD_QUIC_FLAGS_ASSIGN_STREAMS (1ul<<1ul)
+
+  ulong now; /* the time we entered into fd_quic_service, or fd_quic_aio_cb_receive */
 
   /* Pointer to TLS state (part of quic memory region) */
 
@@ -237,10 +241,15 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
 
 /* Helpers for calling callbacks **************************************/
 
+#if 0
 static inline ulong
 fd_quic_now( fd_quic_t * quic ) {
   return quic->cb.now( quic->cb.now_ctx );
 }
+#else
+#  define fd_quic_now(x) (__extension__({ (void)x; struct timespec ts; clock_gettime( CLOCK_REALTIME, &ts ); \
+    (ulong)ts.tv_nsec + (ulong)ts.tv_sec * (ulong)1e9; }))
+#endif
 
 static inline void
 fd_quic_cb_conn_new( fd_quic_t *      quic,
@@ -383,8 +392,16 @@ fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng );
 
 /* fd_quic_cs_tree_total returns the total value across all the leaves in */
 /* the supplied cs_tree                                                   */
-ulong
-fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree );
+#if 0
+  ulong
+  fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree );
+#else
+  static inline ulong
+  fd_quic_cs_tree_total( fd_quic_cs_tree_t * cs_tree ) {
+    /* total is the value at node_idx = 1 (which is the root) */
+    return cs_tree->values[1UL];
+  }
+#endif
 
 /* fd_quic_cs_tree_footprint returns the amount of memory required for a  */
 /* cs_tree over cnt elements                                              */
@@ -413,5 +430,26 @@ void
 fd_quic_conn_update_max_streams( fd_quic_conn_t * conn, uint dirtype );
 
 FD_PROTOTYPES_END
+
+
+#undef FD_LOG_WARNING
+#if 0
+#define FD_LOG_WARNING_UNPACK(...) __VA_ARGS__
+#define FD_LOG_WARNING_IMPL(F,L,...) \
+  do { \
+    ulong now    = fd_quic_now(0); \
+    ulong now_s  = now / (ulong)1e9;  \
+    ulong now_ns = now % (ulong)1e9;  \
+    char buf[256]; \
+    sprintf( buf, __VA_ARGS__ ); \
+    fprintf( stderr, "%lu.%09lu : %s:%u  %s\n", now_s, now_ns, F, L, buf ); \
+  } while(0)
+#define FD_LOG_WARNING(x) \
+  do { \
+    FD_LOG_WARNING_IMPL( __FILE__, __LINE__, FD_LOG_WARNING_UNPACK x ); \
+  } while(0)
+#else
+#  define FD_LOG_WARNING(...) do {} while(0)
+#endif
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_private_h */

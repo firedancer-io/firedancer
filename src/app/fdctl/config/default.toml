@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-21"
+    affinity = "1-22"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -654,7 +654,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 2048
+        max_concurrent_connections = 128
 
         # QUIC allows for multiple streams to be multiplexed over a
         # single connection.  This option sets the maximum number of
@@ -672,7 +672,7 @@ dynamic_port_range = "8900-9000"
         # underlying link bandwidth.  Supporting more streams per
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 16
+        max_concurrent_streams_per_connection = 4096
 
         # QUIC uses a fixed-size pool of streams to use for all the
         # connections in the QUIC instance.  When a new connection is
@@ -682,7 +682,7 @@ dynamic_port_range = "8900-9000"
         # every connection can be used.  This means that this value MUST
         # be at least as high as max_concurrent_connections.
         # The size of the pool is defined here:
-        stream_pool_cnt = 8192
+        stream_pool_cnt = 65536
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -707,7 +707,7 @@ dynamic_port_range = "8900-9000"
         # above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 32
+        max_concurrent_handshakes = 128
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the
@@ -720,7 +720,7 @@ dynamic_port_range = "8900-9000"
         # rather than the underlying link bandwidth.  If you have a lot
         # of memory available and are constrained by this, it can make
         # sense to increase.
-        max_inflight_quic_packets = 4096
+        max_inflight_quic_packets = 65536
 
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.
@@ -733,12 +733,12 @@ dynamic_port_range = "8900-9000"
         #
         # An idle connection will be terminated if it remains idle
         # longer than this threshold.
-        idle_timeout_millis = 10000
+        idle_timeout_millis = 120000
 
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
         # determines whether the feature is enabled in the validator.
-        retry = true
+        retry = false
 
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
