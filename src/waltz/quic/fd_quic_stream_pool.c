@@ -1,4 +1,5 @@
 #include "fd_quic_stream_pool.h"
+#include "fd_quic_private.h"
 
 #include "../../util/fd_util.h"
 
@@ -109,4 +110,9 @@ fd_quic_stream_pool_free( fd_quic_stream_pool_t * pool,
   pool->cur_cnt++;
 }
 
-
+void
+fd_quic_stream_pool_free_batch( void ) {
+  /* TODO
+   * stream pool and used/send lists are both doubly linked lists
+   * so this can be achieved in O(1) */
+}

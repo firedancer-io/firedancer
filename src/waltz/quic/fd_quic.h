@@ -614,7 +614,7 @@ uint fd_quic_tx_buffered_raw( fd_quic_t      * quic,
 
 /* FD_DEBUG_MODE: set to enable debug-only code
    TODO move to util? */
-#ifndef FD_DEBUG_MODE
+#ifdef FD_DEBUG_MODE
 #define FD_DEBUG(...) __VA_ARGS__
 #else
 #define FD_DEBUG(...)

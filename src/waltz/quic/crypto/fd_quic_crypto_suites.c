@@ -25,14 +25,15 @@ void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
 
   /* initialize suites map */
-#define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
+#define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, PKT_LIMIT, ... ) \
   ctx->suites[ ID ].id         = ID;                       \
   ctx->suites[ ID ].major      = MAJ;                      \
   ctx->suites[ ID ].minor      = MIN;                      \
   ctx->suites[ ID ].key_sz     = KEY_SZ;                   \
   ctx->suites[ ID ].iv_sz      = IV_SZ;                    \
   ctx->suites[ ID ].hmac_fn    = fd_hmac_##HASHFN;         \
-  ctx->suites[ ID ].hash_sz    = FD_QUIC_HASH_SZ_##HASHFN;
+  ctx->suites[ ID ].hash_sz    = FD_QUIC_HASH_SZ_##HASHFN; \
+  ctx->suites[ ID ].pkt_limit  = PKT_LIMIT;
   FD_QUIC_CRYPTO_SUITE_LIST( EACH, )
 #undef EACH
 }

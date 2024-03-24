@@ -193,7 +193,7 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   }
 }
 
-ulong recv = 0;
+static ulong _recv = 0;
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
@@ -226,7 +226,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
 
   FD_LOG_DEBUG(( "recv ok" ));
 
-  recv++;
+  _recv++;
 }
 
 
@@ -479,7 +479,7 @@ main( int argc, char ** argv ) {
 
   }
 
-  FD_LOG_NOTICE(( "Done sending. Received: %lu", recv ));
+  FD_LOG_NOTICE(( "Done sending. Received: %lu", _recv ));
 
   if( client_conn ) fd_quic_conn_close( client_conn, 0 );
   if( server_conn ) fd_quic_conn_close( server_conn, 0 );

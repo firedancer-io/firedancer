@@ -240,6 +240,7 @@ struct fd_quic_conn {
   ulong exp_pkt_number[3]; /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
   ulong pkt_number[3];     /* tx packet number by pn space */
+  ulong last_pkt_number[3]; /* last (highest) packet numer seen */
 
   ushort ipv4_id;           /* ipv4 id field */
 
@@ -301,6 +302,8 @@ struct fd_quic_conn {
 # define FD_QUIC_CONN_FLAGS_CLOSE_SENT         (1u<<1u)
 # define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
 # define FD_QUIC_CONN_FLAGS_MAX_STREAMS_BIDIR  (1u<<3u)
+# define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
+# define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
 
   uchar                spin_bit;                   /* spin bit used for latency measurements */
 

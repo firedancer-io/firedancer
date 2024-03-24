@@ -290,6 +290,11 @@ fd_quic_conn_update_weight( fd_quic_conn_t * conn, uint dirtype ) {
                               ( tgt_sup_stream_id - sup_stream_id ) >> 2UL,
                               0UL );
 
+  if( conn->state != FD_QUIC_CONN_STATE_ACTIVE &&
+      conn->state != FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) {
+    weight = 0;
+  }
+
   /* set the weight in the cs_tree */
   fd_quic_cs_tree_t * cs_tree = fd_quic_get_state( conn->quic )->cs_tree;
   ulong               idx     = ( conn->conn_idx << 1UL ) + dirtype;
