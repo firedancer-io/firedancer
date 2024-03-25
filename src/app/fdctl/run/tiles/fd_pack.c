@@ -225,6 +225,8 @@ after_credit( void *             _ctx,
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
 
+  if( FD_UNLIKELY( fd_pack_avail_txn_cnt( ctx->pack )<31UL ) ) return;
+
   ulong bank_cnt = ctx->bank_cnt;
 
   /* Randomize the starting point for the loop so that bank tile 0

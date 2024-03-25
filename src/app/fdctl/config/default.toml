@@ -534,11 +534,11 @@ dynamic_port_range = "8900-9000"
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
     # is often the bottleneck of the validator.
-    verify_tile_count = 12
+    verify_tile_count = 2
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
-    bank_tile_count = 4
+    bank_tile_count = 10
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic

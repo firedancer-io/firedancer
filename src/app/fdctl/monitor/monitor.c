@@ -461,7 +461,7 @@ add_bench_topo( fd_topo_t * topo,
                 uint        rpc_ip_addr ) {
   (void)topo;
 
-  ulong benchg_tile_cnt = 4UL;
+  ulong benchg_tile_cnt = 7UL;
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
