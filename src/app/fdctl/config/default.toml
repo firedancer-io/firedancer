@@ -862,7 +862,7 @@ topology = "tvu"
     #
     # In development, you can disable the sandbox for testing and
     # debugging with the `--no-sandbox` argument to `fddev`.
-    sandbox = true
+    sandbox = false
 
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
@@ -874,7 +874,7 @@ topology = "tvu"
     # This option cannot be enabled in production.  In development, you
     # can also launch Firedancer as a single process for with the
     # `--no-clone` argument to `fddev`.
-    no_clone = false
+    no_clone = true
 
     # Firedancer currently hosts a Solana Labs client as a child process when
     # it starts up, to provide functionality that has not yet been implemented.
@@ -883,7 +883,7 @@ topology = "tvu"
     #
     # In development, you can disable solana for testing and debugging with
     # the `--no-solana-labs` argument to `fddev`.
-    no_solana_labs = false
+    no_solana_labs = true
 
     # Sometimes, it may be useful to run a bootstrap firedancer validator,
     # either for development or for testing purposes.  The `fddev` tool is

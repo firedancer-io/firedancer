@@ -38,7 +38,7 @@ echo "[tiles.tvu]
 
 cp "$SCRIPT_DIR/shenanigans.sh" .
 
-fddev --no-sandbox --no-solana-labs --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) &
+fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) &
 FDDEV_PID=$!
 
 CAUGHT_UP=0
