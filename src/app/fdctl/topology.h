@@ -106,6 +106,7 @@
 #define FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP      (26UL)
 #define FD_TOPO_LINK_KIND_REPAIR_TO_SIGN      (27UL)
 #define FD_TOPO_LINK_KIND_SIGN_TO_REPAIR      (28UL)
+#define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (29UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
@@ -240,7 +241,7 @@ typedef struct {
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
-      ushort allow_ports[ 9 ];
+      ushort allow_ports[ 10 ];
     } net;
 
     struct {
@@ -334,7 +335,8 @@ typedef struct {
     struct {
       char    repair_my_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
       char    repair_my_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
-      ushort  repair_listen_port;
+      ushort  repair_intake_listen_port;
+      ushort  repair_serve_listen_port;
       uchar   src_mac_addr[ 6 ];
     } repair;
   };

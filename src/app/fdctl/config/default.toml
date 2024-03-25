@@ -779,9 +779,10 @@ topology = "tvu"
         gossip_listen_port = 8010
     
     [tiles.repair]
-        repair_my_intake_addr = "147.75.87.77:8012"
-        repair_my_serve_addr = "147.75.87.77:8011"
-        repair_listen_port = 8011
+        repair_my_intake_addr = "147.75.87.77:8011"
+        repair_my_serve_addr = "147.75.87.77:8012"
+        repair_intake_listen_port = 8011
+        repair_serve_listen_port = 8012
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order

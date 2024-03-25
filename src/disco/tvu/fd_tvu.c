@@ -1137,8 +1137,47 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /***********************************************************************/
     /* Prepare                                                             */
     /***********************************************************************/
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
 
-    fd_repair_set_epoch_ctx( repair, slot_ctx_setup_out.exec_epoch_ctx);
+    ulong stake_weights_cnt = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
+    ulong stake_weight_idx = 0;
+
+    FD_SCRATCH_SCOPE_BEGIN {
+      fd_stake_weight_t * stake_weights = fd_scratch_alloc( fd_stake_weight_align(), stake_weights_cnt * fd_stake_weight_footprint() );
+      for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( vote_accounts_pool, vote_accounts_root );
+          n;
+          n = fd_vote_accounts_pair_t_map_successor_const( vote_accounts_pool, n ) ) {
+        fd_vote_state_versioned_t versioned;
+        fd_bincode_decode_ctx_t   decode_ctx;
+        decode_ctx.data    = n->elem.value.data;
+        decode_ctx.dataend = n->elem.value.data + n->elem.value.data_len;
+        decode_ctx.valloc  = fd_scratch_virtual();
+        int rc             = fd_vote_state_versioned_decode( &versioned, &decode_ctx );
+        if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) continue;
+        fd_stake_weight_t * stake_weight = &stake_weights[stake_weight_idx];
+        stake_weight->stake = n->elem.stake;
+
+        switch( versioned.discriminant ) {
+        case fd_vote_state_versioned_enum_current:
+          stake_weight->key = versioned.inner.current.node_pubkey;
+          break;
+        case fd_vote_state_versioned_enum_v0_23_5:
+          stake_weight->key = versioned.inner.v0_23_5.node_pubkey;
+          break;
+        case fd_vote_state_versioned_enum_v1_14_11:
+          stake_weight->key = versioned.inner.v1_14_11.node_pubkey;
+          break;
+        default:
+          FD_LOG_DEBUG( ( "unrecognized vote_state_versioned type" ) );
+          continue;
+        }
+
+        stake_weight_idx++;
+      }
+
+      fd_repair_set_stake_weights( repair, stake_weights, stake_weights_cnt );
+    } FD_SCRATCH_SCOPE_END;
 
     replay_setup_out.replay->blockstore  = blockstore_setup_out.blockstore;
     replay_setup_out.replay->funk        = funk_setup_out.funk;

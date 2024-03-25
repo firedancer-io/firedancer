@@ -243,7 +243,8 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_STR   ( ., tiles.repair,        repair_my_intake_addr                                     );
   ENTRY_STR   ( ., tiles.repair,        repair_my_serve_addr                                      );
-  ENTRY_USHORT( ., tiles.repair,        repair_listen_port                                        );
+  ENTRY_USHORT( ., tiles.repair,        repair_intake_listen_port                                 );
+  ENTRY_USHORT( ., tiles.repair,        repair_serve_listen_port                                  );
 
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_id                                            );
   ENTRY_STR   ( ., tiles.tvu,           repair_peer_addr                                          );
@@ -661,7 +662,8 @@ config_tiles( config_t * config ) {
         tile->net.allow_ports[ 5 ] = config->tiles.tvu.tvu_port;
         tile->net.allow_ports[ 6 ] = config->tiles.tvu.tvu_fwd_port;
         tile->net.allow_ports[ 7 ] = config->tiles.gossip.gossip_listen_port;
-        tile->net.allow_ports[ 8 ] = config->tiles.repair.repair_listen_port;
+        tile->net.allow_ports[ 8 ] = config->tiles.repair.repair_intake_listen_port;
+        tile->net.allow_ports[ 9 ] = config->tiles.repair.repair_serve_listen_port;
         memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
@@ -754,7 +756,8 @@ config_tiles( config_t * config ) {
         fd_memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6 );
         break;
       case FD_TOPO_TILE_KIND_REPAIR:
-        tile->repair.repair_listen_port =  config->tiles.repair.repair_listen_port;
+        tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;
+        tile->repair.repair_serve_listen_port =  config->tiles.repair.repair_serve_listen_port;
         strncpy( tile->repair.repair_my_intake_addr, config->tiles.repair.repair_my_intake_addr, sizeof(tile->repair.repair_my_intake_addr) );
         strncpy( tile->repair.repair_my_serve_addr, config->tiles.repair.repair_my_serve_addr, sizeof(tile->repair.repair_my_serve_addr) );
         fd_memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );

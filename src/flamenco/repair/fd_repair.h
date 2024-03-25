@@ -86,6 +86,8 @@ void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
 void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id );
 
-void fd_repair_set_epoch_ctx( fd_repair_t * repair, fd_exec_epoch_ctx_t * epoch_ctx );
+void fd_repair_set_stake_weights( fd_repair_t * repair, 
+                                  fd_stake_weight_t const * stake_weights,
+                                  ulong stake_weights_cnt );
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */
