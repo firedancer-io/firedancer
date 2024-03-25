@@ -129,9 +129,11 @@ bench_cmd_fn( args_t *         args,
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
-  pthread_t solana;
-  pthread_create( &solana, NULL, solana_labs_thread_main, config );
+  run_firedancer( config );
+  (void)solana_labs_thread_main;
+  //fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
+  //pthread_t solana;
+  //pthread_create( &solana, NULL, solana_labs_thread_main, config );
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

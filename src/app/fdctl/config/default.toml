@@ -496,7 +496,7 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "f3,4-15,f2,16-19,f2,20,f2"
+    affinity = "f6,7-17,f2,18,f2"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Solana Labs (Agave)
@@ -513,7 +513,7 @@ dynamic_port_range = "8900-9000"
     #
     # An empty string here will not affine the process, and it will run
     # be free to run on any floating core.
-    solana_labs_affinity = "22-31"
+    solana_labs_affinity = "19-26,51-58"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -538,7 +538,7 @@ dynamic_port_range = "8900-9000"
 
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
-    bank_tile_count = 10
+    bank_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
@@ -994,7 +994,7 @@ dynamic_port_range = "8900-9000"
         # How many benchg tiles to run when benchmarking.  benchg tiles
         # are responsible for generating and signing outgoing
         # transactions to the validator which is expensive.
-        benchg_tile_count = 4
+        benchg_tile_count = 12
 
         # Which cores to run the benchmarking tiles on.  By default the
         # cores will be floating but to get good performance
@@ -1004,4 +1004,4 @@ dynamic_port_range = "8900-9000"
         # The tiles included in this affinity are,
         #
         #      bencho, benchg1, .... benchgN, benchs
-        affinity = "f6"
+        affinity = "f1,0-5,32-37,6"

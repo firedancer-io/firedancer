@@ -454,29 +454,24 @@ signal1( int sig ) {
 
 static void
 add_bench_topo( fd_topo_t * topo,
-                ulong       accounts_cnt,
-                ushort      send_to_port,
-                uint        send_to_ip_addr,
-                ushort      rpc_port,
-                uint        rpc_ip_addr ) {
-  (void)topo;
+                config_t const * config ) {
 
-  ulong benchg_tile_cnt = 7UL;
+  ulong benchg_tile_cnt = config->development.bench.benchg_tile_count;
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 0, 128UL, 64UL, 1UL );
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_link( topo, "benchg_s", "bench", 0, 65536UL, FD_TXN_MTU, 1UL );
 
   fd_topo_tile_t * bencho = fd_topob_tile( topo, "bencho", "bench", "bench", "bench", 12, 0, "bencho_out", 0 );
-  bencho->bencho.rpc_port    = rpc_port;
-  bencho->bencho.rpc_ip_addr = rpc_ip_addr;
+  bencho->bencho.rpc_port    = 0;
+  bencho->bencho.rpc_ip_addr = 0;
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) {
     fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", (ushort)(13+(i/2UL)+(i%2==0?0:45)), 0, "benchg_s", i );
-    benchg->benchg.accounts_cnt = accounts_cnt;
+    benchg->benchg.accounts_cnt = config->development.genesis.fund_initial_accounts;
   }
   fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", 44, 0, NULL, 0 );
-  benchs->benchs.send_to_ip_addr = send_to_ip_addr;
-  benchs->benchs.send_to_port    = send_to_port;
+  benchs->benchs.send_to_ip_addr = 0;
+  benchs->benchs.send_to_port    = 0;
 
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_tile_in( topo, "benchg", i, "bench", "bencho_out", 0, 1, 1 );
   for( ulong i=0UL; i<benchg_tile_cnt; i++ ) fd_topob_tile_in( topo, "benchs", 0, "bench", "benchg_s", i, 1, 1 );
@@ -487,7 +482,7 @@ add_bench_topo( fd_topo_t * topo,
 void
 monitor_cmd_fn( args_t *         args,
                 config_t * const config ) {
-  add_bench_topo( &config->topo, config->development.genesis.fund_initial_accounts, 0, 0, 0, 0 );
+  add_bench_topo( &config->topo, config );
 
   struct sigaction sa = {
     .sa_handler = signal1,
