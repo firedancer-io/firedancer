@@ -352,7 +352,7 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( g_tcnt != 0 );
   FD_TEST( g_txn_max != 0 );
 
-  tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt);
+  tpool_boot( (ushort)(topo->tile_cnt-g_tcnt), g_tcnt );
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 

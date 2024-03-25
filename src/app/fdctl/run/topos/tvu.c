@@ -100,7 +100,7 @@ fd_topo_tvu( config_t * config ) {
   /* TODO: LML we need to replace all the special cases introduced by this PR for a partially managed tpool and spawned pthreads in TVU. */
   /*       When we define the tiles in this topology the FD_TOPO_TILE_KIND_TVU_THREAD tiles ***MUST*** be defined last                   */
   /*       because in tiles/fd_tvu.c we blindly assume the last tvu_unmanaged_cpus tiles are the FD_TOPO_TILE_KIND_TVU_THREAD tiles.      */
-  for( ulong i=0; i< config->tiles.tvu.tcnt; i++ ) {
+  for( ulong i=0; i<config->tiles.tvu.tcnt-1; i++ ) {
     topo->tiles[ tile_cnt ] = (fd_topo_tile_t){ .id                  = tile_cnt,
                                                 .kind                = FD_TOPO_TILE_KIND_TVU_THREAD,
                                                 .kind_id             = i,

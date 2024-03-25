@@ -22,13 +22,11 @@ if ! command -v fddev > /dev/null; then
   PATH="$SCRIPT_DIR/build/native/gcc/bin":$PATH
 fi
 
-timeout 600 wget --quiet --trust-server-names http://entrypoint3.testnet.solana.com:8899/snapshot.tar.bz2
-
 ENTRYPOINT=entrypoint3.testnet.solana.com
 
 echo "[tiles.tvu]
   gossip_peer_addr = \"$(dig +short $ENTRYPOINT):8001\"
-  snapshot = \"$(echo snapshot*)\"
+  snapshot = \"http://$ENTRYPOINT:8899/snapshot.tar.bz2\"
   incremental_snapshot = \"http://$ENTRYPOINT:8899/incremental-snapshot.tar.bz2\"
   page_cnt = 250
   validate_snapshot = \"true\"

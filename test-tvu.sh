@@ -13,7 +13,7 @@ cleanup() {
   sudo killall -q solana-validator || true
   sudo killall -q fddev || true
   fddev configure fini all >/dev/null 2>&1 || true
-  # rm -rf "$TMPDIR"
+  rm -rf "$TMPDIR"
 }
 
 trap cleanup EXIT SIGINT SIGTERM
@@ -64,7 +64,7 @@ SHRED_VERSION=$(echo $GENESIS_OUTPUT | grep -o -P '(?<=Shred version:).*(?=Ticks
 _PRIMARY_INTERFACE=$(ip route show default | awk '/default/ {print $5}')
 PRIMARY_IP=$(ip addr show $_PRIMARY_INTERFACE | awk '/inet / {print $2}' | cut -d/ -f1 | head -n1)
 
-RUST_LOG=trace solana-validator \
+RUST_LOG=trace taskset -c 40,41 solana-validator \
     --identity id.json \
     --ledger ledger \
     --limit-ledger-size 100000000 \
@@ -96,7 +96,6 @@ cp "$SCRIPT_DIR/shenanigans.sh" .
 echo "[tiles.tvu]
   gossip_peer_addr = \"$PRIMARY_IP:8001\"
   snapshot = \"http://localhost:8899/snapshot.tar.bz2\"
-  incremental_snapshot = \"http://localhost:8899/incremental-snapshot.tar.bz2\"
   page_cnt = 25
   validate_snapshot = \"true\"
   check_hash = \"true\"
