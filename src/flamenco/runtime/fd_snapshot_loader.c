@@ -233,6 +233,9 @@ fd_hashes_load(fd_exec_slot_ctx_t * slot_ctx) {
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
   slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc(slot_ctx->valloc, 100000);
 
+  slot_ctx->slot_bank.collected_fees = 0;
+  slot_ctx->slot_bank.collected_rent = 0;
+
   fd_runtime_save_slot_bank( slot_ctx );
   fd_runtime_save_epoch_bank( slot_ctx );
 }
