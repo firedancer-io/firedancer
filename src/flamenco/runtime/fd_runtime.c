@@ -1952,7 +1952,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
         }
       }
 
-      if (txn->xid.ul[0] == capture_ctx->checkpt_slot) {
+      if (capture_ctx != NULL && txn->xid.ul[0] == capture_ctx->checkpt_slot) {
         FD_LOG_NOTICE(("checkpointing at slot=%lu", capture_ctx->checkpt_slot));
         unlink(capture_ctx->checkpt_path);
         int err = fd_wksp_checkpt(fd_funk_wksp(funk), capture_ctx->checkpt_path, 0666, 0, NULL);

@@ -1012,10 +1012,10 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     solcap_setup( args->capture_fpath, valloc, &solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out.capture_file;
     runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
+
+    runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
+    runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
   }
-  
-  runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
-  runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
 
   blockstore_setup_t blockstore_setup_out = {0};
   blockstore_setup( wksp, funk_setup_out.hashseed, &blockstore_setup_out );
