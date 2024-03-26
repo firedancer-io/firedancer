@@ -89,7 +89,7 @@ add_bench_topo( fd_topo_t *  topo,
     fd_topo_tile_t * benchg = fd_topob_tile( topo, "benchg", "bench", "bench", "bench", tile_to_cpu[ i+1UL ], 0, "benchg_s", i );
     benchg->benchg.accounts_cnt = accounts_cnt;
   }
-  fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt ], 0, NULL, 0 );
+  fd_topo_tile_t * benchs = fd_topob_tile( topo, "benchs", "bench", "bench", "bench", tile_to_cpu[ benchg_tile_cnt+1UL ], 0, NULL, 0 );
   benchs->benchs.send_to_ip_addr = send_to_ip_addr;
   benchs->benchs.send_to_port    = send_to_port;
 
