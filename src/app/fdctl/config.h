@@ -161,6 +161,7 @@ typedef struct {
     struct {
       uint benchg_tile_count;
       char affinity[ AFFINITY_SZ ];
+      int  larger_max_cost_per_block;
     } bench;
   } development;
 

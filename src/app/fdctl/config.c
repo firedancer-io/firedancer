@@ -289,6 +289,7 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
   ENTRY_STR   ( ., development.bench,   affinity                                                  );
+  ENTRY_BOOL  ( ., development.bench,   larger_max_cost_per_block                                 );
 
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
@@ -835,8 +836,9 @@ topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
       strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
 
-      tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
-      tile->pack.bank_tile_count          = config->layout.bank_tile_count;
+      tile->pack.max_pending_transactions  = config->tiles.pack.max_pending_transactions;
+      tile->pack.bank_tile_count           = config->layout.bank_tile_count;
+      tile->pack.larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
@@ -1178,6 +1180,8 @@ config_parse( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
   }
 
   if( FD_UNLIKELY( config->ledger.bigtable_storage ) ) {

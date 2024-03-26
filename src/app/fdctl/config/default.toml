@@ -1005,3 +1005,15 @@ dynamic_port_range = "8900-9000"
         #
         #      bencho, benchg1, .... benchgN, benchs
         affinity = "f6"
+
+        # Solana has a hard-coded maximum CUs per block limit of
+        # 48,000,000 which works out to around 80,000 transfers a
+        # second.  When benchmarking, this can be the limiting
+        # bottleneck of the system, so this option is provided to raise
+        # the limit.  If set to true, the limit will be lifted to
+        # 288,000,000 for a little over 1 million transactions a second.
+        #
+        # This option should not be used in production, and would cause
+        # consensus violations and a consensus difference between the
+        # validator and the rest of the network.
+        larger_max_cost_per_block = false
