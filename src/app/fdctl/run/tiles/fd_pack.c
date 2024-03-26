@@ -133,7 +133,6 @@ update_metric_state( fd_pack_ctx_t * ctx,
                      int             status ) {
   uint current_state = fd_uint_insert_bit( ctx->metric_state, type, status );
   if( FD_UNLIKELY( current_state!=ctx->metric_state ) ) {
-    FD_LOG_INFO(( "Transitioning to state %x by setting bit %i to %i", current_state, type, status ));
     ctx->metric_timing[ ctx->metric_state ] += effective_as_of - ctx->metric_state_begin;
     ctx->metric_state_begin = effective_as_of;
     ctx->metric_state = current_state;
