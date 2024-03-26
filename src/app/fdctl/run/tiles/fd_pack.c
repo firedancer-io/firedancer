@@ -50,6 +50,9 @@
    consider the data shreds limit. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
+/* Optionally allow a larger limit for benchmarking */
+#define LARGER_MAX_COST_PER_BLOCK 288000000UL
+
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
 
@@ -148,7 +151,7 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,
@@ -444,7 +447,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt, tile->pack.bank_tile_count ));
 
   fd_pack_limits_t limits[1] = {{
-    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,

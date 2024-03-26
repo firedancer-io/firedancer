@@ -166,6 +166,7 @@ typedef struct {
     struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
+      int   larger_max_cost_per_block;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
