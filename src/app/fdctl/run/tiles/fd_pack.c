@@ -147,13 +147,21 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+  fd_pack_limits_t limits[1] = {{
+    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+  }};
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
                                                      tile->pack.bank_tile_count,
-                                                     MAX_TXN_PER_MICROBLOCK ) );
+                                                     limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -435,7 +443,16 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
   if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt, tile->pack.bank_tile_count ));
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK );
+  fd_pack_limits_t limits[1] = {{
+    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+    .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
+  }};
+
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, limits );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
@@ -443,8 +460,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, tile->pack.bank_tile_count, MAX_TXN_PER_MICROBLOCK,
-                                         0UL, 0UL, rng ) ); /* initialize with microblock limits at 0 */
+                                         tile->pack.max_pending_transactions, tile->pack.bank_tile_count,
+                                         limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   ctx->cur_spot    = NULL;
