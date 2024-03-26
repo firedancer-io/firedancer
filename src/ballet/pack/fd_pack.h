@@ -27,6 +27,56 @@
 #define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
 #define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
 
+
+/* The Solana network and Firedancer implementation details impose
+   several limits on what pack can produce.  These limits are grouped in
+   this one struct fd_pack_limits_t, which is just a convenient way to
+   pass them around.  The limits listed below are arithmetic limits.
+   The limits imposed by practical constraints are almost certainly
+   much, much tighter. */
+struct fd_pack_limits {
+  /* max_{cost, vote_cost}_per_block, max_write_cost_per_acct are
+     consensus-critical limits and must be agreed on cluster-wide.  A
+     block that consumes more than max_cost_per_block cost units
+     (closely related to, but not identical to CUs) in total is invalid.
+     Similarly, a block where the sum of the cost of all vote
+     transactions exceeds max_vote_cost_per_block cost units is invalid.
+     Similarly, a block in where the sum of the cost of all transactions
+     that write to a given account exceeds max_write_cost_per_acct is
+     invalid. */
+  ulong max_cost_per_block;          /* in [0, ULONG_MAX) */
+  ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
+  ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
+
+  /* max_data_bytes_per_block is derived from consensus-critical limits
+     on the number of shreds in a block, but is not directly enforced.
+     Separation of concerns means that it's not a good idea for pack to
+     know exactly how the block will be shredded, but at the same time,
+     we don't want to end up in a situation where we produced a block
+     that had too many shreds, because the shred tile's only recourse
+     would be to kill the block.  To address this, pack limits the size
+     of the data it puts into the block to a limit that we can prove
+     will never cause the shred tile to produce too many shreds.
+
+     This limit includes transaction and microblock headers for
+     non-empty microblocks that pack produces. */
+  ulong max_data_bytes_per_block;    /* in [0, ULONG_MAX - 183] */
+
+  /* max_txn_per_microblock and max_microblocks_per_block are
+     Firedancer-imposed implementation limits to bound the amount of
+     memory consumption that pack uses.  Pack will produce microblocks
+     with no more than max_txn_per_microblock transactions.
+     Additionally, once pack produces max_microblocks_per_block
+     non-empty microblocks in a block, all subsequent attempts to
+     schedule a microblock will return an empty microblock until
+     fd_pack_end_block is called. */
+  ulong max_txn_per_microblock;      /* in [0, 16777216] */
+  ulong max_microblocks_per_block;   /* in [0, 1e12) */
+
+};
+typedef struct fd_pack_limits fd_pack_limits_t;
+
+
 /* Forward declare opaque handle */
 struct fd_pack_private;
 typedef struct fd_pack_private fd_pack_t;
@@ -42,33 +92,29 @@ typedef struct fd_pack_private fd_pack_t;
    can schedule transactions.  bank_tile_cnt must be in [1,
    FD_PACK_MAX_BANK_TILES].
 
-   max_txn_per_microblock sets the maximum number of transactions that
-   pack will schedule in a single microblock. */
+   limits sets various limits for the blocks and microblocks that pack
+   can produce. */
 
 FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_ALIGN; }
 
-FD_FN_CONST ulong
-fd_pack_footprint( ulong pack_depth,
-                   ulong bank_tile_cnt,
-                   ulong max_txn_per_microblock );
+FD_FN_PURE ulong
+fd_pack_footprint( ulong                    pack_depth,
+                   ulong                    bank_tile_cnt,
+                   fd_pack_limits_t const * limits );
 
 
 /* fd_pack_new formats a region of memory to be suitable for use as a
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
-   pack_depth, bank_tile_cnt, and max_txn_per_microblock are as above.
-   The pack object will produce at most max_microblocks_per_block
-   non-empty microblocks in a block.  Additionally, each block will have
-   at most max_data_bytes_per_block of microblock data (transaction and
-   microblock headers), assuming empty microblocks are ignored.  rng is
-   a local join to a random number generator used to perturb estimates.
+   pack_depth, bank_tile_cnt, and limits are as above.  rng is a local
+   join to a random number generator used to perturb estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
 void * fd_pack_new( void * mem,
-    ulong pack_depth, ulong bank_tile_cnt, ulong max_txn_per_microblock,
-    ulong max_microblocks_per_block, ulong max_data_bytes_per_block, fd_rng_t * rng );
+    ulong pack_depth, ulong bank_tile_cnt, fd_pack_limits_t const * limits,
+    fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
