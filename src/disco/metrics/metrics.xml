@@ -141,6 +141,7 @@ metric introduced.
 
 <group name="Tile" tile="all">
     <gauge name="Pid" summary="The process ID of the tile." />
+    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
 </group>
 
 <group name="Stem" tile="all">

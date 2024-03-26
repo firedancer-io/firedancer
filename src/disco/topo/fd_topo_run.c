@@ -56,6 +56,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run ) {
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
+  ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
   check_wait_debugger( pid, wait, debugger );
   initialize_logging( tile->name, tile->kind_id, pid );
@@ -107,6 +108,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   fd_metrics_register( tile->metrics );
 
   FD_MGAUGE_SET( TILE, PID, pid );
+  FD_MGAUGE_SET( TILE, TID, tid );
 
   if( FD_UNLIKELY( tile_run->unprivileged_init ) )
     tile_run->unprivileged_init( topo, tile, tile_mem );

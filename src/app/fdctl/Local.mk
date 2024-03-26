@@ -70,10 +70,13 @@ cargo:
 # grained.
 ifeq ($(RUST_PROFILE),release)
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+else ifeq ($(RUST_PROFILE),release-with-debug)
+cargo:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 else
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 endif
 
 solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo

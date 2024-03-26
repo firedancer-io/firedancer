@@ -64,6 +64,10 @@ typedef union {
     char link_name[ 13UL ];
     char pcap_path[ 256UL ];
   } dump;
+
+  struct {
+    char name[ 13UL ];
+  } flame;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;
