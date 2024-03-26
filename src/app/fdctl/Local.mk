@@ -6,10 +6,40 @@ ifdef FD_HAS_DOUBLE
 # to realize that it has been updated. Not sure why this happens.
 .PHONY: fdctl cargo rust solana $(OBJDIR)/lib/libsolana_validator.a
 
-$(call add-objs,main1 config caps utility keys ready mem spy help run/run run/run1 run/run_solana run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_poh run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_store run/tiles/fd_sign monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
+# fdctl core
+$(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
+$(call add-objs,run/run run/run1 run/run_solana,fd_fdctl)
+$(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
+
+# fdctl tiles
+$(call add-objs,run/tiles/fd_net,fd_fdctl)
+$(call add-objs,run/tiles/fd_metric,fd_fdctl)
+$(call add-objs,run/tiles/fd_netmux,fd_fdctl)
+$(call add-objs,run/tiles/fd_dedup,fd_fdctl)
+$(call add-objs,run/tiles/fd_pack,fd_fdctl)
+$(call add-objs,run/tiles/fd_quic,fd_fdctl)
+$(call add-objs,run/tiles/fd_verify,fd_fdctl)
+$(call add-objs,run/tiles/fd_poh,fd_fdctl)
+$(call add-objs,run/tiles/fd_bank,fd_fdctl)
+$(call add-objs,run/tiles/fd_shred,fd_fdctl)
+$(call add-objs,run/tiles/fd_store,fd_fdctl)
+$(call add-objs,run/tiles/fd_sign,fd_fdctl)
+
+# fdctl configure stages
+$(call add-objs,configure/configure,fd_fdctl)
+$(call add-objs,configure/large_pages,fd_fdctl)
+$(call add-objs,configure/sysctl,fd_fdctl)
+$(call add-objs,configure/shmem,fd_fdctl)
+$(call add-objs,configure/xdp,fd_fdctl)
+$(call add-objs,configure/xdp_leftover,fd_fdctl)
+$(call add-objs,configure/ethtool,fd_fdctl)
+$(call add-objs,configure/workspace_leftover,fd_fdctl)
+$(call add-objs,configure/workspace,fd_fdctl)
+
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
+
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
