@@ -113,7 +113,9 @@ echo "[tiles.tvu]
   solcap_path = \"fddev.solcap\"
 " > fddev.toml
 
-timeout 90 fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
+trap - EXIT SIGINT SIGTERM
+timeout --foreground --signal=KILL 90 fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
+trap cleanup EXIT SIGINT SIGTERM
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
   echo "*** BANK HASH MISMATCH ***"
