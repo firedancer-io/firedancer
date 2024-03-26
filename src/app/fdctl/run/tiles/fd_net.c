@@ -138,8 +138,10 @@ net_rx_aio_send( void *                    _ctx,
     else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port) ) proto = DST_PROTO_TPU_UDP;
     else {
       FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
-                   "Only ports %hu, %hu, and %hu should be configured to forward packets. Do "
-                   "you need to reload the XDP program?",
+                   "Only ports %hu, %hu, and %hu should be configured to forward packets. "
+                   "It is likely you changed the port configuration in your TOML file and "
+                   "did not reload the XDP program. You can reload the program by running "
+                   "`fdctl configure fini xdp && fdctl configure init xdp`.",
                    udp_dstport,
                    ctx->shred_listen_port,
                    ctx->quic_transaction_listen_port,
