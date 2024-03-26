@@ -148,6 +148,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
 
+  uchar check_public_key[ 32 ];
+  fd_ed25519_public_from_private( check_public_key, ctx->private_key, ctx->sha512 );
+  if( FD_UNLIKELY( memcmp( check_public_key, ctx->public_key, 32 ) ) )
+    FD_LOG_EMERG(( "The public key in the identity key file does not match the public key derived from the private key. "
+                   "Firedancer will not use the key pair to sign as it might leak the private key." ));
+
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
