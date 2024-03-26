@@ -1,4 +1,4 @@
-CPPFLAGS+=-fomit-frame-pointer -mfpmath=sse -falign-functions=32
+CPPFLAGS+=-mfpmath=sse -falign-functions=32
 
 ifdef FD_USING_GCC
 CPPFLAGS+=-mbranch-cost=5 -falign-jumps=32 -falign-labels=32 -falign-loops=32

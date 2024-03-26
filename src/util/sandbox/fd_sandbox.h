@@ -158,6 +158,17 @@ fd_sandbox_alloc_protected_pages( ulong page_cnt,
 ulong
 fd_sandbox_getpid( void );
 
+/* fd_sandbox_gettid retrieves the TID of the calling process.  This
+   is the "true" TID as it appears to the system, and is not affected
+   by any PID namespace the process is in.
+
+   This is retrieved by reading the value of /proc/thread-self. The
+   calling process will be terminated with an error if the file cannot
+   be read or is malformed. */
+
+ulong
+fd_sandbox_gettid( void );
+
 #endif /* FD_HAS_HOSTED */
 #endif /* FD_HAS_FFI */
 
