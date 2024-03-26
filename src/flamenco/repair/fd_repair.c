@@ -18,9 +18,10 @@
 #define FD_ACTIVE_KEY_MAX (1<<12)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<18)
-
+/* Max number of sticky repair peers */
 #define FD_REPAIR_STICKY_MAX   32
-
+/* Max number of validator identities in stake weights */
+#define FD_STAKE_WEIGHTS_MAX (1<<14)
 
 /* Test if two hash values are equal */
 static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
@@ -222,7 +223,7 @@ fd_repair_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   glob->needed = fd_needed_table_join(fd_needed_table_new(shm, FD_NEEDED_KEY_MAX, seed));
   shm = fd_valloc_malloc(valloc, fd_dupdetect_table_align(), fd_dupdetect_table_footprint(FD_NEEDED_KEY_MAX));
   glob->dupdetect = fd_dupdetect_table_join(fd_dupdetect_table_new(shm, FD_NEEDED_KEY_MAX, seed));
-  glob->stake_weights = fd_valloc_malloc( valloc, fd_stake_weight_align(), FD_ACTIVE_KEY_MAX * fd_stake_weight_footprint() );
+  glob->stake_weights = fd_valloc_malloc( valloc, fd_stake_weight_align(), FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
   glob->stake_weights_cnt = 0;
   glob->last_sends = 0;
   glob->last_decay = 0;
@@ -875,12 +876,13 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
   if( stake_weights == NULL ) {
     FD_LOG_ERR(( "stake weights NULL" ));
   }
-  if( stake_weights_cnt > FD_ACTIVE_KEY_MAX ) {
+  if( stake_weights_cnt > FD_STAKE_WEIGHTS_MAX ) {
     FD_LOG_ERR(( "too many stake weights" ));
   }
 
   fd_repair_lock( repair );
 
+  fd_memset( repair->stake_weights, 0, FD_STAKE_WEIGHTS_MAX * fd_stake_weight_footprint() );
   fd_memcpy( repair->stake_weights, stake_weights, stake_weights_cnt * sizeof(fd_stake_weight_t) );
   repair->stake_weights_cnt = stake_weights_cnt;
 
