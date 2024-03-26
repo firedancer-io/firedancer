@@ -374,8 +374,15 @@ fd_xdp_hook_iface( char const * app_name,
   int prog_link_fd = (int)bpf( BPF_LINK_CREATE, fd_type_pun( &link_create ), sizeof(struct bpf_link_create) );
   if( FD_UNLIKELY( -1==prog_link_fd ) ) {
     if( FD_LIKELY( errno==ENOSYS ) ) {
-      FD_LOG_WARNING(( "BPF_LINK_CREATE is not supported by your kernel. "
-                       "Please upgrade to a newer kernel version." ));
+      FD_LOG_WARNING(( "BPF_LINK_CREATE is not supported by your kernel (%i-%s). Firedancer requires a Linux "
+                       "kernel version of v5.7 or newer to support fast XDP networking.  Please upgrade to a newer "
+                       "kernel version.", errno, fd_io_strerror( errno ) ));
+    } else if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_WARNING(( "BPF_LINK_CREATE failed on interface %s (%i-%s).  This likely means the network device "
+                       "does not have support for XDP.  If the device is a bonding device, you will need "
+                       "a kernel version of v5.15 or newer.  For other devices, see the list of kernel "
+                       "support at https://github.com/iovisor/bcc/blob/master/docs/kernel-versions.md#xdp",
+                       ifname, errno, fd_io_strerror( errno ) ));
     } else {
       FD_LOG_WARNING(( "BPF_LINK_CREATE failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
