@@ -1,10 +1,10 @@
-build/native/gcc/bin/fd_shmem_cfg alloc 333 gigantic 0
+sudo build/native/gcc/bin/fd_shmem_cfg alloc 450 gigantic 0
 
-build/native/gcc/bin/fd_shmem_cfg reset
+sudo build/native/gcc/bin/fd_shmem_cfg reset
 
 rm -f *.tar.* && wget --trust-server-names https://api.mainnet-beta.solana.com/snapshot.tar.bz2
 
-build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 350 --backup /data/asiegel/main_backup
+sudo build/native/gcc/bin/fd_frank_ledger --cmd ingest --snapshotfile snapshot-* --pages 400 --backup /data/asiegel/main_backup --indexmax 500000000
 
 echo "topology = \"tvu\"
 [tiles.tvu]
@@ -15,4 +15,4 @@ echo "topology = \"tvu\"
   page_cnt = 350
 " > mainnet.toml
 
-build/native/gcc/bin/fddev --no-clone --no-sandbox --no-solana-labs --config mainnet.toml
+sudo build/native/gcc/bin/fddev --no-clone --no-sandbox --no-solana-labs --config mainnet.toml
