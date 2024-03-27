@@ -298,7 +298,7 @@ fd_shmem_create_multi( char const *  name,
     /* And since the fd_numa_mbind still often will ignore requests, we
        double check that the pages are in the right place. */
 
-    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, path, warn, fd_io_strerror( warn ) ));
@@ -520,7 +520,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
       ERROR( unmap );
     }
 
-    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, flags, warn, fd_io_strerror( warn ) ));
