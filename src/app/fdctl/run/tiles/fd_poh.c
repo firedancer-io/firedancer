@@ -310,6 +310,7 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/metrics/generated/fd_metrics_poh.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 
 /* When we are becoming leader, and we think the prior leader might have
@@ -463,6 +464,10 @@ typedef struct {
   ulong            pack_out_chunk0;
   ulong            pack_out_wmark;
   ulong            pack_out_chunk;
+
+  fd_histf_t begin_leader_delay[ 1 ];
+  fd_histf_t first_microblock_delay[ 1 ];
+  fd_histf_t slot_done_delay[ 1 ];
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -719,6 +724,9 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
 CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
                        ulong          slot ) {
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+
   ulong leader_start_hashcnt = slot*ctx->hashcnt_per_slot;
   long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(leader_start_hashcnt-ctx->reset_slot_hashcnt)*ctx->hashcnt_duration_ns);
 
@@ -808,6 +816,10 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
   ctx->expect_sequential_leader_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   ctx->current_leader_bank = NULL;
   ctx->next_leader_slot_hashcnt = next_leader_slot_hashcnt( ctx );
+
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
   FD_LOG_INFO(( "no_longer_leader(next_leader_slot=%lu)", ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot ));
@@ -1045,8 +1057,8 @@ after_credit( void *             _ctx,
 }
 
 static inline void
-during_housekeeping( void * ctx ) {
-  (void)ctx;
+during_housekeeping( void * _ctx ) {
+  fd_poh_ctx_t * ctx = (fd_poh_ctx_t *)_ctx;
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( fd_poh_waiting_lock ) )  {
@@ -1060,6 +1072,10 @@ during_housekeeping( void * ctx ) {
     FD_VOLATILE( fd_poh_waiting_lock ) = 0UL;
   }
   FD_COMPILER_MFENCE();
+
+  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 static void
@@ -1234,6 +1250,11 @@ after_frag( void *             _ctx,
     /* Nothing to do if we transition into being leader, since it
        will just get picked up by the regular tick loop. */
     return;
+  }
+
+  if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
+    double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+    fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 
   ulong target_slot = fd_disco_poh_sig_slot( *opt_sig );
@@ -1487,6 +1508,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( ctx->reset_slot_hashcnt==ULONG_MAX ) ) FD_LOG_ERR(( "PoH was not initialized by Solana Labs client" ));
+
+  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
+                                                        FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
+                                                            FD_MHIST_SECONDS_MAX( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
+                                                     FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0; i<tile->in_cnt-1; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
