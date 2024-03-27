@@ -222,6 +222,15 @@ metric introduced.
 </group>
 
 <group name="PohTile" tile="poh">
+  <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
+    <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
+  </histogram>
+  <histogram name="FirstMicroblockDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
+    <summary>Delay between when we become leader in a slot and when we receive the first microblock.</summary>
+  </histogram>
+  <histogram name="SlotDoneDelaySeconds" min="0.001" max="400" converter="seconds">
+    <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
+  </histogram>
 </group>
 
 <group name="Quic" tile="quic">
