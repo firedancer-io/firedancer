@@ -163,6 +163,18 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
                                         ulong                         slot,
                                         fd_entry_batch_meta_t const * meta );
 
+/* fd_shredder_skip_batch updates the shredder state as necessary
+   to skip processing this current batch.  shredder must be a valid
+   local join.  entry_batch_sz must be strictly positive.
+
+   Returns shredder, which will have data and parity shred indices
+   updated as if the caller had called fd_shredder_init_batch with
+   a batch of the specified size, followed by fd_shredder_next_fec_set
+   exactly fd_shredder_count_fec_sets( entry_batch_sz ) times. */
+fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
+                                        ulong           entry_batch_sz,
+                                        ulong           slot );
+
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
    progress batch.  Computes the entirety of both data and parity
    shreds, including the parity information, Merkle proofs, and
