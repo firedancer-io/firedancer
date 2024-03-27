@@ -38,12 +38,10 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, NULL );
 }
 
-static int _fd_ext_larger_max_cost_per_block;
+static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block;
 
-int
-fd_ext_larger_max_cost_per_block( void ) {
-  return _fd_ext_larger_max_cost_per_block;
-}
+int fd_ext_larger_max_cost_per_block    ( void ) { return _fd_ext_larger_max_cost_per_block;     }
+int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_limits_per_block; }
 
 void
 solana_labs_boot( config_t * config ) {
@@ -161,8 +159,9 @@ solana_labs_boot( config_t * config ) {
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) )
     FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  /* Consensus-breaking development only CU limit increase. */
-  _fd_ext_larger_max_cost_per_block = config->development.bench.larger_max_cost_per_block;
+  /* Consensus-breaking development-only CU and/or shred limit increase. */
+  _fd_ext_larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
+  _fd_ext_larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
   FD_COMPILER_MFENCE();
 
   /* solana labs main will exit(1) if it fails, so no return code */

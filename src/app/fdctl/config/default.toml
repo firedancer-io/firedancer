@@ -1018,12 +1018,27 @@ dynamic_port_range = "8900-9000"
 
         # Solana has a hard-coded maximum CUs per block limit of
         # 48,000,000 which works out to around 80,000 transfers a
-        # second.  When benchmarking, this can be the limiting
-        # bottleneck of the system, so this option is provided to raise
-        # the limit.  If set to true, the limit will be lifted to
-        # 288,000,000 for a little over 1 million transactions a second.
+        # second, since each consumes about 1500 CUs.  When
+        # benchmarking, this can be the limiting bottleneck of the
+        # system, so this option is provided to raise the limit.  If set
+        # to true, the limit will be lifted to 624,000,000 for a little
+        # over 1 million transfers per second.
         #
         # This option should not be used in production, and would cause
         # consensus violations and a consensus difference between the
         # validator and the rest of the network.
         larger_max_cost_per_block = false
+
+        # Solana has a consensus-agreed-upon limit of 32,768 data and
+        # parity shreds per block.  This limit prevents a malicious (or
+        # mistaken) validator from slowing down the network by producing
+        # a huge block.  When benchmarking, this limit can be the
+        # bottleneck of the whole system, so this option is provided to
+        # raise the limit.  If set to true, the limit will be raised to
+        # 131,072 data and parity shreds per block, for about 1,200,000
+        # small transactions per second.
+        #
+        # This option should not be used in a production network, since
+        # it would cause consensus violations between the validator and
+        # the rest of the network.
+        larger_shred_limits_per_block = false

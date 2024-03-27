@@ -50,8 +50,12 @@
    consider the data shreds limit. */
 #define FD_PACK_MAX_DATA_PER_BLOCK (((32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
 
+/* Optionally allow up to 128k shreds per block for benchmarking. */
+#define LARGER_MAX_DATA_PER_BLOCK  (((4UL*32UL*1024UL-17UL)/31UL)*25871UL + 48UL)
+
+
 /* Optionally allow a larger limit for benchmarking */
-#define LARGER_MAX_COST_PER_BLOCK 288000000UL
+#define LARGER_MAX_COST_PER_BLOCK (13UL*48000000UL)
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
@@ -87,6 +91,7 @@ typedef struct {
      block to avoid hitting the shred limits.  See where this is set for
      more explanation. */
   ulong slot_max_data;
+  int   larger_shred_limits_per_block;
 
   fd_rng_t * rng;
 
@@ -154,7 +159,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
-    .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
@@ -334,7 +339,10 @@ during_frag( void * _ctx,
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
-    ctx->slot_max_data        = FD_PACK_MAX_DATA_PER_BLOCK - 48UL*became_leader->ticks_per_slot;
+    /* Reserve some space in the block for ticks */
+    ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
+                                      - 48UL*became_leader->ticks_per_slot;
+
 
     /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
        the slot will get skipped.  Then update it in the `after_frag` case
@@ -450,7 +458,7 @@ unprivileged_init( fd_topo_t *      topo,
     .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
-    .max_data_bytes_per_block  = FD_PACK_MAX_DATA_PER_BLOCK,
+    .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
     .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
@@ -467,10 +475,14 @@ unprivileged_init( fd_topo_t *      topo,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
-  ctx->cur_spot    = NULL;
-  ctx->leader_slot = ULONG_MAX;
-  ctx->slot_microblock_cnt = 0UL;
-  ctx->rng         = rng;
+  ctx->cur_spot                      = NULL;
+  ctx->leader_slot                   = ULONG_MAX;
+  ctx->leader_bank                   = NULL;
+  ctx->slot_microblock_cnt           = 0UL;
+  ctx->slot_max_microblocks          = 0UL;
+  ctx->slot_max_data                 = 0UL;
+  ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
+  ctx->rng                           = rng;
 
   ctx->bank_cnt = tile->pack.bank_tile_count;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
