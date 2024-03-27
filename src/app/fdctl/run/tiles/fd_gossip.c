@@ -410,6 +410,9 @@ during_housekeeping( void * _ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
+  fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
+  fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
+
   long now = fd_log_wallclock();
   if( now - ctx->last_shred_dest_push_time > (long)5e9 ) {
     ctx->last_shred_dest_push_time = now;
@@ -454,12 +457,12 @@ during_housekeeping( void * _ctx ) {
         }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.repair.addr.inner.ip4 == 0 ) {
+        if( ele->contact_info.serve_repair.addr.inner.ip4 == 0 ) {
           continue;
         }
 
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.repair.addr.inner.ip4;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.repair.port;
+        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.addr.inner.ip4;
+        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.port;
         memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
         
         repair_peers_cnt++;
