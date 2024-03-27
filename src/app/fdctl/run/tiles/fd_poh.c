@@ -370,6 +370,13 @@ typedef struct {
      we could potentially become leader for a slot twice. */
   ulong last_hashcnt;
 
+  /* See how this field is used below.  If we have sequential leader
+     slots, we don't reset the expected slot end time between the two,
+     to prevent clock drift.  If we didn't do this, our 2nd slot would
+     end 400ms + `time_for_replay_to_move_slot_and_reset_poh` after
+     our 1st, rather than just strictly 400ms. */
+  ulong expect_sequential_leader_slot;
+
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
      Mixing in requires incrementing the hashcnt, so we need to ensure
@@ -798,6 +805,7 @@ next_leader_slot_hashcnt( fd_poh_ctx_t * ctx ) {
 static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
+  ctx->expect_sequential_leader_slot = ctx->hashcnt/ctx->hashcnt_per_slot;
   ctx->current_leader_bank = NULL;
   ctx->next_leader_slot_hashcnt = next_leader_slot_hashcnt( ctx );
   FD_COMPILER_MFENCE();
@@ -810,13 +818,13 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
    be ticking on top of the block it produced. */
 
 CALLED_FROM_RUST void
-fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully produced a block */
-                  uchar const * reset_blockhash  /* The hash of the last tick in the produced block */ ) {
+fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successfully produced a block */
+                  uchar const * reset_blockhash      /* The hash of the last tick in the produced block */ ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   int leader_before_reset = ctx->hashcnt>=ctx->next_leader_slot_hashcnt;
 
-  ulong reset_hashcnt = (reset_bank_slot+1UL)*ctx->hashcnt_per_slot;
+  ulong reset_hashcnt = (completed_bank_slot+1UL)*ctx->hashcnt_per_slot;
 
    if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
    /* If we notified the banking stage that we were leader for a slot,
@@ -841,7 +849,23 @@ fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully p
   memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->hashcnt             = reset_hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
-  ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
+
+  if( FD_UNLIKELY( ctx->expect_sequential_leader_slot==ctx->reset_slot_hashcnt/ctx->hashcnt_per_slot ) ) {
+    /* If we are being reset onto a slot, it means some block was fully
+      processed, so we reset to build on top of it.  Typically we want
+      to update the reset_slot_start_ns to the current time, because
+      the network will give the next leader 400ms to publish,
+      regardless of how long the prior leader took.
+
+      But: if we were leader in the prior slot, and the block was our
+      own we can do better.  We know that the next slot should start
+      exactly 400ms after the prior one started, so we can use that as
+      the reset slot start time instead. */
+    ctx->reset_slot_start_ns += (long)(ctx->hashcnt_duration_ns*(double)ctx->hashcnt_per_slot);
+  } else {
+    ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
+  }
+  ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
@@ -1427,6 +1451,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_hashcnt = 0UL;
   ctx->next_leader_slot_hashcnt = ULONG_MAX;
   ctx->reset_slot_hashcnt = ULONG_MAX;
+
+  ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->microblocks_lower_bound = 0UL;
 
