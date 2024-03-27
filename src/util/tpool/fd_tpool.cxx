@@ -289,45 +289,31 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   return tpool;
 }
 
-FD_FN_CONST static inline ulong              /* Returns number of elements to left side */
-fd_tpool_private_exec_all_split( ulong n ) { /* Assumes n>1 */
-# if 0 /* Simple splitting */
-  return n>>1;
-# else /* NUMA aware splitting */
-  /* This split has the property that the left side >= the right and one
-     of the splits is the largest power of two smaller than n.  It
-     results in building a balanced tree (the same as the simple split)
-     but with all the leaf nodes concentrated to toward the left when n
-     isn't a power of two.  This can yield a slight reduction of the
-     number of messages that might have to cross a NUMA boundary in many
-     common usage scenarios. */
-  ulong tmp = 1UL << (fd_ulong_find_msb( n )-1);
-  return fd_ulong_max( tmp, n-tmp );
-# endif
-}
+#define FD_TPOOL_EXEC_ALL_IMPL_HDR(style)                                                          \
+void                                                                                               \
+fd_tpool_private_exec_all_##style##_node( void * _node_tpool,                                      \
+                                          ulong  node_t0, ulong node_t1,                           \
+                                          void * args,                                             \
+                                          void * reduce,  ulong stride,                            \
+                                          ulong  l0,      ulong l1,                                \
+                                          ulong  _task,   ulong _tpool,                            \
+                                          ulong  t0,      ulong t1 ) {                             \
+  fd_tpool_t *    node_tpool = (fd_tpool_t *   )_node_tpool;                                       \
+  fd_tpool_task_t task       = (fd_tpool_task_t)_task;                                             \
+  ulong           wait_cnt   = 0UL;                                                                \
+  ushort          wait_child[16];   /* Assumes tpool_cnt<=65536 */                                 \
+  for(;;) {                                                                                        \
+    ulong node_t_cnt = node_t1 - node_t0;                                                          \
+    if( node_t_cnt<=1L ) break;                                                                    \
+    ulong node_ts = node_t0 + fd_tpool_private_split( node_t_cnt );                                \
+    fd_tpool_exec( node_tpool, node_ts, fd_tpool_private_exec_all_##style##_node,                  \
+                   node_tpool, node_ts,node_t1, args, reduce,stride, l0,l1, _task,_tpool, t0,t1 ); \
+    wait_child[ wait_cnt++ ] = (ushort)node_ts;                                                    \
+    node_t1 = node_ts;                                                                             \
+  }
 
-#define FD_TPOOL_EXEC_ALL_IMPL_HDR(style)                                                                                     \
-void                                                                                                                          \
-fd_tpool_private_exec_all_##style##_node( void * _node_tpool,                                                                 \
-                                          ulong  node_t0, ulong node_t1,                                                      \
-                                          void * args,                                                                        \
-                                          void * reduce,  ulong stride,                                                       \
-                                          ulong  l0,      ulong l1,                                                           \
-                                          ulong  _task,   ulong _tpool,                                                       \
-                                          ulong  t0,      ulong t1 ) {                                                        \
-  ulong node_t_cnt = node_t1-node_t0;                                                                                         \
-  if( node_t_cnt>1UL ) {                                                                                                      \
-    fd_tpool_t * node_tpool = (fd_tpool_t *)_node_tpool;                                                                      \
-    ulong        node_ts    = node_t0 + fd_tpool_private_exec_all_split( node_t_cnt );                                        \
-    fd_tpool_exec( node_tpool, node_ts, fd_tpool_private_exec_all_##style##_node,                                             \
-    /**/                                      node_tpool, node_ts,node_t1, args, reduce,stride, l0,l1, _task,_tpool, t0,t1 ); \
-    fd_tpool_private_exec_all_##style##_node( node_tpool, node_t0,node_ts, args, reduce,stride, l0,l1, _task,_tpool, t0,t1 ); \
-    fd_tpool_wait( node_tpool, node_ts );                                                                                     \
-    return;                                                                                                                   \
-  }                                                                                                                           \
-  fd_tpool_task_t task = (fd_tpool_task_t)_task;
-
-#define FD_TPOOL_EXEC_ALL_IMPL_FTR \
+#define FD_TPOOL_EXEC_ALL_IMPL_FTR                                                \
+  while( wait_cnt ) fd_tpool_wait( node_tpool, (ulong)wait_child[ --wait_cnt ] ); \
 }
 
 FD_TPOOL_EXEC_ALL_IMPL_HDR(rrobin)
