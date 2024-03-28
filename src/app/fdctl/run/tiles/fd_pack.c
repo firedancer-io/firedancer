@@ -62,6 +62,9 @@ const ulong CUS_PER_MICROBLOCK = 1500000UL;
 
 const float VOTE_FRACTION = 0.75;
 
+
+#define TRACE_BUFFER_DEPTH 16384UL
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -124,6 +127,10 @@ typedef struct {
     long metric_state_begin;
     long metric_timing[ 16 ];
   };
+
+  ulong trace_buffer_idx;
+  ulong trace_buffer[ TRACE_BUFFER_DEPTH ];
+
 } fd_pack_ctx_t;
 
 
@@ -140,6 +147,16 @@ update_metric_state( fd_pack_ctx_t * ctx,
                      int             type,
                      int             status ) {
   uint current_state = fd_uint_insert_bit( ctx->metric_state, type, status );
+  long last_pack_avail_cnt = (long)(ctx->trace_buffer[ ctx->trace_buffer_idx % TRACE_BUFFER_DEPTH ] & 0x1FFFUL);
+  if( FD_UNLIKELY( (current_state!=ctx->metric_state) |
+        (fd_long_abs( last_pack_avail_cnt - (long)fd_pack_avail_txn_cnt( ctx->pack ) )>100L) ) ) {
+
+    if( effective_as_of==ctx->metric_state_begin ) ctx->trace_buffer_idx--;
+    ctx->trace_buffer[ (++(ctx->trace_buffer_idx)) % TRACE_BUFFER_DEPTH ] = (ulong)(effective_as_of<<17) |
+                                                                            (ulong)(current_state  <<13) |
+                                                                            fd_pack_avail_txn_cnt( ctx->pack );
+  }
+
   if( FD_UNLIKELY( current_state!=ctx->metric_state ) ) {
     ctx->metric_timing[ ctx->metric_state ] += effective_as_of - ctx->metric_state_begin;
     ctx->metric_state_begin = effective_as_of;
@@ -336,6 +353,12 @@ during_frag( void * _ctx,
     FD_TEST( ctx->leader_slot==ULONG_MAX );
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
+    if( FD_UNLIKELY( ctx->leader_slot==101UL ) ) {
+      for( ulong i=1UL; i<=TRACE_BUFFER_DEPTH; i++ ) {
+        FD_LOG_INFO(( "%lx", ctx->trace_buffer[ (ctx->trace_buffer_idx+i)%TRACE_BUFFER_DEPTH ] ));
+      }
+    }
+
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
@@ -518,6 +541,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_log_wallclock();
   memset( ctx->metric_timing, '\0', 16*sizeof(long) );
+
+  ctx->trace_buffer_idx = 0UL;
+  memset( ctx->trace_buffer, '\0', sizeof(ctx->trace_buffer) );
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
 

@@ -18,6 +18,7 @@
   fund_initial_accounts = 8192
 
 [development.bench]
+  benchs_tile_count = 1
   benchg_tile_count = 12
   affinity = "f1,0-5,32-37,6"
   larger_max_cost_per_block = true
