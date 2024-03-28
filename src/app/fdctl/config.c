@@ -659,7 +659,7 @@ topo_initialize( config_t * config ) {
 
   /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                    burst */
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_netmux",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       0UL,                    1UL );
+  /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_netmux",  "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   /**/                 fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
