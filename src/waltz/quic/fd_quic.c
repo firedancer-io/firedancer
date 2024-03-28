@@ -3081,7 +3081,8 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
                                                &peer_transport_params_raw_sz );
 
         /* decode peer transport parameters */
-        int rc = fd_quic_decode_transport_params( &conn->peer_transport_params,
+        fd_quic_transport_params_t peer_tp[1];
+        int rc = fd_quic_decode_transport_params( peer_tp,
                                                   peer_transport_params_raw,
                                                   peer_transport_params_raw_sz );
         if( FD_UNLIKELY( rc != 0 ) ) {
@@ -3091,7 +3092,6 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
         }
 
         /* flow control parameters */
-        fd_quic_transport_params_t * peer_tp = &conn->peer_transport_params;
         conn->tx_max_data                            = peer_tp->initial_max_data;
         conn->tx_initial_max_stream_data_uni         = peer_tp->initial_max_stream_data_uni;
         conn->tx_initial_max_stream_data_bidi_local  = peer_tp->initial_max_stream_data_bidi_local;
@@ -5184,9 +5184,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* initialize the pkt_meta pool with data */
   fd_quic_pkt_meta_pool_init( &conn->pkt_meta_pool, conn->pkt_meta_mem, num_pkt_meta );
-
-  /* clear peer transport parameters */
-  fd_memset( &conn->peer_transport_params, 0, sizeof( conn->peer_transport_params ) );
 
   /* rfc9000: s12.3:
      Packet numbers in each packet space start at 0.

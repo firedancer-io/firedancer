@@ -260,9 +260,6 @@ struct fd_quic_conn {
 
   ulong   stream_tx_buf_sz; /* size of per-stream tx buffer */
 
-  /* the peer transport parameters */
-  fd_quic_transport_params_t peer_transport_params;
-
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
