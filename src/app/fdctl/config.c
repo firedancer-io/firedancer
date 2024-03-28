@@ -289,6 +289,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
 
   ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
+  ENTRY_UINT  ( ., development.bench,   benchs_tile_count                                         );
   ENTRY_STR   ( ., development.bench,   affinity                                                  );
   ENTRY_BOOL  ( ., development.bench,   larger_max_cost_per_block                                 );
   ENTRY_BOOL  ( ., development.bench,   larger_shred_limits_per_block                             );
