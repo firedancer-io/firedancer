@@ -319,7 +319,7 @@ handle_new_repair_requests( fd_repair_tile_ctx_t * ctx,
       }
     }
     
-    if( rc != 0 ) {
+    if( rc < 0 ) {
       FD_LOG_WARNING(( "failed to issue repair request" ));
     }
   }
