@@ -1006,6 +1006,12 @@ dynamic_port_range = "8900-9000"
         # transactions to the validator which is expensive.
         benchg_tile_count = 4
 
+        # How many benchs tiles to run when benchmarking.  benchs tiles
+        # are responsible for sending transactions to the validator, for
+        # example by calling send() on a socket.  On loopback, a single
+        # benchs tile can send around 320k packets a second.
+        benchs_tile_count = 2
+
         # Which cores to run the benchmarking tiles on.  By default the
         # cores will be floating but to get good performance
         # measurements on your machine, you should create a topology
@@ -1013,8 +1019,8 @@ dynamic_port_range = "8900-9000"
         #
         # The tiles included in this affinity are,
         #
-        #      bencho, benchg1, .... benchgN, benchs
-        affinity = "f6"
+        #      bencho, benchg1, .... benchgN, benchs1, ... benchsN
+        affinity = "f7"
 
         # Solana has a hard-coded maximum CUs per block limit of
         # 48,000,000 which works out to around 80,000 transfers a
