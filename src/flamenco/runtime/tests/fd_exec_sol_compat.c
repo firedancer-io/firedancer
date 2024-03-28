@@ -1,16 +1,4 @@
-#include "fd_exec_instr_test.h"
-#include "../../nanopb/pb_decode.h"
-#include "../../nanopb/pb_encode.h"
-#include <assert.h>
-#include <stdlib.h>
-
-typedef struct {
-  ulong   struct_size;
-  ulong * hardcoded_features;
-  ulong   hardcoded_feature_cnt;
-  ulong * supported_features;
-  ulong   supported_feature_cnt;
-} sol_compat_features_t;
+#include "fd_exec_sol_compat.h"
 
 static sol_compat_features_t features;
 static ulong hardcoded_features[] =
