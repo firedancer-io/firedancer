@@ -55,6 +55,7 @@ struct fd_quic_layout {
   ulong tls_off;         /* offset of fd_quic_tls_t          */
   ulong stream_pool_off; /* offset of the stream pool        */
   ulong cs_tree_off;     /* offset of the cs_tree            */
+  ulong acks_off;        /* offset of ack pool               */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -140,6 +141,14 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong cs_tree_footprint = fd_quic_cs_tree_footprint( ( conn_cnt << 1UL ) + 1UL );
   if( FD_UNLIKELY( !cs_tree_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_cs_tree_footprint" )); return 0UL; }
   offs                   += cs_tree_footprint;
+
+  /* allocate space for outgoing ACK pool */
+  ulong ack_pool_footprint = 0UL;
+  if( FD_UNLIKELY( __builtin_umull_overflow( inflight_pkt_cnt, sizeof(fd_quic_ack_t), &ack_pool_footprint ) ) )
+    { FD_LOG_WARNING(( "invalid inflight_pkt_cnt" )); return 0UL; }
+  offs                     = fd_ulong_align_up( offs, alignof(fd_quic_ack_t) );
+  layout->acks_off         = offs;
+  offs                    += ack_pool_footprint;
 
   return offs;
 }
@@ -478,6 +487,18 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_cs_tree_init( state->cs_tree, ( limits->conn_cnt << 1UL ) + 1UL );
 
   fd_rng_new( state->_rng, 0UL, 0UL );
+
+  /* Allocate outgoing ACK pool */
+
+  ulong           ack_cnt    = limits->inflight_pkt_cnt;
+  fd_quic_ack_t * acks       = (fd_quic_ack_t *)( (ulong)quic + layout.acks_off );
+  fd_memset( acks, 0, ack_cnt * sizeof(fd_quic_ack_t) );
+
+  state->acks_free = acks;
+  for( ulong j=0; j<ack_cnt; ++j ) {
+    ulong k = j + 1;
+    acks[j].next = k < ack_cnt ? acks + k : NULL;
+  }
 
   /* Initialize crypto */
 
@@ -2405,7 +2426,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   ulong pkt_number = pkt->pkt_number;
   (void)pkt_number;
 
-  fd_quic_ack_t ** acks_free   = &conn->acks_free;
+  fd_quic_ack_t ** acks_free   = &state->acks_free;
   fd_quic_ack_t ** acks_tx     = conn->acks_tx     + enc_level;
   fd_quic_ack_t ** acks_tx_end = conn->acks_tx_end + enc_level;
 
@@ -2520,7 +2541,7 @@ fd_quic_ack_pkt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t * pkt ) 
   ack->tx_time              = ack_time;
   ack->pkt_rcvd             = pkt->rcv_time;      /* the time the packet was received */
 
-  /* insert at end of list */
+  /* insert at end of used list */
   if( *acks_tx_end == NULL ) {
     ack->next    = NULL;
     *acks_tx_end = *acks_tx = ack;
@@ -4872,10 +4893,10 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   /* free acks */
   for( ulong j = 0; j < 4; ++j ) {
-    /* add whole list to free list */
+    /* join used list to free list */
     if( conn->acks_tx_end[j] ) {
-      conn->acks_tx_end[j]->next = conn->acks_free;
-      conn->acks_free            = conn->acks_tx[j];
+      conn->acks_tx_end[j]->next = state->acks_free;
+      state->acks_free           = conn->acks_tx[j];
 
       conn->acks_tx[j] = conn->acks_tx_end[j] = NULL;
     }
@@ -5568,6 +5589,9 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
                           fd_quic_pkt_meta_t * pkt_meta,
                           uint                 enc_level ) {
 
+  fd_quic_t *       const quic       = conn->quic;
+  fd_quic_state_t * const quic_state = fd_quic_get_state( quic );
+
   uint            flags      = pkt_meta->flags;
   ulong           pkt_number = pkt_meta->pkt_number;
   fd_quic_range_t range      = pkt_meta->range;
@@ -5852,8 +5876,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
           cur_ack->next = next_ack->next;
 
           /* put in free list */
-          next_ack->next  = conn->acks_free;
-          conn->acks_free = next_ack;
+          next_ack->next        = quic_state->acks_free;
+          quic_state->acks_free = next_ack;
         }
       } else {
         break;
@@ -5871,8 +5895,8 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       conn->acks_tx[enc_level] = cur_ack->next;
 
       /* add to free list */
-      cur_ack->next   = conn->acks_free;
-      conn->acks_free = cur_ack;
+      cur_ack->next         = quic_state->acks_free;
+      quic_state->acks_free = cur_ack;
     }
   }
 }

@@ -21,7 +21,6 @@ struct fd_quic_conn_layout {
   int   stream_map_lg;
   ulong stream_map_off;
   ulong pkt_meta_off;
-  ulong ack_off;
   ulong token_len_off;
   ulong token_off;
 };
@@ -32,7 +31,6 @@ typedef struct fd_quic_conn_layout fd_quic_conn_layout_t;
 ulong
 fd_quic_conn_align( void ) {
   ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
-  align = fd_ulong_max( align, alignof( fd_quic_ack_t ) );
   align = fd_ulong_max( align, alignof( fd_quic_pkt_meta_t ) );
   align = fd_ulong_max( align, fd_quic_stream_map_align() );
   return align;
@@ -86,11 +84,6 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   off                   = fd_ulong_align_up( off, alignof(fd_quic_pkt_meta_t) );
   layout->pkt_meta_off  = off;
   off                  += inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t);
-
-  /* allocate space for ACKs */
-  off                   = fd_ulong_align_up( off, alignof(fd_quic_ack_t) );
-  layout->ack_off       = off;
-  off                  += inflight_pkt_cnt * sizeof(fd_quic_ack_t);
 
   /* align total footprint */
 
@@ -167,19 +160,6 @@ fd_quic_conn_new( void *                   mem,
   /* store pointer to storage and size */
   conn->pkt_meta_mem = pkt_meta;
   conn->num_pkt_meta = pkt_meta_cnt;
-
-  /* Initialize ACKs array */
-
-  ulong           ack_cnt = limits->inflight_pkt_cnt;
-  fd_quic_ack_t * acks    = (fd_quic_ack_t *)( (ulong)mem + layout.ack_off );
-  fd_memset( acks, 0, ack_cnt * sizeof(fd_quic_ack_t) );
-
-  /* initialize free list of acks metadata */
-  conn->acks_free = acks;
-  for( ulong j=0; j<ack_cnt; ++j ) {
-    ulong k = j + 1;
-    acks[j].next =  k < ack_cnt ? acks + k : NULL;
-  }
 
   return conn;
 }

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_fd_quic_private_h
 
 #include "fd_quic.h"
+#include "fd_quic_conn.h"
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_conn_map.h"
 #include "fd_quic_stream.h"
@@ -86,6 +87,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_conn_map_t *    conn_map;       /* map connection ids -> connection */
   fd_quic_event_t *       service_queue;  /* priority queue of connections by service time */
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
+  fd_quic_ack_t *         acks_free;      /* free list (pool) for outgoing ACKs */
 
   fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
   fd_rng_t                _rng[1];        /* random number generator */
