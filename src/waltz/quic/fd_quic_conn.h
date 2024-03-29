@@ -54,7 +54,12 @@ typedef struct fd_quic_ack        fd_quic_ack_t;
      we will "over ack"
      it simplifies the ack logic since freeing one ack implies we can free
        all preceding acks. ack ids are only increasing
-   enc_level of acks is implied by the list it's in */
+   enc_level of acks is implied by the list it's in
+
+   An fd_quic_ack_t is either free or used, depending on which linked
+   list it is currently in.  If it's free, it's owned by the ack_pool
+   in fd_quic_state_t (an object pool used for allocation).  If it's
+   used, it's owned by the outgoing ACK list in (fd_quic_conn_t). */
 
 struct fd_quic_ack {
   /* stores data about what was ack'ed */
@@ -269,9 +274,6 @@ struct fd_quic_conn {
   fd_quic_pkt_meta_pool_t pkt_meta_pool;
   ulong                   num_pkt_meta;
   fd_quic_pkt_meta_t *    pkt_meta_mem;    /* owns the memory */
-
-  fd_quic_ack_t *      acks;               /* array of acks allocate during init */
-  fd_quic_ack_t *      acks_free;          /* free list of acks */
 
   /* list of acks to be transmitted at each encryption level */
   fd_quic_ack_t *      acks_tx[4];
