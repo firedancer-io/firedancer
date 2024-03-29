@@ -88,7 +88,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_stream_pool_t * stream_pool;    /* stream pool */
 
   fd_quic_cs_tree_t *     cs_tree;        /* cummulative summation tree */
-  fd_rng_t *              rng;            /* random number generator */
+  fd_rng_t                _rng[1];        /* random number generator */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */

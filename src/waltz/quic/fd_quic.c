@@ -55,7 +55,6 @@ struct fd_quic_layout {
   ulong tls_off;         /* offset of fd_quic_tls_t          */
   ulong stream_pool_off; /* offset of the stream pool        */
   ulong cs_tree_off;     /* offset of the cs_tree            */
-  ulong rng_off;         /* offset of the rng                */
 };
 typedef struct fd_quic_layout fd_quic_layout_t;
 
@@ -141,13 +140,6 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong cs_tree_footprint = fd_quic_cs_tree_footprint( ( conn_cnt << 1UL ) + 1UL );
   if( FD_UNLIKELY( !cs_tree_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_cs_tree_footprint" )); return 0UL; }
   offs                   += cs_tree_footprint;
-
-  /* allocate space for fd_rng_t */
-  offs                    = fd_ulong_align_up( offs, fd_rng_align() );
-  layout->rng_off         = offs;
-  ulong rng_footprint     = fd_rng_footprint();
-  if( FD_UNLIKELY( !rng_footprint ) ) { FD_LOG_WARNING(( "invalid fd_rng_t" )); return 0UL; }
-  offs                   += rng_footprint;
 
   return offs;
 }
@@ -485,8 +477,7 @@ fd_quic_init( fd_quic_t * quic ) {
   state->cs_tree = (fd_quic_cs_tree_t*)cs_tree_laddr;
   fd_quic_cs_tree_init( state->cs_tree, ( limits->conn_cnt << 1UL ) + 1UL );
 
-  ulong rng_laddr = (ulong)quic + layout.rng_off;
-  state->rng = fd_rng_join( fd_rng_new( (void*)rng_laddr, 0UL, 0UL ) );
+  fd_rng_new( state->_rng, 0UL, 0UL );
 
   /* Initialize crypto */
 
@@ -6854,7 +6845,7 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
   fd_quic_state_t *       state       = fd_quic_get_state( quic );
   fd_quic_cs_tree_t *     cs_tree     = state->cs_tree;
   fd_quic_stream_pool_t * stream_pool = state->stream_pool;
-  fd_rng_t *              rng         = state->rng;
+  fd_rng_t *              rng         = fd_rng_join( state->_rng );
 
   /* we want to reserve 1 stream for each connection */
   /* TODO could add a config for larger reservations */
@@ -6907,6 +6898,8 @@ fd_quic_assign_streams( fd_quic_t * quic ) {
 
     avail_streams--;
   }
+
+  fd_rng_leave( rng );
 }
 
 
@@ -7026,7 +7019,8 @@ fd_quic_cs_tree_update( fd_quic_cs_tree_t * cs_tree, ulong idx, ulong new_value 
 
 
 ulong
-fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree, fd_rng_t * rng ) {
+fd_quic_choose_weighted_index( fd_quic_cs_tree_t * cs_tree,
+                               fd_rng_t *          rng ) {
   ulong   cnt      = cs_tree->cnt;
   ulong * values   = cs_tree->values;
   ulong   node_idx = 1UL;
