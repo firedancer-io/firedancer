@@ -244,10 +244,6 @@ struct fd_quic_conn {
 
   ushort ipv4_id;           /* ipv4 id field */
 
-  /* TODO these scratch areas may be moved to quic */
-  /* some buffer space for encryption/decryption */
-  uchar crypt_scratch[2048];
-
   /* some scratch space for frame encoding/decoding */
   fd_quic_frame_u frame_union;
 

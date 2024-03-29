@@ -1221,7 +1221,6 @@ fd_quic_send_retry( fd_quic_t *                  quic,
   fd_quic_encode_retry( tx_buf, tx_buf_sz, &retry_pkt );
   uchar * tx_ptr  = tx_buf + tx_buf_sz;
   ulong   tx_sz   = 0;  // no space remaining after encoding
-  uchar   encode_buf[2048];  // space for lower-layer headers, same size as crypt_scratch
   if( FD_UNLIKELY( fd_quic_tx_buffered_raw(
         quic,
         // these are state variable's normally updated on a conn, but irrelevant in retry so we
@@ -1231,8 +1230,6 @@ fd_quic_send_retry( fd_quic_t *                  quic,
         tx_buf_sz,
         &tx_sz,
         // encode buffer
-        encode_buf,
-        sizeof( encode_buf ),
         dst_mac_addr_u6,
         &pkt->ip4->net_id,
         dst_ip_addr,
@@ -1559,13 +1556,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   /* header protection needs the offset to the packet number */
   ulong   pn_offset        = initial->pkt_num_pnoff;
 
-  uchar * crypt_scratch    = conn->crypt_scratch;
-  ulong   crypt_scratch_sz = sizeof( conn->crypt_scratch );
+  uchar * crypt_scratch    = state->crypt_scratch;
+  ulong   crypt_scratch_sz = sizeof( state->crypt_scratch );
 
   ulong   body_sz          = initial->len;  /* not a protected field */
                                              /* length of payload + num packet bytes */
-  uchar * dec_hdr          = conn->crypt_scratch;
-  ulong   dec_hdr_sz       = sizeof( conn->crypt_scratch );
+  uchar * dec_hdr          = state->crypt_scratch;
+  ulong   dec_hdr_sz       = sizeof( state->crypt_scratch );
 
   ulong   pkt_number       = (ulong)ULONG_MAX;
   ulong   pkt_number_sz    = (ulong)ULONG_MAX;
@@ -1715,6 +1712,9 @@ fd_quic_handle_v1_handshake(
     fd_quic_pkt_t *       pkt,
     uchar const *         cur_ptr,
     ulong                 cur_sz ) {
+
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
   uint enc_level = fd_quic_enc_level_handshake_id;
 
   if( FD_UNLIKELY( !conn ) ) {
@@ -1768,13 +1768,13 @@ fd_quic_handle_v1_handshake(
   /* header protection needs the offset to the packet number */
   ulong    pn_offset        = handshake->pkt_num_pnoff;
 
-  uchar *  crypt_scratch    = conn->crypt_scratch;
-  ulong    crypt_scratch_sz = sizeof( conn->crypt_scratch );
+  uchar *  crypt_scratch    = state->crypt_scratch;
+  ulong    crypt_scratch_sz = sizeof( state->crypt_scratch );
 
   ulong    body_sz          = handshake->len;  /* not a protected field */
                                                /* length of payload + num packet bytes */
-  uchar *  dec_hdr          = conn->crypt_scratch;
-  ulong    dec_hdr_sz       = sizeof( conn->crypt_scratch );
+  uchar *  dec_hdr          = state->crypt_scratch;
+  ulong    dec_hdr_sz       = sizeof( state->crypt_scratch );
 
   ulong    pkt_number       = (ulong)-1;
   ulong    pkt_number_sz    = (ulong)-1;
@@ -2020,6 +2020,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     return FD_QUIC_PARSE_FAIL;
   }
 
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
   /* encryption level for one_rtt is "appdata" */
   uint enc_level = fd_quic_enc_level_appdata_id;
 
@@ -2054,11 +2056,11 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   /* header protection needs the offset to the packet number */
   ulong    pn_offset        = one_rtt->pkt_num_pnoff;
 
-  uchar *  crypt_scratch    = conn->crypt_scratch;
-  ulong    crypt_scratch_sz = sizeof( conn->crypt_scratch );
+  uchar *  crypt_scratch    = state->crypt_scratch;
+  ulong    crypt_scratch_sz = sizeof( state->crypt_scratch );
 
-  uchar *  dec_hdr          = conn->crypt_scratch;
-  ulong    dec_hdr_sz       = sizeof( conn->crypt_scratch );
+  uchar *  dec_hdr          = state->crypt_scratch;
+  ulong    dec_hdr_sz       = sizeof( state->crypt_scratch );
 
   ulong    pkt_number       = ULONG_MAX;
   ulong    pkt_number_sz    = ULONG_MAX;
@@ -3360,8 +3362,6 @@ fd_quic_tx_buffered_raw(
     uchar *          tx_buf,
     ulong            tx_buf_sz,
     ulong *          tx_sz,
-    uchar *          crypt_scratch,
-    ulong            crypt_scratch_sz,
     uchar const      dst_mac_addr[ static 6 ],
     ushort *         ipv4_id,
     uint             dst_ipv4_addr,
@@ -3387,9 +3387,12 @@ fd_quic_tx_buffered_raw(
   }
 
   fd_quic_config_t * config = &quic->config;
+  fd_quic_state_t *  state  = fd_quic_get_state( quic );
 
-  uchar * cur_ptr = crypt_scratch;
-  ulong  cur_sz  = crypt_scratch_sz;
+  uchar * const crypt_scratch = state->crypt_scratch;
+
+  uchar * cur_ptr = state->crypt_scratch;
+  ulong   cur_sz  = sizeof( state->crypt_scratch );
 
   /* TODO much of this may be prepared ahead of time */
   fd_quic_pkt_t pkt;
@@ -3496,8 +3499,6 @@ uint fd_quic_tx_buffered( fd_quic_t *      quic,
       conn->tx_buf,
       sizeof(conn->tx_buf),
       &conn->tx_sz,
-      conn->crypt_scratch,
-      sizeof(conn->crypt_scratch),
       peer->mac_addr,
       &conn->ipv4_id,
       peer->net.ip_addr,
@@ -3704,10 +3705,14 @@ fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,
        ping
        stream data */
 void
-fd_quic_conn_tx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+fd_quic_conn_tx( fd_quic_t *      quic,
+                 fd_quic_conn_t * conn ) {
+
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
   /* used for encoding frames into before encrypting */
-  uchar *  crypt_scratch    = conn->crypt_scratch;
-  ulong    crypt_scratch_sz = sizeof( conn->crypt_scratch );
+  uchar *  crypt_scratch    = state->crypt_scratch;
+  ulong    crypt_scratch_sz = sizeof( state->crypt_scratch );
 
   /* max packet size */
   /* TODO probably should be called tx_max_udp_payload_sz */
