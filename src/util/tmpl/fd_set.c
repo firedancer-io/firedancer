@@ -118,9 +118,9 @@
      int   my_set_iter_done( ulong idx );
      ulong my_set_iter_next( my_set_t * set, ulong idx );
 
-     ulong my_set_const_iter_init( my_set_t * set );
+     ulong my_set_const_iter_init( my_set_t const * set );
      int   my_set_const_iter_done( ulong idx );
-     ulong my_set_const_iter_next( my_set_t * set, ulong idx );
+     ulong my_set_const_iter_next( my_set_t const * set, ulong idx );
 
      // Insert/remove element idx to a set if not already present (no-op
      // otherwise).  Returns set.
@@ -274,7 +274,7 @@ FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
 SET_(const_iter_next)( SET_(t) const * set,
                        ulong           j ) {               /* We've considered all bits up to and including j */
   j++;                                                     /* Lowest bit we haven't considered */
-  ulong m = (1UL<<(j&63UL))-1UL;                           /* Bits in first word that have considered */
+  ulong m = (1UL<<(j&63UL))-1UL;                           /* Bits in first word that have been considered */
   ulong word_cnt = (ulong)SET_(word_cnt);
   for( ulong i=(j>>6); i<word_cnt; i++ ) {                 /* For all words with bits we haven't considered */
     ulong w = set[i] & ~m;                                 /* Get the bits we haven't considered for the current word */
@@ -283,8 +283,8 @@ SET_(const_iter_next)( SET_(t) const * set,
   }
   return ~0UL;                                             /* No more bits to consider */
 }
-FD_FN_PURE  static inline ulong SET_(const_iter_init)( SET_(t) * set ) { return SET_(const_iter_next)( set, ~0UL ); }
-FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j       ) { return !~j; }
+FD_FN_PURE  static inline ulong SET_(const_iter_init)( SET_(t) const * set ) { return SET_(const_iter_next)( set, ~0UL ); }
+FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j             ) { return !~j; }
 
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
