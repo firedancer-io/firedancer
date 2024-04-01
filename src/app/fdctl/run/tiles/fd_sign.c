@@ -1,9 +1,12 @@
+#define _GNU_SOURCE
 #include "tiles.h"
 
 #include "generated/sign_seccomp.h"
 
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+
+#include <sys/mman.h>
 
 #define MAX_IN (32UL)
 
@@ -52,7 +55,7 @@ mux_ctx( void * scratch ) {
    we are reading incoming frags.  We don't actually need to copy the
    fragment here, see fd_dedup.c for why we do this.*/
 
-static inline void
+static inline void FD_FN_SENSITIVE
 during_frag( void * _ctx,
              ulong  in_idx,
              ulong  seq,
@@ -81,7 +84,7 @@ during_frag( void * _ctx,
   }
 }
 
-static inline void
+static inline void FD_FN_SENSITIVE
 after_frag( void *             _ctx,
             ulong              in_idx,
             ulong              seq,
@@ -126,7 +129,7 @@ after_frag( void *             _ctx,
   ctx->out[ in_idx ].seq = fd_seq_inc( ctx->out[ in_idx ].seq, 1UL );
 }
 
-static void
+static void FD_FN_SENSITIVE
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile,
                  void *           scratch ) {
@@ -138,9 +141,16 @@ privileged_init( fd_topo_t *      topo,
   uchar const * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
+
+  /* Prevent the stack from showing up in core dumps just in case the
+     private key somehow ends up in there. */
+  FD_TEST( fd_tile_stack0() );
+  FD_TEST( fd_tile_stack_sz() );
+  if( FD_UNLIKELY( madvise( (void*)fd_tile_stack0(), fd_tile_stack_sz(), MADV_DONTDUMP ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
+static void FD_FN_SENSITIVE
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
