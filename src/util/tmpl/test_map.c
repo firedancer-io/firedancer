@@ -150,6 +150,9 @@ main( int     argc,
       map_remove( map, p );
       FD_TEST( !map_query( map, ki, NULL ) );
 
+      /* Remove a now non-existent entry */
+      map_remove( map, p );
+
       /* Make sure all remaining entries are intact */
       for( ulong j=i+1UL; j<max; j++ ) {
         ulong kj = tst[j].mykey;

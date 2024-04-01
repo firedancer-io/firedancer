@@ -156,6 +156,8 @@ main( int     argc,
       /* Delete entry i and verify the deletion */
       FD_TEST( map_key_cnt( map )==(max-i) );
       map_remove( map, p );
+      /* Delete a now inexistent entry */
+      map_remove( map, p );
       FD_TEST( map_key_cnt( map )==(max-i-1UL) );
       FD_TEST( !map_query( map, ki, NULL ) );
 
