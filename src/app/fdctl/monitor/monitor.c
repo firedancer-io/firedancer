@@ -321,6 +321,36 @@ run_monitor( config_t * const config,
     PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
     long dt = now-then;
 
+    ulong cur_raw_cnt_agg = 0;
+    ulong prev_raw_cnt_agg = 0;
+
+    ulong cur_raw_sz_agg = 0;
+    ulong prev_raw_sz_agg = 0;
+
+    ulong cur_fseq_tot_cnt_agg = 0;
+    ulong prev_fseq_tot_cnt_agg = 0;
+
+    ulong cur_fseq_tot_sz_agg = 0;
+    ulong prev_fseq_tot_sz_agg = 0;
+
+    ulong cur_fseq_filt_cnt_agg = 0;
+    ulong prev_fseq_filt_cnt_agg = 0;
+
+    ulong cur_fseq_filt_sz_agg = 0;
+    ulong prev_fseq_filt_sz_agg = 0;
+
+    ulong cur_overnp_agg = 0;
+    ulong prev_overnp_agg = 0;
+
+    ulong cur_overnr_agg = 0;
+    ulong prev_overnr_agg = 0;
+
+    ulong cur_slow_agg = 0;
+    ulong prev_slow_agg = 0;
+
+    ulong cur_seq = 0;
+    ulong prev_seq = 0;
+
     ulong link_idx = 0UL;
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
@@ -343,6 +373,44 @@ run_monitor( config_t * const config,
           case FD_TOPO_LINK_KIND_CRDS_TO_SHRED: {
             producer = "crds";
             break;
+          }
+          case FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP: {
+            ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
+            ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
+            ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
+            ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
+
+            cur_raw_cnt_agg += cur_raw_cnt;
+            cur_raw_sz_agg  += cur_raw_sz;
+            prev_raw_cnt_agg += prv_raw_cnt;
+            prev_raw_sz_agg  += prv_raw_sz;
+
+            cur_fseq_tot_cnt_agg += cur->fseq_diag_tot_cnt;
+            prev_fseq_tot_cnt_agg += prv->fseq_diag_tot_cnt;
+
+            cur_fseq_tot_sz_agg += cur->fseq_diag_tot_sz;
+            prev_fseq_tot_sz_agg += prv->fseq_diag_tot_sz;
+
+            cur_fseq_filt_cnt_agg += cur->fseq_diag_filt_cnt;
+            prev_fseq_filt_cnt_agg += prv->fseq_diag_filt_cnt;
+
+            cur_fseq_filt_sz_agg += cur->fseq_diag_filt_sz;
+            prev_fseq_filt_sz_agg += prv->fseq_diag_filt_sz;
+
+            cur_overnp_agg += cur->fseq_diag_ovrnp_cnt;
+            prev_overnp_agg += prv->fseq_diag_ovrnp_cnt;
+
+            cur_overnr_agg += cur->fseq_diag_ovrnr_cnt;
+            prev_overnr_agg += prv->fseq_diag_ovrnr_cnt;
+
+            cur_slow_agg += cur->fseq_diag_slow_cnt;
+            prev_slow_agg += prv->fseq_diag_slow_cnt;
+
+            cur_seq = fd_ulong_max( cur_seq, cur->mcache_seq );
+            prev_seq = fd_ulong_max( prev_seq, prv->mcache_seq );
+
+            link_idx++;
+            continue;
           }
           default: {
             ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
@@ -378,6 +446,28 @@ run_monitor( config_t * const config,
         link_idx++;
       }
     }
+
+    PRINT( " %7s->%-7s", "gverify", "gpdedup" );
+
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_raw_cnt_agg,             prev_raw_cnt_agg,             dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_raw_sz_agg,              prev_raw_sz_agg,              dt ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_fseq_tot_cnt_agg,        prev_fseq_tot_cnt_agg,        dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_fseq_tot_sz_agg,         prev_fseq_tot_sz_agg,         dt ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur_fseq_tot_cnt_agg,  prev_fseq_tot_cnt_agg, 0.,
+                                cur_raw_cnt_agg,             prev_raw_cnt_agg,            DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur_fseq_tot_sz_agg,   prev_fseq_tot_sz_agg,  0.,
+                                cur_raw_sz_agg,              prev_raw_sz_agg,             DBL_MIN ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur_fseq_filt_cnt_agg, prev_fseq_filt_cnt_agg, 0.,
+                                cur_fseq_tot_cnt_agg,  prev_fseq_tot_cnt_agg,  DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur_fseq_filt_sz_agg,  prev_fseq_filt_sz_agg, 0.,
+                                cur_fseq_tot_sz_agg,   prev_fseq_tot_sz_agg,  DBL_MIN ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur_overnp_agg, prev_overnp_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur_overnr_agg, prev_overnr_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur_slow_agg,  prev_slow_agg  );
+    PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur_seq,          prev_seq  );
+    PRINT( TEXT_NEWLINE );
 
     /* write entire monitor output buffer */
     write_stdout( buffer, sizeof(buffer) - buf_sz );
