@@ -217,6 +217,39 @@ drain_to_buffer( char ** buf,
   }
 }
 
+typedef struct {
+  ulong cur_raw_cnt_agg;
+  ulong prev_raw_cnt_agg;
+
+  ulong cur_raw_sz_agg;
+  ulong prev_raw_sz_agg;
+
+  ulong cur_fseq_tot_cnt_agg;
+  ulong prev_fseq_tot_cnt_agg;
+
+  ulong cur_fseq_tot_sz_agg;
+  ulong prev_fseq_tot_sz_agg;
+
+  ulong cur_fseq_filt_cnt_agg;
+  ulong prev_fseq_filt_cnt_agg;
+
+  ulong cur_fseq_filt_sz_agg;
+  ulong prev_fseq_filt_sz_agg;
+
+  ulong cur_overnp_agg;
+  ulong prev_overnp_agg;
+
+  ulong cur_overnr_agg;
+  ulong prev_overnr_agg;
+
+  ulong cur_slow_agg;
+  ulong prev_slow_agg;
+
+  ulong cur_seq;
+  ulong prev_seq;
+} monitor_agg_t ;
+
+
 void
 run_monitor( config_t * const config,
              int              drain_output_fd,
@@ -321,6 +354,11 @@ run_monitor( config_t * const config,
     PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
     long dt = now-then;
 
+#ifdef FD_GOSSIP_MONITOR
+    monitor_agg_t verify_dedup = { 0 };
+    monitor_agg_t pre_dedup_verify = { 0 };
+#endif
+
     ulong link_idx = 0UL;
     for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
       for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
@@ -344,6 +382,84 @@ run_monitor( config_t * const config,
             producer = "crds";
             break;
           }
+#ifdef FD_GOSSIP_MONITOR
+          case FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP: {
+            ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
+            ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
+            ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
+            ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
+
+            verify_dedup.cur_raw_cnt_agg += cur_raw_cnt;
+            verify_dedup.cur_raw_sz_agg  += cur_raw_sz;
+            verify_dedup.prev_raw_cnt_agg += prv_raw_cnt;
+            verify_dedup.prev_raw_sz_agg  += prv_raw_sz;
+
+            verify_dedup.cur_fseq_tot_cnt_agg  += cur->fseq_diag_tot_cnt;
+            verify_dedup.prev_fseq_tot_cnt_agg += prv->fseq_diag_tot_cnt;
+
+            verify_dedup.cur_fseq_tot_sz_agg  += cur->fseq_diag_tot_sz;
+            verify_dedup.prev_fseq_tot_sz_agg += prv->fseq_diag_tot_sz;
+
+            verify_dedup.cur_fseq_filt_cnt_agg  += cur->fseq_diag_filt_cnt;
+            verify_dedup.prev_fseq_filt_cnt_agg += prv->fseq_diag_filt_cnt;
+
+            verify_dedup.cur_fseq_filt_sz_agg  += cur->fseq_diag_filt_sz;
+            verify_dedup.prev_fseq_filt_sz_agg += prv->fseq_diag_filt_sz;
+
+            verify_dedup.cur_overnp_agg  += cur->fseq_diag_ovrnp_cnt;
+            verify_dedup.prev_overnp_agg += prv->fseq_diag_ovrnp_cnt;
+
+            verify_dedup.cur_overnr_agg  += cur->fseq_diag_ovrnr_cnt;
+            verify_dedup.prev_overnr_agg += prv->fseq_diag_ovrnr_cnt;
+
+            verify_dedup.cur_slow_agg  += cur->fseq_diag_slow_cnt;
+            verify_dedup.prev_slow_agg += prv->fseq_diag_slow_cnt;
+
+            verify_dedup.cur_seq  = fd_ulong_max( verify_dedup.cur_seq, cur->mcache_seq );
+            verify_dedup.prev_seq = fd_ulong_max( verify_dedup.prev_seq, prv->mcache_seq );
+
+            link_idx++;
+            continue;
+          }
+          case FD_TOPO_LINK_KIND_PRE_DEDUP_TO_VERIFY: {
+            ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
+            ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
+            ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
+            ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
+
+            pre_dedup_verify.cur_raw_cnt_agg += cur_raw_cnt;
+            pre_dedup_verify.cur_raw_sz_agg  += cur_raw_sz;
+            pre_dedup_verify.prev_raw_cnt_agg += prv_raw_cnt;
+            pre_dedup_verify.prev_raw_sz_agg  += prv_raw_sz;
+
+            pre_dedup_verify.cur_fseq_tot_cnt_agg += cur->fseq_diag_tot_cnt;
+            pre_dedup_verify.prev_fseq_tot_cnt_agg += prv->fseq_diag_tot_cnt;
+
+            pre_dedup_verify.cur_fseq_tot_sz_agg += cur->fseq_diag_tot_sz;
+            pre_dedup_verify.prev_fseq_tot_sz_agg += prv->fseq_diag_tot_sz;
+
+            pre_dedup_verify.cur_fseq_filt_cnt_agg += cur->fseq_diag_filt_cnt;
+            pre_dedup_verify.prev_fseq_filt_cnt_agg += prv->fseq_diag_filt_cnt;
+
+            pre_dedup_verify.cur_fseq_filt_sz_agg += cur->fseq_diag_filt_sz;
+            pre_dedup_verify.prev_fseq_filt_sz_agg += prv->fseq_diag_filt_sz;
+
+            pre_dedup_verify.cur_overnp_agg += cur->fseq_diag_ovrnp_cnt;
+            pre_dedup_verify.prev_overnp_agg += prv->fseq_diag_ovrnp_cnt;
+
+            pre_dedup_verify.cur_overnr_agg += cur->fseq_diag_ovrnr_cnt;
+            pre_dedup_verify.prev_overnr_agg += prv->fseq_diag_ovrnr_cnt;
+
+            pre_dedup_verify.cur_slow_agg += cur->fseq_diag_slow_cnt;
+            pre_dedup_verify.prev_slow_agg += prv->fseq_diag_slow_cnt;
+
+            pre_dedup_verify.cur_seq = fd_ulong_max( pre_dedup_verify.cur_seq, cur->mcache_seq );
+            pre_dedup_verify.prev_seq = fd_ulong_max( pre_dedup_verify.prev_seq, prv->mcache_seq );
+
+            link_idx++;
+            continue;
+          }
+#endif
           default: {
             ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
             FD_TEST( producer_tile_id != ULONG_MAX );
@@ -378,7 +494,51 @@ run_monitor( config_t * const config,
         link_idx++;
       }
     }
+#ifdef FD_GOSSIP_MONITOR
+    PRINT( " %7s->%-7s", "gpdedup", "gverify" );
 
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., pre_dedup_verify.cur_raw_cnt_agg,             pre_dedup_verify.prev_raw_cnt_agg,             dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., pre_dedup_verify.cur_raw_sz_agg,              pre_dedup_verify.prev_raw_sz_agg,              dt ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., pre_dedup_verify.cur_fseq_tot_cnt_agg,        pre_dedup_verify.prev_fseq_tot_cnt_agg,        dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., pre_dedup_verify.cur_fseq_tot_sz_agg,         pre_dedup_verify.prev_fseq_tot_sz_agg,         dt ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, pre_dedup_verify.cur_fseq_tot_cnt_agg,  pre_dedup_verify.prev_fseq_tot_cnt_agg, 0.,
+                                pre_dedup_verify.cur_raw_cnt_agg,             pre_dedup_verify.prev_raw_cnt_agg,            DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, pre_dedup_verify.cur_fseq_tot_sz_agg,   pre_dedup_verify.prev_fseq_tot_sz_agg,  0.,
+                                pre_dedup_verify.cur_raw_sz_agg,              pre_dedup_verify.prev_raw_sz_agg,             DBL_MIN ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, pre_dedup_verify.cur_fseq_filt_cnt_agg, pre_dedup_verify.prev_fseq_filt_cnt_agg, 0.,
+                                pre_dedup_verify.cur_fseq_tot_cnt_agg,  pre_dedup_verify.prev_fseq_tot_cnt_agg,  DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, pre_dedup_verify.cur_fseq_filt_sz_agg,  pre_dedup_verify.prev_fseq_filt_sz_agg, 0.,
+                                pre_dedup_verify.cur_fseq_tot_sz_agg,   pre_dedup_verify.prev_fseq_tot_sz_agg,  DBL_MIN ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, pre_dedup_verify.cur_overnp_agg, pre_dedup_verify.prev_overnp_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, pre_dedup_verify.cur_overnr_agg, pre_dedup_verify.prev_overnr_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, pre_dedup_verify.cur_slow_agg,  pre_dedup_verify.prev_slow_agg  );
+    PRINT( " | " ); printf_seq(     &buf, &buf_sz, pre_dedup_verify.cur_seq,          pre_dedup_verify.prev_seq  );
+    PRINT( TEXT_NEWLINE );
+
+    PRINT( " %7s->%-7s", "gverify", "gdedup" );
+
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., verify_dedup.cur_raw_cnt_agg,             verify_dedup.prev_raw_cnt_agg,             dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., verify_dedup.cur_raw_sz_agg,              verify_dedup.prev_raw_sz_agg,              dt ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., verify_dedup.cur_fseq_tot_cnt_agg,        verify_dedup.prev_fseq_tot_cnt_agg,        dt );
+    PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., verify_dedup.cur_fseq_tot_sz_agg,         verify_dedup.prev_fseq_tot_sz_agg,         dt ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, verify_dedup.cur_fseq_tot_cnt_agg,  verify_dedup.prev_fseq_tot_cnt_agg, 0.,
+                                verify_dedup.cur_raw_cnt_agg,             verify_dedup.prev_raw_cnt_agg,            DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, verify_dedup.cur_fseq_tot_sz_agg,   verify_dedup.prev_fseq_tot_sz_agg,  0.,
+                                verify_dedup.cur_raw_sz_agg,              verify_dedup.prev_raw_sz_agg,             DBL_MIN ); /* Assumes sz incl framing */
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, verify_dedup.cur_fseq_filt_cnt_agg, verify_dedup.prev_fseq_filt_cnt_agg, 0.,
+                                verify_dedup.cur_fseq_tot_cnt_agg,  verify_dedup.prev_fseq_tot_cnt_agg,  DBL_MIN );
+    PRINT( " | " ); printf_pct ( &buf, &buf_sz, verify_dedup.cur_fseq_filt_sz_agg,  verify_dedup.prev_fseq_filt_sz_agg, 0.,
+                                verify_dedup.cur_fseq_tot_sz_agg,   verify_dedup.prev_fseq_tot_sz_agg,  DBL_MIN ); /* Assumes sz incl framing */
+
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, verify_dedup.cur_overnp_agg, verify_dedup.prev_overnp_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, verify_dedup.cur_overnr_agg, verify_dedup.prev_overnr_agg );
+    PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, verify_dedup.cur_slow_agg,  verify_dedup.prev_slow_agg  );
+    PRINT( " | " ); printf_seq(     &buf, &buf_sz, verify_dedup.cur_seq,          verify_dedup.prev_seq  );
+    PRINT( TEXT_NEWLINE );
+#endif
     /* write entire monitor output buffer */
     write_stdout( buffer, sizeof(buffer) - buf_sz );
 
