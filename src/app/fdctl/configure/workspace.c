@@ -75,8 +75,8 @@ fini( config_t * const config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, MOUNT_NAMES[ i ] ));
-    rmtree( mount_path, 0 );
+    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s", fd_shmem_private_base, MOUNT_NAMES[ i ], config->name ));
+    rmtree( mount_path, 1 );
   }
 }
 
@@ -86,7 +86,7 @@ check( config_t * const config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, MOUNT_NAMES[ i ] ));
+    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s", fd_shmem_private_base, MOUNT_NAMES[ i ], config->name ));
 
     /* Check if there are any files in mount_path */
     DIR * dir = opendir( mount_path );
