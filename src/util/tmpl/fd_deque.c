@@ -80,6 +80,8 @@
 
 #include "../bits/fd_bits.h"
 
+#include <stddef.h>
+
 #ifndef DEQUE_NAME
 #error "Define DEQUE_NAME"
 #endif
@@ -135,14 +137,14 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline DEQUE_(private_t) *
 DEQUE_(private_hdr_from_deque)( DEQUE_T * deque ) {
-  return (DEQUE_(private_t) *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
+  return (DEQUE_(private_t) *)( (ulong)deque - offsetof(DEQUE_(private_t), deque) );
 }
 
 /* const-correct version of above */
 
 FD_FN_CONST static inline DEQUE_(private_t) const *
 DEQUE_(private_const_hdr_from_deque)( DEQUE_T const * deque ) {
-  return (DEQUE_(private_t) const *)( (ulong)deque - (ulong)&(((DEQUE_(private_t) *)NULL)->deque) );
+  return (DEQUE_(private_t) const *)( (ulong)deque - offsetof(DEQUE_(private_t), deque) );
 }
 
 /* private_slot maps an index to a slot cnt.  The compiler should
@@ -326,16 +328,34 @@ DEQUE_(iter_init)( DEQUE_T const * deque ) {
   return hdr->start;
 }
 
+static inline DEQUE_(iter_t)
+DEQUE_(iter_init_reverse)( DEQUE_T const * deque ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return hdr->end - 1;
+}
+
 static inline int
 DEQUE_(iter_done)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return iter == hdr->end;
 }
 
+static inline int
+DEQUE_(iter_done_reverse)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
+  return iter == hdr->start - 1;
+}
+
 static inline DEQUE_(iter_t)
 DEQUE_(iter_next)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   (void)deque;
   return iter+1;
+}
+
+static inline DEQUE_(iter_t)
+DEQUE_(iter_next_reverse)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
+  (void)deque;
+  return iter-1;
 }
 
 static inline DEQUE_T *
