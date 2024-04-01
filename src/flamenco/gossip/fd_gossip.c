@@ -272,6 +272,8 @@ struct fd_gossip {
     ulong push_cnt;
     /* Count of values not pushed due to pruning */
     ulong not_push_cnt;
+    /* Count of values purged */
+    ulong purged_cnt;
     /* Heap allocator */
     fd_valloc_t valloc;
 };
@@ -479,7 +481,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 30; i++)
+  for(ulong i = 0; i < 300; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
@@ -540,7 +542,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Keep pinging until we succeed */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e7 /* 200 ms */ );
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e5 /* 200 ms */ );
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
 #endif
@@ -866,6 +868,7 @@ fd_gossip_purge_expired_values( fd_gossip_t * glob, fd_pending_event_arg_t * arg
     fd_hash_t * hash = &(ele->key);
     /* Purge expired values */
     if (ele->wallclock < expire) {
+      glob->purged_cnt++;
       fd_valloc_free( glob->valloc, ele->data );
       fd_value_table_remove( glob->values, hash );
     }
@@ -1737,7 +1740,9 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   FD_LOG_NOTICE(("received %lu dup values and %lu new", glob->recv_dup_cnt, glob->recv_nondup_cnt));
   glob->recv_dup_cnt = glob->recv_nondup_cnt = 0;
   FD_LOG_NOTICE(("pushed %lu values and filtered %lu", glob->push_cnt, glob->not_push_cnt));
+  FD_LOG_NOTICE(("purged %lu values", glob->purged_cnt));
   glob->push_cnt = glob->not_push_cnt = 0;
+  glob->purged_cnt = 0;
 
   int need_inactive = (glob->inactives_cnt == 0);
 

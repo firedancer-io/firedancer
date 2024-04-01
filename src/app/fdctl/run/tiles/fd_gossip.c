@@ -424,19 +424,19 @@ after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
 
   ctx->mux_ctx = mux_ctx;
   
-  long now = fd_log_wallclock();
   g_num_packets_sent = 0;
 
+  long now = fd_log_wallclock();
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 
 #ifdef FD_GOSSIP_DEMO
-  if( now - ctx->last_shred_dest_push_time > (long)1e6 ) {
+  if( now - ctx->last_shred_dest_push_time > (long)1e5 ) {
     ctx->last_shred_dest_push_time = now;
-    for( ulong j = 0; j < 256; j++) {
+    for( ulong j = 0; j < 128; j++) {
       if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
-        fd_slot_hash_t slot_hashes[16];
-        for( ulong i = 0; i < 16; i++ ) {
+        fd_slot_hash_t slot_hashes[8];
+        for( ulong i = 0; i < 8; i++ ) {
           slot_hashes[i].slot = fd_rng_ulong(ctx->rng);
           memset(slot_hashes[i].hash.uc, 0, sizeof(fd_hash_t));
         }
@@ -444,7 +444,7 @@ after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
         fd_crds_data_t crds_data;
         fd_crds_data_new_disc( &crds_data, fd_crds_data_enum_accounts_hashes );
         memcpy( crds_data.inner.accounts_hashes.from.key, ctx->gossip_config.public_key, sizeof(fd_pubkey_t) );
-        crds_data.inner.accounts_hashes.hashes_len = 16;
+        crds_data.inner.accounts_hashes.hashes_len = 8;
         crds_data.inner.accounts_hashes.hashes = slot_hashes;
         crds_data.inner.accounts_hashes.wallclock =  (ulong)fd_log_wallclock( ) / (ulong)1000000;
 
@@ -458,10 +458,7 @@ after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
 static void
 during_housekeeping( void * _ctx ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
-  (void)ctx;
-  // fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
-  // fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
-  // fd_mcache_seq_update( g_net_out_sync, g_net_out_seq );
+  (void)ctx; 
 } 
 
 static void
