@@ -79,16 +79,22 @@ init( config_t * const config ) {
       uint additional_pages_needed = (uint)required_pages[ i ]-free_pages;
       write_uint_file( TOTAL_HUGE_PAGE_PATH[ i ], total_pages+additional_pages_needed );
       if( FD_UNLIKELY( read_uint_file( TOTAL_HUGE_PAGE_PATH[ i ], ERR_MSG )<total_pages+additional_pages_needed ) )
-        FD_LOG_ERR(( "ENOMEM-Failed to reserve enough %s pages in the kernel to run "
-                     "Firedancer. Your system is already using %u pages, has %u free "
-                     "pages, and needs %lu (%u more) pages to run Firedancer.  Attempting to "
-                     "reserve the required additional pages failed, which means you "
-                     "either do not have enough memory left on the system, or you "
-                     "have the memory but it is fragmented and could not be reserved "
-                     "in one block. Either increase the memory on your machine, or "
-                     "try to run the hugetlbfs stage after rebooting your system "
-                     "so that it can reserve pages before system memory is fragmented.",
-                     PAGE_NAMES[ i ], total_pages - free_pages, free_pages, required_pages[ i ], additional_pages_needed ));
+        FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer. You Firedancer configuration "
+                     "requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) pages "
+                     "but only %u %s pages were available according to `%s`. If your system has the required amount of memory, "
+                     "this can be because it is not configured with %s page support, or Firedancer cannot increase the value of "
+                     "`%s` at runtime. You might need to enable huge pages in grub at boot time. This error can also happen "
+                     "because system uptime is high and memory is fragmented. You can fix this by rebooting the machine and "
+                     "running the `hugetlbfs` stage immediately on boot.",
+                     PAGE_NAMES[ i ],
+                     required_pages[ 1 ] + (required_pages[ 0 ] / 512),
+                     required_pages[ 1 ],
+                     required_pages[ 0 ],
+                     free_pages,
+                     PAGE_NAMES[ i ],
+                     FREE_HUGE_PAGE_PATH[ i ],
+                     PAGE_NAMES[ i ],
+                     TOTAL_HUGE_PAGE_PATH[ i ] ));
     }
 
     mkdir_all( mount_path[ i ], config->uid, config->gid );
