@@ -395,7 +395,7 @@ MAP_(private_chain_const)( MAP_(private_t) const * map ) {
    in the caller's address space that will not be changed concurrently.
    Retains no interest in key on return. */
 
-FD_FN_CONST static inline ulong
+FD_FN_PURE static inline ulong
 MAP_(private_chain_idx)( MAP_KEY_T const * key,
                          ulong             seed,
                          ulong             chain_cnt ) {

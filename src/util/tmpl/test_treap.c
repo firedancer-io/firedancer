@@ -8,6 +8,8 @@ struct ele {
   CIDX_T left_cidx;
   CIDX_T right_cidx;
   CIDX_T prio_cidx;
+  CIDX_T prev_cidx;
+  CIDX_T next_cidx;
   VAL_T  val;
 };
 
@@ -30,6 +32,22 @@ typedef struct ele ele_t;
 #define TREAP_RIGHT      right_cidx
 #define TREAP_PRIO       prio_cidx
 #define TREAP_IMPL_STYLE 0
+#include "fd_treap.c"
+
+#define TREAP_NAME               lreap
+#define TREAP_T                  ele_t
+#define TREAP_QUERY_T            VAL_T
+#define TREAP_CMP(q,e)           (((int)(q)) - ((int)((e)->val)))
+#define TREAP_LT(e0,e1)          (((int)((e0)->val)) < ((int)((e1)->val)))
+#define TREAP_IDX_T              CIDX_T
+#define TREAP_PARENT             parent_cidx
+#define TREAP_LEFT               left_cidx
+#define TREAP_RIGHT              right_cidx
+#define TREAP_PRIO               prio_cidx
+#define TREAP_PREV               prev_cidx
+#define TREAP_NEXT               next_cidx
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_IMPL_STYLE         0
 #include "fd_treap.c"
 
 #define SCRATCH_ALIGN     (128UL)
@@ -65,80 +83,109 @@ typedef int(delfn_t)(int);
 static void
 test_iteration( delfn_t del ) {
   treap_t _treap[1];
+  lreap_t _lreap[1];
 
   /* Forward direction */
   if( 1 ) {
     treap_t * treap = treap_join( treap_new( _treap, 64UL ) );
-    ele_t * pool = pool_join( pool_new( scratch, 64UL ) );
+    lreap_t * lreap = lreap_join( lreap_new( _lreap, 64UL ) );
+    ele_t * pool1 = pool_join( pool_new( scratch,                          64UL ) );
+    ele_t * pool2 = pool_join( pool_new( scratch + pool_footprint( 64UL ), 64UL ) );
 
     for( ulong i=0UL; i<64UL; i++ ) {
-      ulong idx = pool_idx_acquire( pool );
-      pool[ idx ].val  = (schar)i;
-      pool[ idx ].prio_cidx = (uchar)(i^36UL);
-      treap_idx_insert( treap, idx, pool );
+      ulong idx1 = pool_idx_acquire( pool1 );      ulong idx2 = pool_idx_acquire( pool2 );
+      pool1[ idx1 ].val       = (schar)i;          pool2[ idx2 ].val = (schar)i;
+      pool1[ idx1 ].prio_cidx = (uchar)(i^36UL);   pool2[ idx2 ].prio_cidx = (uchar)(i^36UL);
+      treap_idx_insert( treap, idx1, pool1 );      lreap_idx_insert( lreap, idx2, pool2 );
     }
 
     ulong seen = 0UL; /* bitflag */
     int largest = -1;
     treap_fwd_iter_t next;
-    for( treap_fwd_iter_t iter = treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_done( iter ); iter = next ) {
-      next = treap_fwd_iter_next( iter, pool );
+    lreap_fwd_iter_t next2;
+    lreap_fwd_iter_t      iter2= lreap_fwd_iter_init( lreap, pool2 );
+    for( treap_fwd_iter_t iter = treap_fwd_iter_init( treap, pool1 ); !treap_fwd_iter_done( iter ); iter = next ) {
+      FD_TEST( iter==iter2 );
+      next  = treap_fwd_iter_next( iter,  pool1 );
+      next2 = lreap_fwd_iter_next( iter2, pool2 );
       int next_idx = treap_fwd_iter_done( next ) ? -2 : (int)treap_fwd_iter_idx( next );
 
-      int i = treap_fwd_iter_ele( iter, pool )->val;
+      int i = treap_fwd_iter_ele( iter, pool1 )->val;
 
       FD_TEST( !(seen & (1UL<<i)) );          seen |= (1UL<<i);
       FD_TEST( i>largest          );          largest = i;
 
       int delete_idx = del( i );
       if( delete_idx != -1 ) {
-        treap_idx_remove( treap, (ulong)delete_idx, pool );
+        treap_idx_remove( treap, (ulong)delete_idx, pool1 );
+        lreap_idx_remove( lreap, (ulong)delete_idx, pool2 );
         seen |= (1UL<<delete_idx);
       }
 
-      if( delete_idx == next_idx ) next = treap_fwd_iter_next( iter, pool );
+      if( FD_UNLIKELY( delete_idx==next_idx ) ) {
+        next  = treap_fwd_iter_next( iter,  pool1 );
+        next2 = lreap_fwd_iter_next( iter2, pool2 );
+      }
+      iter2 = next2;
+      FD_TEST( !treap_verify( treap, pool1 ) );
+      FD_TEST( !lreap_verify( lreap, pool2 ) );
     }
     FD_TEST( seen == ~0UL );
+    FD_TEST( lreap_fwd_iter_done( iter2 ) );
 
-    treap_delete( treap_leave( treap ) );
-    pool_delete ( pool_leave ( pool  ) );
+    treap_delete( treap_leave( treap ) );      lreap_delete( lreap_leave( lreap ) );
+    pool_delete ( pool_leave ( pool1 ) );      pool_delete ( pool_leave ( pool2 ) );
   }
 
   if( 1 ) {
     treap_t * treap = treap_join( treap_new( _treap, 64UL ) );
-    ele_t * pool = pool_join( pool_new( scratch, 64UL ) );
+    lreap_t * lreap = lreap_join( lreap_new( _lreap, 64UL ) );
+    ele_t * pool1 = pool_join( pool_new( scratch,                          64UL ) );
+    ele_t * pool2 = pool_join( pool_new( scratch + pool_footprint( 64UL ), 64UL ) );
 
     for( ulong i=0UL; i<64UL; i++ ) {
-      ulong idx = pool_idx_acquire( pool );
-      pool[ idx ].val  = (schar)i;
-      pool[ idx ].prio_cidx = (uchar)(i^36UL);
-      treap_idx_insert( treap, idx, pool );
+      ulong idx1 = pool_idx_acquire( pool1 );       ulong idx2 = pool_idx_acquire( pool2 );
+      pool1[ idx1 ].val       = (schar)i;           pool2[ idx2 ].val = (schar)i;
+      pool1[ idx1 ].prio_cidx = (uchar)(i^36UL);    pool2[ idx2 ].prio_cidx = (uchar)(i^36UL);
+      treap_idx_insert( treap, idx1, pool1 );       lreap_idx_insert( lreap, idx2, pool2 );
     }
 
     ulong seen = 0UL; /* bitflag */
     int smallest = 64;
     treap_rev_iter_t prev;
-    for( treap_rev_iter_t iter = treap_rev_iter_init( treap, pool ); !treap_rev_iter_done( iter ); iter = prev ) {
-      prev = treap_rev_iter_next( iter, pool );
+    lreap_rev_iter_t prev2;
+
+    lreap_rev_iter_t      iter2= lreap_rev_iter_init( lreap, pool2 );
+    for( treap_rev_iter_t iter = treap_rev_iter_init( treap, pool1 ); !treap_rev_iter_done( iter ); iter = prev ) {
+      FD_TEST( iter==iter2 );
+      prev  = treap_rev_iter_next( iter,  pool1 );
+      prev2 = lreap_rev_iter_next( iter2, pool2 );
       int prev_idx = treap_rev_iter_done( prev ) ? -2 : (int)treap_rev_iter_idx( prev );
 
-      int i = treap_rev_iter_ele( iter, pool )->val;
+      int i = treap_rev_iter_ele( iter, pool1 )->val;
 
       FD_TEST( !(seen & (1UL<<i)) );          seen |= (1UL<<i);
       FD_TEST( i<smallest         );          smallest = i;
 
       int delete_idx = del( i );
       if( delete_idx != -1 ) {
-        treap_idx_remove( treap, (ulong)delete_idx, pool );
+        treap_idx_remove( treap, (ulong)delete_idx, pool1 );
+        lreap_idx_remove( lreap, (ulong)delete_idx, pool2 );
         seen |= (1UL<<delete_idx);
       }
 
-      if( delete_idx == prev_idx ) prev = treap_rev_iter_next( iter, pool );
+      if( FD_UNLIKELY( delete_idx==prev_idx ) ) {
+        prev  = treap_rev_iter_next( iter,  pool1 );
+        prev2 = lreap_rev_iter_next( iter2, pool2 );
+      }
+      iter2 = prev2;
+      FD_TEST( !treap_verify( treap, pool1 ) );
+      FD_TEST( !lreap_verify( lreap, pool2 ) );
     }
     FD_TEST( seen == ~0UL );
 
-    treap_delete( treap_leave( treap ) );
-    pool_delete ( pool_leave ( pool  ) );
+    treap_delete( treap_leave( treap ) );      lreap_delete( lreap_leave( lreap ) );
+    pool_delete ( pool_leave ( pool1 ) );      pool_delete ( pool_leave ( pool2 ) );
   }
 }
 
@@ -173,37 +220,72 @@ test_iteration_all( void ) {
   test_iteration( del_fn_5    );
 }
 
+static treap_t *
+lreap_to_treap( lreap_t * in,
+                treap_t * out ) {
+  /* This exploits the fact that a lreap is also a valid treap if you
+     just forget about the first and last pointers. */
+  out->ele_max = in->ele_max;
+  out->ele_cnt = in->ele_cnt;
+  out->root    = in->root;
+  return out;
+}
+
 static void
-test_merge( fd_rng_t * rng ) {
-  treap_t _treap[2];
+test_merge( fd_rng_t * rng, int optimize_iteration ) {
+#define MERGE_VERIFY_AND_CLEAR()  do {                                        \
+    if( optimize_iteration ) {                                                \
+      FD_TEST( !lreap_verify( a, pool ) );                                    \
+      FD_TEST( !lreap_verify( b, pool ) );                                    \
+                                                                              \
+      lreap_t * merged = lreap_merge( a, b, pool );                           \
+                                                                              \
+      FD_TEST( merged==a );                                                   \
+      FD_TEST( lreap_ele_cnt( a )==ele_max );                                 \
+      FD_TEST( lreap_ele_cnt( b )==0UL     );                                 \
+      FD_TEST( !lreap_verify( merged, pool ) );                               \
+      for( ulong j=0UL; j<ele_max; j++ ) lreap_idx_remove( merged, j, pool ); \
+    } else {                                                                  \
+      treap_t _converted[2];                                                  \
+      treap_t * c_a = lreap_to_treap( a, _converted+0 );                      \
+      treap_t * c_b = lreap_to_treap( b, _converted+1 );                      \
+                                                                              \
+      treap_t * merged = treap_merge( c_a, c_b, pool );                       \
+                                                                              \
+      FD_TEST( merged==c_a );                                                 \
+      FD_TEST( treap_ele_cnt( c_a )==ele_max );                               \
+      FD_TEST( treap_ele_cnt( c_b )==0UL     );                               \
+      FD_TEST( !treap_verify( merged, pool ) );                               \
+      for( ulong j=0UL; j<ele_max; j++ ) treap_idx_remove( merged, j, pool ); \
+      /* c_a and c_b are both empty, so propogate back to a, b */             \
+      lreap_join( lreap_new( lreap_delete( lreap_leave( a ) ), ele_max ) );   \
+      lreap_join( lreap_new( lreap_delete( lreap_leave( b ) ), ele_max ) );   \
+    }                                                                         \
+  } while( 0 )
+
+  lreap_t _treap[2];
   ulong ele_max = 254UL;
 
   ele_t * pool = pool_join( pool_new( scratch,   ele_max ) );
-  treap_t * a = treap_join( treap_new( _treap+0, ele_max ) );
-  treap_t * b = treap_join( treap_new( _treap+1, ele_max ) );
+  lreap_t * a = lreap_join( lreap_new( _treap+0, ele_max ) );
+  lreap_t * b = lreap_join( lreap_new( _treap+1, ele_max ) );
 
   fd_asan_poison( pool+ele_max, (ulong)((scratch+SCRATCH_FOOTPRINT) - (uchar*)(pool+ele_max)) );
   for( ulong i=0UL; i<=ele_max; i++ ) {
-    treap_seed( pool, ele_max, i );
+    lreap_seed( pool, ele_max, i );
 
     /* [0, i) in a, [i, ele_max) in b */
     for( ulong j=0UL; j<ele_max; j++ ) {
       ulong idx = pool_idx_acquire( pool );
       pool[ idx ].val = (schar)j;
-      treap_idx_insert( j<i?a:b, idx, pool );
+      lreap_idx_insert( j<i?a:b, idx, pool );
     }
-    FD_TEST( treap_ele_cnt( a )==i         );
-    FD_TEST( treap_ele_cnt( b )==ele_max-i );
+    FD_TEST( lreap_ele_cnt( a )==i         );
+    FD_TEST( lreap_ele_cnt( b )==ele_max-i );
 
-    treap_t * merged = treap_merge( a, b, pool );
-
-    FD_TEST( merged==a );
-    FD_TEST( treap_ele_cnt( a )==ele_max );
-    FD_TEST( treap_ele_cnt( b )==0UL     );
-    FD_TEST( !treap_verify( merged, pool ) );
+    MERGE_VERIFY_AND_CLEAR();
 
     for( ulong j=0UL; j<ele_max; j++ ) {
-      treap_idx_remove( merged, j, pool );
       pool_idx_release( pool, j );
     }
   }
@@ -215,15 +297,12 @@ test_merge( fd_rng_t * rng ) {
     for( ulong j=0UL; j<ele_max; j++ ) {
       ulong idx = pool_idx_acquire( pool );
       pool[ idx ].val = (schar)j;
-      treap_idx_insert( fd_rng_uint_roll( rng, 2U )?a:b, idx, pool );
+      lreap_idx_insert( fd_rng_uint_roll( rng, 2U )?a:b, idx, pool );
     }
-    treap_t * merged = treap_merge( a, b, pool );
 
-    FD_TEST( treap_ele_cnt( merged )==ele_max );
-    FD_TEST( !treap_verify( merged, pool ) );
+    MERGE_VERIFY_AND_CLEAR();
 
     for( ulong j=0UL; j<ele_max; j++ ) {
-      treap_idx_remove( merged, j, pool );
       pool_idx_release( pool, j );
     }
   }
@@ -234,24 +313,22 @@ test_merge( fd_rng_t * rng ) {
       ulong idx = pool_idx_acquire( pool );
       pool[ idx ].val = (schar)j;
       pool[ idx ].prio_cidx = (uchar)( (long)(schar)j + 128L );
-      treap_idx_insert( fd_rng_uint_roll( rng, 4U )?a:b, idx, pool );
+      lreap_idx_insert( fd_rng_uint_roll( rng, 4U )?a:b, idx, pool );
     }
-    treap_t * merged = treap_merge( a, b, pool );
-
-    FD_TEST( treap_ele_cnt( merged )==ele_max );
-    FD_TEST( !treap_verify( merged, pool ) );
+    MERGE_VERIFY_AND_CLEAR();
 
     for( ulong j=0UL; j<ele_max; j++ ) {
-      treap_idx_remove( merged, j, pool );
       pool_idx_release( pool, j );
     }
   }
+#undef MERGE_VERIFY_AND_CLEAR
 
   fd_asan_unpoison( pool+ele_max, (ulong)((scratch+SCRATCH_FOOTPRINT) - (uchar*)(pool+ele_max)) );
-  treap_delete( treap_leave( a    ) );
-  treap_delete( treap_leave( b    ) );
+  lreap_delete( lreap_leave( a    ) );
+  lreap_delete( lreap_leave( b    ) );
   pool_delete ( pool_leave ( pool ) );
 }
+
 
 
 int
@@ -454,7 +531,8 @@ main( int     argc,
 
   pool_delete( pool_leave( pool ) );
 
-  test_merge( rng );
+  test_merge( rng, 1 );
+  test_merge( rng, 0 );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

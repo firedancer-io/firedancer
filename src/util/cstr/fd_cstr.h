@@ -141,6 +141,21 @@ fd_cstr_printf( char *       buf,
                 ulong *      opt_len,
                 char const * fmt, ... ) __attribute__((format(printf,4,5)));
 
+/* fd_cstr_printf_check is the same as fd_cstr_printf except that it
+   returns 1 if the entire cstr, including the NUL terminating
+   character was written to buf and 0 otherwise.
+
+   If the cstr was truncated, or there was an error in the printf
+   formatting process, 0 will be returned.  Otherwise, on success, 1
+   will be returned.  If zero bytes are written to buf because the
+   format string is empty, the return value will be 1. */
+
+int
+fd_cstr_printf_check( char *       buf,
+                      ulong        sz,
+                      ulong *      opt_len,
+                      char const * fmt, ... ) __attribute__((format(printf,4,5)));
+
 /* fd_cstr_init start writing a cstr into buf.  Returns where the first
    character of the cstr should be written (==buf). */
 

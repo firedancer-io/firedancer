@@ -60,7 +60,7 @@
    already mapped code pages.
 
    Typically the only things are process will need to do while
-   privileged are read files and map memory. 
+   privileged are read files and map memory.
 
    Calling fd_sandbox will do each of the following, in order,
 
@@ -118,6 +118,7 @@
     * Finally, a seccomp filter is installed which restricts which
       syscalls are allowed, and their arguments, to a list provided by
       the user. */
+
 void
 fd_sandbox( int                  full_sandbox,
             uint                 uid,
@@ -141,9 +142,32 @@ fd_sandbox( int                  full_sandbox,
    U [4096*page_cnt, 4096*(page_cnt+guard_page_cnt) ) will cause a
    SIGSEGV.  For current use cases, there's no use in freeing the pages
    allocated by this function, so no free function is provided. */
+
 void *
 fd_sandbox_alloc_protected_pages( ulong page_cnt,
                                   ulong guard_page_cnt );
+
+/* fd_sandbox_getpid retrieves the PID of the calling process.  This
+   is the "true" PID as it appears to the system, and is not affected
+   by any PID namespace the process is in.
+
+   This is retrieved by reading the value of /proc/self. The calling
+   process will be terminated with an error if the file cannot be read
+   or is malformed. */
+
+ulong
+fd_sandbox_getpid( void );
+
+/* fd_sandbox_gettid retrieves the TID of the calling process.  This
+   is the "true" TID as it appears to the system, and is not affected
+   by any PID namespace the process is in.
+
+   This is retrieved by reading the value of /proc/thread-self. The
+   calling process will be terminated with an error if the file cannot
+   be read or is malformed. */
+
+ulong
+fd_sandbox_gettid( void );
 
 #endif /* FD_HAS_HOSTED */
 #endif /* FD_HAS_FFI */

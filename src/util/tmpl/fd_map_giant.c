@@ -443,7 +443,7 @@ MAP_(iter_init)( MAP_T const * join ) {
   return ele_rem;
 }
 
-FD_FN_PURE static inline int
+FD_FN_CONST static inline int
 MAP_(iter_done)( MAP_T const * join,
                  MAP_(iter_t)  ele_rem ) {
   (void)join;
@@ -856,7 +856,7 @@ MAP_(query2)( MAP_T *           join,
     if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break; /* optimize for found */
     MAP_T * ele = join + ele_idx;
     if( FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) return ele; /* optimize for found */
-    cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
+    cur = &ele->MAP_NEXT;
   }
 
   /* Not found */

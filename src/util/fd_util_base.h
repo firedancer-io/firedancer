@@ -613,9 +613,11 @@ fd_type_pun_const( void const * p ) {
 /* FD_FN_SENSITIVE instruments the compiler to sanitize sensitive functions.
    https://eprint.iacr.org/2023/1713 (Sec 3.2)
    - Clear all registers with __attribute__((zero_call_used_regs("all")))
-   - TODO: clear stack with __attribute__((strub)) -- available in gcc 14+ */
+   - Clear stack with __attribute__((strub)), available in gcc 14+ */
 
-#if __has_attribute(zero_call_used_regs)
+#if __has_attribute(strub)
+#define FD_FN_SENSITIVE __attribute__((strub)) __attribute__((zero_call_used_regs("all")))
+#elif __has_attribute(zero_call_used_regs)
 #define FD_FN_SENSITIVE __attribute__((zero_call_used_regs("all")))
 #else
 #define FD_FN_SENSITIVE
