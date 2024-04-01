@@ -14,3 +14,5 @@ fd_cpuset_setaffinity( ulong               pid,
                        fd_cpuset_t const * mask ) {
   return sched_setaffinity( (int)pid, fd_cpuset_word_cnt<<3, (cpu_set_t const *)fd_type_pun_const( mask ) );
 }
+
+volatile int fd_tile_shutdown_flag = 0;

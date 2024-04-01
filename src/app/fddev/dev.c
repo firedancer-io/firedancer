@@ -60,14 +60,16 @@ parent_signal( int sig ) {
   if( FD_LIKELY( monitor_pid ) )    kill( monitor_pid, SIGKILL );
 
   /* Same hack as in run.c, see comments there. */
+  int * oldlock = fd_log_private_shared_lock;
   int lock = 0;
   fd_log_private_shared_lock = &lock;
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT  );
-  else                           exit_group( 128+SIGTERM );
+  fd_log_private_shared_lock = oldlock;
+
+  fd_tile_shutdown_flag = 1;
 }
 
 static void
@@ -196,6 +198,7 @@ run_firedancer_threaded( config_t * config ) {
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   pthread_t threads[ FD_TOPO_MAX_TILES+1UL ];
+  fd_memset( threads, 0, sizeof(threads) );
   tile_main_args_t args[ FD_TOPO_MAX_TILES ];
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
@@ -257,14 +260,16 @@ run_firedancer_threaded( config_t * config ) {
   }
 
   for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
-    if( FD_UNLIKELY( pthread_join( threads[ i ], NULL ) ) ) FD_LOG_ERR(( "pthread_join() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( threads[i] != 0 )
+      if( FD_UNLIKELY( pthread_join( threads[ i ], NULL ) ) ) FD_LOG_WARNING(( "pthread_join() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   if( FD_LIKELY( !config->development.no_solana_labs ) ) {
-    if( FD_UNLIKELY( pthread_join( threads[ config->topo.tile_cnt ], NULL ) ) ) FD_LOG_ERR(( "pthread_join() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( pthread_join( threads[ config->topo.tile_cnt ], NULL ) ) ) FD_LOG_WARNING(( "pthread_join() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  FD_LOG_ERR(( "all threads have exited unexpectedly" ));
+  if( !fd_tile_shutdown_flag )
+    FD_LOG_ERR(( "all threads have exited unexpectedly" ));
 }
 
 void

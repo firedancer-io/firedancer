@@ -1188,6 +1188,7 @@ unprivileged_init( fd_topo_t *      topo,
   for(;;) {
     if( FD_LIKELY( FD_VOLATILE_CONST( fd_poh_waiting_lock ) ) ) break;
     FD_SPIN_PAUSE();
+    if( FD_UNLIKELY( fd_tile_shutdown_flag ) ) return;
   }
   FD_VOLATILE( fd_poh_waiting_lock ) = 0UL;
   FD_VOLATILE( fd_poh_returned_lock ) = 1UL;

@@ -377,7 +377,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
   fd_cnc_signal( cnc, FD_CNC_SIGNAL_RUN );
   long then = fd_tickcount();
   long now  = then;
-  for(;;) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
 
     /* Do housekeeping at a low rate in the background */
 

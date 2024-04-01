@@ -315,7 +315,6 @@ fd_tvu_create_socket( fd_gossip_peer_addr_t * addr ) {
 }
 
 struct fd_turbine_thread_args {
-  volatile int * stopflag;
   int            tvu_fd;
   fd_replay_t *  replay;
 };
@@ -323,7 +322,6 @@ struct fd_turbine_thread_args {
 static int fd_turbine_thread( int argc, char ** argv );
 
 struct fd_repair_thread_args {
-  volatile int * stopflag;
   int            repair_fd;
   fd_replay_t *  replay;
 };
@@ -331,7 +329,6 @@ struct fd_repair_thread_args {
 static int fd_repair_thread( int argc, char ** argv );
 
 struct fd_gossip_thread_args {
-  volatile int * stopflag;
   int            gossip_fd;
   fd_replay_t *  replay;
 };
@@ -401,21 +398,21 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
   /* FIXME: replace with real tile */
   struct fd_turbine_thread_args ttarg =
-    { .stopflag = &runtime_ctx->stopflag, .tvu_fd = tvu_fd, .replay = replay };
+    { .tvu_fd = tvu_fd, .replay = replay };
   fd_tile_exec_t * tile = fd_tile_exec_new( 1, fd_turbine_thread, 0, (char**)&ttarg );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating turbine thread" ) );
 
   /* FIXME: replace with real tile */
   struct fd_repair_thread_args reparg =
-    { .stopflag = &runtime_ctx->stopflag, .repair_fd = repair_fd, .replay = replay };
+    { .repair_fd = repair_fd, .replay = replay };
   tile = fd_tile_exec_new( 2, fd_repair_thread, 0, (char**)&reparg );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread:" ) );
 
   /* FIXME: replace with real tile */
   struct fd_gossip_thread_args gosarg =
-    { .stopflag = &runtime_ctx->stopflag, .gossip_fd = gossip_fd, .replay = replay };
+    { .gossip_fd = gossip_fd, .replay = replay };
   tile = fd_tile_exec_new( 3, fd_gossip_thread, 0, (char**)&gosarg );
   if( tile == NULL )
     FD_LOG_ERR( ( "error creating repair thread" ) );
@@ -437,6 +434,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
     while( replay->first_turbine_slot == FD_SLOT_NULL ){
       struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)1e6 };
       nanosleep(&ts, NULL);
+      if( fd_tile_shutdown_flag ) goto shutdown;
     }
     slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot );
     runtime_ctx->need_incr_snap = 0;
@@ -444,7 +442,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
 
   long last_call  = fd_log_wallclock();
   long last_stats = last_call;
-  while( !runtime_ctx->stopflag ) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
 
     /* Housekeeping */
     long now = fd_log_wallclock();
@@ -477,6 +475,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       fd_solcap_writer_flush( runtime_ctx->capture_ctx->capture );
   }
 
+ shutdown:
   close( gossip_fd );
   close( repair_fd );
   close( tvu_fd );
@@ -500,7 +499,6 @@ static int
 fd_turbine_thread( int argc, char ** argv ) {
   (void)argc;
   struct fd_turbine_thread_args * args = (struct fd_turbine_thread_args *)argv;
-  volatile int * stopflag = args->stopflag;
   int tvu_fd = args->tvu_fd;
 
   fd_tvu_setup_scratch( args->replay->valloc );
@@ -520,7 +518,7 @@ fd_turbine_thread( int argc, char ** argv ) {
     msgs[i].msg_hdr.msg_name    = sockaddrs[i];                                                    \
     msgs[i].msg_hdr.msg_namelen = sizeof( struct sockaddr_in6 );                                   \
   }
-  while( !*stopflag ) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
     CLEAR_MSGS;
     int tvu_rc = recvmmsg( tvu_fd, msgs, VLEN, MSG_DONTWAIT, NULL );
     if( tvu_rc < 0 ) {
@@ -543,7 +541,6 @@ static int
 fd_repair_thread( int argc, char ** argv ) {
   (void)argc;
   struct fd_repair_thread_args * args = (struct fd_repair_thread_args *)argv;
-  volatile int * stopflag = args->stopflag;
   int repair_fd = args->repair_fd;
   fd_repair_t * repair = args->replay->repair;
 
@@ -553,7 +550,7 @@ fd_repair_thread( int argc, char ** argv ) {
   struct iovec   iovecs[VLEN];
   uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
-  while( !*stopflag ) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
     long now = fd_log_wallclock();
     fd_repair_settime( repair, now );
 
@@ -582,7 +579,6 @@ static int
 fd_gossip_thread( int argc, char ** argv ) {
   (void)argc;
   struct fd_gossip_thread_args * args = (struct fd_gossip_thread_args *)argv;
-  volatile int * stopflag = args->stopflag;
   int gossip_fd = args->gossip_fd;
   fd_gossip_t * gossip = args->replay->gossip;
 
@@ -592,7 +588,7 @@ fd_gossip_thread( int argc, char ** argv ) {
   struct iovec   iovecs[VLEN];
   uchar          bufs[VLEN][FD_ETH_PAYLOAD_MAX];
   uchar sockaddrs[VLEN][sizeof( struct sockaddr_in6 )]; /* sockaddr is smaller than sockaddr_in6 */
-  while( !*stopflag ) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
     long now = fd_log_wallclock();
     fd_gossip_settime( gossip, now );
 

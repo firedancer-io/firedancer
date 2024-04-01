@@ -66,7 +66,6 @@ struct fd_runtime_ctx {
   int                   live;
   fd_gossip_t *         gossip;
   fd_repair_t *         repair;
-  volatile int          stopflag;
   volatile int          need_incr_snap;
 
   // random crap

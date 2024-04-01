@@ -150,5 +150,8 @@ main( int     argc,
   /* run the command */
   action->fn( &args, &config );
 
+  if( fd_tile_shutdown_flag > 1 )
+    return -1; /* Abnormal exit */
+  
   return 0;
 }

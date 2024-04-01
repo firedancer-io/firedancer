@@ -119,9 +119,11 @@ tile_main( void * _args ) {
 
   FD_MGAUGE_SET( TILE, PID, pid );
 
-  if( FD_UNLIKELY( config->unprivileged_init ) )
+  if( FD_UNLIKELY( config->unprivileged_init ) ) {
     config->unprivileged_init( &args->config->topo, tile, scratch_mem );
-
+    if( FD_UNLIKELY( fd_tile_shutdown_flag ) ) return 0;
+  }
+  
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -206,7 +208,8 @@ tile_main( void * _args ) {
                  ctx,
                  &callbacks );
   }
-  FD_LOG_ERR(( "tile run loop returned" ));
+  if( FD_UNLIKELY( !fd_tile_shutdown_flag ) )
+    FD_LOG_ERR(( "tile run loop returned" ));
   return 0;
 }
 

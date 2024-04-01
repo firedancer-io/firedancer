@@ -170,6 +170,8 @@ fd_tile_private_boot( ushort * tile_to_cpu, ulong tile_cnt );
 void
 fd_tile_private_halt( void );
 
+extern volatile int fd_tile_shutdown_flag;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_tile_fd_tile_h */

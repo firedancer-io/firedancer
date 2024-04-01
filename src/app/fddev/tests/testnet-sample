@@ -13,6 +13,13 @@ echo "topology = \"tvu\"
   load = \"/data/asiegel/test_backup\"
   rpc_listen_port = 8123
   page_cnt = 200
+  solcap_path = \"fddev.solcap\"
+[log]
+  path = \"fddev.log\"
+  level_stderr = \"NOTICE\"
+  level_logfile = \"NOTICE\"
 " > testnet.toml
+
+rm -f fddev.solcap fddev.log
 
 build/native/gcc/bin/fddev --no-clone --no-sandbox --no-solana-labs --config $(readlink -f testnet.toml)

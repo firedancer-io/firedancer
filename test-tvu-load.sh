@@ -9,8 +9,8 @@ TMPDIR=$(mktemp --directory --tmpdir="$HOME" tmp-test-tvu-fddev.XXXXXX)
 cd $TMPDIR
 
 cleanup() {
-  sudo killall solana-validator || true
-  sudo killall fddev || true
+  sudo killall -9 -q solana-validator || true
+  sudo killall -9 -q fddev || true
   fddev configure fini all >/dev/null 2>&1 || true
   rm -rf "$TMPDIR"
 }
@@ -20,8 +20,8 @@ trap cleanup EXIT SIGINT SIGTERM
 SOLANA_BIN_DIR="$HOME/code/solana/target/release"
 FD_DIR=$SCRIPT_DIR
 
-sudo killall fddev || true
-sudo killall solana-validator || true
+sudo killall -9 -q fddev || true
+sudo killall -9 -q solana-validator || true
 
 # if solana is not on path then use the one in the home directory
 if ! command -v solana > /dev/null; then
@@ -111,11 +111,14 @@ echo "[tiles.tvu]
   validate_snapshot = \"true\"
   check_hash = \"true\"
   solcap_path = \"fddev.solcap\"
+[log]
+  path = \"fddev.log\"
+  level_stderr = \"NOTICE\"
 " > fddev.toml
 
-trap - EXIT SIGINT SIGTERM
-timeout --foreground --signal=KILL 90 fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) >/dev/null 2>&1 || true
-trap cleanup EXIT SIGINT SIGTERM
+fddev --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) &
+sleep 120
+
 grep -q "evaluated block successfully" $(readlink -f fddev.log)
 if grep -q "Bank hash mismatch" $(readlink -f fddev.log); then
   echo "*** BANK HASH MISMATCH ***"

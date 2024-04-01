@@ -111,6 +111,7 @@ unprivileged_init( fd_topo_t *      topo,
   for(;;) {
     if( FD_LIKELY( FD_VOLATILE_CONST( fd_ext_blockstore ) ) ) break;
     FD_SPIN_PAUSE();
+    if( FD_UNLIKELY( fd_tile_shutdown_flag ) ) return;
   }
   FD_COMPILER_MFENCE();
   FD_LOG_NOTICE(( "Got blockstore" ));

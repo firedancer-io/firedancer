@@ -502,6 +502,9 @@ doit( void ) {
                    slot_ctx ) ) {
     return 1;
   }
+
+  fd_tvu_main_teardown( &runtime_ctx, replay );
+  
   return 0;
 }
 

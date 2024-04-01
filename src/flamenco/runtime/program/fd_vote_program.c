@@ -2761,6 +2761,11 @@ fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t 
                           slot,
                           bank_match->ours.hash,
                           bank_match->theirs.hash ) );
+        static unsigned fail_cnt = 0;
+        if( ++fail_cnt >= 5U ) {
+          FD_LOG_WARNING( ( "Too many mismatches, shutting down!" ) );
+          fd_tile_shutdown_flag = 2;
+        }
       } else {
         FD_LOG_NOTICE( ( "Bank hashes matched on slot: %lu. ours: %32J, theirs: %32J",
                          slot,

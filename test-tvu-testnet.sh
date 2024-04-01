@@ -32,6 +32,10 @@ echo "[tiles.tvu]
   validate_snapshot = \"true\"
   check_hash = \"true\"
   solcap_path = \"fddev.solcap\"
+[log]
+  path = \"fddev.log\"
+  level_stderr = \"NOTICE\"
+  level_logfile = \"NOTICE\"
 " > fddev.toml
 
 cp "$SCRIPT_DIR/shenanigans.sh" .

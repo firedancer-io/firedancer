@@ -50,7 +50,7 @@ fd_tpool_private_worker( int     argc,
   FD_VOLATILE( fd_tpool_private_worker( tpool )[ worker_idx ] ) = worker;
   FD_COMPILER_MFENCE();
 
-  for(;;) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
 
     /* We are IDLE ... see what we should do next */
 
@@ -247,7 +247,7 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
   }
 
   fd_tpool_private_worker_t * worker   = fd_tpool_private_worker( tpool )[ worker_cnt-1UL ];
-  fd_tile_exec_t *            exec     = fd_tile_exec( worker->tile_idx );
+  fd_tile_exec_t *            exec     = ( worker->tile_idx < FD_TILE_MAX ? fd_tile_exec( worker->tile_idx ) : NULL );
   int volatile *              vstate   = (int volatile *)&(worker->state);
   int                         state;
 
@@ -283,10 +283,12 @@ fd_tpool_worker_pop( fd_tpool_t * tpool ) {
 
   /* Wait for the worker to shutdown */
 
-  int          ret;
-  char const * err = fd_tile_exec_delete( exec, &ret );
-  if(      FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "tile err \"%s\" unexpected; attempting to continue", err ));
-  else if( FD_UNLIKELY( ret ) ) FD_LOG_WARNING(( "tile ret %i unexpected; attempting to continue", ret ));
+  if( exec ) {
+    int          ret;
+    char const * err = fd_tile_exec_delete( exec, &ret );
+    if(      FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "tile err \"%s\" unexpected; attempting to continue", err ));
+    else if( FD_UNLIKELY( ret ) ) FD_LOG_WARNING(( "tile ret %i unexpected; attempting to continue", ret ));
+  }
 
   tpool->worker_cnt = worker_cnt-1UL;
   return tpool;
