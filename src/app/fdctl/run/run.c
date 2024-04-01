@@ -127,14 +127,14 @@ execve_tile( fd_topo_tile_t * tile,
   }
 
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-    FD_LOG_WARNING(( "unable to pin tile to cpu with fd_cpuset_setaffinity (%i-%s). "
-                     "Unable to set the thread affinity for tile %lu on cpu %lu. Attempting to "
-                     "continue without explicitly specifying this cpu's thread affinity but it "
-                     "is likely this thread group's performance and stability are compromised "
-                     "(possibly catastrophically so). Update [layout.affinity] in the configuration "
-                     "to specify a set of allowed cpus that have been reserved for this thread "
-                     "group on this host to eliminate this warning.",
-                     errno, fd_io_strerror( errno ), tile->id, tile->cpu_idx ));
+    if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_ERR(( "Unable to set the thread affinity for tile %s:%lu on cpu %lu. It is likely that the affinity "
+                   "you have specified for this tile in [layout.affinity] of your configuration file contains a "
+                   "CPU (%lu) which does not exist on this machine.",
+                   tile->name, tile->kind_id, tile->cpu_idx, tile->cpu_idx ));
+    } else {
+      FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   /* Clear CLOEXEC on the side of the pipe we want to pass to the tile. */

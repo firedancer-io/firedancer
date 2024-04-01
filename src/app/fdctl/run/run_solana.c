@@ -149,15 +149,24 @@ solana_labs_boot( config_t * config ) {
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  ushort solana_labs_cpu[ FD_TILE_MAX ];
-  ulong labs_cpu_cnt = fd_tile_private_cpus_parse( config->layout.solana_labs_affinity, solana_labs_cpu );
-  FD_CPUSET_DECL( cpu_set );
-  for( ulong i=0UL; i<labs_cpu_cnt; i++ ) {
-    fd_cpuset_insert( cpu_set, solana_labs_cpu[ i ] );
-  }
+  if( FD_LIKELY( strcmp( "", config->layout.solana_labs_affinity ) ) ) {
+    ushort solana_labs_cpu[ FD_TILE_MAX ];
+    ulong labs_cpu_cnt = fd_tile_private_cpus_parse( config->layout.solana_labs_affinity, solana_labs_cpu );
+    FD_CPUSET_DECL( cpu_set );
+    for( ulong i=0UL; i<labs_cpu_cnt; i++ ) {
+      fd_cpuset_insert( cpu_set, solana_labs_cpu[ i ] );
+    }
 
-  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) )
-    FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+      if( FD_LIKELY( errno==EINVAL ) ) {
+        FD_LOG_ERR(( "Unable to set the affinity for threads created by Solana Labs. It is likely "
+                     "that the affinity you have specified for Solana Labs under [layout.solana_labs_affinity] "
+                     "in the configuration file contains CPUs which do not exist on this machine." ));
+      } else {
+        FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
 
   /* Consensus-breaking development-only CU and/or shred limit increase. */
   _fd_ext_larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;

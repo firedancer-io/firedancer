@@ -308,7 +308,16 @@ run_tile_thread( fd_topo_t *         topo,
     if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, floating_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+    if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_ERR(( "Unable to set the thread affinity for tile %s:%lu on cpu %lu. It is likely that the affinity "
+                   "you have specified for this tile in [layout.affinity] of your configuration file contains a "
+                   "CPU (%lu) which does not exist on this machine.",
+                   tile->name, tile->kind_id, tile->cpu_idx, tile->cpu_idx ));
+    } else {
+      FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 
   fd_topo_run_thread_args_t args = {
     .topo       = topo,
