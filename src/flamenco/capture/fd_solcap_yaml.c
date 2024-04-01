@@ -4,7 +4,7 @@
 #include "fd_solcap.pb.h"
 #include "../nanopb/pb_decode.h"
 #include "../../util/textstream/fd_textstream.h"
-
+#include "../runtime/fd_executor.h"
 #include <errno.h>
 #include <stdio.h>
 
@@ -428,27 +428,35 @@ if ( verbose < 3 )
 
   printf(
     "    - txn_sig:        '%64J'\n"
-    "      txn_err:         %d\n",
+    "      txn_err:         %d\n"
+    "      cus_used:        %lu\n",
     meta.txn_sig,
-    meta.fd_txn_err );
+    meta.fd_txn_err,
+    meta.fd_cus_used );
 
-  if ( verbose >= 4 ) {
-    printf(
-      "      custom_err:      %u\n"
-      "      solana_txn_err:  %d\n"
-      "      cus_used:        %lu\n"
-      "      solana_cus_used: %lu\n"
-      "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
-      "      solscan:        'https://solscan.io/tx/%64J'\n"
-      "      solanafm:       'https://solana.fm/tx/%64J'\n",
-      meta.fd_custom_err,
-      meta.solana_txn_err,
-      meta.fd_cus_used,
-      meta.solana_cus_used,
-      meta.txn_sig,
-      meta.txn_sig,
-      meta.txn_sig );
+  /* Only print custom error if it has been set*/
+  if ( meta.fd_txn_err == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR) {
+    printf( "      custom_err:      %u\n", meta.fd_custom_err );
   }
+
+  if ( verbose < 4 )
+    return meta.slot;
+
+  if ( meta.solana_txn_err != ULONG_MAX || meta.solana_cus_used != ULONG_MAX ) {
+    printf(
+      "      solana_txn_err:  %d\n"
+      "      solana_cus_used: %lu\n",
+      meta.solana_txn_err,
+      meta.solana_cus_used );
+  }
+
+  printf(
+    "      explorer:       'https://explorer.solana.com/tx/%64J'\n"
+    "      solscan:        'https://solscan.io/tx/%64J'\n"
+    "      solanafm:       'https://solana.fm/tx/%64J'\n",
+    meta.txn_sig,
+    meta.txn_sig,
+    meta.txn_sig );
 
   return meta.slot;
 }

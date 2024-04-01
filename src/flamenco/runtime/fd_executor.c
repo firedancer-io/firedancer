@@ -594,15 +594,15 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       int ret = fd_cap_transaction_accounts_data_size( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
       if ( ret != FD_EXECUTOR_INSTR_SUCCESS ) {
         fd_funk_txn_cancel(txn_ctx->acc_mgr->funk, txn_ctx->funk_txn, 0);
-        return -1;
+        return ret;
       }
     }
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
       ret = fd_sysvar_instructions_serialize_account( txn_ctx, instrs, txn_ctx->txn_descriptor->instr_cnt );
       if( ret != FD_ACC_MGR_SUCCESS ) {
-        FD_LOG_ERR(( "sysvar instrutions failed to serialize" ));
-        return -1;
+        FD_LOG_WARNING(( "sysvar instrutions failed to serialize" ));
+        return ret;
       }
     }
 
@@ -616,8 +616,8 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
         if( ret != FD_ACC_MGR_SUCCESS ) {
-          FD_LOG_ERR(( "sysvar instructions failed to update instruction index" ));
-          return -1;
+          FD_LOG_WARNING(( "sysvar instructions failed to update instruction index" ));
+          return ret;
         }
       }
 
@@ -643,10 +643,10 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
           ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
           if( ret != FD_ACC_MGR_SUCCESS ) {
             FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-            return -1;
+            return ret;
           }
         }
-        return -1;
+        return exec_result;
       }
     }
     int err = fd_executor_txn_check( txn_ctx->slot_ctx, txn_ctx );
@@ -656,17 +656,17 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
         if( ret != FD_ACC_MGR_SUCCESS ) {
           FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-          return -1;
+          return ret;
         }
       }
-      return -1;
+      return err;
     }
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
       ret = fd_sysvar_instructions_cleanup_account( txn_ctx );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instructions failed to cleanup" ));
-        return -1;
+        return ret;
       }
     }
 
