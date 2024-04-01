@@ -214,8 +214,19 @@ check( config_t * const config ) {
         char * seclabel = strtok_r( NULL, ",", &saveptr2 );
         if( FD_UNLIKELY( !seclabel ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
 
-        char * relatime = strtok_r( NULL, ",", &saveptr2 );
-        if( FD_UNLIKELY( !relatime ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+        char * relatime;
+        if( FD_LIKELY( !strcmp( seclabel, "seclabel" ) ) ) {
+          relatime = strtok_r( NULL, ",", &saveptr2 );
+          if( FD_UNLIKELY( !relatime ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+        } else {
+          relatime = seclabel;
+        }
+
+        if( FD_UNLIKELY( strcmp( relatime, "relatime" ) ) ) {
+          if( FD_UNLIKELY( fclose( fp ) ) )
+            FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+          PARTIALLY_CONFIGURED( "mount `%s` is not mounted with `relatime`, expected `relatime`", mount_path[ i ] );
+        }
 
         char * pagesize = strtok_r( NULL, ",", &saveptr2 );
         if( FD_UNLIKELY( !pagesize ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
