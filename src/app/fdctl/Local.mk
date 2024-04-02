@@ -32,7 +32,6 @@ $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/xdp_leftover,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
-$(call add-objs,configure/workspace_leftover,fd_fdctl)
 $(call add-objs,configure/workspace,fd_fdctl)
 
 # Frankendancer versioning is always major 0, the first full Firedancer

@@ -412,17 +412,37 @@ void
 fd_topo_join_workspaces( fd_topo_t *  topo,
                          int          mode );
 
-/* Leave (unmap from the process) all shared memory needed by all
-   tiles in the topology, if each of them was mapped. */
-void
-fd_topo_leave_workspaces( fd_topo_t *  topo );
+/* Leave (unmap from the process) the shared memory needed for the
+   given workspace in the topology, if it was previously mapped.
+   
+   topo and wksp are assumed non-NULL.  It is OK if the workspace
+   has not been previously joined, in which case this is a no-op. */
 
-/* Create all the workspaces needed by the topology on the system. This
-   does not "join" the workspaces (map their memory into the process),
-   but only creates the .wksp files and formats them correctly as
-   workspaces. */
 void
-fd_topo_create_workspaces( fd_topo_t * topo );
+fd_topo_leave_workspace( fd_topo_t *      topo,
+                         fd_topo_wksp_t * wksp );
+
+/* Leave (unmap from the process) all shared memory needed by all
+   tiles in the topology, if each of them was mapped.
+
+   topo is assumed non-NULL.  Only workspaces which were previously
+   joined are unmapped. */
+
+void
+fd_topo_leave_workspaces( fd_topo_t * topo );
+
+/* Create the given workspace needed by the topology on the system.
+   This does not "join" the workspaces (map their memory into the
+   process), but only creates the .wksp file and formats it correctly
+   as a workspace.
+
+   Returns 0 on success and -1 on failure, with errno set to the error.
+   The only reason for failure currently that will be returned is
+   ENOMEM, as other unexpected errors will cause the program to exit. */
+
+int
+fd_topo_create_workspace( fd_topo_t *      topo,
+                          fd_topo_wksp_t * wksp );
 
 /* Join the standard IPC objects needed by the topology of this particular
    tile */
