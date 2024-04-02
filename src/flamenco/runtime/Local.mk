@@ -13,6 +13,9 @@ $(call add-objs,fd_account,fd_flamenco)
 
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
+
+$(call add-hdrs,fd_pubkey_utils.h)
+$(call add-objs,fd_pubkey_utils,fd_flamenco)
 endif
 
 $(call add-hdrs,fd_system_ids.h)
