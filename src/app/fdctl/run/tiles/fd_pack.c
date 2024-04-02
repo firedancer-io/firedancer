@@ -26,6 +26,15 @@
 /* About 1.5 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT (16UL)
 
+/* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
+   the time values so that LONG_MIN maps to 0, LONG_MAX maps to
+   ULONG_MAX, and everything in between maps linearly with a slope of 1.
+   Just subtracting LONG_MIN results in signed integer overflow, which
+   is U.B. */
+#define TIME_OFFSET 0x8000000000000000UL
+FD_STATIC_ASSERT( (ulong)LONG_MIN+TIME_OFFSET==0UL,       time_offset );
+FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
+
 /* Each block is limited to 32k parity shreds.  We don't want pack to
    produce a block with so many transactions we can't shred it, but the
    correspondance between transactions and parity shreds is somewhat
@@ -259,7 +268,7 @@ after_credit( void *             _ctx,
 
       fd_pack_microblock_complete( ctx->pack, i );
       /* TODO: record metrics for expire */
-      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)(now-LONG_MIN), TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
+      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       long schedule_duration = -fd_tickcount();
@@ -434,7 +443,7 @@ after_frag( void *             _ctx,
   } else {
     /* Normal transaction case */
     long insert_duration = -fd_tickcount();
-    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)(now-LONG_MIN) );
+    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
     insert_duration      += fd_tickcount();
     ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
     fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
