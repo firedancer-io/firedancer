@@ -282,6 +282,21 @@ static inline DEQUE_T * DEQUE_(remove_head)( DEQUE_T * deque ) { DEQUE_(private_
 static inline DEQUE_T * DEQUE_(remove_tail)( DEQUE_T * deque ) { DEQUE_(private_hdr_from_deque)( deque )->end--;   return deque; }
 
 static inline DEQUE_T *
+DEQUE_(pop_index)( DEQUE_T * deque, ulong idx ) {
+  DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
+  if( hdr->end <= hdr->start + idx )
+    return NULL;
+  ulong original = idx;
+  DEQUE_T * iter = hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
+  while( hdr->start + idx < hdr->end ) {
+    *iter = *(iter + 1);
+    idx++;
+  }
+  hdr->end--;
+  return &hdr->deque[ DEQUE_(private_slot)( hdr->start + original ) ];
+}
+
+static inline DEQUE_T *
 DEQUE_(push_head_nocopy)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->start--;
