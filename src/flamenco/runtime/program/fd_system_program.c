@@ -4,45 +4,12 @@
 #include "../fd_runtime.h"
 #include "../fd_account.h"
 #include "../fd_system_ids.h"
+#include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../../ballet/utf8/fd_utf8.h"
-
-static int
-fd_pubkey_create_with_seed( fd_exec_instr_ctx_t * ctx,
-                            uchar const           base [ static 32 ],
-                            char const *          seed,
-                            ulong                 seed_sz,
-                            uchar const           owner[ static 32 ],
-                            uchar                 out  [ static 32 ] ) {
-
-  static char const pda_marker[] = {"ProgramDerivedAddress"};
-
-  if( seed_sz > 32UL ) {
-    /* This error code is obviously a bug on Solana's part */
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE;
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  if( 0==memcmp( owner+11, pda_marker, 21UL ) ) {
-    /* This error code is obviously a bug on Solana's part */
-    ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_PROGRAM_ID;
-    return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-  }
-
-  fd_sha256_t sha;
-  fd_sha256_init( &sha );
-
-  fd_sha256_append( &sha, base,  32UL    );
-  fd_sha256_append( &sha, seed,  seed_sz );
-  fd_sha256_append( &sha, owner, 32UL    );
-
-  fd_sha256_fini( &sha, out );
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
 
 /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
 
