@@ -1533,7 +1533,8 @@ typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
 struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
@@ -1543,7 +1544,8 @@ typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
 struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args {
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;

@@ -22,6 +22,9 @@ static ulong hardcoded_features[] =
 static ulong supported_features[] =
   { 0xe8f97382b03240a1,  // system_transfer_zero_check
     0x10a1e092dd7f1573,  // dedupe_config_program_signers
+    0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
+    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
+    0x74b022574093eeec,  // reduce_stake_warmup_cooldown
   };
 
 static       uchar *     smem;
