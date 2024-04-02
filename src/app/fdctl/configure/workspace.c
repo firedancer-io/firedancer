@@ -67,42 +67,62 @@ init( config_t * const config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static char const * MOUNT_NAMES[ 2 ] = { "huge", "gigantic" };
+static void
+workspace_path( config_t * const config,
+                fd_topo_wksp_t * wksp,
+                char             out[ PATH_MAX ] ) {
+  char * mount_path;
+  switch( wksp->page_sz ) {
+    case FD_SHMEM_HUGE_PAGE_SZ:
+      mount_path = config->hugetlbfs.huge_page_mount_path;
+      break;
+    case FD_SHMEM_GIGANTIC_PAGE_SZ:
+      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      break;
+    default:
+      FD_LOG_ERR(( "invalid page size %lu", wksp->page_sz ));
+  }
+
+  FD_TEST( fd_cstr_printf_check( out, PATH_MAX, NULL, "%s/%s_%s.wksp", mount_path, config->name, wksp->name ) );
+}
 
 static void
 fini( config_t * const config ) {
-  (void)config;
+  for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
+    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
 
-  for( ulong i=0UL; i<2UL; i++ ) {
-    char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s", fd_shmem_private_base, MOUNT_NAMES[ i ], config->name ));
-    rmtree( mount_path, 1 );
+    char path[ PATH_MAX ];
+    workspace_path( config, wksp, path );
+
+    struct stat st;
+    int result = stat( path, &st );
+    if( FD_LIKELY( !result ) ) {
+      char name[ PATH_MAX ];
+      FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", config->name, wksp->name ) );
+
+      if( FD_UNLIKELY( fd_wksp_delete_named( name ) ) ) {
+        if( FD_UNLIKELY( -1==unlink( path ) ) )
+          FD_LOG_ERR(( "unlink failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+      }
+    }
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
+    else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
 }
 
 static configure_result_t
 check( config_t * const config ) {
-  (void)config;
+  for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
+    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
 
-  for( ulong i=0UL; i<2UL; i++ ) {
-    char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-    FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s/%s", fd_shmem_private_base, MOUNT_NAMES[ i ], config->name ));
+    char path[ PATH_MAX ];
+    workspace_path( config, wksp, path );
 
-    /* Check if there are any files in mount_path */
-    DIR * dir = opendir( mount_path );
-    if( FD_UNLIKELY( !dir ) ) {
-      if( FD_UNLIKELY( errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
-      continue;
-    }
-
-    struct dirent * entry;
-    while(( FD_LIKELY( entry = readdir( dir ) ) )) {
-      if( FD_UNLIKELY( !strcmp( entry->d_name, ".") || !strcmp( entry->d_name, ".." ) ) ) continue;
-      if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
-      PARTIALLY_CONFIGURED( "hugetlbfs directory `%s` is nonempty", mount_path );
-    }
-
-    if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
+    struct stat st;
+    int result = stat( path, &st );
+    if( FD_LIKELY( !result ) ) PARTIALLY_CONFIGURED( "workspace `%s` exists", path );
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
+    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
   }
 
   NOT_CONFIGURED( "no workspaces files found" );
