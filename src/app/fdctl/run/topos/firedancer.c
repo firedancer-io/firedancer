@@ -2,6 +2,12 @@
 #include "../../../../ballet/shred/fd_shred.h"
 #include "topo_util.h"
 
+#ifdef FD_GOSSIP_DEMO
+#define FD_GOSSIP_TILES 2
+#else
+#define FD_GOSSIP_TILES 1
+#endif
+
 
 void
 fd_topo_firedancer( config_t * config ) {
@@ -45,7 +51,7 @@ fd_topo_firedancer( config_t * config ) {
   LINK( 1,                                FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
 
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  LINK( 1,                                      FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  LINK( FD_GOSSIP_TILES,                        FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX, FD_TOPO_WKSP_KIND_NETMUX_INOUT, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.verify_tile_count,       FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,  FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.gossip_dedup_tile_count, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,  FD_TOPO_WKSP_KIND_GOSSIP_DEDUP,  config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   LINK( config->layout.gossip_pre_dedup_tile_count, FD_TOPO_LINK_KIND_PRE_DEDUP_TO_VERIFY,  FD_TOPO_WKSP_KIND_GOSSIP_DEDUP, config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
@@ -57,7 +63,7 @@ fd_topo_firedancer( config_t * config ) {
   TILE( 1,                                FD_TOPO_TILE_KIND_NETMUX,     FD_TOPO_WKSP_KIND_NETMUX,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_NETMUX_TO_OUT,   i ) );
   TILE( 1,                                FD_TOPO_TILE_KIND_SIGN,       FD_TOPO_WKSP_KIND_SIGN,       ULONG_MAX                                                       );
   TILE( 1,                                FD_TOPO_TILE_KIND_METRIC,     FD_TOPO_WKSP_KIND_METRIC,     ULONG_MAX                                                       );
-  TILE( 1,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,   i )                                                       );
+  TILE( FD_GOSSIP_TILES,                                FD_TOPO_TILE_KIND_GOSSIP,     FD_TOPO_WKSP_KIND_GOSSIP,     fd_topo_find_link( topo, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,   i )                                                       );
   TILE( config->layout.gossip_pre_dedup_tile_count,  FD_TOPO_TILE_KIND_GOSSIP_PRE_DEDUP, FD_TOPO_WKSP_KIND_GOSSIP_PRE_DEDUP, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_PRE_DEDUP_TO_VERIFY, i) );
   TILE( config->layout.verify_tile_count,        FD_TOPO_TILE_KIND_GOSSIP_VERIFY, FD_TOPO_WKSP_KIND_GOSSIP_VERIFY, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP, i) );
   TILE( config->layout.gossip_dedup_tile_count,  FD_TOPO_TILE_KIND_GOSSIP_DEDUP, FD_TOPO_WKSP_KIND_GOSSIP_DEDUP, fd_topo_find_link( topo, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP, i) );
@@ -77,6 +83,12 @@ fd_topo_firedancer( config_t * config ) {
       TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP_DEDUP, j, FD_TOPO_LINK_KIND_VERIFY_TO_DEDUP,     i, 0, 1 );
     }
   }
-  for( ulong i=0; i<config->layout.gossip_dedup_tile_count; i++ )  TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, 0UL, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,   i, 0, 1 );
-  /**/                                                             TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  0UL, 0, 1 );
+  for( ulong i=0; i<config->layout.gossip_dedup_tile_count; i++ ) {
+    for( ulong j=0; j<FD_GOSSIP_TILES; j++ ) {
+      TILE_IN(  FD_TOPO_TILE_KIND_GOSSIP, j, FD_TOPO_LINK_KIND_DEDUP_TO_GOSSIP,   i, 0, 1 );
+    }
+  }
+  for( ulong i=0; i<FD_GOSSIP_TILES; i++ ) {
+    TILE_IN(  FD_TOPO_TILE_KIND_NETMUX, 0UL, FD_TOPO_LINK_KIND_GOSSIP_TO_NETMUX,  i, 0, 1 );
+  }
 }
