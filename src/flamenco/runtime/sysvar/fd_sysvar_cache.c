@@ -1,6 +1,9 @@
 #include "fd_sysvar_cache.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_executor.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_instr_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x195a0e78828cacd5UL)
 
@@ -160,3 +163,33 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }
+
+# define X( type, name )                                               \
+  type##_t const *                                                     \
+  fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,   \
+                                    ulong                       idx,   \
+                                    int *                       err ) {\
+                                                                       \
+    if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                 \
+      *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                \
+      return NULL;                                                     \
+    }                                                                  \
+                                                                       \
+    fd_sysvar_cache_t const * cache = ctx->slot_ctx->sysvar_cache;     \
+    type##_t const * val = fd_sysvar_cache_##name ( cache );           \
+                                                                       \
+    fd_pubkey_t const * addr_have = &ctx->instr->acct_pubkeys[idx];    \
+    fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;            \
+    if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {     \
+      *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                        \
+      return NULL;                                                     \
+    }                                                                  \
+                                                                       \
+    *err = val ?                                                       \
+           FD_EXECUTOR_INSTR_SUCCESS :                                 \
+           FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                   \
+    return val;                                                        \
+                                                                       \
+  }
+  FD_SYSVAR_CACHE_ITER(X)
+# undef X
