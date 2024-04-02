@@ -20,6 +20,9 @@ test_program_success( char *               test_case_name,
                       fd_sbpf_syscalls_t * syscalls ) {
 //FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   fd_vm_t vm = {
     .instr_ctx = NULL, /* FIXME: HMMM */
     .heap_max  = FD_VM_HEAP_DEFAULT,
@@ -34,7 +37,8 @@ test_program_success( char *               test_case_name,
     .syscalls  = syscalls,
     .input     = NULL,
     .input_sz  = 0,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = sha,
   };
 
   /* FIXME: GROSS */
