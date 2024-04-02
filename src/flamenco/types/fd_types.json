@@ -10,12 +10,21 @@
     {
       "name": "hash",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_HASH256"
+      "walktype": "FD_FLAMENCO_TYPE_HASH256",
+      "size": "32"
+    },
+    {
+      "name": "pubkey",
+      "type": "opaque",
+      "walktype": "FD_FLAMENCO_TYPE_HASH256",
+      "size": "32",
+      "emitprotos": false
     },
     {
       "name": "signature",
       "type": "opaque",
-      "walktype": "FD_FLAMENCO_TYPE_SIG512"
+      "walktype": "FD_FLAMENCO_TYPE_SIG512",
+      "size": "64"
     },
     {
       "name": "gossip_ip4_addr",
@@ -167,7 +176,7 @@
       "name": "stake_history",
       "type": "struct",
       "fields": [
-        { "name": "fd_stake_history", "type": "treap", "treap_t": "fd_stake_history_entry_t", "treap_query_t": "ulong", "treap_cmp": "(memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 1024, "rev": true }
+        { "name": "fd_stake_history", "type": "treap", "treap_t": "fd_stake_history_entry_t", "treap_query_t": "ulong", "treap_cmp": "((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 512, "rev": true }
       ],
       "comment": "https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/stake_history.rs#L12-L75"
     },
@@ -206,7 +215,7 @@
     },
     {
       "name": "solana_account_hdr",
-      "attribute": "((packed, aligned(8UL)))",
+      "attribute": "((packed))",
       "type": "struct",
       "fields": [
         { "name": "meta", "type": "solana_account_stored_meta" },
@@ -220,11 +229,11 @@
       "attribute": "((packed))",
       "fields": [
         { "name": "magic", "type": "ushort" },
-        { "name": "hlen", "type": "ushort" },
-        { "name": "dlen", "type": "ulong" },
-        { "name": "hash", "type": "uchar[32]" },
-        { "name": "slot", "type": "ulong" },
-        { "name": "info", "type": "solana_account_meta" }
+        { "name": "hlen",  "type": "ushort" },
+        { "name": "dlen",  "type": "ulong" },
+        { "name": "hash",  "type": "uchar[32]" },
+        { "name": "slot",  "type": "ulong" },
+        { "name": "info",  "type": "solana_account_meta" }
       ]
     },
     {
@@ -240,7 +249,22 @@
       "name": "vote_accounts",
       "type": "struct",
       "fields": [
-        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key" }
+        { "name": "vote_accounts", "type": "map", "element": "vote_accounts_pair", "key": "key", "minalloc":10000 }
+      ]
+    },
+    {
+      "name": "stake_accounts_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "exists", "type": "uint" }
+      ]
+    },
+    {
+      "name": "stake_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_accounts", "type": "map", "element": "stake_accounts_pair", "key": "key", "minalloc":100000 }
       ]
     },
     {
@@ -712,7 +736,7 @@
       "name": "vote_authorized_voters",
       "type": "struct",
       "fields": [
-          { "name": "fd_vote_authorized_voters", "type": "treap", "treap_t": "fd_vote_authorized_voter_t", "treap_query_t": "ulong", "treap_cmp": "(memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 64 }
+          { "name": "fd_vote_authorized_voters", "type": "treap", "treap_t": "fd_vote_authorized_voter_t", "treap_query_t": "ulong", "treap_cmp": "( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 64 }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
     },
@@ -743,7 +767,7 @@
           { "name": "root_slot", "type": "option_slot" },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":35 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max":100 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
@@ -751,6 +775,7 @@
     {
       "name": "vote_state_versioned",
       "type": "enum",
+      "zerocopy": true,
       "variants": [
         { "name": "v0_23_5", "type": "vote_state_0_23_5" },
         { "name": "v1_14_11", "type": "vote_state_1_14_11" },
@@ -860,14 +885,6 @@
       ]
     },
     {
-      "name": "slot_meta_meta",
-      "type": "struct",
-      "fields": [
-          { "name": "start_slot", "type": "ulong" },
-          { "name": "end_slot", "type": "ulong" }
-      ]
-    },
-    {
       "name": "clock_timestamp_vote",
       "type": "struct",
       "fields": [
@@ -966,7 +983,6 @@
       "alignment": "16",
       "fields": [
         { "name": "stakes",                "type": "stakes" },
-        { "name": "lamports_per_signature","type": "ulong" },
         { "name": "hashes_per_tick",       "type": "ulong" },
         { "name": "ticks_per_slot",        "type": "ulong" },
         { "name": "ns_per_slot",           "type": "uint128" },
@@ -976,6 +992,11 @@
         { "name": "inflation",             "type": "inflation" },
         { "name": "epoch_schedule",        "type": "epoch_schedule" },
         { "name": "rent",                  "type": "rent" },
+        { "name": "eah_start_slot",        "type": "ulong" },
+        { "name": "eah_stop_slot",         "type": "ulong" },
+        { "name": "eah_interval",          "type": "ulong" },
+        { "name": "genesis_hash",          "type": "hash" },
+        { "name": "cluster_type",          "type": "uint" },
         { "name": "next_epoch_stakes",     "type": "vote_accounts"}
       ]
     },
@@ -999,6 +1020,8 @@
         { "name": "collected_rent",        "type": "ulong" },
         { "name": "epoch_stakes",          "type": "vote_accounts" },
         { "name": "last_restart_slot",     "type": "sol_sysvar_last_restart_slot" },
+        { "name": "stake_account_keys",    "type": "stake_accounts"},
+        { "name": "vote_account_keys",     "type": "vote_accounts" },
         { "name": "lamports_per_signature","type": "ulong" },
         { "name": "transaction_count",     "type": "ulong" }
       ]
@@ -1972,6 +1995,76 @@
         { "name": "close_lut" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/fb80288f885a62bcd923f4c9579fd0edeafaff9b/sdk/program/src/address_lookup_table/instruction.rs#L13"
+    },
+    {
+      "name": "repair_request_header",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "signature" },
+        { "name": "sender", "type": "pubkey" },
+        { "name": "recipient", "type": "pubkey" },
+        { "name": "timestamp", "type": "ulong" },
+        { "name": "nonce", "type": "uint" }
+      ]
+    },
+    {
+      "name": "repair_window_index",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "shred_index", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_highest_window_index",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" },
+        { "name": "shred_index", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_orphan",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_ancestor_hashes",
+      "type": "struct",
+      "fields": [
+        { "name": "header", "type": "repair_request_header" },
+        { "name": "slot", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "repair_protocol",
+      "type": "enum",
+      "variants": [
+        { "name": "LegacyWindowIndex" },
+        { "name": "LegacyHighestWindowIndex" },
+        { "name": "LegacyOrphan" },
+        { "name": "LegacyWindowIndexWithNonce" },
+        { "name": "LegacyHighestWindowIndexWithNonce" },
+        { "name": "LegacyOrphanWithNonce" },
+        { "name": "LegacyAncestorHashes" },
+        { "name": "pong", "type": "gossip_ping" },
+        { "name": "window_index", "type": "repair_window_index" },
+        { "name": "highest_window_index", "type": "repair_highest_window_index" },
+        { "name": "orphan", "type": "repair_orphan" },
+        { "name": "ancestor_hashes", "type": "repair_ancestor_hashes" }
+      ]
+    },
+    {
+      "name": "repair_response",
+      "type": "enum",
+      "variants": [
+        { "name": "ping", "type": "gossip_ping" }
+      ]
     }
   ]
 }
