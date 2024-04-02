@@ -11379,11 +11379,13 @@ int fd_authorize_with_seed_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) 
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_stake_authorize_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong authority_seed_len;
+  err = fd_bincode_uint64_decode(&authority_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (authority_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(authority_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -11391,11 +11393,12 @@ int fd_authorize_with_seed_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) 
 void fd_authorize_with_seed_args_decode_unsafe(fd_authorize_with_seed_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->new_authorized_pubkey, ctx);
   fd_stake_authorize_decode_unsafe(&self->stake_authorize, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->authority_seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->authority_seed, slen, ctx );
-  self->authority_seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->authority_seed_len, ctx);
+  if (self->authority_seed_len != 0) {
+    self->authority_seed = fd_valloc_malloc( ctx->valloc, 8UL, self->authority_seed_len );
+    fd_bincode_bytes_decode_unsafe(self->authority_seed, self->authority_seed_len, ctx);
+  } else
+    self->authority_seed = NULL;
   fd_pubkey_decode_unsafe(&self->authority_owner, ctx);
 }
 void fd_authorize_with_seed_args_new(fd_authorize_with_seed_args_t* self) {
@@ -11408,7 +11411,7 @@ void fd_authorize_with_seed_args_destroy(fd_authorize_with_seed_args_t* self, fd
   fd_pubkey_destroy(&self->new_authorized_pubkey, ctx);
   fd_stake_authorize_destroy(&self->stake_authorize, ctx);
   if (NULL != self->authority_seed) {
-    fd_valloc_free( ctx->valloc, self->authority_seed);
+    fd_valloc_free( ctx->valloc, self->authority_seed );
     self->authority_seed = NULL;
   }
   fd_pubkey_destroy(&self->authority_owner, ctx);
@@ -11421,7 +11424,7 @@ void fd_authorize_with_seed_args_walk(void * w, fd_authorize_with_seed_args_t co
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_authorize_with_seed_args", level++);
   fd_pubkey_walk(w, &self->new_authorized_pubkey, fun, "new_authorized_pubkey", level);
   fd_stake_authorize_walk(w, &self->stake_authorize, fun, "stake_authorize", level);
-  fun( w,  self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk(w, &self->authority_owner, fun, "authority_owner", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_authorize_with_seed_args", level--);
 }
@@ -11429,7 +11432,10 @@ ulong fd_authorize_with_seed_args_size(fd_authorize_with_seed_args_t const * sel
   ulong size = 0;
   size += fd_pubkey_size(&self->new_authorized_pubkey);
   size += fd_stake_authorize_size(&self->stake_authorize);
-  size += sizeof(ulong) + strlen(self->authority_seed);
+  do {
+    size += sizeof(ulong);
+    size += self->authority_seed_len;
+  } while(0);
   size += fd_pubkey_size(&self->authority_owner);
   return size;
 }
@@ -11440,11 +11446,12 @@ int fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t const * sel
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_stake_authorize_encode(&self->stake_authorize, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->authority_seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->authority_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->authority_seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->authority_seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->authority_seed, self->authority_seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_pubkey_encode(&self->authority_owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -11463,22 +11470,25 @@ int fd_authorize_checked_with_seed_args_decode_preflight(fd_bincode_decode_ctx_t
   int err;
   err = fd_stake_authorize_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong authority_seed_len;
+  err = fd_bincode_uint64_decode(&authority_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (authority_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(authority_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_pubkey_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_authorize_checked_with_seed_args_decode_unsafe(fd_authorize_checked_with_seed_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_stake_authorize_decode_unsafe(&self->stake_authorize, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->authority_seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->authority_seed, slen, ctx );
-  self->authority_seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->authority_seed_len, ctx);
+  if (self->authority_seed_len != 0) {
+    self->authority_seed = fd_valloc_malloc( ctx->valloc, 8UL, self->authority_seed_len );
+    fd_bincode_bytes_decode_unsafe(self->authority_seed, self->authority_seed_len, ctx);
+  } else
+    self->authority_seed = NULL;
   fd_pubkey_decode_unsafe(&self->authority_owner, ctx);
 }
 void fd_authorize_checked_with_seed_args_new(fd_authorize_checked_with_seed_args_t* self) {
@@ -11489,7 +11499,7 @@ void fd_authorize_checked_with_seed_args_new(fd_authorize_checked_with_seed_args
 void fd_authorize_checked_with_seed_args_destroy(fd_authorize_checked_with_seed_args_t* self, fd_bincode_destroy_ctx_t * ctx) {
   fd_stake_authorize_destroy(&self->stake_authorize, ctx);
   if (NULL != self->authority_seed) {
-    fd_valloc_free( ctx->valloc, self->authority_seed);
+    fd_valloc_free( ctx->valloc, self->authority_seed );
     self->authority_seed = NULL;
   }
   fd_pubkey_destroy(&self->authority_owner, ctx);
@@ -11501,14 +11511,17 @@ ulong fd_authorize_checked_with_seed_args_align( void ){ return FD_AUTHORIZE_CHE
 void fd_authorize_checked_with_seed_args_walk(void * w, fd_authorize_checked_with_seed_args_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_authorize_checked_with_seed_args", level++);
   fd_stake_authorize_walk(w, &self->stake_authorize, fun, "stake_authorize", level);
-  fun( w,  self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->authority_seed, "authority_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk(w, &self->authority_owner, fun, "authority_owner", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_authorize_checked_with_seed_args", level--);
 }
 ulong fd_authorize_checked_with_seed_args_size(fd_authorize_checked_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_stake_authorize_size(&self->stake_authorize);
-  size += sizeof(ulong) + strlen(self->authority_seed);
+  do {
+    size += sizeof(ulong);
+    size += self->authority_seed_len;
+  } while(0);
   size += fd_pubkey_size(&self->authority_owner);
   return size;
 }
@@ -11517,11 +11530,12 @@ int fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_ar
   int err;
   err = fd_stake_authorize_encode(&self->stake_authorize, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->authority_seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(&self->authority_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->authority_seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->authority_seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->authority_seed, self->authority_seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_pubkey_encode(&self->authority_owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;

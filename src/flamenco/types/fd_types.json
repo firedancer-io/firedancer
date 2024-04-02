@@ -1286,7 +1286,7 @@
       "fields": [
         { "name": "new_authorized_pubkey", "type": "pubkey" },
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "char*" },
+        { "name": "authority_seed", "type": "vector", "element": "uchar" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L241"
@@ -1296,7 +1296,7 @@
       "type": "struct",
       "fields": [
         { "name": "stake_authorize", "type": "stake_authorize" },
-        { "name": "authority_seed", "type": "char*" },
+        { "name": "authority_seed", "type": "vector", "element": "uchar" },
         { "name": "authority_owner", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249"
