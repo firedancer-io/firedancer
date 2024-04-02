@@ -223,7 +223,7 @@ fd_topo_tile_stack_new( int          optimize,
 
   if( FD_LIKELY( optimize ) ) {
     char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu.wksp", app_name, tile_name, tile_kind_id ) );
+    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
     ulong sub_page_cnt[ 1 ] = { 6 };
     ulong sub_cpu_idx [ 1 ] = { cpu_idx };
