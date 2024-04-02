@@ -97,13 +97,13 @@ fd_rocksdb_new( fd_rocksdb_t * db,
   char * err = NULL;
   db->db = rocksdb_open(db->opts, db_name, &err);
 
-  db->opts = rocksdb_options_create();
   db->wo = rocksdb_writeoptions_create();
 
   /* Create column families, default already exists at index 0 */
   for ( ulong i = 1; i < FD_ROCKSDB_CF_CNT; ++i ) {
    db->cf_handles[i] = rocksdb_create_column_family(db->db, db->opts, db->cfgs[i], &err);
   }
+  rocksdb_options_set_compression( db->opts, rocksdb_lz4_compression );
 }
 
 void fd_rocksdb_destroy(fd_rocksdb_t *db) {
