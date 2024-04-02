@@ -543,102 +543,89 @@ interp_0x00: // FD_SBPF_OP_ADDL_IMM
        though such would change the precise faulting semantics of
        sigcall and sigstack. */
 
-    /* If this is a normal call, the target pc is at, in exact math,
-       pc+(int)imm+1.  Thus, if this value is in [0,text_cnt), we have a
-       normal call. */
+    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
+    if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
 
-    if( FD_LIKELY( (pc + (ulong)(long)(int)imm + 1UL)<text_cnt ) ) { /* Normal call (optimize for this case) */
+      /* Note the original implementation had the imm magic number
+          check after the calldest check.  But fd_pchash_inverse of the
+          magic number is 0xb00c380U.  This is beyond possible text_cnt
+          values.  So we do it first to simplify the code and clean up
+          fault handling. */
 
       FD_VM_INTERP_STACK_PUSH;
 
-      pc += (ulong)(long)(int)imm;
+      if( FD_UNLIKELY( imm==0x71e3cf81U ) ) pc = entry_pc; /* FIXME: MAGIC NUMBER */
+      else {
+        pc = (ulong)fd_pchash_inverse( imm );
+        if( FD_UNLIKELY( pc>=text_cnt ) || FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, pc ) ) ) goto sigcall;
+      }
+      pc--;
 
     } else {
 
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
-      if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
+      /* Update the vm with the current vm execution state for the
+          syscall.  Note that BRANCH_BEGIN has pc at the syscall and
+          already updated ic and cu to reflect all instructions up to
+          and including the syscall instruction itself. */
 
-        /* Note the original implementation had the imm magic number
-           check after the calldest check.  But fd_pchash_inverse of the
-           magic number is 0xb00c380U.  This is beyond possible text_cnt
-           values.  So we do it first to simplify the code and clean up
-           fault handling. */
+      vm->pc        = pc;
+      vm->ic        = ic;
+      vm->cu        = cu;
+      vm->frame_cnt = frame_cnt;
 
-        FD_VM_INTERP_STACK_PUSH;
+      /* Do the syscall.  We use ret reduce the risk of the syscall
+          accidentally modifying other registers (note however since a
+          syscall has the vm handle it still do arbitrary modifications
+          to the vm state) and the risk of a pointer escape on reg from
+          inhibiting compiler optimizations (this risk is likely low in
+          as this is the only point in the whole interpreter core that
+          calls outside this translation unit). */
 
-        if( FD_UNLIKELY( imm==0x71e3cf81U ) ) pc = entry_pc; /* FIXME: MAGIC NUMBER */
-        else {
-          pc = (ulong)fd_pchash_inverse( imm );
-          if( FD_UNLIKELY( pc>=text_cnt ) || FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, pc ) ) ) goto sigcall;
-        }
-        pc--;
+      /* At this point, vm->cu is positive */
 
-      } else {
+      ulong ret[1];
+      err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );
+      reg[0] = ret[0];
 
-        /* Update the vm with the current vm execution state for the
-           syscall.  Note that BRANCH_BEGIN has pc at the syscall and
-           already updated ic and cu to reflect all instructions up to
-           and including the syscall instruction itself. */
+      /* If we trust syscall implementations to handle the vm state
+          correctly, the below could be implemented as unpacking the vm
+          state and jumping to sigsys on error.  But we provide some
+          extra protection to make various strong guarantees:
 
-        vm->pc        = pc;
-        vm->ic        = ic;
-        vm->cu        = cu;
-        vm->frame_cnt = frame_cnt;
+          - We do not let the syscall modify pc currently as nothing
+            requires this and it reduces risk of a syscall bug mucking
+            up the interpreter.  If there ever was a syscall that
+            needed to modify the pc (e.g. a syscall that has execution
+            resume from a different location than the instruction
+            following the syscall), do "pc = vm->pc" below.
 
-        /* Do the syscall.  We use ret reduce the risk of the syscall
-           accidentally modifying other registers (note however since a
-           syscall has the vm handle it still do arbitrary modifications
-           to the vm state) and the risk of a pointer escape on reg from
-           inhibiting compiler optimizations (this risk is likely low in
-           as this is the only point in the whole interpreter core that
-           calls outside this translation unit). */
+          - We do not let the syscall modify ic currently as nothing
+            requires this and it keeps the ic precise.  If a future
+            syscall needs this, do "ic = vm->ic" below.
 
-        /* At this point, vm->cu is positive */
+          - We do not let the syscall increase cu as nothing requires
+            this and it guarantees the interpreter will halt in a
+            reasonable finite amount of time.  If a future syscall
+            needs this, do "cu = vm->cu" below.
 
-        ulong ret[1];
-        err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );
-        reg[0] = ret[0];
+          - A syscall that zeros cu is always treated as though it
+            returned SIGCOST.
 
-        /* If we trust syscall implementations to handle the vm state
-           correctly, the below could be implemented as unpacking the vm
-           state and jumping to sigsys on error.  But we provide some
-           extra protection to make various strong guarantees:
+          - A syscall that returns SIGCOST is always treated as though
+            it also zerod cu. */
 
-           - We do not let the syscall modify pc currently as nothing
-             requires this and it reduces risk of a syscall bug mucking
-             up the interpreter.  If there ever was a syscall that
-             needed to modify the pc (e.g. a syscall that has execution
-             resume from a different location than the instruction
-             following the syscall), do "pc = vm->pc" below.
+      /* At this point, vm->cu is whatever the syscall tried to set
+          and cu is positive */
 
-           - We do not let the syscall modify ic currently as nothing
-             requires this and it keeps the ic precise.  If a future
-             syscall needs this, do "ic = vm->ic" below.
-
-           - We do not let the syscall increase cu as nothing requires
-             this and it guarantees the interpreter will halt in a
-             reasonable finite amount of time.  If a future syscall
-             needs this, do "cu = vm->cu" below.
-
-           - A syscall that zeros cu is always treated as though it
-             returned SIGCOST.
-
-           - A syscall that returns SIGCOST is always treated as though
-             it also zerod cu. */
-
-        /* At this point, vm->cu is whatever the syscall tried to set
-           and cu is positive */
-
-        ulong cu_req = vm->cu;
-        if( FD_UNLIKELY( !cu_req ) ) err = FD_VM_ERR_SIGCOST; /* cmov */
-        cu = fd_ulong_min( cu_req, cu );
-        if( FD_UNLIKELY( err ) ) {
-          if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */
-          goto sigsyscall;
-        }
-
-        /* At this point, cu is positive and err is clear */
+      ulong cu_req = vm->cu;
+      if( FD_UNLIKELY( !cu_req ) ) err = FD_VM_ERR_SIGCOST; /* cmov */
+      cu = fd_ulong_min( cu_req, cu );
+      if( FD_UNLIKELY( err ) ) {
+        if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */
+        goto sigsyscall;
       }
+
+      /* At this point, cu is positive and err is clear */
     }
 
   FD_VM_INTERP_BRANCH_END;
