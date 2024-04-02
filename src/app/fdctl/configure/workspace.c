@@ -108,6 +108,22 @@ fini( config_t * const config ) {
     else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
     else FD_LOG_ERR(( "stat failed when trying to delete wksp `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles [ i ];
+
+    char path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+
+    struct stat st;
+    int result = stat( path, &st );
+    if( FD_LIKELY( !result ) ) {
+      if( FD_UNLIKELY( -1==unlink( path ) ) )
+        FD_LOG_ERR(( "unlink failed when trying to delete path `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    }
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
+    else FD_LOG_ERR(( "stat failed when trying to delete path `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static configure_result_t
@@ -117,6 +133,19 @@ check( config_t * const config ) {
 
     char path[ PATH_MAX ];
     workspace_path( config, wksp, path );
+
+    struct stat st;
+    int result = stat( path, &st );
+    if( FD_LIKELY( !result ) ) PARTIALLY_CONFIGURED( "workspace `%s` exists", path );
+    else if( FD_LIKELY( result && errno==ENOENT ) ) continue;
+    else PARTIALLY_CONFIGURED( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) );
+  }
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &config->topo.tiles [ i ];
+
+    char path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
 
     struct stat st;
     int result = stat( path, &st );
