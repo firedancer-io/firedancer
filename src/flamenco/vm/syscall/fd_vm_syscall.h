@@ -7,8 +7,6 @@
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
-#define FD_VM_CPI_SEED_MAX     (16UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
-#define FD_VM_CPI_SEED_MEM_MAX (32UL)   /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 
 /* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
@@ -738,6 +736,14 @@ FD_VM_SYSCALL_DECL( sol_curve_group_op );
    FIXME: BELT SAND AND DOCUMENT */
 
 FD_VM_SYSCALL_DECL( sol_curve_multiscalar_mul );
+
+int
+fd_vm_derive_pda( fd_vm_t *           vm,
+                  fd_pubkey_t const * program_id,
+                  ulong               seeds_vaddr,
+                  ulong               seeds_cnt,
+                  uchar *             bump_seed,
+                  fd_pubkey_t *       out );
 
 FD_PROTOTYPES_END
 

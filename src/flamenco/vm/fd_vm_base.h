@@ -30,15 +30,16 @@
 
 /* VM exec error codes:  These are only produced by the VM itself. */
 
-#define FD_VM_ERR_SIGTEXT   ( -8) /* illegal program counter (e.g. execution ran off end of program, jump to outside the program) */
-#define FD_VM_ERR_SIGSPLIT  ( -9) /* split multiword instruction (e.g. jump into the middle of a multiword instruction) */
-#define FD_VM_ERR_SIGCALL   (-10) /* illegal call (e.g. call target is not the start of function) */
-#define FD_VM_ERR_SIGSTACK  (-11) /* call depth limit exceeded */
-#define FD_VM_ERR_SIGILL    (-12) /* illegal instruction (e.g. opcode is not valid) */
-#define FD_VM_ERR_SIGSEGV   (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
-#define FD_VM_ERR_SIGBUS    (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
-#define FD_VM_ERR_SIGRDONLY (-15) /* illegal write (e.g. write to a read only address) */
-#define FD_VM_ERR_SIGCOST   (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
+#define FD_VM_ERR_SIGTEXT     ( -8) /* illegal program counter (e.g. execution ran off end of program, jump to outside the program) */
+#define FD_VM_ERR_SIGSPLIT    ( -9) /* split multiword instruction (e.g. jump into the middle of a multiword instruction) */
+#define FD_VM_ERR_SIGCALL     (-10) /* illegal call (e.g. call target is not the start of function) */
+#define FD_VM_ERR_SIGSTACK    (-11) /* call depth limit exceeded */
+#define FD_VM_ERR_SIGILL      (-12) /* illegal instruction (e.g. opcode is not valid) */
+#define FD_VM_ERR_SIGSEGV     (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
+#define FD_VM_ERR_SIGBUS      (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
+#define FD_VM_ERR_SIGRDONLY   (-15) /* illegal write (e.g. write to a read only address) */
+#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
+#define FD_VM_ERR_INVALID_PDA (-17) /* the computed pda was not a valid ed25519 point */
 
 /* FIXME: Are these exact matches to Solana?  If so, provide link, if
    not, document and refine name / consolidate further. */
@@ -140,7 +141,7 @@ FD_PROTOTYPES_END
 #define FD_VM_LOG_64_UNITS                              (             100UL)
 
 /* FD_VM_CREATE_PROGRAM_ADDRESS_UNITS is the number of compute units
-   consumed by a create_program_address call */
+   consumed by a create_program_address call and a try_find_program_address_call */
 
 #define FD_VM_CREATE_PROGRAM_ADDRESS_UNITS              (            1500UL)
 
