@@ -142,9 +142,13 @@ fd_bincode_bytes_encode( uchar const *             self,
 static inline int
 fd_bincode_option_decode( uchar *                   self,
                           fd_bincode_decode_ctx_t * ctx ) {
-  uchar * ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
+
+  uchar const * ptr = (uchar const *)ctx->data;
+  if( FD_UNLIKELY( ptr+1 > (uchar const *)ctx->dataend ) )
     return FD_BINCODE_ERR_UNDERFLOW;
+
+  if( FD_UNLIKELY( ((uint)(*ptr)) & (~1U) ) )
+    return FD_BINCODE_ERR_ENCODING;
 
   *self = *ptr;
   ctx->data = ptr + 1;
