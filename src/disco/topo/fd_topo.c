@@ -53,76 +53,72 @@ fd_topo_join_workspaces( fd_topo_t *  topo,
 }
 
 void
+fd_topo_leave_workspace( fd_topo_t *      topo,
+                         fd_topo_wksp_t * wksp ) {
+  (void)topo;
+
+  if( FD_LIKELY( wksp->wksp ) ) {
+    if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
+    wksp->wksp            = NULL;
+    wksp->known_footprint = 0UL;
+    wksp->total_footprint = 0UL;
+  }
+}
+
+void
 fd_topo_leave_workspaces( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
-
-    if( FD_LIKELY( wksp->wksp ) ) {
-      if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
-      wksp->wksp            = NULL;
-      wksp->known_footprint = 0UL;
-      wksp->total_footprint = 0UL;
-    }
+    fd_topo_leave_workspace( topo, &topo->workspaces[ i ] );
   }
 }
 
 extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
 
-void
-fd_topo_create_workspaces( fd_topo_t * topo ) {
-  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
+int
+fd_topo_create_workspace( fd_topo_t *      topo,
+                          fd_topo_wksp_t * wksp ) {
+  char name[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-    char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
+  ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
+  ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
 
-    ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
-    ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
+  int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+  if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
+  else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-    int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
-    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
-      char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-      FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
-      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
-                   "with %lu %s pages. Firedancer has successfully reserved enough memory "
-                   "for all of its workspaces during the `hugetlbfs` configure step, so it is "
-                   "likely you have unused files left over in this directory which are consuming "
-                   "memory.",
-                   name, mount_path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
-    }
-    else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
 
-    void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
+  if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
 
-    void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
-    if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
+  fd_wksp_t * join = fd_wksp_join( wkspmem );
+  if( FD_UNLIKELY( !join ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 
-    fd_wksp_t * join = fd_wksp_join( wkspmem );
-    if( FD_UNLIKELY( !join ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
+  /* Footprint has been predetermined so that this alloc() call must
+      succeed inside the data region.  The difference between total_footprint
+      and known_footprint is given to "loose" data, that may be dynamically
+      allocated out of the workspace at runtime. */
+  if( FD_LIKELY( wksp->known_footprint ) ) {
+    ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
+    if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
 
-    /* Footprint has been predetermined so that this alloc() call must
-       succeed inside the data region.  The difference between total_footprint
-       and known_footprint is given to "loose" data, that may be dynamically
-       allocated out of the workspace at runtime. */
-    if( FD_LIKELY( wksp->known_footprint ) ) {
-      ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
-      if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
-
-      /* gaddr_lo is the start of the workspace data region that can be
-         given out in response to wksp alloc requests.  We rely on an
-         implicit assumption everywhere that the bytes we are given by
-         this single allocation will be at gaddr_lo, so that we can find
-         them, so we verify this here for paranoia in case the workspace
-         alloc implementation changes. */
-      if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
-        FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
-    }
-
-    fd_wksp_leave( join );
-
-    if( FD_UNLIKELY( fd_shmem_leave( shmem, NULL, NULL ) ) ) /* logs details */
-      FD_LOG_ERR(( "fd_shmem_leave failed" ));
+    /* gaddr_lo is the start of the workspace data region that can be
+        given out in response to wksp alloc requests.  We rely on an
+        implicit assumption everywhere that the bytes we are given by
+        this single allocation will be at gaddr_lo, so that we can find
+        them, so we verify this here for paranoia in case the workspace
+        alloc implementation changes. */
+    if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
+      FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
   }
+
+  fd_wksp_leave( join );
+
+  if( FD_UNLIKELY( fd_shmem_leave( shmem, NULL, NULL ) ) ) /* logs details */
+    FD_LOG_ERR(( "fd_shmem_leave failed" ));
+
+  return 0;
 }
 
 void

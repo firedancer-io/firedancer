@@ -1,6 +1,7 @@
 #include "configure.h"
 
 #include <stdio.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
 
@@ -110,6 +111,56 @@ init( config_t * const config ) {
 }
 
 static void
+cmdline( char * buf,
+         ulong  buf_sz ) {
+  FILE * fp = fopen( "/proc/self/cmdline", "r" );
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "error opening `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong read = fread( buf, 1UL, buf_sz - 1UL, fp );
+  if( FD_UNLIKELY( ferror( fp ) ) ) FD_LOG_ERR(( "error reading `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "error closing `/proc/self/cmdline` (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  buf[ read ] = '\0';
+}
+
+static void
+warn_mount_users( char const * mount_path ) {
+  DIR * dir = opendir( "/proc" );
+  if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  struct dirent * entry;
+  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+    if( FD_UNLIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
+    char * endptr;
+    ulong pid = strtoul( entry->d_name, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr ) ) continue;
+
+    char path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/proc/%lu/maps", pid ) );
+    FILE * fp = fopen( path, "r" );
+    if( FD_UNLIKELY( !fp && errno!=ENOENT ) ) FD_LOG_ERR(( "error opening `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+    char self_cmdline[ PATH_MAX ];
+    cmdline( self_cmdline, PATH_MAX );
+
+    char line[ 4096 ];
+    while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
+      if( FD_UNLIKELY( strlen( line )==4095 ) ) FD_LOG_ERR(( "line too long in `%s`", path ));
+      if( FD_UNLIKELY( strstr( line, mount_path ) ) ) {
+        FD_LOG_WARNING(( "process `%lu`:`%s` has a file descriptor open in `%s`", pid, self_cmdline, mount_path ));
+        break;
+      }
+    }
+    if( FD_UNLIKELY( ferror( fp ) ) )
+      FD_LOG_ERR(( "error reading `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( fclose( fp ) ) )
+      FD_LOG_ERR(( "error closing `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+static void
 fini( config_t * const config ) {
   const char * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
@@ -124,8 +175,18 @@ fini( config_t * const config ) {
     while( FD_LIKELY( fgets( line, 4096UL, fp ) ) ) {
       if( FD_UNLIKELY( strlen( line )==4095UL ) ) FD_LOG_ERR(( "line too long in `/proc/self/mounts`" ));
       if( FD_UNLIKELY( strstr( line, mount_path[ i ] ) ) ) {
-        if( FD_UNLIKELY( umount( mount_path[ i ] ) ) )
-          FD_LOG_ERR(( "umount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( umount( mount_path[ i ] ) ) ) {
+          if( FD_LIKELY( errno==EBUSY ) ) {
+            warn_mount_users( mount_path[ i ] );
+
+            FD_LOG_ERR(( "Unmount of hugetlbfs at `%s` failed because the mount is still in use. "
+                         "You can unmount it by killing all processes that are actively using files in "
+                         "the mount and running `fdctl configure fini hugetlbfs` again, or unmount "
+                         "manually with `umount %s`", mount_path[ i ], mount_path[ i ] ));
+          } else {
+            FD_LOG_ERR(( "umount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
+          }
+        }
       }
     }
 

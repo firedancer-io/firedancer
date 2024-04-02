@@ -68,7 +68,6 @@ extern configure_stage_t sysctl;
 extern configure_stage_t xdp;
 extern configure_stage_t xdp_leftover;
 extern configure_stage_t ethtool;
-extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
 
 extern configure_stage_t * STAGES[];
