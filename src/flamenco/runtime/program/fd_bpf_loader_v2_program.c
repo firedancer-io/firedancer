@@ -32,6 +32,7 @@ fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
+
 int
 fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   // FIXME: the program account is not in the instruction accounts?
@@ -94,6 +95,9 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   fd_vm_t vm = {
     .instr_ctx = &ctx,
     .heap_max  = FD_VM_HEAP_DEFAULT, /* TODO configure heap allocator */
@@ -108,7 +112,8 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
     .syscalls  = syscalls,
     .input     = input,
     .input_sz  = input_sz,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = sha,
   };
 
 #ifdef FD_DEBUG_SBPF_TRACES
