@@ -5,6 +5,7 @@
 #include "generated/gossip_seccomp.h"
 #include "../../../../flamenco/gossip/fd_gossip.h"
 #include "../../../../util/fd_util.h"
+#include "../../../../flamenco/fd_flamenco.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -97,38 +98,40 @@ struct fd_gossip_tile_ctx {
   fd_rng_t rng[1];
 
   fd_mux_context_t * mux_ctx;
+
+  fd_wksp_t *     g_wksp;
+  char            g_gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
+  char            g_gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
+  ushort          g_gossip_listen_port;
+
+  uchar g_gossip_buffer[ FD_NET_MTU ];
+
+/* Inspired from tiles/fd_shred.c */
+  fd_wksp_t *     g_net_in;
+  ulong           g_chunk;
+  ulong           g_wmark;
+
+  fd_frag_meta_t * g_net_out_mcache;
+  ulong *          g_net_out_sync;
+  ulong            g_net_out_depth;
+  ulong            g_net_out_seq;
+
+  fd_wksp_t * g_net_out_mem;
+  ulong       g_net_out_chunk0;
+  ulong       g_net_out_wmark;
+  ulong       g_net_out_chunk;
+
+  fd_pubkey_t   g_identity_public_key;
+
+  uchar              g_src_mac_addr[6];
+
+  ulong g_num_packets_sent;
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
-static fd_wksp_t *     g_wksp = NULL;
-static char            g_gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
-static char            g_gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-static ushort          g_gossip_listen_port;
-
-/* Inspired from tiles/fd_shred.c */
-static fd_wksp_t *     g_net_in;
-static ulong           g_chunk;
-static ulong           g_wmark;
-
-static fd_frag_meta_t * g_net_out_mcache;
-static ulong *          g_net_out_sync;
-static ulong            g_net_out_depth;
-static ulong            g_net_out_seq;
-
-static fd_wksp_t * g_net_out_mem;
-static ulong       g_net_out_chunk0;
-static ulong       g_net_out_wmark;
-static ulong       g_net_out_chunk;
-
-static uchar         g_identity_private_key[32];
-static fd_pubkey_t   g_identity_public_key;
-
-static uchar              g_src_mac_addr[6];
-
-static ulong g_num_packets_sent;
+uchar         g_identity_private_key[32] = {0};
 
 /* Includes Ethernet, IP, UDP headers */
-static uchar g_gossip_buffer[ FD_NET_MTU ];
 
 static fd_gossip_peer_addr_t *
 resolve_hostport( const char * str /* host:port */, fd_gossip_peer_addr_t * res ) {
@@ -234,16 +237,16 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
              uchar const * payload,
              ulong   payload_sz,
              ulong   tsorig ) {
-  uchar * packet = fd_chunk_to_laddr( g_net_out_mem, g_net_out_chunk );
+  uchar * packet = fd_chunk_to_laddr( ctx->g_net_out_mem, ctx->g_net_out_chunk );
 
 
   eth_ip_udp_t * hdr = (eth_ip_udp_t *)packet;
   memset(packet, 0, sizeof(eth_ip_udp_t));
   uchar mac[6] = {0};
 #ifdef FD_GOSSIP_DEMO
-  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port + (ushort)(tsorig % 16) );
+  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, ctx->g_gossip_listen_port + (ushort)(tsorig % 16) );
 #else
-  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, g_gossip_listen_port );
+  populate_packet_header_template( hdr, payload_sz, ctx->gossip_config.my_addr.addr, mac, ctx->g_gossip_listen_port );
 #endif
   hdr->udp->net_dport = port;
 
@@ -270,11 +273,11 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = fd_disco_netmux_sig( ip, port, FD_NETMUX_SIG_MIN_HDR_SZ, SRC_TILE_GOSSIP, (ushort)0 );
-  // fd_mcache_publish( g_net_out_mcache, g_net_out_depth, g_net_out_seq, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
-  // g_net_out_seq   = fd_seq_inc( g_net_out_seq, 1UL );
-  // g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
-  fd_mux_publish( ctx->mux_ctx, sig, g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
-  g_net_out_chunk = fd_dcache_compact_next( g_net_out_chunk, packet_sz, g_net_out_chunk0, g_net_out_wmark );
+  // fd_mcache_publish( ctx->g_net_out_mcache, ctx->g_net_out_depth, ctx->g_net_out_seq, sig, ctx->g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  // ctx->g_net_out_seq   = fd_seq_inc( ctx->g_net_out_seq, 1UL );
+  // ctx->g_net_out_chunk = fd_dcache_compact_next( ctx->g_net_out_chunk, packet_sz, ctx->g_net_out_chunk0, ctx->g_net_out_wmark );
+  fd_mux_publish( ctx->mux_ctx, sig, ctx->g_net_out_chunk, packet_sz, 0UL, tsorig, tspub );
+  ctx->g_net_out_chunk = fd_dcache_compact_next( ctx->g_net_out_chunk, packet_sz, ctx->g_net_out_chunk0, ctx->g_net_out_wmark );
 }
 
 static void 
@@ -282,19 +285,21 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen, 
                     fd_gossip_peer_addr_t const * addr, 
                     void * arg ) {
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)arg;
+
 /*
   if(g_num_packets_sent > 1) {
     return;
   }
   */
 #ifdef FD_GOSSIP_DEMO
-  send_packet( arg, addr->addr, addr->port, msg, msglen, g_num_packets_sent );
+  send_packet( arg, addr->addr, addr->port, msg, msglen, ctx->g_num_packets_sent );
 #else
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 
 #endif
-  g_num_packets_sent++;
+  ctx->g_num_packets_sent++;
 }
 
 
@@ -323,21 +328,21 @@ before_frag( void * _ctx,
              ulong  seq,
              ulong  sig,
              int *  opt_filter ) {
-  (void)_ctx;
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   (void)in_idx;
   (void)seq;
-
+  
   if( fd_disco_netmux_sig_src_tile( sig ) != SRC_TILE_NET ) {
     *opt_filter = 1;
     return;
   }
   
   ushort port = fd_disco_netmux_sig_port( sig );
-  *opt_filter = !(port==g_gossip_listen_port);
+  *opt_filter = !(port==ctx->g_gossip_listen_port);
 }
 
 static void
-during_frag( void * ctx,
+during_frag( void * _ctx,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
@@ -345,25 +350,25 @@ during_frag( void * ctx,
              ulong  sz,
              int *  opt_filter ) {
   (void)seq;
-  (void)ctx;
   (void)in_idx;
   (void)sig;
   (void)chunk;
   (void)sz;
+  fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)_ctx;
   
-  if( FD_UNLIKELY( chunk<g_chunk || chunk>g_wmark || sz>FD_NET_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, g_chunk, g_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->g_chunk || chunk>ctx->g_wmark || sz>FD_NET_MTU ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->g_chunk, ctx->g_wmark ));
     *opt_filter = 1;
     return;
   }
 
-  uchar const * dcache_entry = fd_chunk_to_laddr_const( g_net_in, chunk );
+  uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->g_net_in, chunk );
   ulong  hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
   ushort port = fd_disco_netmux_sig_port( sig );
   FD_TEST( hdr_sz < sz ); /* Should be ensured by the net tile */
   uchar * pkt;
-  if( FD_UNLIKELY( port==g_gossip_listen_port ) ) {
-    pkt = g_gossip_buffer;
+  if( FD_UNLIKELY( port==ctx->g_gossip_listen_port ) ) {
+    pkt = ctx->g_gossip_buffer;
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
     *opt_filter = 1;
@@ -400,17 +405,17 @@ after_frag( void *             _ctx,
   uint   ip = fd_disco_netmux_sig_ip_addr( *opt_sig );
   ushort port = fd_disco_netmux_sig_port( *opt_sig );
   // uint ip = 2471188301; // 147.75.199.41
-  if( FD_UNLIKELY( port==g_gossip_listen_port ) ) {
+  if( FD_UNLIKELY( port==ctx->g_gossip_listen_port ) ) {
     *opt_filter = 0;
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( *opt_sig );
-    eth_ip_udp_t * hdr = (eth_ip_udp_t *)g_gossip_buffer;
+    eth_ip_udp_t * hdr = (eth_ip_udp_t *)ctx->g_gossip_buffer;
 
     fd_gossip_peer_addr_t peer_addr;
     peer_addr.l = 0;
     peer_addr.addr = ip;
     peer_addr.port = hdr->udp->net_sport;
 
-    fd_gossip_recv_packet( ctx->gossip, g_gossip_buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
+    fd_gossip_recv_packet( ctx->gossip, ctx->g_gossip_buffer + hdr_sz, *opt_sz - hdr_sz, &peer_addr );
   } else {
     FD_LOG_ERR(( "port %u not handled", port ));
     *opt_filter = 1;
@@ -424,16 +429,16 @@ after_credit( void * _ctx, fd_mux_context_t * mux_ctx ) {
 
   ctx->mux_ctx = mux_ctx;
   
-  g_num_packets_sent = 0;
+  ctx->g_num_packets_sent = 0;
 
   long now = fd_log_wallclock();
   fd_gossip_settime( ctx->gossip, now );
   fd_gossip_continue( ctx->gossip );
 
 #ifdef FD_GOSSIP_DEMO
-  if( now - ctx->last_shred_dest_push_time > (long)1e5 ) {
+  if( now - ctx->last_shred_dest_push_time > (long)5e5 ) {
     ctx->last_shred_dest_push_time = now;
-    for( ulong j = 0; j < 128; j++) {
+    for( ulong j = 0; j < 512; j++) {
       if(fd_contact_info_table_key_cnt( ctx->contact_info_table ) != 0) {
         fd_slot_hash_t slot_hashes[8];
         for( ulong i = 0; i < 8; i++ ) {
@@ -467,28 +472,34 @@ privileged_init( fd_topo_t *      topo,
                  void *           scratch ) {
   (void)topo;
   (void)tile;
-  (void)scratch;
-
-  g_wksp = topo->workspaces[ tile->wksp_id ].wksp;
+  fd_flamenco_boot(NULL,NULL);
   
-  strncpy( g_gossip_peer_addr, tile->gossip.gossip_peer_addr, sizeof(g_gossip_peer_addr) );
-  strncpy( g_gossip_my_addr, tile->gossip.gossip_my_addr, sizeof(g_gossip_my_addr) );
-  g_gossip_listen_port = tile->gossip.gossip_listen_port;
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
 
-  FD_TEST( g_gossip_listen_port!=0 );
+  ctx->g_wksp = topo->workspaces[ tile->wksp_id ].wksp;
+  
+  strncpy( ctx->g_gossip_peer_addr, tile->gossip.gossip_peer_addr, sizeof(ctx->g_gossip_peer_addr) );
+  strncpy( ctx->g_gossip_my_addr, tile->gossip.gossip_my_addr, sizeof(ctx->g_gossip_my_addr) );
+  ctx->g_gossip_listen_port = tile->gossip.gossip_listen_port;
+
+  FD_TEST( ctx->g_gossip_listen_port!=0 );
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
 
-  g_net_in    = topo->workspaces[ netmux_link->wksp_id ].wksp;
-  g_chunk  = fd_disco_compact_chunk0( g_net_in );
-  g_wmark  = fd_disco_compact_wmark ( g_net_in, netmux_link->mtu );
+  ctx->g_net_in    = topo->workspaces[ netmux_link->wksp_id ].wksp;
+  ctx->g_chunk  = fd_disco_compact_chunk0( ctx->g_net_in );
+  ctx->g_wmark  = fd_disco_compact_wmark ( ctx->g_net_in, netmux_link->mtu );
 
+  uchar zeros[32] = {0};
   // TODO: make configurable
-  FD_TEST( getrandom( g_identity_private_key, 32UL, 0 ) == 32UL );
+  if( memcmp( g_identity_private_key, zeros, 32 ) == 0 ) {
+    FD_TEST( getrandom( g_identity_private_key, 32UL, 0 ) == 32UL );
+  }
   fd_sha512_t sha[1];
-  FD_TEST( fd_ed25519_public_from_private( g_identity_public_key.uc, g_identity_private_key, sha ) );
+  FD_TEST( fd_ed25519_public_from_private( ctx->g_identity_public_key.uc, g_identity_private_key, sha ) );
 
-  FD_LOG_NOTICE(( "gossip starting - identity: %32J", g_identity_public_key.key ));
+  FD_LOG_NOTICE(( "gossip starting - identity: %32J", ctx->g_identity_public_key.key ));
 }
 
 static void
@@ -510,37 +521,37 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_link_id_primary == ULONG_MAX ) )
     FD_LOG_ERR(( "gossip tile has no primary output link" ));
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
-
-  g_net_out_mcache = net_out->mcache;
-  g_net_out_sync   = fd_mcache_seq_laddr( g_net_out_mcache );
-  g_net_out_depth  = fd_mcache_depth( g_net_out_mcache );
-  g_net_out_seq    = fd_mcache_seq_query( g_net_out_sync );
-  g_net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
-  g_net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
-  g_net_out_wmark  = fd_dcache_compact_wmark ( g_net_out_mem, net_out->dcache, net_out->mtu );
-  g_net_out_chunk  = g_net_out_chunk0;
-
-  fd_memcpy( g_src_mac_addr, tile->gossip.src_mac_addr, 6 );
-
-  void * alloc_shmem = fd_wksp_alloc_laddr( g_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
-  if( FD_UNLIKELY( !alloc_shmem ) ) { 
-    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
-  }
-
   /* Scratch mem setup */
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossip_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   ctx->gossip = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_align(), fd_gossip_footprint() );
   ctx->contact_info_table = fd_contact_info_table_join( fd_contact_info_table_new( FD_SCRATCH_ALLOC_APPEND( l, fd_contact_info_table_align(), fd_contact_info_table_footprint( FD_PEER_KEY_MAX ) ), FD_PEER_KEY_MAX, 0 ) );
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1ul );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
+  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id_primary ];
+
+  ctx->g_net_out_mcache = net_out->mcache;
+  ctx->g_net_out_sync   = fd_mcache_seq_laddr( ctx->g_net_out_mcache );
+  ctx->g_net_out_depth  = fd_mcache_depth( ctx->g_net_out_mcache );
+  ctx->g_net_out_seq    = fd_mcache_seq_query( ctx->g_net_out_sync );
+  ctx->g_net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
+  ctx->g_net_out_mem    = topo->workspaces[ net_out->wksp_id ].wksp;
+  ctx->g_net_out_wmark  = fd_dcache_compact_wmark ( ctx->g_net_out_mem, net_out->dcache, net_out->mtu );
+  ctx->g_net_out_chunk  = ctx->g_net_out_chunk0;
+
+  fd_memcpy( ctx->g_src_mac_addr, tile->gossip.src_mac_addr, 6 );
+
+  void * alloc_shmem = fd_wksp_alloc_laddr( ctx->g_wksp, fd_alloc_align(), fd_alloc_footprint(), 3UL );
+  if( FD_UNLIKELY( !alloc_shmem ) ) { 
+    FD_LOG_ERR( ( "fd_alloc too large for workspace" ) ); 
+  }
+
   ctx->last_shred_dest_push_time = 0;
   ctx->last_spam_time = 0;
-  g_num_packets_sent = 0;
+  ctx->g_num_packets_sent = 0;
 
   // /* Set up shred contact info tile output */
   // fd_topo_link_t * shred_contact_out = &topo->links[ tile->out_link_id[ 0 ] ];
@@ -582,10 +593,10 @@ unprivileged_init( fd_topo_t *      topo,
   ulong seed = 42;
   ctx->gossip = fd_gossip_join( fd_gossip_new( ctx->gossip, seed, valloc ) );
 
-  FD_LOG_NOTICE(( "gossip my addr - addr: %s", g_gossip_my_addr ));
-  FD_TEST( resolve_hostport( g_gossip_my_addr, &ctx->gossip_config.my_addr ) );
+  FD_LOG_NOTICE(( "gossip my addr - addr: %s", ctx->g_gossip_my_addr ));
+  FD_TEST( resolve_hostport( ctx->g_gossip_my_addr, &ctx->gossip_config.my_addr ) );
   ctx->gossip_config.private_key = g_identity_private_key;
-  ctx->gossip_config.public_key = &g_identity_public_key;
+  ctx->gossip_config.public_key = &ctx->g_identity_public_key;
   ctx->gossip_config.fun_arg = ctx;
   ctx->gossip_config.deliver_fun = gossip_deliver_fun;
   ctx->gossip_config.send_fun = gossip_send_packet;
@@ -600,8 +611,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_gossip_peer_addr_t gossip_peer_addr;
-  FD_LOG_NOTICE(( "gossip initial peer - addr: %s", g_gossip_peer_addr ));
-  if( fd_gossip_add_active_peer( ctx->gossip, resolve_hostport( g_gossip_peer_addr, &gossip_peer_addr ) ) ) {
+  FD_LOG_NOTICE(( "gossip initial peer - addr: %s", ctx->g_gossip_peer_addr ));
+  if( fd_gossip_add_active_peer( ctx->gossip, resolve_hostport( ctx->g_gossip_peer_addr, &gossip_peer_addr ) ) ) {
     FD_LOG_ERR( ( "error adding gossip active peer" ) );
   }
 

@@ -481,7 +481,7 @@ fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void
 
   fd_gossip_unlock( glob );
 #ifdef FD_GOSSIP_DEMO
-  for(ulong i = 0; i < 300; i++)
+  for(ulong i = 0; i < 50; i++)
 #endif
   (*glob->send_fun)(data, sz, dest, glob->fun_arg);
   fd_gossip_lock( glob );
@@ -542,7 +542,7 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Keep pinging until we succeed */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e5 /* 200 ms */ );
+  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
 #else
   fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
 #endif
@@ -932,9 +932,9 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Try again in 1 sec */
 #ifdef FD_GOSSIP_DEMO
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e7);
-#else
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
+#else
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e7);
 #endif
   if (ev) {
     ev->fun = fd_gossip_random_ping;
@@ -1113,7 +1113,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   msg->datalen = datalen;
 
 #ifdef FD_GOSSIP_DEMO
-  for(ulong l = 0; l < 100; l++ ) {
+  for(ulong l = 0; l < 1; l++ ) {
 #endif
     if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
       /* Remember that I need to push this value */
