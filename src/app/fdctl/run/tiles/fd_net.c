@@ -358,7 +358,7 @@ after_frag( void *             _ctx,
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
         ctx->had_new_msgs = 1;
         ctx->unflushed_cnt = ( flush ) ? 0 : ( ctx->unflushed_cnt + 1UL );
-        FD_LOG_WARNING(( "send: %lu %lu", flush, ctx->unflushed_cnt ));
+        FD_LOG_WARNING(( "send: %lu %lu", flush, ctx->unflushed_cnt, aio_buf.buf_sz ));
         ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, flush );
         break;
       case FD_IP_RETRY:
