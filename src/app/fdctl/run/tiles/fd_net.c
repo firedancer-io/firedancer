@@ -11,8 +11,8 @@
 #include <linux/unistd.h>
 
 #define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-#define MAX_UNFLUSHED_MSGS        (16UL);
-#define MAX_HOLDOFFS_UNTIL_FLUSH  (16UL);
+#define MAX_UNFLUSHED_MSGS         (16UL);
+#define MAX_HOLDOFF_UNTIL_FLUSH_NS (16UL);
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -180,7 +180,7 @@ after_credit( void * _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( !ctx->had_new_msgs && ctx->unflushed_cnt != 0 ) ) {
-    FD_LOG_WARNING(("flushie time! :D %lu",  ctx->unflushed_cnt ));
+    // FD_LOG_WARNING(("flushie time! :D %lu",  ctx->unflushed_cnt ));
     ctx->tx->send_func( ctx->xsk_aio[ 0 ], NULL, 0, NULL, 1 );
     ctx->unflushed_cnt = 0;
   }
@@ -216,6 +216,7 @@ before_frag( void * _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
+  ctx->had_new_msgs = 1;
 
   /* Round robin by sequence number for now, QUIC should be modified to
      echo the net tile index back so we can transmit on the same queue.
@@ -301,7 +302,7 @@ after_frag( void *             _ctx,
 
   int flush = ctx->unflushed_cnt >= MAX_UNFLUSHED_MSGS;
   ctx->had_new_msgs = 1;
-  if(flush)     FD_LOG_WARNING(("other flushie time! :D %lu",  ctx->unflushed_cnt ));
+  // if(flush)     FD_LOG_WARNING(("other flushie time! :D %lu",  ctx->unflushed_cnt ));
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
@@ -358,7 +359,6 @@ after_frag( void *             _ctx,
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
         ctx->had_new_msgs = 1;
         ctx->unflushed_cnt = ( flush ) ? 0 : ( ctx->unflushed_cnt + 1UL );
-        FD_LOG_WARNING(( "send: %lu %lu %lu", flush, ctx->unflushed_cnt, aio_buf.buf_sz ));
         ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, flush );
         break;
       case FD_IP_RETRY:
