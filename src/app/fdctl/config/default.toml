@@ -772,6 +772,7 @@ topology = "tvu"
         tcnt        = 13
         txn_max     = 1000
         solcap_path = ""
+        solcap_txns = "true"
 
     [tiles.gossip]
         gossip_peer_addr = "147.75.87.77:8020"

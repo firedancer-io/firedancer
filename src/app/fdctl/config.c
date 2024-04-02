@@ -268,6 +268,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.tvu,           tcnt                                                      );
   ENTRY_UINT  ( ., tiles.tvu,           txn_max                                                   );
   ENTRY_STR   ( ., tiles.tvu,           solcap_path                                               );
+  ENTRY_STR   ( ., tiles.tvu,           solcap_txns                                               );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
@@ -741,6 +742,7 @@ config_tiles( config_t * config ) {
         tile->tvu.tcnt               = config->tiles.tvu.tcnt;
         tile->tvu.txn_max            = config->tiles.tvu.txn_max;
         strncpy( tile->tvu.solcap_path, config->tiles.tvu.solcap_path, sizeof(tile->tvu.solcap_path) );
+        strncpy( tile->tvu.solcap_txns, config->tiles.tvu.solcap_txns, sizeof(tile->tvu.solcap_txns) );
         break;
       case FD_TOPO_TILE_KIND_GOSSIP:
         tile->gossip.gossip_listen_port =  config->tiles.gossip.gossip_listen_port;

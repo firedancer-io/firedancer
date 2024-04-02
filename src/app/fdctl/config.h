@@ -222,6 +222,7 @@ typedef struct {
       ulong  tcnt;
       ulong  txn_max;
       char   solcap_path[ PATH_MAX ];
+      char   solcap_txns[ PATH_MAX ];
     } tvu;
 
     struct {

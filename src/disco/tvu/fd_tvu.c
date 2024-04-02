@@ -1004,10 +1004,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   fd_valloc_t valloc = allocator_setup( wksp, args->allocator );
 
   solcap_setup_t solcap_setup_out = {0};
+  runtime_ctx->capture_ctx = NULL;
+  runtime_ctx->capture_file = NULL;
   if( args->capture_fpath && args->capture_fpath[0] != '\0' ) {
     solcap_setup( args->capture_fpath, valloc, &solcap_setup_out );
     runtime_ctx->capture_file = solcap_setup_out.capture_file;
     runtime_ctx->capture_ctx  = solcap_setup_out.capture_ctx;
+    runtime_ctx->capture_ctx->capture_txns = strcmp( "true", args->capture_txns ) ? 0 : 1;
 
     runtime_ctx->capture_ctx->checkpt_slot = args->checkpt_slot;
     runtime_ctx->capture_ctx->checkpt_path = args->checkpt_path;
@@ -1284,6 +1287,8 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
   args->check_hash =
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
+  /* Disabling capture_txns speeds up runtime and makes solcap captures significantly smaller */
+  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "true" ); 
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   /* TODO @yunzhang: I added this to get the shred_cap file path,
    *  but shred_cap is now NULL despite there is such an entry in the toml config */

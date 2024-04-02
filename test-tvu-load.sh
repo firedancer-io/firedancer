@@ -111,6 +111,7 @@ echo "[tiles.tvu]
   validate_snapshot = \"true\"
   check_hash = \"true\"
   solcap_path = \"fddev.solcap\"
+  solcap_txns = \"true\"
 [log]
   path = \"fddev.log\"
   level_stderr = \"NOTICE\"

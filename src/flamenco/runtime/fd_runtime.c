@@ -893,8 +893,8 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
-      /* For ledgers that contain txn status decode and write out for solcap */
-      if ( capture_ctx != NULL ) {
+      /* For ledgers that contain txn status, decode and write out for solcap */
+      if ( capture_ctx != NULL && capture_ctx->capture_txns ) {
         /* Look up solana-side transaction status details */
         fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
         uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
@@ -1541,7 +1541,7 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_tpool_t * tpool,
                                        ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    if (NULL != capture_ctx)
+    if ( capture_ctx != NULL )
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
 
     long block_execute_time = -fd_log_wallclock();
