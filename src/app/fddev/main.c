@@ -17,8 +17,7 @@ extern configure_stage_t keys;
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &_kill,
   &netns,
-  &large_pages,
-  &shmem,
+  &hugetlbfs,
   &sysctl,
   &xdp,
   &xdp_leftover,
@@ -36,6 +35,7 @@ static action_t DEV_ACTIONS[] = {
   { .name = "txn",   .args = txn_cmd_args,   .fn = txn_cmd_fn,   .perm = txn_cmd_perm },
   { .name = "bench", .args = bench_cmd_args, .fn = bench_cmd_fn, .perm = bench_cmd_perm },
   { .name = "dump",  .args = dump_cmd_args,  .fn = dump_cmd_fn,  .perm = NULL         },
+  { .name = "flame", .args = flame_cmd_args, .fn = flame_cmd_fn, .perm = flame_cmd_perm         },
 };
 
 extern fd_topo_run_tile_t fd_tile_net;

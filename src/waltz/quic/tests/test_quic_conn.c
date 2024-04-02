@@ -193,6 +193,7 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   }
 }
 
+static ulong _recv = 0;
 void
 my_stream_receive_cb( fd_quic_stream_t * stream,
                       void *             ctx,
@@ -206,7 +207,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
 
   ulong expected_data_sz = 512ul;
 
-  FD_LOG_INFO(( "received data from peer. size: %lu offset: %lu\n",
+  FD_LOG_INFO(( "received data from peer. size: %lu offset: %lu",
                 data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
@@ -224,6 +225,8 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   }
 
   FD_LOG_DEBUG(( "recv ok" ));
+
+  _recv++;
 }
 
 
@@ -307,13 +310,15 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
-    .conn_id_cnt      = 10,
-    .conn_id_sparsity = 4.0,
-    .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 10, 0 },
-    .inflight_pkt_cnt = 1024,
-    .tx_buf_sz        = 1<<14
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .conn_id_sparsity   = 4.0,
+    .handshake_cnt      = 10,
+    .stream_cnt         = { 0, 0, 10, 0 },
+    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .stream_pool_cnt    = 400,
+    .inflight_pkt_cnt   = 1024,
+    .tx_buf_sz          = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -330,6 +335,7 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * client_config = &client_quic->config;
   client_config->idle_timeout = 5e6;
+  client_config->service_interval = 1e6;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_receive   = my_stream_receive_cb;
@@ -341,6 +347,7 @@ main( int argc, char ** argv ) {
 
   fd_quic_config_t * server_config = &server_quic->config;
   server_config->idle_timeout = 5e6;
+  server_config->service_interval = 1e6;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_receive = my_stream_receive_cb;
@@ -373,18 +380,17 @@ main( int argc, char ** argv ) {
 
   state = 1;
 
-  ulong j = 0;
   while( k < 4000 && !done ) {
-    j++;
-
     my_stream_meta_t * meta = NULL;
     now += 50000;
 
-    fd_quic_service( client_quic );
+    ulong client_wakeup = fd_quic_get_next_wakeup( client_quic );
+    ulong server_wakeup = fd_quic_get_next_wakeup( server_quic );
+    ulong earliest_wakeup = fd_ulong_min( client_wakeup, server_wakeup );
+    if( earliest_wakeup > now && earliest_wakeup != (ulong)(-1) ) now = earliest_wakeup;
 
-    if( (j%1)==0 ) {
-      fd_quic_service( server_quic );
-    }
+    fd_quic_service( client_quic );
+    fd_quic_service( server_quic );
 
     buf[12] = ' ';
     buf[15] = (char)( ( k / 10 ) + '0' );
@@ -472,6 +478,11 @@ main( int argc, char ** argv ) {
     }
 
   }
+
+  FD_LOG_NOTICE(( "Done sending. Received: %lu", _recv ));
+
+  if( client_conn ) fd_quic_conn_close( client_conn, 0 );
+  if( server_conn ) fd_quic_conn_close( server_conn, 0 );
 
   FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));
   FD_LOG_INFO(( "server_conn: %p", (void*)server_conn ));

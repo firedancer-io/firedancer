@@ -306,9 +306,8 @@ static const fd_acct_addr_t null_addr = { 0 };
 struct fd_pack_private {
   ulong      pack_depth;
   ulong      bank_tile_cnt;
-  ulong      max_txn_per_microblock;
-  ulong      max_microblocks_per_block;
-  ulong      max_data_bytes_per_block;
+
+  fd_pack_limits_t lim[1];
 
   ulong      pending_txn_cnt;
   ulong      microblock_cnt; /* How many microblocks have we
@@ -392,15 +391,17 @@ struct fd_pack_private {
 typedef struct fd_pack_private fd_pack_t;
 
 ulong
-fd_pack_footprint( ulong pack_depth,
-                   ulong bank_tile_cnt,
-                   ulong max_txn_per_microblock ) {
+fd_pack_footprint( ulong                    pack_depth,
+                   ulong                    bank_tile_cnt,
+                   fd_pack_limits_t const * limits         ) {
   if( FD_UNLIKELY( (bank_tile_cnt==0) | (bank_tile_cnt>FD_PACK_MAX_BANK_TILES) ) ) return 0UL;
 
   ulong l;
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
-  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
+
+  ulong max_txn_per_block  = fd_ulong_min( limits->max_cost_per_block / FD_PACK_MIN_TXN_COST,
+                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
@@ -421,17 +422,16 @@ fd_pack_footprint( ulong pack_depth,
 }
 
 void *
-fd_pack_new( void *     mem,
-             ulong      pack_depth,
-             ulong      bank_tile_cnt,
-             ulong      max_txn_per_microblock,
-             ulong      max_microblocks_per_block,
-             ulong      max_data_bytes_per_block,
-             fd_rng_t * rng                       ) {
+fd_pack_new( void                   * mem,
+             ulong                    pack_depth,
+             ulong                    bank_tile_cnt,
+             fd_pack_limits_t const * limits,
+             fd_rng_t                * rng           ) {
 
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
-  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
+  ulong max_txn_per_block  = fd_ulong_min( limits->max_cost_per_block / FD_PACK_MIN_TXN_COST,
+                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
@@ -453,9 +453,7 @@ fd_pack_new( void *     mem,
 
   pack->pack_depth                  = pack_depth;
   pack->bank_tile_cnt               = bank_tile_cnt;
-  pack->max_txn_per_microblock      = max_txn_per_microblock;
-  pack->max_microblocks_per_block   = max_microblocks_per_block;
-  pack->max_data_bytes_per_block    = max_data_bytes_per_block;
+  pack->lim[0]                      = *limits;
   pack->pending_txn_cnt             = 0UL;
   pack->microblock_cnt              = 0UL;
   pack->data_bytes_consumed         = 0UL;
@@ -486,7 +484,7 @@ fd_pack_new( void *     mem,
   sig2txn_new(   _sig_map,     lg_depth       );
 
   fd_pack_addr_use_t * use_by_bank = (fd_pack_addr_use_t *)_use_by_bank;
-  for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank[i]=use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*max_txn_per_microblock+1UL);
+  for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank[i]=use_by_bank + i*(FD_TXN_ACCT_ADDR_MAX*limits->max_txn_per_microblock+1UL);
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) pack->use_by_bank_cnt[i]=0UL;
 
   fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ),
@@ -510,11 +508,11 @@ fd_pack_join( void * mem ) {
 
   ulong pack_depth             = pack->pack_depth;
   ulong bank_tile_cnt          = pack->bank_tile_cnt;
-  ulong max_txn_per_microblock = pack->max_txn_per_microblock;
 
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
-  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * max_txn_per_microblock + 1UL);
-  ulong max_txn_per_block  = FD_PACK_MAX_COST_PER_BLOCK / FD_PACK_MIN_TXN_COST;
+  ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->lim->max_txn_per_microblock + 1UL);
+  ulong max_txn_per_block  = fd_ulong_min( pack->lim->max_cost_per_block / FD_PACK_MIN_TXN_COST,
+                                           pack->lim->max_txn_per_microblock * pack->lim->max_microblocks_per_block );
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
   int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
@@ -630,7 +628,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   /*           ... that are unfunded */
   if( FD_UNLIKELY( !fd_pack_can_fee_payer_afford( accts, ord->rewards ) ) ) REJECT( UNAFFORDABLE  );
   /*           ... that are so big they'll never run */
-  if( FD_UNLIKELY( ord->compute_est >= FD_PACK_MAX_COST_PER_BLOCK       ) ) REJECT( TOO_LARGE     );
+  if( FD_UNLIKELY( ord->compute_est >= pack->lim->max_cost_per_block    ) ) REJECT( TOO_LARGE     );
   /*           ... that try to write to a sysvar */
   if( FD_UNLIKELY( writes_to_sysvar                                     ) ) REJECT( WRITES_SYSVAR );
   /*           ... that we already know about */
@@ -791,6 +789,8 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
   fd_pack_addr_use_t * use_by_bank     = pack->use_by_bank    [bank_tile];
   ulong                use_by_bank_cnt = pack->use_by_bank_cnt[bank_tile];
 
+  ulong max_write_cost_per_acct = pack->lim->max_write_cost_per_acct;
+
   ulong txns_scheduled  = 0UL;
   ulong cus_scheduled   = 0UL;
   ulong bytes_scheduled = 0UL;
@@ -849,7 +849,7 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
       ulong i=fd_txn_acct_iter_idx( iter );
 
       fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
-      if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) ) {
+      if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > max_write_cost_per_acct ) ) {
         /* Can't be scheduled until the next block */
         conflicts = ULONG_MAX;
         break;
@@ -1050,25 +1050,26 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   fd_txn_p_t * out ) {
 
   /* TODO: Decide if these are exactly how we want to handle limits */
-  total_cus = fd_ulong_min( total_cus, FD_PACK_MAX_COST_PER_BLOCK - pack->cumulative_block_cost );
-  ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction), FD_PACK_MAX_VOTE_COST_PER_BLOCK - pack->cumulative_vote_cost );
+  total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
+  ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction),
+                                 pack->lim->max_vote_cost_per_block - pack->cumulative_vote_cost );
   ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
-                                           (ulong)((float)pack->max_txn_per_microblock * vote_fraction) );
+                                           (ulong)((float)pack->lim->max_txn_per_microblock * vote_fraction) );
 
 
-  if( FD_UNLIKELY( (pack->microblock_cnt>=pack->max_microblocks_per_block) ) ) {
+  if( FD_UNLIKELY( (pack->microblock_cnt>=pack->lim->max_microblocks_per_block) ) ) {
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
     return 0UL;
   }
-  if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->max_data_bytes_per_block) ) {
+  if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->lim->max_data_bytes_per_block) ) {
     FD_MCNT_INC( PACK, DATA_PER_BLOCK_LIMIT, 1UL );
     return 0UL;
   }
 
   ulong cu_limit  = total_cus - vote_cus;
-  ulong txn_limit = pack->max_txn_per_microblock - vote_reserved_txns;
+  ulong txn_limit = pack->lim->max_txn_per_microblock - vote_reserved_txns;
   ulong scheduled = 0UL;
-  ulong byte_limit = pack->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
+  ulong byte_limit = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
 
   sched_return_t status, status1;
 
@@ -1123,8 +1124,8 @@ void
 fd_pack_set_block_limits( fd_pack_t * pack,
                           ulong       max_microblocks_per_block,
                           ulong       max_data_bytes_per_block ) {
-  pack->max_microblocks_per_block = max_microblocks_per_block;
-  pack->max_data_bytes_per_block  = max_data_bytes_per_block;
+  pack->lim->max_microblocks_per_block = max_microblocks_per_block;
+  pack->lim->max_data_bytes_per_block  = max_data_bytes_per_block;
 }
 
 
@@ -1404,7 +1405,7 @@ fd_pack_verify( fd_pack_t * pack,
 
   bitset_map_join( _bitset_map_orig );
 
-  ulong max_acct_in_flight = pack->bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->max_txn_per_microblock + 1UL);
+  ulong max_acct_in_flight = pack->bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->lim->max_txn_per_microblock + 1UL);
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
 
   void * _acct_in_use_copy = scratch;

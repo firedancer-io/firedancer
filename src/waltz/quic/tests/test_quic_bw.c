@@ -80,13 +80,15 @@ main( int     argc,
   FD_TEST( wksp );
 
   fd_quic_limits_t const quic_limits = {
-    .conn_cnt         = 10,
-    .conn_id_cnt      = 10,
-    .conn_id_sparsity = 4.0,
-    .handshake_cnt    = 10,
-    .stream_cnt       = { 0, 0, 10, 0 },
-    .inflight_pkt_cnt = 100,
-    .tx_buf_sz        = 1<<20
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .conn_id_sparsity   = 4.0,
+    .handshake_cnt      = 10,
+    .stream_cnt         = { 0, 0, 10, 0 },
+    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .stream_pool_cnt    = 200,
+    .inflight_pkt_cnt   = 100,
+    .tx_buf_sz          = 1<<20
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );

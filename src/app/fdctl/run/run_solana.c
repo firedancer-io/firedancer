@@ -38,6 +38,11 @@ clone_labs_memory_space_tiles( config_t * const config ) {
   fd_topo_run_single_process( &config->topo, 1, config->uid, config->gid, fdctl_tile_run, NULL );
 }
 
+static int _fd_ext_larger_max_cost_per_block, _fd_ext_larger_shred_limits_per_block;
+
+int fd_ext_larger_max_cost_per_block    ( void ) { return _fd_ext_larger_max_cost_per_block;     }
+int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_limits_per_block; }
+
 void
 solana_labs_boot( config_t * config ) {
   uint idx = 0;
@@ -140,6 +145,34 @@ solana_labs_boot( config_t * config ) {
   FD_LOG_INFO(( "Running Solana Labs validator with the following arguments:" ));
   for( ulong j=0UL; j<idx; j++ ) FD_LOG_INFO(( "%s", argv[j] ));
 
+  FD_CPUSET_DECL( floating_cpu_set );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )
+    FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( strcmp( "", config->layout.solana_labs_affinity ) ) ) {
+    ushort solana_labs_cpu[ FD_TILE_MAX ];
+    ulong labs_cpu_cnt = fd_tile_private_cpus_parse( config->layout.solana_labs_affinity, solana_labs_cpu );
+    FD_CPUSET_DECL( cpu_set );
+    for( ulong i=0UL; i<labs_cpu_cnt; i++ ) {
+      fd_cpuset_insert( cpu_set, solana_labs_cpu[ i ] );
+    }
+
+    if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
+      if( FD_LIKELY( errno==EINVAL ) ) {
+        FD_LOG_ERR(( "Unable to set the affinity for threads created by Solana Labs. It is likely "
+                     "that the affinity you have specified for Solana Labs under [layout.solana_labs_affinity] "
+                     "in the configuration file contains CPUs which do not exist on this machine." ));
+      } else {
+        FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+    }
+  }
+
+  /* Consensus-breaking development-only CU and/or shred limit increase. */
+  _fd_ext_larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
+  _fd_ext_larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+  FD_COMPILER_MFENCE();
+
   /* solana labs main will exit(1) if it fails, so no return code */
   fd_ext_validator_main( (const char **)argv );
 }
@@ -181,8 +214,7 @@ run_solana_cmd_fn( args_t *         args,
   fd_log_thread_set( "solana-labs" );
 
   /* Run Solana Labs with an optimized huge page stack on numa node 0 ... */
-  void * stack = fd_tile_private_stack_new( 1, 0UL );
-  if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for tile process" ));
+  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
 
   /* Also clone Solana Labs into PID namespaces so it cannot signal
      other tile or the parent. */

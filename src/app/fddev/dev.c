@@ -54,7 +54,6 @@ extern int * fd_log_private_shared_lock;
 
 static void
 parent_signal( int sig ) {
-  (void)sig;
   if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
   if( FD_LIKELY( monitor_pid ) )    kill( monitor_pid, SIGKILL );
 

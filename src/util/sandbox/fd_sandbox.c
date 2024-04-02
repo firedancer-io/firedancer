@@ -327,3 +327,26 @@ fd_sandbox_getpid( void ) {
 
   return result;
 }
+
+ulong
+fd_sandbox_gettid( void ) {
+  char tid[ 27 ] = {0}; /* 10 characters for INT_MAX, twice, + /task/ and then a NUL terminator. */
+  long count = readlink( "/proc/thread-self", tid, sizeof(tid) );
+  if( FD_UNLIKELY( count<0L ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( (ulong)count>=sizeof(tid) ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned truncated tid" ));
+
+  char * taskstr = strchr( tid, '/' );
+  if( FD_UNLIKELY( !taskstr ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
+  taskstr++;
+
+  char * task = strchr( taskstr, '/' );
+  if( FD_UNLIKELY( !task ) ) FD_LOG_ERR(( "readlink(/proc/thread-self) returned invalid tid" ));
+
+  char * endptr;
+  ulong result = strtoul( task+1UL, &endptr, 10 );
+  /* A tid > INT_MAX is malformed, even if we can represent it in the
+     ulong we are returning. */
+  if( FD_UNLIKELY( *endptr != '\0' || result>INT_MAX  ) ) FD_LOG_ERR(( "strtoul(/proc/self) returned invalid tid" ));
+
+  return result;
+}

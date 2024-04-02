@@ -167,8 +167,6 @@ fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
   (void)stream;
   (void)notify_type;
 
-  //FD_LOG_DEBUG(( "client notify stream=%lu notify_type=%d", stream->stream_id, notify_type ));
-
   /* Nothing to do for completed streams */
   if( FD_LIKELY( !stream_ctx ) ) return;
 

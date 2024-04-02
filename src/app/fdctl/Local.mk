@@ -6,10 +6,62 @@ ifdef FD_HAS_DOUBLE
 # to realize that it has been updated. Not sure why this happens.
 .PHONY: fdctl cargo rust solana $(OBJDIR)/lib/libsolana_validator.a
 
-$(call add-objs,main1 config caps utility keys ready mem spy help run/run run/run1 run/run_solana run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_poh run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_store run/tiles/fd_sign monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
+# fdctl core
+$(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
+$(call add-objs,run/run run/run1 run/run_solana,fd_fdctl)
+$(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
+
+# fdctl tiles
+$(call add-objs,run/tiles/fd_net,fd_fdctl)
+$(call add-objs,run/tiles/fd_metric,fd_fdctl)
+$(call add-objs,run/tiles/fd_netmux,fd_fdctl)
+$(call add-objs,run/tiles/fd_dedup,fd_fdctl)
+$(call add-objs,run/tiles/fd_pack,fd_fdctl)
+$(call add-objs,run/tiles/fd_quic,fd_fdctl)
+$(call add-objs,run/tiles/fd_verify,fd_fdctl)
+$(call add-objs,run/tiles/fd_poh,fd_fdctl)
+$(call add-objs,run/tiles/fd_bank,fd_fdctl)
+$(call add-objs,run/tiles/fd_shred,fd_fdctl)
+$(call add-objs,run/tiles/fd_store,fd_fdctl)
+$(call add-objs,run/tiles/fd_sign,fd_fdctl)
+
+# fdctl configure stages
+$(call add-objs,configure/configure,fd_fdctl)
+$(call add-objs,configure/hugetlbfs,fd_fdctl)
+$(call add-objs,configure/sysctl,fd_fdctl)
+$(call add-objs,configure/xdp,fd_fdctl)
+$(call add-objs,configure/xdp_leftover,fd_fdctl)
+$(call add-objs,configure/ethtool,fd_fdctl)
+$(call add-objs,configure/workspace_leftover,fd_fdctl)
+$(call add-objs,configure/workspace,fd_fdctl)
+
+# Frankendancer versioning is always major 0, the first full Firedancer
+# release will be version 1.0
+FIREDANCER_VERSION_MAJOR := 0
+
+# The minor version is a Firedancer specific version number, indicating
+# which release candidate branch this is. Different Firedancer release
+# branches could point to the same Solana Labs patch.
+FIREDANCER_VERSION_MINOR := 0
+
+# For Frankendancer, we stuff the entire Solana Labs version that we are
+# linking to in the patch version.  This transforms, for example, a full
+# Solana Labs version of "1.17.8" to a minor version of "11708".
+FIREDANCER_VERSION_PATCH := $(shell grep -Po "(?<=^version = \").*(?=\")" "solana/Cargo.toml" | awk -F. '{ printf "%d%02d%02d\n", $$1, $$2, $$3 }')
+
+$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
+
+export FIREDANCER_VERSION_MAJOR
+export FIERDANCER_VERSION_MINOR
+export FIREDANCER_VERSION_PATCH
+
+FIREDANCER_CI_COMMIT=$(shell git rev-parse HEAD)
+export FIREDANCER_CI_COMMIT
+
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
+
 $(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
@@ -41,10 +93,13 @@ cargo:
 # grained.
 ifeq ($(RUST_PROFILE),release)
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+else ifeq ($(RUST_PROFILE),release-with-debug)
+cargo:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 else
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 endif
 
 solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo

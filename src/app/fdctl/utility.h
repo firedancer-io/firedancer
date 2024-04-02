@@ -14,6 +14,27 @@ mkdir_all( const char * path,
            uid_t        uid,
            gid_t        gid );
 
+/* Recursively remove an entire directory.  If remove_root is true, will
+   also remove the root directory as well, otherwise it is left empty. */
+
+void
+rmtree( char const * path,
+        int          remove_root );
+
+/* read_uint_file() reads a uint from the given path, or exits the
+   program with an error if any error was encountered.  If the path
+   cannot be opened due to ENOENT, the error message is prefixed
+   with the string provided in errmsg_enoent. */
+uint
+read_uint_file( const char * path,
+                const char * errmsg_enoent );
+
+/* write_uint_file() writes a uint to the given path, or exits the
+   program with an error if any error was encountered. */
+void
+write_uint_file( const char * path,
+                 uint         value );
+
 void
 exit_group( int status );
 

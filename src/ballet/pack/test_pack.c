@@ -45,18 +45,25 @@ pack_outcome_t outcome;
 
 static fd_pack_t *
 init_all( ulong pack_depth,
-          ulong gap,
+          ulong bank_tile_cnt,
           ulong max_txn_per_microblock,
           pack_outcome_t * outcome     ) {
-  ulong footprint = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
+  fd_pack_limits_t limits[1] = { {
+    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block  = MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = max_txn_per_microblock,
+    .max_microblocks_per_block = MAX_TEST_TXNS,
+  } };
+  ulong footprint = fd_pack_footprint( pack_depth, bank_tile_cnt, limits );
 
   if( footprint>PACK_SCRATCH_SZ ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, PACK_SCRATCH_SZ ));
 #if DETAILED_STATUS_MESSAGES
   else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
 #endif
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, gap, max_txn_per_microblock,
-                                                MAX_TEST_TXNS, MAX_DATA_PER_BLOCK, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, bank_tile_cnt, limits, rng ) );
 #define MAX_BANKING_THREADS 64
 
   outcome->microblock_cnt = 0UL;
@@ -460,6 +467,15 @@ test_expiration( void ) {
 static void
 performance_test2( void ) {
   FD_LOG_NOTICE(( "TEST INDEPENDENT PERFORMANCE" ));
+
+  fd_pack_limits_t limits[ 1 ] = { {
+      .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+      .max_vote_cost_per_block   = 0UL,
+      .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+      .max_data_bytes_per_block  = ULONG_MAX/2UL,
+      .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+      .max_microblocks_per_block = 10000000UL,
+  } };
   /* Make 1024 transaction with different fee payers, no instructions,
      no other accounts. */
   for( ulong i=0UL; i<MAX_TEST_TXNS; i++ ) {
@@ -493,13 +509,12 @@ performance_test2( void ) {
 
     payload_sz[ i ] = (ulong)(p-p_base);
   }
-  FD_TEST( fd_pack_footprint( 1024UL, 4UL, MAX_TXN_PER_MICROBLOCK )<PACK_SCRATCH_SZ );
+  FD_TEST( fd_pack_footprint( 1024UL, 4UL, limits )<PACK_SCRATCH_SZ );
 #define INNER_ROUNDS (FD_PACK_MAX_COST_PER_BLOCK/(1020UL * 1024UL))
 #define OUTER_ROUNDS 88
   long elapsed = 0L;
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 4UL, MAX_TXN_PER_MICROBLOCK,
-                                                INNER_ROUNDS*(1024UL/MAX_TXN_PER_MICROBLOCK+1UL), MAX_DATA_PER_BLOCK, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 4UL, limits, rng ) );
 
   for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
     elapsed -= fd_log_wallclock();
@@ -551,7 +566,16 @@ void performance_test( int extra_bench ) {
 #define ITER_CNT 10UL
 #define WARMUP    2UL
   for( ulong heap_sz=16UL; heap_sz<=max_heap_sz; heap_sz = fd_ulong_min( heap_sz*2UL, heap_sz+linear_inc ) ) {
-    ulong footprint = fd_pack_footprint( heap_sz, 1UL, 3UL );
+    fd_pack_limits_t limits[ 1 ] = { {
+        .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+        .max_vote_cost_per_block   = 0UL,
+        .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+        .max_data_bytes_per_block  = ULONG_MAX/2UL,
+        .max_txn_per_microblock    = 3UL,
+        .max_microblocks_per_block = heap_sz
+    } };
+
+    ulong footprint = fd_pack_footprint( heap_sz, 1UL, limits );
     void * _mem;
     if( FD_LIKELY( wksp ) ) _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
     else                    { FD_TEST( footprint<PACK_SCRATCH_SZ ); _mem = pack_scratch; }
@@ -565,7 +589,7 @@ void performance_test( int extra_bench ) {
     long schedule  = 0L;
 
     for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
-      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, 3UL, heap_sz, MAX_DATA_PER_BLOCK, rng ) );
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, limits, rng ) );
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
 

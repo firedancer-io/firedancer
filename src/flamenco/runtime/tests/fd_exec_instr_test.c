@@ -186,7 +186,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      FD_LOG_CRIT(( "unsupported feature ID 0x%016lx", prefix ));
+      FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
       return 0;
     }
     /* Enabled since genesis */

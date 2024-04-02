@@ -6,6 +6,11 @@
 #include <netinet/in.h>
 
 typedef struct {
+  ulong round_robin_cnt;
+  ulong round_robin_id;
+
+  ulong packet_cnt;
+
   ulong conn_cnt;
   int conn_fd[ 128UL ];
 
@@ -30,6 +35,23 @@ mux_ctx( void * scratch ) {
   return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_benchs_ctx_t ) );
 }
 
+static void
+before_frag( void * _ctx,
+             ulong  in_idx,
+             ulong  seq,
+             ulong  sig,
+             int *  opt_filter ) {
+  (void)in_idx;
+  (void)sig;
+
+  fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id ) ) {
+    *opt_filter = 1;
+    return;
+  }
+}
+
 static inline void
 during_frag( void * _ctx,
              ulong  in_idx,
@@ -45,8 +67,10 @@ during_frag( void * _ctx,
 
   fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( -1==send( ctx->conn_fd[ seq % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
+  if( FD_UNLIKELY( -1==send( ctx->conn_fd[ ctx->packet_cnt % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
     FD_LOG_ERR(( "send() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ctx->packet_cnt++;
 }
 
 static void
@@ -103,6 +127,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_benchs_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_benchs_ctx_t ), sizeof( fd_benchs_ctx_t ) );
 
+  ctx->packet_cnt = 0UL;
+
+  ctx->round_robin_id = tile->kind_id;
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, "benchs" );
+
   ctx->mem = topo->workspaces[ topo->objs[ topo->links[ tile->in_link_id[ 0UL ] ].dcache_obj_id ].wksp_id ].wksp;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -115,6 +144,7 @@ fd_topo_run_tile_t fd_tile_benchs = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,

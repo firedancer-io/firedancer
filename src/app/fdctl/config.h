@@ -116,6 +116,8 @@ typedef struct {
 
   struct {
     char affinity[ AFFINITY_SZ ];
+    char solana_labs_affinity[ AFFINITY_SZ ];
+
     uint net_tile_count;
     uint quic_tile_count;
     uint verify_tile_count;
@@ -125,7 +127,7 @@ typedef struct {
   struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
-  } shmem;
+  } hugetlbfs;
 
   struct {
     int sandbox;
@@ -155,6 +157,14 @@ typedef struct {
       ulong fund_initial_accounts;
       ulong fund_initial_amount_lamports;
     } genesis;
+
+    struct {
+      uint benchg_tile_count;
+      uint benchs_tile_count;
+      char affinity[ AFFINITY_SZ ];
+      int  larger_max_cost_per_block;
+      int  larger_shred_limits_per_block;
+    } bench;
   } development;
 
   struct {
@@ -178,6 +188,7 @@ typedef struct {
       uint txn_reassembly_count;
       uint max_concurrent_connections;
       uint max_concurrent_streams_per_connection;
+      uint stream_pool_cnt;
       uint max_concurrent_handshakes;
       uint max_inflight_quic_packets;
       uint tx_buf_size;

@@ -227,13 +227,14 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., snapshots,           path                                                      );
 
   ENTRY_STR   ( ., layout,              affinity                                                  );
+  ENTRY_STR   ( ., layout,              solana_labs_affinity                                      );
   ENTRY_UINT  ( ., layout,              net_tile_count                                            );
   ENTRY_UINT  ( ., layout,              quic_tile_count                                           );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
 
-  ENTRY_STR   ( ., shmem,               gigantic_page_mount_path                                  );
-  ENTRY_STR   ( ., shmem,               huge_page_mount_path                                      );
+  ENTRY_STR   ( ., hugetlbfs,           gigantic_page_mount_path                                  );
+  ENTRY_STR   ( ., hugetlbfs,           huge_page_mount_path                                      );
 
   ENTRY_STR   ( ., tiles.net,           interface                                                 );
   ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
@@ -247,6 +248,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
+  ENTRY_UINT  ( ., tiles.quic,          stream_pool_cnt                                           );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
@@ -285,7 +287,13 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., development.genesis, ticks_per_slot                                            );
   ENTRY_UINT  ( ., development.genesis, fund_initial_accounts                                     );
   ENTRY_ULONG ( ., development.genesis, fund_initial_amount_lamports                              );
-  
+
+  ENTRY_UINT  ( ., development.bench,   benchg_tile_count                                         );
+  ENTRY_UINT  ( ., development.bench,   benchs_tile_count                                         );
+  ENTRY_STR   ( ., development.bench,   affinity                                                  );
+  ENTRY_BOOL  ( ., development.bench,   larger_max_cost_per_block                                 );
+  ENTRY_BOOL  ( ., development.bench,   larger_shred_limits_per_block                             );
+
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
 }
@@ -651,7 +659,7 @@ topo_initialize( config_t * config ) {
 
   /*                                  topo, link_name,      wksp_name,      is_reasm, depth,                                    mtu,                    burst */
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_netmux",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       0UL,                    1UL );
+  /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_netmux",  "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   /**/                 fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
@@ -822,6 +830,7 @@ topo_initialize( config_t * config ) {
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.retry                          = config->tiles.quic.retry;
       tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
+      tile->quic.stream_pool_cnt                = config->tiles.quic.stream_pool_cnt;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "verify" ) ) ) {
 
@@ -831,8 +840,10 @@ topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
       strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
 
-      tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
-      tile->pack.bank_tile_count          = config->layout.bank_tile_count;
+      tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
+      tile->pack.bank_tile_count               = config->layout.bank_tile_count;
+      tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;
+      tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
@@ -1174,6 +1185,10 @@ config_parse( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
   }
 
   if( FD_UNLIKELY( config->ledger.bigtable_storage ) ) {

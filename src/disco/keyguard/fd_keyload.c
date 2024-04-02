@@ -10,7 +10,7 @@
 #include <sys/mman.h>
 
 /* Expects that key[i] is writable for i in [0, 1600). */
-static inline uchar *
+static inline uchar * FD_FN_SENSITIVE
 read_key( char const * key_path,
           uchar      * key       ) {
   int key_fd = open( key_path, O_RDONLY );
@@ -71,8 +71,9 @@ read_key( char const * key_path,
   return key;
 }
 
-uchar const *
-fd_keyload_load( char const * key_path, int public_key_only ) {
+uchar const * FD_FN_SENSITIVE
+fd_keyload_load( char const * key_path,
+                 int          public_key_only ) {
   /* Load the signing key. Since this is key material, we load it into
      its own page that's non-dumpable, readonly, and protected by guard
      pages. */

@@ -42,6 +42,7 @@ endif
 
 BUILDDIR?=native/$(CC)
 CPPFLAGS+=-march=native -mtune=native
+RUSTFLAGS+=-C target-cpu=native
 
 include config/extra/with-brutality.mk
 include config/extra/with-optimization.mk

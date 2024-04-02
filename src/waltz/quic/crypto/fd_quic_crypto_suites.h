@@ -31,9 +31,9 @@
 
 /* TLS suites
 
-    id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz */
+    id,  suite name,                   major, minor, pkt cipher,        hp cipher,   hash,   key sz, iv sz, packet limit */
 #define FD_QUIC_CRYPTO_SUITE_LIST( X, ... ) \
-  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12, __VA_ARGS__ )
+  X( 0, TLS_AES_128_GCM_SHA256,        0x13,  0x01,  AES_128_GCM,       AES_128_ECB, sha256, 16,     12,    1UL<<23, __VA_ARGS__ )
 
 
 #define FD_QUIC_ENC_LEVEL_LIST( X, ... ) \
@@ -65,6 +65,7 @@ struct fd_quic_crypto_suite {
   int   minor;
   ulong key_sz;
   ulong iv_sz;
+  ulong pkt_limit;
 
   fd_hmac_fn_t       hmac_fn;     /* not owned */
   ulong              hash_sz;

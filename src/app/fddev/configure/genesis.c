@@ -16,6 +16,18 @@ enabled( config_t * const config ) {
   return 1;
 }
 
+static void
+init_perm( fd_caps_ctx_t *  caps,
+           config_t * const config ) {
+  (void)config;
+
+  /* Solana Labs tries to increase the RLIMIT_NOFILE even when just
+     performing genesis, so we need to ensure it's allowed here as
+     well. */
+  fd_caps_check_resource( caps, NAME, RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+}
+
+
 extern void fd_ext_genesis_main( const char ** args );
 
 static void
@@ -141,44 +153,8 @@ init( config_t * const config ) {
 }
 
 static void
-rmtree( char * path ) {
-    DIR * dir = opendir( path );
-    if( FD_UNLIKELY( !dir ) ) {
-      if( errno == ENOENT ) return;
-      FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    }
-
-    struct dirent * entry;
-    errno = 0;
-    while(( entry = readdir( dir ) )) {
-      if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
-
-      char path1[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", path, entry->d_name ) );
-
-      struct stat st;
-      if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
-        if( FD_LIKELY( errno == ENOENT ) ) continue;
-        FD_LOG_ERR(( "stat `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
-      }
-
-      if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
-        rmtree( path1 );
-      } else {
-        if( FD_UNLIKELY( unlink( path1 ) && errno != ENOENT ) )
-          FD_LOG_ERR(( "unlink `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
-      }
-    }
-
-    if( FD_UNLIKELY( errno && errno != ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-    if( FD_UNLIKELY( rmdir( path ) ) ) FD_LOG_ERR(( "rmdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-}
-
-static void
 fini( config_t * const config ) {
-  rmtree( config->ledger.path );
+  rmtree( config->ledger.path, 1 );
 }
 
 static configure_result_t
@@ -196,7 +172,7 @@ configure_stage_t genesis = {
   .name            = NAME,
   .always_recreate = 1,
   .enabled         = enabled,
-  .init_perm       = NULL,
+  .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,
   .fini            = fini,

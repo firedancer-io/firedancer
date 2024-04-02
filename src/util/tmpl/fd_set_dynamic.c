@@ -111,9 +111,9 @@
      int   my_set_iter_done( ulong idx );
      ulong my_set_iter_next( my_set_t * set, ulong idx );
 
-     ulong my_set_const_iter_init( my_set_t * set );
+     ulong my_set_const_iter_init( my_set_t const * set );
      int   my_set_const_iter_done( ulong idx );
-     ulong my_set_const_iter_next( my_set_t * set, ulong idx );
+     ulong my_set_const_iter_next( my_set_t const * set, ulong idx );
 
      // Insert/remove element idx to a set if not already present (no-op
      // otherwise).  Returns set.
@@ -315,7 +315,7 @@ SET_(iter_next)( SET_(t) * set,
   return ~0UL;                                       /* No more bits to consider */
 }
 static inline ulong SET_(iter_init)( SET_(t) * set ) { return SET_(iter_next)( set, ~0UL ); }
-FD_FN_PURE static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
+FD_FN_CONST static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
 
 FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
 SET_(const_iter_next)( SET_(t) const * set,
@@ -330,8 +330,8 @@ SET_(const_iter_next)( SET_(t) const * set,
   }
   return ~0UL;                                             /* No more bits to consider */
 }
-FD_FN_PURE static inline ulong SET_(const_iter_init)( SET_(t) * set ) { return SET_(const_iter_next)( set, ~0UL ); }
-FD_FN_PURE static inline ulong SET_(const_iter_done)( ulong j       ) { return !~j; }
+FD_FN_PURE  static inline ulong SET_(const_iter_init)( SET_(t) const * set ) { return SET_(const_iter_next)( set, ~0UL ); }
+FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j ) { return !~j; }
 
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,

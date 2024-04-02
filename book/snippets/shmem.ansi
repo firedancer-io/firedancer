@@ -1,7 +1,0 @@
-$ sudo fdctl configure init shmem
-[32mNOTICE [0m shmem ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
-[32mNOTICE [0m shmem ... configuring
-
-$ cat /proc/mounts
-none /mnt/.fd/.gigantic hugetlbfs rw,seclabel,relatime,pagesize=1024M,size=540092137472 0 0
-none /mnt/.fd/.huge hugetlbfs rw,seclabel,relatime,pagesize=2M,size=540092137472 0 0

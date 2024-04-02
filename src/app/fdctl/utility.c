@@ -8,10 +8,12 @@
 #include <time.h>
 #include <fcntl.h>
 #include <sched.h>
+#include <dirent.h>
 
 #include <sys/mman.h> /* for mprotect */
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/mount.h>
 #include <sys/syscall.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -100,6 +102,69 @@ mkdir_all( const char * _path,
     if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
       FD_LOG_ERR(( "chmod `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
+}
+
+void
+rmtree( char const * path,
+        int          remove_root ) {
+  DIR * dir = opendir( path );
+  if( FD_UNLIKELY( !dir ) ) {
+    if( errno == ENOENT ) return;
+    FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  struct dirent * entry;
+  errno = 0;
+  while(( entry = readdir( dir ) )) {
+    if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
+
+    char path1[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", path, entry->d_name ) );
+
+    struct stat st;
+    if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
+      if( FD_LIKELY( errno == ENOENT ) ) continue;
+      FD_LOG_ERR(( "stat `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
+    }
+
+    if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
+      rmtree( path1, 1 );
+    } else {
+      if( FD_UNLIKELY( unlink( path1 ) && errno != ENOENT ) )
+        FD_LOG_ERR(( "unlink `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
+    }
+  }
+
+  if( FD_UNLIKELY( errno && errno != ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_LIKELY( remove_root ) ) {
+    if( FD_UNLIKELY( rmdir( path ) ) ) FD_LOG_ERR(( "rmdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+}
+
+uint
+read_uint_file( char const * path,
+                char const * errmsg_enoent ) {
+  FILE * fp = fopen( path, "r" );
+  if( FD_UNLIKELY( !fp ) ) {
+    if( FD_LIKELY( errno==ENOENT ) ) FD_LOG_ERR(( "%s fopen failed `%s` (%i-%s)", errmsg_enoent, path, errno, fd_io_strerror( errno ) ));
+    else                             FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  }
+
+  uint value = 0U;
+  if( FD_UNLIKELY( 1!=fscanf( fp, "%u\n", &value ) ) ) FD_LOG_ERR(( "failed to read uint from `%s`", path ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  return value;
+}
+
+void
+write_uint_file( char const * path,
+                 uint         value ) {
+  FILE * fp = fopen( path, "w" );
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "fopen failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fprintf( fp, "%u\n", value ) <= 0 ) ) FD_LOG_ERR(( "fprintf failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 }
 
 int
