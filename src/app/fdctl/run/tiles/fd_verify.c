@@ -13,7 +13,7 @@
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return FD_TCACHE_ALIGN;
 }
 
 FD_FN_PURE static inline ulong
@@ -21,6 +21,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(), fd_tcache_footprint( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
   for( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     l = FD_LAYOUT_APPEND( l, fd_sha512_align(), fd_sha512_footprint() );
   }
@@ -133,6 +134,8 @@ unprivileged_init( fd_topo_t *      topo,
                    void *           scratch ) {
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_verify_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_verify_ctx_t ), sizeof( fd_verify_ctx_t ) );
+  fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( FD_SCRATCH_ALLOC_APPEND( l, FD_TCACHE_ALIGN, FD_TCACHE_FOOTPRINT( VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) ), VERIFY_TCACHE_DEPTH, VERIFY_TCACHE_MAP_CNT ) );
+  if( FD_UNLIKELY( !tcache ) ) FD_LOG_ERR(( "fd_tcache_join failed" ));
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
@@ -142,6 +145,12 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
     ctx->sha[i] = sha;
   }
+
+  ctx->tcache_depth   = fd_tcache_depth       ( tcache );
+  ctx->tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
+  ctx->tcache_sync    = fd_tcache_oldest_laddr( tcache );
+  ctx->tcache_ring    = fd_tcache_ring_laddr  ( tcache );
+  ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
