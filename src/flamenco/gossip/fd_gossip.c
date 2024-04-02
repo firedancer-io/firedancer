@@ -1730,7 +1730,7 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 #ifdef FD_GOSSIP_DEMO
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
 #else
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
 #endif
   if (ev) {
     ev->fun = fd_gossip_log_stats;
@@ -1795,7 +1795,7 @@ fd_gossip_start( fd_gossip_t * glob ) {
 #ifdef FD_GOSSIP_DEMO
   ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
 #else
-  ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
+  ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
 #endif
   ev->fun = fd_gossip_log_stats;
   ev = fd_gossip_add_pending(glob, glob->now + (long)20e9);
