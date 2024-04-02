@@ -11,7 +11,7 @@
 #include <linux/unistd.h>
 
 #define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-
+#define MAX_UNFLUSHED_MSGS (16UL);
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -41,6 +41,9 @@ typedef struct {
 
   fd_ip_t *   ip;
   long        ip_next_upd;
+
+  ulong had_new_msgs;
+  ulong unflushed_cnt;
 } fd_net_ctx_t;
 
 typedef struct {
@@ -169,6 +172,21 @@ before_credit( void * _ctx,
 }
 
 static void
+after_credit( void * _ctx,
+              fd_mux_context_t * mux ) {
+  (void)mux;
+
+  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY( !ctx->had_new_msgs && ctx->unflushed_cnt != 0 ) ) {
+    FD_LOG_WARNING(("flushie time! :D %lu",  ctx->unflushed_cnt ));
+    ctx->tx->send_func( ctx->xsk_aio[ 0 ], NULL, 0, NULL, 1 );
+    ctx->unflushed_cnt = 0;
+  }
+  ctx->had_new_msgs = 0;
+}
+
+static void
 during_housekeeping( void * _ctx ) {
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
   long now = fd_log_wallclock();
@@ -280,9 +298,14 @@ after_frag( void *             _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
+  int flush = ctx->unflushed_cnt >= MAX_UNFLUSHED_MSGS; 
+  if(flush)     FD_LOG_WARNING(("other flushie time! :D %lu",  ctx->unflushed_cnt ));
+
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
-    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, 1 );
+    ctx->had_new_msgs = 1;
+    ctx->unflushed_cnt = ( flush ) ? 0 : ( ctx->unflushed_cnt + 1 );
+    ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, NULL, flush );
   } else {
     /* extract dst ip */
     uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_ip_addr( *opt_sig ) );
@@ -332,8 +355,9 @@ after_frag( void *             _ctx,
 
         /* set source mac address */
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
-
-        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, 1 );
+        ctx->had_new_msgs = 1;
+        ctx->unflushed_cnt = ( flush ) ? 0 : ( ctx->unflushed_cnt + 1 );
+        ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, NULL, flush );
         break;
       case FD_IP_RETRY:
         /* refresh tables */
@@ -460,6 +484,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk  = ctx->out_chunk0;
 
   ctx->ip = init_ctx->ip;
+  
+  ctx->had_new_msgs = 0;
+  ctx->unflushed_cnt = 0;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -507,6 +534,7 @@ fd_tile_config_t fd_tile_net = {
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
   .mux_before_credit        = before_credit,
+  .mux_after_credit         = after_credit,
   .mux_before_frag          = before_frag,
   .mux_during_frag          = during_frag,
   .mux_after_frag           = after_frag,
