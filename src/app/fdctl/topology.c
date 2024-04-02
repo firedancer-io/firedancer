@@ -181,10 +181,10 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     scratch_top = fd_ulong_align_up( (ulong)wksp->wksp + fd_wksp_private_data_off( wksp->part_max ), fd_topo_workspace_align() );
 
   char path[ FD_WKSP_CSTR_MAX ];
-  void * pod1 = SCRATCH_ALLOC( fd_pod_align(), fd_pod_footprint( 16384 ) );
+  void * pod1 = SCRATCH_ALLOC( fd_pod_align(), fd_pod_footprint( 2*16384 ) );
   uchar * pod = NULL;
   if( FD_LIKELY( mode==FD_TOPO_FILL_MODE_NEW ) ) {
-    pod = fd_pod_join( fd_pod_new( pod1, 16384 ) );
+    pod = fd_pod_join( fd_pod_new( pod1, 2*16384 ) );
     if( FD_UNLIKELY( !pod ) ) FD_LOG_ERR(( "fd_pod_new failed" ));
   }
 

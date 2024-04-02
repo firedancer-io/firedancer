@@ -18,9 +18,14 @@
 /* How long do we remember values (in millisecs) */
 #ifdef FD_GOSSIP_DEMO
 #define FD_GOSSIP_VALUE_EXPIRE ((ulong)(20e1))   /* 1 minute */
+#else 
+#ifdef FD_GOSSIP_THROUGHPUT_DEMO
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(500e1))   /* 1 minute */
 #else
 #define FD_GOSSIP_VALUE_EXPIRE ((ulong)(60e3))   /* 1 minute */
 #endif
+#endif
+
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
@@ -855,7 +860,7 @@ fd_gossip_purge_expired_values( fd_gossip_t * glob, fd_pending_event_arg_t * arg
 #ifdef FD_GOSSIP_DEMO
   fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)50e6);
 #else
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)500e6);
 #endif
   if (ev) {
     ev->fun = fd_gossip_purge_expired_values;
@@ -1804,7 +1809,7 @@ fd_gossip_start( fd_gossip_t * glob ) {
   ev->fun = fd_gossip_push;
   ev = fd_gossip_add_pending(glob, glob->now + (long)30e9);
   ev->fun = fd_gossip_make_prune;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
+  ev = fd_gossip_add_pending(glob, glob->now + (long)50e6);
   ev->fun = fd_gossip_purge_expired_values;
   fd_gossip_unlock( glob );
 
