@@ -8,7 +8,9 @@
 #include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_ed25519_program.h"
+#include "program/fd_stake_program.h"
 #include "program/fd_system_program.h"
+#include "program/fd_vote_program.h"
 
 #include <assert.h>
 
@@ -27,8 +29,12 @@ fd_executor_lookup_native_program( fd_pubkey_t const * program_id ) {
     return fd_ed25519_program_execute;
   if( 0==memcmp( program_id, &fd_solana_config_program_id, sizeof(fd_pubkey_t) ) )
     return fd_config_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_stake_program_execute;
   if( 0==memcmp( program_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) )
     return fd_system_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_vote_program_execute;
 
   return NULL;
 
