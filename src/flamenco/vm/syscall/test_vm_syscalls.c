@@ -162,6 +162,9 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   ulong const rodata_sz = 500UL;
   uchar rodata[ rodata_sz ];
   set_memory_region( rodata, rodata_sz );
@@ -180,7 +183,8 @@ main( int     argc,
     .syscalls  = NULL,
     .input     = NULL,
     .input_sz  = 0,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = sha,
   };
 
   /* FIXME: GROSS */

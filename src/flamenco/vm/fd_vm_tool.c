@@ -188,6 +188,9 @@ cmd_trace( char const * bin_path,
     return FD_VM_ERR_INVAL; /* FIXME: ERR CODE */
   }
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   /* FIXME: Gross init */
   fd_vm_t vm = {
     .instr_ctx = NULL, /* FIXME */
@@ -203,7 +206,8 @@ cmd_trace( char const * bin_path,
     .syscalls  = tool_prog.syscalls,
     .input     = input,
     .input_sz  = input_sz,
-    .trace     = trace
+    .trace     = trace,
+    .sha       = sha,
   };
 
   /* FIXME: MOVE TO EXEC */
@@ -238,6 +242,9 @@ cmd_run( char const * bin_path,
   ulong   input_sz = 0UL;
   uchar * input    = read_input_file( input_path, &input_sz ); /* FIXME: WHERE IS INPUT FREED? */
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   fd_vm_t vm = {
     .instr_ctx = NULL, /* FIXME */
     .heap_max  = FD_VM_HEAP_DEFAULT, /* FIXME: CONFIGURE */
@@ -252,7 +259,8 @@ cmd_run( char const * bin_path,
     .syscalls  = tool_prog.syscalls,
     .input     = input,
     .input_sz  = input_sz,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = sha,
   };
 
   /* FIXME: MOVE TO EXEC */
