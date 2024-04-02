@@ -408,9 +408,15 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   }
 
   /* Derive PDA signers ************************************************/
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
-  err = fd_vm_syscall_cpi_derive_signers( vm, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) return err;
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
+  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
+  fd_vm_vec_t const * signers_seeds = FD_VM_MEM_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, signers_seeds_cnt*FD_VM_VEC_SIZE );
+  for ( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+    int err = fd_vm_derive_pda( vm, caller_program_id, signers_seeds[i].addr, signers_seeds[i].len, NULL, &signers[i] );
+    if ( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+  }
 
   /* Translate CPI account metas *************************************************/
   VM_SYSCALL_CPI_ACC_META_T const * cpi_account_metas =
