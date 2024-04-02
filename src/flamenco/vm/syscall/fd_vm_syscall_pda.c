@@ -2,187 +2,198 @@
 
 #include "../../../ballet/ed25519/fd_curve25519.h"
 
-/* fd_vm_partial_derive_address does the initial appends to a SHA
-   calculation for a program derived account address.  sha is an current
-   local join to SHA state object.  program_id_vaddr points to the
-   program address in VM address space. seed_vaddr points to the first
-   element of an iovec-like scatter of a seed byte array (&[&[u8]]) in
-   VM address space.  seed_cnt is the number of scatter elems.  Returns
-   sha calculation on success and null on failure.  Reasons for failure
-   include out-of-bounds memory access or invalid seed list. */
+/* The maximum number of seeds a PDA can have 
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */
+#define FD_VM_PDA_SEEDS_MAX    (16UL)
+/* The maximum length of a PDA seed
+   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L19 */
+#define FD_VM_PDA_SEED_MEM_MAX (32UL)
 
-static fd_sha256_t *
-fd_vm_partial_derive_address( fd_vm_t *     vm,
-                              fd_sha256_t * sha,
-                              ulong         program_id_vaddr,
-                              ulong         seed_vaddr,
-                              ulong         seed_cnt,
-                              uchar *       bump_seed ) {
-  if( FD_UNLIKELY( seed_cnt>FD_VM_CPI_SEED_MAX ) ) return NULL;
+/* fd_compute_pda derives a PDA given:
+   - the vm
+   - program_id pubkey in host address space
+   - the seeds array vaddr
+   - the seeds array count
+   - an optional bump seed
+   - out, the address in host address space where the PDA will be written to
 
-  /* FIXME: WHAT'S THE EXPECTED BEHAVIOR IF SEED_CNT==0 */
-  /* FIXME: TYPE CONFUSION BUG */
-  ulong seed_sz = seed_cnt*sizeof(fd_vm_rust_vec_t); /* No ovfl as seed_cnt << ULONG_MAX/sizeof at this point */
+If the derived PDA was not a valid ed25519 point, then this function will return FD_VM_ERR_INVALID_PDA.
 
-  /* FIXME: WHICH ALIGNOF FOR PUBKEY?  OTHER CODE USES
-     ALIGNOF(FD_PUBKEY_T) (WHICH ALSO IS 1 BUT WE SHOULD BE
-     CONSISTENT)*/
-  fd_pubkey_t const * program_id_haddr = fd_vm_translate_vm_to_host_const( vm, program_id_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
-  fd_vm_vec_t const * seed_haddr       = fd_vm_translate_vm_to_host_const( vm, seed_vaddr,       seed_sz,             FD_VM_VEC_ALIGN );
+The derivation can also fail because of an out-of-bounds memory access, or an invalid seed list.
+ */
+int
+fd_vm_derive_pda( fd_vm_t *           vm,
+                  fd_pubkey_t const * program_id,
+                  ulong               seeds_vaddr,
+                  ulong               seeds_cnt,
+                  uchar *             bump_seed,
+                  fd_pubkey_t *       out ) {
 
-  if( FD_UNLIKELY( (!program_id_haddr) | (!seed_haddr) ) ) return NULL;
-
-  for( ulong i=0UL; i<seed_cnt; i++ ) {
-    ulong mem_sz = seed_haddr[i].len;
-    if( FD_UNLIKELY( mem_sz>FD_VM_CPI_SEED_MEM_MAX ) ) return NULL;
-    /* FIXME: WHAT'S THE EXPECTED BEHAVIOR IF SRC_SZ==0? */
-
-    /* FIXME: if mem_sz is 0, then translate_slice returns a valid memory address,
-       but does nothing with it. Our translate_slice needs to have equivalent behaviour,
-       and we should use it here. The below line is a band-aid and should be removed when the semantics are fixed.
-       
-       https://github.com/solana-labs/solana/blob/089324c69ef3dc1293fe54840d666bf0e3d88419/programs/bpf_loader/src/syscalls/mod.rs#L801-L807
-        */
-    if ( FD_UNLIKELY( mem_sz == 0 ) ) continue;
-
-    void const * mem_haddr = fd_vm_translate_vm_to_host_const( vm, seed_haddr[i].addr, mem_sz, alignof(uchar) );
-    if( FD_UNLIKELY( !mem_haddr ) ) return NULL;
-
-    fd_sha256_append( sha, mem_haddr, mem_sz );
+  if ( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) {
+    return FD_VM_ERR_INVAL;
   }
 
-  if( bump_seed ) fd_sha256_append( sha, bump_seed, 1UL );
+  /* When seeds_cnt==0 Solana Labs does not verify the pointer. Neither do we. */
+  fd_vm_vec_t const * seeds_haddr = FD_VM_MEM_HADDR_LD( vm, seeds_vaddr, FD_VM_VEC_ALIGN, seeds_cnt*FD_VM_VEC_SIZE );
 
-  return fd_sha256_append( sha, program_id_haddr, sizeof(fd_pubkey_t) );
+  fd_sha256_init( vm->sha );
+  for ( ulong i=0UL; i<seeds_cnt; i++ ) {
+    ulong seed_sz = seeds_haddr[i].len;
+
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) return FD_VM_ERR_INVAL;
+
+    /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
+       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. */
+    if ( FD_UNLIKELY( seed_sz==0 ) ) continue;
+
+    void const * seed_haddr = FD_VM_MEM_HADDR_LD( vm, seeds_haddr[i].addr, alignof(uchar), seed_sz );
+    fd_sha256_append( vm->sha, seed_haddr, seed_sz );
+  }
+
+  if( bump_seed ) {
+    fd_sha256_append( vm->sha, bump_seed, 1UL );
+  }
+
+  fd_sha256_append( vm->sha, program_id, sizeof(fd_pubkey_t) );
+  fd_sha256_append( vm->sha, "ProgramDerivedAddress", 21UL ); /* TODO: use marker constant */
+
+  fd_sha256_fini( vm->sha, out );
+
+  /* A PDA is valid if it is not a valid ed25519 curve point.
+     In most cases the user will have derived the PDA off-chain, or the PDA is a known signer. */
+  if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
+    return FD_VM_ERR_INVALID_PDA;
+  }
+
+  return FD_VM_SUCCESS;
 }
 
+/* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
+https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L689
+
+The main semantic difference between Firedancer's implementation and Solana's is that Solana
+translates all the seed pointers before doing any computation, while Firedancer translates 
+the seed pointers on-demand. This is to avoid an extra memory allocation.
+
+This syscall creates a valid program derived address without searching for a bump seed.
+It does this by hashing all the seeds, the program id, and the PDA marker, and then
+checking if the resulting hash is a valid ed25519 curve point.
+
+There is roughly a 50% chance of this syscall failing, due to the hash not being
+a valid curve point, for any given collection of seeds.
+
+Parameters:
+- _vm: a pointer to the VM
+- seed_vaddr: the address of the first element of an iovec-like scatter of a seed byte array in VM address space
+- seed_cnt: the number of scatter elements
+- program_id_vaddr: the address of the program id pubkey in VM address space
+- out_vaddr: the address of the memory location where the resulting derived PDA will be written to, in VM address space, if the syscall is successful
+- arg4: unused
+- _ret: a pointer to the return value of the syscall
+*/
 int
 fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
-                                          /**/            ulong   seed_vaddr,
-                                          /**/            ulong   seed_cnt,
+                                          /**/            ulong   seeds_vaddr,
+                                          /**/            ulong   seeds_cnt,
                                           /**/            ulong   program_id_vaddr,
                                           /**/            ulong   out_vaddr,
                                           FD_PARAM_UNUSED ulong   arg4,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  int err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
-  if( FD_UNLIKELY( err ) ) return err;
+  if ( seeds_cnt == 0 ) return FD_VM_ERR_INVAL;
 
-  fd_pubkey_t result[1];
+  ulong r0 = 0UL;
 
-  fd_sha256_t _sha[1];
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) ); /* FIXME: HAVE A SHA OBJECT THAT IS PRE-JOINED IN VM */
+  uchar * bump_seed = NULL;
 
-  fd_sha256_init( sha );
-  if( FD_LIKELY( !fd_vm_partial_derive_address( vm, sha, program_id_vaddr, seed_vaddr, seed_cnt, NULL ) ) ) {
-    /* FIXME: SHOULD HAVE A SHA ABORT HERE (OR HOIST ALL THE SAFETY UP
-       SUCH THAT PARTIAL DERIVE ADDRESS CAN'T FAIL) */
-    fd_sha256_delete( fd_sha256_leave( sha ) ); /* FIXME: SEE NOTE ABOVE */
-    return FD_VM_ERR_PERM;
-  }
-  fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
-  fd_sha256_fini( sha, result );
+  FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
-  fd_sha256_delete( fd_sha256_leave( sha ) ); /* FIXME: SEE NOTE ABOVE */
+  fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(uchar), sizeof(fd_pubkey_t) );
 
-  ulong r0;
-  if( FD_UNLIKELY( fd_ed25519_point_validate( result->key ) ) ) r0 = 1UL; /* fail if PDA overlaps a valid curve point */
-  else {
-
-    /* Note: cannot reorder - out_haddr may be an invalid pointer if PDA
-       is invalid */
-    fd_pubkey_t * out_haddr = fd_vm_translate_vm_to_host( vm, out_vaddr, sizeof(fd_pubkey_t), alignof(uchar) );
-    if( FD_UNLIKELY( !out_haddr ) ) return FD_VM_ERR_PERM;
-
-    memcpy( out_haddr, result->uc, sizeof(fd_pubkey_t) );
-    r0 = 0UL; /* success */
+  fd_pubkey_t derived[1];
+  int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
+  if ( FD_UNLIKELY( err == FD_VM_ERR_INVALID_PDA ) ) {
+    /* Place 1 in r0 if the PDA is invalid
+       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L712 */
+    r0 = 1UL;
+  } else if ( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
+  fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
+  memcpy( out_haddr, derived->uc, sizeof(fd_pubkey_t) );
+
+  /* Success */
   *_ret = r0;
   return FD_VM_SUCCESS;
 }
 
+/* fd_vm_syscall_sol_try_find_program_address is the entrypoint for the sol_try_find_program_address syscall:
+https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/mod.rs#L727
+
+This syscall creates a valid program derived address, searching for a valid ed25519 curve point by
+iterating through 255 possible bump seeds.
+
+It does this by hashing all the seeds, the program id, and the PDA marker, and then
+checking if the resulting hash is a valid ed25519 curve point.
+ */
 int
 fd_vm_syscall_sol_try_find_program_address( void *  _vm,
-                                            ulong   seed_vaddr,
-                                            ulong   seed_cnt,
+                                            ulong   seeds_vaddr,
+                                            ulong   seeds_cnt,
                                             ulong   program_id_vaddr,
                                             ulong   out_vaddr,
-                                            ulong   bump_seed_vaddr,
+                                            ulong   out_bump_seed_vaddr,
                                             ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* FIXME: DOUBLE CHECK COST MODEL (WEIRD CHARGE) */
-  int err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
-  if( FD_UNLIKELY( err ) ) return err;
+  /* Costs the same as a create_program_address call.. weird but that is the protocol. */
+  FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
   /* Similar to create_program_address but appends a 1 byte nonce that
      decrements from 255 down to 1 until a valid PDA is found.
 
-     Solana Labs recomputes the SHA hash for each iteration here.  We
-     leverage SHA's streaming properties to precompute all but the last
-     two blocks (1 data, 0 or 1 padding).  FIXME: IS THIS COMMENT
-     CURRENT ... LOOKS LIKE A FULL RECOMPUTATION EVERYTIME HERE RIGHT
-     NOW? (PROBABLY NEED TO ADD CHECKPT / RESTORE CALLS TO SHA TO
-     SUPPORT THIS)*/
+     TODO: Solana Labs recomputes the SHA hash for each iteration here.  We
+     can leverage SHA's streaming properties to precompute all but the last
+     two blocks (1 data, 0 or 1 padding). PROBABLY NEED TO ADD CHECKPT / RESTORE
+     CALLS TO SHA TO SUPPORT THIS)*/
 
-  /* Translate outputs but delay validation.  In the unlikely case that
-     none of the 255 iterations yield a valid PDA, Solana Labs never
-     validates whether out_vaddr is a valid pointer.  FIXME: JUST DO THE
-     TRANSLATION WHEN VALID PDA IS FOUND (LIKE CREATE ABOVE)? */
+  ulong r0 = 1UL; /* No PDA found */
 
-  fd_pubkey_t * out_haddr       = fd_vm_translate_vm_to_host( vm, out_vaddr,       sizeof(fd_pubkey_t), alignof(uchar) );
-  uchar *       bump_seed_haddr = fd_vm_translate_vm_to_host( vm, bump_seed_vaddr, 1UL,                 alignof(uchar) );
+  uchar bump_seed[1];
+  for ( ulong i=0UL; i<256UL; i++ ) {
+    bump_seed[0] = (uchar)(255UL - i);
 
-  fd_sha256_t _sha[1];
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) ); /* FIXME: HAVE A SHA OBJECT THAT IS PRE-JOINED IN VM */
+    FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
+    fd_pubkey_t const * program_id = FD_VM_MEM_HADDR_LD( vm, program_id_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
 
-  uchar       suffix[1];
-  fd_pubkey_t result[1];
-  ulong       r0  = 1UL; /* no PDA found */
-  /**/        err = FD_VM_SUCCESS;
-  for( ulong i=0UL; i<256UL; i++ ) {
-    suffix[0] = (uchar)(255UL- i);
+    fd_pubkey_t derived[1];
+    int err = fd_vm_derive_pda( vm, program_id, seeds_vaddr, seeds_cnt, bump_seed, derived );
+    if ( FD_LIKELY( err == FD_VM_SUCCESS ) ) {
+      /* Stop looking if we have found a valid PDA */
+      r0 = 0UL;
+      fd_pubkey_t * out_haddr = FD_VM_MEM_HADDR_ST( vm, out_vaddr, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) );
+      uchar * out_bump_seed_haddr = FD_VM_MEM_HADDR_ST( vm, out_bump_seed_vaddr, alignof(uchar), 1UL );
+      memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
+      *out_bump_seed_haddr = (uchar)*bump_seed;
 
-    fd_sha256_init( sha );
-    if( FD_UNLIKELY( !fd_vm_partial_derive_address( vm, sha, program_id_vaddr, seed_vaddr, seed_cnt, suffix ) ) ) {
-      /* FIXME: SHA ABORT ON FAIL? */
-      err = FD_VM_ERR_PERM;
       break;
-    }
-    fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
-    fd_sha256_fini( sha, result );
-
-    if( FD_LIKELY( !fd_ed25519_point_validate( result->key ) ) ) { /* PDA is valid if it's not a curve point */
-
-      /* Delayed translation and overlap check */
-      /* FIXME: USE IS_NONOVERLAPPING FROM {GET,SET}RETURN? (NOTE THAT
-         THIS ASSUMES XLAT REJECTS WRAPPING ADDRESS RANGES). */
-      /* FIXME: DO THE OVERLAP CHECK ON THE VADDRS INSTEAD? */
-
-      if( FD_UNLIKELY( (!out_haddr) | (!bump_seed_haddr) ) ) { err = FD_VM_ERR_PERM; break; }
-
-      if( (ulong)out_haddr > (ulong)bump_seed_haddr ) {
-        if( !(((ulong)out_haddr       - (ulong)bump_seed_haddr)>= 1UL) ) { err = FD_VM_ERR_PERM; break; }
-      } else {
-        if( !(((ulong)bump_seed_haddr - (ulong)out_haddr      )>=32UL) ) { err = FD_VM_ERR_PERM; break; }
-      }
-
-      memcpy( out_haddr, result, sizeof(fd_pubkey_t) );
-      *bump_seed_haddr = (uchar)*suffix;
-      r0  = 0UL; /* PDA found */
-      break;
+    } else if ( FD_UNLIKELY( err && (err != FD_VM_ERR_INVALID_PDA) ) ) {
+      return err;
     }
 
-    /* FIXME: DOUBLE CHECK COST MODEL (THIS IS A WEIRD BUT PLAUSIBLE
-       PLACE AND A WEIRD AMOUNT) */
-    err = fd_vm_consume_compute( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
-    if( FD_UNLIKELY( err ) ) break;
   }
 
-  fd_sha256_delete( fd_sha256_leave( sha ) ); /* See note above */
+  /* Do the overlap check, which is only included for this syscall */
+  /* FIXME: USE IS_NONOVERLAPPING FROM {GET,SET}RETURN? (NOTE THAT
+         THIS ASSUMES XLAT REJECTS WRAPPING ADDRESS RANGES). */
+  if( (ulong)out_vaddr > (ulong)out_bump_seed_vaddr ) {
+    if( !(((ulong)out_vaddr       - (ulong)out_bump_seed_vaddr)>= 1UL) ) return FD_VM_ERR_PERM;
+  } else {
+    if( !(((ulong)out_bump_seed_vaddr - (ulong)out_vaddr      )>=32UL) ) return FD_VM_ERR_PERM;
+  }
 
-  if( FD_LIKELY( !err ) ) *_ret = r0;
-  return err;
+  *_ret = r0;
+  return FD_VM_SUCCESS;
 }

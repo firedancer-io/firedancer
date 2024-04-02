@@ -163,6 +163,9 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
   // FD_LOG_DEBUG(("Starting CUs %lu", ctx.txn_ctx->compute_meter));
   fd_vm_t vm = {
     .instr_ctx = &ctx,
@@ -178,7 +181,8 @@ fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
     .syscalls  = syscalls,
     .input     = input,
     .input_sz  = input_sz,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = sha,
   };
 
 #ifdef FD_DEBUG_SBPF_TRACES
@@ -289,7 +293,8 @@ setup_program( fd_exec_instr_ctx_t * ctx,
     .syscalls  = syscalls,
     .input     = NULL,
     .input_sz  = 0,
-    .trace     = NULL
+    .trace     = NULL,
+    .sha       = NULL,
   };
 
   int err = fd_vm_validate( &vm );

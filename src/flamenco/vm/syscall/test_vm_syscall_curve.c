@@ -72,6 +72,8 @@ main( int     argc,
   fd_exec_instr_ctx_t instr_ctx = {
     .slot_ctx = &slot_ctx,
   };
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
 
   fd_vm_t vm = {
     .heap_max  = FD_VM_HEAP_DEFAULT,
@@ -88,6 +90,7 @@ main( int     argc,
     .input_sz  = 0,
     .trace     = NULL,
     .instr_ctx = &instr_ctx, /* we need an instr_ctx for FD_FEATURE_ACTIVE to work */
+    .sha       = sha,
   };
 
   /* FIXME: GROSS */
