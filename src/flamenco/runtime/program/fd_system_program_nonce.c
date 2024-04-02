@@ -180,7 +180,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L37-L44 */
 
-    if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, &data->authority ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
       /* TODO Log: "Advance nonce account: Account {} must be a signer" */
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
@@ -433,7 +433,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L135-L142 */
 
-  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, signer ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, signer ) ) ) {
     /* TODO Log: "Withdraw nonce account: Account {} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -731,7 +731,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L85-L89 */
 
-  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, &data->authority ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L227-L234 */
 
     /* TODO Log: "Authorize nonce account: Account {} must sign" */

@@ -11,28 +11,6 @@
 #include "../context/fd_exec_txn_ctx.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 
-/* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
-
-   fd_system_program_any_signed matches
-   solana_system_program::system_processor::Address::is_signer
-   Scans instruction accounts for matching signer.
-
-   Returns 1 if *any* instruction account with the given pubkey is a
-   signer and 0 otherwise.  Note that the same account/pubkey can be
-   specified as multiple different instruction accounts that might not
-   all have the signer bit. */
-
-FD_FN_PURE int
-fd_system_program_any_signed( fd_instr_info_t const * info,
-                              fd_pubkey_t const *     pubkey ) {
-  int is_signer = 0;
-  for( ulong j=0UL; j < info->acct_cnt; j++ )
-    is_signer |=
-      ( ( !!fd_instr_acc_is_signer_idx( info, j ) ) &
-        ( 0==memcmp( pubkey->key, info->acct_pubkeys[j].key, sizeof(fd_pubkey_t) ) ) );
-  return is_signer;
-}
-
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
 
    Partial port of system_processor::Address::create, only covering the
@@ -185,7 +163,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
-  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
     /* TODO Log: "Allocate 'to' account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -239,7 +217,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
-  if( FD_UNLIKELY( !fd_system_program_any_signed( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
     /* TODO Log: "Assign: account {:?} must sign" */
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
