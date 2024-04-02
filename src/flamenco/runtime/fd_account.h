@@ -132,9 +132,9 @@ fd_account_is_zeroed( fd_account_meta_t const * acct ) {
 }
 
 int
-fd_account_set_owner( fd_exec_instr_ctx_t * ctx,
-                      ulong                 instr_acc_idx,
-                      fd_pubkey_t const *   owner );
+fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
+                      ulong                       instr_acc_idx,
+                      fd_pubkey_t const *         owner );
 
 /* fd_account_get_lamports mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::get_lamports.
@@ -155,9 +155,9 @@ fd_account_get_lamports( fd_account_meta_t const * meta ) {
    FD_EXECUTOR_INSTR_ERR_{...} code.  Acquires a writable handle. */
 
 int
-fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
-                         ulong                 instr_acc_idx,
-                         ulong                 lamports );
+fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
+                         ulong                       instr_acc_idx,
+                         ulong                       lamports );
 
 /* fd_account_checked_{add,sub}_lamports add/removes lamports to/from an
    account.  Does not update global capitalization.  Returns 0 on
@@ -165,9 +165,9 @@ fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
    Gracefully handles underflow.  Acquires a writable handle. */
 
 static inline int
-fd_account_checked_add_lamports( fd_exec_instr_ctx_t * const ctx,
-                                 ulong                 const instr_acc_idx,
-                                 ulong                 const add_amount ) {
+fd_account_checked_add_lamports( fd_exec_instr_ctx_t const * ctx,
+                                 ulong                       instr_acc_idx,
+                                 ulong                       add_amount ) {
 
   assert( instr_acc_idx < ctx->instr->acct_cnt );
   fd_account_meta_t const * meta = ctx->instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
@@ -181,9 +181,9 @@ fd_account_checked_add_lamports( fd_exec_instr_ctx_t * const ctx,
 }
 
 static inline int
-fd_account_checked_sub_lamports( fd_exec_instr_ctx_t * const ctx,
-                                 ulong                 const instr_acc_idx,
-                                 ulong                 const sub_amount ) {
+fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
+                                 ulong                       instr_acc_idx,
+                                 ulong                       sub_amount ) {
 
   assert( instr_acc_idx < ctx->instr->acct_cnt );
   fd_account_meta_t const * meta = ctx->instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
@@ -204,11 +204,11 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t * const ctx,
    https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L903-L923 */
 
 int
-fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
-                                ulong                 instr_acc_idx,
-                                uchar const *         data,
-                                ulong                 data_sz,
-                                int *                 err );
+fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
+                                ulong                       instr_acc_idx,
+                                uchar const *               data,
+                                ulong                       data_sz,
+                                int *                       err );
 
 /* fd_account_set_data_length mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::set_data_length.
@@ -216,10 +216,10 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
    https://github.com/solana-labs/solana/blob/v1.17.25/sdk/src/transaction_context.rs#L925-L940 */
 
 int
-fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
-                            ulong                 instr_acc_idx,
-                            ulong                 new_len,
-                            int *                 err );
+fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
+                            ulong                       instr_acc_idx,
+                            ulong                       new_len,
+                            int *                       err );
 
 FD_PROTOTYPES_END
 

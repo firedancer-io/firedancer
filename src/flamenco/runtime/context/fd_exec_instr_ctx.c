@@ -3,9 +3,9 @@
 #include "../fd_acc_mgr.h"
 
 int
-fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t *    ctx,
-                                    ulong                    idx,
-                                    fd_borrowed_account_t ** account ) {
+fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
+                                    ulong                       idx,
+                                    fd_borrowed_account_t **    account ) {
   if( idx >= ctx->instr->acct_cnt )
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 
@@ -15,10 +15,10 @@ fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t *    ctx,
 }
 
 int
-fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t *    ctx,
-                                      ulong                    idx,
-                                      ulong                    min_data_sz,
-                                      fd_borrowed_account_t ** account ) {
+fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
+                                      ulong                       idx,
+                                      ulong                       min_data_sz,
+                                      fd_borrowed_account_t **    account ) {
   if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) )
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, idx ) ) ) {

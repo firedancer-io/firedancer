@@ -9,7 +9,6 @@
 //#include "../../rewards/fd_rewards_types.h"
 #include "../../types/fd_types.h"
 
-#include "fd_tower_ctx.h"
 #include "../sysvar/fd_sysvar_cache.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
@@ -19,8 +18,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t *    epoch_ctx;
-
-  fd_tower_ctx_t           tower;
 
   fd_funk_txn_t *          funk_txn;
   fd_acc_mgr_t *           acc_mgr;

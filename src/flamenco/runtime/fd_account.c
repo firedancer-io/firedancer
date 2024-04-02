@@ -5,9 +5,9 @@
 #include "info/fd_instr_info.h"
 
 int
-fd_account_set_owner( fd_exec_instr_ctx_t * ctx,
-                      ulong                 instr_acc_idx,
-                      fd_pubkey_t const *   owner ) {
+fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
+                      ulong                       instr_acc_idx,
+                      fd_pubkey_t const *         owner ) {
 
   fd_instr_info_t const * instr = ctx->instr;
 
@@ -42,9 +42,9 @@ fd_account_set_owner( fd_exec_instr_ctx_t * ctx,
 }
 
 int
-fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
-                         ulong                 instr_acc_idx,
-                         ulong                 lamports ) {
+fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
+                         ulong                       instr_acc_idx,
+                         ulong                       lamports ) {
 
   fd_borrowed_account_t * account = NULL;
   do {
@@ -77,11 +77,11 @@ fd_account_set_lamports( fd_exec_instr_ctx_t * ctx,
 }
 
 int
-fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
-                                ulong                 instr_acc_idx,
-                                uchar const *         data,
-                                ulong                 data_sz,
-                                int *                 err ) {
+fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
+                                ulong                       instr_acc_idx,
+                                uchar const *               data,
+                                ulong                       data_sz,
+                                int *                       err ) {
 
   fd_borrowed_account_t * account = NULL;
   do {
@@ -109,10 +109,10 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t * ctx,
 }
 
 int
-fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
-                            ulong                 instr_acc_idx,
-                            ulong                 new_len,
-                            int *                 err ) {
+fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
+                            ulong                       instr_acc_idx,
+                            ulong                       new_len,
+                            int *                       err ) {
 
   fd_borrowed_account_t * account = NULL;
   do {
