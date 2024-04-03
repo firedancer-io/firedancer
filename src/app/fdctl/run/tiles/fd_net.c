@@ -11,8 +11,8 @@
 #include <linux/unistd.h>
 
 #define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-#define MAX_UNFLUSHED_MSGS         (16UL);
-#define MAX_HOLDOFF_UNTIL_FLUSH_NS (16UL);
+#define MAX_UNFLUSHED_MSGS         (16UL)
+#define MAX_HOLDOFF_UNTIL_FLUSH_NS (16UL)
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -216,7 +216,6 @@ before_frag( void * _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
-  ctx->had_new_msgs = 1;
 
   /* Round robin by sequence number for now, QUIC should be modified to
      echo the net tile index back so we can transmit on the same queue.
