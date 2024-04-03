@@ -293,8 +293,10 @@ fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
   xsk_aio->tx_top += tx_completed;
 }
 
+/*
 static FD_TL ulong xdropped = 0;
 static FD_TL long xtime = 0;
+*/
 /* fd_xsk_aio_send is an aio callback that transmits the given batch of
    packets through the XSK. */
 static int
@@ -323,17 +325,17 @@ fd_xsk_aio_send( void *                    ctx,
   ulong       batch_cnt = pkt_cnt; /* Number of frames to attempt to send */
   ulong const pkt_depth = xsk_aio->pkt_depth;
   if( FD_UNLIKELY( batch_cnt>pkt_depth ) ) {
-    xdropped += batch_cnt - pkt_depth;
+//    xdropped += batch_cnt - pkt_depth;
     batch_cnt = pkt_depth;
   }
-  
+/*  
   long x = fd_log_wallclock();
   if( FD_UNLIKELY(x - xtime > (long)1e9)) {
-    FD_LOG_WARNING(("D: %lu", xdropped));
+    FD_LOG_WARNING(("D: %lu %lu", xdropped, pkt_depth ));
     xtime = x;
     xdropped = 0;
   }
-
+*/
   /* Find UMEM and meta params */
   uchar *               frame_mem  = xsk_aio->frame_mem;          /* UMEM region     */
   ulong                 frame_sz   = xsk_aio->frame_sz;           /* UMEM frame sz   */
@@ -375,6 +377,8 @@ fd_xsk_aio_send( void *                    ctx,
     };
     pending_cnt++;
   }
+
+ // xdropped += (batch_cnt - pending_cnt);
 
   /* Enqueue send */
   ulong sent_cnt=0UL;

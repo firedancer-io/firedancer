@@ -11,7 +11,7 @@
 #include <linux/unistd.h>
 
 #define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-#define MAX_UNFLUSHED_MSGS         (128UL)
+#define MAX_UNFLUSHED_MSGS         (1UL)
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];

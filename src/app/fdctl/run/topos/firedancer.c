@@ -3,7 +3,7 @@
 #include "topo_util.h"
 
 #ifdef FD_GOSSIP_DEMO
-#define FD_GOSSIP_TILES 3
+#define FD_GOSSIP_TILES 2
 #else
 #define FD_GOSSIP_TILES 1
 #endif
