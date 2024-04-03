@@ -398,12 +398,12 @@ fd_quic_crypto_encrypt(
   ulong cipher_out_bound = hdr_sz + pkt_sz + FD_QUIC_CRYPTO_TAG_SZ;
 
   if( FD_UNLIKELY( *out_sz < cipher_out_bound ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: output buffer not big enough" ));
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_encrypt: output buffer not big enough" )) );
     return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( ( hdr_sz < 4 ) | ( hdr_sz > INT_MAX ) ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: packet header size out of bounds" ));
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_encrypt: packet header size out of bounds" )) );
     return FD_QUIC_FAILED;
   }
 
