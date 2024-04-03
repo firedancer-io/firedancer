@@ -737,7 +737,7 @@ dynamic_port_range = "8900-9000"
         # rather than the underlying link bandwidth.  If you have a lot
         # of memory available and are constrained by this, it can make
         # sense to increase.
-        max_inflight_quic_packets = 65536
+        max_inflight_quic_packets = 2048
 
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.
