@@ -1765,12 +1765,20 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
   rc = verify_and_get_vote_state( vote_account, clock, signers, ctx, &vote_state );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-  /* All the validation should have happened already, if it made it here. */
+  /* Update bank matches */
+
   fd_vote_lockout_t * last_vote = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-  if( FD_LIKELY( last_vote ) ) {
-    fd_vote_bank_match_check(
-        /* TODO: LML the cast to volatile ulong * is gross and required because ctx.epoch_ctx is const */
-        ctx.epoch_ctx->bank_matches, last_vote->slot, &vote_state_update->hash, 0, (volatile ulong *)&ctx.epoch_ctx->bank_matches_lock );
+  fd_bank_hash_cmp_t * bank_hash_cmp = ctx.epoch_ctx->bank_hash_cmp;
+  if( FD_LIKELY( last_vote && bank_hash_cmp ) ) {
+    fd_bank_hash_cmp_lock( bank_hash_cmp );
+    fd_bank_hash_cmp_insert( bank_hash_cmp, last_vote->slot, &vote_state_update->hash, 0);
+    if( FD_LIKELY( vote_state_update->root.is_some ) ) {
+      fd_bank_hash_cmp_entry_t * root_cmp =
+          fd_bank_hash_cmp_map_query( bank_hash_cmp->map, vote_state_update->root.slot, NULL );
+      if( FD_LIKELY( root_cmp ) ) root_cmp->rooted = 1;
+    }
+
+    fd_bank_hash_cmp_unlock( bank_hash_cmp );
   }
 
   rc = do_process_vote_state_update(
@@ -2697,85 +2705,4 @@ fd_vote_get_state( fd_borrowed_account_t const * self,
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) {
   convert_to_current( self, ctx );
-}
-
-static void
-fd_vote_program_match_lock( volatile ulong * lock ) {
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0UL, 1UL) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-  FD_COMPILER_MFENCE();
-}
-
-static void
-fd_vote_program_match_unlock( volatile ulong * lock ) {
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *lock ) = 0UL;
-}
-
-void
-fd_vote_bank_match_check( fd_bank_match_t * bank_matches, ulong slot, fd_hash_t const * bank_hash, int ours, volatile ulong * lock ) {
-  fd_vote_program_match_lock( lock );
-  if( FD_UNLIKELY( bank_matches ) ) {
-
-    fd_bank_match_t * bank_match = fd_bank_match_map_query( bank_matches, slot, NULL );
-    if( FD_LIKELY( !bank_match ) ) {
-      if( FD_UNLIKELY( fd_bank_match_map_key_cnt( bank_matches ) ==
-                       fd_bank_match_map_key_max( bank_matches ) ) ) {
-        fd_bank_match_map_clear( bank_matches );
-      }
-      bank_match = fd_bank_match_map_insert( bank_matches, slot );
-    }
-    fd_hash_t null_hash = { 0 };
-    int log_bank_match = 0;
-
-    /* if it's our bank hash, log it */
-    if( ours ) {
-      log_bank_match   = 1;
-      bank_match->ours = *bank_hash;
-
-    /* if it's their bank hash, only log the first time, because these are votes. */
-    // TODO make this log on "duplicate confirmed = 52%" once ghost is plumbed through
-    } else {
-      if( FD_LIKELY( ( 0 != memcmp( &bank_match->theirs, &null_hash, sizeof( fd_hash_t ) ) ) ) ) {
-        if( FD_UNLIKELY(
-                ( 0 != memcmp( &bank_match->theirs, bank_hash->hash, sizeof( fd_hash_t ) ) ) ) ) {
-          // TODO support equivocating hashes
-          FD_LOG_DEBUG( ( "ignoring equivocating hash %32J vs. %32J",
-                          bank_match->theirs.hash,
-                          bank_hash->hash ) );
-        }
-      } else {
-        log_bank_match     = 1;
-        bank_match->theirs = *bank_hash;
-      }
-    }
-
-    /* if the other bank hash is ready now too (ours -> theirs or theirs -> ours), check for mismatch */
-    fd_hash_t * other = fd_ptr_if( ours, &bank_match->theirs, &bank_match->ours );
-    if( FD_UNLIKELY( log_bank_match && 0 != memcmp( other, &null_hash, sizeof( fd_hash_t ) ) ) ) {
-      if( FD_UNLIKELY( 0 !=
-                       memcmp( &bank_match->ours, &bank_match->theirs, sizeof( fd_hash_t ) ) ) ) {
-        FD_LOG_WARNING( ( "Bank hash mismatch on slot: %lu. ours: %32J, theirs: %32J",
-                          slot,
-                          bank_match->ours.hash,
-                          bank_match->theirs.hash ) );
-        static unsigned fail_cnt = 0;
-        if( ++fail_cnt >= 5U ) {
-          FD_LOG_WARNING( ( "Too many mismatches, shutting down!" ) );
-          fd_tile_shutdown_flag = 2;
-        }
-      } else {
-        FD_LOG_NOTICE( ( "Bank hashes matched on slot: %lu. ours: %32J, theirs: %32J",
-                         slot,
-                         bank_match->ours.hash,
-                         bank_match->theirs.hash ) );
-      }
-      fd_bank_match_map_remove( bank_matches, bank_match );
-    } else {
-      FD_LOG_DEBUG( ( "other bank hash is not ready: %lu", slot ) );
-    }
-  }
-  fd_vote_program_match_unlock( lock ); 
 }

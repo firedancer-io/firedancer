@@ -1182,18 +1182,6 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     replay_setup_out.replay->funk        = funk_setup_out.funk;
     replay_setup_out.replay->acc_mgr     = runtime_ctx->_acc_mgr;
     replay_setup_out.replay->epoch_ctx   = slot_ctx_setup_out.exec_epoch_ctx;
-
-    int bank_matches_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
-    void * bank_matches_mem =
-        fd_wksp_alloc_laddr( wksp,
-                             fd_bank_match_map_align(),
-                             fd_bank_match_map_footprint( bank_matches_lg_slot_cnt ),
-                             42UL );
-    fd_memset( bank_matches_mem, 0, fd_bank_match_map_footprint( bank_matches_lg_slot_cnt ) );
-    replay_setup_out.replay->epoch_ctx->bank_matches = fd_bank_match_map_join(
-        fd_bank_match_map_new( bank_matches_mem, bank_matches_lg_slot_cnt ) );
-    replay_setup_out.replay->epoch_ctx->bank_matches_lock = 0;
-
     replay_setup_out.replay->repair      = repair;
     replay_setup_out.replay->gossip      = gossip;
 
@@ -1211,6 +1199,17 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     slot_entry->block.data_gaddr = ULONG_MAX;
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
     slot_entry->block.flags = fd_uint_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_EXECUTED );
+
+    /* bank hash cmp */
+    int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
+    void * bank_hash_cmp_mem =
+        fd_wksp_alloc_laddr( wksp,
+                             fd_bank_hash_cmp_align(),
+                             fd_bank_hash_cmp_footprint( bank_hash_cmp_lg_slot_cnt ),
+                             42UL );
+    replay_setup_out.replay->epoch_ctx->bank_hash_cmp = fd_bank_hash_cmp_join(
+        fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
+    replay_setup_out.replay->epoch_ctx->bank_hash_cmp->slot = snapshot_slot;
 
     /* TODO @yunzhang open files, set the replay pointers, etc. you need here*/
     if (args->shred_cap == NULL) {

@@ -11,6 +11,8 @@ target/
 
 # Clang
 .clangd
+.cache
+compile_commands.json
 
 # Rust
 **/Cargo.lock
@@ -33,6 +35,9 @@ deps-bundle.tar.zst
 *.pcap
 *.pcapng
 
+# Shred capture
+*.shredcap
+
 # Logs
 *.log
 
@@ -41,18 +46,15 @@ deps-bundle.tar.zst
 /book/.vitepress/dist
 /book/node_modules
 
-# clangd
-.cache
-
+# Bank hash debug
 dump
 test.solcap
 test_ledger_backup
-
 test.yaml
 fddev.yaml
 
+# Tile config
 local.toml
 testnet.toml
 mainnet.toml
-*.shredcap
 

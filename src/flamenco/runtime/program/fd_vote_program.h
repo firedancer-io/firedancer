@@ -87,13 +87,6 @@ fd_vote_get_state( fd_borrowed_account_t const *            self,
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx );
 
-void
-fd_vote_bank_match_check( fd_bank_match_t * bank_matches,
-                          ulong             slot,
-                          fd_hash_t const * bank_hash,
-                          int               ours,
-                          volatile ulong  * lock );
-
 int
 fd_vote_decode_compact_update( fd_exec_instr_ctx_t              ctx,
                                fd_compact_vote_state_update_t * compact_update,

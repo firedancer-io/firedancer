@@ -2,20 +2,9 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_epoch_ctx_h
 
 #include "../../features/fd_features.h"
-#include "../fd_rent_lists.h"
 #include "../../leaders/fd_leaders.h"
-
-struct fd_bank_match {
-  ulong slot;
-  uint hash;
-  fd_hash_t ours;
-  fd_hash_t theirs;
-};
-typedef struct fd_bank_match fd_bank_match_t;
-#define MAP_NAME fd_bank_match_map
-#define MAP_T    fd_bank_match_t
-#define MAP_KEY  slot
-#include "../../../util/tmpl/fd_map_dynamic.c"
+#include "../fd_bank_hash_cmp.h"
+#include "../fd_rent_lists.h"
 
 /* fd_exec_epoch_ctx_t is the context that stays constant throughout
    an entire epoch. */
@@ -29,8 +18,7 @@ struct __attribute__((aligned(8UL))) fd_exec_epoch_ctx {
   fd_epoch_leaders_t * leaders;  /* Current epoch only */
   fd_features_t        features;
   fd_epoch_bank_t      epoch_bank;
-  fd_bank_match_t *    bank_matches;
-  volatile ulong       bank_matches_lock;
+  fd_bank_hash_cmp_t * bank_hash_cmp;
 };
 
 #define FD_EXEC_EPOCH_CTX_ALIGN     (alignof(fd_exec_epoch_ctx_t))

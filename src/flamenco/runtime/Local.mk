@@ -9,6 +9,7 @@ $(call add-hdrs, \
 	fd_fork_mgr.h \
 	fd_blockstore.h \
 	fd_snapshot_loader.h \
+	fd_bank_hash_cmp.h \
 )
 
 $(call add-hdrs,tests/fd_tests.h)
@@ -20,6 +21,7 @@ $(call add-objs,fd_pubkey_utils,fd_flamenco)
 $(call add-objs,fd_fork_mgr,fd_flamenco)
 $(call add-objs,fd_blockstore,fd_flamenco)
 $(call add-objs,fd_snapshot_loader,fd_flamenco)
+$(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 
 $(call make-unit-test,test_bpf_loader_v4_program,program/test_bpf_loader_v4_program,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_blockstore,test_blockstore,fd_flamenco fd_funk fd_ballet fd_util)

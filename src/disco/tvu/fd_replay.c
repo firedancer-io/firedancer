@@ -1,6 +1,6 @@
 #include "fd_replay.h"
-#include "../shred/fd_shred_cap.h"
 #include "../../flamenco/runtime/program/fd_vote_program.h"
+#include "../shred/fd_shred_cap.h"
 
 void *
 fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
@@ -22,11 +22,11 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
   }
 
   fd_memset( mem, 0, footprint );
-  ulong laddr               = (ulong)mem;
-  laddr                     = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
-  fd_replay_t * replay      = (void *)laddr;
-  replay->smr               = FD_SLOT_NULL;
-  replay->snapshot_slot     = FD_SLOT_NULL;
+  ulong laddr                = (ulong)mem;
+  laddr                      = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
+  fd_replay_t * replay       = (void *)laddr;
+  replay->smr                = FD_SLOT_NULL;
+  replay->snapshot_slot      = FD_SLOT_NULL;
   replay->first_turbine_slot = FD_SLOT_NULL;
   replay->curr_turbine_slot  = 0;
 
@@ -46,10 +46,10 @@ fd_replay_new( void * mem, ulong slot_max, ulong seed ) {
 
   laddr           = fd_ulong_align_up( laddr, alignof( long ) );
   replay->pending = (long *)laddr;
-  laddr += sizeof( long )*FD_REPLAY_PENDING_MAX;
+  laddr += sizeof( long ) * FD_REPLAY_PENDING_MAX;
   replay->pending_start = 0;
-  replay->pending_end = 0;
-  replay->pending_lock = 0;
+  replay->pending_end   = 0;
+  replay->pending_lock  = 0;
 
   laddr = fd_ulong_align_up( laddr, alignof( fd_replay_t ) );
 
@@ -109,8 +109,8 @@ fd_replay_delete( void * replay ) {
 
 static void
 fd_replay_pending_lock( fd_replay_t * replay ) {
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( &replay->pending_lock, 0UL, 1UL) ) ) break;
+  for( ;; ) {
+    if( FD_LIKELY( !FD_ATOMIC_CAS( &replay->pending_lock, 0UL, 1UL ) ) ) break;
     FD_SPIN_PAUSE();
   }
   FD_COMPILER_MFENCE();
@@ -125,42 +125,47 @@ fd_replay_pending_unlock( fd_replay_t * replay ) {
 void
 fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay ) {
   fd_replay_pending_lock( replay );
-  
-  long when = replay->now + delay;
+
+  long   when    = replay->now + delay;
   long * pending = replay->pending;
   if( replay->pending_start == replay->pending_end ) {
     /* Queue is empty */
-    replay->pending_start = slot;
-    replay->pending_end = slot+1U;
+    replay->pending_start                  = slot;
+    replay->pending_end                    = slot + 1U;
     pending[slot & FD_REPLAY_PENDING_MASK] = when;
-    
-  } else if ( slot < replay->pending_start ) {
+
+  } else if( slot < replay->pending_start ) {
     /* Grow down */
     if( replay->pending_end - slot > FD_REPLAY_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
+      FD_LOG_ERR( ( "pending queue overrun: start=%lu, end=%lu, new slot=%lu",
+                    replay->pending_start,
+                    replay->pending_end,
+                    slot ) );
     pending[slot & FD_REPLAY_PENDING_MASK] = when;
-    for( ulong i = slot+1; i < replay->pending_start; ++i ) {
+    for( ulong i = slot + 1; i < replay->pending_start; ++i ) {
       /* Zero fill */
       pending[i & FD_REPLAY_PENDING_MASK] = 0;
     }
     replay->pending_start = slot;
 
-  } else if ( slot >= replay->pending_end ) {
+  } else if( slot >= replay->pending_end ) {
     /* Grow up */
     if( slot - replay->pending_start > FD_REPLAY_PENDING_MAX )
-      FD_LOG_ERR(( "pending queue overrun: start=%lu, end=%lu, new slot=%lu", replay->pending_start, replay->pending_end, slot ));
+      FD_LOG_ERR( ( "pending queue overrun: start=%lu, end=%lu, new slot=%lu",
+                    replay->pending_start,
+                    replay->pending_end,
+                    slot ) );
     pending[slot & FD_REPLAY_PENDING_MASK] = when;
     for( ulong i = replay->pending_end; i < slot; ++i ) {
       /* Zero fill */
       pending[i & FD_REPLAY_PENDING_MASK] = 0;
     }
-    replay->pending_end = slot+1U;
+    replay->pending_end = slot + 1U;
 
   } else {
     /* Update in place */
     long * p = &pending[slot & FD_REPLAY_PENDING_MASK];
-    if( 0 == *p || *p > when )
-      *p = when;
+    if( 0 == *p || *p > when ) *p = when;
   }
 
   fd_replay_pending_unlock( replay );
@@ -175,25 +180,23 @@ ulong
 fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
   fd_replay_pending_lock( replay );
   ulong end = replay->pending_end;
-  for( i = fd_ulong_max(i, replay->pending_start); 1; ++i ) {
+  for( i = fd_ulong_max( i, replay->pending_start ); 1; ++i ) {
     if( i >= end ) {
       /* End sentinel */
       i = ULONG_MAX;
       break;
     }
-    long * ele = &replay->pending[ i & FD_REPLAY_PENDING_MASK ];
+    long * ele = &replay->pending[i & FD_REPLAY_PENDING_MASK];
     if( i <= replay->smr || *ele == 0 ) {
       /* Empty or useless slot */
-      if( replay->pending_start == i )
-        replay->pending_start = i+1U; /* Pop it */
+      if( replay->pending_start == i ) replay->pending_start = i + 1U; /* Pop it */
     } else if( *ele <= now ) {
       /* Do this slot */
       long when = *ele;
-      *ele = 0;
-      if( replay->pending_start == i )
-        replay->pending_start = i+1U; /* Pop it */
-      FD_LOG_DEBUG(( "preparing slot %lu when=%ld now=%ld latency=%ld",
-                     i, when, now, now - when ));
+      *ele      = 0;
+      if( replay->pending_start == i ) replay->pending_start = i + 1U; /* Pop it */
+      FD_LOG_DEBUG(
+          ( "preparing slot %lu when=%ld now=%ld latency=%ld", i, when, now, now - when ) );
       break;
     }
   }
@@ -209,12 +212,13 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
   fd_blockstore_start_read( replay->blockstore );
 
   ulong re_adds[2];
-  uint re_adds_cnt = 0;
+  uint  re_adds_cnt = 0;
 
   fd_block_t * block = fd_blockstore_block_query( replay->blockstore, slot );
 
   /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uint_extract_bit( block->flags, FD_BLOCK_FLAG_EXECUTED ) ) ) goto end;
+  if( FD_UNLIKELY( block && fd_uint_extract_bit( block->flags, FD_BLOCK_FLAG_EXECUTED ) ) )
+    goto end;
 
   fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
 
@@ -225,9 +229,9 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
     goto end;
   }
 
-  ulong            parent_slot  = slot_meta->parent_slot;
+  ulong            parent_slot = slot_meta->parent_slot;
   fd_slot_meta_t * parent_slot_meta =
-    fd_blockstore_slot_meta_query( replay->blockstore, parent_slot );
+      fd_blockstore_slot_meta_query( replay->blockstore, parent_slot );
 
   /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
    * repaired before we can replay it. */
@@ -300,7 +304,7 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
   fd_blockstore_end_read( replay->blockstore );
 
-  for (uint i = 0; i < re_adds_cnt; ++i)
+  for( uint i = 0; i < re_adds_cnt; ++i )
     fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
 
   return parent;
@@ -308,7 +312,7 @@ fd_replay_slot_prepare( fd_replay_t *  replay,
 end:
   fd_blockstore_end_read( replay->blockstore );
 
-  for (uint i = 0; i < re_adds_cnt; ++i)
+  for( uint i = 0; i < re_adds_cnt; ++i )
     fd_replay_add_pending( replay, re_adds[i], FD_REPAIR_BACKOFF_TIME );
 
   return NULL;
@@ -321,11 +325,11 @@ fd_replay_slot_execute( fd_replay_t *          replay,
                         uchar const *          block,
                         ulong                  block_sz,
                         fd_capture_ctx_t *     capture_ctx ) {
-  fd_shred_cap_mark_stable(replay, slot);
+  fd_shred_cap_mark_stable( replay, slot );
 
-  ulong txn_cnt                   = 0;
+  ulong txn_cnt                        = 0;
   parent->slot_ctx.slot_bank.prev_slot = parent->slot_ctx.slot_bank.slot;
-  parent->slot_ctx.slot_bank.slot = slot;
+  parent->slot_ctx.slot_bank.slot      = slot;
   FD_TEST( fd_runtime_block_eval_tpool( &parent->slot_ctx,
                                         capture_ctx,
                                         block,
@@ -337,7 +341,7 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   (void)txn_cnt;
 
   fd_blockstore_start_write( replay->blockstore );
-  
+
   fd_block_t * block_ = fd_blockstore_block_query( replay->blockstore, slot );
   if( FD_LIKELY( block_ ) ) {
     block_->flags = fd_uint_set_bit( block_->flags, FD_BLOCK_FLAG_EXECUTED );
@@ -360,16 +364,30 @@ fd_replay_slot_execute( fd_replay_t *          replay,
   child->slot_ctx.slot_bank.collected_fees = 0;
   child->slot_ctx.slot_bank.collected_rent = 0;
 
-  FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current executed: %d, caught up: %d",
+  FD_LOG_NOTICE( ( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
+                   "executed: %d, caught up: %d",
                    replay->first_turbine_slot,
                    replay->curr_turbine_slot,
                    replay->curr_turbine_slot - slot,
                    slot,
                    slot > replay->first_turbine_slot ) );
-  FD_LOG_NOTICE( ( "bank hash: %32J", child->slot_ctx.slot_bank.banks_hash.hash ) );
 
-  fd_vote_bank_match_check( child->slot_ctx.epoch_ctx->bank_matches, slot, &child->slot_ctx.slot_bank.banks_hash, 1, &child->slot_ctx.epoch_ctx->bank_matches_lock );
-  
+  fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
+  FD_LOG_NOTICE( ( "bank hash: %32J", bank_hash->hash ) );
+
+  fd_bank_hash_cmp_t * bank_hash_cmp = child->slot_ctx.epoch_ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_lock( bank_hash_cmp );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
+
+  /* Try to move the bank hash comparison window forward */
+  for( ulong i = bank_hash_cmp->slot; i < slot; i++ ) {
+    if( FD_UNLIKELY( fd_blockstore_slot_parent_query( replay->blockstore, i ) ==
+                     bank_hash_cmp->slot ) ) {
+      /* fd_bank_hash_cmp_check returns 1 if both bank hashes are ready */
+      if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, i ) ) ) bank_hash_cmp->slot = i;
+    }
+  }
+  fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   //   fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool =
   //   bank->epoch_stakes.vote_accounts_pool; fd_vote_accounts_pair_t_mapnode_t *
@@ -456,8 +474,9 @@ fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
   fd_slot_meta_t * slot_meta = fd_blockstore_slot_meta_query( replay->blockstore, slot );
 
   if( fd_blockstore_is_slot_ancient( replay->blockstore, slot ) ) {
-    FD_LOG_ERR(( "repair is hopelessly behind by %lu slots, max history is %lu",
-                 replay->blockstore->max - slot, replay->blockstore->slot_max ));
+    FD_LOG_ERR( ( "repair is hopelessly behind by %lu slots, max history is %lu",
+                  replay->blockstore->max - slot,
+                  replay->blockstore->slot_max ) );
   }
 
   if( FD_LIKELY( !slot_meta ) ) {
@@ -476,11 +495,12 @@ fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
       fd_repair_need_highest_window_index( replay->repair, slot, (uint)last_index );
     }
 
-    /* First make sure we are ready to execute this blook soon. Look for an ancestor that was executed. */
+    /* First make sure we are ready to execute this blook soon. Look for an ancestor that was
+     * executed. */
     ulong anc_slot = slot;
-    int good = 0;
+    int   good     = 0;
     for( uint i = 0; i < 3; ++i ) {
-      anc_slot  = fd_blockstore_slot_parent_query( replay->blockstore, anc_slot );
+      anc_slot               = fd_blockstore_slot_parent_query( replay->blockstore, anc_slot );
       fd_block_t * anc_block = fd_blockstore_block_query( replay->blockstore, anc_slot );
       if( anc_block && fd_uint_extract_bit( anc_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) {
         good = 1;
@@ -488,16 +508,19 @@ fd_replay_slot_repair( fd_replay_t * replay, ulong slot ) {
       }
     }
     if( !good ) return;
-    
+
     /* Fill in what's missing */
     ulong cnt = 0;
     for( ulong i = slot_meta->consumed + 1; i <= last_index; i++ ) {
       if( fd_blockstore_shred_query( replay->blockstore, slot, (uint)i ) != NULL ) continue;
-      if( fd_repair_need_window_index( replay->repair, slot, (uint)i ) > 0 )
-        ++cnt;
+      if( fd_repair_need_window_index( replay->repair, slot, (uint)i ) > 0 ) ++cnt;
     }
     if( cnt )
-      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests", slot, slot_meta->consumed + 1, last_index, cnt ) );
+      FD_LOG_NOTICE( ( "[repair] need %lu [%lu, %lu], sent %lu requests",
+                       slot,
+                       slot_meta->consumed + 1,
+                       last_index,
+                       cnt ) );
   }
 }
 
@@ -561,8 +584,8 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                   fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA,
                   shred->slot,
                   shred->idx ) );
-  fd_pubkey_t const *  leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
-  if( FD_UNLIKELY(!leader) ) {
+  fd_pubkey_t const * leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, shred->slot );
+  if( FD_UNLIKELY( !leader ) ) {
     FD_LOG_WARNING( ( "unable to get current leader, ignoring turbine packet" ) );
     return;
   }
@@ -579,7 +602,7 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
                     parity_shred->slot,
                     parity_shred->code.code_cnt,
                     parity_shred->code.data_cnt ) );
-    
+
     /* Start repairs in 300ms */
     ulong slot = parity_shred->slot;
     fd_replay_add_pending( replay, slot, (ulong)300e6 );
@@ -594,25 +617,26 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
 
     for( ulong i = 0; i < parity_shred->code.data_cnt; i++ ) {
       fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( out_fec_set->data_shreds[i] );
-      FD_LOG_DEBUG(
-          ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
+      FD_LOG_DEBUG( ( "[turbine] rx shred - slot: %lu idx: %u", slot, data_shred->idx ) );
       int rc = fd_blockstore_shred_insert( blockstore, data_shred );
       /* TODO @yunzhang: write to shred_cap */
-      fd_shred_cap_archive(replay, data_shred, FD_SHRED_CAP_FLAG_MARK_TURBINE(0));
+      fd_shred_cap_archive( replay, data_shred, FD_SHRED_CAP_FLAG_MARK_TURBINE( 0 ) );
 
       if( FD_UNLIKELY( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) ) {
-        if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) { replay->first_turbine_slot = slot; }
-        replay->curr_turbine_slot = fd_ulong_max(slot, replay->curr_turbine_slot);
-        FD_LOG_NOTICE(( "[turbine] slot %lu complete", slot ));
-        
+        if( FD_UNLIKELY( replay->first_turbine_slot == FD_SLOT_NULL ) ) {
+          replay->first_turbine_slot = slot;
+        }
+        replay->curr_turbine_slot = fd_ulong_max( slot, replay->curr_turbine_slot );
+        FD_LOG_NOTICE( ( "[turbine] slot %lu complete", slot ) );
+
         fd_blockstore_end_write( blockstore );
-        
+
         /* Execute immediately */
         fd_replay_add_pending( replay, slot, 0 );
         return;
       }
     }
-    
+
     fd_blockstore_end_write( blockstore );
   }
 }
@@ -627,22 +651,22 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
   if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
     fd_blockstore_end_write( blockstore );
     return;
-    //return FD_BLOCKSTORE_OK;
+    // return FD_BLOCKSTORE_OK;
   }
   int rc = fd_blockstore_shred_insert( blockstore, shred );
 
   /* TODO @yunzhang: write to shred_cap */
-  fd_shred_cap_archive(replay, shred, FD_SHRED_CAP_FLAG_MARK_REPAIR(0));
+  fd_shred_cap_archive( replay, shred, FD_SHRED_CAP_FLAG_MARK_REPAIR( 0 ) );
 
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
-  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+  } else if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
     fd_replay_add_pending( replay, shred->slot, 0 );
   } else {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
   }
-  //return rc;
+  // return rc;
 }
