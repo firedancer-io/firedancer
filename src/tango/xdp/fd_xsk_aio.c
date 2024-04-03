@@ -293,7 +293,8 @@ fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
   xsk_aio->tx_top += tx_completed;
 }
 
-
+static FD_TL ulong xdropped = 0;
+static FD_TL long xtime = 0;
 /* fd_xsk_aio_send is an aio callback that transmits the given batch of
    packets through the XSK. */
 static int
@@ -302,7 +303,6 @@ fd_xsk_aio_send( void *                    ctx,
                  ulong                     pkt_cnt,
                  ulong *                   opt_batch_idx,
                  int                       flush ) {
-
   fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t*)ctx;
   fd_xsk_t *     xsk     = xsk_aio->xsk;
 
@@ -322,8 +322,17 @@ fd_xsk_aio_send( void *                    ctx,
   /* Refuse to send more packets than we have metadata frames */
   ulong       batch_cnt = pkt_cnt; /* Number of frames to attempt to send */
   ulong const pkt_depth = xsk_aio->pkt_depth;
-  if( FD_UNLIKELY( batch_cnt>pkt_depth ) )
+  if( FD_UNLIKELY( batch_cnt>pkt_depth ) ) {
+    xdropped += batch_cnt - pkt_depth;
     batch_cnt = pkt_depth;
+  }
+  
+  long x = fd_log_wallclock();
+  if( FD_UNLIKELY(x - xtime > (long)1e9)) {
+    FD_LOG_WARNING(("D: %lu", xdropped));
+    xtime = x;
+    xdropped = 0;
+  }
 
   /* Find UMEM and meta params */
   uchar *               frame_mem  = xsk_aio->frame_mem;          /* UMEM region     */

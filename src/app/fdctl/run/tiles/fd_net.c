@@ -216,7 +216,6 @@ before_frag( void * _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   ushort src_tile = fd_disco_netmux_sig_src_tile( sig );
-  ctx->had_new_msgs = 1;
 
   /* Round robin by sequence number for now, QUIC should be modified to
      echo the net tile index back so we can transmit on the same queue.
