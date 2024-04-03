@@ -11,8 +11,7 @@
 #include <linux/unistd.h>
 
 #define FD_NET_PORT_ALLOW_CNT (sizeof(((fd_topo_tile_t*)0)->net.allow_ports)/sizeof(((fd_topo_tile_t*)0)->net.allow_ports[ 0 ]))
-#define MAX_UNFLUSHED_MSGS         (16UL);
-#define MAX_HOLDOFF_UNTIL_FLUSH_NS (16UL);
+#define MAX_UNFLUSHED_MSGS         (128UL)
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -180,7 +179,8 @@ after_credit( void * _ctx,
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   if( FD_UNLIKELY( !ctx->had_new_msgs && ctx->unflushed_cnt != 0 ) ) {
-    // FD_LOG_WARNING(("flushie time! :D %lu",  ctx->unflushed_cnt ));
+    //FD_LOG_WARNING(("flushie time! :D %lu",  ctx->unflushed_cnt ));
+  
     ctx->tx->send_func( ctx->xsk_aio[ 0 ], NULL, 0, NULL, 1 );
     ctx->unflushed_cnt = 0;
   }
@@ -302,7 +302,8 @@ after_frag( void *             _ctx,
 
   int flush = ctx->unflushed_cnt >= MAX_UNFLUSHED_MSGS;
   ctx->had_new_msgs = 1;
-  // if(flush)     FD_LOG_WARNING(("other flushie time! :D %lu",  ctx->unflushed_cnt ));
+//  if(flush)     FD_LOG_WARNING(("other flushie time! :D %lu",  ctx->unflushed_cnt ));
+
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)*opt_sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, *opt_sig ) ) ) {
