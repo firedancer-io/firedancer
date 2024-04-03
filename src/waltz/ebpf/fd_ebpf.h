@@ -166,6 +166,24 @@ fd_bpf_map_delete_elem( int          map_fd,
   return (int)bpf( BPF_MAP_DELETE_ELEM, &attr, sizeof(union bpf_attr) );
 }
 
+/* fd_bpf_map_lookup_elem wraps bpf(2) op BPF_MAP_LOOKUP_ELEM.
+
+   Gets an entry in a BPF map.  key points to the key to be retrieved
+   and must match the key size of the map object.  Returns 0 on success
+   and stores element value into value.
+*/
+static inline int
+fd_bpf_map_lookup_elem( int          map_fd,
+                        void const * key,
+                        void *       value ) {
+  union bpf_attr attr = {
+    .map_fd   = (uint)map_fd,
+    .key      = (ulong)key,
+    .value    = (ulong)value
+  };
+  return (int)bpf( BPF_MAP_LOOKUP_ELEM, &attr, sizeof(union bpf_attr) );
+}
+
 /* fd_bpf_obj_get wraps bpf(2) op BPF_OBJ_GET.
 
    Opens a BPF map at given filesystem path.  Path must be within a

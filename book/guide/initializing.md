@@ -21,8 +21,8 @@ where `mode` is one of:
  - `init` Configures the provided stages if they are not already
    configured.
  - `check` Check if each stage is already configured. The command will
-   exit with an error code if they are not. `check` never requires
-   privileges and will not make any changes to the system.
+   exit with an error code if they are not. `check` only reports
+   misconfiguration and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `xdp`,
