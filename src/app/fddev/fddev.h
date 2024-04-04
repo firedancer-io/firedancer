@@ -10,6 +10,18 @@ void
 update_config_for_dev( config_t * const config );
 
 void
+add_bench_topo( fd_topo_t  * topo,
+                char const * affinity,
+                ulong        benchg_tile_cnt,
+                ulong        benchs_tile_cnt,
+                ulong        accounts_cnt,
+                ulong        conn_cnt,
+                ushort       send_to_port,
+                uint         send_to_ip_addr,
+                ushort       rpc_port,
+                uint         rpc_ip_addr );
+
+void
 dev_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args );
@@ -59,6 +71,20 @@ bench_cmd_args( int *    pargc,
 void
 bench_cmd_fn( args_t *         args,
               config_t * const config );
+
+void
+spammer_cmd_args( int *    pargc,
+                  char *** pargv,
+                  args_t * args);
+
+void
+spammer_cmd_perm( args_t *         args,
+                  fd_caps_ctx_t *  caps,
+                  config_t * const config );
+
+void
+spammer_cmd_fn( args_t *         args,
+                config_t * const config );
 
 void
 dump_cmd_args( int      * argc,

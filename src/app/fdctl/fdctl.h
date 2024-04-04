@@ -69,6 +69,18 @@ typedef union {
   struct {
     char name[ 13UL ];
   } flame;
+
+  struct {
+    char    affinity[ AFFINITY_SZ ];
+    uint    tpu_ip;
+    uint    rpc_ip;
+    ushort  tpu_port;
+    ushort  rpc_port;
+    ulong   accounts;
+    ulong   connections;
+    ulong   benchg;
+    ulong   benchs;
+  } spammer;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

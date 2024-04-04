@@ -64,12 +64,13 @@ fd_topo_run_tile_t * TILES[] = {
 };
 
 static action_t DEV_ACTIONS[] = {
-  { .name = "dev",   .args = dev_cmd_args,   .fn = dev_cmd_fn,   .perm = dev_cmd_perm   },
-  { .name = "dev1",  .args = dev1_cmd_args,  .fn = dev1_cmd_fn,  .perm = dev_cmd_perm   },
-  { .name = "txn",   .args = txn_cmd_args,   .fn = txn_cmd_fn,   .perm = txn_cmd_perm   },
-  { .name = "bench", .args = bench_cmd_args, .fn = bench_cmd_fn, .perm = bench_cmd_perm },
-  { .name = "dump",  .args = dump_cmd_args,  .fn = dump_cmd_fn,  .perm = NULL           },
-  { .name = "flame", .args = flame_cmd_args, .fn = flame_cmd_fn, .perm = flame_cmd_perm },
+  { .name = "dev",     .args = dev_cmd_args,     .fn = dev_cmd_fn,     .perm = dev_cmd_perm     },
+  { .name = "dev1",    .args = dev1_cmd_args,    .fn = dev1_cmd_fn,    .perm = dev_cmd_perm     },
+  { .name = "txn",     .args = txn_cmd_args,     .fn = txn_cmd_fn,     .perm = txn_cmd_perm     },
+  { .name = "bench",   .args = bench_cmd_args,   .fn = bench_cmd_fn,   .perm = bench_cmd_perm   },
+  { .name = "spammer", .args = spammer_cmd_args, .fn = spammer_cmd_fn, .perm = spammer_cmd_perm },
+  { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL             },
+  { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm   },
 };
 
 extern char fd_log_private_path[ 1024 ];
