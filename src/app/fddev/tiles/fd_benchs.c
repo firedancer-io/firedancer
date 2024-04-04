@@ -86,7 +86,7 @@ privileged_init( fd_topo_t *      topo,
 
   ushort port = 12000;
 
-  ctx->conn_cnt = fd_topo_tile_name_cnt( topo, "quic" );
+  ctx->conn_cnt = tile->benchs.conn_cnt;
   FD_TEST( ctx->conn_cnt <=sizeof(ctx->conn_fd)/sizeof(*ctx->conn_fd) );
   for( ulong i=0UL; i<ctx->conn_cnt ; i++ ) {
     int conn_fd = socket( AF_INET, SOCK_DGRAM, 0 );

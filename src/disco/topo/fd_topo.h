@@ -199,6 +199,7 @@ typedef struct {
     struct {
       ushort send_to_port;
       uint   send_to_ip_addr;
+      ulong  conn_cnt;
     } benchs;
 
     struct {

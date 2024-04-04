@@ -6,7 +6,7 @@ ifdef FD_HAS_INT128
 include src/app/fdctl/with-version.mk
 
 .PHONY: fddev run monitor $(OBJDIR)/lib/libsolana_genesis.a
-$(call make-bin-rust,fddev,main main1 dev dev1 txn bench dump flame tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
+$(call make-bin-rust,fddev,main main1 dev dev1 txn bench spammer dump flame tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
 
 # TODO: There's a linker error due to the #[global_allocator] when including these files from a library
 # so for now they are redeclared.
@@ -57,7 +57,7 @@ monitor: bin
 
 # TODO: There's a linker error due to the #[global_allocator] when including these files from a library
 # so for now they are redeclared.
-$(call make-integration-test,test_fddev,tests/test_fddev main1 dev dev1 txn bench dump flame tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
+$(call make-integration-test,test_fddev,tests/test_fddev main1 dev dev1 txn bench spammer dump flame tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
 $(call run-integration-test,test_fddev)
 
 endif
