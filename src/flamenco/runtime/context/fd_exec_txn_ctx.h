@@ -49,6 +49,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
   uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
+  fd_clock_timestamp_vote_t clock_timestamps[64];        /* Array of clock timestamp side effects */
+  ulong                 clock_timestamp_cnt;             /* Number of clock timestamp side effects */
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
