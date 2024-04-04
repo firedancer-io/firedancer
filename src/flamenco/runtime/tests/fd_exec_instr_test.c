@@ -2,6 +2,7 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
@@ -85,30 +86,54 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   return runner;
 }
 
-static void
+// ############################################################################################################################################
+// TODO: UNCOMMENT AFTER THE SYSVAR CACHE CHANGES HAVE BEEN MERGED INTO THE PRIVATE REPO.
+//
+// static int
+// fd_double_is_normal( double x ) {
+// 	union {
+//     double d;
+//     ulong  ul;
+//   } u = { .d = x };
+//   return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
+// }
+// ############################################################################################################################################
+
+static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
   fd_borrowed_account_init( acc );
+  ulong size = 0UL;
+  if( state->data ) size = state->data->size;
 
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
+  /* Account must not yet exist */
+  if( FD_UNLIKELY( fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL ) ) )
+    return 0;
+
+  assert( acc_mgr->funk );
+  assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
   int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
                                /* txn         */ funk_txn,
                                /* pubkey      */ pubkey,
                                /* do_create   */ 1,
-                               /* min_data_sz */ state->data->size,
+                               /* min_data_sz */ size,
                                acc );
   assert( err==FD_ACC_MGR_SUCCESS );
+  fd_memcpy( acc->data, state->data->bytes, size );
 
-  fd_memcpy( acc->data, state->data->bytes, state->data->size );
-
+  acc->starting_lamports     = state->lamports;
+  acc->starting_dlen         = size;
   acc->meta->info.lamports   = state->lamports;
   acc->meta->info.executable = state->executable;
   acc->meta->info.rent_epoch = state->rent_epoch;
-  acc->meta->dlen = state->data->size;
+  acc->meta->dlen            = size;
   memcpy( acc->meta->info.owner, state->owner, sizeof(fd_pubkey_t) );
+
+  return 1;
 }
 
 static int
@@ -158,12 +183,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Restore feature flags */
 
+  fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
+
   fd_features_disable_all( &epoch_ctx->features );
-  for( ulong j=0UL; j < test_ctx->feature_set.features_count; j++ ) {
-    ulong                   prefix = test_ctx->feature_set.features[j];
+  for( ulong j=0UL; j < feature_set->features_count; j++ ) {
+    ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      REPORTV( NOTICE, "unsupported feature ID 0x%16lx", prefix );
+      FD_LOG_CRIT(( "unsupported feature ID 0x%016lx", prefix ));
       return 0;
     }
     /* Enabled since genesis */
@@ -173,6 +200,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* Create account manager */
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
+  assert( acc_mgr );
 
   /* Set up slot context */
 
@@ -182,6 +210,11 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->valloc    = fd_scratch_virtual();
 
   /* TODO: Restore slot_bank */
+  fd_slot_bank_new( &slot_ctx->slot_bank );
+  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc );
+  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
+  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
+  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
 
   /* Set up txn context */
 
@@ -189,6 +222,10 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->slot_ctx  = slot_ctx;
   txn_ctx->funk_txn  = funk_txn;
   txn_ctx->acc_mgr   = acc_mgr;
+  txn_ctx->valloc    = fd_scratch_virtual();
+
+  txn_ctx->compute_meter      = test_ctx->cu_avail;
+  txn_ctx->compute_unit_limit = test_ctx->cu_avail;
 
   /* Set up instruction context */
 
@@ -205,14 +242,53 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Prepare borrowed account table (correctly handles aliasing) */
 
+  if( FD_UNLIKELY( test_ctx->accounts_count > 128 ) ) {
+    /* TODO remove this hardcoded constant */
+    REPORT( NOTICE, "too many accounts" );
+    return 0;
+  }
   fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
   /* Load accounts into database */
 
+  assert( acc_mgr->funk );
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ )
-    _load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] );
+    if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
+      return 0;
+
+
+  // ############################################################################################################################################
+  // TODO: UNCOMMENT AFTER THE SYSVAR CACHE CHANGES HAVE BEEN MERGED INTO THE PRIVATE REPO.
+  //
+  // /* Restore sysvar cache */
+
+  // fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
+  // /* Handle undefined behavior if sysvars are malicious (!!!) */
+
+  // /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  // fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  // if( rent ) {
+  //   if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
+  //       ( rent->exemption_threshold     <      0.0 ) |
+  //       ( rent->exemption_threshold     >    999.0 ) |
+  //       ( rent->lamports_per_uint8_year > UINT_MAX ) |
+  //       ( rent->burn_percent            >      100 ) )
+  //     return 0;
+  // }
+
+  // /* Override most recent blockhash if given */
+  // fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  // if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  //   fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+  //   if( last ) {
+  //     *recent_block_hash = *last;
+  //     slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+  //   }
+  // }
+  // ############################################################################################################################################
 
   /* Load instruction accounts */
 
@@ -253,7 +329,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
 static void
 _context_destroy( fd_exec_instr_test_runner_t * runner,
                   fd_exec_instr_ctx_t *         ctx ) {
+  if( !ctx ) return;
   fd_exec_slot_ctx_t *  slot_ctx  = ctx->slot_ctx;
+  if( !slot_ctx ) return;
   fd_exec_epoch_ctx_t * epoch_ctx = slot_ctx->epoch_ctx;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
@@ -263,6 +341,8 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+
+  ctx->slot_ctx = NULL;
 }
 
 /* fd_exec_instr_fixture_diff_t compares a test fixture against the
@@ -520,12 +600,137 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
                         void *                               output_buf,
                         ulong                                output_bufsz ) {
 
+  /* Convert the Protobuf inputs to a fd_exec context */
+
   fd_exec_instr_ctx_t ctx[1];
-  _context_create( runner, ctx, input );
+  if( !_context_create( runner, ctx, input ) )
+    return 0UL;
 
-  FD_LOG_WARNING(( "TODO" ));
-  (void)output; (void)output_buf; (void)output_bufsz;
+  fd_pubkey_t program_id[1];  memcpy( program_id, input->program_id, sizeof(fd_pubkey_t) );
+  fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
 
+  if( FD_UNLIKELY( !native_prog_fn ) ) {
+    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
+    REPORTV( NOTICE, "execution failed (program %s not found)",
+             fd_acct_addr_cstr( program_id_cstr, input->program_id ) );
+    _context_destroy( runner, ctx );
+    return 0UL;
+  }
+
+  /* TODO: Agave currently fails with UnsupportedProgramId if the
+           owner of the native program is weird. */
+  do {
+    FD_BORROWED_ACCOUNT_DECL( prog_acct );
+    int err = fd_acc_mgr_view( ctx->acc_mgr, ctx->funk_txn, program_id, prog_acct );
+    if( err==FD_ACC_MGR_SUCCESS ) {
+      if( ( 0!=memcmp( prog_acct->const_meta->info.owner, fd_solana_native_loader_id.uc, sizeof(fd_pubkey_t) ) ) |
+          ( !prog_acct->const_meta->info.executable ) ) {
+        _context_destroy( runner, ctx );
+        return 0;
+      }
+    }
+  } while(0);
+
+  /* Execute the test */
+
+  int exec_result = native_prog_fn( *ctx );
+
+  /* Allocate space to capture outputs */
+
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+
+  fd_exec_test_instr_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
+                                sizeof (fd_exec_test_instr_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    _context_destroy( runner, ctx );
+    return 0UL;
+  }
+  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  /* Capture error code */
+
+  if( exec_result )
+    effects->result = -exec_result - 1;
+  else
+    effects->result = 0;
+  effects->cu_avail = ctx->txn_ctx->compute_meter;
+
+  if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+    effects->has_custom_err = 1;
+    effects->custom_err     = ctx->txn_ctx->custom_err;
+  }
+
+  /* Allocate space for captured accounts */
+
+  fd_funk_t *     funk     = runner->funk;
+  fd_funk_txn_t * funk_txn = ctx->funk_txn;
+
+  ulong modified_acct_cnt = ctx->txn_ctx->accounts_cnt;
+
+  fd_exec_test_acct_state_t * modified_accts =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
+                                sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    _context_destroy( runner, ctx );
+    return 0;
+  }
+  effects->modified_accounts       = modified_accts;
+  effects->modified_accounts_count = 0UL;
+
+  /* Capture borrowed accounts */
+
+  for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
+    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[j];
+    if( !acc->meta ) continue;
+
+    ulong modified_idx = effects->modified_accounts_count;
+    assert( modified_idx < modified_acct_cnt );
+
+    fd_exec_test_acct_state_t * out_acct = &effects->modified_accounts[ modified_idx ];
+    memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+    /* Copy over account content */
+
+    out_acct->has_address = 1;
+    memcpy( out_acct->address, acc->pubkey, sizeof(fd_pubkey_t) );
+
+    out_acct->has_lamports = 1;
+    out_acct->lamports     = acc->meta->info.lamports;
+
+    out_acct->data =
+      FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                  PB_BYTES_ARRAY_T_ALLOCSIZE( acc->const_meta->dlen ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      _context_destroy( runner, ctx );
+      return 0UL;
+    }
+    out_acct->data->size = (pb_size_t)acc->const_meta->dlen;
+    fd_memcpy( out_acct->data->bytes, acc->const_data, acc->const_meta->dlen );
+
+    out_acct->has_executable = 1;
+    out_acct->executable     = acc->meta->info.executable;
+
+    out_acct->has_rent_epoch = 1;
+    out_acct->rent_epoch     = acc->meta->info.rent_epoch;
+
+    out_acct->has_owner = 1;
+    memcpy( out_acct->owner, acc->meta->info.owner, sizeof(fd_pubkey_t) );
+
+    effects->modified_accounts_count++;
+
+    /* Delete funk record */
+    fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc->pubkey );
+    fd_funk_rec_t const * rec_ = fd_funk_rec_query( funk, funk_txn, &rec_key );
+    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, rec_ );
+    fd_funk_rec_remove( funk, rec, 1 );
+  }
+
+  /* TODO verify that there are no outstanding funk records */
+
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   _context_destroy( runner, ctx );
-  return 0UL;
+
+  *output = effects;
+  return actual_end - (ulong)output_buf;
 }

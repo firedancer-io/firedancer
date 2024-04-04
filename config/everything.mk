@@ -175,6 +175,7 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 
 ##############################
 # Usage: $(call make-bin,name,objs,libs)
+# Usage: $(call make-shared,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
 # Usage: $(call make-fuzz-test,name,objs,libs)
@@ -276,6 +277,7 @@ endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
 make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin))
+make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
