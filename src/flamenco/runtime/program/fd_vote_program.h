@@ -52,13 +52,13 @@ struct fd_commission_split {
 typedef struct fd_commission_split fd_commission_split_t;
 
 int
-fd_vote_get_state( fd_borrowed_account_t const *            self,
-                   fd_exec_instr_ctx_t const *              ctx,
-                   /* return */ fd_vote_state_versioned_t * versioned );
+fd_vote_get_state( fd_borrowed_account_t const * self,
+                   fd_valloc_t                   valloc,
+                   fd_vote_state_versioned_t *   versioned /* out */ );
 
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            fd_exec_instr_ctx_t const * ctx );
+                            fd_valloc_t                 valloc );
 
 FD_PROTOTYPES_END
 
