@@ -19,8 +19,11 @@ struct fd_instr_info {
 
   uchar                 acct_flags[128];
   fd_pubkey_t           acct_pubkeys[128];
+  uchar                 is_duplicate[256];
 
   fd_borrowed_account_t * borrowed_accounts[128];
+
+  ulong starting_lamports;
 };
 
 typedef struct fd_instr_info fd_instr_info_t;
@@ -53,6 +56,14 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
 FD_FN_PURE int
 fd_instr_any_signed( fd_instr_info_t const * info,
                      fd_pubkey_t const *     pubkey );
+
+/* fd_instr_info_sum_account_lamports returns the sum of lamport account
+   balances of all instruction accounts in the context.
+
+   Aborts on integer overflow. */
+
+FD_FN_PURE ulong
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
 FD_PROTOTYPES_END
 

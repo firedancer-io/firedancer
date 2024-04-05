@@ -48,19 +48,10 @@ fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
                                     ulong                       idx,
                                     fd_borrowed_account_t **    account );
 int
-fd_instr_borrowed_account_view( fd_exec_instr_ctx_t const * ctx,
-                                fd_pubkey_t const *         pubkey,
-                                fd_borrowed_account_t **    account );
-int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       idx,
                                       ulong                       min_data_sz,
                                       fd_borrowed_account_t **    account );
-int
-fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t const * ctx,
-                                  fd_pubkey_t const *         pubkey,
-                                  ulong                       min_data_sz,
-                                  fd_borrowed_account_t **    account );
 
 FD_PROTOTYPES_END
 
