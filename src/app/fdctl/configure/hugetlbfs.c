@@ -30,13 +30,13 @@ try_defragment_memory( void ) {
 static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";
 
 static char const * TOTAL_HUGE_PAGE_PATH[ 2 ] = {
-  "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages",
-  "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
+  "/sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/nr_hugepages",
+  "/sys/devices/system/node/node%lu/hugepages/hugepages-1048576kB/nr_hugepages",
 };
 
 static char const * FREE_HUGE_PAGE_PATH[ 2 ] = {
-  "/sys/devices/system/node/node0/hugepages/hugepages-2048kB/free_hugepages",
-  "/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/free_hugepages",
+  "/sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/free_hugepages",
+  "/sys/devices/system/node/node%lu/hugepages/hugepages-1048576kB/free_hugepages",
 };
 
 static ulong PAGE_SIZE[ 2 ] = {
@@ -51,51 +51,70 @@ static char const * PAGE_NAMES[ 2 ] = {
 
 static void
 init( config_t * const config ) {
-  ulong required_pages[ 2 ] = {
-    fd_topo_huge_page_cnt( &config->topo, 1 ),
-    fd_topo_gigantic_page_cnt( &config->topo )
-  };
-
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
   };
 
-  /* Do NOT include anonymous huge pages in the min_size count that we reserve here,
-     because they do not come from the hugetlbfs.  Counting them towards that
-     reservation would prevent the anonymous mmap which maps them in from
-     succeeding. */
-  ulong min_size[ 2 ] = { PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, 0 ),
-                          PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo ) };
+  ulong numa_node_cnt = fd_shmem_numa_cnt();
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    ulong required_pages[ 2 ] = {
+      fd_topo_huge_page_cnt( &config->topo, i, 0 ),
+      fd_topo_gigantic_page_cnt( &config->topo, i ),
+    };
 
-  for( ulong i=0UL; i<2UL; i++ ) {
-    uint free_pages = read_uint_file( FREE_HUGE_PAGE_PATH[ i ], ERR_MSG );
+    for( ulong j=0UL; j<2UL; j++ ) {
+      char free_page_path[ PATH_MAX ];
+      FD_TEST( fd_cstr_printf_check( free_page_path, PATH_MAX, NULL, FREE_HUGE_PAGE_PATH[ j ], i ) );
+      ulong free_pages = read_uint_file( free_page_path, ERR_MSG );
 
-    /* There is a TOCTOU race condition here, but it's not avoidable. There's
-       no way to atomically increment the page count. */
-    try_defragment_memory();
-    FD_TEST( required_pages[ i ]<=UINT_MAX );
-    if( FD_UNLIKELY( free_pages<required_pages[ i ] ) ) {
-      uint total_pages = read_uint_file( TOTAL_HUGE_PAGE_PATH[ i ], ERR_MSG );
-      uint additional_pages_needed = (uint)required_pages[ i ]-free_pages;
-      write_uint_file( TOTAL_HUGE_PAGE_PATH[ i ], total_pages+additional_pages_needed );
-      if( FD_UNLIKELY( read_uint_file( TOTAL_HUGE_PAGE_PATH[ i ], ERR_MSG )<total_pages+additional_pages_needed ) )
-        FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer. You Firedancer configuration "
-                     "requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) pages "
-                     "but only %u %s pages were available according to `%s`. If your system has the required amount of memory, "
-                     "this can be because it is not configured with %s page support, or Firedancer cannot increase the value of "
-                     "`%s` at runtime. You might need to enable huge pages in grub at boot time. This error can also happen "
-                     "because system uptime is high and memory is fragmented. You can fix this by rebooting the machine and "
-                     "running the `hugetlbfs` stage immediately on boot.",
-                     PAGE_NAMES[ i ],
-                     required_pages[ 1 ] + (required_pages[ 0 ] / 512),
-                     required_pages[ 1 ],
-                     required_pages[ 0 ],
-                     free_pages,
-                     PAGE_NAMES[ i ],
-                     FREE_HUGE_PAGE_PATH[ i ],
-                     PAGE_NAMES[ i ],
-                     TOTAL_HUGE_PAGE_PATH[ i ] ));
+      /* There is a TOCTOU race condition here, but it's not avoidable. There's
+         no way to atomically increment the page count. */
+      try_defragment_memory();
+      FD_TEST( required_pages[ j ]<=UINT_MAX );
+      if( FD_UNLIKELY( free_pages<required_pages[ j ] ) ) {
+        char total_page_path[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( total_page_path, PATH_MAX, NULL, TOTAL_HUGE_PAGE_PATH[ j ], i ) );
+        ulong total_pages = read_uint_file( total_page_path, ERR_MSG );
+
+        ulong additional_pages_needed = required_pages[ j ]-free_pages;
+        write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
+        if( FD_UNLIKELY( read_uint_file( total_page_path, ERR_MSG )<total_pages+additional_pages_needed ) )
+          FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
+                       "configuration requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) "
+                       "pages on this NUMA node but only %lu %s pages were available according to `%s`. If your system has the required "
+                       "amount of memory, this can be because it is not configured with %s page support, or Firedancer cannot increase "
+                       "the value of `%s` at runtime. You might need to enable huge pages in grub at boot time. This error can also happen "
+                       "because system uptime is high and memory is fragmented. You can fix this by rebooting the machine and "
+                       "running the `hugetlbfs` stage immediately on boot.",
+                      PAGE_NAMES[ j ],
+                      i,
+                      required_pages[ 1 ] + (required_pages[ 0 ] / 512),
+                      required_pages[ 1 ],
+                      required_pages[ 0 ],
+                      free_pages,
+                      PAGE_NAMES[ i ],
+                      free_page_path,
+                      PAGE_NAMES[ i ],
+                      total_page_path ));
+      }
+    }
+
+    /* Do NOT include anonymous huge pages in the min_size count that
+       we reserve here, because they do not come from the hugetlbfs.
+       Counting them towards that reservation would prevent the
+       anonymous mmap which maps them in from succeeding.
+
+       The kernel min_size option for the hugetlbfs does not include an
+       option to reserve pages from a specific NUMA node, so we simply
+       take the sum here and hope they are distributed correctly.  If
+       they are not, creating files in the mount on a specific node may
+       fail later with ENOMEM. */
+
+    ulong min_size[ 2 ] = {0};
+    for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+      min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+      min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
     }
 
     mkdir_all( mount_path[ i ], config->uid, config->gid );
@@ -212,8 +231,12 @@ check( config_t * const config ) {
     "pagesize=1024M",
   };
 
-  ulong required_min_size[ 2 ] = { PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, 0 ),
-                                   PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo ) };
+  ulong numa_node_cnt = fd_shmem_numa_cnt();
+  ulong required_min_size[ 2 ] = {0};
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    required_min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    required_min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+  }
 
   struct stat st;
   int result1 = stat( mount_path[ 0 ], &st );

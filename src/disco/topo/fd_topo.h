@@ -29,6 +29,8 @@ typedef struct {
   ulong id;           /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
   char  name[ 13UL ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
 
+  ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
@@ -216,6 +218,7 @@ typedef struct {
   ulong wksp_id;
 
   ulong offset;
+  ulong footprint;
 } fd_topo_obj_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -457,10 +460,12 @@ void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp );
 
-/* Apply a function to every object in the topology. */
+/* Apply a function to every object that is resident in the given
+   workspace in the topology. */
 
 void
-fd_topo_wksp_apply( fd_topo_t * topo,
+fd_topo_wksp_apply( fd_topo_t *      topo,
+                    fd_topo_wksp_t * wksp,
                     void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
 
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology. */
@@ -593,20 +598,24 @@ fd_topo_mlock_max_tile( fd_topo_t * topo );
 FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo );
 
-/* This returns the number of gigantic pages needed by the topology.
-   It includes pages needed by the workspaces, as well as additional
-   allocations like huge pages for process stacks and private key
-   storage. */
+/* This returns the number of gigantic pages needed by the topology on
+   the provided numa node.  It includes pages needed by the workspaces,
+   as well as additional allocations like huge pages for process stacks
+   and private key storage. */
+
 FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo );
+fd_topo_gigantic_page_cnt( fd_topo_t * topo,
+                           ulong       numa_idx );
 
 /* This returns the number of huge pages in the application needed by
-   the topology.  It includes pages needed by things placed in the
-   hugetlbfs (workspaces, process stacks).  If include_anonymous is
-   true, it also includes anonymous hugepages which are needed but
-   are not placed in the hugetlbfs. */
+   the topology on the provided numa node.  It includes pages needed by
+   things placed in the hugetlbfs (workspaces, process stacks).  If
+   include_anonymous is true, it also includes anonymous hugepages which
+   are needed but are not placed in the hugetlbfs. */
+
 FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       ulong       numa_idx,
                        int         include_anonymous );
 
 /* Check all invariants of the given topology to make sure it is valid.
