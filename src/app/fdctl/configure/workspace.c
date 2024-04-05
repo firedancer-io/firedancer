@@ -141,7 +141,7 @@ init( config_t * const config ) {
                    wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
     fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topo_wksp_apply( &config->topo, fdctl_obj_new );
+    fd_topo_wksp_apply( &config->topo, wksp, fdctl_obj_new );
     fd_topo_leave_workspace( &config->topo, wksp );
   }
 

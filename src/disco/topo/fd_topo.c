@@ -81,7 +81,7 @@ fd_topo_create_workspace( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
   ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
-  ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
+  ulong sub_cpu_idx [ 1 ] = { fd_shmem_cpu_idx( wksp->numa_idx ) };
 
   int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
@@ -122,10 +122,12 @@ fd_topo_create_workspace( fd_topo_t *      topo,
 }
 
 void
-fd_topo_wksp_apply( fd_topo_t * topo,
+fd_topo_wksp_apply( fd_topo_t *      topo,
+                    fd_topo_wksp_t * wksp,
                     void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) ) {
   for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
     fd_topo_obj_t * obj = &topo->objs[ i ];
+    if( FD_LIKELY( obj->wksp_id!=wksp->id ) ) continue;
     fn( topo, obj );
   }
 }
@@ -236,11 +238,15 @@ fd_topo_mlock_max_tile( fd_topo_t * topo ) {
 }
 
 FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
+fd_topo_gigantic_page_cnt( fd_topo_t * topo,
+                           ulong       numa_idx ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
-      result += topo->workspaces[ i ].page_cnt;
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
+    if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+
+    if( FD_LIKELY( wksp->page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
+      result += wksp->page_cnt;
     }
   }
   return result;
@@ -248,11 +254,15 @@ fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
 
 FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       ulong       numa_idx,
                        int         include_anonymous ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_HUGE_PAGE_SZ ) ) {
-      result += topo->workspaces[ i ].page_cnt;
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
+    if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+
+    if( FD_LIKELY( wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ ) ) {
+      result += wksp->page_cnt;
     }
   }
 
@@ -330,9 +340,22 @@ fd_topo_print_log( int         stdout,
     total_bytes / (1 << 30),
     (total_bytes % (1 << 30)) / (1 << 20),
     (total_bytes % (1 << 20)) / (1 << 10) );
-  PRINT("  %23s: %lu\n", "Required Gigantic Pages", fd_topo_gigantic_page_cnt( topo ) );
-  PRINT("  %23s: %lu\n", "Required Huge Pages", fd_topo_huge_page_cnt( topo, 1 ) );
+
+  ulong required_gigantic_pages = 0UL;
+  ulong required_huge_pages = 0UL;
+
+  ulong numa_node_cnt = fd_shmem_numa_cnt();
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    required_gigantic_pages += fd_topo_gigantic_page_cnt( topo, i );
+    required_huge_pages += fd_topo_huge_page_cnt( topo, i, 0 );
+  }
+  PRINT("  %23s: %lu\n", "Required Gigantic Pages", required_gigantic_pages );
+  PRINT("  %23s: %lu\n", "Required Huge Pages", required_huge_pages );
   PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Gigantic Pages", i, fd_topo_gigantic_page_cnt( topo, i ) );
+    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
+  }
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -340,7 +363,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nLINKS\n" );
@@ -400,7 +423,7 @@ fd_topo_print_log( int         stdout,
       FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, out_link_id, in, out );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, tile->cpu_idx, out_link_id, in, out );
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 
