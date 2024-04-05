@@ -209,8 +209,8 @@ set_state( fd_exec_instr_ctx_t const * ctx,
 /**********************************************************************/
 
 static inline ulong
-get_minimum_delegation( fd_exec_slot_ctx_t * feature_set /* feature set */ ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( feature_set, stake_raise_minimum_delegation_to_1_sol ),
+get_minimum_delegation( fd_exec_slot_ctx_t * slot_ctx /* feature set */ ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, stake_raise_minimum_delegation_to_1_sol ),
                       MINIMUM_STAKE_DELEGATION * LAMPORTS_PER_SOL,
                       MINIMUM_STAKE_DELEGATION );
 }
@@ -239,12 +239,12 @@ typedef struct validated_delegated_info validated_delegated_info_t;
 static int
 validate_delegated_amount( fd_borrowed_account_t *      account,
                            fd_stake_meta_t const *      meta,
-                           fd_exec_slot_ctx_t *         feature_set,
+                           fd_exec_slot_ctx_t *         slot_ctx,
                            validated_delegated_info_t * out,
                            uint *                       custom_err ) {
   ulong stake_amount = fd_ulong_sat_sub( account->meta->info.lamports, meta->rent_exempt_reserve );
 
-  if( FD_UNLIKELY( stake_amount < get_minimum_delegation( feature_set ) ) ) {
+  if( FD_UNLIKELY( stake_amount < get_minimum_delegation( slot_ctx ) ) ) {
     *custom_err = FD_STAKE_ERR_INSUFFICIENT_DELEGATION;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1477,70 +1477,6 @@ set_lockup( fd_exec_instr_ctx_t const *   ctx,
   }
 }
 
-/* Removes stake delegation from epoch stakes and updates vote account */
-void
-fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
-  fd_stake_accounts_pair_t_mapnode_t key;
-  fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-  if ( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
-    return;
-  }
-  fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_find(slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key);
-  if (FD_UNLIKELY( entry )) {
-    fd_stake_accounts_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, entry);
-    // TODO: do we need a release here?
-  }
-}
-
-/* Updates stake delegation in epoch stakes */
-void
-fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
-  FD_TEST( stake_account->const_meta->info.lamports != 0 );
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
-
-  fd_delegation_pair_t_mapnode_t key;
-  fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));
-
-  if( stakes->stake_delegations_pool == NULL ) {
-    return;
-  }
-
-  fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
-  if ( FD_UNLIKELY( !entry ) ) {
-    fd_stake_accounts_pair_t_mapnode_t key;
-    fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-    if( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
-      return;
-    }
-    fd_stake_accounts_pair_t_mapnode_t * stake_entry = fd_stake_accounts_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key );
-    if ( stake_entry ) {
-      stake_entry->elem.exists = 1;
-    } else {
-      fd_stake_accounts_pair_t_mapnode_t * new_node = fd_stake_accounts_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool );
-      ulong size = fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-      if ( new_node == NULL ) {
-        FD_LOG_ERR(("Stake accounts keys map full %lu", size));
-      }
-      new_node->elem.exists = 1;
-      fd_memcpy( new_node->elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-      fd_stake_accounts_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, new_node );
-    }
-  }
-}
-
-void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
-  fd_pubkey_t const * owner = (fd_pubkey_t const *)stake_account->const_meta->info.owner;
-
-  if (memcmp(owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) != 0) {
-      return;
-  }
-  if (stake_account->const_meta->info.lamports == 0) {
-    fd_stakes_remove_stake_delegation( slot_ctx, stake_account );
-  } else {
-    fd_stakes_upsert_stake_delegation( slot_ctx, stake_account );
-  }
-}
-
 static int
 split( fd_exec_instr_ctx_t const * ctx,
        uchar                       stake_account_index,
@@ -1776,7 +1712,6 @@ split( fd_exec_instr_ctx_t const * ctx,
   rc = fd_account_checked_sub_lamports( ctx, stake_account_index, lamports );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  fd_store_stake_delegation( ctx->slot_ctx, split );
   return 0;
 }
 
@@ -1981,13 +1916,13 @@ redelegate( fd_exec_instr_ctx_t const * ctx,
   rc = fd_account_checked_add_lamports( ctx, uninitialized_stake_account_index, effective_stake );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  fd_rent_t rent = { 0 };
-  if( FD_UNLIKELY( !fd_sysvar_rent_read( &rent, ctx->slot_ctx ) ) )
+  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   fd_stake_meta_t uninitialized_stake_meta = stake_meta;
   uninitialized_stake_meta.rent_exempt_reserve =
-      fd_rent_exempt_minimum_balance2( &rent, uninitialized_stake_account->meta->dlen );
+      fd_rent_exempt_minimum_balance2( rent, uninitialized_stake_account->meta->dlen );
 
   validated_delegated_info_t validated_delegated_info = { 0 };
   rc = validate_delegated_amount( uninitialized_stake_account,
