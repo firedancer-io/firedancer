@@ -64,14 +64,13 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   FD_TEST( prog );
 
   /* Allocate syscalls */
-
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new(
       aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
   FD_TEST( syscalls );
 
   fd_vm_syscall_register_all( syscalls );
-  /* Load program */
 
+  /* Load program */
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls ) ) )
     FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
 
@@ -98,19 +97,52 @@ cmd_disasm( char const * bin_path ) {
   FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
 
   fd_vm_exec_context_t ctx = {
-    .entrypoint          = 0,
+    .entrypoint          = (long)tool_prog.prog->entry_pc,
     .program_counter     = 0,
     .instruction_counter = 0,
     .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
     .instrs_sz           = tool_prog.prog->text_cnt,
+    .instrs_offset       = tool_prog.prog->text_off,
+    .calldests           = tool_prog.prog->calldests,
+    .syscall_map         = tool_prog.syscalls,
   };
-  char out[MAX_BUFFER_LEN*10];
+  char * out = malloc( 128 * tool_prog.prog->text_cnt );
   int res = fd_vm_disassemble_program( ctx.instrs, ctx.instrs_sz, tool_prog.syscalls, out );
   puts( out );
 
   fd_vm_tool_prog_free( &tool_prog );
 
+  free( out );
+
   return res;
+}
+
+int
+cmd_validate( char const * bin_path ) {
+  fd_vm_tool_prog_t tool_prog;
+  fd_vm_tool_prog_create( &tool_prog, bin_path );
+  FD_LOG_NOTICE(( "Loading sBPF program: %s", bin_path ));
+
+  fd_vm_exec_context_t ctx = {
+    .entrypoint          = (long)tool_prog.prog->entry_pc,
+    .program_counter     = 0,
+    .instruction_counter = 0,
+    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( tool_prog.prog->text ),
+    .instrs_sz           = tool_prog.prog->text_cnt,
+    .instrs_offset       = tool_prog.prog->text_off,
+    .calldests           = tool_prog.prog->calldests,
+    .syscall_map         = tool_prog.syscalls,
+  };
+  ulong res = fd_vm_context_validate( &ctx );
+
+  if( res == FD_VM_SBPF_VALIDATE_SUCCESS ) {
+    FD_LOG_NOTICE(( "validate succeeded" ));
+    return 1;
+  }
+
+  fd_vm_tool_prog_free( &tool_prog );
+
+  return 0;
 }
 
 static uchar *
@@ -286,6 +318,16 @@ main( int     argc,
 
     if( FD_UNLIKELY( !cmd_disasm( program_file ) ) ) {
       FD_LOG_ERR(( "error during disassembly" ));
+    }
+  } else if( !strcmp( cmd, "validate" ) ) {
+    char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
+
+    if( FD_UNLIKELY( program_file==NULL ) ) {
+      FD_LOG_ERR(( "Please specify a --program-file" ));
+    }
+
+    if( FD_UNLIKELY( !cmd_validate( program_file ) ) ) {
+      FD_LOG_ERR(( "error during validation" ));
     }
   } else if( !strcmp( cmd, "trace" ) ) {
     char const * program_file = fd_env_strip_cmdline_cstr( &argc, &argv, "--program-file", NULL, NULL );
