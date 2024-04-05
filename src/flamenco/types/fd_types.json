@@ -633,7 +633,7 @@
       "name": "lockout_offset",
       "type": "struct",
       "fields": [
-          { "name": "offset", "type": "ulong",  "modifier": "varint" },
+          { "name": "offset", "type": "ulong", "modifier": "varint" },
           { "name": "confirmation_count", "type": "uchar" }
       ]
     },
@@ -1099,7 +1099,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "char*" },
+        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" },
         { "name": "new_authority", "type": "pubkey" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244"
@@ -1110,7 +1110,7 @@
       "fields": [
         { "name": "authorization_type", "type": "vote_authorize" },
         { "name": "current_authority_derived_key_owner", "type": "pubkey" },
-        { "name": "current_authority_derived_key_seed", "type": "char*" }
+        { "name": "current_authority_derived_key_seed", "type": "vector", "element": "uchar" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252"
     },

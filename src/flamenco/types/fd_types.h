@@ -1330,7 +1330,8 @@ typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
 struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
   fd_pubkey_t new_authority;
 };
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
@@ -1341,7 +1342,8 @@ typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args
 struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
 };
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)
