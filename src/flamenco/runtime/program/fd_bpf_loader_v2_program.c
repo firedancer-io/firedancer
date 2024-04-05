@@ -81,7 +81,6 @@ fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   }
   dt += fd_log_wallclock();
   (void)dt;
-  // FD_LOG_WARNING(( "sbpf load: %32J - time: %6.6f ms", ctx.instr->program_id_pubkey.key, (double)dt*1e-6 ));
 
   ulong input_sz = 0;
   ulong pre_lens[256];

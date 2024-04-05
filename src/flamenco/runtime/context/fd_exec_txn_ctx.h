@@ -20,6 +20,8 @@ typedef struct fd_txn_return_data fd_txn_return_data_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
+#define FD_TXN_ACCT_MAX (128)
+
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
@@ -43,11 +45,11 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   uchar                 instr_stack_sz;                  /* Current depth of the instruction execution stack. */
   fd_exec_instr_ctx_t   instr_stack[6];                  /* Instruction execution stack. */
   ulong                 accounts_cnt;                    /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           accounts[128];                   /* Array of account pubkeys accessed by this transaction. */
+  fd_pubkey_t           accounts[FD_TXN_ACCT_MAX];       /* Array of account pubkeys accessed by this transaction. */
   ulong                 executable_cnt;                  /* Number of BPF upgradeable loader accounts. */
-  fd_borrowed_account_t executable_accounts[128];        /* Array of BPF upgradeable loader program data accounts */
-  fd_borrowed_account_t borrowed_accounts[128];          /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 unknown_accounts[128];           /* Array of boolean values to denote if an account is unknown */
+  fd_borrowed_account_t executable_accounts[FD_TXN_ACCT_MAX];  /* Array of BPF upgradeable loader program data accounts */
+  fd_borrowed_account_t borrowed_accounts[FD_TXN_ACCT_MAX];    /* Array of borrowed accounts accessed by this transaction. */
+  uchar                 unknown_accounts[FD_TXN_ACCT_MAX];     /* Array of boolean values to denote if an account is unknown */
   fd_txn_return_data_t  return_data;                     /* Data returned from `return_data` syscalls */
   fd_clock_timestamp_vote_t clock_timestamps[64];        /* Array of clock timestamp side effects */
   ulong                 clock_timestamp_cnt;             /* Number of clock timestamp side effects */
