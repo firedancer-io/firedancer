@@ -1,4 +1,4 @@
-#include "fd_bpf_loader_program.h"
+#include "fd_bpf_loader_v2_program.h"
 
 #include "../fd_account.h"
 #include "../../../ballet/base58/fd_base58.h"
@@ -11,15 +11,15 @@
 
 #include <stdio.h>
 
-static char * trace_buf;
-
-static void __attribute__((constructor)) make_buf(void) {
-  trace_buf = (char*)malloc(256*1024);
-}
-
-static void __attribute__((destructor)) free_buf(void) {
-  free(trace_buf);
-}
+//static char * trace_buf;
+//
+//static void __attribute__((constructor)) make_buf(void) {
+//  trace_buf = (char*)malloc(256*1024);
+//}
+//
+//static void __attribute__((destructor)) free_buf(void) {
+//  free(trace_buf);
+//}
 
 int
 fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx,
@@ -42,79 +42,13 @@ fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t
   return 0;
 }
 
-static int
-setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_data_len) {
-  fd_sbpf_elf_info_t elf_info;
-  if (fd_sbpf_elf_peek( &elf_info, program_data, program_data_len ) == NULL) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
+int
+fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
+  fd_borrowed_account_t * program_acc = &ctx.txn_ctx->borrowed_accounts[ ctx.instr->program_id ];
 
-  /* Allocate rodata segment */
-  void * rodata = fd_valloc_malloc( ctx->valloc, 32UL, elf_info.rodata_footprint );
-  if (!rodata) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  /* Allocate program buffer */
-
-  ulong  prog_align     = fd_sbpf_program_align();
-  ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( ctx->valloc, prog_align, prog_footprint ), &elf_info, rodata );
-  FD_TEST( prog );
-
-  /* Allocate syscalls */
-
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx->valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  FD_TEST( syscalls );
-
-  fd_vm_syscall_register_ctx( syscalls, ctx->slot_ctx );
-  /* Load program */
-
-  if(  0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls ) ) {
-    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-  }
-
-  fd_vm_exec_context_t vm_ctx = {
-    .entrypoint          = (long)prog->entry_pc,
-    .program_counter     = 0,
-    .instruction_counter = 0,
-    .instrs              = (fd_sbpf_instr_t const *)fd_type_pun_const( prog->text ),
-    .instrs_sz           = prog->text_cnt,
-    .instrs_offset       = prog->text_off,
-    .syscall_map         = syscalls,
-    .calldests           = prog->calldests,
-    .input               = NULL,
-    .input_sz            = 0,
-    .read_only           = (uchar *)fd_type_pun_const(prog->rodata),
-    .read_only_sz        = prog->rodata_sz,
-    /* TODO configure heap allocator */
-    .instr_ctx           = ctx,
-    .heap_sz = ctx->txn_ctx->heap_size,
-  };
-
-  ulong validate_result = fd_vm_context_validate( &vm_ctx );
-  if (validate_result != FD_VM_SBPF_VALIDATE_SUCCESS) {
-    FD_LOG_ERR(( "fd_vm_context_validate() failed: %lu", validate_result ));
-  }
-
-  fd_valloc_free( ctx->valloc,  fd_sbpf_program_delete( prog ) );
-  fd_valloc_free( ctx->valloc,  fd_sbpf_syscalls_delete( syscalls ) );
-  fd_valloc_free( ctx->valloc, rodata);
-  return 0;
-}
-
-
-int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx ) {
-  // FIXME: the program account is not in the instruction accounts?
-  fd_borrowed_account_t * program_acc_view = NULL;
-  int read_result = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_acc_view );
-  if (FD_UNLIKELY(read_result != FD_ACC_MGR_SUCCESS)) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
-
-  fd_account_meta_t const * metadata = program_acc_view->const_meta;
-  uchar const * program_data               = program_acc_view->const_data;
-  ulong program_data_len = metadata->dlen;
+  fd_account_meta_t const * metadata         = program_acc->const_meta;
+  uchar const *             program_data     = program_acc->const_data;
+  ulong                     program_data_len = metadata->dlen;
 
   long dt = -fd_log_wallclock();
   fd_sbpf_elf_info_t elf_info;
@@ -344,107 +278,12 @@ if (memcmp(signature, sig, 64) == 0) {
   return 0;
 }
 
-int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
-  if( ctx.instr->acct_cnt < 1 ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
+int
+fd_bpf_loader_v2_program_execute( fd_exec_instr_ctx_t ctx ) {
+  do {
+    int err = fd_exec_consume_cus( ctx.txn_ctx, 570UL );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
 
-  uchar * data            = ctx.instr->data;
-
-  /* Deserialize the BPF Program instruction */
-  fd_bpf_loader_program_instruction_t instruction;
-  fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = data;
-  decode_ctx.dataend = &data[ctx.instr->data_sz];
-  decode_ctx.valloc  = ctx.valloc;
-
-
-  if( fd_bpf_loader_program_instruction_decode( &instruction, &decode_ctx ) ) {
-    FD_LOG_DEBUG(("fd_bpf_loader_program_instruction_decode failed"));
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  uchar const * instr_acc_idxs = ctx.instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs = ctx.txn_ctx->accounts;
-
-  /* Check that Instruction Account 0 is a signer */
-  if( instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-  }
-
-   /* FIXME: will need to actually find last program_acct in this instruction but practically no one does this. Yet another
-       area where there seems to be a lot of overhead... See solana_runtime::Accounts::load_transaction_accounts */
-  // fd_pubkey_t * bpf_loader_acc = &txn_accs[ctx.txn_ctx->txn_descriptor->acct_addr_cnt - 1];
-  // if ( memcmp( bpf_loader_acc, ctx.global->solana_bpf_loader_program, sizeof(fd_pubkey_t) ) != 0 ) {
-  //   return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
-  // }
-
-  fd_pubkey_t const * program_acc = &txn_accs[instr_acc_idxs[0]];
-
-  fd_borrowed_account_t * acc = NULL;
-  int read_result = fd_instr_borrowed_account_view( &ctx, program_acc, &acc );
-  if (FD_UNLIKELY(!fd_acc_exists(acc->const_meta))) {
-    FD_LOG_WARNING(( "failed to read account metadata, err: %d", read_result ));
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
-  fd_account_meta_t const * program_acc_metadata = acc->const_meta;
-  if ( memcmp(program_acc_metadata->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
-    FD_LOG_WARNING(("A"));
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
-  }
-
-  if( fd_bpf_loader_program_instruction_is_write( &instruction ) ) {
-    ulong write_end = fd_ulong_sat_add( instruction.inner.write.offset, instruction.inner.write.bytes_len );
-    if( program_acc_metadata->dlen < write_end ) {
-      return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
-    }
-
-    fd_borrowed_account_t * modify_acc = NULL;
-    int err = fd_instr_borrowed_account_modify( &ctx, program_acc, 0, &modify_acc );
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to get writable handle to program data" ));
-      return err;
-    }
-
-    uchar *             program_acc_data = modify_acc->data;
-
-    fd_memcpy( program_acc_data + instruction.inner.write.offset, instruction.inner.write.bytes, instruction.inner.write.bytes_len );
-
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  } else if( fd_bpf_loader_program_instruction_is_finalize( &instruction ) ) {
-    /* Check that Instruction Account 0 is a signer */
-    if( instr_acc_idxs[0] >= ctx.txn_ctx->txn_descriptor->signature_cnt ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-    }
-
-    fd_pubkey_t const * program_acc = &txn_accs[instr_acc_idxs[0]];
-
-    fd_borrowed_account_t * modify_acc = NULL;
-    int err = fd_instr_borrowed_account_modify(&ctx, program_acc, 0, &modify_acc);
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "failed to get writable handle to program data" ));
-      return err;
-    }
-
-    fd_account_meta_t * metadata_mut     = modify_acc->meta;
-    uchar *             program_acc_data = modify_acc->data;
-
-    // TODO: deploy program properly
-    err = setup_program(&ctx, program_acc_data, metadata_mut->dlen);
-    if (err != FD_EXECUTOR_INSTR_SUCCESS) {
-      return err;
-    }
-
-    err = fd_account_set_executable( &ctx, program_acc, metadata_mut, 1 );
-    if (err != FD_EXECUTOR_INSTR_SUCCESS) {
-      return err;
-    }
-    // ???? what does this do
-    //fd_acc_mgr_set_metadata(ctx.global->acc_mgr, ctx.global->funk_txn, program_acc, program_acc_metadata);
-
-    return FD_EXECUTOR_INSTR_SUCCESS;
-  } else {
-    FD_LOG_WARNING(( "unsupported bpf loader program instruction: discriminant: %d", instruction.discriminant ));
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
-  }
+  return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
 }
