@@ -289,52 +289,80 @@ fd_bincode_compact_u16_size( ushort const * self ) {
 static inline int
 fd_bincode_varint_decode( ulong *                   self,
                           fd_bincode_decode_ctx_t * ctx ) {
-  const uchar * ptr = (const uchar*) ctx->data;
-  ulong val = 0;
-  ulong shift = 0;
-  while (1) {
-    if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
+  ulong out   = 0UL;
+  uint  shift = 0U;
+
+  while( FD_LIKELY( shift < 64U ) ) {
+
+    if( FD_UNLIKELY( ctx->data > ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
-    ulong c = *(ptr++);
-    val += (c&0x7FUL)<<shift;
-    if ( !(c&0x80UL) ) {
-      *self = val;
-      ctx->data = ptr;
+
+    uint byte = *(uchar const *)ctx->data;
+    ctx->data = (uchar const *)ctx->data + 1;
+    out |= (byte & 0x7FUL) << shift;
+
+    if( (byte & 0x80U) == 0U ) {
+      if( (out>>shift) != byte )
+        return FD_BINCODE_ERR_ENCODING;
+      if( byte==0U && (shift!=0U || out!=0UL) )
+        return FD_BINCODE_ERR_ENCODING;
+      *self = out;
       return FD_BINCODE_SUCCESS;
     }
-    shift += 7;
+
+    shift += 7U;
+
   }
+
+  return FD_BINCODE_ERR_ENCODING;
 }
 
 static inline int
 fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  const uchar * ptr = (const uchar*) ctx->data;
-  while (1) {
-    if ( FD_UNLIKELY((void *) (ptr + 1) > ctx->dataend ) )
+  ulong out   = 0UL;
+  uint  shift = 0U;
+
+  while( FD_LIKELY( shift < 64U ) ) {
+
+    if( FD_UNLIKELY( ctx->data > ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
-    ulong c = *(ptr++);
-    if ( !(c&0x80UL) ) {
-      ctx->data = ptr;
+
+    uint byte = *(uchar const *)ctx->data;
+    ctx->data = (uchar const *)ctx->data + 1;
+    out |= (byte & 0x7FUL) << shift;
+
+    if( (byte & 0x80U) == 0U ) {
+      if( (out>>shift) != byte )
+        return FD_BINCODE_ERR_ENCODING;
+      if( byte==0U && (shift!=0U || out!=0UL) )
+        return FD_BINCODE_ERR_ENCODING;
       return FD_BINCODE_SUCCESS;
     }
+
+    shift += 7U;
+
   }
+
+  return FD_BINCODE_ERR_ENCODING;
 }
 
 static inline void
 fd_bincode_varint_decode_unsafe( ulong *                   self,
                                  fd_bincode_decode_ctx_t * ctx ) {
-  const uchar * ptr = (const uchar*) ctx->data;
-  ulong val = 0;
-  ulong shift = 0;
-  while (1) {
-    ulong c = *(ptr++);
-    val += (c&0x7FUL)<<shift;
-    if ( !(c&0x80UL) ) {
-      *self = val;
-      ctx->data = ptr;
+  ulong out   = 0UL;
+  uint  shift = 0U;
+
+  for(;;) {
+    uint byte = *(uchar const *)ctx->data;
+    ctx->data = (uchar const *)ctx->data + 1;
+    out |= (byte & 0x7FUL) << shift;
+
+    if( (byte & 0x80U) == 0U ) {
+      *self = out;
       return;
     }
-    shift += 7;
+
+    shift += 7U;
   }
 }
 
