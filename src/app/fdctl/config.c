@@ -485,8 +485,8 @@ mac_address( const char * interface,
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
-static uint
-username_to_uid( char * username ) {
+static void
+username_to_id( config_t * config ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
   if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -496,19 +496,27 @@ username_to_uid( char * username ) {
     char * s = strchr( line, ':' );
     if( FD_UNLIKELY( !s ) ) continue;
     *s = 0;
-    if( FD_LIKELY( strcmp( line, username ) ) ) continue;
+    if( FD_LIKELY( strcmp( line, config->user ) ) ) continue;
 
-    s = strchr( s + 1, ':' );
-    if( FD_UNLIKELY( !s ) ) continue;
+    char * u = strchr( s + 1, ':' );
+    if( FD_UNLIKELY( !u ) ) continue;
+
+    char * g = strchr( u + 1, ':' );
+    if( FD_UNLIKELY( !g ) ) continue;
 
     if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
     char * endptr;
-    ulong uid = strtoul( s + 1, &endptr, 10 );
+    ulong uid = strtoul( u + 1, &endptr, 10 );
     if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
-    return (uint)uid;
+    ulong gid = strtoul( g + 1, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != ':' || gid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse gid in /etc/passwd"));
+
+    config->uid = ( uint )uid;
+    config->gid = ( uint )gid;
+    return;
   }
 
-  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
 }
 
 FD_FN_CONST fd_topo_run_tile_t *
@@ -1107,9 +1115,7 @@ config_parse( int *      pargc,
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
   }
 
-  uint uid = username_to_uid( config->user );
-  config->uid = uid;
-  config->gid = uid;
+  username_to_id( config );
 
   if( config->uid == 0 || config->gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
