@@ -5,10 +5,10 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
-#include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 /* FIXME: Temporary scaffolding */
@@ -64,13 +64,13 @@ is_signer( fd_pubkey_t const * account,
 
 ulong
 fd_vm_prepare_instruction(
-  fd_instr_info_t const * caller_instr,
-  fd_instr_info_t * callee_instr,
-  fd_exec_instr_ctx_t * instr_ctx,
+  fd_instr_info_t const *  caller_instr,
+  fd_instr_info_t *        callee_instr,
+  fd_exec_instr_ctx_t *    instr_ctx,
   fd_instruction_account_t instruction_accounts[256],
-  ulong * instruction_accounts_cnt,
-  fd_pubkey_t const * signers,
-  ulong signers_cnt
+  ulong *                  instruction_accounts_cnt,
+  fd_pubkey_t const *      signers,
+  ulong                    signers_cnt
 ) {
   ulong deduplicated_instruction_accounts_cnt = 0;
   fd_instruction_account_t deduplicated_instruction_accounts[256];
@@ -98,13 +98,11 @@ fd_vm_prepare_instruction(
         break;
       }
     }
-    FD_LOG_DEBUG(("Duplicate index %lu for %32J", duplicate_index, callee_pubkey->uc));
     if( duplicate_index != ULONG_MAX ) {
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[duplicate_index];
       instruction_account->is_signer |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
       instruction_account->is_writable |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
-      FD_LOG_DEBUG(("PREP1: %32J %lu %lu %lu", callee_pubkey->uc, instruction_account->is_signer, instruction_account->is_writable, duplicate_index));
     } else {
       ushort index_in_caller = USHORT_MAX;
       for( ulong j = 0; j < caller_instr->acct_cnt; j++ ) {
@@ -125,7 +123,6 @@ fd_vm_prepare_instruction(
       instruction_account->index_in_transaction = index_in_transaction;
       instruction_account->is_signer            = !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
       instruction_account->is_writable          = !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
-      FD_LOG_DEBUG(( "PREP2: %32J %lu %lu %lu", callee_pubkey->uc, instruction_account->is_signer, instruction_account->is_writable, deduplicated_instruction_accounts_cnt - 1 ));
     }
   }
 
@@ -134,12 +131,11 @@ fd_vm_prepare_instruction(
     fd_borrowed_account_t borrowed_account;
     fd_memcpy(borrowed_account.pubkey, &caller_instr->acct_pubkeys[instruction_account->index_in_caller], sizeof(fd_pubkey_t));
 
-    if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable(instr_ctx->instr, borrowed_account.pubkey) ) ) {
+    if ( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable_idx(instr_ctx->instr, instruction_account->index_in_caller) ) ) {
       return 1;
     }
 
-    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer(instr_ctx->instr, borrowed_account.pubkey) || is_signer(borrowed_account.pubkey, signers, signers_cnt)) ) ) {
-      FD_LOG_DEBUG(( "PREP: %32J %lu %lu %lu %lu", borrowed_account.pubkey->uc, instruction_account->is_signer, fd_instr_acc_is_signer(instr_ctx->instr, borrowed_account.pubkey), is_signer(borrowed_account.pubkey, signers, signers_cnt), signers_cnt ));
+    if ( FD_UNLIKELY( instruction_account->is_signer && !(fd_instr_acc_is_signer_idx(instr_ctx->instr, instruction_account->index_in_caller) || is_signer(borrowed_account.pubkey, signers, signers_cnt)) ) ) {
       return 1;
     }
   }
@@ -148,7 +144,7 @@ fd_vm_prepare_instruction(
     ulong duplicate_index = duplicate_indices[i];
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
-      FD_LOG_DEBUG(("Final instr account %lu %lu %lu %lu", i, instruction_accounts[i].is_signer, instruction_accounts[i].is_writable, duplicate_index));
+      FD_LOG_DEBUG(("Final instr account %lu %u %u %lu", i, instruction_accounts[i].is_signer, instruction_accounts[i].is_writable, duplicate_index));
       int flags = callee_instr->acct_flags[i];
       flags |= instruction_accounts[i].is_signer ? (uchar)FD_INSTR_ACCT_FLAGS_IS_SIGNER : (uchar)0U;
       flags |= instruction_accounts[i].is_writable ? (uchar)FD_INSTR_ACCT_FLAGS_IS_WRITABLE : (uchar)0U;
@@ -159,16 +155,15 @@ fd_vm_prepare_instruction(
   }
 
   fd_borrowed_account_t * program_rec = NULL;
-  int err = fd_txn_borrowed_account_view( instr_ctx->txn_ctx, &instr_ctx->instr->program_id_pubkey, &program_rec );
+  int err = fd_instr_borrowed_account_view_idx( instr_ctx, instr_ctx->instr->program_id, &program_rec );
 
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "could not view program account - key: %32J", &instr_ctx->instr->program_id_pubkey ));
     return 1;
   }
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
-  if( FD_UNLIKELY( !fd_account_is_executable(instr_ctx, program_meta, NULL) ) ) {
+  if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
     return 1;
   }
 
@@ -687,13 +682,13 @@ fd_vm_syscall_cpi_preflight_check( ulong signers_seeds_cnt,
 
 // FIXME: NEED TO DO IS_DUPLICATE INIT HERE
 static void
-fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
-                                          fd_vm_c_instruction_t const * cpi_instr,
+fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t *         ctx,
+                                          fd_vm_c_instruction_t const *  cpi_instr,
                                           fd_vm_c_account_meta_t const * cpi_acct_metas,
-                                          fd_pubkey_t const * signers,
-                                          ulong signers_cnt,
-                                          uchar const * cpi_instr_data,
-                                          fd_instr_info_t * instr ) {
+                                          fd_pubkey_t const *            signers,
+                                          ulong                          signers_cnt,
+                                          uchar const *                  cpi_instr_data,
+                                          fd_instr_info_t *              instr ) {
   fd_pubkey_t * txn_accs = ctx->instr_ctx->txn_ctx->accounts;
   for( ulong i = 0; i < ctx->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     fd_pubkey_t const * program_id_pubkey = fd_vm_translate_vm_to_host_const(
@@ -720,12 +715,10 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
       sizeof(fd_pubkey_t),
       alignof(uchar)
     );
-    // FD_LOG_DEBUG(("Accounts cnt %lu, account %32J addr %lu", ctx->instr_ctx->txn_ctx->accounts_cnt, acct_pubkey->uc, cpi_acct_meta->pubkey_addr));
     for( ulong j = 0; j < ctx->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
       if( memcmp( acct_pubkey->uc, &txn_accs[j], sizeof( fd_pubkey_t ) )==0 ) {
         // TODO: error if not found, if flags are wrong;
         memcpy( instr->acct_pubkeys[i].uc, acct_pubkey->uc, sizeof( fd_pubkey_t ) );
-        instr->acct_txn_idxs[i] = (uchar)j;
         instr->acct_flags[i] = 0;
         instr->borrowed_accounts[i] = &ctx->instr_ctx->txn_ctx->borrowed_accounts[j];
 
@@ -739,7 +732,7 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
         }
          // TODO: should check the parent has writable flag set
 
-        if( cpi_acct_meta->is_writable && fd_instr_acc_is_writable( ctx->instr_ctx->instr, acct_pubkey) ) {
+        if( cpi_acct_meta->is_writable ) {
           instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
         // TODO: should check the parent has signer flag set
@@ -753,8 +746,6 @@ fd_vm_syscall_cpi_c_instruction_to_instr( fd_vm_exec_context_t * ctx,
             }
           }
         }
-
-        // FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)ctx->instr_ctx->instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, acct_pubkey, instr->acct_flags[i] ));
 
         break;
       }
@@ -781,8 +772,6 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
   for( ulong i = 0; i < ctx->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( memcmp( &cpi_instr->pubkey, &txn_accs[i], sizeof( fd_pubkey_t ) )==0 ) {
       // TODO: error if not found
-      FD_LOG_DEBUG(( "CPI PI: %lu %32J", i, &cpi_instr->pubkey ));
-
       instr->program_id = (uchar)i;
       instr->program_id_pubkey = txn_accs[i];
       break;
@@ -800,7 +789,6 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
       if( memcmp( &cpi_acct_meta->pubkey, &txn_accs[j], sizeof( fd_pubkey_t ) )==0 ) {
         // TODO: error if not found, if flags are wrong;
         memcpy( instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, sizeof( fd_pubkey_t ) );
-        instr->acct_txn_idxs[i] = (uchar)j;
         instr->acct_flags[i] = 0;
         instr->borrowed_accounts[i] = &ctx->instr_ctx->txn_ctx->borrowed_accounts[j];
 
@@ -814,7 +802,7 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
         }
 
         // TODO: should check the parent has writable flag set
-        if( cpi_acct_meta->is_writable && fd_instr_acc_is_writable( ctx->instr_ctx->instr, (fd_pubkey_t*)cpi_acct_meta->pubkey) ) {
+        if( cpi_acct_meta->is_writable ) {
           instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
         }
         // TODO: should check the parent has signer flag set
@@ -828,8 +816,6 @@ fd_vm_syscall_cpi_rust_instruction_to_instr( fd_vm_exec_context_t const * ctx,
             }
           }
         }
-
-        // FD_LOG_DEBUG(( "CPI ACCT: %lu %lu %u %32J %32J %x", i, j, (uchar)ctx->instr_ctx->instr->acct_txn_idxs[j], instr->acct_pubkeys[i].uc, cpi_acct_meta->pubkey, instr->acct_flags[i] ));
 
         break;
       }
@@ -1044,15 +1030,14 @@ fd_vm_syscall_cpi_derive_signers( fd_vm_exec_context_t * ctx,
  **********************************************************************/
 
 static ulong
-fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t * ctx,
-                                 fd_vm_rust_account_info_t const * caller_acc_info,
-                                 fd_pubkey_t const * callee_acc_pubkey ) {
+fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t *            ctx,
+                                      fd_vm_rust_account_info_t const * caller_acc_info,
+                                      ulong                             callee_acc_idx ) {
   fd_borrowed_account_t * callee_acc_rec = NULL;
-  int err = fd_instr_borrowed_account_view( ctx->instr_ctx, callee_acc_pubkey, &callee_acc_rec );
+  int err = fd_instr_borrowed_account_view_idx( ctx->instr_ctx, callee_acc_idx, &callee_acc_rec );
   ulong updated_lamports, data_len;
   uchar const * updated_owner = NULL;
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
     // TODO: do we need to do something anyways
     updated_lamports = 0;
     data_len = 0;
@@ -1107,8 +1092,6 @@ fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t * ctx,
    fd_memset(caller_acc_data, 0, caller_acc_data_box->len);
   }
   if( caller_acc_data_box->len != data_len ) {
-    FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_data_box->len, data_len ));
-
     caller_acc_data_box->len = data_len;
     ulong * caller_len = fd_vm_translate_vm_to_host(
       ctx,
@@ -1126,15 +1109,14 @@ fd_vm_cpi_update_caller_account_rust( fd_vm_exec_context_t * ctx,
 }
 
 static ulong
-fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
+fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t *         ctx,
                                    fd_vm_c_account_info_t const * caller_acc_info,
-                                   fd_pubkey_t const * callee_acc_pubkey ) {
-  fd_borrowed_account_t * callee_acc_rec =NULL;
-  int err = fd_instr_borrowed_account_view( ctx->instr_ctx, callee_acc_pubkey, &callee_acc_rec );
+                                   ulong                          callee_acc_idx ) {
+  fd_borrowed_account_t * callee_acc_rec = NULL;
+  int err = fd_instr_borrowed_account_view_idx( ctx->instr_ctx, callee_acc_idx, &callee_acc_rec );
   ulong updated_lamports, data_len;
   uchar const * updated_owner = NULL;
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "account missing while updating CPI caller account - key: %32J", callee_acc_pubkey ));
     // TODO: do we need to do something anyways
     updated_lamports = 0;
     data_len = 0;
@@ -1176,8 +1158,6 @@ fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
    fd_memset(caller_acc_data, 0, caller_acc_info->data_sz);
   }
   if( caller_acc_info->data_sz != data_len ) {
-    FD_LOG_DEBUG(( "account size mismatch while updating CPI caller account - key: %32J, caller: %lu, callee: %lu", callee_acc_pubkey, caller_acc_info->data_sz, data_len ));
-
     ulong * caller_len = fd_vm_translate_vm_to_host(
       ctx,
       fd_ulong_sat_sub(caller_acc_info->data_addr, sizeof(ulong)),
@@ -1193,67 +1173,82 @@ fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
-FD_FN_UNUSED static ulong
-fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
+/* Mirrors solana_bpf_loader_program::syscalls::cpi:update_callee_account.
+
+   This function is called just before a CPI is initiated.
+   In this context, the "caller" is a VM that is about to create a
+   child instruction, the "callee".
+
+   Recall that the fd_borrowed_account_t in the transaction context is
+   what is shared between different instructions.  Also recall that the
+   VM operates on a local copy of the account in VM memory.
+
+   In order to correctly do a CPI, we have to flush the changes in VM
+   memory back up to the transaction context before executing the callee
+   instruction.
+
+   This is what this function does.
+
+   ctx is the callee's instruction context.
+   callee_acc_idx is some instruction account index in that context.
+   caller_account contain the caller's local changes to that account
+   (same address/pubkey)
+
+   Returns an FD_EXECUTOR_INSTR_ERR_{...} code if permission checks
+   fail, in which case the transaction account state is undefined.
+   On success, the caller_account changes are replicated to the callee
+   account changes, and returns FD_EXECUTOR_INSTR_SUCCESS.Lo
+
+   https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1165-L1240 */
+
+static int
+fd_vm_cpi_update_callee_account( fd_exec_instr_ctx_t *       ctx,
                                  fd_caller_account_t const * caller_account,
-                                 fd_pubkey_t const * callee_acc_pubkey ) {
-
+                                 ulong                       callee_acc_idx ) {
   fd_borrowed_account_t * callee_acc = NULL;
-  int modify_result = fd_instr_borrowed_account_modify(ctx->instr_ctx, callee_acc_pubkey, 0, &callee_acc);
+  do {
+    int err = fd_instr_borrowed_account_view_idx( ctx, callee_acc_idx, &callee_acc );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+  } while(0);
 
-  if( modify_result != FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_DEBUG(( "account missing while updating CPI callee account - key: %32J", callee_acc_pubkey ));
-    // TODO: do we need to do something anyways?
-    return 0;
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1181-L1183 */
+
+  if( callee_acc->const_meta->info.lamports != caller_account->lamports ) {
+    int err = fd_account_set_lamports( ctx, callee_acc_idx, caller_account->lamports );
+    if( FD_UNLIKELY( err ) ) return err;
   }
 
-  if( callee_acc->meta == NULL ) {
-    FD_LOG_DEBUG(( "account is not modifiable - key: %32J", callee_acc_pubkey ));
-    return 0;
-  }
+  /* TODO support direct mapping */
 
-  fd_account_meta_t * callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1221-L1231 */
 
-  uint is_disable_cpi_setting_executable_and_rent_epoch_active = FD_FEATURE_ACTIVE(ctx->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch);
-  if (callee_acc_metadata->info.lamports != caller_account->lamports) {
-    callee_acc_metadata->info.lamports = caller_account->lamports;
-  }
+  do {
+    int err1 = 0;
+    fd_account_can_data_be_resized( ctx->instr, callee_acc->const_meta, caller_account->serialized_data_len, &err1 );
+    int err2 = 0;
+    fd_account_can_data_be_changed( ctx->instr, callee_acc_idx, &err2 );
+    int err = fd_int_if( err1, err1, err2 );
 
-  int err1;
-  int err2;
-  if (fd_account_can_data_be_resized(ctx->instr_ctx, callee_acc_metadata, caller_account->serialized_data_len, &err1)
-      && fd_account_can_data_be_changed(ctx->instr_ctx, callee_acc_metadata, callee_acc_pubkey, &err2)) {
-    // if ( FD_UNLIKELY( err1 || err2 ) ) {
-    //   return 1;
-    // }
-    err1 = fd_instr_borrowed_account_modify(ctx->instr_ctx, callee_acc_pubkey, caller_account->serialized_data_len, &callee_acc);
-    if (err1 != FD_ACC_MGR_SUCCESS) {
-      return 1;
+    if( err ) {
+      /* Cannot change data */
+
+      if( caller_account->serialized_data_len != callee_acc->const_meta->dlen )
+        return err;
+      if( 0!=memcmp( caller_account->serialized_data, callee_acc->data, caller_account->serialized_data_len ) )
+        return err;
+
+      /* Data didn't actually change. Silently drop error */
+      return FD_EXECUTOR_INSTR_SUCCESS;
     }
-    callee_acc_metadata = (fd_account_meta_t *)callee_acc->meta;
-    callee_acc->meta->dlen = caller_account->serialized_data_len;
-    fd_memcpy( callee_acc->data, caller_account->serialized_data, caller_account->serialized_data_len );
-  }
 
-  if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable(ctx->instr_ctx, callee_acc_metadata, NULL) != caller_account->executable) {
-    fd_pubkey_t const * program_acc = &ctx->instr_ctx->instr->acct_pubkeys[ctx->instr_ctx->instr->program_id];
-    fd_account_set_executable(ctx->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
-  }
+    /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1226 */
 
-  if (memcmp(callee_acc_metadata->info.owner, caller_account->owner.uc, sizeof(fd_pubkey_t))) {
-    fd_memcpy(callee_acc_metadata->info.owner, caller_account->owner.uc, sizeof(fd_pubkey_t));
-  }
+    err = fd_account_set_data_from_slice( ctx, callee_acc_idx, caller_account->serialized_data, caller_account->serialized_data_len );
+    if( FD_UNLIKELY( err ) ) return err;
 
-  if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      callee_acc_metadata->info.rent_epoch != caller_account->rent_epoch) {
-    if (FD_UNLIKELY( FD_FEATURE_ACTIVE(ctx->instr_ctx->slot_ctx, enable_early_verification_of_account_modifications))) {
-      return 1;
-    } else {
-      callee_acc_metadata->info.rent_epoch = caller_account->rent_epoch;
-    }
-  }
-  return 0;
+  } while(0);
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 static bool check_id(uchar const * program_id, uchar const * loader) {
@@ -1390,7 +1385,6 @@ translate_and_update_accounts(
     if( i != instruction_accounts[i].index_in_callee ) {
       continue;
     }
-    fd_pubkey_t const * callee_account = &ctx->instr_ctx->instr->acct_pubkeys[instruction_accounts[i].index_in_caller];
     fd_pubkey_t const * account_key = &ctx->instr_ctx->txn_ctx->accounts[instruction_accounts[i].index_in_transaction];
     fd_borrowed_account_t * acc_rec = NULL;
     fd_account_meta_t const * acc_meta = NULL;
@@ -1398,12 +1392,11 @@ translate_and_update_accounts(
     // if( (view_err == FD_ACC_MGR_SUCCESS || view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT) && acc_rec != NULL ) {
     //   acc_meta = acc_rec->const_meta;
     // } else {
-    //   FD_LOG_DEBUG(( "account missing in translation - acc: %32J", callee_account->key ));
     // }
-    fd_instr_borrowed_account_view( ctx->instr_ctx, callee_account, &acc_rec );
+    fd_instr_borrowed_account_view_idx( ctx->instr_ctx, instruction_accounts[i].index_in_caller, &acc_rec );
     acc_meta = acc_rec->const_meta;
 
-    if( acc_meta && fd_account_is_executable(ctx->instr_ctx, acc_meta, NULL) ) {
+    if( acc_meta && fd_account_is_executable( acc_meta ) ) {
       // FD_LOG_DEBUG(("CPI Acc data len %lu", acc_meta->dlen));
       ulong err = fd_vm_consume_compute_meter( ctx, acc_meta->dlen / vm_compute_budget.cpi_bytes_per_unit );
       if ( FD_UNLIKELY( err ) ) return err;
@@ -1429,8 +1422,7 @@ translate_and_update_accounts(
           if ( FD_UNLIKELY( err ) ) {
             return err;
           }
-          // FD_LOG_DEBUG(("CPI Acc data len %lu for %32J", caller_account.serialized_data_len, account_key->uc));
-          if( FD_UNLIKELY( acc_meta && fd_vm_cpi_update_callee_account(ctx, &caller_account, callee_account) ) ) {
+          if( FD_UNLIKELY( acc_meta && fd_vm_cpi_update_callee_account(ctx->instr_ctx, &caller_account, instruction_accounts[i].index_in_caller) ) ) {
             return 1001;
           }
 
@@ -1533,7 +1525,6 @@ fd_vm_syscall_cpi_c(
         acc_infos[i].key_addr,
         sizeof(fd_pubkey_t),
         alignof(uchar) );
-    // FD_LOG_DEBUG(( "CPI9: %lu %lx %32J", i, acc_infos[i].key_addr, acct_addr->uc ));
     if( FD_UNLIKELY( !acct_addr ) ) {
       FD_LOG_WARNING(("Translate failed %lu", i));
       return FD_VM_MEM_MAP_ERR_ACC_VIO;
@@ -1582,8 +1573,7 @@ fd_vm_syscall_cpi_c(
   }
 
   for( ulong i = 0; i < update_len; i++ ) {
-    fd_pubkey_t const * callee = &ctx->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
-    res = fd_vm_cpi_update_caller_account_c(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
+    res = fd_vm_cpi_update_caller_account_c(ctx, &acc_infos[caller_accounts_to_update[i]], callee_account_keys[i]);
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   }
 
@@ -1722,8 +1712,7 @@ fd_vm_syscall_cpi_rust(
   }
 
   for( ulong i = 0; i < update_len; i++ ) {
-    fd_pubkey_t const * callee = &ctx->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
-    res = fd_vm_cpi_update_caller_account_rust(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
+    res = fd_vm_cpi_update_caller_account_rust(ctx, &acc_infos[caller_accounts_to_update[i]], callee_account_keys[i]);
     if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
   }
 
@@ -1923,9 +1912,8 @@ fd_vm_syscall_sol_get_clock_sysvar(
   ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sol_sysvar_clock_t) ) );
   if ( FD_UNLIKELY( err ) ) return err;
 
-  fd_sol_sysvar_clock_t clock;
-  fd_sol_sysvar_clock_new( &clock );
-  fd_sysvar_clock_read( &clock, ctx->instr_ctx->slot_ctx );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->instr_ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !clock ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1933,7 +1921,7 @@ fd_vm_syscall_sol_get_clock_sysvar(
       sizeof(fd_sol_sysvar_clock_t),
       FD_SOL_SYSVAR_CLOCK_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  memcpy( out, &clock, sizeof(fd_sol_sysvar_clock_t ) );
+  memcpy( out, clock, sizeof(fd_sol_sysvar_clock_t ) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -1955,9 +1943,8 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
   ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_epoch_schedule_t) ) );
   if ( FD_UNLIKELY( err ) ) return err;
 
-  fd_epoch_schedule_t schedule;
-  fd_epoch_schedule_new( &schedule );
-  fd_sysvar_epoch_schedule_read( &schedule, ctx->instr_ctx->slot_ctx );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( ctx->instr_ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !schedule ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1965,7 +1952,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar(
       sizeof(fd_epoch_schedule_t),
       FD_EPOCH_SCHEDULE_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  memcpy( out, &schedule, sizeof(fd_epoch_schedule_t) );
+  memcpy( out, schedule, sizeof(fd_epoch_schedule_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -1987,9 +1974,8 @@ fd_vm_syscall_sol_get_fees_sysvar(
   ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_sysvar_fees_t) ) );
   if ( FD_UNLIKELY( err ) ) return err;
 
-  fd_sysvar_fees_t fees;
-  fd_sysvar_fees_new( &fees );
-  fd_sysvar_fees_read( &fees, ctx->instr_ctx->slot_ctx );
+  fd_sysvar_fees_t const * fees = fd_sysvar_cache_fees( ctx->instr_ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !fees ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -1997,7 +1983,7 @@ fd_vm_syscall_sol_get_fees_sysvar(
       sizeof(fd_sysvar_fees_t),
       FD_SYSVAR_FEES_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  memcpy( out, &fees, sizeof(fd_sysvar_fees_t) );
+  memcpy( out, fees, sizeof(fd_sysvar_fees_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
@@ -2017,11 +2003,10 @@ fd_vm_syscall_sol_get_rent_sysvar(
   FD_TEST( ctx->instr_ctx->instr );  /* TODO */
 
   ulong err = fd_vm_consume_compute_meter( ctx, fd_ulong_sat_add( vm_compute_budget.sysvar_base_cost, sizeof(fd_rent_t) ) );
-  if ( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) return err;
 
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_sysvar_rent_read( &rent, ctx->instr_ctx->slot_ctx );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->instr_ctx->slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !rent ) ) return FD_VM_SYSCALL_ERR_INSTR_ERR;
 
   void * out = fd_vm_translate_vm_to_host(
       ctx,
@@ -2029,7 +2014,7 @@ fd_vm_syscall_sol_get_rent_sysvar(
       sizeof(fd_rent_t),
       FD_RENT_ALIGN );
   if( FD_UNLIKELY( !out ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-  memcpy( out, &rent, sizeof(fd_rent_t) );
+  memcpy( out, rent, sizeof(fd_rent_t) );
 
   *pr0 = 0UL;
   return FD_VM_SYSCALL_SUCCESS;
