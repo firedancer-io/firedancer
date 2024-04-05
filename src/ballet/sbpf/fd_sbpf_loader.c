@@ -316,10 +316,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 15UL, NULL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 63UL, NULL );
     REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ 16UL ] = {0};
-    strncpy( name, name_ptr, 15UL );
+    char __attribute__((aligned(16UL))) name[ 65UL ] = {0};
+    strncpy( name, name_ptr, 64UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -481,7 +481,7 @@ fd_sbpf_elf_info_t *
 fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
                   void const *         bin,
                   ulong                elf_sz ) {
-  return _fd_sbpf_elf_peek( info, bin, elf_sz )==0 ? info : NULL;
+  return (_fd_sbpf_elf_peek( info, bin, elf_sz ) == 0) ? info : NULL;
 }
 
 /* ELF loader, part 2 **************************************************
@@ -545,10 +545,10 @@ fd_sbpf_program_new( void *                     prog_mem,
     .rodata    = rodata,
     .rodata_sz = elf_info->rodata_sz,
     .text      = (ulong *)((ulong)rodata + elf_info->text_off),
+    .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
     .entry_pc  = elf_info->entry_pc
   };
-
 
   /* Initialize calldests map */
 
@@ -691,6 +691,12 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
 
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
+        /* TODO: verify this ... */
+        uint sh_type = shdrs[ i ].sh_type;
+        if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
+          continue;
+        }
+
         shdr_dynsym = &shdrs[ i ];
         break;
       }
@@ -1012,7 +1018,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
   ulong   insn_cnt = shdr_get_loaded_size( shtext ) / 8UL;
 
   for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
-    ulong insn = FD_LOAD( ulong, ptr );
+    ulong insn = *((ulong const *) ptr);
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
@@ -1162,6 +1168,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *  prog,
                       void const *         _bin,
                       ulong                elf_sz,
                       fd_sbpf_syscalls_t * syscalls ) {
+  fd_sbpf_loader_seterr( 0, 0 );
+
   int err;
   fd_sbpf_elf_t * elf = (fd_sbpf_elf_t *)_bin;
 
