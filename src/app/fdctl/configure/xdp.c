@@ -39,7 +39,7 @@ init( config_t * const config ) {
   if( FD_UNLIKELY( fd_xdp_init( config->name,
                                 0750,
                                 (int)config->uid,
-                                (int)config->uid ) ) )
+                                (int)config->gid ) ) )
     FD_LOG_ERR(( "fd_xdp_init failed" ));
 
   if( FD_UNLIKELY( fd_xdp_hook_iface( config->name,
@@ -125,22 +125,22 @@ check( config_t * const config ) {
   if( FD_UNLIKELY( result && errno == ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", xdp_path );
   else if( FD_UNLIKELY( result ) ) PARTIALLY_CONFIGURED( "`%s` cannot be statted (%i-%s)", xdp_path, errno, fd_io_strerror( errno ) );
 
-  CHECK( check_dir(  xdp_path, config->uid, config->uid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
+  CHECK( check_dir(  xdp_path, config->uid, config->gid, S_IFDIR | S_IRWXU | S_IRGRP | S_IXGRP ) );
 
   FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/udp_dsts", config->name ) );
-  CHECK( check_file( xdp_path, config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+  CHECK( check_file( xdp_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
   char * interfaces[] = { config->tiles.net.interface, "lo" };
   ulong interfaces_sz = !strcmp( config->tiles.net.interface, "lo" ) ? 1 : 2;
   for( ulong i=0; i<interfaces_sz; i++ ) {
     FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xdp_link", config->name, interfaces[i] ) );
-    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+    CHECK( check_file( xdp_path,      config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
     FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xdp_prog", config->name, interfaces[i] ) );
-    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+    CHECK( check_file( xdp_path,      config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
 
     FD_TEST( fd_cstr_printf_check( xdp_path, PATH_MAX, NULL, "/sys/fs/bpf/%s/%s/xsks", config->name, interfaces[i] ) );
-    CHECK( check_file( xdp_path,      config->uid, config->uid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
+    CHECK( check_file( xdp_path,      config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR | S_IRGRP ) );
   }
 
   /* todo: step into these links and make sure the interior data is
