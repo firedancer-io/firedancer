@@ -5,6 +5,8 @@
 
 #include "program/fd_address_lookup_table_program.h"
 #include "program/fd_bpf_loader_v1_program.h"
+#include "program/fd_bpf_loader_v2_program.h"
+#include "program/fd_bpf_loader_v3_program.h"
 #include "program/fd_bpf_loader_v4_program.h"
 #include "program/fd_config_program.h"
 #include "program/fd_ed25519_program.h"
@@ -23,6 +25,10 @@ fd_executor_lookup_native_program( fd_pubkey_t const * program_id ) {
     return fd_address_lookup_table_program_execute;
   if( 0==memcmp( program_id, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) ) )
     return fd_bpf_loader_v1_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_bpf_loader_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_bpf_loader_v2_program_execute;
+  if( 0==memcmp( program_id, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) )
+    return fd_bpf_loader_v3_program_execute;
   if( 0==memcmp( program_id, &fd_solana_bpf_loader_v4_program_id, sizeof(fd_pubkey_t) ) )
     return fd_bpf_loader_v4_program_execute;
   if( 0==memcmp( program_id, &fd_solana_ed25519_sig_verify_program_id, sizeof(fd_pubkey_t) ) )

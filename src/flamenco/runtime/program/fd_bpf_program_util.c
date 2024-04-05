@@ -1,7 +1,9 @@
 #include "fd_bpf_program_util.h"
-#include "fd_bpf_loader_program.h"
-#include "fd_bpf_upgradeable_loader_program.h"
+#include "fd_bpf_loader_v2_program.h"
+#include "fd_bpf_loader_v3_program.h"
 #include "../../vm/fd_vm_syscalls.h"
+#include "../fd_acc_mgr.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 #include <assert.h>
 
@@ -223,7 +225,6 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
     if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0
       || fd_executor_bpf_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0 ) {
       if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, program_pubkey ) != 0 ) {
-        FD_LOG_WARNING(( "failed to load program %32J", program_pubkey->key ));
         continue;
       }
     } else {

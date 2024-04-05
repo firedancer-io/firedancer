@@ -6,7 +6,8 @@
 #include "../ballet/sha256/fd_sha256.h"
 #include "types/fd_types_custom.h"
 
-#define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
+#define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
+#define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
