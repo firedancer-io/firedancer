@@ -62,6 +62,11 @@ fd_account_is_executable( fd_account_meta_t const * meta ) {
   return !!meta->info.executable;
 }
 
+int
+fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
+                           ulong                       instr_acc_idx,
+                           int                         executable );
+
 /* fd_account_is_owned_by_current_program returns 1 if the given
    account is owned by the program invoked in the current instruction.
    Otherwise, returns 0.  Mirrors Anza's
@@ -73,7 +78,7 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
   return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
 }
 
-FD_FN_PURE static inline int
+static inline int
 fd_account_can_data_be_resized( fd_instr_info_t const *   instr,
                                 fd_account_meta_t const * acct,
                                 ulong                     new_length,
@@ -207,8 +212,7 @@ int
 fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
                                 ulong                       instr_acc_idx,
                                 uchar const *               data,
-                                ulong                       data_sz,
-                                int *                       err );
+                                ulong                       data_sz );
 
 /* fd_account_set_data_length mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::set_data_length.

@@ -509,10 +509,8 @@ _process_deploy( fd_exec_instr_ctx_t ctx ) {
              done zero-copy. */
 
     do {
-      int err = 0;
-      if( FD_UNLIKELY( !fd_account_set_data_from_slice(
-          &ctx, program_acct_idx, source->const_data, source->const_meta->dlen, &err ) ) )
-        return err;
+      int err = fd_account_set_data_from_slice( &ctx, program_acct_idx, source->const_data, source->const_meta->dlen );
+      if( FD_UNLIKELY( !err ) ) return err;
     } while(0);
 
     /* https://github.com/solana-labs/solana/blob/v1.17.25/programs/loader-v4/src/lib.rs#L433 */
