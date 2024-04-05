@@ -43,7 +43,6 @@ fd_vm_trace_context_add_mem_entry( fd_vm_trace_context_t * ctx,
                                    int write ) {
   fd_vm_trace_entry_t * current_trace_entry = &ctx->trace_entries[ctx->trace_entries_used-1];
   fd_vm_trace_mem_entry_t * current_mem_entry = fd_valloc_malloc(ctx->valloc, 1, sizeof(fd_vm_trace_mem_entry_t));
-
   current_mem_entry->next = NULL;
   uchar * data = (uchar *)host_addr;
 

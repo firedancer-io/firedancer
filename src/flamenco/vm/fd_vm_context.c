@@ -2,12 +2,14 @@
 
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/fd_runtime.h"
 
 ulong
 fd_vm_consume_compute_meter(fd_vm_exec_context_t * ctx, ulong cost) {
   ulong exceeded = ctx->compute_meter < cost;
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, cost);
+  // FD_LOG_WARNING(("CUs! consumed %lu cost %lu", ctx->compute_meter, cost));
   return exceeded;
 }
 
@@ -130,10 +132,10 @@ fd_vm_context_validate( fd_vm_exec_context_t const * ctx ) {
         ++i;
         break;
       case FD_CHECK_CALL:
-        // TODO: Check to make sure we are really doing this right!
+        // TODO: Check to make sure we are really doing this right! (required for sbpf2?)
         if( instr.imm >= ctx->instrs_sz
             && fd_sbpf_syscalls_query ( ctx->syscall_map, instr.imm, NULL ) == NULL
-            && !fd_sbpf_calldests_test( ctx->calldests,  instr.imm ) ) {
+            && !fd_sbpf_calldests_test( ctx->calldests, fd_pchash_inverse( instr.imm ) ) ) {
               return FD_VM_SBPF_VALIDATE_ERR_NO_SUCH_EXT_CALL;
         }
         break;
@@ -196,5 +198,14 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
     default:
       return 0UL;
   }
+
+#ifdef FD_DEBUG_SBPF_TRACES
+uchar * signature = (uchar*)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+uchar sig[64];
+fd_base58_decode_64("46mXgo95nA6vC7jTYJP3pCE5U1BpSgV7sZnQHpbHmrbPMDqRGes3jrvYEZUk8TfnhUgkpmNN73q7A3GcBVZTg3gq", sig);
+if (memcmp(signature, sig, 64) == 0) {
+    fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
+}
+#endif
   return host_addr;
 }

@@ -4,7 +4,7 @@
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
-# define MAX_BUFFER_LEN 100
+# define MAX_BUFFER_LEN 100000
 
 FD_PROTOTYPES_BEGIN
 
