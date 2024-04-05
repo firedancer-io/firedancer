@@ -498,10 +498,14 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     ulong pre_key_cnt = fd_funk_rec_map_key_cnt( rec_map );
 
+#if 0
     ulong batch_cnt = fd_ulong_min(
       fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
       fd_ulong_pow2_up( max_workers )
     );
+#else
+    ulong batch_cnt = 1;
+#endif
     ulong batch_mask = (batch_cnt - 1UL);
 
     ulong * batch_szs = fd_scratch_alloc( 8UL, batch_cnt * sizeof(ulong) );
