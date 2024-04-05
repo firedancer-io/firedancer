@@ -12,6 +12,14 @@
 #include "fd_replay.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../keyguard/fd_keyguard_client.h"
+#include "../../choreo/fd_choreo.h"
+
+struct fd_tvu_gossip_deliver_arg {
+  fd_repair_t * repair;
+  fd_bft_t * bft;
+  fd_valloc_t valloc;
+};
+typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
 
 void
 fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
@@ -20,7 +28,8 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
                    fd_keyguard_client_t * keyguard_client,
                    int                   live,
                    fd_wksp_t *           _wksp,
-                   fd_runtime_args_t *   args );
+                   fd_runtime_args_t *   args,
+                   fd_tvu_gossip_deliver_arg_t * gossip_deliver_arg );
 
 int
 fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,

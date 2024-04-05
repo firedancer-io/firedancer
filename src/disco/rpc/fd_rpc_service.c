@@ -28,10 +28,10 @@ struct fd_rpc_ctx {
 static fd_exec_slot_ctx_t *
 get_slot_ctx( fd_rpc_ctx_t * ctx ) {
   fd_exec_slot_ctx_t * result = NULL;
-  for( fd_replay_frontier_iter_t iter = fd_replay_frontier_iter_init( ctx->replay->frontier, ctx->replay->pool );
-       !fd_replay_frontier_iter_done( iter, ctx->replay->frontier, ctx->replay->pool );
-       iter = fd_replay_frontier_iter_next( iter, ctx->replay->frontier, ctx->replay->pool ) ) {
-    fd_exec_slot_ctx_t * t = &fd_replay_frontier_iter_ele( iter, ctx->replay->frontier, ctx->replay->pool )->slot_ctx;
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( ctx->replay->forks->frontier, ctx->replay->forks->pool );
+       !fd_fork_frontier_iter_done( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool );
+       iter = fd_fork_frontier_iter_next( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool ) ) {
+    fd_exec_slot_ctx_t * t = &fd_fork_frontier_iter_ele( iter, ctx->replay->forks->frontier, ctx->replay->forks->pool )->slot_ctx;
     if ( !result || t->slot_bank.slot > result->slot_bank.slot )
       result = t;
   }

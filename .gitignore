@@ -46,6 +46,10 @@ deps-bundle.tar.zst
 /book/.vitepress/dist
 /book/node_modules
 
+# snapshots
+snapshot-*.tar.zst
+incremental-snapshot-*.tar.zst
+
 # Bank hash debug
 dump
 test.solcap
@@ -57,4 +61,3 @@ fddev.yaml
 local.toml
 testnet.toml
 mainnet.toml
-

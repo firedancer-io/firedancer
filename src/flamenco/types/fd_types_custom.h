@@ -28,7 +28,7 @@ typedef union fd_hash fd_hash_t;
 typedef union fd_hash fd_pubkey_t;
 
 static const fd_pubkey_t pubkey_null = { 0 };
-
+static const fd_hash_t   hash_null   = { 0 };
 
 union fd_signature {
   uchar uc[ 64 ];

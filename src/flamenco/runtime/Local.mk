@@ -6,7 +6,6 @@ $(call add-hdrs, \
   fd_rocksdb.h \
 	fd_hashes.h \
 	fd_pubkey_utils.h \
-	fd_fork_mgr.h \
 	fd_blockstore.h \
 	fd_snapshot_loader.h \
 	fd_bank_hash_cmp.h \
@@ -18,7 +17,6 @@ $(call add-objs,fd_rocksdb,fd_flamenco)
 $(call add-objs,fd_hashes,fd_flamenco)
 $(call add-objs,fd_runtime,fd_flamenco)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
-$(call add-objs,fd_fork_mgr,fd_flamenco)
 $(call add-objs,fd_blockstore,fd_flamenco)
 $(call add-objs,fd_snapshot_loader,fd_flamenco)
 $(call add-objs,fd_bank_hash_cmp,fd_flamenco)

@@ -50,7 +50,7 @@ main( int     argc,
   fd_runtime_ctx_t *state = fd_alloca(alignof(fd_runtime_ctx_t), sizeof(fd_runtime_ctx_t));
   fd_memset(state, 0, sizeof(state));
 
-  fd_tvu_main_setup( state, NULL, NULL, NULL, 0, NULL, args);
+  fd_tvu_main_setup( state, NULL, NULL, NULL, 0, NULL, args, NULL );
 
   if( args->tcnt == ULONG_MAX ) { args->tcnt = fd_tile_cnt(); }
   fd_tpool_t * tpool = NULL;

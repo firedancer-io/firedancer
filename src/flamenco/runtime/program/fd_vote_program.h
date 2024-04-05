@@ -80,12 +80,12 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 /**********************************************************************/
 
 int
-fd_vote_get_state( fd_borrowed_account_t const *            self,
-                   fd_exec_instr_ctx_t                      ctx,
-                   /* return */ fd_vote_state_versioned_t * versioned );
+fd_vote_get_state( fd_borrowed_account_t const * self,
+                   fd_valloc_t                   valloc,
+                   fd_vote_state_versioned_t *   versioned /* out */ );
 
 void
-fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx );
+fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_valloc_t valloc );
 
 int
 fd_vote_decode_compact_update( fd_exec_instr_ctx_t              ctx,
@@ -98,6 +98,9 @@ fd_vote_transcoding_state_versioned_size( fd_vote_state_versioned_t const * self
 int
 fd_vote_transcoding_state_versioned_encode( fd_vote_state_versioned_t const * self,
                                             fd_bincode_encode_ctx_t *         ctx );
+
+fd_vote_instruction_t *
+fd_vote_flamenco_txn_decode( fd_flamenco_txn_t * txn, fd_valloc_t valloc );
 
 FD_PROTOTYPES_END
 

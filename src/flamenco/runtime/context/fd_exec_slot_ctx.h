@@ -10,6 +10,22 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../types/fd_types.h"
 
+/* fd_tower is represents a given pubkey's vote tower. */
+
+struct fd_tower {
+   fd_pubkey_t node_pubkey;
+   fd_pubkey_t vote_acc_addr;
+   fd_option_slot_t root;
+   ulong slots[32];
+   ulong cnt;
+};
+typedef struct fd_tower fd_tower_t;
+
+#define DEQUE_NAME fd_tower_deque
+#define DEQUE_T    fd_tower_t
+#define DEQUE_MAX  10000UL
+#include "../../../util/tmpl/fd_deque.c"
+
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
@@ -34,6 +50,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    signature_cnt;
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
+
+  fd_tower_t * towers;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

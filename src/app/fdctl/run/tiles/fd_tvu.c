@@ -486,13 +486,15 @@ doit( void ) {
     .txn_max              = g_txn_max,
     .rpc_port             = g_rpc_listen_port,
   };
+  fd_tvu_gossip_deliver_arg_t gossip_deliver_arg = { 0 };
   fd_tvu_main_setup( &runtime_ctx,
                      &replay,
                      &slot_ctx,
                      keyguard_client,
                      1,
                      g_wksp,
-                     &args );
+                     &args,
+                     &gossip_deliver_arg );
   if( runtime_ctx.blowup ) FD_LOG_ERR(( "blowup" ));
 
   /**********************************************************************/

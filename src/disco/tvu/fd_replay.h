@@ -15,13 +15,14 @@
     - finalized when >66% of stake has rooted the slot or its descendants
   */
 
+#include "../../choreo/fd_choreo.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/repair/fd_repair.h"
-#include "../shred/fd_fec_resolver.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../shred/fd_fec_resolver.h"
 
 #ifdef FD_HAS_LIBMICROHTTP
 typedef struct fd_rpc_ctx fd_rpc_ctx_t;
@@ -34,23 +35,6 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 
 /* The standard amount of time that we wait before repeating a slot */
 #define FD_REPAIR_BACKOFF_TIME ( (long)150e6 )
-
-/* fd_replay_slot_ctx is a thin wrapper around fd_exec_slot_ctx_t for memory pools and maps */
-struct fd_replay_slot_ctx {
-  ulong              slot;
-  ulong              next;
-  fd_exec_slot_ctx_t slot_ctx;
-};
-typedef struct fd_replay_slot_ctx fd_replay_slot_ctx_t;
-
-#define POOL_NAME fd_replay_pool
-#define POOL_T    fd_replay_slot_ctx_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME  fd_replay_frontier
-#define MAP_ELE_T fd_replay_slot_ctx_t
-#define MAP_KEY   slot
-#include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_replay_commitment {
   ulong slot;
@@ -77,8 +61,6 @@ struct __attribute__((aligned(128UL))) fd_replay {
   ulong curr_turbine_slot;
 
   /* internal joins */
-  fd_replay_slot_ctx_t *     pool;     /* memory pool of slot_ctxs */
-  fd_replay_frontier_t *     frontier; /* map of slots to slot_ctxs, representing the fork heads */
   fd_replay_commitment_t *   commitment;   /* map of slots to stakes per commitment level */
   long * pending;                      /* pending slots to try to prepare */
   ulong pending_start;
@@ -95,7 +77,9 @@ struct __attribute__((aligned(128UL))) fd_replay {
   fd_fec_resolver_t * fec_resolver; /* turbine */
 
   /* external joins */
+  fd_bft_t * bft;
   fd_blockstore_t *     blockstore;
+  fd_forks_t *          forks;
   fd_funk_t *           funk;
   fd_acc_mgr_t *        acc_mgr;
   fd_exec_epoch_ctx_t * epoch_ctx;
@@ -142,17 +126,13 @@ fd_replay_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_replay_footprint( ulong slot_max ) {
+fd_replay_footprint( void ) {
   /* clang-format off */
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
       alignof( fd_replay_t ), sizeof( fd_replay_t ) ),
-      fd_replay_pool_align(), fd_replay_pool_footprint( slot_max ) ),
-      fd_replay_frontier_align(), fd_replay_frontier_footprint( slot_max ) ),
       fd_replay_commitment_align(), fd_replay_commitment_footprint() ),
       alignof( long ), sizeof( long )*FD_REPLAY_PENDING_MAX ),
     alignof( fd_replay_t ) );
@@ -163,7 +143,7 @@ fd_replay_footprint( ulong slot_max ) {
    this region in the local address space with the required footprint and alignment.*/
 
 void *
-fd_replay_new( void * mem, ulong node_max, ulong seed );
+fd_replay_new( void * mem );
 
 /* fd_replay_join joins the caller to the replay. replay points to the first byte of the memory
    region backing the replay in the caller's address space.
@@ -209,11 +189,6 @@ fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong iter );
 int
 fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred );
 
-/* fd_replay_slot_parent queries the parent of slot in the replay frontier, updating the frontier if
-   it can't find it (which indicates a new fork). */
-void
-fd_replay_slot_parent_query( fd_replay_t * replay, ulong slot );
-
 /* fd_replay_slot_prepare prepares slot for execution. It does 3 things:
      1. the block for that slot is complete.
      2. the block is not an orphan (parent block is present).
@@ -223,21 +198,16 @@ fd_replay_slot_parent_query( fd_replay_t * replay, ulong slot );
 
    Returns FD_REPLAY_READY on 3, otherwise FD_REPLAY_PENDING.
 */
-fd_replay_slot_ctx_t *
-fd_replay_slot_prepare( fd_replay_t *  replay,
-                        ulong          slot,
-                        uchar const ** block_out,
-                        ulong *        block_sz_out );
+fd_fork_t *
+fd_replay_slot_prepare( fd_replay_t * replay, ulong slot );
 
 /* fd_replay_slot_execute executes block at slot_ctx. Intended to be called after
    fd_replay_slot_prepare returns successfully.  */
 void
-fd_replay_slot_execute( fd_replay_t *          replay,
-                        ulong                  slot,
-                        fd_replay_slot_ctx_t * parent_slot_ctx,
-                        uchar const *          block,
-                        ulong                  block_sz,
-                        fd_capture_ctx_t *     capture_ctx );
+fd_replay_slot_execute( fd_replay_t *      replay,
+                        ulong              slot,
+                        fd_fork_t *        parent_slot_ctx,
+                        fd_capture_ctx_t * capture_ctx );
 
 /* fd_replay_slot_repair repairs all the missing shreds for slot. */
 void

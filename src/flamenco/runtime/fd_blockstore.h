@@ -64,10 +64,24 @@ static const fd_shred_key_t     fd_shred_key_null = { 0 };
 /* fd_blockstore_shred is a thin wrapper around fd_shred_t that supports pooling and mapping data
    shreds that have yet to be assembled into a block. Turbine and Repair can both send shreds
    out-of-order, so these shreds need to be stored and indexed in temporary buffers in the
-   Blockstore.
+   blockstore.
 
-   The Blockstore only processes data shreds. Parity shreds are handled by a separate layer, the FEC
-   set resolver. */
+   The blockstore only processes data shreds. Parity shreds are handled by a separate layer, the FEC
+   set resolver.
+
+   Shreds are buffered into a map as they are received:
+
+   | 0 | 1 | 2 | x | x | 5 | x |
+             ^           ^
+             c           r
+
+   c = "consumed" = contiguous window starting from index 0
+   r = "received" = highest index received so far
+
+   Shred memory layout while stored in the map:
+
+   | shred hdr | shred payload |
+*/
 struct fd_blockstore_shred {
   fd_shred_key_t key;
   ulong          next;
@@ -114,14 +128,18 @@ struct fd_block_txn_ref {
 };
 typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 
-/* A flag of 0x01 indicates the block is prepared to be executed. It is not safe to remove the
-   block. A flag of 0x02 indicates the block is executed. A flag of 0x03 indicates the block is
-   prepared and executed, and the prepared flag has not been cleared yet. A reader may observe 0x3
-   because the blockstore lock is not held during a block execution. A flag of 0xF2 indicates the
-   block is faked after loading a snapshot. */
-#define FD_BLOCK_FLAG_PREPARED 0   /* xxxxxxx1 */
-#define FD_BLOCK_FLAG_EXECUTED 1   /* xxxxxx1x */
-#define FD_BLOCK_FLAG_SNAPSHOT 128 /* 1xxxxxxx */
+/* If the 0th bit is set, this indicates the block is prepared, and about to be executed.
+   Blockstore clients should be careful not to modify or remove blocks while this flag is set.
+   
+   The remaining flags are mainly metadata. */
+#define FD_BLOCK_FLAG_PREPARED  0 /* xxxxxxx1 */
+#define FD_BLOCK_FLAG_PROCESSED 1 /* xxxxxx1x */
+#define FD_BLOCK_FLAG_EQV_SAFE  2 /* xxxxx1xx */
+#define FD_BLOCK_FLAG_CONFIRMED 3 /* xxxx1xxx */
+#define FD_BLOCK_FLAG_ROOTED    4 /* xxx1xxxx */
+#define FD_BLOCK_FLAG_FINALIZED 5 /* xx1xxxxx */
+#define FD_BLOCK_FLAG_GENESIS   6 /* x1xxxxxx */
+#define FD_BLOCK_FLAG_SNAPSHOT  7 /* 1xxxxxxx */
 
 struct fd_block {
   ulong     shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
@@ -135,7 +153,7 @@ struct fd_block {
   ulong     sz;         /* block size */
   ulong     height;     /* block height */
   fd_hash_t bank_hash;
-  uint      flags;
+  uchar     flags;
 };
 typedef struct fd_block fd_block_t;
 
@@ -421,7 +439,7 @@ fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* Query the parent slot of slot */
 ulong
-fd_blockstore_slot_parent_query( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
    slot children of the current frontier that are shred complete. */
@@ -447,6 +465,10 @@ fd_blockstore_tmp_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
    invariant `min_slot = max_slot - FD_BLOCKSTORE_SLOT_HISTORY_MAX`. */
 int
 fd_blockstore_slot_history_remove( fd_blockstore_t * blockstore, ulong min_slot );
+
+/* Clear out the blockstore, removing all slots. */
+int
+fd_blockstore_clear( fd_blockstore_t * blockstore );
 
 /* Determine if a slot is ancient and we should ignore shreds */
 static inline int

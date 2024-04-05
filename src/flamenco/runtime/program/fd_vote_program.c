@@ -50,16 +50,16 @@
 #define SLOT_MAX ULONG_MAX
 
 // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L697
-#define VERSION_OFFSET (4UL)
+#define VERSION_OFFSET ( 4UL )
 
 // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L698
-#define DEFAULT_PRIOR_VOTERS_END (118)
+#define DEFAULT_PRIOR_VOTERS_END ( 118 )
 
 // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L4
-#define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
+#define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 ( 82UL )
 
 // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L53
-#define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
+#define DEFAULT_PRIOR_VOTERS_END_1_14_11 ( 86UL )
 
 #define ACCOUNTS_MAX 4 /* Vote instructions take in at most 4 accounts */
 #define SIGNERS_MAX  3 /* Vote instructions have most 3 signers */
@@ -208,14 +208,14 @@ set_data_length( fd_borrowed_account_t * self, ulong new_length, fd_exec_instr_c
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L966
 static int
 get_state( fd_borrowed_account_t const * self,
-           fd_exec_instr_ctx_t           ctx,
+           fd_valloc_t                   valloc,
            fd_vote_state_versioned_t *   versioned /* out */ ) {
   int rc;
 
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data    = self->const_data;
   decode_ctx.dataend = &self->const_data[self->const_meta->dlen];
-  decode_ctx.valloc  = ctx.valloc;
+  decode_ctx.valloc  = valloc;
 
   rc = fd_vote_state_versioned_decode( versioned, &decode_ctx );
   if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) {
@@ -279,7 +279,10 @@ set_state( fd_borrowed_account_t *     self,
       FD_LOG_ERR( ( "fd_vote_state_versioned_encode failed" ) );
   }
 
-  fd_vote_record_timestamp_vote_with_slot( ctx.slot_ctx, self->pubkey, state->inner.current.last_timestamp.timestamp, state->inner.current.last_timestamp.slot );
+  fd_vote_record_timestamp_vote_with_slot( ctx.slot_ctx,
+                                           self->pubkey,
+                                           state->inner.current.last_timestamp.timestamp,
+                                           state->inner.current.last_timestamp.slot );
 
   return 0;
 }
@@ -301,10 +304,10 @@ is_rent_exempt_at_data_length( fd_borrowed_account_t * self,
 static void
 authorized_voters_new( ulong                         epoch,
                        fd_pubkey_t *                 pubkey,
-                       fd_exec_instr_ctx_t           ctx,
+                       fd_valloc_t                   valloc,
                        fd_vote_authorized_voters_t * authorized_voters /* out */ ) {
-  authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc( ctx.valloc );
-  authorized_voters->treap = fd_vote_authorized_voters_treap_alloc( ctx.valloc );
+  authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc( valloc );
+  authorized_voters->treap = fd_vote_authorized_voters_treap_alloc( valloc );
   fd_vote_authorized_voter_t * ele =
       fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
   ele->epoch = epoch;
@@ -337,7 +340,7 @@ authorized_voters_last( fd_vote_authorized_voters_t * self ) {
 static void
 authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
                                            ulong                         current_epoch,
-                                           fd_exec_instr_ctx_t           ctx FD_PARAM_UNUSED) {
+                                           fd_exec_instr_ctx_t ctx       FD_PARAM_UNUSED ) {
   // fd_bincode_destroy_ctx_t ctx3 = { .valloc = ctx.valloc };
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L42-L46
@@ -375,7 +378,7 @@ authorized_voters_get_or_calculate_authorized_voter_for_epoch( fd_vote_authorize
   fd_vote_authorized_voter_t * res =
       fd_vote_authorized_voters_treap_ele_query( self->treap, epoch, self->pool );
   /* "predecessor" would be more big-O optimal here, but mirroring labs logic
-   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/self.rs#L89-L104
+   * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/authorized_voters.rs#L89-L104
    */
   if( FD_UNLIKELY( !res ) ) {
     for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
@@ -423,8 +426,8 @@ authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_v
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L74-L76
 static fd_landed_vote_t *
-landed_votes_from_lockouts( fd_vote_lockout_t * lockouts, fd_exec_instr_ctx_t ctx ) {
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_alloc( ctx.valloc );
+landed_votes_from_lockouts( fd_vote_lockout_t * lockouts, fd_valloc_t valloc ) {
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_alloc( valloc );
 
   for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
        !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
@@ -462,21 +465,21 @@ is_uninitialized( fd_vote_state_versioned_t * self ) {
 
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L15
 static void
-convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) {
+convert_to_current( fd_vote_state_versioned_t * self, fd_valloc_t valloc ) {
   switch( self->discriminant ) {
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L17-L50
   case fd_vote_state_versioned_enum_v0_23_5: {
     fd_vote_state_0_23_5_t      state = self->inner.v0_23_5;
     fd_vote_authorized_voters_t authorized_voters;
     authorized_voters_new(
-        state.authorized_voter_epoch, &state.authorized_voter, ctx, &authorized_voters );
+        state.authorized_voter_epoch, &state.authorized_voter, valloc, &authorized_voters );
 
     /* Temporary to hold current */
     fd_vote_state_t current;
     current.node_pubkey           = state.node_pubkey;
     current.authorized_withdrawer = state.authorized_withdrawer;
     current.commission            = state.commission;
-    current.votes                 = landed_votes_from_lockouts( state.votes, ctx );
+    current.votes                 = landed_votes_from_lockouts( state.votes, valloc );
     current.root_slot             = state.root_slot;
     current.authorized_voters     = authorized_voters;
     current.prior_voters          = ( fd_vote_prior_voters_t ){
@@ -488,7 +491,7 @@ convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) 
     current.last_timestamp = state.last_timestamp;
 
     /* Deallocate objects owned by old vote state */
-    fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
+    fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
     fd_vote_state_0_23_5_destroy( &state, &destroy );
 
     /* Emplace new vote state into target */
@@ -505,7 +508,7 @@ convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) 
     current.node_pubkey           = state.node_pubkey;
     current.authorized_withdrawer = state.authorized_withdrawer;
     current.commission            = state.commission;
-    current.votes                 = landed_votes_from_lockouts( state.votes, ctx );
+    current.votes                 = landed_votes_from_lockouts( state.votes, valloc );
     current.root_slot             = state.root_slot;
     current.authorized_voters     = state.authorized_voters;
     // TODO is it safe to hang onto the old pointers?
@@ -545,7 +548,7 @@ vote_state_new( fd_vote_init_t *              vote_init,
                 fd_vote_state_t *             vote_state /* out */ ) {
   vote_state->node_pubkey = vote_init->node_pubkey;
   authorized_voters_new(
-      clock->epoch, &vote_init->authorized_voter, ctx, &vote_state->authorized_voters );
+      clock->epoch, &vote_init->authorized_voter, ctx.valloc, &vote_state->authorized_voters );
   vote_state->authorized_withdrawer = vote_init->authorized_withdrawer;
   vote_state->commission            = vote_init->commission;
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L318
@@ -1316,9 +1319,9 @@ authorize( fd_borrowed_account_t * vote_account,
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L784-L786
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, ctx, &vote_state_versioned );
+  rc = get_state( vote_account, ctx.valloc, &vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  convert_to_current( &vote_state_versioned, ctx );
+  convert_to_current( &vote_state_versioned, ctx.valloc );
   fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L788
@@ -1365,9 +1368,9 @@ update_validator_identity( fd_borrowed_account_t * vote_account,
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959-L965
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, ctx, &vote_state_versioned );
+  rc = get_state( vote_account, ctx.valloc, &vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  convert_to_current( &vote_state_versioned, ctx );
+  convert_to_current( &vote_state_versioned, ctx.valloc );
   fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L832
@@ -1397,9 +1400,9 @@ update_commission( fd_borrowed_account_t * vote_account,
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L959-L965
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, ctx, &vote_state_versioned );
+  rc = get_state( vote_account, ctx.valloc, &vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  convert_to_current( &vote_state_versioned, ctx );
+  convert_to_current( &vote_state_versioned, ctx.valloc );
   fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L832
@@ -1452,9 +1455,9 @@ withdraw(
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L902-L904
 
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( vote_account, ctx, &vote_state_versioned );
+  rc = get_state( vote_account, ctx.valloc, &vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  convert_to_current( &vote_state_versioned, ctx );
+  convert_to_current( &vote_state_versioned, ctx.valloc );
   fd_vote_state_t * vote_state = &vote_state_versioned.inner.current;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L906
@@ -1619,7 +1622,7 @@ initialize_account( fd_borrowed_account_t *       vote_account,
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L966
   fd_vote_state_versioned_t versioned;
-  rc = get_state( vote_account, ctx, &versioned );
+  rc = get_state( vote_account, ctx.valloc, &versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L968-L970
@@ -1652,7 +1655,7 @@ verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
   fd_vote_state_versioned_t versioned;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L983
-  rc = get_state( vote_account, ctx, &versioned );
+  rc = get_state( vote_account, ctx.valloc, &versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   if( FD_UNLIKELY( is_uninitialized( &versioned ) ) ) {
@@ -1660,7 +1663,7 @@ verify_and_get_vote_state( fd_borrowed_account_t *       vote_account,
   }
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L989
-  convert_to_current( &versioned, ctx );
+  convert_to_current( &versioned, ctx.valloc );
   memcpy( vote_state, &versioned.inner.current, sizeof( fd_vote_state_t ) );
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_state/mod.rs#L990
@@ -1780,12 +1783,40 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
 
     fd_bank_hash_cmp_unlock( bank_hash_cmp );
   }
+  if( FD_LIKELY( ctx.slot_ctx->towers ) ) {
+    ulong      i     = 0;
+    fd_tower_t tower = { .vote_acc_addr = *vote_account->pubkey, .root = vote_state_update->root };
+    for( deq_fd_vote_lockout_t_iter_t iter =
+             deq_fd_vote_lockout_t_iter_init( vote_state_update->lockouts );
+         !deq_fd_vote_lockout_t_iter_done( vote_state_update->lockouts, iter );
+         iter = deq_fd_vote_lockout_t_iter_next( vote_state_update->lockouts, iter ) ) {
+      fd_vote_lockout_t * lockout =
+          deq_fd_vote_lockout_t_iter_ele( vote_state_update->lockouts, iter );
+      tower.slots[i++] = lockout->slot;
+    }
+    tower.cnt = i;
+    fd_tower_deque_push_tail( ctx.slot_ctx->towers, tower );
+  }
+  if( FD_LIKELY( ctx.slot_ctx->towers ) ) {
+    ulong      i     = 0;
+    fd_tower_t tower = { .vote_acc_addr = *vote_account->pubkey, .root = vote_state_update->root };
+    for( deq_fd_vote_lockout_t_iter_t iter =
+             deq_fd_vote_lockout_t_iter_init( vote_state_update->lockouts );
+         !deq_fd_vote_lockout_t_iter_done( vote_state_update->lockouts, iter );
+         iter = deq_fd_vote_lockout_t_iter_next( vote_state_update->lockouts, iter ) ) {
+      fd_vote_lockout_t * lockout =
+          deq_fd_vote_lockout_t_iter_ele( vote_state_update->lockouts, iter );
+      tower.slots[i++] = lockout->slot;
+    }
+    tower.cnt = i;
+    fd_tower_deque_push_tail( ctx.slot_ctx->towers, tower );
+  }
 
   rc = do_process_vote_state_update(
       &vote_state, slot_hashes, clock->epoch, clock->slot, vote_state_update, ctx );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
-  rc = set_vote_account_state( vote_account, &vote_state, &ctx );
+  rc                               = set_vote_account_state( vote_account, &vote_state, &ctx );
   fd_bincode_destroy_ctx_t destroy = { .valloc = ctx.valloc };
   fd_vote_state_destroy( &vote_state, &destroy );
   return rc;
@@ -1888,9 +1919,9 @@ fd_vote_acc_credits( fd_exec_instr_ctx_t       ctx,
 
   rc = FD_PROGRAM_OK;
   fd_vote_state_versioned_t vote_state_versioned;
-  rc = get_state( &vote_account, ctx, &vote_state_versioned );
+  rc = get_state( &vote_account, ctx.valloc, &vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  convert_to_current( &vote_state_versioned, ctx );
+  convert_to_current( &vote_state_versioned, ctx.valloc );
   fd_vote_state_t * state = &vote_state_versioned.inner.current;
   if( deq_fd_vote_epoch_credits_t_empty( state->epoch_credits ) ) {
     *result = 0;
@@ -2487,8 +2518,8 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       break;
     }
     fd_sol_sysvar_clock_t clock;
-      if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
+      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = process_vote_with_account( me, slot_hashes, &clock, vote, signers, ctx );
 
@@ -2697,12 +2728,34 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
 
 int
 fd_vote_get_state( fd_borrowed_account_t const * self,
-                   fd_exec_instr_ctx_t           ctx,
+                   fd_valloc_t                   valloc,
                    fd_vote_state_versioned_t *   versioned /* out */ ) {
-  return get_state( self, ctx, versioned );
+  return get_state( self, valloc, versioned );
 }
 
 void
-fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_exec_instr_ctx_t ctx ) {
-  convert_to_current( self, ctx );
+fd_vote_convert_to_current( fd_vote_state_versioned_t * self, fd_valloc_t valloc ) {
+  convert_to_current( self, valloc );
+}
+
+fd_vote_instruction_t *
+fd_vote_flamenco_txn_decode( fd_flamenco_txn_t * flamenco_txn, fd_valloc_t valloc ) {
+  fd_txn_t * txn_meta = flamenco_txn->txn;
+  uchar *    txn      = flamenco_txn->raw;
+
+  FD_TEST( txn_meta->instr_cnt == 1 );
+  fd_txn_instr_t * vote_instr = &txn_meta->instr[0];
+  uchar *          vote_read  = txn + vote_instr->data_off;
+  ulong            vote_sz    = vote_instr->data_sz;
+
+  fd_bincode_decode_ctx_t vote_decode = {
+      .data = vote_read, .dataend = vote_read + vote_sz, .valloc = valloc };
+
+  fd_vote_instruction_t * out = NULL;
+  if( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS !=
+                   fd_vote_instruction_decode( out, &vote_decode ) ) ) {
+    FD_LOG_WARNING( ( "fd_vote_instruction_decode failed" ) );
+    return NULL;
+  }
+  return out;
 }

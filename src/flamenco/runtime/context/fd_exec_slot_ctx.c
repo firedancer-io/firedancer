@@ -21,6 +21,7 @@ fd_exec_slot_ctx_new( void * mem ) {
   fd_memset(mem, 0, FD_EXEC_SLOT_CTX_FOOTPRINT);
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
+  self->towers = NULL;
 
   fd_slot_bank_new(&self->slot_bank);
 

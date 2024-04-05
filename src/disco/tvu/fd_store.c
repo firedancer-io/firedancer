@@ -93,7 +93,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   fd_block_t * block = fd_blockstore_block_query( store->blockstore, slot );
 
   /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uint_extract_bit( block->flags, FD_BLOCK_FLAG_EXECUTED ) ) ) {
+  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
@@ -136,7 +136,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   /* See if the parent is executed yet */
-  if( FD_UNLIKELY( !fd_uint_extract_bit( parent_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) ) {
+  if( FD_UNLIKELY( !fd_uchar_extract_bit( parent_block->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_PARENT_EXEC;
     re_adds[re_adds_cnt++] = slot;
     re_adds[re_adds_cnt++] = parent_slot;
@@ -156,7 +156,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   *block_sz_out = block->sz;
 
   /* Mark the block as prepared, and thus unsafe to remove. */
-  block->flags = fd_uint_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
+  block->flags = fd_uchar_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );
 
 end:
   /* Block data ptr remains valid outside of the rw lock for the lifetime of the block alloc. */
@@ -262,9 +262,9 @@ fd_store_slot_repair( fd_store_t * store,
     ulong anc_slot = slot;
     int good = 0;
     for( uint i = 0; i < 3; ++i ) {
-      anc_slot  = fd_blockstore_slot_parent_query( store->blockstore, anc_slot );
+      anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
-      if( anc_block && fd_uint_extract_bit( anc_block->flags, FD_BLOCK_FLAG_EXECUTED ) ) {
+      if( anc_block && fd_uchar_extract_bit( anc_block->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
         break;
       }

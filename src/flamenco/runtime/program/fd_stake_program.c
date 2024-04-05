@@ -1281,7 +1281,7 @@ delegate( fd_exec_instr_ctx_t *                   invoke_context,
 
   fd_pubkey_t const *       vote_pubkey = vote_account->pubkey;
   fd_vote_state_versioned_t vote_state  = { 0 };
-  rc = fd_vote_get_state( vote_account, *invoke_context, &vote_state );
+  rc = fd_vote_get_state( vote_account, invoke_context->valloc, &vote_state );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   fd_borrowed_account_t * stake_account = NULL;
@@ -1308,7 +1308,7 @@ delegate( fd_exec_instr_ctx_t *                   invoke_context,
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
     ulong stake_amount = validated_delegated_info.stake_amount;
 
-    fd_vote_convert_to_current( &vote_state, *invoke_context ); // FIXME
+    fd_vote_convert_to_current( &vote_state, invoke_context->valloc ); // FIXME
     fd_stake_t stake =
         new_stake( stake_amount, vote_pubkey, &vote_state.inner.current, clock->epoch );
     fd_stake_state_v2_t new_stake_state = { .discriminant = fd_stake_state_v2_enum_stake,
@@ -1333,7 +1333,7 @@ delegate( fd_exec_instr_ctx_t *                   invoke_context,
                                     &invoke_context->txn_ctx->custom_err );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
     ulong stake_amount = validated_delegated_info.stake_amount;
-    fd_vote_convert_to_current( &vote_state, *invoke_context );
+    fd_vote_convert_to_current( &vote_state, invoke_context->valloc );
     rc = redelegate_stake( invoke_context,
                            &stake,
                            stake_amount,
@@ -1858,7 +1858,7 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
 
   fd_pubkey_t const *       vote_pubkey = vote_account->pubkey;
   fd_vote_state_versioned_t vote_state  = { 0 };
-  rc = fd_vote_get_state( vote_account, *invoke_context, &vote_state );
+  rc = fd_vote_get_state( vote_account, invoke_context->valloc, &vote_state );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
   fd_stake_meta_t     stake_meta          = { 0 };
@@ -1936,7 +1936,7 @@ redelegate( fd_exec_instr_ctx_t *                   invoke_context,
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
   ulong stake_amount = validated_delegated_info.stake_amount;
 
-  fd_vote_convert_to_current( &vote_state, *invoke_context );
+  fd_vote_convert_to_current( &vote_state, invoke_context->valloc );
   fd_stake_t new_stake_ =
       new_stake( stake_amount, vote_pubkey, &vote_state.inner.current, clock.epoch );
   fd_stake_state_v2_t new_stake_state = {
@@ -2139,9 +2139,9 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
 
   fd_vote_state_versioned_t delinquent_vote_state_versioned = { 0 };
   fd_exec_instr_ctx_t       ctx                             = *instruction_context;
-  rc = fd_vote_get_state( delinquent_vote_account, ctx, &delinquent_vote_state_versioned );
+  rc = fd_vote_get_state( delinquent_vote_account, ctx.valloc, &delinquent_vote_state_versioned );
   if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
-  fd_vote_convert_to_current( &delinquent_vote_state_versioned, ctx );
+  fd_vote_convert_to_current( &delinquent_vote_state_versioned, ctx.valloc );
   fd_vote_state_t delinquent_vote_state = delinquent_vote_state_versioned.inner.current;
 
   fd_borrowed_account_t * reference_vote_account = NULL;
@@ -2159,8 +2159,8 @@ deactivate_delinquent( fd_exec_txn_ctx_t *     transaction_context,
 
   fd_vote_state_versioned_t reference_vote_state_versioned = { 0 };
   // FIXME ctx
-  rc = fd_vote_get_state( reference_vote_account, ctx, &reference_vote_state_versioned );
-  fd_vote_convert_to_current( &reference_vote_state_versioned, ctx );
+  rc = fd_vote_get_state( reference_vote_account, ctx.valloc, &reference_vote_state_versioned );
+  fd_vote_convert_to_current( &reference_vote_state_versioned, ctx.valloc );
   fd_vote_state_t reference_vote_state = reference_vote_state_versioned.inner.current;
   (void)reference_vote_state;
 
