@@ -1,0 +1,17 @@
+push_msg: 
+  pubkey: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+  (null): 
+    - signature: '3WtiW29DRc4jGx9bqPkBm8evtL1bEnwiGnPRZbp2GXXkuZ7SfJpFEdEfoMJn5iZzHUjXyFCG4f4sySQS13oqF22w'
+      data: 
+        vote: 
+          index: 7
+          from: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+          txn: '2yGd7N4nJJP3Mpjr7JguB8xnCRiMRYLeqPePCjZUqU8KX5JaeqhE18fQQqV7n6X99joo17wwgb28hgd68FXdz7e'
+          wallclock: 1660658421296
+    - signature: '5Xrqaz4ESCnZyGKY9xT4bXDTrM54mDBdGD8T4ooSHkGYH7LHMrDu9oP6r6ofi4ydKDtvGgTdJZsUcdsmqkipD1Sg'
+      data: 
+        vote: 
+          index: 8
+          from: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
+          txn: '5AM5SuVELss39kVeYgPcdKYnjZtS1oPngc4rphVodYgaXkfMYXEpAJKimtJY42XL2roH9eNqpqf4xdreFXGnUVAb'
+          wallclock: 1660658421764

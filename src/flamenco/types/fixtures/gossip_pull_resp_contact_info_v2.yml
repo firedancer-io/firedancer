@@ -1,0 +1,109 @@
+push_msg: 
+  pubkey: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
+  (null): 
+    - signature: '2M1XTfiWd8KDidnMBtvswZERMCxRuzMohm87JqUUhCE8bjfCmkbBmoa3VExgq4paPQ2H9ZGWxLiMA7BsQxjbhj2E'
+      data: 
+        contact_info_v1: 
+          id: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
+          gossip: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1024
+          tvu: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1025
+          tvu_fwd: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1026
+          repair: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1035
+          tpu: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1027
+          tpu_fwd: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1028
+          tpu_vote: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1029
+          rpc: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 8899
+          rpc_pubsub: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 8900
+          serve_repair: 
+            addr: 
+              ip4: '127.0.0.1'
+            port: 1032
+          wallclock: 1702312087747
+          shred_version: 22793
+    - signature: '3TQ3239FjdmUrLnGTu9ezQC5gnU9k511iY8wRyRkDhYp16H5b7CFPeRwiaWUtTTH6pMAT5UDcn7AzSznV5nmx3Uq'
+      data: 
+        contact_info_v2: 
+          from: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
+          wallclock: 1702312087747
+          outset: 1702311996165159
+          shred_version: 22793
+          version: 
+            major: 1
+            minor: 18
+            patch: 0
+            commit: 0
+            feature_set: 367846227
+            client: 0
+          (null): 
+            - ip4: '127.0.0.1'
+          (null): 
+            - key: 0
+              index: 0
+              offset: 1024
+            - key: 10
+              index: 0
+              offset: 1
+            - key: 11
+              index: 0
+              offset: 1
+            - key: 5
+              index: 0
+              offset: 1
+            - key: 6
+              index: 0
+              offset: 1
+            - key: 9
+              index: 0
+              offset: 1
+            - key: 4
+              index: 0
+              offset: 3
+            - key: 8
+              index: 0
+              offset: 1
+            - key: 7
+              index: 0
+              offset: 1
+            - key: 1
+              index: 0
+              offset: 1
+            - key: 2
+              index: 0
+              offset: 7864
+            - key: 3
+              index: 0
+              offset: 1
+    - signature: '64dzXW7Yv2U6qvME4ZnQWgQqos3eqAqQj9Z3q21r6XKgg66rAk2z6dNBptqExgWL7shZ7Dgr86TiGs97ApcAzyM5'
+      data: 
+        node_instance: 
+          from: 'Hm5NNNZpBgAo5j3gRwJtkHXihpLzdCyP3WRWHLzcPSup'
+          wallclock: 1702312087747
+          timestamp: 1702311997433
+          token: 16949904193290425001

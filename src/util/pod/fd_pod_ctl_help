@@ -1,0 +1,128 @@
+
+Usage: fd_pod_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+tag val
+- Sets the tag for subsequent wksp allocations to val.  Default is 1.
+
+new wksp max
+- Create a pod in wksp with a maximum size of max.  Prints the wksp cstr
+  address of the (empty) pod to stdout on success.  0 indicates to use a
+  default of 4KiB.
+
+delete pod
+- Delete the pod at wksp cstr address pod.
+
+reset pod
+- Reset the pod at wksp cstr address pod.
+
+list pod
+- Lists (recursively) the contents of the pod at wksp cstr address pod
+  to stdout.
+
+insert pod type path val
+- Inserts type into the pod at path with value val.  Fails if path
+  already exists in the pod.  This might change the locations of
+  existing values in the pod.  If type is cstr, val is converted to a
+  c-style string and inserted into pod.  Similarly:
+    char  -> single character,
+    schar ->  8-bit signed integer (twos complement), uchar  ->  8-bit unsigned integer,
+    short -> 16-bit signed integer (twos complement), ushort -> 16-bit unsigned integer,
+    int   -> 32-bit signed integer (twos complement), uint   -> 32-bit unsigned integer,
+    long  -> 64-bit signed integer (twos complement), ulong  -> 64-bit unsigned integer,
+    float -> 32-bit real (IEEE-754),                  double -> 64-bit real (IEEE-754)
+
+insert-file pod path file
+- Inserts a "buf" type into the pod at path.  The buffer will contain the
+  entire contents of the file at path "file" into the pod.  Fails if
+  path already exists in the pod.  This might change the locations of
+  existing values in the pod.  The size of the buffer will be number of
+  bytes in the file and it is fine to insert a zero sized file into the
+  pod.  TODO: consider allowing users to specify other types and/or
+  regions of the file?
+
+remove pod path
+- Remove the path (and any path.*) from the pod.  Fails if path does not
+  already exist in the pod.  This might change the locations of existing
+  values in the pod
+
+update pod type path val
+- Update path to val (failing if path to type does not already exist).
+  Specifically, in pseudocode:
+
+    t = query type pod path  ... check if path to type exists
+    if t!=type, fail         ... no
+    remove pod path          ... remove old val
+    insert pod type path val ... insert new val
+
+  In the current implementation, if the insert fails, the original value
+  will be lost.  This might change the locations of existing values in
+  the pod.
+
+set pod type path val
+- Set path to val (inserting path if path does not already exist).  Will
+  not change the type at end of any existing path.  Specifically, in
+  pseudocode:
+
+    t = query type pod path       ... check if path exists
+    if   t==type, remove pod path ... yes and to right type 
+    elif t!=void, fail            ... yes but to wrong type
+    fi                            ... no
+    insert pod type val           ... insert new val
+
+  In the current implementation, if the insert fails, the original value
+  at path (if any) will be lost.  This might change the locations of
+  existing values in the pod.
+
+compact pod full
+- Compacts the pod.  If full is non-zero, a full compaction is done
+  (pod_max set to pod_used and the pod header is compacted).  This might
+  change the locations of existing values in the pod.
+
+query-root what pod
+- Query pod.  The "what" determines what will be printed to stdout as a
+  result of the query.
+
+    what \ pod | exists             | does not exist
+    -----------+--------------------+---------------
+    test       | 0                  | neg error code
+    max        | max bytes in pod   | 0
+    used       | used bytes in pod  | 0
+    avail      | free bytes in pod  | 0
+    cnt        | num keys in pod    | 0
+    recursive  | num keys in pod    |
+               | (recursively)      | 0
+    subpod-cnt | num subpods in pod | 0
+
+  Technically speaking, this always succeeds but any weirdness detected
+  is logged.
+
+query what pod path
+- Query pod for path.  The "what" determines what will be printed to
+  stdout as a result of the query.
+
+    what \ pod:path | exists                  | does not exist
+    ----------------+-------------------------+---------------
+    test            | 0                       | neg error code
+    type            | value type              | void
+    val             | pretty print value      | void
+    max             | max bytes in pod:path   | 0
+    used            | used bytes in pod:path  | 0
+    avail           | free bytes in pod:path  | 0
+    cnt             | num keys in pod:path    | 0
+    recursive       | num keys in pod:path    |
+                    | (recursively)           | 0
+    subpod-cnt      | num subpods in pod:path | 0
+    gaddr           | wksp gaddr of the       |
+                    | pod encoded value       | null
+    full            |             pretty print verbose query
+
+  Technically speaking, this always succeeds but any weirdness detected
+  is logged.
+
+The current implementation assumes no concurrent pod users.
+

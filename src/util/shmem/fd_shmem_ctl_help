@@ -1,0 +1,61 @@
+Usage: fd_shmem_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+Commands are:
+
+help
+- Prints this message
+
+cpu-cnt
+- Prints number of cpus on a single line
+
+numa-cnt
+- Prints number of numa nodes on a single line
+
+cpu-idx numa-idx
+- If numa-idx gives the index of a valid NUMA node (e.g. in [0,numa-cnt)
+  and has at least one CPU close to it), prints on a single line the
+  lowest indexed cpu in base-10; the result will be in [0,cpu-cnt).
+- Otherwise, prints '-' on a single line to stdout.
+
+numa-idx cpu-idx
+- If cpu-idx gives the index of a valid cpu (e.g. in [0,cpu-cnt) and
+  usable), prints on a single line the index of the NUMA node the cpu is
+  closest in base-10; the result will be in [0,numa-cnt).
+- Otherwise, prints '-' on a single line to stdout.
+
+create name page_cnt page_sz cpu_idx_seq mode
+- Create a shared memory region named name from page_cnt page_sz pages
+  near logical cpus specified in cpu_idx_seq.  The region will have the
+  unix permissions specified by mode (assumed octal).  If the
+  cpu_idx_seq has more than one cpu_idx in it, the pages will be
+  partitioned as uniformly as possible over the cpu's in the idx seq.
+
+  E.g. "create test 128 gigantic 0-4:2,10,9-11 0600" would create a
+  shared memory region named test with 128 gigantic pages such that the
+  pages would be spatially distributed:
+
+    19 gigantic pages near cpu  0
+    19 gigantic pages near cpu  2
+    18 gigantic pages near cpu  4
+    18 gigantic pages near cpu 10
+    18 gigantic pages near cpu  9
+    18 gigantic pages near cpu 10 (again)
+    18 gigantic pages near cpu 11
+
+  with permissions 0600 owned by the user / group of the caller.
+
+unlink name page_sz
+- Unlinks a page_sz page backed shared memory region named name.
+- If page_sz is zero, this will attempt to detected the page_sz.  If
+  there are multiple with the same name, one will be deleted (typically
+  the one backed by the largest page_sz).
+
+query name page_sz
+- Pretty prints info to stdout about a shared memory region named name.
+  The format is:
+    [err_code] [page_cnt] [page_sz]
+  err code is zero, the query was successful.  If not, the query
+  failed (details logged) and page_cnt and page_sz will be zero.
+- If page_sz is zero, this will attempt to detected the page_sz.
+  If there are multiple with the same name, one will be queried
+  (typically the one backed by the largest page_sz).
+

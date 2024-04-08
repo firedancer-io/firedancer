@@ -1,0 +1,257 @@
+#!/bin/bash
+
+fail() {
+  rm -f "$EMPTYFILE" "$TMPFILE"
+  echo FAIL: "$1" unexpected exit code "$2"
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_pod_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+BADFILE=$(mktemp)
+rm -f "$BADFILE"
+
+EMPTYFILE=$(mktemp)
+
+TMPFILE=$(mktemp)
+echo "The quick brown fox jumps over the lazy dog" > "$TMPFILE"
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+echo Init
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1 # Try to clean up any leftover wksp from previous tests
+"$BIN"/fd_wksp_ctl new "$WKSP" "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" > /dev/null 2>&1 || init setup $?
+
+echo Testing no-op
+
+"$BIN"/fd_pod_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_pod_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_pod_ctl help || fail help $?
+
+echo Testing tag
+
+"$BIN"/fd_pod_ctl tag   && fail tag $?
+"$BIN"/fd_pod_ctl tag 1 || fail tag $?
+
+echo Testing new
+
+"$BIN"/fd_pod_ctl new                 && fail new $?
+"$BIN"/fd_pod_ctl new "$WKSP"         && fail new $?
+"$BIN"/fd_pod_ctl new bad/name 4096   && fail new $?
+"$BIN"/fd_pod_ctl new "$WKSP"    1    && fail new $?
+POD=$("$BIN"/fd_pod_ctl new "$WKSP" 4096 || fail new $?)
+
+echo Testing insert
+
+"$BIN"/fd_pod_ctl insert                              && fail insert $?
+"$BIN"/fd_pod_ctl insert "$POD"                       && fail insert $?
+"$BIN"/fd_pod_ctl insert "$POD" cstr                  && fail insert $?
+"$BIN"/fd_pod_ctl insert "$POD" cstr   cstr.empty     && fail insert $?
+"$BIN"/fd_pod_ctl insert bad    cstr   cstr.empty ""  && fail insert $?
+"$BIN"/fd_pod_ctl insert "$POD" bad    cstr.empty ""  && fail insert $?
+"$BIN"/fd_pod_ctl insert "$POD" cstr   cstr.empty ""  \
+                  insert "$POD" cstr   cstr.key   val \
+                  insert "$POD" char   char.a     a   \
+                  insert "$POD" schar  schar.n1   -1  \
+                  insert "$POD" short  short.n2   -2  \
+                  insert "$POD" int    int.n3     -3  \
+                  insert "$POD" long   long.n4    -4  \
+                  insert "$POD" uchar  uchar.p1   1   \
+                  insert "$POD" ushort ushort.p2  2   \
+                  insert "$POD" uint   uint.p3    3   \
+                  insert "$POD" ulong  ulong.p4   4   \
+                  insert "$POD" float  float.half 0.5 \
+|| fail insert $?
+
+echo Testing insert-file
+"$BIN"/fd_pod_ctl insert-file                                && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD"                         && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile                 && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file bad    tmpfile    "$TMPFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$BADFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$TMPFILE"   \
+                  insert-file "$POD" empttyfile "$EMPTYFILE" || fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$TMPFILE"   && fail insert-file $?
+"$BIN"/fd_pod_ctl insert-file "$POD" tmpfile    "$EMPTYFILE" && fail insert-file $?
+
+echo Testing update
+
+"$BIN"/fd_pod_ctl update                                && fail update $?
+"$BIN"/fd_pod_ctl update "$POD"                         && fail update $?
+"$BIN"/fd_pod_ctl update "$POD" cstr                    && fail update $?
+"$BIN"/fd_pod_ctl update "$POD" cstr   cstr.key         && fail update $?
+"$BIN"/fd_pod_ctl update bad    cstr   cstr.key   foof  && fail update $?
+"$BIN"/fd_pod_ctl update "$POD" bad    cstr.key   foof  && fail update $?
+"$BIN"/fd_pod_ctl update "$POD" int    cstr.key   foof  && fail update $?
+"$BIN"/fd_pod_ctl update "$POD" cstr   cstr.key   foof \
+                  update "$POD" char   char.a     b    \
+                  update "$POD" schar  schar.n1   -2   \
+                  update "$POD" short  short.n2   -3   \
+                  update "$POD" int    int.n3     -4   \
+                  update "$POD" long   long.n4    -5   \
+                  update "$POD" uchar  uchar.p1   2    \
+                  update "$POD" ushort ushort.p2  3    \
+                  update "$POD" uint   uint.p3    4    \
+                  update "$POD" ulong  ulong.p4   5    \
+                  update "$POD" float  float.half 0.25 \
+|| fail update $?
+
+echo Testing set
+
+"$BIN"/fd_pod_ctl set                              && fail set $?
+"$BIN"/fd_pod_ctl set "$POD"                       && fail set $?
+"$BIN"/fd_pod_ctl set "$POD" cstr                  && fail set $?
+"$BIN"/fd_pod_ctl set "$POD" cstr   cstr.key       && fail set $?
+"$BIN"/fd_pod_ctl set bad    cstr   cstr.key   val && fail set $?
+"$BIN"/fd_pod_ctl set "$POD" bad    cstr.key   val && fail set $?
+"$BIN"/fd_pod_ctl set "$POD" int    cstr.key   val && fail set $?
+"$BIN"/fd_pod_ctl set "$POD" cstr   cstr.key   val \
+                  set "$POD" char   char.a     a   \
+                  set "$POD" schar  schar.n1   -1  \
+                  set "$POD" short  short.n2   -2  \
+                  set "$POD" int    int.n3     -3  \
+                  set "$POD" long   long.n4    -4  \
+                  set "$POD" uchar  uchar.p1   1   \
+                  set "$POD" ushort ushort.p2  2   \
+                  set "$POD" uint   uint.p3    3   \
+                  set "$POD" ulong  ulong.p4   4   \
+                  set "$POD" float  float.half 0.5 \
+                  set "$POD" float  float.one  1.0 \
+                  set "$POD" cstr   bar        baz \
+|| fail set $?
+
+echo Testing query-root
+
+"$BIN"/fd_pod_ctl query-root            && fail set $?
+"$BIN"/fd_pod_ctl query-root test       && fail set $?
+"$BIN"/fd_pod_ctl query-root bad "$POD" && fail set $?
+"$BIN"/fd_pod_ctl query-root test       bad  query-root test       "$POD" \
+                  query-root max        bad  query-root max        "$POD" \
+                  query-root used       bad  query-root used       "$POD" \
+                  query-root avail      bad  query-root avail      "$POD" \
+                  query-root cnt        bad  query-root cnt        "$POD" \
+                  query-root recursive  bad  query-root recursive  "$POD" \
+                  query-root subpod-cnt bad  query-root subpod-cnt "$POD" \
+|| fail query $?
+
+echo Testing query
+
+"$BIN"/fd_pod_ctl query                                && fail set $?
+"$BIN"/fd_pod_ctl query test                           && fail set $?
+"$BIN"/fd_pod_ctl query test       "$POD"              && fail set $?
+"$BIN"/fd_pod_ctl query bad        "$POD" cstr.key     && fail set $?
+"$BIN"/fd_pod_ctl query test       bad  cstr.key        \
+                  query test       "$POD" cstr.key.bad  \
+                  query test       "$POD" bad           \
+                  query test       "$POD" cstr          \
+                  query test       "$POD" cstr.key      \
+                  query type       "$POD" bad           \
+                  query type       "$POD" char          \
+                  query type       "$POD" char.a        \
+                  query type       "$POD" char.a.bad    \
+                  query val        "$POD" schar         \
+                  query val        "$POD" schar.n1      \
+                  query val        "$POD" schar.n1.bad  \
+                  query max        "$POD" short         \
+                  query max        "$POD" short.n2      \
+                  query max        "$POD" short.n2.bad  \
+                  query used       "$POD" int           \
+                  query used       "$POD" int.n3        \
+                  query used       "$POD" int.n3.bad    \
+                  query avail      "$POD" long          \
+                  query avail      "$POD" long.n4       \
+                  query avail      "$POD" long.n4.bad   \
+                  query cnt        "$POD" uchar         \
+                  query cnt        "$POD" uchar.p1      \
+                  query cnt        "$POD" uchar.p1.bad  \
+                  query recursive  "$POD" ushort        \
+                  query recursive  "$POD" ushort.p2     \
+                  query recursive  "$POD" ushort.p2.bad \
+                  query subpod-cnt "$POD" uint          \
+                  query subpod-cnt "$POD" uint.p3       \
+                  query subpod-cnt "$POD" uint.p3.bad   \
+                  query gaddr      "$POD" float         \
+                  query gaddr      "$POD" float.half    \
+                  query gaddr      "$POD" float.one     \
+                  query gaddr      "$POD" float.one.bad \
+                  query full       "$POD" cstr          \
+                  query full       "$POD" cstr.empty    \
+                  query full       "$POD" cstr.key      \
+                  query full       "$POD" cstr.key.bad  \
+|| fail query $?
+
+echo Testing list
+
+"$BIN"/fd_pod_ctl list        && fail list $?
+"$BIN"/fd_pod_ctl list bad    && fail list $?
+"$BIN"/fd_pod_ctl list "$POD" || fail list $?
+
+echo Testing remove
+
+"$BIN"/fd_pod_ctl remove                   && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD"            && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" bad        && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" cstr       || fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" cstr       && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" cstr.empty && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" cstr.key   && fail remove $?
+"$BIN"/fd_pod_ctl remove "$POD" ushort.p2 remove "$POD" ushort \
+                  remove "$POD" char  \
+                  remove "$POD" long  \
+                  remove "$POD" ulong \
+                  remove "$POD" short \
+                  remove "$POD" bar   \
+                  remove "$POD" int   \
+                  remove "$POD" uchar \
+                  remove "$POD" float \
+                  remove "$POD" uint  \
+                  remove "$POD" schar \
+|| fail remove $?
+
+echo Testing reset
+
+"$BIN"/fd_pod_ctl reset        && fail reset $?
+"$BIN"/fd_pod_ctl reset bad    && fail reset $?
+"$BIN"/fd_pod_ctl reset "$POD" || fail reset $?
+
+echo Testing delete
+
+"$BIN"/fd_pod_ctl delete        && fail delete $?
+"$BIN"/fd_pod_ctl delete bad    && fail delete $?
+"$BIN"/fd_pod_ctl delete "$POD" || fail delete $?
+"$BIN"/fd_pod_ctl delete "$POD" || fail delete $? # Yes ... a fail here is success from cmd exec POV (fail is logged)
+
+echo Fini
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
+
+rm -f "$EMPTYFILE" "$TMPFILE"
+echo pass
+echo Log N/A
+exit 0
+

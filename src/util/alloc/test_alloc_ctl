@@ -1,0 +1,126 @@
+#!/bin/bash
+
+fail() {
+  echo FAIL: "$1" unexpected exit code "$2"
+  "$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
+  echo Log N/A
+  exit 1
+}
+
+# Determine location of binaries
+
+# Disabling SC2128, more context here -> https://stackoverflow.com/questions/35006457/choosing-between-0-and-bash-source
+#shellcheck disable=SC2128
+UNIT_TEST=$(dirname -- "$BASH_SOURCE")
+BUILD=$(dirname -- "$UNIT_TEST")
+BIN=$BUILD/bin
+
+# Specify test details
+
+WKSP=test_fd_alloc_ctl.wksp
+PAGE_CNT=1
+PAGE_SZ=gigantic
+CPU_IDX=0
+MODE=0600
+
+TAG_META=1234
+TAG_ALLOC=2345
+
+# Disable the permanent log
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Try to clean up any leftovers from previous runs (including same name on multiple pages)
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" delete "$WKSP" delete "$WKSP" > /dev/null 2>&1
+
+# Create the wksp that will be used by the alloc
+
+"$BIN"/fd_wksp_ctl new "$WKSP" "$PAGE_CNT" "$PAGE_SZ" "$CPU_IDX" "$MODE" || fail wksp $?
+
+echo Testing no-op
+
+"$BIN"/fd_alloc_ctl || fail no-op $?
+
+echo Testing unknown
+
+"$BIN"/fd_alloc_ctl unknown && fail unknown $?
+
+echo Testing help
+
+"$BIN"/fd_alloc_ctl help || fail help $?
+
+echo Testing tag
+
+"$BIN"/fd_alloc_ctl tag   && fail tag $?
+"$BIN"/fd_alloc_ctl tag 1 || fail tag $?
+
+echo Testing new
+
+"$BIN"/fd_alloc_ctl new                       && fail new $?
+"$BIN"/fd_alloc_ctl new "$WKSP"               && fail new $?
+"$BIN"/fd_alloc_ctl new bad/name "$TAG_ALLOC" && fail new $?
+"$BIN"/fd_alloc_ctl new "$WKSP"    0          && fail new $?
+ALLOC=$("$BIN"/fd_alloc_ctl tag "$TAG_META" new "$WKSP" "$TAG_ALLOC" || fail new $?)
+
+echo Testing query
+
+"$BIN"/fd_alloc_ctl query                   && fail query $?
+"$BIN"/fd_alloc_ctl query test              && fail query $?
+"$BIN"/fd_alloc_ctl query bad/what "$ALLOC" && fail query $?
+"$BIN"/fd_alloc_ctl query test     "$ALLOC" query test bad/name \
+                    query tag      "$ALLOC" query tag  bad/name \
+                    query leak     "$ALLOC" query leak bad/name \
+|| fail query $?
+
+echo Testing alloc
+
+"$BIN"/fd_alloc_ctl malloc                   && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"          && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc bad/name  0  1  1 && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"  0 -1  1 && fail alloc $?
+"$BIN"/fd_alloc_ctl malloc "$ALLOC"  0  1 -1 && fail alloc $?
+
+GADDR0=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 3 0  8 || fail alloc $?)
+GADDR1=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 5 1  9 || fail alloc $?)
+GADDR2=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 6 2 10 || fail alloc $?)
+GADDR3=$("$BIN"/fd_alloc_ctl malloc "$ALLOC" 7 4  0 || fail alloc $?)
+
+echo Testing free
+
+"$BIN"/fd_alloc_ctl free                          && fail free $?
+"$BIN"/fd_alloc_ctl free "$ALLOC"                 && fail free $?
+"$BIN"/fd_alloc_ctl free "$ALLOC"    3            && fail free $?
+"$BIN"/fd_alloc_ctl free bad/name    3 "$GADDR0"  \
+                    free "$ALLOC"   -1 "$GADDR0"  \
+                    free "$ALLOC"    3 bad/name   \
+                    free "$ALLOC"    3 "$GADDR0"  \
+                    free "$ALLOC"    5 "$GADDR1"  \
+                    free "$ALLOC"    6 "$GADDR2"  \
+                    free "$ALLOC"    7 "$GADDR3"  \
+|| fail alloc $?
+
+echo Testing compact
+
+"$BIN"/fd_alloc_ctl compact            && fail free $?
+"$BIN"/fd_alloc_ctl compact bad/name   && fail free $?
+"$BIN"/fd_alloc_ctl compact "$ALLOC"   || fail free $?
+
+echo Testing delete
+
+"$BIN"/fd_alloc_ctl delete              && fail query $?
+"$BIN"/fd_alloc_ctl delete "$ALLOC"     && fail query $?
+"$BIN"/fd_alloc_ctl delete bad/name   0 && fail query $?
+"$BIN"/fd_alloc_ctl delete "$ALLOC"   0 || fail query $?
+"$BIN"/fd_alloc_ctl delete "$ALLOC"   0 && fail query $?
+
+ALLOC=$("$BIN"/fd_alloc_ctl tag "$TAG_META" new "$WKSP" "$TAG_ALLOC" || fail new $?)
+"$BIN"/fd_alloc_ctl delete "$ALLOC" 1 || fail query $?
+"$BIN"/fd_alloc_ctl delete "$ALLOC" 1 && fail query $?
+
+"$BIN"/fd_wksp_ctl delete "$WKSP" > /dev/null 2>&1
+echo Log N/A
+echo pass
+exit 0
+

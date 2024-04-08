@@ -1,0 +1,13 @@
+
+Usage: fd_quic_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+new-quic wksp [flags...]
+
+delete-quic gaddr
+
+metrics gaddr

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# (This is more Jump internal use)
+
+if [ $# -gt 0 ] && [ "$1" = "install" ]; then
+  # Install Packages needed for dev hosts
+  sudo yum install                        \
+    jump_module_gcc-12.2.0
+fi
+
+module purge
+module load gcc-12.2.0
+module list

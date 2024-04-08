@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -e
+
+. tmp/test_xdp.conf
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+trap "exit" INT TERM
+trap "kill 0" EXIT
+
+# Set up an AF_XDP echo server and a regular sockets client on separate
+# virtual Ethernet devices.  This test is a basic sanity check verifying
+# that XDP_REDIRECT and AF_XDP I/O work.
+
+$UNIT_TEST/test_xsk_aio_echo_rx \
+  --netns "$NETNS0" \
+  --cnc "$CNC" \
+  --xsk "$XSK0" \
+  --xsk-aio "$XSK_AIO0" &
+RX_PID=$!
+
+nsenter --net="$NETNS1" --no-fork \
+  $UNIT_TEST/test_xsk_aio_echo_tx $IFACE0_ADDR $PORT
+
+$BIN/fd_tango_ctl signal-cnc "$CNC" halt
+wait $RX_PID
+
+echo pass

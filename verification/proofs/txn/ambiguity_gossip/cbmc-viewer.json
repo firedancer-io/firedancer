@@ -1,0 +1,7 @@
+{ "expected-missing-functions":
+  [
+
+  ],
+  "proof-name": "fd_txn_ambiguity_gossip_proof",
+  "proof-root": "verification/proofs"
+}

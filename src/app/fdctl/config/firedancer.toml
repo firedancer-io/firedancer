@@ -1,0 +1,44 @@
+topology = "firedancer"
+
+[layout]
+    affinity = "0-32"
+    net_tile_count = 4
+    verify_tile_count = 16
+    gossip_dedup_tile_count = 4
+    bank_tile_count = 1
+
+[tiles.net]
+    send_buffer_size = 1048576
+
+[tiles.tvu]
+    repair_peer_id = "6VfruTG68WhnhsngCdN23WgGTDsa7oRTKvhBxshYFxkn"
+    repair_peer_addr = "147.75.102.115:8008"
+    gossip_peer_addr = "147.75.102.115:8001"
+    snapshot = "snapshot-100-FKQ9e5RarvUPRB1rXQmEbbPtAS4qwV363U1x1mJdpQ3W.tar.zst"
+    page_cnt = 25
+    validate_snapshot = "true"
+    check_hash = "true"
+    tvu_addr         = "147.75.102.115:9003"
+    tvu_fwd_addr     = "147.75.102.115:9004"
+    gossip_listen_port = 8020
+    repair_listen_port = 8011
+    tvu_port           = 9003
+    tvu_fwd_port       = 9004
+
+[tiles.gossip]
+#   gossip_peer_addr = "147.75.102.115:8020"
+    gossip_peer_addr = "147.75.87.77:8010"
+    gossip_my_addr = "147.75.102.115:8020"
+    gossip_listen_port = 8020
+
+[tiles.repair]
+    repair_my_intake_addr = "147.75.102.115:8012"
+    repair_my_serve_addr = "147.75.102.115:8011"
+    repair_intake_listen_port = 8012
+    repair_serve_listen_port = 8011
+
+[tiles.shred]
+    shred_listen_port = 9003
+
+[development]
+    no_clone = true

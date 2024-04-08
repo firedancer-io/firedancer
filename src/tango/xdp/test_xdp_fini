@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -x
+
+if [ ! -f tmp/test_xdp.conf ]; then
+  echo "not initialized"
+  exit 1
+fi
+
+. tmp/test_xdp.conf
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+"$BIN/fd_xdp_ctl"  fini   "$WKSP" || exit $?
+"$BIN/fd_wksp_ctl" delete "$WKSP" || exit $?
+ip link del dev "$IFACE0"
+ip netns delete "$IFACE0"
+ip netns delete "$IFACE1"
+rm tmp/test_xdp.conf
+
+echo pass

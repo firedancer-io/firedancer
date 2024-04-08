@@ -1,0 +1,7 @@
+[development]
+    sudo = true
+    sandbox = false
+    [development.netns]
+        enabled = true
+[tiles.net]
+    interface = "veth_test_xdp_0"

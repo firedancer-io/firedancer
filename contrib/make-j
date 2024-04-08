@@ -1,0 +1,38 @@
+#!/bin/bash
+
+ISOLCPUS=$(cat /sys/devices/system/cpu/isolated)
+
+if [ "$ISOLCPUS" = "" ]; then
+
+        # No CPU isolation is setup ... just do a normal parallel make
+
+        make -j -Otarget "$@"
+
+else
+
+        # The chrt/taskset/-j mojo is to workaround doing a parallel
+        # make on boxes with CPU isolation setup.  On such boxes,
+        # typically one or more cores per NUMA node are not isolated
+        # from the OS and the rest are isolated.  Taskset doesn't seem
+        # to handle sets that split the isolated and non-isolated cores
+        # well so we target the isolated cores as that is typically
+        # where most cores are.  (FIXME: ALSO HANDLE THE CASE WHERE
+        # THERE ARE MORE NON-ISOLATED CORES THAN ISOLATED CORES.)
+        #
+        # make -j by itself determines the wrong number of cores
+        # available by default (seems to use the number of non-isolated
+        # cores) so we manually specify that.
+        #
+        # Last but not least, the default kernel scheduling policy will
+        # not actually respect taskset to a range of cores if those
+        # cores are isolated (it will just use the first core in the
+        # set) but other real time scheduling policies do.  So, we do a
+        # chrt on on the make too so we actually use the range of cores
+        # specified.
+
+        NP=$(nproc --all)
+        NP_OS=$(nproc)
+        chrt -r 1 taskset -c "$ISOLCPUS" make -j$((NP-NP_OS)) -Otarget "$@"
+
+fi
+

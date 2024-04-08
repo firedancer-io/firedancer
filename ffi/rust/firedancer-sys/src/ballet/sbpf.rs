@@ -1,0 +1,17 @@
+pub use crate::genballet::{
+    fd_sbpf_elf_info_t,
+    fd_sbpf_elf_peek,
+    fd_sbpf_program_align,
+    fd_sbpf_program_delete,
+    fd_sbpf_program_footprint,
+    fd_sbpf_program_load,
+    fd_sbpf_program_new,
+    fd_sbpf_program_t,
+    fd_sbpf_strerror,
+    fd_sbpf_syscalls_align,
+    fd_sbpf_syscalls_delete,
+    fd_sbpf_syscalls_footprint,
+    fd_sbpf_syscalls_insert,
+    fd_sbpf_syscalls_new,
+    fd_sbpf_syscalls_t,
+};

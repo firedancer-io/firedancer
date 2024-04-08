@@ -1,0 +1,5 @@
+{
+  "expected-missing-functions": [],
+  "proof-name": "fd_mcache_bounds_harness",
+  "proof-root": "verification/proofs"
+}

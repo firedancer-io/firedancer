@@ -1,0 +1,67 @@
+#!/bin/bash
+
+if [ $# -lt 1 ] || [ ! -f tmp/test_ipc.conf ]; then
+  echo ""
+  echo "        Usage: $0 [RX_CNT] [tx command line options]"
+  echo ""
+  echo "        This test requires that test_ipc_init has been done to"
+  echo "        create the shared memory objects that will be used for IPC."
+  echo "        This should ideally run on cores near wksp's numa node."
+  echo "        Adjust CORE_FIRST and NUMA_STRIDE in this file if necessary"
+  echo "        (i.e. make CORE_FIRST the lowest indexed core on numa_node"
+  echo "        to use and, on boxes that assign blocks of cores to numa"
+  echo "        nodes, use NUMA_STRIDE=1 while on boxes that stripe cores"
+  echo "        over numa nodes use NUMA_STRIDE==\$NUMA_CNT)."
+  echo ""
+  exit 1
+fi
+
+. tmp/test_ipc.conf
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+rx_cnt=$1
+shift 1
+
+CORE_FIRST=$NUMA_IDX
+NUMA_STRIDE=$NUMA_CNT
+
+HALT_ALL=""
+
+HALT_ALL="${HALT_ALL} signal-cnc ${TX_CNC[0]} halt"
+
+for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
+  if [ "${RX_FSEQS}" = "" ]; then
+    #shellcheck disable=SC2153
+    RX_FSEQS=${RX_FSEQ[rx_idx]}
+  else
+    RX_FSEQS=${RX_FSEQS},${RX_FSEQ[rx_idx]}
+  fi
+  HALT_ALL="${HALT_ALL} signal-cnc ${RX_CNC[rx_idx]} halt"
+done
+
+CORE_NEXT=$CORE_FIRST
+
+# Start up the receivers
+
+for((rx_idx=0;rx_idx<rx_cnt;rx_idx++)); do
+  taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_rx --tile-cpus "$CORE_NEXT" --cnc "${RX_CNC[rx_idx]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseq "${RX_FSEQ[rx_idx]}" &
+  CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
+done
+
+# Start up the transmitter
+
+taskset -c "$CORE_NEXT" "$UNIT_TEST"/test_frag_tx --tile-cpus "$CORE_NEXT" --cnc "${TX_CNC[0]}" --mcache "${TX_MCACHE[0]}" --dcache "${TX_DCACHE[0]}" --fseqs "${RX_FSEQS}" "$@" &
+CORE_NEXT=$((CORE_NEXT+NUMA_STRIDE))
+
+# Let run for a while
+
+sleep 10
+
+# Send halt commands
+
+"$BIN"/fd_tango_ctl $HALT_ALL
+
+wait
+exit 0
+
