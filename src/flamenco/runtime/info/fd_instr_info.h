@@ -68,6 +68,25 @@ fd_instr_any_signed( fd_instr_info_t const * info,
 FD_FN_PURE ulong
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
+static inline void
+fd_instr_get_signers( fd_instr_info_t const * self,
+                      fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX] ) {
+  ulong j = 0UL;
+  for( uchar i = 0; i < self->acct_cnt && j < FD_TXN_SIG_MAX; i++ )
+    if( fd_instr_acc_is_signer_idx( self, i ) )
+      signers[j++] = &self->acct_pubkeys[i];
+}
+
+/* Loop conditions could be optimized to allow for unroll/vectorize */
+
+static inline int
+fd_instr_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
+                           fd_pubkey_t const * pubkey ) {
+  for( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ )
+    if( 0==memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) return 1;
+  return 0;
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h */

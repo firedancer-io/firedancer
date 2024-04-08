@@ -150,11 +150,6 @@ recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
 
     (void)slot_ctx;
     (void)vote_state_timestamp;
-    // TODO
-    //if (vote_state_timestamp.slot != 0 || n->elem.stake != 0)
-    //{
-    //  fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
-    //}
   }
 
   return 1;

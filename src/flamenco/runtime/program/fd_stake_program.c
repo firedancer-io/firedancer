@@ -120,31 +120,6 @@ struct effective_activating {
 };
 typedef struct effective_activating effective_activating_t;
 
-static inline int
-fd_ulong_checked_add( ulong a, ulong b, ulong * out ) {
-  int cf = __builtin_uaddl_overflow( a, b, out );
-  return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, 0 );
-}
-
-static void
-fd_instr_ctx_get_signers( fd_instr_info_t const * self,
-                          fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX] ) {
-  ulong j = 0UL;
-  for( uchar i = 0; i < self->acct_cnt && j < FD_TXN_SIG_MAX; i++ )
-    if( fd_instr_acc_is_signer_idx( self, i ) )
-      signers[j++] = &self->acct_pubkeys[i];
-}
-
-/* Loop conditions could be optimized to allow for unroll/vectorize */
-
-static inline int
-fd_instr_ctx_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
-                               fd_pubkey_t const * pubkey ) {
-  for( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ )
-    if( 0==memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) return 1;
-  return 0;
-}
-
 /**********************************************************************/
 /* Bincode                                                            */
 /**********************************************************************/
@@ -385,12 +360,12 @@ authorized_check( fd_stake_authorized_t const * self,
   /* clang-format off */
   switch ( stake_authorize.discriminant ) {
   case fd_stake_authorize_enum_staker:
-    if( FD_LIKELY( fd_instr_ctx_signers_contains( signers, &self->staker ) ) ) {
+    if( FD_LIKELY( fd_instr_signers_contains( signers, &self->staker ) ) ) {
       return 0;
     }
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   case fd_stake_authorize_enum_withdrawer:
-    if( FD_LIKELY( fd_instr_ctx_signers_contains( signers, &self->withdrawer ) ) ) {
+    if( FD_LIKELY( fd_instr_signers_contains( signers, &self->withdrawer ) ) ) {
       return 0;
     }
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -411,8 +386,8 @@ authorized_authorize( fd_stake_authorized_t *                  self,
   int rc;
   switch ( stake_authorize->discriminant ) {
   case fd_stake_authorize_enum_staker:
-    if( FD_UNLIKELY( !fd_instr_ctx_signers_contains( signers, &self->staker ) &&
-                      !fd_instr_ctx_signers_contains( signers, &self->withdrawer ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_signers_contains( signers, &self->staker ) &&
+                      !fd_instr_signers_contains( signers, &self->withdrawer ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     self->staker = *new_authorized;
@@ -430,7 +405,7 @@ authorized_authorize( fd_stake_authorized_t *                  self,
           *custom_err = FD_STAKE_ERR_CUSTODIAN_MISSING;
           return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
         } else {
-          if( FD_UNLIKELY( !fd_instr_ctx_signers_contains( signers, custodian ) ) ) {
+          if( FD_UNLIKELY( !fd_instr_signers_contains( signers, custodian ) ) ) {
             *custom_err = FD_STAKE_ERR_CUSTODIAN_SIGNATURE_MISSING;
             return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
           }
@@ -461,10 +436,10 @@ set_lockup_meta( fd_stake_meta_t *             self,
                  fd_sol_sysvar_clock_t const * clock ) {
   // FIXME FD_LIKELY
   if( lockup_is_in_force( &self->lockup, clock, NULL ) ) {
-    if( !fd_instr_ctx_signers_contains( signers, &self->lockup.custodian ) ) {
+    if( !fd_instr_signers_contains( signers, &self->lockup.custodian ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
-  } else if( !fd_instr_ctx_signers_contains( signers, &self->authorized.withdrawer ) ) {
+  } else if( !fd_instr_signers_contains( signers, &self->authorized.withdrawer ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
   if( lockup->unix_timestamp )
@@ -1666,7 +1641,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   }
   case fd_stake_state_v2_enum_uninitialized: {
     fd_pubkey_t const * stake_pubkey = &ctx->instr->acct_pubkeys[stake_account_index];
-    if( FD_UNLIKELY( !fd_instr_ctx_signers_contains( signers, stake_pubkey ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_signers_contains( signers, stake_pubkey ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     break;
@@ -2015,7 +1990,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
     break;
   }
   case fd_stake_state_v2_enum_uninitialized: {
-    if( FD_UNLIKELY( !fd_instr_ctx_signers_contains( signers, stake_account->pubkey ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_signers_contains( signers, stake_account->pubkey ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     memset( &lockup, 0, sizeof( fd_stake_lockup_t ) ); /* Lockup::default(); */
@@ -2235,7 +2210,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   } while(0);
 
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
-  fd_instr_ctx_get_signers( ctx.instr, signers );
+  fd_instr_get_signers( ctx.instr, signers );
 
   /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/stake/src/stake_instruction.rs#L72 */
 
@@ -2251,6 +2226,10 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
   if( decode_result != FD_BINCODE_SUCCESS ||
       (ulong)ctx.instr->data + 1232UL < (ulong)decode.data )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+
+  /* Replicate stake account changes to bank caches after processing the
+     transaction's instructions. */
+  ctx.txn_ctx->dirty_stake_acc = 1;
 
   int rc;
   /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR LABS IMPL:
