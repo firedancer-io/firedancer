@@ -23,8 +23,8 @@
 
 #define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
 
-/* About 1.5 kB on the stack */
-#define FD_PACK_PACK_MAX_OUT (16UL)
+/* About 6 kB on the stack */
+#define FD_PACK_PACK_MAX_OUT FD_PACK_MAX_BANK_TILES
 
 /* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
    the time values so that LONG_MIN maps to 0, LONG_MAX maps to

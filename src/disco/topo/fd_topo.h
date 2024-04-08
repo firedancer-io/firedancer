@@ -12,15 +12,15 @@
 /* Maximum number of tiles that may be present in a topology. */
 #define FD_TOPO_MAX_TILES         (256UL)
 /* Maximum number of objects that may be present in a topology. */
-#define FD_TOPO_MAX_OBJS          (1024UL)
+#define FD_TOPO_MAX_OBJS          (4096UL)
 /* Maximum number of links that may go into any one tile in the
    topology. */
-#define FD_TOPO_MAX_TILE_IN_LINKS  ( 32UL)
+#define FD_TOPO_MAX_TILE_IN_LINKS  ( 128UL)
 /* Maximum number of links that a tile may write to in addition
    to the primary output link. */
 #define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
 /* Maximum number of objects that a tile can use. */
-#define FD_TOPO_MAX_TILE_OBJS      ( 128UL)
+#define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
