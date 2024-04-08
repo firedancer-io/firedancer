@@ -13,20 +13,6 @@ outputs: {}
 runs:
   using: composite
   steps:
-    - name: Has apt-get?
-      shell: bash
-      run: |
-        if command -v apt-get > /dev/null 2>&1; then
-          echo "HAS_APT_GET=1" >> $GITHUB_ENV
-        else
-          echo "HAS_APT_GET=0" >> $GITHUB_ENV
-        fi
-
-    - name: apt-get update
-      shell: bash
-      run: sudo apt-get update
-      if: env.HAS_APT_GET == '1'
-
     - id: deps-sh-hash
       shell: bash
       run: sha256sum '${{ inputs.deps-script-path }}' | awk '{print "HASH=" $1}' >> "$GITHUB_OUTPUT"
