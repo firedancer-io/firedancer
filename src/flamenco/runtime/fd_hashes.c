@@ -974,7 +974,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_fu
       FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
       fd_sha256_t h;
       fd_hash_t hash;
-      fd_accounts_hash(slot_ctx, &hash, child_txn, 1, 0);
+      fd_accounts_hash(slot_ctx, &hash, child_txn, check_hash, with_dead);
 
       fd_sha256_init( &h );
       fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );

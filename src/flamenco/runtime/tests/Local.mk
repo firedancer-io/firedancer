@@ -15,7 +15,7 @@ $(call make-unit-test,bench_tps,bench_tps,fd_aio fd_quic fd_tls fd_ballet fd_tan
 run-runtime-test: run-runtime-test-1 run-runtime-test-2
 
 run-runtime-test-big: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l testnet-snapshot -s snapshot-258514487-JCGNvGKHNkH1NUXtq5Jk42obhUnPCSL4H22sMWkkx2us.tar.zst  -i incremental-snapshot-258514487-258533653-HKZefJxA8eUCXsqV1woF4Fr4hDZh8BPzQ4yezPXmnGtA.tar.zst -p 250 -m 80000000 -e 255312010
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -l bad-incremental2 -s snapshot-262497545-3sFmKsyF32p4V2HMKaM6s2ymCG64NVcjuxYmen1aKky2.tar.zst  -i incremental-snapshot-262497545-262507921-Asuwpa3yuxsBZuVwsad41S3QHYejcdTdeNcqSHKbxvG1.tar.zst -p 250 -m 80000000 -e 255312010
 
 run-runtime-test-1: $(OBJDIR)/unit-test/test_native_programs $(OBJDIR)/unit-test/test_runtime $(OBJDIR)/bin/fd_frank_ledger
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_ledger_tests.sh -t 2 -X 1
