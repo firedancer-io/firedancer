@@ -183,7 +183,7 @@ fdctl_boot( int *        pargc,
      creation needs to be moved out of configuration and happen after
      boot. */
 
-  if( FD_LIKELY( !config_fd ) ) {
+  if( FD_LIKELY( -1==config_fd ) ) {
     initialize_numa_assignments( &config->topo );
   }
 }
