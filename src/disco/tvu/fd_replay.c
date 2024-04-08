@@ -390,15 +390,19 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   fd_bank_hash_cmp_insert( bank_hash_cmp, slot, bank_hash, 1 );
 
   /* Try to move the bank hash comparison window forward */
-
-  for( ulong i = bank_hash_cmp->slot; i < slot; i++ ) {
-    if( FD_UNLIKELY( fd_blockstore_parent_slot_query( replay->blockstore, i ) ==
-                     bank_hash_cmp->slot ) ) {
-
-      /* fd_bank_hash_cmp_check returns 1 if both bank hashes are ready */
-
-      if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, i ) ) ) bank_hash_cmp->slot = i;
+  while (1) {
+    ulong *children, nchildren, parent_slot = bank_hash_cmp->slot;
+    if ( fd_blockstore_next_slot_query( replay->blockstore, parent_slot, &children, &nchildren ) == FD_BLOCKSTORE_OK ) {
+      for (ulong i = 0; i < nchildren; i++) {
+        if( FD_LIKELY( fd_bank_hash_cmp_check( bank_hash_cmp, children[i] ) ) ) {
+          bank_hash_cmp->slot = children[i];
+          break;
+        }
+      }
+    } else {
+      FD_LOG_WARNING( ("failed at getting children of slot %lu", parent_slot) );
     }
+    if(bank_hash_cmp->slot == parent_slot) break;
   }
   fd_bank_hash_cmp_unlock( bank_hash_cmp );
 

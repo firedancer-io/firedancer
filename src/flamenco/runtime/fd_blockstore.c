@@ -443,9 +443,12 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   fd_blockstore_slot_map_t * slot_map   = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, slot, NULL );
   if( FD_UNLIKELY( !slot_entry ) ) return FD_BLOCKSTORE_OK;
+
+  fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
+  if( slot_entry->slot_meta.next_slot ) fd_alloc_free( alloc, slot_entry->slot_meta.next_slot );
+
   if( FD_LIKELY( slot_entry->slot_meta.consumed != ULONG_MAX &&
                  slot_entry->slot_meta.consumed == slot_entry->slot_meta.last_index ) ) {
-    fd_alloc_t *              alloc   = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
     fd_blockstore_txn_map_t * txn_map = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
     fd_block_t *              block   = &slot_entry->block;
     if( FD_LIKELY( !( fd_uchar_extract_bit( block->flags, FD_BLOCK_FLAG_PREPARED ) |
@@ -682,6 +685,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   /* Update shred's associated slot meta */
 
+  // FIXME remove the constraint of 32
+  #define max_nchildren 32UL
   fd_blockstore_slot_map_t * slot_entry =
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), shred->slot, NULL );
   if( FD_UNLIKELY( !slot_entry ) ) {
@@ -704,6 +709,9 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     slot_meta->received              = 0;
     slot_meta->first_shred_timestamp = now - ms;
     slot_meta->last_index            = ULONG_MAX;
+    fd_alloc_t * alloc               = fd_blockstore_alloc( blockstore );
+    slot_meta->next_slot             = fd_alloc_malloc( alloc, 1, sizeof(ulong) * max_nchildren );
+    slot_meta->next_slot_len         = 0;
   }
   fd_slot_meta_t * slot_meta = &slot_entry->slot_meta;
 
@@ -732,8 +740,26 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     slot_meta->is_connected = 0;
   } else {
     slot_meta->is_connected = 1;
-    // FIXME initialize the vectors hdr region
-    // parent_slot_meta->next_slot[parent_slot_meta->next_slot_len++] = slot_meta->slot;
+
+    ulong found = 0;
+    for (ulong i = 0; i < parent_slot_meta->next_slot_len; i++)
+      if (parent_slot_meta->next_slot[i] == slot_meta->slot) {
+        found = 1;
+        break;
+      }
+
+    if (!found) {
+      if (parent_slot_meta->next_slot_len == max_nchildren) {
+        FD_LOG_WARNING( ("slot %lu has more than %lu children slots", parent_slot_meta->slot, max_nchildren) );
+      } else {
+        if (parent_slot_meta->next_slot == NULL) {
+          /* This can happen if the slot was inserted by the snapshot instead of by a shred */
+          fd_alloc_t * alloc          = fd_blockstore_alloc( blockstore );
+          parent_slot_meta->next_slot = fd_alloc_malloc( alloc, 1, sizeof(ulong) * max_nchildren );
+        }
+        parent_slot_meta->next_slot[parent_slot_meta->next_slot_len++] = slot_meta->slot;
+      }
+    }
   }
 
   /* entry_end_indexes is unused, and tracks contiguous shred windows */
@@ -837,6 +863,17 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
       fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
   if( FD_UNLIKELY( !query ) ) return FD_SLOT_NULL;
   return query->slot_meta.parent_slot;
+}
+
+/* Return the slot array and length of the children blocks */
+int
+fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong ** next_slot_out, ulong * next_slot_len_out) {
+  fd_blockstore_slot_map_t * query =
+      fd_blockstore_slot_map_query( fd_blockstore_slot_map( blockstore ), slot, NULL );
+  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  *next_slot_out = query->slot_meta.next_slot;
+  *next_slot_len_out = query->slot_meta.next_slot_len;
+  return FD_BLOCKSTORE_OK;
 }
 
 /* Returns the transaction data for the given signature */

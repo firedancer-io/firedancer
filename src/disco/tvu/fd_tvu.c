@@ -946,6 +946,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
 
   /* add it to the frontier */
   fork->slot = snapshot_slot;
+  replay->epoch_ctx->bank_hash_cmp->slot = snapshot_slot;
   fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
   fork->slot_ctx.towers = towers;
   FD_TEST( fork->slot_ctx.towers );

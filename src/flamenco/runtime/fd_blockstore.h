@@ -441,6 +441,10 @@ fd_blockstore_slot_meta_query( fd_blockstore_t * blockstore, ulong slot );
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
+/* Query the children slots of slot */
+int
+fd_blockstore_next_slot_query( fd_blockstore_t * blockstore, ulong slot , ulong ** next_slot_out, ulong * next_slot_len_out);
+
 /* Query the frontier ie. all the blocks that need to be replayed that haven't been. These are the
    slot children of the current frontier that are shred complete. */
 fd_block_t *
