@@ -34,4 +34,5 @@ jobs:
         run: |
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
+          export JOB_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/"
           ./${{ matrix.test_case }}

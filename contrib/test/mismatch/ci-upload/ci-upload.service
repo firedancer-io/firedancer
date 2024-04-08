@@ -1,0 +1,16 @@
+[Unit]
+Description=Bad Slots Directory Watcher Service
+
+[Service]
+ExecStart=/home/svc_firedancer/venv/bin/python3 -u /home/svc_firedancer/ci-bad-slot-upload.py --slack-url= # fill in the slack URL here
+WorkingDirectory=/home/svc_firedancer
+User=svc_firedancer
+Group=svc_firedancer
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/etc/firedancer-scratch-bucket-key.json"
+
+[Install]
+WantedBy=multi-user.target

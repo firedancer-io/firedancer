@@ -159,7 +159,8 @@ set -x
   $PAGES \
   $SNAPSHOT \
   $INC_SNAPSHOT \
-  $HISTORY
+  $HISTORY \
+  --txnstatus true
 
 status=$?
 

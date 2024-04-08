@@ -1,0 +1,19 @@
+[Unit]
+Description=Upload snapshots and rocksdb for gcloud bucket folders that lack rocksdb
+
+[Service]
+ExecStart=/opt/solana/venv/bin/python3 -u /opt/solana/testnet-upload.py  --slack-url= # fill in the slack URL here
+WorkingDirectory=/opt/solana
+User=solana
+Group=solana
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/etc/firedancer-scratch-bucket-key.json"
+Environment="LD_LIBRARY_PATH=/opt/solana"
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
