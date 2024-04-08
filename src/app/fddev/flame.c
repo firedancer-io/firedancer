@@ -86,7 +86,7 @@ flame_cmd_fn( args_t *         args,
     tile_cnt = 1UL;
   }
 
-  char threads[ 256 ] = {0};
+  char threads[ 4096 ] = {0};
   ulong len = 0UL;
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     if( FD_LIKELY( i!=0UL ) ) {
