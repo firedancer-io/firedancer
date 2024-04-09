@@ -6,14 +6,15 @@
 # instance with the same name.
 name = "fd1"
 
-# The operating system user to permission data and run Firedancer as.
+# The operating system username (user) as well as the corresponding user
+# id (uid) and group id (gid) to permission data and run Firedancer as.
 # Firedancer needs to start privileged, either with various capabilities
 # or as root, so that it can configure kernel bypass networking.  Once
 # this configuration has been performed, the process will enter a highly
-# restrictive sandbox, drop all privileges, and switch to the user given
-# here.  When running the configuration steps of `fdctl configure`, data
-# will be permissioned as read/write for this user, irrespective of
-# which user is performing the configuration.
+# restrictive sandbox, drop all privileges and switch to the uid and gid
+# given here.  When running the configuration steps of `fdctl configure`,
+# data will be permissioned as read/write for this user (uid and gid),
+# irrespective of which user is performing the configuration.
 #
 # Firedancer requires nothing from this user, and it should be as
 # minimally permissioned as is possible.  It is suggested to run
@@ -25,11 +26,14 @@ name = "fd1"
 # has access to `sudo` or has other entries in the sudoers file.
 #
 # When running in a development environment (with `fddev`), Firedancer
-# will automatically determine a user to run as if none is provided.  By
-# default, it will use the terminal user which is starting the program.
-# If running as sudo, the terminal user is not root but the user which
-# invoked sudo.
+# will automatically determine a user to run as if none is provided.  It
+# will also determine the corresponding uid and gid for that user.  By
+# default, it will use the terminal user which is starting the program
+# and their uid and gid.  If running as sudo, the terminal user is not
+# root but the user which invoked sudo.
 user = ""
+uid  = 0
+gid  = 0
 
 # Absolute directory path to place scratch files used during setup and
 # operation.  The ledger and accounts databases will also be placed in

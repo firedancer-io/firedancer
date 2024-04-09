@@ -24,6 +24,10 @@ validator might look like:
 ```sh [bash]
 # /home/firedancer/config.toml
 user = "firedancer"
+# id -u firedancer
+uid  = 1000
+# id -g firedancer
+gid  = 1000
 [gossip]
     entrypoints = [
       "10.0.0.2:8001"

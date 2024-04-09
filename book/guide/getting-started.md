@@ -106,6 +106,8 @@ options needed to start the validator on Testnet.
 ```toml [bash]
 # /home/firedancer/config.toml
 user = "firedancer"
+uid  = 1000
+gid  = 1000
 
 [gossip]
     entrypoints = [
@@ -128,11 +130,12 @@ user = "firedancer"
 ```
 
 This configuration will cause Firedancer to run as the user `firedancer`
-on the local machine. The `identity_path` and `vote_account_path` should
-be Solana Labs style keys, which can be generated with the Solana Labs
-CLI. Currently, `testnet` is the only live cluster that Firedancer can
-be run against and trying to start against `devnet` or `mainnet-beta`
-entrypoints will result in an error.
+on the local machine. This assumes the `uid` and `gid` of the `firedancer`
+user on the machine is `1000` and `1000` respectively. The `identity_path`
+and `vote_account_path` should be Solana Labs style keys, which can be
+generated with the Solana Labs CLI. Currently, `testnet` is the only live
+cluster that Firedancer can be run against and trying to start against
+`devnet` or `mainnet-beta` entrypoints will result in an error.
 
 ::: tip NOTE
 
@@ -228,11 +231,12 @@ started. The requirements for these users are very different:
    launching.
 
  - The user Firedancer switches to after it has booted up and performed
-   privileged initialization. This is given by the `user` option in your
-   configuration TOML file. Firedancer requires nothing from this user
-   and it should be as minimally permissioned as possible. It should
-   never be `root` or another superuser, and the user should not be
-   present in the sudoers file or have any other privileges.
+   privileged initialization. This is given by the `uid` and `gid` options
+   in your configuration TOML file (which should correspond to the `user`).
+   Firedancer requires nothing from this user and it should be as minimally
+   permissioned as possible. It should never be `root` or another superuser,
+   and the user should not be present in the sudoers file or have any other
+   privileges.
 
 Only the `fdctl run` and `monitor` commands will switch to the
 non-privileged user, and other commands will run as the startup user

@@ -35,6 +35,36 @@ default_user( void ) {
   return name;
 }
 
+static uint
+default_uid( void ) {
+  uint   uid;
+  char * endptr;
+  char * uid_str = getenv( "SUDO_UID" );
+  if( FD_LIKELY( uid_str ) ) {
+    uid = ( uint )strtoul( uid_str, &endptr, 10 );
+    if( FD_LIKELY( *endptr == '\0' ) ) return uid;
+  }
+
+  uid = getuid();
+  if( FD_UNLIKELY( !uid ) ) FD_LOG_ERR(( "getuid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return uid;
+}
+
+static uint
+default_gid( void ) {
+  uint   gid;
+  char * endptr;
+  char * gid_str = getenv( "SUDO_GID" );
+  if( FD_LIKELY( gid_str ) ) {
+    gid = ( uint )strtoul( gid_str, &endptr, 10 );
+    if( FD_LIKELY( *endptr == '\0' ) ) return gid;
+  }
+
+  gid = getgid();
+  if( FD_UNLIKELY( !gid ) ) FD_LOG_ERR(( "getgid failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return gid;
+}
+
 static int parse_key_value( config_t *   config,
                             const char * section,
                             const char * key,
@@ -175,6 +205,8 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_STR   ( , ,                     name                                                      );
   ENTRY_STR   ( , ,                     user                                                      );
+  ENTRY_UINT  ( , ,                     uid                                                       );
+  ENTRY_UINT  ( , ,                     gid                                                       );
   ENTRY_STR   ( , ,                     scratch_directory                                         );
   ENTRY_STR   ( , ,                     dynamic_port_range                                        );
 
@@ -483,40 +515,6 @@ mac_address( const char * interface,
   if( FD_UNLIKELY( close(fd) ) )
     FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
-}
-
-static void
-username_to_id( config_t * config ) {
-  FILE * fp = fopen( "/etc/passwd", "rb" );
-  if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  char line[ 4096 ];
-  while( FD_LIKELY( fgets( line, 4096, fp ) ) ) {
-    if( FD_UNLIKELY( strlen( line ) == 4095 ) ) FD_LOG_ERR(( "line too long in /etc/passwd" ));
-    char * s = strchr( line, ':' );
-    if( FD_UNLIKELY( !s ) ) continue;
-    *s = 0;
-    if( FD_LIKELY( strcmp( line, config->user ) ) ) continue;
-
-    char * u = strchr( s + 1, ':' );
-    if( FD_UNLIKELY( !u ) ) continue;
-
-    char * g = strchr( u + 1, ':' );
-    if( FD_UNLIKELY( !g ) ) continue;
-
-    if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
-    char * endptr;
-    ulong uid = strtoul( u + 1, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
-    ulong gid = strtoul( g + 1, &endptr, 10 );
-    if( FD_UNLIKELY( *endptr != ':' || gid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse gid in /etc/passwd"));
-
-    config->uid = ( uint )uid;
-    config->gid = ( uint )gid;
-    return;
-  }
-
-  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
 }
 
 FD_FN_CONST fd_topo_run_tile_t *
@@ -1047,6 +1045,8 @@ config_parse( int *      pargc,
     if( FD_UNLIKELY( strlen( user ) >= sizeof( config->user ) ) )
       FD_LOG_ERR(( "user name `%s` is too long", user ));
     strncpy( config->user, user, 256 );
+    config->uid = default_uid();
+    config->gid = default_gid();
   }
 
   struct utsname utsname;
@@ -1114,8 +1114,6 @@ config_parse( int *      pargc,
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
   }
-
-  username_to_id( config );
 
   if( config->uid == 0 || config->gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
