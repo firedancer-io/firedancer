@@ -17,7 +17,7 @@ typedef struct fd_quic_stream_pool fd_quic_stream_pool_t;
 FD_PROTOTYPES_BEGIN
 
 /* returns the alignment of the fd_quic_stream_pool_t */
-FD_FN_CONST inline
+FD_FN_CONST static inline
 ulong
 fd_quic_stream_pool_align( void ) {
   return FD_QUIC_STREAM_POOL_ALIGN;
@@ -52,7 +52,7 @@ fd_quic_stream_pool_new( void * mem, ulong count, ulong tx_buf_sz );
 void
 fd_quic_stream_pool_delete( fd_quic_stream_pool_t * stream_pool );
 
-/* allocates a stream from the pool 
+/* allocates a stream from the pool
 
    args
      stream_pool  the pool from which to obtain the stream
