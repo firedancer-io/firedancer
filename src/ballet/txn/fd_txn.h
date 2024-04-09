@@ -368,6 +368,10 @@ fd_txn_get_address_tables( fd_txn_t * txn ) {
   return (fd_txn_acct_addr_lut_t *)(txn->instr + txn->instr_cnt);
 }
 
+static inline fd_txn_acct_addr_lut_t const *
+fd_txn_get_address_tables_const( fd_txn_t const * txn ) {
+  return (fd_txn_acct_addr_lut_t const *)(txn->instr + txn->instr_cnt);
+}
 
 /* fd_acct_addr_t: An Solana account address, which may be an Ed25519
    public key, a SHA256 hash from a program derived address, a hardcoded
@@ -405,6 +409,18 @@ static inline uchar const *
 fd_txn_get_recent_blockhash( fd_txn_t const * txn,
                              void     const * payload ) {
   return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
+}
+
+static inline uchar const *
+fd_txn_get_instr_accts( fd_txn_instr_t const * instr,
+                        void           const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)instr->acct_off);
+}
+
+static inline uchar const *
+fd_txn_get_instr_data( fd_txn_instr_t const * instr,
+                       void           const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)instr->data_off);
 }
 
 /* fd_txn_align returns the alignment in bytes required of a region of
@@ -475,8 +491,8 @@ fd_txn_footprint( ulong instr_cnt,
    include_cat should be a compile-time constant, in which case this
    function typically compiles to about 3 instructions. */
 static inline ulong
-fd_txn_account_cnt( fd_txn_t * txn,
-                    int        include_cat ) {
+fd_txn_account_cnt( fd_txn_t const * txn,
+                    int              include_cat ) {
   ulong cnt = 0UL;
   if( include_cat & FD_TXN_ACCT_CAT_WRITABLE_SIGNER        ) cnt += (ulong)txn->signature_cnt - (ulong)txn->readonly_signed_cnt;
   if( include_cat & FD_TXN_ACCT_CAT_READONLY_SIGNER        ) cnt += (ulong)txn->readonly_signed_cnt;

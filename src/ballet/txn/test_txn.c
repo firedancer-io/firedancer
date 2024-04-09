@@ -211,8 +211,9 @@ main( int     argc,
   /* TODO? Add tests for the offsets of fields? */
 
   fd_txn_t txn1 = {0};
-  FD_TEST( (char *)fd_txn_get_address_tables( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
-  FD_TEST(         fd_txn_footprint(       0UL, 0UL ) ==                 sizeof(fd_txn_t)                          );
+  FD_TEST( (char *)fd_txn_get_address_tables      ( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
+  FD_TEST( (char *)fd_txn_get_address_tables_const( &txn1 ) == (char *)&txn1 + sizeof(fd_txn_t)                          );
+  FD_TEST(         fd_txn_footprint(             0UL, 0UL ) ==                 sizeof(fd_txn_t)                          );
 
 
   fd_txn_t txn2 = {0};
@@ -220,8 +221,9 @@ main( int     argc,
   txn2.addr_table_lookup_cnt  = 3;
   const ulong instr_sz    = 4UL*sizeof(fd_txn_instr_t);
   const ulong addr_lut_sz = 3UL*sizeof(fd_txn_acct_addr_lut_t);
-  FD_TEST( (char *)fd_txn_get_address_tables( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
-  FD_TEST(         fd_txn_footprint(       4UL, 3UL ) ==                 sizeof(fd_txn_t) + instr_sz + addr_lut_sz );
+  FD_TEST( (char *)fd_txn_get_address_tables      ( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
+  FD_TEST( (char *)fd_txn_get_address_tables_const( &txn2 ) == (char *)&txn2 + sizeof(fd_txn_t) + instr_sz               );
+  FD_TEST(         fd_txn_footprint(             4UL, 3UL ) ==                 sizeof(fd_txn_t) + instr_sz + addr_lut_sz );
 
   for( ulong instr_cnt=0UL; instr_cnt<=FD_TXN_INSTR_MAX; instr_cnt++ )
     for( ulong alt_cnt=0UL; alt_cnt<=FD_TXN_ADDR_TABLE_LOOKUP_MAX; alt_cnt++ )
