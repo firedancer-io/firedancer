@@ -421,7 +421,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     message->address_table_lookups_cap = txn->addr_table_lookup_cnt;
     message->address_table_lookups     = (void*)out_sidecar;
     for( ulong i=0; i<txn->addr_table_lookup_cnt; i++ ) {
-      fd_txn_acct_addr_lut_t * lookup = fd_txn_get_address_tables( txn ) + i;
+      fd_txn_acct_addr_lut_t const * lookup = fd_txn_get_address_tables_const( txn ) + i;
       sanitized_txn_abi_v0_message_address_table_lookup_t * out_lookup = &message->address_table_lookups[ i ];
 
       out_lookup->writable_indexes_cnt = lookup->writable_cnt;
