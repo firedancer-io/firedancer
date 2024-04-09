@@ -578,16 +578,14 @@ dynamic_port_range = "8900-9000"
 #        +-- scratch2.wksp
 [hugetlbfs]
     # The absolute path to a directory in the filesystem.  Firedancer
-    # will mount the hugetlbfs filesystem for gigantic pages at this
-    # path, or if the path already exists, will use it as-is.  If the
-    # mount already exists it should be writable by the Firedancer user.
-    gigantic_page_mount_path = "/mnt/.fd/.gigantic"
-
-    # The absolute path to a directory in the filesystem.  Firedancer
-    # will mount the hugetlbfs filesystem for huge pages at this path,
-    # or if the path already exists, will use it as-is.  If the mount
-    # already exists it should be writable by the Firedancer user.
-    huge_page_mount_path = "/mnt/.fd/.huge"
+    # will mount the hugetlbfs filesystem for gigantic pages at a
+    # subdirectory named .gigantic under this path, or if the entire
+    # path already exists, will use it as-is.  Firedancer will also
+    # mount the hugetlbfs filesystem for huge pages at a subdirectory
+    # named .huge under this path, or if the entire path already exists,
+    # will use it as-is.  If the mount already exists it should be
+    # writable by the Firedancer user.
+    mount_path = "/mnt/.fd"
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
