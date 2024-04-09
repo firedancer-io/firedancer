@@ -113,5 +113,5 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = slot_ctx->valloc };
   fd_slot_history_destroy( history, &ctx_d );
 
-  return fd_acc_mgr_commit(slot_ctx->acc_mgr, rec, slot_ctx);
+  return 0;
 }

@@ -303,40 +303,6 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
   return FD_ACC_MGR_SUCCESS;
 }
 
-int
-fd_acc_mgr_commit_raw( fd_acc_mgr_t *       acc_mgr,
-                       fd_funk_rec_t *      rec,
-                       fd_pubkey_t const *  pubkey,
-                       void *               raw_acc,
-                       fd_exec_slot_ctx_t * slot_ctx ) {
-
-  (void)acc_mgr;
-  (void)rec;
-  (void)pubkey;
-
-  fd_account_meta_t * m = (fd_account_meta_t *)raw_acc;
-  m->slot = slot_ctx->slot_bank.slot;
-
-#if 0
-  void const * data   = (void const *)( (ulong)raw_acc + m->hlen );
-
-  fd_hash_t hash[1];
-  fd_hash_account_current( hash->hash, NULL, m, pubkey->key, data, slot_ctx );
-
-  if( 0!=memcmp( &hash, m->hash, sizeof(hash) ) ) {
-    FD_LOG_DEBUG(( "fd_acc_mgr_commit_raw: %32J slot: %ld lamports: %ld  owner: %32J  executable: %s,  rent_epoch: %ld, data_len: %ld, data: %s = %32J",
-                    pubkey->uc, slot_ctx->slot_bank.slot, m->info.lamports, m->info.owner, m->info.executable ? "true" : "false", m->info.rent_epoch, m->dlen, "xx", hash->uc ));
-
-    FD_TEST( rec );
-  }
-#else
-  (void) rec;
-  (void) pubkey;
-#endif
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err ) {
   switch( err ) {

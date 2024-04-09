@@ -294,7 +294,7 @@ main( int     argc,
 
   } else if (strcmp(cmd, "minify") == 0) {
     /* Example commmand:
-     fd_frank_ledger --cmd minify --rocksdb <LARGE_ROCKSDB> --minidb <MINI_ROCKSDB> 
+     fd_frank_ledger --cmd minify --rocksdb <LARGE_ROCKSDB> --minidb <MINI_ROCKSDB>
                      --startslot <START_SLOT> --end_slot <END_SLOT> --copytxnstatus true
     */
 
@@ -324,7 +324,7 @@ main( int     argc,
 
     /* Copy over all slot indexed columns */
     for ( ulong cf_idx = 1; cf_idx < FD_ROCKSDB_CF_CNT; ++cf_idx ) {
-      fd_rocksdb_copy_over_slot_indexed_range( &big_rocksdb, &mini_rocksdb, cf_idx, 
+      fd_rocksdb_copy_over_slot_indexed_range( &big_rocksdb, &mini_rocksdb, cf_idx,
                                                start_slot, end_slot );
     }
     FD_LOG_NOTICE(("copied over all slot indexed columns"));
@@ -332,7 +332,7 @@ main( int     argc,
     /* Copy over transactions. This is more complicated because first, a temporary
        blockstore will be populated. This will be used to look up transactions
        which can be quickly queried */
-    
+
     if ( strcmp( copy_txnstatus, "true" ) == 0 ) {
       /* Ingest block range into blockstore */
       slot_ctx->slot_bank.slot = start_slot;
@@ -350,7 +350,7 @@ main( int     argc,
              is indexed on the pubkey */
 
     return 0;
-    
+
   } else if (strcmp(cmd, "ingest") == 0) {
 
     if( snapshotfile ) {
@@ -440,10 +440,6 @@ main( int     argc,
           memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
           if( a->account.data_len )
             memcpy( rec->data, a->account.data, a->account.data_len );
-
-          err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &a->key, rec->meta, slot_ctx );
-          if( FD_UNLIKELY( err ) )
-            FD_LOG_ERR(( "fd_acc_mgr_commit_raw failed (%d)", err ));
         }
 
         FD_LOG_DEBUG(( "end genesis accounts"));

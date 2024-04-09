@@ -175,7 +175,7 @@ fd_calculate_stake_weighted_timestamp(
     //   .valloc  = fd_scratch_virtual(),
     // };
     // ulong vote_timestamp = 0UL;
-    // ulong vote_slot = 0UL;  
+    // ulong vote_slot = 0UL;
 
     // uint discriminant = 0;
     // err = fd_bincode_uint32_decode(&discriminant, &decode_ctx);
@@ -384,5 +384,5 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   acc->meta->dlen = sz;
   fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, 32 );
 
-  return fd_acc_mgr_commit( slot_ctx->acc_mgr, acc, slot_ctx );
+  return 0;
 }

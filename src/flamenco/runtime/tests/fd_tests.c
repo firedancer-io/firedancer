@@ -286,9 +286,6 @@ int fd_executor_run_test(
       if( test->accs[ i ].data_len )
         memcpy( rec->data, test->accs[ i ].data, test->accs[ i ].data_len );
 
-      err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, acc_key, rec->meta, slot_ctx );
-      FD_TEST( !err );
-
       /* wtf ... */
       if (memcmp(fd_sysvar_recent_block_hashes_id.key, &test->accs[i].pubkey, sizeof(test->accs[i].pubkey)) == 0) {
         fd_recent_block_hashes_new( &slot_ctx->slot_bank.recent_block_hashes );

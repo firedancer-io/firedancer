@@ -239,33 +239,13 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
                  fd_borrowed_account_t * account );
 
 int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
-                            fd_funk_txn_t *         txn,
-                            fd_valloc_t             valloc,
-                            fd_borrowed_account_t * * accounts,
-                            ulong accounts_cnt,
-                            fd_tpool_t * tpool,
-                            ulong max_workers );
-
-/* fd_acc_mgr_commit_raw finalizes a writable transaction.
-   Re-calcluates the account hash.  If the hash changed, persists the
-   record to the database.  If uncache is 1, calls fd_funk_val_uncache.
-   raw points to the first byte of the account's meta.  (DO NOT POINT
-   "raw" INTO THE ACCOUNT DATA REGION) */
-
-int
-fd_acc_mgr_commit_raw( fd_acc_mgr_t *      acc_mgr,
-                       fd_funk_rec_t *     rec,
-                       fd_pubkey_t const * pubkey,
-                       void *              raw,
-                       fd_exec_slot_ctx_t * slot_ctx );
-
-static inline int
-fd_acc_mgr_commit( fd_acc_mgr_t *          acc_mgr,
-                   fd_borrowed_account_t * account,
-                   fd_exec_slot_ctx_t *    slot_ctx ) {
-  return fd_acc_mgr_commit_raw( acc_mgr, account->rec, account->pubkey, account->meta, slot_ctx );
-}
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
+                            fd_funk_txn_t *          txn,
+                            fd_valloc_t              valloc,
+                            fd_borrowed_account_t ** accounts,
+                            ulong                    accounts_cnt,
+                            fd_tpool_t *             tpool,
+                            ulong                    max_workers );
 
 void
 fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );

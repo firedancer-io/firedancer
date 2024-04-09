@@ -913,14 +913,14 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
             FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
           }
           if ( txn_status.has_compute_units_consumed ) {
-            solana_cus_consumed = txn_status.compute_units_consumed; 
+            solana_cus_consumed = txn_status.compute_units_consumed;
           }
           if ( txn_status.has_err ) {
             solana_txn_err = txn_status.err.err->bytes[0];
           }
         }
 
-        fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err, 
+        fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err,
                                      txn_ctx->custom_err, slot_ctx->slot_bank.slot,
                                      fd_cus_consumed, solana_cus_consumed, solana_txn_err );
       }
@@ -1933,7 +1933,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
                                 ulong scheduler,
                                 ulong * txn_cnt ) {
   (void)scheduler;
-  
+
   /* Publish any transaction older than 31 slots */
   fd_funk_t * funk = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
@@ -1958,7 +1958,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
         FD_LOG_NOTICE(("checkpointing at slot=%lu", capture_ctx->checkpt_slot));
         unlink(capture_ctx->checkpt_path);
         int err = fd_wksp_checkpt(fd_funk_wksp(funk), capture_ctx->checkpt_path, 0666, 0, NULL);
-        if (err) 
+        if (err)
           FD_LOG_ERR(("backup failed: error %d", err));
       }
 
@@ -2624,12 +2624,6 @@ void fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
         }
 
         rec->meta->info.lamports += rent_to_be_paid;
-
-        err = fd_acc_mgr_commit_raw( slot_ctx->acc_mgr, rec->rec, &pubkey, rec->meta, slot_ctx);
-        if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-          FD_LOG_WARNING(( "fd_runtime_distribute_rent_to_validators: fd_acc_mgr_commit_raw failed (%d)", err ));
-        }
-
       }
     } // end of iteration over validator_stakes
     if( enforce_fix && !prevent_rent_fix ) {
