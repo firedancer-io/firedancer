@@ -254,23 +254,21 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "revert cipher_text_sz: %lu", cipher_text_sz ));
 
-  ulong pn_offset = 18; /* from example in rfc */
+  ulong const pn_offset = 18; /* from example in rfc */
 
-  if( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
+  FD_TEST( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
         cipher_text, cipher_text_sz,
         pn_offset,
         suite,
-        &client_keys ) != FD_QUIC_SUCCESS ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed" ));
-  }
+        &client_keys ) == FD_QUIC_SUCCESS );
 
-  if( fd_quic_crypto_decrypt( revert, &revert_sz,
+  FD_TEST( cipher_text_sz == 1200UL );
+  FD_TEST( revert_sz      == sizeof(revert) );
+  FD_TEST( fd_quic_crypto_decrypt( revert, &revert_sz,
         cipher_text, cipher_text_sz,
         pn_offset,   pkt_number,
         suite,
-        &client_keys ) != FD_QUIC_SUCCESS ) {
-    FD_LOG_ERR(( "fd_quic_crypto_decrypt failed" ));
-  }
+        &client_keys ) == FD_QUIC_SUCCESS );
 
   FD_LOG_HEXDUMP_INFO(( "reverted", revert, revert_sz ));
 
@@ -278,11 +276,75 @@ main( int     argc,
     FD_LOG_ERR(( "decrypted plain text size doesn't match original plain text size: %u != %u",
         (unsigned)revert_sz, (unsigned)test_client_initial_sz ));
   }
-
   FD_TEST( 0==memcmp( revert, hdr, hdr_sz ) );
   FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, test_client_initial_sz ) );
 
   FD_LOG_NOTICE(( "decrypted packet matches original packet" ));
+
+  /* Undersz header */
+  revert_sz = sizeof(revert);
+  FD_TEST( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
+        cipher_text, FD_QUIC_CRYPTO_TAG_SZ-1UL,
+        pn_offset,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+
+  /* Overflowing packet number offset */
+  FD_TEST( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
+        cipher_text, cipher_text_sz,
+        ULONG_MAX,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+
+  /* Too small output buffer */
+  FD_TEST( fd_quic_crypto_decrypt_hdr( revert, pn_offset + 3,
+        cipher_text, cipher_text_sz,
+        pn_offset,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+
+  /* Sample out of bounds */
+  FD_TEST( fd_quic_crypto_decrypt_hdr( revert, revert_sz,
+        cipher_text, pn_offset + 19,
+        pn_offset,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+
+  /* Corrupt the ciphertext */
+  cipher_text[80]++;
+  FD_TEST( fd_quic_crypto_decrypt( revert, &revert_sz,
+        cipher_text, cipher_text_sz,
+        pn_offset,   pkt_number,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+  cipher_text[80]--;
+
+  /* Output buffer size exactly as large as output */
+  FD_TEST( cipher_text_sz == 1200UL );
+  revert_sz = 1184UL;
+  FD_TEST( fd_quic_crypto_decrypt( revert, &revert_sz,
+        cipher_text, cipher_text_sz,
+        pn_offset,   pkt_number,
+        suite,
+        &client_keys ) == FD_QUIC_SUCCESS );
+
+  /* Output buffer size too small */
+  FD_TEST( cipher_text_sz == 1200UL );
+  revert_sz = 1183UL;
+  FD_TEST( fd_quic_crypto_decrypt( revert, &revert_sz,
+        cipher_text, cipher_text_sz,
+        pn_offset,   pkt_number,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
+
+  /* Overflowing packet number offset */
+  FD_TEST( cipher_text_sz == 1200UL );
+  revert_sz = sizeof(revert);
+  FD_TEST( fd_quic_crypto_decrypt( revert, &revert_sz,
+        cipher_text, cipher_text_sz,
+        ULONG_MAX,   pkt_number,
+        suite,
+        &client_keys ) == FD_QUIC_FAILED );
 
   fd_quic_crypto_ctx_fini( &crypto_ctx );
 
