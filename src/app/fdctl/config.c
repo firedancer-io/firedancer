@@ -238,8 +238,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
   ENTRY_UINT  ( ., layout,              shred_tile_count                                          );
 
-  ENTRY_STR   ( ., hugetlbfs,           gigantic_page_mount_path                                  );
-  ENTRY_STR   ( ., hugetlbfs,           huge_page_mount_path                                      );
+  ENTRY_STR   ( ., hugetlbfs,           mount_path                                                );
 
   ENTRY_STR   ( ., tiles.net,           interface                                                 );
   ENTRY_STR   ( ., tiles.net,           xdp_mode                                                  );
@@ -920,6 +919,19 @@ config_parse( int *      pargc,
     FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), config->uid ));
   if( FD_UNLIKELY( getgid() != 0 && config->gid != getgid() ) )
     FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), config->gid ));
+
+  ulong len = strlen( config->hugetlbfs.mount_path );
+  if( FD_UNLIKELY( !len ) ) FD_LOG_ERR(( "[hugetlbfs.mount_path] must be non-empty in your configuration file" ));
+  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.gigantic_page_mount_path,
+                                 sizeof(config->hugetlbfs.gigantic_page_mount_path),
+                                 NULL,
+                                 "%s/.gigantic",
+                                 config->hugetlbfs.mount_path ) );
+  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.huge_page_mount_path,
+                                 sizeof(config->hugetlbfs.huge_page_mount_path),
+                                 NULL,
+                                 "%s/.huge",
+                                 config->hugetlbfs.mount_path ) );
 
   replace( config->log.path, "{user}", config->user );
   replace( config->log.path, "{name}", config->name );
