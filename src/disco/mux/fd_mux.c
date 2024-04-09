@@ -469,7 +469,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
           /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_out!=ULONG_MAX ) ) {
             FD_COMPILER_MFENCE();
-            (*out_slow[ slowest_out ])++;
+            (*out_slow[ slowest_out ]) += metric_in_backp;
             FD_COMPILER_MFENCE();
           }
 
