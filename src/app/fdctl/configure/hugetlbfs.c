@@ -99,24 +99,26 @@ init( config_t * const config ) {
                       total_page_path ));
       }
     }
+  }
 
-    /* Do NOT include anonymous huge pages in the min_size count that
-       we reserve here, because they do not come from the hugetlbfs.
-       Counting them towards that reservation would prevent the
-       anonymous mmap which maps them in from succeeding.
+  /* Do NOT include anonymous huge pages in the min_size count that
+     we reserve here, because they do not come from the hugetlbfs.
+     Counting them towards that reservation would prevent the
+     anonymous mmap which maps them in from succeeding.
 
-       The kernel min_size option for the hugetlbfs does not include an
-       option to reserve pages from a specific NUMA node, so we simply
-       take the sum here and hope they are distributed correctly.  If
-       they are not, creating files in the mount on a specific node may
-       fail later with ENOMEM. */
+     The kernel min_size option for the hugetlbfs does not include an
+     option to reserve pages from a specific NUMA node, so we simply
+     take the sum here and hope they are distributed correctly.  If
+     they are not, creating files in the mount on a specific node may
+     fail later with ENOMEM. */
 
-    ulong min_size[ 2 ] = {0};
-    for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-      min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-      min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
-    }
+  ulong min_size[ 2 ] = {0};
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+  }
 
+  for( ulong i=0UL; i<2UL; i++ ) {
     mkdir_all( mount_path[ i ], config->uid, config->gid );
     char options[ 256 ];
     FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", PAGE_SIZE[ i ], min_size[ i ] ) );
