@@ -140,7 +140,8 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
     }
   }
 
-  vote_state_1_14_11->root_slot         = vote_state->root_slot;          /* deep copy */
+  vote_state_1_14_11->has_root_slot     = vote_state->has_root_slot;      /* copy */
+  vote_state_1_14_11->root_slot         = vote_state->root_slot;          /* copy */
   vote_state_1_14_11->authorized_voters = vote_state->authorized_voters;  /* move */
   vote_state_1_14_11->prior_voters      = vote_state->prior_voters;       /* deep copy */
   vote_state_1_14_11->epoch_credits     = vote_state->epoch_credits;      /* move */
@@ -424,7 +425,8 @@ convert_to_current( fd_vote_state_versioned_t * self,
       .authorized_withdrawer = state->authorized_withdrawer,  /* copy */
       .commission            = state->commission,             /* copy */
       .votes                 = landed_votes_from_lockouts( state->votes, valloc ),
-      .root_slot             = state->root_slot,  /* deep copy */
+      .has_root_slot         = state->has_root_slot,  /* copy */
+      .root_slot             = state->root_slot,      /* copy */
       .authorized_voters     = authorized_voters,
       .prior_voters = (fd_vote_prior_voters_t) {
         .idx      = 31UL,
@@ -456,7 +458,8 @@ convert_to_current( fd_vote_state_versioned_t * self,
       .authorized_withdrawer  = state->authorized_withdrawer,  /* copy */
       .commission             = state->commission,             /* copy */
       .votes                  = landed_votes_from_lockouts( state->votes, valloc ),
-      .root_slot              = state->root_slot,              /* deep copy */
+      .has_root_slot          = state->has_root_slot,          /* copy */
+      .root_slot              = state->root_slot,              /* copy */
       .authorized_voters      = state->authorized_voters,      /* move */
       .prior_voters           = state->prior_voters,           /* deep copy */
       .epoch_credits          = state->epoch_credits,          /* move */
@@ -711,12 +714,13 @@ set_new_authorized_voter( fd_vote_state_t *                          self,
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L562-L563
     ulong epoch_of_last_authorized_switch = 0UL;
-    if( !prior_voters->is_empty ) {
+    if( (!prior_voters->is_empty) & (prior_voters->idx < 32) ) {
       epoch_of_last_authorized_switch = prior_voters->buf[prior_voters->idx].epoch_end;
     }
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L571
-    FD_TEST( target_epoch > latest_epoch );
+    if( target_epoch <= latest_epoch )
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L574-L578
     prior_voters->idx += 1UL; /* FIXME bounds check */
@@ -858,7 +862,9 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_EMPTY_SLOTS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  fd_landed_vote_t * last_vote = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
+  fd_landed_vote_t const * last_vote = NULL;
+  if( !deq_fd_landed_vote_t_empty( vote_state->votes ) )
+    last_vote = deq_fd_landed_vote_t_peek_tail( vote_state->votes );
   if( FD_LIKELY( last_vote ) ) {
     if( FD_UNLIKELY( deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts )->slot <=
                      last_vote->lockout.slot ) ) {
@@ -889,6 +895,7 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
   if( has_original_proposed_root ) {
     ulong new_proposed_root = original_proposed_root;
     if( earliest_slot_hash_in_history > new_proposed_root ) {
+      vote_state_update->has_root       = vote_state->has_root_slot;
       vote_state_update->root           = vote_state->root_slot;
       ulong            prev_slot        = ULONG_MAX;
       int              has_current_root = vote_state_update->has_root;
@@ -1066,20 +1073,16 @@ check_slots_are_valid( fd_vote_state_t *        vote_state,
   }
 
   if( FD_UNLIKELY( j == deq_fd_slot_hash_t_cnt( slot_hashes->hashes ) ) ) {
-    FD_LOG_DEBUG(
-        ( "{} dropped vote slots {:?}, vote hash: {:?} slot hashes:SlotHash {:?}, too old " ) );
     ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   if( FD_UNLIKELY( i != vote_slots_len ) ) {
-    FD_LOG_INFO( ( "{} dropped vote slots {:?} failed to match slot hashes: {:?}" ) );
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   if( FD_UNLIKELY( 0 != memcmp( &deq_fd_slot_hash_t_peek_index( slot_hashes->hashes, j )->hash,
                                 vote_hash,
                                 32UL ) ) ) {
-    FD_LOG_WARNING( ( "{} dropped vote slots {:?} failed to match hash {} {}" ) );
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_HASH_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
@@ -1263,7 +1266,8 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
     if( FD_UNLIKELY( rc ) ) { return rc; }
     vote_state->last_timestamp.timestamp = *timestamp;
   }
-  vote_state->root_slot = new_root;
+  vote_state->has_root_slot = (uchar)has_new_root;
+  vote_state->root_slot     = new_root;
   // TODO can prob just fd_memcpy
   deq_fd_landed_vote_t_remove_all( vote_state->votes );
   for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( new_state );
@@ -1765,7 +1769,6 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 
   ulong lockouts_len = compact_update->lockouts_len;
   if( lockouts_len > deq_fd_vote_lockout_t_max( vote_update->lockouts ) ) {
-    FD_LOG_WARNING(( "compact_update->lockouts_len: %lu %lu", lockouts_len, deq_fd_vote_lockout_t_max( vote_update->lockouts ) ));
     return 0;
   }
 
@@ -2051,8 +2054,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L74
    */
   case fd_vote_instruction_enum_initialize_account: {
-    FD_LOG_INFO(( "executing VoteInstruction::InitializeAccount instruction" ));
-
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L75-L76
     fd_rent_t const * rent = fd_sysvar_from_instr_acct_rent( &ctx, 1UL, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
@@ -2090,8 +2091,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * - Up to two signers: the vote authority and the authorized withdrawer.
    */
   case fd_vote_instruction_enum_authorize: {
-    FD_LOG_INFO( ( "executing VoteInstruction::Authorize instruction" ) );
-
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L90
     fd_pubkey_t const * voter_pubkey   = &instruction.inner.authorize.pubkey;
     fd_vote_authorize_t vote_authorize = instruction.inner.authorize.vote_authorize;
@@ -2117,8 +2116,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
   case fd_vote_instruction_enum_authorize_with_seed: {
     if( !VERIFY_SEED_UTF8( instruction.inner.authorize_with_seed.current_authority_derived_key_seed ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-
-    FD_LOG_INFO(( "executing VoteInstruction::AuthorizeWithSeed instruction" ));
 
     /* FIXME should there be a feature check for authorized with seed?*/
 
@@ -2154,7 +2151,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
     if( !VERIFY_SEED_UTF8( instruction.inner.authorize_checked_with_seed.current_authority_derived_key_seed ) )
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
-    FD_LOG_INFO( ( "executing VoteInstruction::AuthorizeCheckedWithSeed instruction" ) );
     fd_vote_authorize_checked_with_seed_args_t const * args =
         &instruction.inner.authorize_checked_with_seed;
 
@@ -2200,8 +2196,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L134-L145
    */
   case fd_vote_instruction_enum_update_validator_identity: {
-    FD_LOG_INFO( ( "executing VoteInstruction::UpdateValidatorIdentity instruction" ) );
-
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L135
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -2217,8 +2211,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
   }
 
   case fd_vote_instruction_enum_update_commission: {
-    FD_LOG_INFO(( "executing VoteInstruction::UpdateCommission instruction" ));
-
     fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( ctx.slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !epoch_schedule ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
@@ -2265,13 +2257,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
   case fd_vote_instruction_enum_vote_switch: {
     fd_vote_t * vote;
     if( instruction.discriminant == fd_vote_instruction_enum_vote ) {
-      FD_LOG_DEBUG( ( "executing VoteInstruction::VoteSwitch instruction" ) );
       vote = &instruction.inner.vote;
     } else if( instruction.discriminant == fd_vote_instruction_enum_vote_switch ) {
-      FD_LOG_DEBUG( ( "executing VoteInstruction::VoteSwitch instruction" ) );
       vote = &instruction.inner.vote_switch.vote;
     } else {
-      FD_LOG_ERR( ( "invalid fallthrough detected: %d", instruction.discriminant ) );
+      __builtin_unreachable();
     }
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L165-L169
@@ -2311,12 +2301,15 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    */
   case fd_vote_instruction_enum_update_vote_state_switch: {
     fd_vote_state_update_t * vote_state_update;
-    if( instruction.discriminant == fd_vote_instruction_enum_update_vote_state ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::UpdateVoteState instruction" ) );
+    switch( instruction.discriminant ) {
+    case fd_vote_instruction_enum_update_vote_state:
       vote_state_update = &instruction.inner.update_vote_state;
-    } else if( instruction.discriminant == fd_vote_instruction_enum_update_vote_state_switch ) {
-      FD_LOG_INFO( ( "executing VoteInstruction::UpdateVoteStateSwitch instruction" ) );
+      break;
+    case fd_vote_instruction_enum_update_vote_state_switch:
       vote_state_update = &instruction.inner.update_vote_state_switch.vote_state_update;
+      break;
+    default:
+      __builtin_unreachable();
     }
 
     if( FD_LIKELY(
@@ -2369,11 +2362,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
   case fd_vote_instruction_enum_compact_update_vote_state_switch: {
     fd_compact_vote_state_update_t * vote_state_update = NULL;
     if( instruction.discriminant == fd_vote_instruction_enum_compact_update_vote_state ) {
-      FD_LOG_DEBUG( ( "executing VoteInstruction::CompactUpdateVoteState instruction" ) );
       vote_state_update = &instruction.inner.compact_update_vote_state;
     } else if( instruction.discriminant ==
                fd_vote_instruction_enum_compact_update_vote_state_switch ) {
-      FD_LOG_DEBUG( ( "executing VoteInstruction::CompactUpdateVoteStateSwitch instruction" ) );
       vote_state_update =
           &instruction.inner.compact_update_vote_state_switch.compact_vote_state_update;
     }
@@ -2411,7 +2402,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L227
    */
   case fd_vote_instruction_enum_withdraw: {
-    FD_LOG_INFO( ( "executing VoteInstruction::Withdraw instruction" ) );
     if( FD_UNLIKELY( ctx.instr->acct_cnt < 2 ) ) {
       rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       break;
@@ -2441,7 +2431,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t ctx ) {
    * - Feature gated, but live on mainnet.
    */
   case fd_vote_instruction_enum_authorize_checked: {
-    FD_LOG_INFO( ( "executing VoteInstruction::AuthorizeChecked instruction" ) );
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, vote_stake_checked_instructions ) ) ) {
       if( FD_UNLIKELY( ctx.instr->acct_cnt < 4 ) ) {
         rc = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
