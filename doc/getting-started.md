@@ -1,6 +1,11 @@
 Getting started
 ===============
 
+Compiler support
+----------------
+
+Officially supported compilers for production use are the latest versions of _gcc 11_, _gcc 12_ and _gcc 13_.
+
 Host setup
 ----------
 
