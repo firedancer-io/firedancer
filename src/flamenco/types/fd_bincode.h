@@ -308,7 +308,7 @@ fd_bincode_varint_decode( ulong *                   self,
 
   while( FD_LIKELY( shift < 64U ) ) {
 
-    if( FD_UNLIKELY( ctx->data > ctx->dataend ) )
+    if( FD_UNLIKELY( ctx->data >= ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
 
     uint byte = *(uchar const *)ctx->data;
@@ -338,7 +338,7 @@ fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 
   while( FD_LIKELY( shift < 64U ) ) {
 
-    if( FD_UNLIKELY( ctx->data > ctx->dataend ) )
+    if( FD_UNLIKELY( ctx->data >= ctx->dataend ) )
       return FD_BINCODE_ERR_UNDERFLOW;
 
     uint byte = *(uchar const *)ctx->data;
