@@ -2,13 +2,39 @@
 
 #include "../fd_account.h"
 
+/* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
+int 
+fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
+{
+  uint is_program = 0;
+  for ( ulong j = 0; j < txn_ctx->txn_descriptor->instr_cnt; j++ ) {
+    if ( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
+      is_program = 1;
+      break;
+    }
+  }
+
+  uint bpf_upgradeable_in_txn = 0;
+  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &txn_ctx->accounts[j];
+    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
+      bpf_upgradeable_in_txn = 1;
+      break;
+    }
+  }
+  return (is_program && !bpf_upgradeable_in_txn);
+}
+
 void
-fd_convert_txn_instr_to_instr( fd_txn_t const *          txn_descriptor,
-                               fd_rawtxn_b_t const *     txn_raw,
-                               fd_txn_instr_t const *    txn_instr,
-                               fd_pubkey_t const *       accounts,
-                               fd_borrowed_account_t *   borrowed_accounts,
-                               fd_instr_info_t *         instr ) {
+fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
+                               fd_txn_instr_t const *  txn_instr,
+                               fd_borrowed_account_t * borrowed_accounts,
+                               fd_instr_info_t *       instr ) {
+
+  fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
+  fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
+  const fd_pubkey_t *   accounts = txn_ctx->accounts;
+
   ulong starting_lamports = 0;
   instr->program_id = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];
@@ -40,7 +66,9 @@ fd_convert_txn_instr_to_instr( fd_txn_t const *          txn_descriptor,
     instr->acct_txn_idxs[i] = acc_idx;
     instr->acct_pubkeys[i] = accounts[instr_acc_idxs[i]];
     instr->acct_flags[i] = 0;
-    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) ) {
+
+    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) && 
+        !fd_txn_account_is_demotion( txn_ctx, instr_acc_idxs[i] ) ) {
         instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     }
     if( fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) ) {

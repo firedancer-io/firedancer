@@ -37,7 +37,7 @@ int fd_load_nonce_account( fd_exec_txn_ctx_t * txn_ctx,
 
   fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[0];
   fd_instr_info_t instr;
-  fd_convert_txn_instr_to_instr(txn_descriptor, txn_raw, txn_instr, txn_ctx->accounts, NULL, &instr);
+  fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, NULL, &instr );
 
   // A little defense in depth?
   int err = fd_account_sanity_check_raw(&instr, txn_descriptor->acct_addr_cnt, instr.program_id + 1);

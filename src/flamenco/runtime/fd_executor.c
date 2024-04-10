@@ -36,30 +36,6 @@
 #include <unistd.h>  /* write(3) */
 #include <time.h>
 
-/* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
-static inline
-int fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
-{
-  uint is_program = 0;
-  for ( ulong j = 0; j < txn_ctx->txn_descriptor->instr_cnt; j++ ) {
-    if ( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
-      is_program = 1;
-      break;
-    }
-  }
-
-  uint bpf_upgradeable_in_txn = 0;
-  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &txn_ctx->accounts[j];
-    if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
-      bpf_upgradeable_in_txn = 1;
-      break;
-    }
-  }
-  return (is_program && !bpf_upgradeable_in_txn);
-}
-
-
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   /* TODO: replace with proper lookup table */
@@ -319,10 +295,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
 
-#ifdef VLOG
-    FD_LOG_WARNING(( "program_id_acc %32J", program_id_acc ));
-#endif
-
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if (exec_instr_func != NULL) {
@@ -340,8 +312,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
 
       } else {
-        // FD_LOG_DEBUG(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
-        FD_LOG_WARNING(("B"));
+        // FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
         exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
     }
@@ -357,7 +328,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
 #ifdef VLOG
-  if ( 142 == ctx->slot_ctx->slot_bank.slot ) {
+  if ( 250555489 == ctx->slot_ctx->slot_bank.slot ) {
     if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
       FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %32J", exec_result, txn_ctx->custom_err, program_id_acc ));
     } else {
@@ -445,6 +416,13 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   if( compute_budget_status != 0 ) {
     return -1;
   }
+  
+#ifdef VLOG
+  fd_txn_t const *txn = txn_ctx->txn_descriptor;
+  fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
+  uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+  FD_LOG_WARNING(("Preparing Transaction %64J, %lu", sig, txn_ctx->heap_size));
+#endif
 
   return 0;
 }
@@ -586,7 +564,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
       fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
-      fd_convert_txn_instr_to_instr( txn_ctx->txn_descriptor, txn_ctx->_txn_raw, txn_instr, txn_ctx->accounts, txn_ctx->borrowed_accounts, &instrs[i] );
+      fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
     }
 
     int ret = 0;
@@ -612,7 +590,12 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
 #endif
 
+
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+  #ifdef VLOG
+        if ( FD_UNLIKELY( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) ) 
+          FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
+  #endif
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
         ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
         if( ret != FD_ACC_MGR_SUCCESS ) {
@@ -625,7 +608,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
   #ifdef VLOG
-        if ( 142 == txn_ctx->slot_ctx->slot_bank.slot ) {
+        if ( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) {
   #endif
           if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
   #ifdef VLOG

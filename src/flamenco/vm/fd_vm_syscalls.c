@@ -975,32 +975,45 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
       signers_seeds_cnt * sizeof(fd_vm_vec_t),
       FD_VM_VEC_ALIGN );
 
-  if( FD_UNLIKELY( !seeds ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !seeds ) ) {
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
 
-  /* Create program addresses.
-      TODO use MAX_SIGNERS constant */
+  if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
+    return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
+  }
+  /* Create program addresses */
 
   for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
-
-    /* Check seed count (avoid overflow) */
-    if( FD_UNLIKELY( seeds[i].len > FD_CPI_MAX_SEEDS ) ) return FD_VM_SYSCALL_ERR_INVAL;
-
     /* Translate inner seed slice.  Each element points to a byte array. */
     fd_vm_vec_t const * seed = fd_vm_translate_vm_to_host_const(
         ctx,
         seeds[i].addr,
         seeds[i].len * sizeof(fd_vm_vec_t),
         FD_VM_VEC_ALIGN );
-    if( FD_UNLIKELY( !seed ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
-
-    /* Derive PDA */
 
     fd_vm_syscall_pda_next( pdas );
 
+    if( FD_UNLIKELY( !seed ) ) {
+      if( FD_UNLIKELY( !fd_vm_syscall_pda_fini( ctx, pdas ) ) ) {
+        return FD_VM_SYSCALL_ERR_INVAL;
+      }
+      return FD_VM_SYSCALL_SUCCESS;
+    }
+
+    /* Check seed count (avoid overflow) */
+    if( FD_UNLIKELY( seeds[i].len > FD_CPI_MAX_SEEDS ) ) {
+      return FD_VM_SYSCALL_ERR_INVAL;
+    } 
+
+    /* Derive PDA */
+
     for( ulong j=0UL; j < seeds[i].len; j++ ) {
       /* Check seed limb length */
-      /* TODO use constant */
-      if( FD_UNLIKELY( seed[j].len > 32 ) ) return FD_VM_SYSCALL_ERR_INVAL;
+      /* TODO: use constant */
+      if( FD_UNLIKELY( seed[j].len > 32 ) ) { 
+        return FD_VM_SYSCALL_ERR_INVAL;
+      }
 
       /* Translate inner seed limb (type &[u8]) */
       uchar const * seed_limb = fd_vm_translate_vm_to_host_const(
@@ -1327,8 +1340,8 @@ from_account_info_rust(
 
   out->serialized_data = caller_acc_data;
   out->serialized_data_len = caller_acc_data_box->len;
-  out->executable = account_info->executable;
-  out->rent_epoch = account_info->rent_epoch;
+  out->executable = FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->executable;
+  out->rent_epoch = FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->rent_epoch;
   return 0;
 }
 
@@ -1368,8 +1381,8 @@ from_account_info_c(
 
   out->serialized_data = caller_acc_data;
   out->serialized_data_len = account_info->data_sz;
-  out->executable = account_info->executable;
-  out->rent_epoch = account_info->rent_epoch;
+  out->executable = FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->executable;
+  out->rent_epoch = FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, disable_cpi_setting_executable_and_rent_epoch ) ? 0 : account_info->rent_epoch;
   return 0;
 }
 
@@ -1612,12 +1625,16 @@ fd_vm_syscall_cpi_rust(
   fd_vm_exec_context_t * ctx = (fd_vm_exec_context_t *) _ctx;
 
   ulong err = fd_vm_consume_compute_meter(ctx, vm_compute_budget.invoke_units);
-  if ( FD_UNLIKELY( err ) ) return err;
+  if ( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* Pre-flight checks ************************************************/
 
   ulong res = fd_vm_syscall_cpi_preflight_check( signers_seeds_cnt, acct_info_cnt, ctx->instr_ctx->slot_ctx );
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) {
+    return res;
+  }
 
   /* Translate instruction ********************************************/
 
@@ -1627,17 +1644,21 @@ fd_vm_syscall_cpi_rust(
       instruction_va,
       sizeof(fd_vm_rust_instruction_t),
       FD_VM_RUST_INSTRUCTION_ALIGN );
-  if( FD_UNLIKELY( !instruction ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !instruction ) ) {
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
 
   if( FD_FEATURE_ACTIVE( ctx->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
+    err = fd_vm_consume_compute_meter( ctx, vm_compute_budget.cpi_bytes_per_unit ? instruction->data.len/vm_compute_budget.cpi_bytes_per_unit : ULONG_MAX );
   }
 
     /* Translate signers ************************************************/
 
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ];
   res = fd_vm_syscall_cpi_derive_signers( ctx, signers, signers_seeds_va, signers_seeds_cnt );
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) {
+    return res;
+  }
 
   fd_vm_rust_account_meta_t const * accounts =
     fd_vm_translate_vm_to_host_const(
@@ -1652,11 +1673,15 @@ fd_vm_syscall_cpi_rust(
       instruction->data.len,
       alignof(uchar) );
 
-  if ( FD_UNLIKELY( check_authorized_program(instruction->pubkey, ctx->instr_ctx->slot_ctx, data, instruction->data.len) ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if ( FD_UNLIKELY( check_authorized_program(instruction->pubkey, ctx->instr_ctx->slot_ctx, data, instruction->data.len) ) ) {
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
   /* Instruction checks ***********************************************/
 
   res = fd_vm_syscall_cpi_check_instruction( ctx, instruction->accounts.len, instruction->data.len );
-  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+  if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) {
+    return res;
+  }
 
   /* Translate account infos ******************************************/
 
@@ -1666,7 +1691,9 @@ fd_vm_syscall_cpi_rust(
       acct_infos_va,
       acct_info_cnt * sizeof(fd_vm_rust_account_info_t),
       FD_VM_RUST_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  if( FD_UNLIKELY( !acc_infos ) ){ 
+    return FD_VM_MEM_MAP_ERR_ACC_VIO;
+  }
 
   /* Collect pubkeys */
 
@@ -1677,7 +1704,9 @@ fd_vm_syscall_cpi_rust(
         acc_infos[i].pubkey_addr,
         sizeof(fd_pubkey_t),
         alignof(uchar) );
-    if( FD_UNLIKELY( !acct_addr ) ) return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    if( FD_UNLIKELY( !acct_addr ) ) {
+      return FD_VM_MEM_MAP_ERR_ACC_VIO;
+    }
     memcpy( acct_keys[i].uc, acct_addr->uc, sizeof(fd_pubkey_t) );
   }
 
@@ -1712,9 +1741,13 @@ fd_vm_syscall_cpi_rust(
   ctx->instr_ctx->txn_ctx->compute_meter = ctx->compute_meter;
   int err_exec = fd_execute_instr( ctx->instr_ctx->txn_ctx, &cpi_instr );
   ulong instr_exec_res = (ulong)err_exec;
-  FD_LOG_DEBUG(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  #ifdef VLOG
+  FD_LOG_WARNING(( "CPI CUs CONSUMED: %lu %lu %lu ", ctx->compute_meter, ctx->instr_ctx->txn_ctx->compute_meter, ctx->compute_meter - ctx->instr_ctx->txn_ctx->compute_meter));
+  #endif
   ctx->compute_meter = ctx->instr_ctx->txn_ctx->compute_meter;
-  FD_LOG_DEBUG(( "AFTER CPI: %lu CUs: %lu Err: %d", *pr0, ctx->compute_meter, err_exec ));
+  #ifdef VLOG
+  FD_LOG_WARNING(( "AFTER CPI: %lu CUs: %lu Err: %d", *pr0, ctx->compute_meter, err_exec ));
+  #endif
 
   *pr0 = instr_exec_res;
   if( instr_exec_res != 0) {
@@ -1724,7 +1757,9 @@ fd_vm_syscall_cpi_rust(
   for( ulong i = 0; i < update_len; i++ ) {
     fd_pubkey_t const * callee = &ctx->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
     res = fd_vm_cpi_update_caller_account_rust(ctx, &acc_infos[caller_accounts_to_update[i]], callee);
-    if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) ) return res;
+    if( FD_UNLIKELY( res != FD_VM_SYSCALL_SUCCESS ) )  {
+      return res;
+    }
   }
 
   caller_lamports = fd_instr_info_sum_account_lamports( ctx->instr_ctx->instr );

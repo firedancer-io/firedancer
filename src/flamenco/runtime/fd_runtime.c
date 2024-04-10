@@ -627,7 +627,9 @@ fd_runtime_execute_txn_task(void *tpool,
   }
   fd_txn_t const *txn = task_info->txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = task_info->txn_ctx->_txn_raw;
-//  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+#ifdef VLOG
+  FD_LOG_WARNING(("executing txn - slot: %lu, txn_idx: %lu, sig: %64J", task_info->txn_ctx->slot_ctx->slot_bank.slot, m0, (uchar *)raw_txn->raw + txn->signature_off));
+#endif
 
   // Leave this here for debugging...
   char txnbuf[100];
@@ -899,30 +901,32 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
         uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
         fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
-        void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
+        if ( txn_map_entry != NULL ) {
+          void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
+        
+          fd_solblock_TransactionStatusMeta txn_status = {0};
+          /* Need to handle case for ledgers where transaction status is not available.
+             This case will be handled in fd_solcap_diff. */
+          ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+          ulong solana_cus_consumed = ULONG_MAX;
+          ulong solana_txn_err      = ULONG_MAX;
+          if ( meta != NULL ) {
+            pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
+            if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
+              FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
+            }
+            if ( txn_status.has_compute_units_consumed ) {
+              solana_cus_consumed = txn_status.compute_units_consumed; 
+            }
+            if ( txn_status.has_err ) {
+              solana_txn_err = txn_status.err.err->bytes[0];
+            }
 
-        fd_solblock_TransactionStatusMeta txn_status = {0};
-        /* Need to handle case for ledgers where transaction status is not available.
-           This case will be handled in fd_solcap_diff. */
-        ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-        ulong solana_cus_consumed = ULONG_MAX;
-        ulong solana_txn_err      = ULONG_MAX;
-        if ( meta != NULL ) {
-          pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
-          if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
-            FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
-          }
-          if ( txn_status.has_compute_units_consumed ) {
-            solana_cus_consumed = txn_status.compute_units_consumed;
-          }
-          if ( txn_status.has_err ) {
-            solana_txn_err = txn_status.err.err->bytes[0];
+            fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err, 
+                                        txn_ctx->custom_err, slot_ctx->slot_bank.slot,
+                                        fd_cus_consumed, solana_cus_consumed, solana_txn_err );
           }
         }
-
-        fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err,
-                                     txn_ctx->custom_err, slot_ctx->slot_bank.slot,
-                                     fd_cus_consumed, solana_cus_consumed, solana_txn_err );
       }
 
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {

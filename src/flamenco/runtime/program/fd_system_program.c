@@ -340,6 +340,7 @@ static int create_account(
   to_rec->meta->info.lamports = lamports;
   to_rec->meta->dlen = space;
   to_rec->meta->info.executable = 0;
+
   /* Initialize the account with all zeroed data and the correct owner */
   fd_memcpy( to_rec->meta->info.owner, owner, sizeof(fd_pubkey_t) );
   memset( to_rec->data, 0, space );

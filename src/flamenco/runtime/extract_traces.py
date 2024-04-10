@@ -68,7 +68,7 @@ def check_strict_match(fd_line, sl_line):
             return False
     return True
 
-def traces_diff(fd_traces, sl_traces):
+def traces_diff(fd_traces, sl_traces, skip_traces):
     used_sl_idxs = set()
     n_good_matches = 0
 
@@ -77,6 +77,8 @@ def traces_diff(fd_traces, sl_traces):
         best_sl_idx = -1
 
         for sl_idx, sl_trace in enumerate(sl_traces):
+            if sl_idx < skip_traces:
+                continue
             if sl_idx in used_sl_idxs:
                 continue
             n_matches = 0
@@ -132,7 +134,7 @@ def main():
     arg_parser.add_argument("-f", "--fd-log-path", help="Path to Firedancer log file", required=True)
     arg_parser.add_argument("-s", "--sl-log-path", help="Path to Solana log file", required=True)
     arg_parser.add_argument("-n", "--max-traces", help="Max number of traces to process", required=True, type=int)
-    arg_parser.add_argument("-m", "--skip-traces", help="Number of traces to skip", required=False, default=0)
+    arg_parser.add_argument("-m", "--skip-traces", help="Number of traces to skip", required=False, default=0, type=int)
     args = arg_parser.parse_args()
 
     fd_traces = read_traces_from_file(args.fd_log_path, args.max_traces)
@@ -141,7 +143,7 @@ def main():
     cache_sl(sl_traces)
     print("SL traces:", len(sl_traces))
 
-    traces_diff(fd_traces, sl_traces)
+    traces_diff(fd_traces, sl_traces, args.skip_traces)
 
 if __name__ == "__main__":
   main()

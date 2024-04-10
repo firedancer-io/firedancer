@@ -35,6 +35,7 @@ END=""
 TRASHHASH=""
 EXPECTED="0"
 LOG="/tmp/ledger_log$$"
+SOLCAP=""
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -103,6 +104,11 @@ while [[ $# -gt 0 ]]; do
         ;;
     --zst)
         ZST=1
+        shift
+        ;;
+    -c|--capture)
+        SOLCAP="--capture $2"
+        shift
         shift
         ;;
     -*|--*)
@@ -183,12 +189,12 @@ ARGS=" --load test_ledger_backup \
   $PAGES \
   --validate true \
   --abort-on-mismatch 1 \
-  --capture test.solcap \
+  $SOLCAP \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
   --allocator libc \
-  --tile-cpus 5-15"
+  --tile-cpus 5-21"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then

@@ -201,8 +201,8 @@ int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_e
 
 uchar * signature = (uchar*)vm_ctx.instr_ctx->txn_ctx->_txn_raw->raw + vm_ctx.instr_ctx->txn_ctx->txn_descriptor->signature_off;
 uchar sig[64];
-fd_base58_decode_64("46mXgo95nA6vC7jTYJP3pCE5U1BpSgV7sZnQHpbHmrbPMDqRGes3jrvYEZUk8TfnhUgkpmNN73q7A3GcBVZTg3gq", sig);
-if (memcmp(signature, sig, 64) == 0) {
+fd_base58_decode_64("4HydfWFZwN67UWTXQWBShcPLofLEePTekfzb1k8CwfiN3RN5hWgHRkDqq4D81aMZYkWgwnDDXMk3Uuhxxcgct8Z6", sig);
+if (FD_UNLIKELY(memcmp(signature, sig, 64) == 0)) {
 
   trace = (fd_vm_trace_entry_t *)fd_valloc_malloc( ctx.txn_ctx->valloc, 8UL, trace_sz * sizeof(fd_vm_trace_entry_t));
   // trace = (fd_vm_trace_entry_t *)malloc(trace_sz * sizeof(fd_vm_trace_entry_t));
@@ -229,7 +229,7 @@ if (memcmp(signature, sig, 64) == 0) {
   ulong interp_res;
 
 #ifdef FD_DEBUG_SBPF_TRACES
-  if (memcmp(signature, sig, 64) == 0) {
+  if (FD_UNLIKELY(memcmp(signature, sig, 64) == 0)) {
     interp_res = fd_vm_interp_instrs_trace( &vm_ctx );
   } else {
     interp_res = fd_vm_interp_instrs( &vm_ctx );
@@ -243,7 +243,7 @@ if (memcmp(signature, sig, 64) == 0) {
 
 #ifdef FD_DEBUG_SBPF_TRACES
   // FILE * trace_fd = fopen("trace.log", "w");
-if (memcmp(signature, sig, 64) == 0) {
+if (FD_UNLIKELY(memcmp(signature, sig, 64) == 0)) {
   ulong prev_cus = 0;
   for( ulong i = 0; i < trace_ctx.trace_entries_used; i++ ) {
     fd_vm_trace_entry_t trace_ent = trace[i];
@@ -326,7 +326,12 @@ if (memcmp(signature, sig, 64) == 0) {
 
   ctx.txn_ctx->compute_meter = vm_ctx.compute_meter;
 
-  //FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
+  #ifdef VLOG
+  if (ctx.txn_ctx->slot_ctx->slot_bank.slot == 250555489) {
+    FD_LOG_WARNING(( "fd_vm_interp_instrs() success: %lu, ic: %lu, pc: %lu, ep: %lu, r0: %lu, fault: %lu, cus: %lu", interp_res, vm_ctx.instruction_counter, vm_ctx.program_counter, vm_ctx.entrypoint, vm_ctx.register_file[0], vm_ctx.cond_fault, vm_ctx.compute_meter ));
+  }
+  #endif
+
   // FD_LOG_WARNING(( "log coll - len: %lu %s", vm_ctx.log_collector.buf ));
 
   if( vm_ctx.register_file[0]!=0 ) {

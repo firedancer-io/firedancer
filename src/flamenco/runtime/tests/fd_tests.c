@@ -392,7 +392,7 @@ int fd_executor_run_test(
     fd_executor_setup_borrowed_accounts_for_txn( &txn_ctx );
 
     fd_instr_info_t instr;
-    fd_convert_txn_instr_to_instr( (fd_txn_t const *)txn_descriptor, &raw_txn_b, txn_instr, txn_ctx.accounts, txn_ctx.borrowed_accounts, &instr );
+    fd_convert_txn_instr_to_instr( &txn_ctx, txn_instr, txn_ctx.borrowed_accounts, &instr );
 
     if (fail_before == test->test_number)
       __asm__("int $3");

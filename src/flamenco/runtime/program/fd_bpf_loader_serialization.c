@@ -25,8 +25,12 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
 
-  // fd_pubkey_t * acc = &txn_accs[acc_idx];
-  // FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
+#ifdef VLOG
+  if (ctx.slot_ctx->slot_bank.slot == 250555489) {
+    fd_pubkey_t * acc = &txn_accs[acc_idx];
+    FD_LOG_WARNING(( "START OF ACC: %32J %x %lu", acc, serialized_size, serialized_size ));
+  }
+#endif
 
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -75,11 +79,19 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
   serialized_params += sizeof(ulong);
 
   for( ushort i = 0; i < ctx.instr->acct_cnt; i++ ) {
-    // FD_LOG_DEBUG(( "SERIAL OF ACC: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    #ifdef VLOG
+    if (ctx.slot_ctx->slot_bank.slot == 250555489) {
+      FD_LOG_WARNING(( "SERIAL OF ACC ALIGNED: %x %lu", serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    }
+    #endif
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[acc_idx];
 
-    // FD_LOG_DEBUG(( "SERIAL OF ACC2: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    #ifdef VLOG
+    if (ctx.slot_ctx->slot_bank.slot == 250555489) {
+      FD_LOG_WARNING(( "SERIAL OF ACC2 ALIGNED: %lu, %lu, %32J %x %lu", i, acc_idx, acc, serialized_params - serialized_params_start, serialized_params-serialized_params_start ));
+    }
+    #endif
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
@@ -93,7 +105,11 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
       fd_borrowed_account_t * view_acc = NULL;
       int read_result = fd_instr_borrowed_account_view( &ctx, acc, &view_acc );
       if (FD_UNLIKELY(read_result == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT)) {
-        // FD_LOG_DEBUG(( "SERIAL OF ACC4: %32J UNK", acc ));
+        #ifdef VLOG
+        if (ctx.slot_ctx->slot_bank.slot == 250555489) {
+          FD_LOG_WARNING(( "SERIAL OF ACC4 ALIGNED: %32J UNK", acc ));
+        }
+        #endif
 
         uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
         FD_STORE( uchar, serialized_params, is_signer );
@@ -140,7 +156,11 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t ctx, ulong * sz, ulon
       fd_account_meta_t const * metadata = view_acc->const_meta;
       uchar const * acc_data             = view_acc->const_data;
 
-      // FD_LOG_DEBUG(( "SERIAL OF ACC3: pubkey: %32J, acc, flags: 0x%x, %lu %lu %lu", acc, ctx.instr->acct_flags[i], serialized_params - serialized_params_start, serialized_params-serialized_params_start, metadata->dlen ));
+      #ifdef VLOG
+      if (ctx.slot_ctx->slot_bank.slot == 250555489) {
+        FD_LOG_WARNING(( "SERIAL OF ACC3 ALIGNED: pubkey: %32J, acc, flags: 0x%x, %lu %lu %lu %d", acc, ctx.instr->acct_flags[i], serialized_params - serialized_params_start, serialized_params-serialized_params_start, metadata->dlen, metadata->info.executable ));
+      }
+      #endif
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -230,7 +250,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
   for( ulong i = 0; i < ctx.instr->acct_cnt; i++ ) {
     uchar acc_idx = instr_acc_idxs[i];
     fd_pubkey_t * acc = &txn_accs[instr_acc_idxs[i]];
-    // FD_LOG_DEBUG(( "DESERIAL OF ACC: %lu, %lu, %32J %x %lu", i, acc_idx, acc, input_cursor - input, input_cursor-input ));
+    #ifdef VLOG
+    FD_LOG_WARNING(( "DESERIAL OF ACC ALIGNED: %lu, %lu, %32J %x %lu", i, acc_idx, acc, input_cursor - input, input_cursor-input ));
+    #endif
     input_cursor++;
     fd_borrowed_account_t * view_acc = NULL;
     int view_err = fd_instr_borrowed_account_view(&ctx, acc, &view_acc);
@@ -270,7 +292,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       input_cursor += sizeof(fd_pubkey_t);
 
       ulong lamports = FD_LOAD(ulong, input_cursor);
-      // FD_LOG_DEBUG(("Deserialize lamports %lu for account %32J", lamports, acc->uc));
+      #ifdef VLOG
+      FD_LOG_WARNING(("Deserialize lamports %lu for account %32J", lamports, acc->uc));
+      #endif
       input_cursor += sizeof(ulong);
 
       ulong post_data_len = FD_LOAD(ulong, input_cursor);
@@ -285,7 +309,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
       if (FD_LIKELY(view_acc->const_meta != NULL)) {
         fd_account_meta_t const * metadata_check = view_acc->const_meta;
-        // FD_LOG_DEBUG(("dlen %lu post data len %lu owner %32J for %32J", metadata_check->dlen, post_data_len, metadata_check->info.owner, acc->uc));
+        #ifdef VLOG
+        FD_LOG_WARNING(("dlen %lu post data len %lu owner %32J for %32J", metadata_check->dlen, post_data_len, metadata_check->info.owner, acc->uc));
+        #endif
         if ( fd_ulong_sat_sub( post_data_len, metadata_check->dlen ) > MAX_PERMITTED_DATA_INCREASE || post_data_len > MAX_PERMITTED_DATA_LENGTH ) {
           fd_valloc_free( ctx.valloc, input ); // FIXME: need to return an invalid realloc error
           return -1;
@@ -329,14 +355,20 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
         // add to dirty list
         metadata->slot = ctx.slot_ctx->slot_bank.slot;
-        // FD_LOG_DEBUG(("Deserialize success %32J", acc->uc));
+        #ifdef VLOG
+        FD_LOG_WARNING(("Deserialize success %32J", acc->uc));
+        #endif
       } else if ( view_err == FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
         // no-op
         input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        // FD_LOG_DEBUG(("Account %32J unknown", acc->uc));
+        #ifdef VLOG
+        FD_LOG_WARNING(("Account %32J unknown", acc->uc));
+        #endif
       } else {
         input_cursor += fd_ulong_align_up( pre_lens[i], 8 );
-        // FD_LOG_DEBUG(("Account %32J not found in deserialize", acc->uc));
+        #ifdef VLOG
+        FD_LOG_WARNING(("Account %32J not found in deserialize", acc->uc));
+        #endif
       }
 
       input_cursor += MAX_PERMITTED_DATA_INCREASE;

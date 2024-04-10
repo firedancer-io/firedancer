@@ -105,13 +105,13 @@ ingest_rocksdb( fd_exec_slot_ctx_t * slot_ctx,
       break;
 
     /* Read and deshred block from RocksDB */
+    if( blk_cnt % 100 == 0 ) {
+      FD_LOG_WARNING(("imported %lu blocks", blk_cnt));
+    }
 
     int err = fd_rocksdb_import_block_blockstore(&rocks_db, &m, blockstore, txnstatus, (slot == trashhash) ? trash_hash : NULL);
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_rocksdb_get_block failed" ));
 
-    // if( blk_cnt % 1000 == 0 ) {
-    //   FD_LOG_WARNING(("imported %lu blocks", blk_cnt));
-    // }
     ++blk_cnt;
 
     fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
