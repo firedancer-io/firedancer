@@ -219,7 +219,8 @@ class PrimitiveMember:
     }
 
     def emitSize(self, inner):
-        PrimitiveMember.emitSizeMap[self.type](self.name, self.varint);
+        if self.encode:
+            PrimitiveMember.emitSizeMap[self.type](self.name, self.varint);
 
     emitWalkMap = {
         "char" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );', file=body),
