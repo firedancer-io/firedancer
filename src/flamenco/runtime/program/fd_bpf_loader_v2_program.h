@@ -27,8 +27,13 @@ fd_bpf_loader_v2_program_execute( fd_exec_instr_ctx_t ctx );
 int
 fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx );
 
+/* fd_bpf_loader_v2_is_executable returns 0 if the account with the
+   given pubkey is an executable BPF Loader v2 user program.  Otherwise,
+   returns an FD_EXECUTOR_INSTR_ERR_{...} code. */
+
 int
-fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey );
+fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  pubkey );
 
 FD_PROTOTYPES_END
 

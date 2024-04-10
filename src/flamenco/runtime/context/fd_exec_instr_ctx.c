@@ -1,18 +1,5 @@
 #include "fd_exec_instr_ctx.h"
 #include "fd_exec_txn_ctx.h"
-#include "../fd_acc_mgr.h"
-
-int
-fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
-                                    ulong                       idx,
-                                    fd_borrowed_account_t **    account ) {
-  if( idx >= ctx->instr->acct_cnt )
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-
-  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  *account = instr_account;
-  return FD_ACC_MGR_SUCCESS;
-}
 
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,

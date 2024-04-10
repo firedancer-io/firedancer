@@ -53,6 +53,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Instruction account APIs *******************************************/
+
 /* fd_account_is_executable returns 1 if the given account has the
    executable flag set.  Otherwise, returns 0.  Mirrors Anza's
    solana_sdk::transaction_context::BorrowedAccount::is_executable. */
@@ -224,6 +226,26 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
                             ulong                       instr_acc_idx,
                             ulong                       new_len,
                             int *                       err );
+
+/* Transaction account APIs *******************************************/
+
+static inline int
+fd_txn_account_is_writable_idx( fd_txn_t const *    txn_descriptor,
+                                fd_pubkey_t const * accounts,
+                                int                 idx ) {
+
+  int acct_addr_cnt = txn_descriptor->acct_addr_cnt;
+  if( txn_descriptor->transaction_version == FD_TXN_V0 )
+    acct_addr_cnt += txn_descriptor->addr_table_adtl_cnt;
+
+  if( idx == acct_addr_cnt )
+    return 0;
+
+  if( fd_pubkey_is_builtin_program( &accounts[idx] ) || fd_pubkey_is_sysvar_id( &accounts[idx] ) )
+    return 0;
+
+  return fd_txn_is_writable(txn_descriptor, idx);
+}
 
 FD_PROTOTYPES_END
 

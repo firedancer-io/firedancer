@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_instr_ctx_h
 
 #include "../fd_runtime.h"
+#include "../fd_acc_mgr.h"
 #include "../info/fd_instr_info.h"
 
 /* fd_exec_instr_ctx_t is the context needed to execute a single
@@ -43,10 +44,18 @@ fd_exec_instr_ctx_delete( void * mem );
 
 /* Helpers for borrowing instruction accounts */
 
-int
+static inline int
 fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
                                     ulong                       idx,
-                                    fd_borrowed_account_t **    account );
+                                    fd_borrowed_account_t **    account ) {
+  if( idx >= ctx->instr->acct_cnt )
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+
+  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
+  *account = instr_account;
+  return FD_ACC_MGR_SUCCESS;
+}
+
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       idx,

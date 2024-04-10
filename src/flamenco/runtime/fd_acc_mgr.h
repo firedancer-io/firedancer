@@ -225,6 +225,21 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
                    ulong                   min_data_sz,
                    fd_borrowed_account_t * account );
 
+int
+fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
+                 fd_funk_txn_t *         txn,
+                 fd_valloc_t             valloc,
+                 fd_borrowed_account_t * account );
+
+int
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
+                            fd_funk_txn_t *          txn,
+                            fd_valloc_t              valloc,
+                            fd_borrowed_account_t ** accounts,
+                            ulong                    accounts_cnt,
+                            fd_tpool_t *             tpool,
+                            ulong                    max_workers );
+
 /* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
    and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'
    feature is activated or 'slots_per_epoch' changes. */
