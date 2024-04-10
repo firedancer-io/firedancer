@@ -856,6 +856,7 @@ class TreapMember:
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
         self.rev = json.get("rev", False)
+        self.upsert = json.get("upsert", False)
 
     def emitPreamble(self):
         name = self.name
@@ -950,6 +951,9 @@ class TreapMember:
         treap_t = self.treap_t
         pool_name = self.name + '_pool'
 
+        if self.upsert:
+            print('  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };', file=body)
+
         if self.compact:
             print(f'  ushort {treap_name}_len;', file=body)
             print(f'  fd_bincode_compact_u16_decode_unsafe(&{treap_name}_len, ctx);', file=body)
@@ -963,6 +967,15 @@ class TreapMember:
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
         print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
+
+        if self.upsert:
+            print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( self->treap, ele->epoch, self->pool );', file=body)
+            print(f'    if ( repeated_entry ) {{', file=body)
+            print(f'        {treap_name}_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication', file=body)
+            print(f'        {treap_t.rstrip("_t")}_destroy( repeated_entry, &destroy_ctx );', file=body)
+            print(f'        {pool_name}_ele_release( self->pool, repeated_entry );', file=body)
+            print(f'    }}', file=body)
+
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 

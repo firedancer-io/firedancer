@@ -5868,6 +5868,7 @@ int fd_vote_authorized_voters_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_authorized_voters_decode_unsafe(fd_vote_authorized_voters_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };
   ulong fd_vote_authorized_voters_treap_len;
   fd_bincode_uint64_decode_unsafe(&fd_vote_authorized_voters_treap_len, ctx);
   self->pool = fd_vote_authorized_voters_pool_alloc( ctx->valloc );
@@ -5876,6 +5877,12 @@ void fd_vote_authorized_voters_decode_unsafe(fd_vote_authorized_voters_t* self, 
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     fd_vote_authorized_voter_new( ele );
     fd_vote_authorized_voter_decode_unsafe( ele, ctx );
+    fd_vote_authorized_voter_t * repeated_entry = fd_vote_authorized_voters_treap_ele_query( self->treap, ele->epoch, self->pool );
+    if ( repeated_entry ) {
+        fd_vote_authorized_voters_treap_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication
+        fd_vote_authorized_voter_destroy( repeated_entry, &destroy_ctx );
+        fd_vote_authorized_voters_pool_ele_release( self->pool, repeated_entry );
+    }
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }
 }
