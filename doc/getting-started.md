@@ -4,7 +4,10 @@ Getting started
 Compiler support
 ----------------
 
-Officially supported compilers for production use are the latest versions of _gcc 11_, _gcc 12_ and _gcc 13_.
+The Firedancer development team tests and supports the following compilers for production use:
+- _gcc 13_ (latest release)
+- _gcc 12_ (latest release)
+- _gcc 11_ (latest release)
 
 Host setup
 ----------

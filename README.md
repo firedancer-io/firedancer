@@ -22,9 +22,9 @@ The below describes building Frankendancer from scratch and running it
 optimized on a stock Linux image. You will need basic development tools
 like `make`, `gcc` along with `rustc`, and `clang`.
 
-Officially supported compilers for production use are the latest releases of _gcc 11_, _gcc 12_ and _gcc 13_.
+Officially supported compilers for production use are the latest releases of _gcc 11_, _gcc 12_ and _gcc 13_. Other compilers are likely to work but are not tested or secured by the Firedancer team.
 
-The latest release of Clang 17 is supported for development and tooling.
+Building with the latest release of Clang 17 is supported for development and tooling, but not recommended  for production use.
 
 Frankendancer currently only supports Linux, and requires a kernel newer
 than v5.7 to build.

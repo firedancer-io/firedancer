@@ -28,9 +28,10 @@ Firedancer must be built from source and requires the following,
 
  - A linux kernel version 5.7 or higher, or with support for
    `BPF_OBJ_PIN`.
- - GCC version 8.3 or higher.
+ - GCC version 8.3 or higher, although only the latest releases of GCC version 11, 12, and 13 are supported and tested by the Firedancer developers.
  - [rustup](https://rustup.rs/)
- - clang, git, and make
+ - git
+ - make
 
 ::: tip NOTE
 
