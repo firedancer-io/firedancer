@@ -882,3 +882,73 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
+
+int
+fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
+                       fd_nonce_state_versions_t * state,
+                       fd_valloc_t                 valloc,
+                       int *                       perr ) {
+
+  *perr = 0;
+
+  fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
+  fd_rawtxn_b_t const * txn_raw        = txn_ctx->_txn_raw;
+
+  if( txn_descriptor->instr_cnt == 0 ) {
+    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return 0;
+  }
+
+  fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[0];
+
+  if( FD_UNLIKELY( txn_instr->program_id >= txn_descriptor->acct_addr_cnt ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+
+  fd_acct_addr_t const * tx_accs = fd_txn_get_acct_addrs( txn_descriptor, txn_raw->raw );
+  fd_acct_addr_t const * prog_id = tx_accs + txn_instr->program_id;
+
+  if( memcmp( prog_id->b, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) )
+    return 0;
+
+  uchar const * instr_data = fd_txn_get_instr_data( txn_instr, txn_raw->raw );
+  uchar const * instr_acct_idxs = fd_txn_get_instr_accts( txn_instr, txn_raw->raw );
+
+  if( FD_UNLIKELY(
+      txn_instr->data_sz != 4UL ||
+      FD_LOAD( uint, instr_data ) != (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
+    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( ( txn_descriptor->acct_addr_cnt < 1 ) |
+                   ( txn_instr->acct_cnt < 1           ) ) )
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  if( FD_UNLIKELY( instr_acct_idxs[0] >= txn_descriptor->acct_addr_cnt ) ) {
+    *perr = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return 0;
+  }
+
+  fd_acct_addr_t const * me = &tx_accs[ instr_acct_idxs[0] ];
+
+  // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L66
+
+  FD_BORROWED_ACCOUNT_DECL(me_rec);
+  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)me, me_rec );
+  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    *perr = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+    return 0;
+  }
+
+  fd_bincode_decode_ctx_t decode = {
+    .data    = me_rec->const_data,
+    .dataend = me_rec->const_data + me_rec->const_meta->dlen,
+    .valloc  = valloc
+  };
+
+  if( fd_nonce_state_versions_decode( state, &decode ) ) {
+    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    return 0;
+  }
+
+  return 1;
+}

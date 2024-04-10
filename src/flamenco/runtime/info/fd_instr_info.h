@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../../util/fd_util_base.h"
+#include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
 #include "../fd_borrowed_account.h"
 
@@ -32,6 +32,14 @@ struct fd_instr_info {
 typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
+
+void
+fd_convert_txn_instr_to_instr( fd_txn_t const *        txn_descriptor,
+                               fd_rawtxn_b_t const *   txn_raw,
+                               fd_txn_instr_t const *  txn_instr,
+                               fd_pubkey_t const *     accounts,
+                               fd_borrowed_account_t * borrowed_accounts,
+                               fd_instr_info_t *       instr );
 
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,

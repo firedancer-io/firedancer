@@ -22,8 +22,8 @@
 //}
 
 int
-fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx,
-                                                              fd_pubkey_t const *  pubkey ) {
+fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(rec);
   int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
   if( read_result != FD_ACC_MGR_SUCCESS ) {

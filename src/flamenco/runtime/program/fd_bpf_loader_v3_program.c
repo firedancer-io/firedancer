@@ -99,7 +99,9 @@ int write_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t const *             
 }
 
 // This is literally called before every single instruction execution... To make it fast we are duplicating some code
-int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey ) {
+int
+fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  pubkey ) {
   int err = 0;
   fd_account_meta_t const * m = fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
   if (FD_UNLIKELY( !fd_acc_exists( m ) ) )

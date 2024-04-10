@@ -122,11 +122,11 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
     uchar const * program_data = NULL;
     ulong program_data_len = 0;
-    if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0 ) {
+    if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) == 0 ) {
       if( fd_bpf_get_executable_program_content_for_upgradeable_loader( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
         return -1;
       }
-    } else if( fd_executor_bpf_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0) {
+    } else if( fd_bpf_loader_v2_is_executable( slot_ctx, program_pubkey ) == 0) {
       if( fd_bpf_get_executable_program_content_for_loader_v2( slot_ctx, program_pubkey, &program_data, &program_data_len ) != 0 ) {
         return -1;
       }
@@ -222,8 +222,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0
-      || fd_executor_bpf_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) == 0 ) {
+    if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) == 0
+      || fd_bpf_loader_v2_is_executable( slot_ctx, program_pubkey ) == 0 ) {
       if( fd_bpf_create_bpf_program_cache_entry( slot_ctx, program_pubkey ) != 0 ) {
         continue;
       }

@@ -80,6 +80,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Instruction execution **********************************************/
+
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
@@ -107,6 +109,61 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
+
+/* Transaction execution **********************************************/
+
+/* Transaction execution phases
+   TODO(lheeger): Document this */
+
+int
+fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t *   txn_ctx,
+                               fd_txn_t const *       txn_descriptor,
+                               fd_rawtxn_b_t const * txn_raw );
+
+int
+fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_exec_txn_ctx_t *  txn_ctx );
+int
+fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_exec_txn_ctx_t *  txn_ctx );
+
+int
+fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_exec_txn_ctx_t *  txn_ctx );
+
+int
+fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_exec_txn_ctx_t *  txn_ctx,
+                         int                  exec_txn_err );
+
+/* fd_execute_txn executes a transaction.  Writes back changes to
+   fd_funk.  (TODO document return code, thread safety, etc)  */
+
+int
+fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
+
+void
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+
+void
+fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
+
+/* fd_executor_txn_check validates the txn after execution for
+   violations of various lamport balance and size rules */
+
+int
+fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,
+                       fd_exec_txn_ctx_t *  txn );
+
+void
+fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
+                              void const *        addr );
+
+int
+fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_borrowed_account_t const * rec,
+                         ulong                fee );
 
 /* Consider moving these to util */
 

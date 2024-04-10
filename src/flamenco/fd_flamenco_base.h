@@ -9,6 +9,23 @@
 #define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
+/* Forward declarations */
+
+struct fd_exec_epoch_ctx;
+typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
+
+struct fd_exec_slot_ctx;
+typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
+
+struct fd_exec_txn_ctx;
+typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
+
+struct fd_exec_instr_ctx;
+typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
+
+struct fd_acc_mgr;
+typedef struct fd_acc_mgr fd_acc_mgr_t;
+
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
 

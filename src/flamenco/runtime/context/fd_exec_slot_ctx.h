@@ -75,6 +75,16 @@ fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
                           fd_solana_manifest_t * manifest );
 
+static inline ulong
+fd_runtime_lamports_per_signature( fd_slot_bank_t const * slot_bank ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return slot_bank->fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
+fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
+                                                 fd_hash_t const *          blockhash );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h */
