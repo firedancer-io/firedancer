@@ -735,7 +735,7 @@
       "name": "vote_authorized_voters",
       "type": "struct",
       "fields": [
-          { "name": "fd_vote_authorized_voters", "type": "treap", "treap_t": "fd_vote_authorized_voter_t", "treap_query_t": "ulong", "treap_cmp": "( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 64 }
+          { "name": "fd_vote_authorized_voters", "type": "treap", "treap_t": "fd_vote_authorized_voter_t", "treap_query_t": "ulong", "treap_cmp": "( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )", "treap_lt": "((e0)->epoch<(e1)->epoch)", "max": 64, "upsert": true }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
     },
