@@ -1075,10 +1075,6 @@ ulong fd_stake_history_entry_size(fd_stake_history_entry_t const * self) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   return size;
 }
 
@@ -5143,10 +5139,6 @@ ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   return size;
 }
 
