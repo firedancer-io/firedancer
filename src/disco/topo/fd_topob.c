@@ -111,7 +111,7 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   cnc_wksp,
                char const *   metrics_wksp,
-               ushort         cpu_idx,
+               ulong          cpu_idx,
                int            is_solana_labs,
                char const *   out_link,
                ulong          out_link_kind_id ) {

@@ -116,7 +116,7 @@ execve_tile( fd_topo_tile_t * tile,
              int              config_memfd,
              int              pipefd ) {
   FD_CPUSET_DECL( cpu_set );
-  if( FD_LIKELY( tile->cpu_idx<65535UL ) ) {
+  if( FD_LIKELY( tile->cpu_idx!=ULONG_MAX ) ) {
     /* set the thread affinity before we clone the new process to ensure
         kernel first touch happens on the desired thread. */
     fd_cpuset_insert( cpu_set, tile->cpu_idx );
