@@ -104,10 +104,16 @@ initialize_numa_assignments( fd_topo_t * topo ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       for( ulong k=0UL; k<tile->uses_obj_cnt; k++ ) {
-        if( tile->uses_obj_id[ k ]==max_obj ) {
+        if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx!=USHORT_MAX ) {
           topo->workspaces[ i ].numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
           found = 1;
           break;
+        } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx==USHORT_MAX ) {
+          topo->workspaces[ i ].numa_idx = 0;
+          found = 1;
+          /* Don't break, keep looking -- a tile with a CPU assignment
+             might also use object in which case we want to use that
+             NUMA node. */
         }
       }
 
