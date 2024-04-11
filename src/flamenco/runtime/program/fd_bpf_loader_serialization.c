@@ -337,7 +337,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
         int err1;
         int err2;
-        if (fd_account_can_data_be_resized(&ctx, metadata, post_data_len, &err1)
+        if (fd_account_can_data_be_resized(ctx.instr, metadata, post_data_len, &err1)
           && fd_account_can_data_be_changed2(&ctx, metadata, acc, &err2)) {
           metadata->dlen = post_data_len;
           fd_memcpy( acc_data, post_data, post_data_len );

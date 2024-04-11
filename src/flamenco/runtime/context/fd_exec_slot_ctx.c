@@ -297,7 +297,7 @@ fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 
   /* only the slot hashes needs freeing in sysvar cache */
-  fd_slot_hashes_destroy( slot_ctx->sysvar_cache.slot_hashes, &ctx );
+  fd_slot_hashes_destroy( slot_ctx->sysvar_cache_old.slot_hashes, &ctx );
 
   /* leader points to a caller-allocated leader schedule */
 

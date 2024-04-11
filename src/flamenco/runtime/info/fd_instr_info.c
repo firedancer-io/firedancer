@@ -3,7 +3,7 @@
 #include "../fd_account.h"
 
 /* demote_program_id() in https://github.com/solana-labs/solana/blob/061bed0a8ca80afb97f4438155e8a6b47bbf7f6d/sdk/program/src/message/versions/v0/loaded.rs#L150 */
-int 
+int
 fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx )
 {
   uint is_program = 0;
@@ -67,7 +67,7 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
     instr->acct_pubkeys[i] = accounts[instr_acc_idxs[i]];
     instr->acct_flags[i] = 0;
 
-    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) && 
+    if( fd_account_is_writable_idx( txn_descriptor, accounts, txn_instr->program_id, instr_acc_idxs[i] ) &&
         !fd_txn_account_is_demotion( txn_ctx, instr_acc_idxs[i] ) ) {
         instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     }
@@ -77,6 +77,17 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
   }
 
   instr->starting_lamports = starting_lamports;
+}
+
+FD_FN_PURE int
+fd_instr_any_signed( fd_instr_info_t const * info,
+                     fd_pubkey_t const *     pubkey ) {
+  int is_signer = 0;
+  for( ulong j=0UL; j < info->acct_cnt; j++ )
+    is_signer |=
+      ( ( !!fd_instr_acc_is_signer_idx( info, j ) ) &
+        ( 0==memcmp( pubkey->key, info->acct_pubkeys[j].key, sizeof(fd_pubkey_t) ) ) );
+  return is_signer;
 }
 
 ulong

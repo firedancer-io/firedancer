@@ -437,7 +437,7 @@ int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx 
       return err;
     }
 
-    err = fd_account_set_executable( &ctx, program_acc, metadata_mut, 1 );
+    err = fd_account_set_executable2( &ctx, program_acc, metadata_mut, 1 );
     if (err != FD_EXECUTOR_INSTR_SUCCESS) {
       return err;
     }

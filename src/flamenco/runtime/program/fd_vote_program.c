@@ -179,7 +179,7 @@ get_data_len( fd_borrowed_account_t const * self ) {
 static int
 set_data_length( fd_borrowed_account_t * self, ulong new_length, fd_exec_instr_ctx_t ctx ) {
   // TODO which APIs should i be using?
-  int rc = fd_account_can_data_be_resized( &ctx, self->const_meta, new_length, &rc );
+  int rc = fd_account_can_data_be_resized( ctx.instr, self->const_meta, new_length, &rc );
   if( FD_UNLIKELY( !rc ) ) return rc;
 
   rc = fd_account_can_data_be_changed2( &ctx, self->const_meta, self->pubkey, &rc );
@@ -249,7 +249,7 @@ set_state( fd_borrowed_account_t *     self,
   int err = 0;
 
   ulong re  = fd_rent_exempt( &ctx.epoch_ctx->epoch_bank.rent, serialized_sz );
-  bool  cbr = fd_account_can_data_be_resized( &ctx, self->const_meta, serialized_sz, &err );
+  bool  cbr = fd_account_can_data_be_resized( ctx.instr, self->const_meta, serialized_sz, &err );
   if( ( ( self->const_meta->dlen < serialized_sz && self->const_meta->info.lamports < re ) ) ||
       !cbr ) {
     serialized_sz = original_serialized_sz;
@@ -2036,7 +2036,8 @@ process_authorize_with_seed_instruction(
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L37-L41
     expected_authority_keys[0] = &single_signer;
     if( FD_UNLIKELY(
-            rc = fd_pubkey_create_with_seed( base_pubkey->uc,
+            rc = fd_pubkey_create_with_seed( &ctx,
+                                             base_pubkey->uc,
                                              current_authority_derived_key_seed,
                                              /* TODO DoS vector? */
                                              strlen( current_authority_derived_key_seed ),
@@ -2509,7 +2510,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       rc = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       break;
     }
-    fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache.slot_hashes;
+    fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache_old.slot_hashes;
 
     // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L170-L171
     if( 0 !=
@@ -2560,7 +2561,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_LIKELY(
             FD_FEATURE_ACTIVE( ctx.slot_ctx, allow_votes_to_directly_update_vote_state ) ) ) {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L183-L197
-      fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache.slot_hashes;
+      fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache_old.slot_hashes;
 
       fd_sol_sysvar_clock_t clock;
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )
@@ -2619,7 +2620,7 @@ fd_executor_vote_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
     if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx.slot_ctx, allow_votes_to_directly_update_vote_state ) &&
                    FD_FEATURE_ACTIVE( ctx.slot_ctx, compact_vote_state_updates ) ) ) {
       // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/programs/vote/src/vote_processor.rs#L212
-      fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache.slot_hashes;
+      fd_slot_hashes_t * slot_hashes = ctx.slot_ctx->sysvar_cache_old.slot_hashes;
 
       fd_sol_sysvar_clock_t clock;
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, ctx.slot_ctx ) ) )

@@ -406,6 +406,18 @@ fd_txn_get_recent_blockhash( fd_txn_t const * txn,
   return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
 }
 
+static inline uchar const *
+fd_txn_get_instr_accts( fd_txn_instr_t const * instr,
+                        void           const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)instr->acct_off);
+}
+
+static inline uchar const *
+fd_txn_get_instr_data( fd_txn_instr_t const * instr,
+                       void           const * payload ) {
+  return (uchar const *)((ulong)payload + (ulong)instr->data_off);
+}
+
 /* fd_txn_align returns the alignment in bytes required of a region of
    memory to be used as a fd_txn_t.  It is the same as
    alignof(fd_txn_t). */

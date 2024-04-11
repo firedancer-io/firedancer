@@ -1211,7 +1211,7 @@ authorize( fd_borrowed_account_t *       stake_account,
 // https://github.com/firedancer-io/solana/blob/v1.17/programs/stake/src/stake_state.rs#L535
 static int
 authorize_with_seed( fd_exec_txn_ctx_t *          transaction_context,
-                     fd_instr_info_t const *      instruction_context,
+                     fd_exec_instr_ctx_t const *  instruction_context,
                      fd_borrowed_account_t *      stake_account,
                      uchar                        authority_base_index,
                      char const *                 authority_seed,
@@ -1225,20 +1225,21 @@ authorize_with_seed( fd_exec_txn_ctx_t *          transaction_context,
   int                 rc;
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
   fd_pubkey_t         out                     = { 0 };
-  if( FD_LIKELY( fd_instr_acc_is_signer_idx( instruction_context, authority_base_index ) ) ) {
+  if( FD_LIKELY( fd_instr_acc_is_signer_idx( instruction_context->instr, authority_base_index ) ) ) {
 
     // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_state.rs#L550-L553
     fd_pubkey_t base_pubkey          = { 0 };
     uchar       index_in_transaction = FD_TXN_ACCT_ADDR_MAX;
     rc                               = fd_instr_ctx_get_index_of_instruction_account_in_transaction(
-        instruction_context, authority_base_index, &index_in_transaction );
+        instruction_context->instr, authority_base_index, &index_in_transaction );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
     rc = fd_txn_ctx_get_key_of_account_at_index(
         transaction_context, index_in_transaction, &base_pubkey );
     if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
     // https://github.com/firedancer-io/solana/blob/debug-master/programs/stake/src/stake_state.rs#L554-L558
-    rc = fd_pubkey_create_with_seed( base_pubkey.uc,
+    rc = fd_pubkey_create_with_seed( instruction_context,
+                                     base_pubkey.uc,
                                      authority_seed,
                                      strlen( authority_seed ),
                                      authority_owner->uc,
@@ -2419,7 +2420,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
       rc = authorize_with_seed( ctx.txn_ctx,
-                                ctx.instr,
+                                &ctx,
                                 me,
                                 1,
                                 args.authority_seed,
@@ -2825,7 +2826,7 @@ fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
       if( FD_UNLIKELY( rc != FD_PROGRAM_OK ) ) return rc;
 
       rc = authorize_with_seed( ctx.txn_ctx,
-                                ctx.instr,
+                                &ctx,
                                 me,
                                 1,
                                 args->authority_seed,

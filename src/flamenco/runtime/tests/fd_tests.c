@@ -324,13 +324,17 @@ int fd_executor_run_test(
     if( 0!=strcmp( test->sysvar_cache.slot_history, "" ) )
       load_sysvar_cache( slot_ctx, fd_sysvar_slot_history_id.key, test->sysvar_cache.slot_history );
 
+    uchar * sysvar_cache_mem = (uchar *)aligned_alloc( fd_sysvar_cache_align(), fd_sysvar_cache_footprint() );
+    slot_ctx->sysvar_cache = fd_sysvar_cache_new( sysvar_cache_mem, slot_ctx->valloc );
+    fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+
     /* Restore slot number
        TODO The slot number should not be in bank */
     do {
       fd_sol_sysvar_clock_t clock[1];
       if( fd_sysvar_clock_read( clock, slot_ctx ) ) {
         slot_ctx->slot_bank.slot = clock->slot;
-        *slot_ctx->sysvar_cache.clock = *clock;
+        *slot_ctx->sysvar_cache_old.clock = *clock;
       }
     } while(0);
 
@@ -339,7 +343,7 @@ int fd_executor_run_test(
       fd_rent_t rent[1];
       fd_rent_new(rent);
       if( fd_sysvar_rent_read( rent, slot_ctx ) ) {
-        *slot_ctx->sysvar_cache.rent = *rent;
+        *slot_ctx->sysvar_cache_old.rent = *rent;
       }
     } while(0);
 
@@ -349,7 +353,7 @@ int fd_executor_run_test(
     do {
       fd_slot_hashes_t slot_hashes[1];
       if( fd_sysvar_slot_hashes_read( slot_hashes, slot_ctx ) )
-        *slot_ctx->sysvar_cache.slot_hashes = *slot_hashes;
+        *slot_ctx->sysvar_cache_old.slot_hashes = *slot_hashes;
     } while(0);
 
 
@@ -571,6 +575,7 @@ int fd_executor_run_test(
 
   /* Revert the Funk transaction */
 fd_executor_run_cleanup:
+  free( fd_sysvar_cache_delete( slot_ctx->sysvar_cache ) );
   fd_funk_txn_cancel( suite->funk, slot_ctx->funk_txn, 0 );
   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = slot_ctx->valloc };
   fd_slot_bank_destroy(&slot_ctx->slot_bank, &destroy_ctx);

@@ -8,6 +8,7 @@
 
 #include "../../rewards/fd_rewards_types.h"
 #include "../sysvar/fd_sysvar_cache.h"
+#include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 
 /* fd_tower is represents a given pubkey's vote tower. */
@@ -40,7 +41,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_valloc_t              valloc;
 
   fd_slot_bank_t           slot_bank;
-  fd_sysvar_cache_t        sysvar_cache; // TODO make const
+  fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
   fd_pubkey_t const *      leader; /* Current leader */
 
   /* TODO figure out what to do with this */
@@ -52,6 +53,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_hash_t                prev_banks_hash;
 
   fd_tower_t * towers;
+  fd_sysvar_cache_t *      sysvar_cache;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

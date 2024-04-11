@@ -4,18 +4,54 @@
 #include "../../fd_flamenco_base.h"
 #include "../fd_executor.h"
 
+/* Custom error types */
+
+#define FD_SYSTEM_PROGRAM_ERR_ACCT_ALREADY_IN_USE              (0)  /* SystemError::AccountAlreadyInUse */
+#define FD_SYSTEM_PROGRAM_ERR_RESULT_WITH_NEGATIVE_LAMPORTS    (1)  /* SystemError::ResultWithNegativeLamports */
+#define FD_SYSTEM_PROGRAM_ERR_INVALID_PROGRAM_ID               (2)  /* SystemError::InvalidProgramId */
+#define FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN            (3)  /* SystemError::InvalidAccountDataLength */
+#define FD_SYSTEM_PROGRAM_ERR_MAX_SEED_LEN_EXCEEDED            (4)  /* SystemError::MaxSeedLengthExceeded */
+#define FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH          (5)  /* SystemError::AddressWithSeedMismatch */
+#define FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES      (6)  /* SystemError::NonceNoRecentBlockhashes */
+#define FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED      (7)  /* SystemError::NonceBlockhashNotExpired */
+#define FD_SYSTEM_PROGRAM_ERR_NONCE_UNEXPECTED_BLOCKHASH_VALUE (8)  /* SystemError::NonceUnexpectedBlockhashValue */
+
 FD_PROTOTYPES_BEGIN
 
-/* Entry-point for the Solana System Program */
-int fd_executor_system_program_execute_instruction( fd_exec_instr_ctx_t ctx ) ;
+/* fd_system_program_execute is the entrypoint for the system program */
 
-void fd_durable_nonce_from_blockhash(fd_hash_t *hash, fd_hash_t *out);
-int  fd_load_nonce_account(fd_exec_txn_ctx_t * txn_ctx, fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * txn_raw, fd_nonce_state_versions_t *state, int *opt_err);
-int  fd_advance_nonce_account   (fd_exec_instr_ctx_t ctx);
-int  fd_withdraw_nonce_account  (fd_exec_instr_ctx_t ctx, unsigned long      withdraw_nonce_account);
-int  fd_initialize_nonce_account(fd_exec_instr_ctx_t ctx, fd_pubkey_t        *initialize_nonce_account);
-int  fd_authorize_nonce_account (fd_exec_instr_ctx_t ctx, fd_pubkey_t        *authorize_nonce_account);
-int  fd_upgrade_nonce_account   (fd_exec_instr_ctx_t ctx);
+int fd_system_program_execute( fd_exec_instr_ctx_t ctx ) ;
+
+/* System program instruction handlers */
+
+int fd_system_program_exec_create_account          ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_t const *           data     );
+int fd_system_program_exec_assign                  ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              owner    );
+int fd_system_program_exec_transfer                ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
+int fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_with_seed_t const * data     );
+int fd_system_program_exec_advance_nonce_account   ( fd_exec_instr_ctx_t * ctx                                                                            );
+int fd_system_program_exec_withdraw_nonce_account  ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
+int fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
+int fd_system_program_exec_authorize_nonce_account ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
+int fd_system_program_exec_allocate                ( fd_exec_instr_ctx_t * ctx, ulong                                                            space    );
+int fd_system_program_exec_allocate_with_seed      ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_allocate_with_seed_t const *       data     );
+int fd_system_program_exec_assign_with_seed        ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_assign_with_seed_t const *         data     );
+int fd_system_program_exec_transfer_with_seed      ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_transfer_with_seed_t const *       data     );
+int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx                                                                            );
+
+/* User APIs */
+
+/* fd_load_nonce_account loads the state of a nonce account associated
+   with a transaction (txn_ctx).  Attempts to create a new
+   fd_nonce_state_versions_t object at *state, using valloc as the heap
+   allocator.  Returns 1 on success and transfers ownership of the new
+   state object to the caller.  On failure, returns zero and does not
+   create a new state object.  *perr is set to an executor error code. */
+
+int
+fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
+                       fd_nonce_state_versions_t * state,
+                       fd_valloc_t                 valloc,
+                       int *                       perr );
 
 FD_PROTOTYPES_END
 

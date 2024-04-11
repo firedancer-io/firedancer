@@ -61,9 +61,25 @@ fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc)
 }
 
 FD_FN_PURE static inline int
-fd_instr_acc_is_signer_idx(fd_instr_info_t const * instr, uchar idx) {
+fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
+                            ulong                   idx ) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }
+
+/* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
+
+   fd_instr_any_signed matches
+   solana_system_program::system_processor::Address::is_signer
+   Scans instruction accounts for matching signer.
+
+   Returns 1 if *any* instruction account with the given pubkey is a
+   signer and 0 otherwise.  Note that the same account/pubkey can be
+   specified as multiple different instruction accounts that might not
+   all have the signer bit. */
+
+FD_FN_PURE int
+fd_instr_any_signed( fd_instr_info_t const * info,
+                     fd_pubkey_t const *     pubkey );
 
 static inline int
 fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {

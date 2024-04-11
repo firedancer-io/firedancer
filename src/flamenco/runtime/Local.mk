@@ -27,6 +27,9 @@ $(call make-unit-test,test_blockstore,test_blockstore,fd_flamenco fd_funk fd_bal
 $(call run-unit-test,test_sysvar_rent)
 
 ifdef FD_HAS_INT128
+$(call add-hdrs,fd_account.h)
+$(call add-objs,fd_account,fd_flamenco)
+
 $(call add-hdrs,fd_runtime.h)
 $(call add-hdrs,fd_rent_lists.h)
 

@@ -42,7 +42,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   if ( !memcmp( pubkey, fd_solana_vote_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_vote_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_system_program_execute_instruction;
+    return fd_system_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_config_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -365,6 +365,8 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
     if (meta == NULL) {
+      static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
+      borrowed_account->const_meta = &sentinel;
       continue;
     }
 
@@ -416,7 +418,7 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   if( compute_budget_status != 0 ) {
     return -1;
   }
-  
+
 #ifdef VLOG
   fd_txn_t const *txn = txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
@@ -593,7 +595,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
   #ifdef VLOG
-        if ( FD_UNLIKELY( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) ) 
+        if ( FD_UNLIKELY( 250555489 == txn_ctx->slot_ctx->slot_bank.slot ) )
           FD_LOG_WARNING(("Start of transaction for %d for %64J", i, sig));
   #endif
       if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
@@ -659,7 +661,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       /* An account writable iff it is writable AND it is not being demoted.
          If this criteria is not met, the account should not be marked as touched
          via updating its most recent slot. */
-      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) && 
+      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) &&
                         !fd_txn_account_is_demotion( txn_ctx, (int)i );
       if( !is_writable ) {
         continue;
@@ -678,7 +680,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn ) {
-  fd_rent_t const * rent = slot_ctx->sysvar_cache.rent;
+  fd_rent_t const * rent = slot_ctx->sysvar_cache_old.rent;
 
   ulong ending_lamports = 0;
   ulong ending_dlen = 0;

@@ -1236,7 +1236,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
 
   int err1;
   int err2;
-  if (fd_account_can_data_be_resized(ctx->instr_ctx, callee_acc_metadata, caller_account->serialized_data_len, &err1)
+  if (fd_account_can_data_be_resized(ctx->instr_ctx->instr, callee_acc_metadata, caller_account->serialized_data_len, &err1)
       && fd_account_can_data_be_changed2(ctx->instr_ctx, callee_acc_metadata, callee_acc_pubkey, &err2)) {
     // if ( FD_UNLIKELY( err1 || err2 ) ) {
     //   return 1;
@@ -1253,7 +1253,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
       fd_account_is_executable( callee_acc_metadata ) != caller_account->executable) {
     fd_pubkey_t const * program_acc = &ctx->instr_ctx->instr->acct_pubkeys[ctx->instr_ctx->instr->program_id];
-    fd_account_set_executable(ctx->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
+    fd_account_set_executable2(ctx->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
   }
 
   if (memcmp(callee_acc_metadata->info.owner, caller_account->owner.uc, sizeof(fd_pubkey_t))) {

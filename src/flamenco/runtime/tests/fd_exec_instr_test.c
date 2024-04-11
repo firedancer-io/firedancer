@@ -86,18 +86,14 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   return runner;
 }
 
-// ############################################################################################################################################
-// TODO: UNCOMMENT AFTER THE SYSVAR CACHE CHANGES HAVE BEEN MERGED INTO THE PRIVATE REPO.
-//
-// static int
-// fd_double_is_normal( double x ) {
-// 	union {
-//     double d;
-//     ulong  ul;
-//   } u = { .d = x };
-//   return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
-// }
-// ############################################################################################################################################
+static int
+fd_double_is_normal( double x ) {
+	union {
+    double d;
+    ulong  ul;
+  } u = { .d = x };
+  return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
+}
 
 static int
 _load_account( fd_borrowed_account_t *           acc,
@@ -258,37 +254,32 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) )
       return 0;
 
+  /* Restore sysvar cache */
 
-  // ############################################################################################################################################
-  // TODO: UNCOMMENT AFTER THE SYSVAR CACHE CHANGES HAVE BEEN MERGED INTO THE PRIVATE REPO.
-  //
-  // /* Restore sysvar cache */
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
-  // fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  /* Handle undefined behavior if sysvars are malicious (!!!) */
 
-  // /* Handle undefined behavior if sysvars are malicious (!!!) */
+  /* A NaN rent exemption threshold is U.B. in Solana Labs */
+  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( rent ) {
+    if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
+        ( rent->exemption_threshold     <      0.0 ) |
+        ( rent->exemption_threshold     >    999.0 ) |
+        ( rent->lamports_per_uint8_year > UINT_MAX ) |
+        ( rent->burn_percent            >      100 ) )
+      return 0;
+  }
 
-  // /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  // fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
-  // if( rent ) {
-  //   if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
-  //       ( rent->exemption_threshold     <      0.0 ) |
-  //       ( rent->exemption_threshold     >    999.0 ) |
-  //       ( rent->lamports_per_uint8_year > UINT_MAX ) |
-  //       ( rent->burn_percent            >      100 ) )
-  //     return 0;
-  // }
-
-  // /* Override most recent blockhash if given */
-  // fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
-  // if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
-  //   fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
-  //   if( last ) {
-  //     *recent_block_hash = *last;
-  //     slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-  //   }
-  // }
-  // ############################################################################################################################################
+  /* Override most recent blockhash if given */
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
+    if( last ) {
+      *recent_block_hash = *last;
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+    }
+  }
 
   /* Load instruction accounts */
 

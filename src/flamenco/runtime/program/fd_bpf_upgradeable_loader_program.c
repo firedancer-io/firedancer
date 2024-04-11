@@ -746,7 +746,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
       return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
     }
 
-    err = fd_account_set_executable( &ctx, program_acc, program_rec->meta, 1 );
+    err = fd_account_set_executable2( &ctx, program_acc, program_rec->meta, 1 );
     if (err != 0)
       return err;
 
@@ -955,7 +955,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
 
     if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown)) {
       int err;
-      if (!fd_account_set_data_length(&ctx, buffer_acc_metadata_new, buffer_acc, BUFFER_METADATA_SIZE, 0, &err)) {
+      if (!fd_account_set_data_length2(&ctx, buffer_acc_metadata_new, buffer_acc, BUFFER_METADATA_SIZE, 0, &err)) {
         return err;
       }
     }
@@ -1052,7 +1052,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     }
 
     if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown)) {
-      if (!fd_account_set_data_length(&ctx, close_acc_rec->meta, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
+      if (!fd_account_set_data_length2(&ctx, close_acc_rec->meta, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
         return err;
       }
     }
@@ -1249,7 +1249,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
     }
 
     if (FD_FEATURE_ACTIVE(ctx.slot_ctx, enable_program_redeployment_cooldown)) {
-      if (!fd_account_set_data_length(&ctx, close_acc_rec->meta, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
+      if (!fd_account_set_data_length2(&ctx, close_acc_rec->meta, close_acc, SIZE_OF_UNINITIALIZED, 0, &err)) {
         return err;
       }
       return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1460,7 +1460,7 @@ int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_inst
       return result;
 
     err = 0;
-    if (!fd_account_set_data_length(&ctx, programdata_acc_rec->meta, programdata_acc, new_len, 0, &err)) {
+    if (!fd_account_set_data_length2(&ctx, programdata_acc_rec->meta, programdata_acc, new_len, 0, &err)) {
       return err;
     }
 
