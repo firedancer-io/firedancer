@@ -20,10 +20,10 @@
 
 typedef struct {
   ulong bytes_read;
-  char input[ 1024 ];
+  char input[ 1024UL ];
 
   ulong output_len;
-  char output[ 1048576 ];
+  char output[ 16777216UL ];
   ulong bytes_written;
 } fd_metric_connection_t;
 
