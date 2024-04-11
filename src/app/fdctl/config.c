@@ -685,7 +685,7 @@ topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    USHORT_MAX,             1UL );
   /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    0,        128UL,                                    8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_store",  "shred_store",  0,        16384UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_store",  "shred_store",  0,        65536UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                  1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                   1UL );
