@@ -92,7 +92,7 @@ typedef struct {
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_labs;                /* If the tile needs to run in the Solana Labs (Anza) address space or not. */
 
-  ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of USHORT_MAX or more indicates the tile should be floating and not pinned to a core. */
+  ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
 
   ulong in_cnt;                 /* The number of links that this tile reads from. */
   ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */

@@ -100,27 +100,46 @@ initialize_numa_assignments( fd_topo_t * topo ) {
 
     if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
 
-    int found = 0;
+    int found_strict = 0;
+    int found_lazy   = 1;
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
-      for( ulong k=0UL; k<tile->uses_obj_cnt; k++ ) {
-        if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx!=USHORT_MAX ) {
-          topo->workspaces[ i ].numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
-          found = 1;
-          break;
-        } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx==USHORT_MAX ) {
-          topo->workspaces[ i ].numa_idx = 0;
-          found = 1;
-          /* Don't break, keep looking -- a tile with a CPU assignment
-             might also use object in which case we want to use that
-             NUMA node. */
-        }
+      if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx!=ULONG_MAX ) ) {
+        topo->workspaces[ i ].numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+        FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
+        found_strict = 1;
+        found_lazy = 1;
+        break;
+      } else if( FD_UNLIKELY( tile->tile_obj_id==max_obj && tile->cpu_idx==ULONG_MAX ) ) {
+        topo->workspaces[ i ].numa_idx = 0;
+        found_lazy = 1;
+        break;
       }
-
-      if( FD_UNLIKELY( found ) ) break;
     }
 
-    if( FD_UNLIKELY( !found ) ) FD_LOG_ERR(( "no tile uses object %s for workspace %s", topo->objs[ max_obj ].name, topo->workspaces[ i ].name ));
+    if( FD_LIKELY( !found_strict ) ) {
+      for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+        fd_topo_tile_t * tile = &topo->tiles[ j ];
+        for( ulong k=0UL; k<tile->uses_obj_cnt; k++ ) {
+          if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj && tile->cpu_idx!=ULONG_MAX ) ) {
+            topo->workspaces[ i ].numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+            FD_TEST( topo->workspaces[ i ].numa_idx!=ULONG_MAX );
+            found_lazy = 1;
+            break;
+          } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx==ULONG_MAX ) {
+            topo->workspaces[ i ].numa_idx = 0;
+            found_lazy = 1;
+            /* Don't break, keep looking -- a tile with a CPU assignment
+               might also use object in which case we want to use that
+               NUMA node. */
+          }
+        }
+
+        if( FD_UNLIKELY( found_lazy ) ) break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found_lazy ) ) FD_LOG_ERR(( "no tile uses object %s for workspace %s", topo->objs[ max_obj ].name, topo->workspaces[ i ].name ));
   }
 }
 
