@@ -877,46 +877,49 @@ check_update_vote_state_slots_are_valid( fd_vote_state_t *           vote_state,
   ulong last_vote_state_update_slot =
       deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts )->slot;
 
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L200-L202 */
+
   if( FD_UNLIKELY( deq_fd_slot_hash_t_empty( slot_hashes->hashes ) ) ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERR_SLOTS_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
+
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L203 */
+
   ulong earliest_slot_hash_in_history =
       deq_fd_slot_hash_t_peek_tail_const( slot_hashes->hashes )->slot;
+
+  /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L205-L210 */
 
   if( FD_UNLIKELY( last_vote_state_update_slot < earliest_slot_hash_in_history ) ) {
     ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  int   has_original_proposed_root = vote_state_update->has_root;
-  ulong original_proposed_root     = vote_state_update->root;
-  if( has_original_proposed_root ) {
-    ulong new_proposed_root = original_proposed_root;
-    if( earliest_slot_hash_in_history > new_proposed_root ) {
-      vote_state_update->has_root       = vote_state->has_root_slot;
-      vote_state_update->root           = vote_state->root_slot;
-      ulong            prev_slot        = ULONG_MAX;
-      int              has_current_root = vote_state_update->has_root;
-      ulong            current_root     = vote_state_update->root;
+  if( vote_state_update->has_root ) {
+    ulong const proposed_root = vote_state_update->root;
+    if( proposed_root < earliest_slot_hash_in_history ) {
+
+      /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L220 */
+
+      vote_state_update->has_root = vote_state->has_root_slot;
+      vote_state_update->root     = vote_state->root_slot;
+
+      /* https://github.com/solana-labs/solana/blob/v1.18.9/programs/vote/src/vote_state/mod.rs#L222-L228 */
+
       for( deq_fd_landed_vote_t_iter_t iter =
                deq_fd_landed_vote_t_iter_init_reverse( vote_state->votes );
            !deq_fd_landed_vote_t_iter_done_reverse( vote_state->votes, iter );
            iter = deq_fd_landed_vote_t_iter_next_reverse( vote_state->votes, iter ) ) {
-        fd_landed_vote_t * vote = deq_fd_landed_vote_t_iter_ele( vote_state->votes, iter );
-        int                is_slot_bigger_than_root = 1;
-        if( has_current_root ) {
-          is_slot_bigger_than_root = vote->lockout.slot > current_root;
-        }
 
-        FD_TEST( vote->lockout.slot < prev_slot && is_slot_bigger_than_root );
-        if( vote->lockout.slot <= new_proposed_root ) {
+        fd_landed_vote_t const * vote = deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
+        if( vote->lockout.slot <= proposed_root ) {
           vote_state_update->has_root = 1;
           vote_state_update->root     = vote->lockout.slot;
           break;
         }
-        prev_slot = vote->lockout.slot;
+
       }
     }
   }
