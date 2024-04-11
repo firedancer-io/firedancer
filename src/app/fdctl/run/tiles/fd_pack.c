@@ -352,7 +352,9 @@ after_credit( void *             _ctx,
                                         ctx->max_pending_transactions-fd_pack_avail_txn_cnt( ctx->pack ) );
     for( ulong i=0UL; i<qty_to_insert; i++ ) {
       fd_txn_p_t * spot = fd_pack_insert_txn_init( ctx->pack );
-      *spot = *extra_txn_deq_remove_head( ctx->extra_txn_deq );
+      *spot = *extra_txn_deq_peek_head( ctx->extra_txn_deq );
+      extra_txn_deq_remove_head( ctx->extra_txn_deq );
+
 
       long insert_duration = -fd_tickcount();
       int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
@@ -361,6 +363,7 @@ after_credit( void *             _ctx,
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
     }
+    FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, qty_to_insert );
   }
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
@@ -430,9 +433,13 @@ during_frag( void * _ctx,
     ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
     ctx->insert_to_extra = 0;
   } else {
-    if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) extra_txn_deq_remove_head( ctx->extra_txn_deq );
-    ctx->cur_spot = extra_txn_deq_insert_tail( ctx->extra_txn_deq );
+    if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
+      extra_txn_deq_remove_head( ctx->extra_txn_deq );
+      FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+    }
+    ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
     ctx->insert_to_extra = 1;
+    FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
   }
 
   ulong payload_sz;
