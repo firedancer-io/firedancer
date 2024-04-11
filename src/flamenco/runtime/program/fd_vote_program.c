@@ -182,7 +182,7 @@ set_data_length( fd_borrowed_account_t * self, ulong new_length, fd_exec_instr_c
   int rc = fd_account_can_data_be_resized( &ctx, self->const_meta, new_length, &rc );
   if( FD_UNLIKELY( !rc ) ) return rc;
 
-  rc = fd_account_can_data_be_changed( &ctx, self->const_meta, self->pubkey, &rc );
+  rc = fd_account_can_data_be_changed2( &ctx, self->const_meta, self->pubkey, &rc );
   if( FD_UNLIKELY( !rc ) ) return rc;
 
   // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/src/transaction_context.rs#L933-L935

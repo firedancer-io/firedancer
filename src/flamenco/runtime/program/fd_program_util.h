@@ -4,6 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../context/fd_exec_txn_ctx.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"

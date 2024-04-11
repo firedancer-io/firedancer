@@ -7,6 +7,8 @@
 #include "fd_vm_cpi.h"
 #include "../runtime/sysvar/fd_sysvar.h"
 #include "../runtime/fd_account.h"
+#include "../runtime/context/fd_exec_txn_ctx.h"
+#include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
 #include <stdio.h>
@@ -168,7 +170,7 @@ fd_vm_prepare_instruction(
 
   fd_account_meta_t const * program_meta = program_rec->const_meta;
 
-  if( FD_UNLIKELY( !fd_account_is_executable(instr_ctx, program_meta, NULL) ) ) {
+  if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
     return 1;
   }
 
@@ -1004,14 +1006,14 @@ fd_vm_syscall_cpi_derive_signers_( fd_vm_exec_context_t * ctx,
     /* Check seed count (avoid overflow) */
     if( FD_UNLIKELY( seeds[i].len > FD_CPI_MAX_SEEDS ) ) {
       return FD_VM_SYSCALL_ERR_INVAL;
-    } 
+    }
 
     /* Derive PDA */
 
     for( ulong j=0UL; j < seeds[i].len; j++ ) {
       /* Check seed limb length */
       /* TODO: use constant */
-      if( FD_UNLIKELY( seed[j].len > 32 ) ) { 
+      if( FD_UNLIKELY( seed[j].len > 32 ) ) {
         return FD_VM_SYSCALL_ERR_INVAL;
       }
 
@@ -1235,7 +1237,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   int err1;
   int err2;
   if (fd_account_can_data_be_resized(ctx->instr_ctx, callee_acc_metadata, caller_account->serialized_data_len, &err1)
-      && fd_account_can_data_be_changed(ctx->instr_ctx, callee_acc_metadata, callee_acc_pubkey, &err2)) {
+      && fd_account_can_data_be_changed2(ctx->instr_ctx, callee_acc_metadata, callee_acc_pubkey, &err2)) {
     // if ( FD_UNLIKELY( err1 || err2 ) ) {
     //   return 1;
     // }
@@ -1249,7 +1251,7 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   }
 
   if (!is_disable_cpi_setting_executable_and_rent_epoch_active &&
-      fd_account_is_executable(ctx->instr_ctx, callee_acc_metadata, NULL) != caller_account->executable) {
+      fd_account_is_executable( callee_acc_metadata ) != caller_account->executable) {
     fd_pubkey_t const * program_acc = &ctx->instr_ctx->instr->acct_pubkeys[ctx->instr_ctx->instr->program_id];
     fd_account_set_executable(ctx->instr_ctx, program_acc, callee_acc_metadata, (char)caller_account->executable);
   }
@@ -1416,7 +1418,7 @@ translate_and_update_accounts(
     fd_instr_borrowed_account_view( ctx->instr_ctx, callee_account, &acc_rec );
     acc_meta = acc_rec->const_meta;
 
-    if( acc_meta && fd_account_is_executable(ctx->instr_ctx, acc_meta, NULL) ) {
+    if( acc_meta && fd_account_is_executable( acc_meta ) ) {
       // FD_LOG_DEBUG(("CPI Acc data len %lu", acc_meta->dlen));
       ulong err = fd_vm_consume_compute_meter( ctx, acc_meta->dlen / vm_compute_budget.cpi_bytes_per_unit );
       if ( FD_UNLIKELY( err ) ) return err;
@@ -1691,7 +1693,7 @@ fd_vm_syscall_cpi_rust(
       acct_infos_va,
       acct_info_cnt * sizeof(fd_vm_rust_account_info_t),
       FD_VM_RUST_ACCOUNT_INFO_ALIGN );
-  if( FD_UNLIKELY( !acc_infos ) ){ 
+  if( FD_UNLIKELY( !acc_infos ) ){
     return FD_VM_MEM_MAP_ERR_ACC_VIO;
   }
 

@@ -2,6 +2,7 @@
 
 #include "../fd_system_ids.h"
 #include "../../vm/fd_vm_context.h"
+#include "../context/fd_exec_txn_ctx.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
 #define DEFAULT_COMPUTE_UNITS                   (150UL)
@@ -119,10 +120,10 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
           }
 
           has_loaded_accounts_data_size_limit_update = 1;
-          updated_loaded_accounts_data_size_limit = instruction.inner.set_loaded_accounts_data_size_limit;          
+          updated_loaded_accounts_data_size_limit = instruction.inner.set_loaded_accounts_data_size_limit;
 
           break;
-      }        
+      }
       default: {
         FD_LOG_WARNING(( "unsupported compute budget program instruction: discriminant: %d", instruction.discriminant ));
       }
@@ -155,8 +156,8 @@ int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t *
   if ( has_loaded_accounts_data_size_limit_update ) {
     ulong data_sz_set = fd_ulong_min(MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES, updated_loaded_accounts_data_size_limit);
     ctx->loaded_accounts_data_size_limit = data_sz_set;
-  } 
-  
+  }
+
   ctx->compute_meter =  ctx->compute_unit_limit;
   ctx->compute_meter = fd_ulong_sat_sub( ctx->compute_meter, (ctx->txn_descriptor->instr_cnt - num_non_compute_budget_instrs) * DEFAULT_COMPUTE_UNITS);
 

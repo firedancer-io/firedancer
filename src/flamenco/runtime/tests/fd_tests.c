@@ -11,6 +11,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_blockstore.h"
 #include "../program/fd_bpf_program_util.h"
+#include "../context/fd_exec_txn_ctx.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;

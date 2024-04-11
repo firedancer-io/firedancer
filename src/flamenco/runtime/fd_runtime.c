@@ -14,6 +14,8 @@
 #include "../rewards/fd_rewards.h"
 #include "program/fd_stake_program.h"
 
+#include "context/fd_exec_txn_ctx.h"
+#include "context/fd_exec_instr_ctx.h"
 #include "info/fd_block_info.h"
 #include "info/fd_microblock_batch_info.h"
 #include "info/fd_microblock_info.h"
@@ -903,7 +905,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
         if ( txn_map_entry != NULL ) {
           void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
-        
+
           fd_solblock_TransactionStatusMeta txn_status = {0};
           /* Need to handle case for ledgers where transaction status is not available.
              This case will be handled in fd_solcap_diff. */
@@ -916,13 +918,13 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
               FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
             }
             if ( txn_status.has_compute_units_consumed ) {
-              solana_cus_consumed = txn_status.compute_units_consumed; 
+              solana_cus_consumed = txn_status.compute_units_consumed;
             }
             if ( txn_status.has_err ) {
               solana_txn_err = txn_status.err.err->bytes[0];
             }
 
-            fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err, 
+            fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err,
                                         txn_ctx->custom_err, slot_ctx->slot_bank.slot,
                                         fd_cus_consumed, solana_cus_consumed, solana_txn_err );
           }

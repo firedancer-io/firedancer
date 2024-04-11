@@ -5,6 +5,7 @@
 #include "program/fd_program_util.h"
 #include "fd_system_ids.h"
 #include "fd_runtime.h"
+#include <assert.h>
 
 #define MAX_PERMITTED_DATA_LENGTH ( 10 * 1024 * 1024 )
 
@@ -60,14 +61,18 @@ int fd_account_touch(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, FD_FN_UNUSED fd_acco
   return FD_PROGRAM_OK;
 }
 
-static inline
-int fd_account_is_executable(FD_FN_UNUSED fd_exec_instr_ctx_t *ctx,  const FD_FN_UNUSED fd_account_meta_t *acct, FD_FN_UNUSED  int *err) {
-  return acct->info.executable;
+/* fd_account_is_executable returns 1 if the given account has the
+   executable flag set.  Otherwise, returns 0.  Mirrors Anza's
+   solana_sdk::transaction_context::BorrowedAccount::is_executable. */
+
+FD_FN_PURE static inline int
+fd_account_is_executable( fd_account_meta_t const * meta ) {
+  return !!meta->info.executable;
 }
 
 //    /// Returns true if the owner of this account is the current `InstructionContext`s last program (instruction wide)
 static inline
-int fd_account_is_owned_by_current_program(const FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
+int fd_account_is_owned_by_current_program2(const FD_FN_UNUSED fd_exec_instr_ctx_t *ctx, const FD_FN_UNUSED fd_account_meta_t * acct, FD_FN_UNUSED  int *err) {
 //        self.instruction_context
 //            .get_last_program_key(self.transaction_context)
 //            .map(|key| key == self.get_owner())
@@ -80,7 +85,7 @@ int fd_account_can_data_be_resized(fd_exec_instr_ctx_t *ctx, const fd_account_me
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 
-  if (acct->dlen != new_length && !fd_account_is_owned_by_current_program(ctx, acct, err)) {
+  if (acct->dlen != new_length && !fd_account_is_owned_by_current_program2(ctx, acct, err)) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
@@ -151,11 +156,11 @@ int fd_account_is_writable(fd_rawtxn_b_t * txn_raw, fd_txn_t * txn_descriptor, u
 }
 
 static inline
-int fd_account_can_data_be_changed(fd_exec_instr_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
+int fd_account_can_data_be_changed2(fd_exec_instr_ctx_t *ctx, fd_account_meta_t const * acct, fd_pubkey_t const * key,  int *err) {
   if (!fd_account_is_early_verification_of_account_modifications_enabled(ctx))
     return 1;
 
-  if (fd_account_is_executable(ctx, acct, err)) {
+  if (fd_account_is_executable( acct )) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
     return 0;
   }
@@ -165,11 +170,49 @@ int fd_account_can_data_be_changed(fd_exec_instr_ctx_t *ctx, fd_account_meta_t c
     return 0;
   }
 
-  if (!fd_account_is_owned_by_current_program(ctx, acct, err)) {
+  if (!fd_account_is_owned_by_current_program2(ctx, acct, err)) {
     *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
     return 0;
   }
 
+  return 1;
+}
+
+/* fd_account_is_owned_by_current_program returns 1 if the given
+   account is owned by the program invoked in the current instruction.
+   Otherwise, returns 0.  Mirrors Anza's
+   solana_sdk::transaction_context::BorrowedAccount::is_owned_by_current_program */
+
+FD_FN_PURE static inline int
+fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
+                                        fd_account_meta_t const * acct ) {
+  return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
+}
+
+static inline int
+fd_account_can_data_be_changed( fd_instr_info_t const * instr,
+                                ulong                   instr_acc_idx,
+                                int *                   err ) {
+
+  assert( instr_acc_idx < instr->acct_cnt );
+  fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
+
+  if( FD_UNLIKELY( fd_account_is_executable( meta ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
+    return 0;
+  }
+
+  err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
@@ -199,11 +242,11 @@ static inline
 int fd_account_set_owner(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct, fd_pubkey_t const * key, fd_pubkey_t * pubkey) {
   if (fd_account_is_early_verification_of_account_modifications_enabled(ctx)) {
     int err = 0;
-    if (!fd_account_is_owned_by_current_program(ctx, acct, &err))
+    if (!fd_account_is_owned_by_current_program2(ctx, acct, &err))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
     if (!fd_instr_acc_is_writable(ctx->instr, key ))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
-    if (fd_account_is_executable(ctx, acct, &err))
+    if (fd_account_is_executable( acct ))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
     if (!fd_account_is_zeroed(acct))
       return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
@@ -291,7 +334,7 @@ int fd_account_check_set_data(fd_exec_instr_ctx_t *ctx, fd_account_meta_t * acct
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 
-  if (!fd_account_can_data_be_changed(ctx, acct, key, err))
+  if (!fd_account_can_data_be_changed2(ctx, acct, key, err))
     return 0;
 
   fd_account_touch(ctx, acct, key, err);
@@ -337,7 +380,7 @@ fd_account_check_set_data_length( fd_exec_instr_ctx_t * ctx,
   if (!fd_account_can_data_be_resized( ctx, acct, new_length, err ))
     return 0;
 
-  if (!fd_account_can_data_be_changed( ctx, acct, key, err ))
+  if (!fd_account_can_data_be_changed2( ctx, acct, key, err ))
     return 0;
 
   return 1;
@@ -353,7 +396,7 @@ fd_account_set_data_length( fd_exec_instr_ctx_t * ctx,
   if (!fd_account_can_data_be_resized(ctx, acct, new_length, err))
     return 0;
 
-  if (!fd_account_can_data_be_changed(ctx, acct, key, err))
+  if (!fd_account_can_data_be_changed2(ctx, acct, key, err))
     return 0;
 
   if (acct->dlen == new_length)

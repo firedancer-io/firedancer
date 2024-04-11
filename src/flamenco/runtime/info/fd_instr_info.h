@@ -31,7 +31,7 @@ typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
 
-int 
+int
 fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx );
 
 void
@@ -43,13 +43,13 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
 ulong
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
-FD_FN_PURE static inline uint
+FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
-                              uchar                   idx ) {
+                              ulong                   idx ) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
 }
 
-static inline uint
+static inline int
 fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
   for( uchar i = 0; i < instr->acct_cnt; i++ ) {
     if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
@@ -60,12 +60,12 @@ fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc)
   return 0;
 }
 
-FD_FN_PURE static inline uint
+FD_FN_PURE static inline int
 fd_instr_acc_is_signer_idx(fd_instr_info_t const * instr, uchar idx) {
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }
 
-static inline uint
+static inline int
 fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
   for( uchar i = 0; i < instr->acct_cnt; i++ ) {
     if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
