@@ -85,6 +85,13 @@ const float VOTE_FRACTION = 0.75;
    always wait if we have 0 transactions. */
 FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
 
+
+#define DEQUE_NAME extra_txn_deq
+#define DEQUE_T    fd_txn_p_t
+#define DEQUE_MAX  (1024UL*1024UL)
+#include "../../../../util/tmpl/fd_deque.c"
+
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -94,6 +101,9 @@ typedef struct {
 typedef struct {
   fd_pack_t *  pack;
   fd_txn_p_t * cur_spot;
+
+  /* The value passed to fd_pack_new, etc. */
+  ulong    max_pending_transactions;
 
   /* The leader slot we are currently packing for, or ULONG_MAX if we
      are not the leader. */
@@ -129,6 +139,12 @@ typedef struct {
   /* last_successful_insert stores the wall time in ns of the last
      succcessful transaction insert. */
   long last_successful_insert;
+
+  /* In addition to the available transactions that pack knows about, we
+     also store a larger ring buffer for handling cases when pack is
+     full.  This is an fd_deque. */
+  fd_txn_p_t * extra_txn_deq;
+  int          insert_to_extra; /* whether the last insert was into pack or the extra deq */
 
   fd_pack_in_ctx_t in[ 32 ];
 
@@ -192,13 +208,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   }};
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_pack_align(), fd_pack_footprint( tile->pack.max_pending_transactions,
-                                                     tile->pack.bank_tile_count,
-                                                     limits ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t )                                   );
+  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
+                                                                        tile->pack.bank_tile_count,
+                                                                        limits                               ) );
+  l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
+
 
 FD_FN_CONST static inline void *
 mux_ctx( void * scratch ) {
@@ -226,7 +244,8 @@ before_credit( void * _ctx,
     /* If we were overrun while processing a frag from an in, then cur_spot
        is left dangling and not cleaned up, so clean it up here (by returning
        the slot to the pool of free slots). */
-    fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
+    if( FD_LIKELY( !ctx->insert_to_extra ) ) fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
+    else                                     extra_txn_deq_remove_tail( ctx->extra_txn_deq       );
     ctx->cur_spot = NULL;
   }
 }
@@ -328,6 +347,22 @@ after_credit( void *             _ctx,
   now = fd_log_wallclock();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
+  if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) ) ) {
+    ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ),
+                                        ctx->max_pending_transactions-fd_pack_avail_txn_cnt( ctx->pack ) );
+    for( ulong i=0UL; i<qty_to_insert; i++ ) {
+      fd_txn_p_t * spot = fd_pack_insert_txn_init( ctx->pack );
+      *spot = *extra_txn_deq_remove_head( ctx->extra_txn_deq );
+
+      long insert_duration = -fd_tickcount();
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
+      insert_duration      += fd_tickcount();
+      ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+      fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    }
+  }
+
   /* Did we send the maximum allowed microblocks? Then end the slot. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
@@ -391,7 +426,14 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  ctx->cur_spot              = fd_pack_insert_txn_init( ctx->pack );
+  if( FD_LIKELY( fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+    ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
+    ctx->insert_to_extra = 0;
+  } else {
+    if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) extra_txn_deq_remove_head( ctx->extra_txn_deq );
+    ctx->cur_spot = extra_txn_deq_insert_tail( ctx->extra_txn_deq );
+    ctx->insert_to_extra = 1;
+  }
 
   ulong payload_sz;
   /* There are two senders, one (dedup tile) which has already parsed the
@@ -467,12 +509,14 @@ after_frag( void *             _ctx,
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
   } else {
     /* Normal transaction case */
-    long insert_duration = -fd_tickcount();
-    int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
-    insert_duration      += fd_tickcount();
-    ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
-    fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-    if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    if( FD_LIKELY( !ctx->insert_to_extra ) ) {
+      long insert_duration = -fd_tickcount();
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
+      insert_duration      += fd_tickcount();
+      ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+      fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    }
 
     ctx->cur_spot = NULL;
   }
@@ -510,7 +554,11 @@ unprivileged_init( fd_topo_t *      topo,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
+  ctx->extra_txn_deq = extra_txn_deq_join( extra_txn_deq_new( FD_SCRATCH_ALLOC_APPEND( l, extra_txn_deq_align(),
+                                                                                          extra_txn_deq_footprint() ) ) );
+
   ctx->cur_spot                      = NULL;
+  ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->slot_microblock_cnt           = 0UL;
@@ -519,6 +567,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->rng                           = rng;
   ctx->last_successful_insert        = 0L;
+  ctx->insert_to_extra               = 0;
 
   ctx->bank_cnt = tile->pack.bank_tile_count;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
@@ -560,6 +609,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
 }
 
 static long
