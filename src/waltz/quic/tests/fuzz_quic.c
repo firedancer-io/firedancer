@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
 #include "../../../util/sanitize/fd_fuzz.h"
 
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -16,7 +15,7 @@
 
 #include "fd_quic_test_helpers.h"
 #include "../../tls/test_tls_helper.h"
-
+#include "../fd_quic_private.h"
 #include "../../../ballet/x509/fd_x509_mock.h"
 
 fd_quic_t *server_quic = NULL;
@@ -26,6 +25,18 @@ size_t scratch_sz = 0x4000;
 
 fd_aio_t _aio[1];
 
+struct fd_quic_pkt_hdr {
+  union {
+    fd_quic_initial_t   initial;
+    fd_quic_handshake_t handshake;
+    fd_quic_one_rtt_t   one_rtt;
+    fd_quic_retry_t     retry;
+    /* don't currently support early data */
+  } quic_pkt;
+  uint enc_level; /* implies the type of quic_pkt */
+};
+typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
+ulong fd_quic_pkt_hdr_encode(uchar *cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t *pkt_hdr, uint enc_level);
 
 ulong test_clock(void *ctx) {
   (void)ctx;
@@ -42,7 +53,7 @@ int test_aio_send_func(void *ctx, fd_aio_pkt_info_t const *batch,
   return 0;
 }
 
-uint send_packet(uchar const *payload, size_t payload_sz) {
+uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
 
   if (FD_UNLIKELY(payload_sz <= 0L)) {
     return 0u;
@@ -99,6 +110,57 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
   cur_ptr += rc;
   cur_sz -= rc;
 
+  if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL || pkt_type == FD_QUIC_PKTTYPE_V1_HANDSHAKE) {
+    fd_quic_pkt_hdr_t pkt_hdr;
+    if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL) {
+      pkt_hdr.enc_level = fd_quic_enc_level_initial_id;
+      fd_quic_initial_t *initial = &pkt_hdr.quic_pkt.initial;
+      initial->hdr_form = 1;
+      initial->fixed_bit = 1;
+      initial->long_packet_type = 0;
+      initial->reserved_bits = 0;
+      initial->pkt_number_len = 3;
+      initial->version = 1;
+      initial->dst_conn_id_len = 8;
+      initial->src_conn_id_len = 5;
+
+      // Print the values of the struct members for debugging
+      printf("hdr_form: %u\n", initial->hdr_form);
+      printf("fixed_bit: %u\n", initial->fixed_bit);
+      printf("long_packet_type: %u\n", initial->long_packet_type);
+      printf("reserved_bits: %u\n", initial->reserved_bits);
+      printf("pkt_number_len: %u\n", initial->pkt_number_len);
+      printf("version: %u\n", initial->version);
+      printf("dst_conn_id_len: %u\n", initial->dst_conn_id_len);
+      printf("src_conn_id_len: %u\n", initial->src_conn_id_len);
+      printf("token_len: %lu\n", initial->token_len);
+      printf("len: %lu\n", initial->len);
+      printf("pkt_num: %lu\n", initial->pkt_num);
+
+
+      // Generate or hardcode the connection IDs
+      memcpy(initial->dst_conn_id, "\x11\x22\x33\x44\x55\x66\x77\x88", 8);
+      memcpy(initial->src_conn_id, "\x88\x77\x66\x55\x44", 8);
+
+      initial->token_len = 0;
+      initial->len = payload_sz;
+      initial->pkt_num = 0;
+
+    }
+    else { //handle handshake 
+      pkt_hdr.enc_level = fd_quic_enc_level_handshake_id;
+    }
+
+    
+    ulong hdr_sz = fd_quic_pkt_hdr_encode(cur_ptr, cur_sz, &pkt_hdr, pkt_hdr.enc_level);
+    if (FD_UNLIKELY(hdr_sz == FD_QUIC_PARSE_FAIL)) {
+      printf("fd_quic_pkt_hdr_encode failed\n");
+      return 1;
+    }
+    cur_ptr += hdr_sz;
+    cur_sz -= hdr_sz;
+  }
+
   if (FD_UNLIKELY((ulong)payload_sz > cur_sz)) {
     return FD_QUIC_FAILED;
   }
@@ -112,10 +174,11 @@ uint send_packet(uchar const *payload, size_t payload_sz) {
 
   fd_quic_aio_cb_receive((void *)server_quic, &batch, 1, NULL, 0);
 
-  return FD_QUIC_SUCCESS; /* success */
+  return FD_QUIC_SUCCESS;
 }
 
-void init_quic(void) {
+void 
+init_quic(void) {
   void *ctx = (void *)0x1234UL;
   void *shaio = fd_aio_new(_aio, ctx, test_aio_send_func);
   assert( shaio );
@@ -194,13 +257,19 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
 
   init_quic();
 
+  // Send initial packet
+  send_packet(NULL, 3, FD_QUIC_PKTTYPE_V1_INITIAL);
+
+  // Send handshake packet
+  send_packet(NULL, 3, FD_QUIC_PKTTYPE_V1_HANDSHAKE);
+
   while (s > 2) {
     FD_FUZZ_MUST_BE_COVERED;
     ushort payload_sz = (ushort)( ptr[0] + ( ptr[1] << 8u ) );
     ptr += 2;
     s -= 2;
     if (payload_sz <= s) {
-      send_packet(ptr, payload_sz);
+      send_packet(ptr, payload_sz, 0);
       FD_FUZZ_MUST_BE_COVERED;
       ptr += payload_sz;
       s -= payload_sz;
