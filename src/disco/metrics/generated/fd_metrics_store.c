@@ -2,4 +2,5 @@
 #include "fd_metrics_store.h"
 
 const fd_metrics_meta_t FD_METRICS_STORE[FD_METRICS_STORE_TOTAL] = {
+    DECLARE_METRIC_COUNTER( STORE_TILE, TRANSACTIONS_INSERTED ),
 };
