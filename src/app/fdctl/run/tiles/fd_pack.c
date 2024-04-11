@@ -71,6 +71,20 @@ const ulong CUS_PER_MICROBLOCK = 1500000UL;
 
 const float VOTE_FRACTION = 0.75;
 
+/* There's overhead associated with each microblock the bank tile tries
+   to execute it, so the optimal strategy is not to produce a microblock
+   with a single transaction as soon as we receive it.  Basically, if we
+   have less than 31 transactions, we want to wait a little to see if we
+   receive additional transactions before we schedule a microblock.  We
+   can model the optimum amount of time to wait, but the equation is
+   complicated enough that we want to compute it before compile time.
+   wait_duration[i] for i in [0, 31] gives the time in nanoseconds pack
+   should wait after receiving its most recent transaction before
+   scheduling if it has i transactions available.  Unsurprisingly,
+   wait_duration[31] is 0.  wait_duration[0] is ULONG_MAX, so we'll
+   always wait if we have 0 transactions. */
+FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -111,6 +125,10 @@ typedef struct {
      after_frag in case the tile gets overrun. */
   long _slot_end_ns;
   long slot_end_ns;
+
+  /* last_successful_insert stores the wall time in ns of the last
+     succcessful transaction insert. */
+  long last_successful_insert;
 
   fd_pack_in_ctx_t in[ 32 ];
 
@@ -248,6 +266,13 @@ after_credit( void *             _ctx,
 
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
+
+  /* Do I have enough microblocks and/or have I waited enough time? */
+  if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
+        wait_duration[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
+    update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
+    return;
+  }
 
   ulong bank_cnt = ctx->bank_cnt;
 
@@ -447,6 +472,7 @@ after_frag( void *             _ctx,
     insert_duration      += fd_tickcount();
     ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
     fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+    if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
 
     ctx->cur_spot = NULL;
   }
@@ -492,6 +518,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->rng                           = rng;
+  ctx->last_successful_insert        = 0L;
 
   ctx->bank_cnt = tile->pack.bank_tile_count;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
