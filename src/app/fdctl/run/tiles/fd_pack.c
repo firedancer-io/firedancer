@@ -355,7 +355,7 @@ after_credit( void *             _ctx,
       *spot = *extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
+      int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
       insert_duration      += fd_tickcount();
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
