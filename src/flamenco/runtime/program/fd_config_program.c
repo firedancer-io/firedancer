@@ -13,17 +13,6 @@
 
    https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs */
 
-/* config_keys_list_ok does a part of the parsing validations that are
-   currently not done in fd_types.c. */
-
-FD_FN_PURE static int
-config_keys_list_ok( fd_config_keys_t const * key_list ) {
-  for( ulong i=0UL; i < key_list->keys_len; i++ )
-    if( key_list->keys[i].signer > 1 )  /* malformed bool */
-      return 0;
-  return 1;
-}
-
 /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L16 */
 
 static int
@@ -43,10 +32,6 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
      (hardcoded constant by Agave limited_deserialize) */
   if( decode_result != FD_BINCODE_SUCCESS ||
       (ulong)ctx.instr->data + 1232UL < (ulong)decode.data )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-
-  /* TODO fd_types.c should validate bools */
-  if( FD_UNLIKELY( !config_keys_list_ok( &key_list ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
@@ -81,8 +66,6 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
   fd_config_keys_t current_data;
   decode_result = fd_config_keys_decode( &current_data, &config_acc_state_decode_context );
   if( decode_result != FD_BINCODE_SUCCESS )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  if( FD_UNLIKELY( !config_keys_list_ok( &current_data ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L42 */

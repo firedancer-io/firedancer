@@ -90,6 +90,43 @@ FD_FN_PURE fd_recent_block_hashes_t          const * fd_sysvar_cache_recent_bloc
 FD_FN_PURE fd_stake_history_t                const * fd_sysvar_cache_stake_history      ( fd_sysvar_cache_t const * cache );
 FD_FN_PURE fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_cache_last_restart_slot  ( fd_sysvar_cache_t const * cache );
 
+/* fd_sysvar_from_instr_acct_{...} pretends to read a sysvar from an
+   instruction account.  Checks that a given instruction account has
+   an address matching the sysvar.  Returns the sysvar from the sysvar
+   cache.  On return, *err is in FD_EXECUTOR_INSTR_{SUCCESS,ERR_{...}}.
+
+   Matches Agave's
+   solana_program_runtime::sysvar_cache::get_sysvar_with_account_check
+   https://github.com/solana-labs/solana/blob/v1.18.8/program-runtime/src/sysvar_cache.rs#L215-L314
+
+   Equivalent to:
+
+     fd_sysvar_FOO_t const *
+     fd_sysvar_from_instr_acct_FOO( fd_exec_instr_ctx_t const * ctx,
+                                    ulong                       acct_idx ) {
+       if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
+          *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return NULL;
+       }
+       if( ctx->instr->acct_pubkeys[ acct_idx ] != FOO_addr ) {
+         *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+         return NULL;
+       }
+       FOO_t const * value = fd_sysvar_cache_FOO( ctx->slot_ctx->sysvar_cache );
+       *err = value ? 0 : FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+       return value;
+     } */
+
+fd_sol_sysvar_clock_t             const * fd_sysvar_from_instr_acct_clock              ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_epoch_schedule_t               const * fd_sysvar_from_instr_acct_epoch_schedule     ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sysvar_epoch_rewards_t         const * fd_sysvar_from_instr_acct_epoch_rewards      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sysvar_fees_t                  const * fd_sysvar_from_instr_acct_fees               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_rent_t                         const * fd_sysvar_from_instr_acct_rent               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_slot_hashes_t                  const * fd_sysvar_from_instr_acct_slot_hashes        ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_recent_block_hashes_t          const * fd_sysvar_from_instr_acct_recent_block_hashes( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_stake_history_t                const * fd_sysvar_from_instr_acct_stake_history      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_from_instr_acct_last_restart_slot  ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_cache_h */

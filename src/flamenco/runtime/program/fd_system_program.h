@@ -38,12 +38,20 @@ int fd_system_program_exec_assign_with_seed        ( fd_exec_instr_ctx_t * ctx, 
 int fd_system_program_exec_transfer_with_seed      ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_transfer_with_seed_t const *       data     );
 int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx                                                                            );
 
-/* Private functions */
+/* User APIs */
 
-/* defined in fd_system_program.c */
-FD_FN_PURE int
-fd_system_program_any_signed( fd_instr_info_t const * info,
-                              fd_pubkey_t const *     pubkey );
+/* fd_load_nonce_account loads the state of a nonce account associated
+   with a transaction (txn_ctx).  Attempts to create a new
+   fd_nonce_state_versions_t object at *state, using valloc as the heap
+   allocator.  Returns 1 on success and transfers ownership of the new
+   state object to the caller.  On failure, returns zero and does not
+   create a new state object.  *perr is set to an executor error code. */
+
+int
+fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
+                       fd_nonce_state_versions_t * state,
+                       fd_valloc_t                 valloc,
+                       int *                       perr );
 
 FD_PROTOTYPES_END
 

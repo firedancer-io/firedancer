@@ -402,7 +402,8 @@ fd_topob_finish( fd_topo_t * topo,
 
       offset = fd_ulong_align_up( offset, align( topo, obj ) );
       obj->offset = offset;
-      offset += footprint( topo, obj );
+      obj->footprint = footprint( topo, obj );
+      offset += obj->footprint;
     }
 
     ulong footprint = fd_ulong_align_up( offset, fd_topo_workspace_align() );

@@ -540,6 +540,10 @@ dynamic_port_range = "8900-9000"
     # if they are not writing to the same accounts at the same time.
     bank_tile_count = 2
 
+    # How many shred tiles to run.  Multiple shred tiles can run in
+    # parallel to create shreds from transaction entries.
+    shred_tile_count = 1
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
 # pages are 1GB.  This is done to prevent TLB misses which can have a
@@ -737,7 +741,7 @@ dynamic_port_range = "8900-9000"
         # rather than the underlying link bandwidth.  If you have a lot
         # of memory available and are constrained by this, it can make
         # sense to increase.
-        max_inflight_quic_packets = 65536
+        max_inflight_quic_packets = 2048
 
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.

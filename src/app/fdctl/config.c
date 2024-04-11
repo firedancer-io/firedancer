@@ -232,6 +232,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., layout,              quic_tile_count                                           );
   ENTRY_UINT  ( ., layout,              verify_tile_count                                         );
   ENTRY_UINT  ( ., layout,              bank_tile_count                                           );
+  ENTRY_UINT  ( ., layout,              shred_tile_count                                          );
 
   ENTRY_STR   ( ., hugetlbfs,           gigantic_page_mount_path                                  );
   ENTRY_STR   ( ., hugetlbfs,           huge_page_mount_path                                      );
@@ -484,8 +485,8 @@ mac_address( const char * interface,
   fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
-static uint
-username_to_uid( char * username ) {
+static void
+username_to_id( config_t * config ) {
   FILE * fp = fopen( "/etc/passwd", "rb" );
   if( FD_UNLIKELY( !fp) ) FD_LOG_ERR(( "could not open /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -495,19 +496,27 @@ username_to_uid( char * username ) {
     char * s = strchr( line, ':' );
     if( FD_UNLIKELY( !s ) ) continue;
     *s = 0;
-    if( FD_LIKELY( strcmp( line, username ) ) ) continue;
+    if( FD_LIKELY( strcmp( line, config->user ) ) ) continue;
 
-    s = strchr( s + 1, ':' );
-    if( FD_UNLIKELY( !s ) ) continue;
+    char * u = strchr( s + 1, ':' );
+    if( FD_UNLIKELY( !u ) ) continue;
+
+    char * g = strchr( u + 1, ':' );
+    if( FD_UNLIKELY( !g ) ) continue;
 
     if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not close /etc/passwd (%i-%s)", errno, fd_io_strerror( errno ) ));
     char * endptr;
-    ulong uid = strtoul( s + 1, &endptr, 10 );
+    ulong uid = strtoul( u + 1, &endptr, 10 );
     if( FD_UNLIKELY( *endptr != ':' || uid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse uid in /etc/passwd"));
-    return (uint)uid;
+    ulong gid = strtoul( g + 1, &endptr, 10 );
+    if( FD_UNLIKELY( *endptr != ':' || gid > UINT_MAX ) ) FD_LOG_ERR(( "could not parse gid in /etc/passwd"));
+
+    config->uid = ( uint )uid;
+    config->gid = ( uint )gid;
+    return;
   }
 
-  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", username ));
+  FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
 }
 
 FD_FN_CONST fd_topo_run_tile_t *
@@ -621,6 +630,7 @@ topo_initialize( config_t * config ) {
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
   ulong verify_tile_cnt = config->layout.verify_tile_count;
   ulong bank_tile_cnt   = config->layout.bank_tile_count;
+  ulong shred_tile_cnt  = config->layout.shred_tile_count;
 
   fd_topo_t topo[1] = { fd_topob_new( config->name ) };
 
@@ -661,7 +671,7 @@ topo_initialize( config_t * config ) {
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_netmux",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   /**/                 fd_topob_link( topo, "netmux_out",   "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_netmux",  "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
-  /**/                 fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_netmux", "netmux_inout", 0,        config->tiles.net.send_buffer_size,       FD_NET_MTU,             1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  1,        config->tiles.verify.receive_buffer_size, 0UL,                    config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", 0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
   /**/                 fd_topob_link( topo, "dedup_pack",   "dedup_pack",   0,        config->tiles.verify.receive_buffer_size, FD_TPU_DCACHE_MTU,      1UL );
@@ -674,12 +684,12 @@ topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    0,        128UL,                                    USHORT_MAX,             1UL );
   /**/                 fd_topob_link( topo, "crds_shred",   "poh_shred",    0,        128UL,                                    8UL  + 40200UL * 38UL,  1UL );
   /* See long comment in fd_shred.c for an explanation about the size of this dcache. */
-  /**/                 fd_topob_link( topo, "shred_store",  "shred_store",  0,        16384UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_store",  "shred_store",  0,        16384UL,                                  4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
 
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_sign",    "quic_sign",    0,        128UL,                                    130UL,                  1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "sign_quic",    "sign_quic",    0,        128UL,                                    64UL,                   1UL );
-  /**/                 fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                   1UL );
-  /**/                 fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                   1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   0,        128UL,                                    32UL,                   1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   0,        128UL,                                    64UL,                   1UL );
 
   ushort tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) tile_to_cpu[ i ] = USHORT_MAX; /* Unassigned tiles will be floating. */
@@ -695,7 +705,7 @@ topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "pack_bank",    0UL );
   FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       "bank_poh",     i   );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       "poh_shred",    0UL );
-  /**/                 fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "shred_store",  0UL );
+  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       "shred_store",  i   );
   /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 1,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       NULL,           0UL );
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in", "metric_in",  tile_to_cpu[topo->tile_cnt], 0,       NULL,           0UL );
@@ -715,7 +725,7 @@ topo_initialize( config_t * config ) {
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "net_netmux",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt)   fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "quic_netmux",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "shred_netmux", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "netmux",  0UL,          "metric_in", "shred_netmux", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt)   fd_topob_tile_in(  topo, "quic",    i,            "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt)   fd_topob_tile_out( topo, "quic",    i,                         "quic_netmux",  i                                                  );
   /* All verify tiles read from all QUIC tiles, packets are round robin. */
@@ -740,12 +750,12 @@ topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                        fd_topob_tile_out( topo, "poh",    0UL,                        "poh_pack",     0UL                                                );
-  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "crds_shred",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_out( topo, "shred",  0UL,                        "shred_netmux", 0UL                                                );
-  /**/                 fd_topob_tile_in(  topo, "store",  0UL,           "metric_in", "shred_store",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "netmux_out",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "crds_shred",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_netmux", i                                                  );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "store",  0UL,           "metric_in", "shred_store",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* Sign links don't need to be reliable because they are synchronous,
      so there's at most one fragment in flight at a time anyway.  The
@@ -758,11 +768,12 @@ topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_in(  topo, "quic",     i,           "metric_in", "sign_quic",      i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_quic",      i                                                  );
   }
-
-  /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out( topo, "shred",  0UL,                        "shred_sign",   0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "shred",  0UL,           "metric_in", "sign_shred",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-  /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",   0UL                                                  );
+  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
+    /**/               fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "shred_sign",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/               fd_topob_tile_out( topo, "shred",  i,                          "shred_sign",     i                                                    );
+    /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",     i                                                    );
+  }
 
   /* PoH tile represents the Solana Labs address space, so it's
      responsible for publishing Solana Labs provided data to
@@ -792,9 +803,11 @@ topo_initialize( config_t * config ) {
      version from the Solana Labs boot path to the shred tile. */
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "poh", 0UL ) ];
-  fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", 0UL ) ];
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
+    fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
+    fd_topob_tile_uses( topo, shred_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -1102,9 +1115,7 @@ config_parse( int *      pargc,
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
   }
 
-  uint uid = username_to_uid( config->user );
-  config->uid = uid;
-  config->gid = uid;
+  username_to_id( config );
 
   if( config->uid == 0 || config->gid == 0 )
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));

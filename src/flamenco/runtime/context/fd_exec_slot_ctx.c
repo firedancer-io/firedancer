@@ -150,11 +150,6 @@ recover_clock( fd_exec_slot_ctx_t *   slot_ctx,
 
     (void)slot_ctx;
     (void)vote_state_timestamp;
-    // TODO
-    //if (vote_state_timestamp.slot != 0 || n->elem.stake != 0)
-    //{
-    //  fd_vote_record_timestamp_vote_with_slot(slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot);
-    //}
   }
 
   return 1;
@@ -301,4 +296,30 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
   fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
 
   return res;
+}
+
+ulong
+fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
+                                                 fd_hash_t const *          blockhash ) {
+
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+
+  // https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/runtime/src/blockhash_queue.rs#L55
+  ulong default_fee = slot_ctx->slot_bank.fee_rate_governor.target_lamports_per_signature / 2;
+
+  if( blockhash == NULL ) {
+    return default_fee;
+  }
+
+  fd_block_block_hash_entry_t *hashes = slot_ctx->slot_bank.recent_block_hashes.hashes;
+  for( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init(hashes);
+       !deq_fd_block_block_hash_entry_t_iter_done(hashes, iter);
+       iter = deq_fd_block_block_hash_entry_t_iter_next(hashes, iter) ) {
+    fd_block_block_hash_entry_t *curr_elem = deq_fd_block_block_hash_entry_t_iter_ele(hashes, iter);
+    if (memcmp(&curr_elem->blockhash, blockhash, sizeof(fd_hash_t)) == 0) {
+      return curr_elem->fee_calculator.lamports_per_signature;
+    }
+  }
+
+  return default_fee;
 }

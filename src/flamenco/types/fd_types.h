@@ -146,7 +146,7 @@ typedef struct fd_stake_history_entry fd_stake_history_entry_t;
 #define FD_STAKE_HISTORY_ENTRY_FOOTPRINT sizeof(fd_stake_history_entry_t)
 #define FD_STAKE_HISTORY_ENTRY_ALIGN (8UL)
 
-#define FD_STAKE_HISTORY_MAX 1024
+#define FD_STAKE_HISTORY_MAX 512
 #define POOL_NAME fd_stake_history_pool
 #define POOL_T fd_stake_history_entry_t
 #define POOL_NEXT parent
@@ -162,7 +162,7 @@ fd_stake_history_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_NAME fd_stake_history_treap
 #define TREAP_T fd_stake_history_entry_t
 #define TREAP_QUERY_T ulong
-#define TREAP_CMP(q,e) (memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))
+#define TREAP_CMP(q,e) ((q == (e)->epoch) ? 0 : ((q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_stake_history_treap_t *
@@ -207,14 +207,14 @@ struct __attribute__((packed)) fd_solana_account_meta {
   ulong lamports;
   ulong rent_epoch;
   uchar owner[32];
-  char executable;
-  char padding[7];
+  uchar executable;
+  uchar padding[7];
 };
 typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 #define FD_SOLANA_ACCOUNT_META_FOOTPRINT sizeof(fd_solana_account_meta_t)
 #define FD_SOLANA_ACCOUNT_META_ALIGN (8UL)
 
-struct __attribute__((packed, aligned(8UL))) fd_solana_account_hdr {
+struct __attribute__((packed)) fd_solana_account_hdr {
   fd_solana_account_stored_meta_t meta;
   fd_solana_account_meta_t info;
   fd_hash_t hash;
@@ -270,6 +270,41 @@ struct __attribute__((aligned(8UL))) fd_vote_accounts {
 typedef struct fd_vote_accounts fd_vote_accounts_t;
 #define FD_VOTE_ACCOUNTS_FOOTPRINT sizeof(fd_vote_accounts_t)
 #define FD_VOTE_ACCOUNTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_stake_accounts_pair {
+  fd_pubkey_t key;
+  uint exists;
+};
+typedef struct fd_stake_accounts_pair fd_stake_accounts_pair_t;
+#define FD_STAKE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_stake_accounts_pair_t)
+#define FD_STAKE_ACCOUNTS_PAIR_ALIGN (8UL)
+
+typedef struct fd_stake_accounts_pair_t_mapnode fd_stake_accounts_pair_t_mapnode_t;
+#define REDBLK_T fd_stake_accounts_pair_t_mapnode_t
+#define REDBLK_NAME fd_stake_accounts_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+#undef REDBLK_T
+#undef REDBLK_NAME
+struct fd_stake_accounts_pair_t_mapnode {
+    fd_stake_accounts_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_stake_accounts_pair_t_mapnode_t *
+fd_stake_accounts_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  void * mem = fd_valloc_malloc( valloc, fd_stake_accounts_pair_t_map_align(), fd_stake_accounts_pair_t_map_footprint(len));
+  return fd_stake_accounts_pair_t_map_join(fd_stake_accounts_pair_t_map_new(mem, len));
+}
+struct __attribute__((aligned(8UL))) fd_stake_accounts {
+  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_pool;
+  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_root;
+};
+typedef struct fd_stake_accounts fd_stake_accounts_t;
+#define FD_STAKE_ACCOUNTS_FOOTPRINT sizeof(fd_stake_accounts_t)
+#define FD_STAKE_ACCOUNTS_ALIGN (8UL)
 
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 struct __attribute__((aligned(8UL))) fd_stake_weight {
@@ -470,7 +505,7 @@ struct __attribute__((aligned(16UL))) fd_deserializable_versioned_bank {
   fd_unused_accounts_t unused_accounts;
   ulong epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t* epoch_stakes;
-  char is_delta;
+  uchar is_delta;
 };
 typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank_t;
 #define FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT sizeof(fd_deserializable_versioned_bank_t)
@@ -767,7 +802,6 @@ typedef struct fd_vote_prior_voters fd_vote_prior_voters_t;
 struct __attribute__((aligned(8UL))) fd_vote_prior_voters_0_23_5 {
   fd_vote_prior_voter_0_23_5_t buf[32];
   ulong idx;
-  uchar is_empty;
 };
 typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
@@ -784,7 +818,7 @@ typedef struct fd_landed_vote fd_landed_vote_t;
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
-#define DEQUE_MAX 100
+#define DEQUE_MAX 1228
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
@@ -815,7 +849,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_epoch_credits_t * epoch_credits;
   fd_vote_block_timestamp_t last_timestamp;
 };
@@ -839,7 +874,7 @@ fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc ) {
 #define TREAP_NAME fd_vote_authorized_voters_treap
 #define TREAP_T fd_vote_authorized_voter_t
 #define TREAP_QUERY_T ulong
-#define TREAP_CMP(q,e) (memcmp((&(q)), (&((e)->epoch)), sizeof(ulong)))
+#define TREAP_CMP(q,e) ( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_vote_authorized_voters_treap_t *
@@ -865,7 +900,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -893,7 +929,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_landed_vote_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -922,7 +959,8 @@ typedef struct fd_vote_state_versioned fd_vote_state_versioned_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
   fd_vote_lockout_t * lockouts;
-  fd_option_slot_t root;
+  ulong root;
+  uchar has_root;
   fd_hash_t hash;
   ulong* timestamp;
 };
@@ -1048,14 +1086,6 @@ typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_FOOTPRINT sizeof(fd_slot_meta_t)
 #define FD_SLOT_META_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_slot_meta_meta {
-  ulong start_slot;
-  ulong end_slot;
-};
-typedef struct fd_slot_meta_meta fd_slot_meta_meta_t;
-#define FD_SLOT_META_META_FOOTPRINT sizeof(fd_slot_meta_meta_t)
-#define FD_SLOT_META_META_ALIGN (8UL)
-
 /* A validator timestamp oracle vote received from a voting node */
 struct __attribute__((aligned(8UL))) fd_clock_timestamp_vote {
   fd_pubkey_t pubkey;
@@ -1170,7 +1200,6 @@ typedef struct fd_firedancer_bank fd_firedancer_bank_t;
 
 struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_stakes_t stakes;
-  ulong lamports_per_signature;
   ulong hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
@@ -1180,6 +1209,11 @@ struct __attribute__((aligned(16UL))) fd_epoch_bank {
   fd_inflation_t inflation;
   fd_epoch_schedule_t epoch_schedule;
   fd_rent_t rent;
+  ulong eah_start_slot;
+  ulong eah_stop_slot;
+  ulong eah_interval;
+  fd_hash_t genesis_hash;
+  uint cluster_type;
   fd_vote_accounts_t next_epoch_stakes;
 };
 typedef struct fd_epoch_bank fd_epoch_bank_t;
@@ -1202,6 +1236,8 @@ struct __attribute__((aligned(16UL))) fd_slot_bank {
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+  fd_stake_accounts_t stake_account_keys;
+  fd_vote_accounts_t vote_account_keys;
   ulong lamports_per_signature;
   ulong transaction_count;
 };
@@ -1297,7 +1333,8 @@ typedef struct fd_update_vote_state_switch fd_update_vote_state_switch_t;
 struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
   fd_pubkey_t new_authority;
 };
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
@@ -1308,7 +1345,8 @@ typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args
 struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
 };
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)
@@ -1500,7 +1538,8 @@ typedef struct fd_stake_instruction_authorize fd_stake_instruction_authorize_t;
 struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
@@ -1510,7 +1549,8 @@ typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L249 */
 struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args {
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;
@@ -2307,6 +2347,81 @@ typedef struct fd_addrlut_instruction fd_addrlut_instruction_t;
 #define FD_ADDRLUT_INSTRUCTION_FOOTPRINT sizeof(fd_addrlut_instruction_t)
 #define FD_ADDRLUT_INSTRUCTION_ALIGN (8UL)
 
+struct __attribute__((aligned(8UL))) fd_repair_request_header {
+  fd_signature_t signature;
+  fd_pubkey_t sender;
+  fd_pubkey_t recipient;
+  ulong timestamp;
+  uint nonce;
+};
+typedef struct fd_repair_request_header fd_repair_request_header_t;
+#define FD_REPAIR_REQUEST_HEADER_FOOTPRINT sizeof(fd_repair_request_header_t)
+#define FD_REPAIR_REQUEST_HEADER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_window_index {
+  fd_repair_request_header_t header;
+  ulong slot;
+  ulong shred_index;
+};
+typedef struct fd_repair_window_index fd_repair_window_index_t;
+#define FD_REPAIR_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_window_index_t)
+#define FD_REPAIR_WINDOW_INDEX_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_highest_window_index {
+  fd_repair_request_header_t header;
+  ulong slot;
+  ulong shred_index;
+};
+typedef struct fd_repair_highest_window_index fd_repair_highest_window_index_t;
+#define FD_REPAIR_HIGHEST_WINDOW_INDEX_FOOTPRINT sizeof(fd_repair_highest_window_index_t)
+#define FD_REPAIR_HIGHEST_WINDOW_INDEX_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_orphan {
+  fd_repair_request_header_t header;
+  ulong slot;
+};
+typedef struct fd_repair_orphan fd_repair_orphan_t;
+#define FD_REPAIR_ORPHAN_FOOTPRINT sizeof(fd_repair_orphan_t)
+#define FD_REPAIR_ORPHAN_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_repair_ancestor_hashes {
+  fd_repair_request_header_t header;
+  ulong slot;
+};
+typedef struct fd_repair_ancestor_hashes fd_repair_ancestor_hashes_t;
+#define FD_REPAIR_ANCESTOR_HASHES_FOOTPRINT sizeof(fd_repair_ancestor_hashes_t)
+#define FD_REPAIR_ANCESTOR_HASHES_ALIGN (8UL)
+
+union fd_repair_protocol_inner {
+  fd_gossip_ping_t pong;
+  fd_repair_window_index_t window_index;
+  fd_repair_highest_window_index_t highest_window_index;
+  fd_repair_orphan_t orphan;
+  fd_repair_ancestor_hashes_t ancestor_hashes;
+};
+typedef union fd_repair_protocol_inner fd_repair_protocol_inner_t;
+
+struct fd_repair_protocol {
+  uint discriminant;
+  fd_repair_protocol_inner_t inner;
+};
+typedef struct fd_repair_protocol fd_repair_protocol_t;
+#define FD_REPAIR_PROTOCOL_FOOTPRINT sizeof(fd_repair_protocol_t)
+#define FD_REPAIR_PROTOCOL_ALIGN (8UL)
+
+union fd_repair_response_inner {
+  fd_gossip_ping_t ping;
+};
+typedef union fd_repair_response_inner fd_repair_response_inner_t;
+
+struct fd_repair_response {
+  uint discriminant;
+  fd_repair_response_inner_t inner;
+};
+typedef struct fd_repair_response fd_repair_response_t;
+#define FD_REPAIR_RESPONSE_FOOTPRINT sizeof(fd_repair_response_t)
+#define FD_REPAIR_RESPONSE_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -2551,6 +2666,28 @@ void fd_vote_accounts_walk(void * w, fd_vote_accounts_t const * self, fd_types_w
 ulong fd_vote_accounts_size(fd_vote_accounts_t const * self);
 ulong fd_vote_accounts_footprint( void );
 ulong fd_vote_accounts_align( void );
+
+void fd_stake_accounts_pair_new(fd_stake_accounts_pair_t* self);
+int fd_stake_accounts_pair_decode(fd_stake_accounts_pair_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_stake_accounts_pair_decode_unsafe(fd_stake_accounts_pair_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_pair_encode(fd_stake_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_accounts_pair_destroy(fd_stake_accounts_pair_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_accounts_pair_walk(void * w, fd_stake_accounts_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_stake_accounts_pair_size(fd_stake_accounts_pair_t const * self);
+ulong fd_stake_accounts_pair_footprint( void );
+ulong fd_stake_accounts_pair_align( void );
+
+void fd_stake_accounts_new(fd_stake_accounts_t* self);
+int fd_stake_accounts_decode(fd_stake_accounts_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_stake_accounts_decode_unsafe(fd_stake_accounts_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_stake_accounts_encode(fd_stake_accounts_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_stake_accounts_destroy(fd_stake_accounts_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_stake_accounts_walk(void * w, fd_stake_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_stake_accounts_size(fd_stake_accounts_t const * self);
+ulong fd_stake_accounts_footprint( void );
+ulong fd_stake_accounts_align( void );
 
 void fd_stake_weight_new(fd_stake_weight_t* self);
 int fd_stake_weight_decode(fd_stake_weight_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -3238,17 +3375,6 @@ void fd_slot_meta_walk(void * w, fd_slot_meta_t const * self, fd_types_walk_fn_t
 ulong fd_slot_meta_size(fd_slot_meta_t const * self);
 ulong fd_slot_meta_footprint( void );
 ulong fd_slot_meta_align( void );
-
-void fd_slot_meta_meta_new(fd_slot_meta_meta_t* self);
-int fd_slot_meta_meta_decode(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_meta_meta_decode_preflight(fd_bincode_decode_ctx_t * ctx);
-void fd_slot_meta_meta_decode_unsafe(fd_slot_meta_meta_t* self, fd_bincode_decode_ctx_t * ctx);
-int fd_slot_meta_meta_encode(fd_slot_meta_meta_t const * self, fd_bincode_encode_ctx_t * ctx);
-void fd_slot_meta_meta_destroy(fd_slot_meta_meta_t* self, fd_bincode_destroy_ctx_t * ctx);
-void fd_slot_meta_meta_walk(void * w, fd_slot_meta_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
-ulong fd_slot_meta_meta_size(fd_slot_meta_meta_t const * self);
-ulong fd_slot_meta_meta_footprint( void );
-ulong fd_slot_meta_meta_align( void );
 
 void fd_clock_timestamp_vote_new(fd_clock_timestamp_vote_t* self);
 int fd_clock_timestamp_vote_decode(fd_clock_timestamp_vote_t* self, fd_bincode_decode_ctx_t * ctx);
@@ -4692,6 +4818,115 @@ fd_addrlut_instruction_enum_freeze_lut = 1,
 fd_addrlut_instruction_enum_extend_lut = 2,
 fd_addrlut_instruction_enum_deactivate_lut = 3,
 fd_addrlut_instruction_enum_close_lut = 4,
+}; 
+void fd_repair_request_header_new(fd_repair_request_header_t* self);
+int fd_repair_request_header_decode(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_request_header_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_request_header_decode_unsafe(fd_repair_request_header_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_request_header_encode(fd_repair_request_header_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_request_header_destroy(fd_repair_request_header_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_request_header_walk(void * w, fd_repair_request_header_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_request_header_size(fd_repair_request_header_t const * self);
+ulong fd_repair_request_header_footprint( void );
+ulong fd_repair_request_header_align( void );
+
+void fd_repair_window_index_new(fd_repair_window_index_t* self);
+int fd_repair_window_index_decode(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_window_index_decode_unsafe(fd_repair_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_window_index_encode(fd_repair_window_index_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_window_index_destroy(fd_repair_window_index_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_window_index_walk(void * w, fd_repair_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_window_index_size(fd_repair_window_index_t const * self);
+ulong fd_repair_window_index_footprint( void );
+ulong fd_repair_window_index_align( void );
+
+void fd_repair_highest_window_index_new(fd_repair_highest_window_index_t* self);
+int fd_repair_highest_window_index_decode(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_highest_window_index_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_highest_window_index_decode_unsafe(fd_repair_highest_window_index_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_highest_window_index_encode(fd_repair_highest_window_index_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_highest_window_index_destroy(fd_repair_highest_window_index_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_highest_window_index_walk(void * w, fd_repair_highest_window_index_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_highest_window_index_size(fd_repair_highest_window_index_t const * self);
+ulong fd_repair_highest_window_index_footprint( void );
+ulong fd_repair_highest_window_index_align( void );
+
+void fd_repair_orphan_new(fd_repair_orphan_t* self);
+int fd_repair_orphan_decode(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_orphan_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_orphan_decode_unsafe(fd_repair_orphan_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_orphan_encode(fd_repair_orphan_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_orphan_destroy(fd_repair_orphan_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_orphan_walk(void * w, fd_repair_orphan_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_orphan_size(fd_repair_orphan_t const * self);
+ulong fd_repair_orphan_footprint( void );
+ulong fd_repair_orphan_align( void );
+
+void fd_repair_ancestor_hashes_new(fd_repair_ancestor_hashes_t* self);
+int fd_repair_ancestor_hashes_decode(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_ancestor_hashes_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_ancestor_hashes_decode_unsafe(fd_repair_ancestor_hashes_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_ancestor_hashes_encode(fd_repair_ancestor_hashes_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_ancestor_hashes_destroy(fd_repair_ancestor_hashes_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_ancestor_hashes_walk(void * w, fd_repair_ancestor_hashes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_ancestor_hashes_size(fd_repair_ancestor_hashes_t const * self);
+ulong fd_repair_ancestor_hashes_footprint( void );
+ulong fd_repair_ancestor_hashes_align( void );
+
+void fd_repair_protocol_new_disc(fd_repair_protocol_t* self, uint discriminant);
+void fd_repair_protocol_new(fd_repair_protocol_t* self);
+int fd_repair_protocol_decode(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_protocol_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_protocol_decode_unsafe(fd_repair_protocol_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_protocol_encode(fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_protocol_destroy(fd_repair_protocol_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_protocol_walk(void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_protocol_size(fd_repair_protocol_t const * self);
+ulong fd_repair_protocol_footprint( void );
+ulong fd_repair_protocol_align( void );
+
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndex(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphan(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndexWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyHighestWindowIndexWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyOrphanWithNonce(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_LegacyAncestorHashes(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_pong(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_window_index(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_highest_window_index(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_orphan(fd_repair_protocol_t const * self);
+FD_FN_PURE uchar fd_repair_protocol_is_ancestor_hashes(fd_repair_protocol_t const * self);
+enum {
+fd_repair_protocol_enum_LegacyWindowIndex = 0,
+fd_repair_protocol_enum_LegacyHighestWindowIndex = 1,
+fd_repair_protocol_enum_LegacyOrphan = 2,
+fd_repair_protocol_enum_LegacyWindowIndexWithNonce = 3,
+fd_repair_protocol_enum_LegacyHighestWindowIndexWithNonce = 4,
+fd_repair_protocol_enum_LegacyOrphanWithNonce = 5,
+fd_repair_protocol_enum_LegacyAncestorHashes = 6,
+fd_repair_protocol_enum_pong = 7,
+fd_repair_protocol_enum_window_index = 8,
+fd_repair_protocol_enum_highest_window_index = 9,
+fd_repair_protocol_enum_orphan = 10,
+fd_repair_protocol_enum_ancestor_hashes = 11,
+}; 
+void fd_repair_response_new_disc(fd_repair_response_t* self, uint discriminant);
+void fd_repair_response_new(fd_repair_response_t* self);
+int fd_repair_response_decode(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_response_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_repair_response_decode_unsafe(fd_repair_response_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_repair_response_encode(fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_repair_response_destroy(fd_repair_response_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_repair_response_walk(void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_repair_response_size(fd_repair_response_t const * self);
+ulong fd_repair_response_footprint( void );
+ulong fd_repair_response_align( void );
+
+FD_FN_PURE uchar fd_repair_response_is_ping(fd_repair_response_t const * self);
+enum {
+fd_repair_response_enum_ping = 0,
 }; 
 FD_PROTOTYPES_END
 

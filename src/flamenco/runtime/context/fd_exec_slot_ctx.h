@@ -9,7 +9,6 @@
 //#include "../../rewards/fd_rewards_types.h"
 #include "../../types/fd_types.h"
 
-#include "fd_tower_ctx.h"
 #include "../sysvar/fd_sysvar_cache.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
@@ -19,8 +18,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t *    epoch_ctx;
-
-  fd_tower_ctx_t           tower;
 
   fd_funk_txn_t *          funk_txn;
   fd_acc_mgr_t *           acc_mgr;
@@ -77,6 +74,16 @@ fd_exec_slot_ctx_delete( void * mem );
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
                           fd_solana_manifest_t * manifest );
+
+static inline ulong
+fd_runtime_lamports_per_signature( fd_slot_bank_t const * slot_bank ) {
+  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
+  return slot_bank->fee_rate_governor.target_lamports_per_signature / 2;
+}
+
+ulong
+fd_runtime_lamports_per_signature_for_blockhash( fd_exec_slot_ctx_t const * slot_ctx,
+                                                 fd_hash_t const *          blockhash );
 
 FD_PROTOTYPES_END
 

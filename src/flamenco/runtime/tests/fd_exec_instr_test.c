@@ -269,6 +269,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
         ( rent->lamports_per_uint8_year > UINT_MAX ) |
         ( rent->burn_percent            >      100 ) )
       return 0;
+
+    /* Override epoch bank settings */
+    epoch_ctx->epoch_bank.rent = *rent;
   }
 
   /* Override most recent blockhash if given */

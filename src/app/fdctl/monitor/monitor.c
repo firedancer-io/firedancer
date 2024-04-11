@@ -113,6 +113,35 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
   }
 }
 
+static ulong
+find_producer_out_idx( fd_topo_t *      topo,
+                       fd_topo_tile_t * producer,
+                       fd_topo_tile_t * consumer,
+                       ulong            consumer_in_idx ) {
+  /* This finds all reliable consumers of the producers primary output,
+     and then returns the position of the consumer (specified by tile
+     and index of the in of that tile) in that list. The list ordering
+     is not important, except that it matches the ordering of fseqs
+     provided to the mux tile, so that metrics written for each link
+     index are retrieved at the same index here.
+
+     This is why we only count reliable links, because the mux tile only
+     looks at and writes producer side diagnostics (is the link slow)
+     for reliable links. */
+
+  ulong count = 0UL;
+  for( ulong i=0; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == producer->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
+        if( FD_UNLIKELY( consumer==consumer_tile && consumer_in_idx==j ) ) return count;
+        count++;
+      }
+    }
+  }
+  return ULONG_MAX;
+}
+
 static void
 link_snap( link_snap_t * snap_cur,
            fd_topo_t *   topo ) {
@@ -137,10 +166,8 @@ link_snap( link_snap_t * snap_cur,
       ulong const * out_metrics = NULL;
       if( FD_LIKELY( producer_id!=ULONG_MAX && topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
         fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
-        ulong out_idx;
-        for( out_idx=0UL; out_idx<producer->out_cnt; out_idx++ ) {
-          if( producer->out_link_id[ out_idx ]==link->id ) break;
-        }
+        ulong out_idx = find_producer_out_idx( topo, producer, &topo->tiles[ tile_idx ], in_idx );
+
         out_metrics = fd_metrics_link_out( producer->metrics, out_idx );
       }
       FD_COMPILER_MFENCE();

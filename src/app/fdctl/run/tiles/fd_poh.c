@@ -401,7 +401,7 @@ typedef struct {
      the slot hashes sysvar can be updated correctly.  We only need 150
      of these, because that's what's required for consensus in the
      sysvar. */
-  uchar skipped_tick_hashes[ 150 ][ 32 ];
+  uchar skipped_slot_hashes[ 150 ][ 32 ];
 
   /* The timestamp in nanoseconds of when the reset slot was received.
      This is the timestamp we are building on top of to determine when
@@ -768,8 +768,29 @@ fd_ext_poh_begin_leader( void const * bank,
   ulong leader_slot = ctx->next_leader_slot_hashcnt/ctx->hashcnt_per_slot;
   if( FD_UNLIKELY( slot!=leader_slot ) ) FD_LOG_ERR(( "Trying to begin leader slot %lu but we are now on slot %lu", slot, leader_slot ));
 
-  ctx->current_leader_bank = bank;
+  ctx->current_leader_bank     = bank;
   ctx->microblocks_lower_bound = 0UL;
+
+  /* We need to register ticks on the bank for all of the ticks that
+     were skipped. */
+  for( ulong skipped_hashcnt=ctx->reset_slot_hashcnt+ctx->hashcnt_per_tick; skipped_hashcnt<=ctx->next_leader_slot_hashcnt; skipped_hashcnt+=ctx->hashcnt_per_tick ) {
+    /* The "hash" value we provide doesn't matter for all but the
+       oldest 150 slots, since only the most recent 150 slots are
+       saved in the sysvar.  The value provided for those is a
+       dummy value, but we keep the same calculation for
+       simplicity.  Also the value provided for ticks that are not
+       on a slot boundary doesn't matter, since the blockhash will
+       be ignored. */
+    if( FD_UNLIKELY( !(skipped_hashcnt%ctx->hashcnt_per_slot) ) ) {
+      fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->skipped_slot_hashes[ (skipped_hashcnt/ctx->hashcnt_per_slot)%150UL ] );
+    } else {
+      /* If it's not a slot boundary, the actual blockhash doesn't
+         matter -- it won't be used for anything, but we still need
+         to register the tick to make the bank tick counter correct. */
+      uchar ignored[ 32 ];
+      fd_ext_poh_register_tick( ctx->current_leader_bank, ignored );
+    }
+  }
 
   publish_became_leader( ctx, slot );
 
@@ -1005,16 +1026,9 @@ after_credit( void *             _ctx,
     ctx->hashcnt++;
 
     if( FD_UNLIKELY( !is_leader && ctx->hashcnt>=ctx->next_leader_slot_hashcnt ) ) {
-      /* We were not leader but became leader... we need to register ticks on the
-         bank for all of the slots that were skipped. */
-      for( ulong skipped_hashcnt=ctx->reset_slot_hashcnt; skipped_hashcnt<ctx->next_leader_slot_hashcnt; skipped_hashcnt+=ctx->hashcnt_per_tick ) {
-        /* The "hash" value we provide doesn't matter for all but the
-           oldest 150 ticks, since only the most recent 150 ticks are
-           saved in the sysvar.  The value provided for those is a
-           dummy value, but we keep the same calculation for
-           simplicity. */
-        fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->skipped_tick_hashes[ (skipped_hashcnt/ctx->hashcnt_per_tick)%150UL ] );
-      }
+      /* We were not leader but beame leader... we don't want to do any
+         other hashing until we get the leader bank from the replay
+         stage. */
       break;
     }
 
@@ -1026,11 +1040,11 @@ after_credit( void *             _ctx,
       publish_tick( ctx, mux );
     }
 
-    if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_tick) ) ) {
-      /* We ticked while not leader... save the current hash so it can
-         be played back into the bank (to update the recent slot hashes
-         sysvar) when we become the leader. */
-      fd_memcpy( ctx->skipped_tick_hashes[ (ctx->hashcnt/ctx->hashcnt_per_tick)%150UL ], ctx->hash, 32UL );
+    if( FD_UNLIKELY( !is_leader && !(ctx->hashcnt%ctx->hashcnt_per_slot) ) ) {
+      /* We finished a slot while not leader... save the current hash so
+         it can be played back into the bank (to update the recent slot
+         hashes sysvar) when we become the leader. */
+      fd_memcpy( ctx->skipped_slot_hashes[ (ctx->hashcnt/ctx->hashcnt_per_slot)%150UL ], ctx->hash, 32UL );
     }
 
     if( FD_UNLIKELY( is_leader && ctx->hashcnt>=(ctx->next_leader_slot_hashcnt+ctx->hashcnt_per_slot) ) ) {

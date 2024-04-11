@@ -117,7 +117,7 @@ void txn2_correctness( void ) {
   FD_TEST( transaction2[ ix[ 1 ].acct_off ] ==  18UL );
   FD_TEST( transaction2[ ix[ 1 ].data_off ] == 229UL );
 
-  fd_txn_acct_addr_lut_t * luts = fd_txn_get_address_tables( parsed );
+  fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( parsed );
   FD_TEST( transaction2[ luts[ 0 ].addr_off ] == 54UL );
   FD_TEST( luts[ 0 ].writable_cnt == 4UL );
   FD_TEST( luts[ 0 ].readonly_cnt == 4UL );
@@ -150,7 +150,7 @@ void test_mutate( uchar const * payload,
 
   ulong footprint = fd_txn_footprint( parsed->instr_cnt, parsed->addr_table_lookup_cnt );
   FD_TEST( out_sz==footprint );
-  fd_txn_acct_addr_lut_t * tables = fd_txn_get_address_tables( parsed );
+  fd_txn_acct_addr_lut_t const * tables = fd_txn_get_address_tables_const( parsed );
 
   /* The transaction should be valid if for each byte payload[ i ],
       min_okay[ i ] <= payload[ i ] <= max_okay[ i ]

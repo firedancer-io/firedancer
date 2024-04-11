@@ -105,10 +105,10 @@ solana_labs_boot( config_t * config ) {
   for( ulong i=0; i<config->gossip.entrypoints_cnt; i++ ) ADD( "--entrypoint", config->gossip.entrypoints[ i ] );
   if( !config->gossip.port_check ) ADD1( "--no-port-check" );
   ADDH( "--gossip-port", config->gossip.port );
+  char ip_addr[16]; /* ADD stored the address for later use, so ip_addr must be in scope */
   if( strcmp( config->gossip.host, "" ) ) {
     ADD( "--gossip-host", config->gossip.host );
   } else {
-    char ip_addr[16];
     FD_TEST( fd_cstr_printf_check( ip_addr, 16, NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS(config->tiles.net.ip_addr) ) );
     ADD( "--gossip-host", ip_addr );
   }

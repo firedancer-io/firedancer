@@ -74,7 +74,7 @@ fd_quic_stream_pool_delete( fd_quic_stream_pool_t * stream_pool ) {
 }
 
 
-/* allocates a stream from the pool 
+/* allocates a stream from the pool
 
    args
      stream_pool  the pool from which to obtain the stream

@@ -2,6 +2,9 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 
+include src/app/fdctl/with-version.mk
+$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
+
 # When we don't have libsolana_validator.a in the PHONY list, make fails
 # to realize that it has been updated. Not sure why this happens.
 .PHONY: fdctl cargo rust solana $(OBJDIR)/lib/libsolana_validator.a
@@ -32,31 +35,7 @@ $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/xdp,fd_fdctl)
 $(call add-objs,configure/xdp_leftover,fd_fdctl)
 $(call add-objs,configure/ethtool,fd_fdctl)
-$(call add-objs,configure/workspace_leftover,fd_fdctl)
 $(call add-objs,configure/workspace,fd_fdctl)
-
-# Frankendancer versioning is always major 0, the first full Firedancer
-# release will be version 1.0
-FIREDANCER_VERSION_MAJOR := 0
-
-# The minor version is a Firedancer specific version number, indicating
-# which release candidate branch this is. Different Firedancer release
-# branches could point to the same Solana Labs patch.
-FIREDANCER_VERSION_MINOR := 0
-
-# For Frankendancer, we stuff the entire Solana Labs version that we are
-# linking to in the patch version.  This transforms, for example, a full
-# Solana Labs version of "1.17.8" to a minor version of "11708".
-FIREDANCER_VERSION_PATCH := $(shell grep -Po "(?<=^version = \").*(?=\")" "solana/Cargo.toml" | awk -F. '{ printf "%d%02d%02d\n", $$1, $$2, $$3 }')
-
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
-
-export FIREDANCER_VERSION_MAJOR
-export FIERDANCER_VERSION_MINOR
-export FIREDANCER_VERSION_PATCH
-
-FIREDANCER_CI_COMMIT=$(shell git rev-parse HEAD)
-export FIREDANCER_CI_COMMIT
 
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)

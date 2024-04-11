@@ -85,6 +85,12 @@ FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn->payload )==0UL, fd_pack_ord_
    those microblocks get dropped. */
 #define MICROBLOCK_DATA_OVERHEAD 48UL
 
+/* Keep track of accounts that are written to in each block so that we
+   can reset the writer costs to 0.  If the number of accounts that are
+   written to is above or equal to this, we'll just clear the whole
+   writer cost map instead of only removing the elements we increased. */
+#define DEFAULT_WRITTEN_LIST_MAX 16384UL
+
 /* fd_pack_addr_use_t: Used for two distinct purposes:
     -  to record that an address is in use and can't be used again until
          certain microblocks finish execution
@@ -362,7 +368,27 @@ struct fd_pack_private {
   FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
   FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
 
+  /* writer_costs: Map from account addresses to the sum of costs of
+     transactions that write to the account.  Used for enforcing limits
+     on the max write cost per account per block. */
   fd_pack_addr_use_t   * writer_costs;
+
+  /* At the end of every slot, we have to clear out writer_costs.  The
+     map is large, but typically very sparsely populated.  As an
+     optimization, we keep track of the elements of the map that we've
+     actually used, up to a maximum.  If we use more than the maxiumum,
+     we revert to the old way of just clearing the whole map.
+
+     written_list indexed [0, written_list_cnt).
+     written_list_cnt in  [0, written_list_max).
+
+     written_list_cnt==written_list_max-1 means that the list may be
+     incomplete and should be ignored. */
+  fd_pack_addr_use_t * * written_list;
+  ulong                  written_list_cnt;
+  ulong                  written_list_max;
+
+
   fd_pack_sig_to_txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
   /* use_by_bank: An array of size (max_txn_per_microblock *
@@ -400,12 +426,13 @@ fd_pack_footprint( ulong                    pack_depth,
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
 
-  ulong max_txn_per_block  = fd_ulong_min( limits->max_cost_per_block / FD_PACK_MIN_TXN_COST,
-                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block );
+  ulong max_w_per_block    = fd_ulong_min( limits->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
+                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+  ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
-  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block    ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
@@ -414,7 +441,8 @@ fd_pack_footprint( ulong                    pack_depth,
   l = FD_LAYOUT_APPEND( l, trp_pool_align (),  trp_pool_footprint ( pack_depth+1UL           ) ); /* pool           */
   l = FD_LAYOUT_APPEND( l, expq_align     (),  expq_footprint     ( pack_depth+1UL           ) ); /* expiration prq */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
-  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn               ) ); /* writer_costs   */
+  l = FD_LAYOUT_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_writers           ) ); /* writer_costs   */
+  l = FD_LAYOUT_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max    ); /* written_list   */
   l = FD_LAYOUT_APPEND( l, sig2txn_align  (),  sig2txn_footprint  ( lg_depth                 ) ); /* signature_map  */
   l = FD_LAYOUT_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
   l = FD_LAYOUT_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp          ) ); /* acct_to_bitset */
@@ -430,12 +458,13 @@ fd_pack_new( void                   * mem,
 
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * limits->max_txn_per_microblock + 1UL);
-  ulong max_txn_per_block  = fd_ulong_min( limits->max_cost_per_block / FD_PACK_MIN_TXN_COST,
-                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block );
+  ulong max_w_per_block    = fd_ulong_min( limits->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
+                                           limits->max_txn_per_microblock * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+  ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
-  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block    ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
@@ -446,7 +475,8 @@ fd_pack_new( void                   * mem,
   void * _pool        = FD_SCRATCH_ALLOC_APPEND( l,  trp_pool_align(),    trp_pool_footprint ( pack_depth+1UL         ) );
   void * _expq        = FD_SCRATCH_ALLOC_APPEND( l,  expq_align(),        expq_footprint     ( pack_depth+1UL         ) );
   void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz         ) );
-  void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_txn             ) );
+  void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_writers         ) );
+  void * _written_lst = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max  );
   void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( lg_depth               ) );
   void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
   void * _acct_bitset = FD_SCRATCH_ALLOC_APPEND( l,  bitset_map_align(),  bitset_map_footprint( lg_acct_in_trp        ) );
@@ -480,7 +510,12 @@ fd_pack_new( void                   * mem,
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
   acct_uses_new( _uses,        lg_uses_tbl_sz );
-  acct_uses_new( _writer_cost, lg_max_txn     );
+  acct_uses_new( _writer_cost, lg_max_writers );
+
+  pack->written_list     = _written_lst;
+  pack->written_list_cnt = 0UL;
+  pack->written_list_max = written_list_max;
+
   sig2txn_new(   _sig_map,     lg_depth       );
 
   fd_pack_addr_use_t * use_by_bank = (fd_pack_addr_use_t *)_use_by_bank;
@@ -511,10 +546,12 @@ fd_pack_join( void * mem ) {
 
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_acct_in_flight = bank_tile_cnt * (FD_TXN_ACCT_ADDR_MAX * pack->lim->max_txn_per_microblock + 1UL);
-  ulong max_txn_per_block  = fd_ulong_min( pack->lim->max_cost_per_block / FD_PACK_MIN_TXN_COST,
-                                           pack->lim->max_txn_per_microblock * pack->lim->max_microblocks_per_block );
+  ulong max_w_per_block    = fd_ulong_min( pack->lim->max_cost_per_block / FD_PACK_COST_PER_WRITABLE_ACCT,
+                                           pack->lim->max_txn_per_microblock * pack->lim->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
+  ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
+
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight ) );
-  int lg_max_txn     = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_txn_per_block  ) );
+  int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block    ) );
   int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth         ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap  ) );
 
@@ -522,7 +559,8 @@ fd_pack_join( void * mem ) {
   pack->pool          = trp_pool_join(   FD_SCRATCH_ALLOC_APPEND( l, trp_pool_align(),   trp_pool_footprint ( pack_depth+1UL ) ) );
   pack->expiration_q  = expq_join    (   FD_SCRATCH_ALLOC_APPEND( l, expq_align(),       expq_footprint     ( pack_depth+1UL ) ) );
   pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_uses_tbl_sz ) ) );
-  pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_txn     ) ) );
+  pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint( lg_max_writers ) ) );
+  /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max  );
   pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint  ( lg_depth       ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
   pack->acct_to_bitset= bitset_map_join( FD_SCRATCH_ALLOC_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp) ) );
@@ -781,6 +819,10 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
   fd_pack_addr_use_t * acct_in_use  = pack->acct_in_use;
   fd_pack_addr_use_t * writer_costs = pack->writer_costs;
 
+  fd_pack_addr_use_t ** written_list     = pack->written_list;
+  ulong                 written_list_cnt = pack->written_list_cnt;
+  ulong                 written_list_max = pack->written_list_max;
+
   FD_PACK_BITSET_DECLARE( bitset_rw_in_use );
   FD_PACK_BITSET_DECLARE( bitset_w_in_use  );
   FD_PACK_BITSET_COPY( bitset_rw_in_use, pack->bitset_rw_in_use );
@@ -902,7 +944,12 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
       fd_acct_addr_t acct_addr = acct[fd_txn_acct_iter_idx( iter )];
 
       fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
-      if( !in_wcost_table ) { in_wcost_table = acct_uses_insert( writer_costs, acct_addr );   in_wcost_table->total_cost = 0UL; }
+      if( !in_wcost_table ) {
+        in_wcost_table = acct_uses_insert( writer_costs, acct_addr );
+        in_wcost_table->total_cost = 0UL;
+        written_list[ written_list_cnt ] = in_wcost_table;
+        written_list_cnt = fd_ulong_min( written_list_cnt+1UL, written_list_max-1UL );
+      }
       in_wcost_table->total_cost += cur->compute_est;
 
       fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
@@ -969,6 +1016,8 @@ fd_pack_schedule_impl( fd_pack_t  * pack,
   pack->use_by_bank_cnt[bank_tile] = use_by_bank_cnt;
   FD_PACK_BITSET_COPY( pack->bitset_rw_in_use, bitset_rw_in_use );
   FD_PACK_BITSET_COPY( pack->bitset_w_in_use,  bitset_w_in_use  );
+
+  pack->written_list_cnt = written_list_cnt;
 
   sched_return_t to_return = { .cus_scheduled=cus_scheduled, .txns_scheduled=txns_scheduled, .bytes_scheduled=bytes_scheduled };
   return to_return;
@@ -1156,7 +1205,31 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->cumulative_vote_cost  = 0UL;
 
   acct_uses_clear( pack->acct_in_use  );
-  acct_uses_clear( pack->writer_costs );
+
+  if( FD_LIKELY( pack->written_list_cnt<pack->written_list_max-1UL ) ) {
+    /* The less dangerous way of doing this is to instead record the
+       keys we inserted and do a query followed by a delete for each
+       key.  The downside of that is that keys are 32 bytes and a
+       pointer is only 8 bytes, plus the computational cost for the
+       query.
+
+       However, if we're careful, we can pull this off.  We require two
+       things.  First, we started from an empty map and did nothing but
+       insert and update.  In particular, no deletions.  Second, we have
+       to be careful to delete in the opposite order that we inserted.
+       This is essentially like unwinding the inserts we did.  The
+       common case is that the element after the one we delete will be
+       empty, so we'll hit that case.  It's possible that there's
+       another independent probe sequence that will be entirely intact
+       starting in the element after, but we'll never hit the MAP_MOVE
+       case. */
+    for( ulong i=0UL; i<pack->written_list_cnt; i++ ) {
+      acct_uses_remove( pack->writer_costs, pack->written_list[ pack->written_list_cnt - 1UL - i ] );
+    }
+  } else {
+    acct_uses_clear( pack->writer_costs );
+  }
+  pack->written_list_cnt = 0UL;
 
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
