@@ -3,21 +3,13 @@
 
 #include "../fd_flamenco_base.h"
 
-/* Forward declarations */
+FD_PROTOTYPES_BEGIN
 
-struct fd_exec_epoch_ctx;
-typedef struct fd_exec_epoch_ctx fd_exec_epoch_ctx_t;
+ulong
+fd_runtime_calculate_fee( fd_exec_txn_ctx_t *   txn_ctx,
+                          fd_txn_t const *      txn_descriptor,
+                          fd_rawtxn_b_t const * txn_raw );
 
-struct fd_exec_slot_ctx;
-typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
-
-struct fd_exec_txn_ctx;
-typedef struct fd_exec_txn_ctx fd_exec_txn_ctx_t;
-
-struct fd_exec_instr_ctx;
-typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
-
-struct fd_acc_mgr;
-typedef struct fd_acc_mgr fd_acc_mgr_t;
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

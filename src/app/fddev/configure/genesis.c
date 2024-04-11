@@ -16,6 +16,18 @@ enabled( config_t * const config ) {
   return 1;
 }
 
+static void
+init_perm( fd_caps_ctx_t *  caps,
+           config_t * const config ) {
+  (void)config;
+
+  /* Solana Labs tries to increase the RLIMIT_NOFILE even when just
+     performing genesis, so we need to ensure it's allowed here as
+     well. */
+  fd_caps_check_resource( caps, NAME, RLIMIT_NOFILE, CONFIGURE_NR_OPEN_FILES, "increase `RLIMIT_NOFILE` to allow more open files for Solana Labs" );
+}
+
+
 extern void fd_ext_genesis_main( const char ** args );
 
 static void
@@ -42,40 +54,44 @@ init( config_t * const config ) {
   char initial_accounts[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( initial_accounts, PATH_MAX, NULL, "%s/initial-accounts.yaml", config->scratch_directory ) );
 
-  FILE * f = fopen( initial_accounts, "w" );
-  FD_TEST( f );
-  for( ulong i=0UL; i<128UL; i++ ) {
-    /* Fund the first 128 accounts with some lamports for benchmarking... temporary hack */
-    uchar privkey[ 64 ] = {0};
-    privkey[ 0 ] = (uchar)i;
-    uchar pubkey[ 64 ];
-    fd_sha512_t sha[1];
-    fd_sha512_join( fd_sha512_new( sha ) );
-    fd_ed25519_public_from_private( pubkey, privkey, sha );
-
-    char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
-    FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
-    FD_TEST( fprintf( f, "  balance: 500000000\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
-    FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
-  }
-  FD_TEST( !fclose( f ) );
-
   ADD1( "fddev" );
 
   ADD( "--faucet-pubkey", faucet );
-  ADD( "--hashes-per-tick", "sleep" );
-  // MAINNET VALUES
-  // ADD( "--hashes-per-tick", "12500" );
-  // ADD( "--target-tick-duration", "6" );
-  // ADD( "--ticks-per-slot", "64" );
   ADDU( "--faucet-lamports", 500000000000000000UL );
+
   ADD( "--bootstrap-validator", config->consensus.identity_path ); ADD1( vote ); ADD1( stake );
   ADD( "--ledger", config->ledger.path );
   ADD( "--cluster-type", "development" );
-  ADD( "--primordial-accounts-file", initial_accounts );
+
+  if( 0UL==config->development.genesis.hashes_per_tick ) ADD( "--hashes-per-tick", "auto" );
+  else if( 1UL==config->development.genesis.hashes_per_tick ) ADD( "--hashes-per-tick", "sleep" );
+  else ADDU( "--hashes-per-tick", config->development.genesis.hashes_per_tick );
+
+  ADDU( "--target-tick-duration", config->development.genesis.target_tick_duration_micros );
+  ADDU( "--ticks-per-slot", config->development.genesis.ticks_per_slot );
+
+  if( FD_LIKELY( config->development.genesis.fund_initial_accounts ) ) {
+    FILE * f = fopen( initial_accounts, "w" );
+    FD_TEST( f );
+    for( ulong i=0UL; i<config->development.genesis.fund_initial_accounts; i++ ) {
+      uchar privkey[ 32 ] = {0};
+      FD_STORE( ulong, privkey, i );
+      uchar pubkey[ 32 ];
+      fd_sha512_t sha[1];
+      fd_sha512_join( fd_sha512_new( sha ) );
+      fd_ed25519_public_from_private( pubkey, privkey, sha );
+
+      char pubkey_encoded[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( pubkey, NULL, pubkey_encoded );
+      FD_TEST( fprintf( f, "%s:\n", pubkey_encoded ) >= 0 );
+      FD_TEST( fprintf( f, "  balance: %lu\n", config->development.genesis.fund_initial_amount_lamports ) >= 0 );
+      FD_TEST( fprintf( f, "  owner: 11111111111111111111111111111111\n" ) >= 0 );
+      FD_TEST( fprintf( f, "  data: ~\n" ) >= 0 );
+      FD_TEST( fprintf( f, "  executable: false\n" ) >= 0 );
+    }
+    FD_TEST( !fclose( f ) );
+    ADD( "--primordial-accounts-file", initial_accounts );
+  }
 
   /* these are copied out of the output of `solana/fetch-spl.sh` ... need to
      figure out what to do here long term. */
@@ -137,44 +153,8 @@ init( config_t * const config ) {
 }
 
 static void
-rmtree( char * path ) {
-    DIR * dir = opendir( path );
-    if( FD_UNLIKELY( !dir ) ) {
-      if( errno == ENOENT ) return;
-      FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    }
-
-    struct dirent * entry;
-    errno = 0;
-    while(( entry = readdir( dir ) )) {
-      if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
-
-      char path1[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( path1, PATH_MAX, NULL, "%s/%s", path, entry->d_name ) );
-
-      struct stat st;
-      if( FD_UNLIKELY( lstat( path1, &st ) ) ) {
-        if( FD_LIKELY( errno == ENOENT ) ) continue;
-        FD_LOG_ERR(( "stat `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
-      }
-
-      if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
-        rmtree( path1 );
-      } else {
-        if( FD_UNLIKELY( unlink( path1 ) && errno != ENOENT ) )
-          FD_LOG_ERR(( "unlink `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
-      }
-    }
-
-    if( FD_UNLIKELY( errno && errno != ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-
-    if( FD_UNLIKELY( rmdir( path ) ) ) FD_LOG_ERR(( "rmdir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-}
-
-static void
 fini( config_t * const config ) {
-  rmtree( config->ledger.path );
+  rmtree( config->ledger.path, 1 );
 }
 
 static configure_result_t
@@ -192,7 +172,7 @@ configure_stage_t genesis = {
   .name            = NAME,
   .always_recreate = 1,
   .enabled         = enabled,
-  .init_perm       = NULL,
+  .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,
   .fini            = fini,

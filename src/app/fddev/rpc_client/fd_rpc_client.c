@@ -168,7 +168,7 @@ fd_rpc_client_request_transaction_count( fd_rpc_client_t * rpc ) {
   long request_id = fd_long_if( rpc->request_id==LONG_MAX, 0L, rpc->request_id+1L );
 
   int contents_len = snprintf( contents, sizeof(contents),
-                               "{\"jsonrpc\":\"2.0\",\"id\":\"%ld\",\"method\":\"getTransactionCount\",\"params\":[]}",
+                               "{\"jsonrpc\":\"2.0\",\"id\":\"%ld\",\"method\":\"getTransactionCount\",\"params\":[ { \"commitment\": \"processed\" } ]}",
                                request_id );
 
   return fd_rpc_client_request( rpc, FD_RPC_CLIENT_METHOD_TRANSACTION_COUNT, request_id, contents, contents_len );

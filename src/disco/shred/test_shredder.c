@@ -9,19 +9,16 @@
 #define PERF_TEST2_SZ (1UL*1024UL*1024UL)
 uchar perf_test_entry_batch[ PERF_TEST_SZ ];
 
+/* Data used in test_skip_batch */
+#define SKIP_TEST_SZ (1024UL*1024UL)
+uchar skip_test_data[ SKIP_TEST_SZ ];
+
 uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
 uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
 
 /* First 32B of what Solana calls the private key is what we call the
    private key, second 32B are what we call the public key. */
 FD_IMPORT_BINARY( test_private_key, "src/disco/shred/fixtures/demo-shreds.key"  );
-
-#if FD_HAS_HOSTED
-#include "../../util/net/fd_pcap.h"
-#include <stdio.h>
-
-FD_IMPORT_BINARY( test_pcap,        "src/disco/shred/fixtures/demo-shreds.pcap" );
-FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
 
 fd_shredder_t _shredder[ 1 ];
 
@@ -49,6 +46,13 @@ test_signer( void *        _ctx,
 
   fd_ed25519_sign( signature, merkle_root, 32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
 }
+
+#if FD_HAS_HOSTED
+#include "../../util/net/fd_pcap.h"
+#include <stdio.h>
+
+FD_IMPORT_BINARY( test_pcap,        "src/disco/shred/fixtures/demo-shreds.pcap" );
+FD_IMPORT_BINARY( test_bin,         "src/disco/shred/fixtures/demo-shreds.bin"  );
 
 static void
 test_shredder_pcap( void ) {
@@ -141,6 +145,107 @@ test_shredder_pcap( void ) {
 #endif /* FD_HAS_HOSTED */
 
 
+static void
+test_skip_batch( void ) {
+  fd_rng_t _rng[ 1 ]; fd_rng_t * r = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  #define SHREDDERS 4
+
+  FD_TEST( SHREDDERS>0 );
+
+  fd_shredder_t   _shredders[ SHREDDERS ];
+  fd_shredder_t *  shredders[ SHREDDERS ];
+  /* Initialize all the shredders */
+  for( ulong i=0; i<SHREDDERS; i++ ) {
+    FD_TEST( &_shredders[ i ]==fd_shredder_new( &_shredders[ i ], test_signer, signer_ctx, (ushort)0 ) );
+    shredders[ i ] = fd_shredder_join( &_shredders[ i ] );
+    FD_TEST( shredders[ i ] );
+  }
+
+  fd_entry_batch_meta_t meta[ 1 ];
+  fd_memset( meta, 0, sizeof( fd_entry_batch_meta_t ) );
+
+  uchar data_shreds  [ 2048UL*FD_REEDSOL_DATA_SHREDS_MAX   ] = { 0 };
+  uchar parity_shreds[ 2048UL*FD_REEDSOL_PARITY_SHREDS_MAX ] = { 0 };
+
+  fd_fec_set_t _set[ 1 ];
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = data_shreds + 2048UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = parity_shreds + 2048UL*j;
+
+  ulong data_shred_cnt   = 0;
+  ulong parity_shred_cnt = 0;
+  ulong idx  = 0UL;
+  ulong slot = 1UL;
+
+  for( ulong i=0; i<SKIP_TEST_SZ; i++ ) skip_test_data[ i ] = fd_rng_uchar( r );
+
+  /* Randomly choose a shredder to process a batch until the data buffer is exhausted. */
+  while( idx<SKIP_TEST_SZ ) {
+    ulong sz        = fd_rng_ulong_roll( r, 100000UL )+1UL;
+    ulong batch_sz  = fd_ulong_if( idx+sz>SKIP_TEST_SZ, SKIP_TEST_SZ-idx, sz );
+    ulong shredder  = fd_rng_ulong_roll( r, SHREDDERS );
+    for( ulong i=0; i<SHREDDERS; i++ ) {
+      if( FD_UNLIKELY( i==shredder ) ) {
+        FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data+idx, batch_sz, slot, meta ) );
+        ulong fec_sets = fd_shredder_count_fec_sets( batch_sz );
+        for( ulong j=0; j<fec_sets; j++ ) {
+          FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _set ) );
+          data_shred_cnt   += _set->data_shred_cnt;
+          parity_shred_cnt += _set->parity_shred_cnt;
+        }
+        FD_TEST( fd_shredder_fini_batch( shredders[ i ] ) );
+      } else {
+        FD_TEST( fd_shredder_skip_batch( shredders[ i ], batch_sz, slot ));
+      }
+    }
+    for( ulong i=0; i<SHREDDERS; i++ ) {
+      FD_TEST( shredders[ i ]->data_idx_offset==data_shred_cnt );
+      FD_TEST( shredders[ i ]->parity_idx_offset==parity_shred_cnt );
+    }
+    idx  += batch_sz;
+    /* Increment the slot every 200_000 bytes. */
+    if( FD_UNLIKELY( idx/200000UL>=slot ) ) {
+      slot++;
+      data_shred_cnt   = 0;
+      parity_shred_cnt = 0;
+    }
+  }
+
+  /* Process a set with the first shredder. */
+  memset( data_shreds,   0, FD_REEDSOL_DATA_SHREDS_MAX*2048UL );
+  memset( parity_shreds, 0, FD_REEDSOL_PARITY_SHREDS_MAX*2048UL );
+  FD_TEST( fd_shredder_init_batch( shredders[ 0 ], skip_test_data, idx, slot, meta ) );
+  FD_TEST( fd_shredder_next_fec_set( shredders[ 0 ], _set ) );
+  FD_TEST( fd_shredder_fini_batch( shredders[ 0 ] ) );
+
+  /* Make all the other shredders process the same data and compare the outputs. */
+  fd_fec_set_t _temp_set[ 1 ];
+  uchar temp_data_shreds  [ 2048UL*FD_REEDSOL_DATA_SHREDS_MAX   ] = { 0 };
+  uchar temp_parity_shreds[ 2048UL*FD_REEDSOL_PARITY_SHREDS_MAX ] = { 0 };
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _temp_set->data_shreds[   j ] = temp_data_shreds + 2048UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _temp_set->parity_shreds[ j ] = temp_parity_shreds + 2048UL*j;
+  for( ulong i=1UL; i<SHREDDERS; i++ ) {
+    memset( temp_data_shreds,   0, FD_REEDSOL_DATA_SHREDS_MAX*2048UL );
+    memset( temp_parity_shreds, 0, FD_REEDSOL_PARITY_SHREDS_MAX*2048UL );
+    FD_TEST( fd_shredder_init_batch( shredders[ i ], skip_test_data, idx, slot, meta ) );
+    FD_TEST( fd_shredder_next_fec_set( shredders[ i ], _temp_set ) );
+    FD_TEST( fd_shredder_fini_batch( shredders[ i ] ) );
+
+    FD_TEST( _set->data_shred_cnt==_temp_set->data_shred_cnt );
+    FD_TEST( _set->parity_shred_cnt==_temp_set->parity_shred_cnt );
+
+    for( ulong j=0UL; j<_temp_set->data_shred_cnt; j++ )
+      FD_TEST( !memcmp( _set->data_shreds[ j ], _temp_set->data_shreds[ j ], 2048UL ) );
+    for( ulong j=0UL; j<_temp_set->parity_shred_cnt; j++ )
+      FD_TEST( !memcmp( _set->parity_shreds[ j ], _temp_set->parity_shreds[ j ], 2048UL ) );
+  }
+
+  #undef SHREDDERS
+}
+
 
 static void
 test_shredder_count( void ) {
@@ -180,7 +285,44 @@ test_shredder_count( void ) {
     FD_TEST( fd_shredder_count_parity_shreds( data_sz ) == parity_shreds );
     FD_TEST( fd_shredder_count_fec_sets(      data_sz ) ==      fec_sets );
   }
+
+  /* Now check to make sure the shredder always produces that many
+     shreds. */
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, (ushort)0 ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+  fd_fec_set_t _set[ 1 ];
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
+
+  ulong slot=0UL;
+  for( ulong sz=1UL; sz<100000UL; sz++ ) {
+    fd_shredder_init_batch( shredder, perf_test_entry_batch, sz, slot++, meta );
+
+    ulong data_shred_cnt   = 0UL;
+    ulong parity_shred_cnt = 0UL;
+    ulong sets_cnt = fd_shredder_count_fec_sets( sz );
+    for( ulong j=0UL; j<sets_cnt; j++ ) {
+      fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
+      FD_TEST( set );
+
+      data_shred_cnt   += set->data_shred_cnt;
+      parity_shred_cnt += set->parity_shred_cnt;
+    }
+    FD_TEST( !fd_shredder_next_fec_set( shredder, _set ) );
+    fd_shredder_fini_batch( shredder );
+
+    FD_TEST( data_shred_cnt  ==fd_shredder_count_data_shreds  ( sz ) );
+    FD_TEST( parity_shred_cnt==fd_shredder_count_parity_shreds( sz ) );
+  }
 }
+
 
 static void
 perf_test( void ) {
@@ -214,6 +356,8 @@ perf_test( void ) {
   FD_LOG_NOTICE(( "%li ns/10 MB entry batch = %.3f Gbps", dt/(long)iterations, (double)(8UL * iterations * PERF_TEST_SZ)/(double)dt ));
 
 }
+
+
 static void
 perf_test2( void ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1UL, 0UL, "perf_test2", 0UL );
@@ -269,7 +413,7 @@ main( int     argc,
     FD_LOG_WARNING(( "sizeof() %lu, footprint: %lu", sizeof(fd_shredder_t), fd_shredder_footprint() ));
   FD_TEST( sizeof(fd_shredder_t) == fd_shredder_footprint() );
 
-
+  test_skip_batch();
   test_shredder_count();
   perf_test();
   perf_test2();

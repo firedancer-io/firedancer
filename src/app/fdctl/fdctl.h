@@ -13,7 +13,7 @@
 extern fd_topo_run_tile_t * TILES[];
 
 
-#define CONFIGURE_STAGE_COUNT 13
+#define CONFIGURE_STAGE_COUNT 11
 struct configure_stage;
 
 typedef union {
@@ -59,6 +59,15 @@ typedef union {
     const char * dst_ip;
     ushort dst_port;
   } txn;
+
+  struct {
+    char link_name[ 13UL ];
+    char pcap_path[ 256UL ];
+  } dump;
+
+  struct {
+    char name[ 13UL ];
+  } flame;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;

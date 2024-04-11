@@ -127,14 +127,14 @@ execve_tile( fd_topo_tile_t * tile,
   }
 
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, cpu_set ) ) ) {
-    FD_LOG_WARNING(( "unable to pin tile to cpu with fd_cpuset_setaffinity (%i-%s). "
-                     "Unable to set the thread affinity for tile %lu on cpu %lu. Attempting to "
-                     "continue without explicitly specifying this cpu's thread affinity but it "
-                     "is likely this thread group's performance and stability are compromised "
-                     "(possibly catastrophically so). Update [layout.affinity] in the configuration "
-                     "to specify a set of allowed cpus that have been reserved for this thread "
-                     "group on this host to eliminate this warning.",
-                     errno, fd_io_strerror( errno ), tile->id, tile->cpu_idx ));
+    if( FD_LIKELY( errno==EINVAL ) ) {
+      FD_LOG_ERR(( "Unable to set the thread affinity for tile %s:%lu on cpu %lu. It is likely that the affinity "
+                   "you have specified for this tile in [layout.affinity] of your configuration file contains a "
+                   "CPU (%lu) which does not exist on this machine.",
+                   tile->name, tile->kind_id, tile->cpu_idx, tile->cpu_idx ));
+    } else {
+      FD_LOG_ERR(( "sched_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   /* Clear CLOEXEC on the side of the pipe we want to pass to the tile. */
@@ -338,8 +338,7 @@ clone_firedancer( config_t * const config,
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   struct pidns_clone_args args = { .config = config, .closefd = close_fd, .pipefd = pipefd, };
 
-  void * stack = fd_tile_private_stack_new( 0, 65535UL );
-  if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "unable to create a stack for boot process" ));
+  void * stack = fd_topo_tile_stack_new( 0, NULL, NULL, 0UL, 0UL );
 
   int pid_namespace = clone( main_pid_namespace, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &args );
   if( FD_UNLIKELY( pid_namespace<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

@@ -42,7 +42,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   int result = fd_ed25519_verify( test->msg, sz, test->sig, test->pub, sha );
   assert( result != FD_ED25519_SUCCESS );
-  
+
   FD_FUZZ_MUST_BE_COVERED;
   return 0;
 }

@@ -298,7 +298,7 @@ fd_shmem_create_multi( char const *  name,
     /* And since the fd_numa_mbind still often will ignore requests, we
        double check that the pages are in the right place. */
 
-    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_shmem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,MAP_SHARED,\"%s\",0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, path, warn, fd_io_strerror( warn ) ));
@@ -520,7 +520,7 @@ fd_shmem_acquire_multi( ulong         page_sz,
       ERROR( unmap );
     }
 
-    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_numa_idx ); /* logs details */
+    int warn = fd_shmem_numa_validate( sub_mem, page_sz, sub_page_cnt, sub_cpu_idx ); /* logs details */
     if( FD_UNLIKELY( warn ) )
       FD_LOG_WARNING(( "sub[%lu]: mmap(NULL,%lu KiB,PROT_READ|PROT_WRITE,%x,-1,0) numa binding failed (%i-%s)",
                        sub_idx, sub_sz>>10, flags, warn, fd_io_strerror( warn ) ));
@@ -546,34 +546,37 @@ done:
   return err ? NULL : mem;
 }
 
-void
+int
 fd_shmem_release( void * mem,
                   ulong  page_sz,
                   ulong  page_cnt ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !fd_shmem_is_page_sz( page_sz ) ) ) {
     FD_LOG_WARNING(( "bad page_sz (%lu)", page_sz ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, page_sz ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
-    return;
+    return -1;
   }
 
   if( FD_UNLIKELY( !((1UL<=page_cnt) & (page_cnt<=(((ulong)LONG_MAX)/page_sz))) ) ) {
     FD_LOG_WARNING(( "bad page_cnt (%lu)", page_cnt ));
-    return;
+    return -1;
   }
 
   ulong sz = page_sz*page_cnt;
 
-  if( FD_UNLIKELY( munmap( mem, sz ) ) )
+  int result = munmap( mem, sz );
+  if( FD_UNLIKELY( result ) )
     FD_LOG_WARNING(( "munmap(anon,%lu KiB) failed (%i-%s); attempting to continue", sz>>10, errno, fd_io_strerror( errno ) ));
+
+  return result;
 }
 
 /* SHMEM PARSING APIS *************************************************/

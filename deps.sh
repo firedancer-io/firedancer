@@ -60,8 +60,6 @@ cat <<EOF
     - Fetches dependencies from Git repos into $(pwd)/opt/git
 
     install
-    - Runs 'fetch'
-    - Runs 'check'
     - Builds dependencies
     - Installs all project dependencies into prefix $(pwd)/opt
 
@@ -105,7 +103,7 @@ fetch () {
   #checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   #checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.2.1"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
@@ -462,7 +460,7 @@ if [[ $# -eq 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
-  echo "[~] Running $0 install"
+  echo "[~] Running $0 fetch check install"
 
   read -r -p "[?] Continue? (y/N) " choice
   case "$choice" in
@@ -497,8 +495,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     install)
       shift
-      fetch
-      check
       install
       ;;
     *)

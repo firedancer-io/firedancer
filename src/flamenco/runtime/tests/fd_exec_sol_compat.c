@@ -4,6 +4,38 @@
 #include <assert.h>
 #include <stdlib.h>
 
+typedef struct {
+  ulong   struct_size;
+  ulong * hardcoded_features;
+  ulong   hardcoded_feature_cnt;
+  ulong * supported_features;
+  ulong   supported_feature_cnt;
+} sol_compat_features_t;
+
+static sol_compat_features_t features;
+static ulong hardcoded_features[] =
+  { 0xd924059c5749c4c1,  // secp256k1_program_enabled
+    0x8f688d4e3ab17a60,  // enable_early_verification_of_account_modifications
+    0x50a615bae8ca3874,  // native_programs_consume_cu
+  };
+
+static ulong supported_features[] =
+  { 0xe8f97382b03240a1,  // system_transfer_zero_check
+    0x10a1e092dd7f1573,  // dedupe_config_program_signers
+    0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
+    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
+    0x74b022574093eeec,  // reduce_stake_warmup_cooldown
+    0xd56fc1708dc98c13,  // stake_redelegate_instruction
+    0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
+    0x4b241cb4c6f3b3b2,  // require_rent_exempt_split_destination
+    0x74326f811fd7d861,  // vote_state_add_vote_latency
+    0x86fa44f01141c71a,  // timely_vote_credits
+    0x5795654d01457757,  // vote_authorize_with_seed
+    0x8a8eb9085ca2bb0b,  // commission_updates_only_allowed_in_first_half_of_epoch
+    0x7bc99a080444c8d9,  // allow_votes_to_directly_update_vote_state
+    0x2ca5833736ba5c69,  // compact_vote_state_updates
+  };
+
 static       uchar *     smem;
 static const ulong       smax = 1UL<<30;
 static       fd_wksp_t * wksp = NULL;
@@ -27,6 +59,12 @@ sol_compat_init( void ) {
 
   smem = malloc( smax );  /* 1 GiB */
   assert( smem );
+
+  features.struct_size           = sizeof(sol_compat_features_t);
+  features.hardcoded_features    = hardcoded_features;
+  features.hardcoded_feature_cnt = sizeof(hardcoded_features)/sizeof(ulong);
+  features.supported_features    = supported_features;
+  features.supported_feature_cnt = sizeof(supported_features)/sizeof(ulong);
 }
 
 void
@@ -96,4 +134,9 @@ sol_compat_instr_execute_v1( uchar *       out,
   fd_scratch_pop();
   fd_scratch_detach( NULL );
   return ok;
+}
+
+sol_compat_features_t const *
+sol_compat_get_features_v1( void ) {
+  return &features;
 }

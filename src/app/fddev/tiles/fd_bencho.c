@@ -132,10 +132,10 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
     
     ulong txns = response->result.transaction_count.transaction_count;
     if( FD_LIKELY( ctx->txncount_measured1 ) )
-      FD_LOG_NOTICE(( "%lu txn/s", txns - ctx->txncount_prev ));
+      FD_LOG_NOTICE(( "%lu txn/s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 )));
     ctx->txncount_measured1 = 1;
     ctx->txncount_prev      = txns;
-    ctx->txncount_nextprint += 1000L * 1000L * 1000L; /* 1 second til we print again */
+    ctx->txncount_nextprint += 1200L * 1000L * 1000L; /* 1.2 seconds til we print again, multiple of slot duration to prevent jitter */
 
     fd_rpc_client_close( ctx->rpc, ctx->txncount_request );
     ctx->txncount_state = FD_BENCHO_STATE_WAIT;

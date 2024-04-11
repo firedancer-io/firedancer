@@ -73,6 +73,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
     return NULL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_funk_txn_t * map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
@@ -177,6 +178,8 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
                               fd_funk_txn_t * map,
                               ulong           txn_max,
                               ulong           txn_idx ) {
+
+  FD_TEST(!funk->readonly);
 
   /* Remove all records used by this transaction.  Note that we don't
      need to bother doing all the individual removal operations as we
@@ -684,6 +687,8 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
                                 ulong           tag,
                                 ulong           txn_idx ) {
 
+  FD_TEST(!funk->readonly);
+
   /* Apply the updates in txn to the last published transactions */
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
@@ -808,6 +813,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
     return FD_FUNK_ERR_INVAL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -861,6 +867,7 @@ fd_funk_txn_merge_all_children( fd_funk_t *     funk,
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
     return FD_FUNK_ERR_INVAL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 

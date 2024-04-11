@@ -2,8 +2,10 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 
+include src/app/fdctl/with-version.mk
+
 .PHONY: fddev run monitor $(OBJDIR)/lib/libsolana_genesis.a
-$(call make-bin-rust,fddev,main dev dev1 txn bench tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
+$(call make-bin-rust,fddev,main dev dev1 txn bench dump flame tiles/fd_bencho tiles/fd_benchg tiles/fd_benchs configure/netns configure/keys configure/kill configure/genesis,fd_fdctl fd_fddev fd_disco fd_flamenco fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util solana_validator solana_genesis)
 
 solana/target/$(RUST_PROFILE)/libsolana_genesis.a: cargo
 

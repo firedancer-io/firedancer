@@ -15,7 +15,7 @@ do { \
 
 #define BRANCH_POST_CODE \
   instr = ctx->instrs[++pc]; \
-  ic += (ulong)insns; \
+  ic += (ulong)insns - skipped_insns; \
   start_pc = pc; \
   due_insn_cnt += (ulong)insns - skipped_insns; \
   skipped_insns = 0; \
@@ -328,46 +328,38 @@ JT_CASE_END
 INSTR_POST_CODE
 JT_CASE_END
 
-/* 0x80 - 0x8f */
 /* 0x84 */ JT_CASE(0x84) // FD_BPF_OP_NEG
   register_file[instr.dst_reg] = (uint)(-((int)register_file[instr.dst_reg]));
 INSTR_POST_CODE
 JT_CASE_END
 /* 0x85 */ JT_CASE(0x85) // FD_BPF_OP_CALL_IMM
 BRANCH_PRE_CODE
-  if ( (ulong)(pc + (int)instr.imm + 1L) < ctx->instrs_sz ) {
+  compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
+  ctx->compute_meter = compute_meter;
+  due_insn_cnt = 0;
+  ctx->due_insn_cnt = 0;
+  fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
+  if( syscall_entry_imm==NULL ) {
+    // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
     register_file[10] += 0x2000;
-    cond_fault = 0;
+    // FIXME: stack overflow fault.
     fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-    pc += (int)instr.imm;
-  } else {
-    compute_meter = fd_ulong_sat_sub(compute_meter, due_insn_cnt);
-    ctx->compute_meter = compute_meter;
-    due_insn_cnt = 0;
-    ctx->due_insn_cnt = 0;
-    fd_sbpf_syscalls_t * syscall_entry_imm = fd_sbpf_syscalls_query( ctx->syscall_map, instr.imm, NULL );
-    if( syscall_entry_imm==NULL ) {
-      // FIXME: DO STACK STUFF correctly: move this r10 manipulation in the fd_vm_stack_t or on success.
-      register_file[10] += 0x2000;
-      // FIXME: stack overflow fault.
-      fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
-      if( fd_sbpf_calldests_test( ctx->calldests, instr.imm ) ) {
-        uint target_pc = fd_pchash_inverse( instr.imm );
-        pc = (long)(target_pc-1);
-      } else if( instr.imm==0x71e3cf81 ) {
-        pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
-      } else {
-        // TODO: real error for nonexistent func
-        cond_fault = 1;
-      }
+    uint target_pc = fd_pchash_inverse( instr.imm );
+    if( fd_sbpf_calldests_test( ctx->calldests, target_pc ) && target_pc < ctx->instrs_sz) {
+      pc = (long)(target_pc) - 1L;
+    } else if( instr.imm==0x71e3cf81 ) {
+      pc = (long)ctx->entrypoint;  /* TODO subtract 1 here? */
     } else {
-      ctx->compute_meter = compute_meter;
-      cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
-      compute_meter = ctx->compute_meter;
+      // TODO: real error for nonexistent func
+      cond_fault = 1;
     }
-    previous_instruction_meter = compute_meter;
-    ctx->previous_instruction_meter = previous_instruction_meter;
+  } else {
+    ctx->compute_meter = compute_meter;
+    cond_fault = ((fd_vm_syscall_fn_ptr_t)( syscall_entry_imm->func_ptr ))(ctx, register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], &register_file[0]);
+    compute_meter = ctx->compute_meter;
   }
+  previous_instruction_meter = compute_meter;
+  ctx->previous_instruction_meter = previous_instruction_meter;
   goto *((cond_fault == 0) ? &&fallthrough_0x85 : &&JT_RET_LOC);
 fallthrough_0x85:
 BRANCH_POST_CODE
@@ -389,7 +381,7 @@ BRANCH_PRE_CODE
   // FIXME: stack overflow fault.
   cond_fault = fd_vm_stack_push( &ctx->stack, (ulong)pc, &register_file[6] );
   pc = (long)((start_addr / 8UL)-1);
-  pc -= (long)ctx->instrs_offset;
+  pc -= (long)ctx->instrs_offset / 8;
   /* TODO verify that program counter is within bounds */
   /* TODO when static_syscalls are enabled, check that the call destination is valid */
   goto *((cond_fault == 0) ? &&fallthrough_0x8d : &&JT_RET_LOC);
@@ -548,7 +540,6 @@ BRANCH_PRE_CODE
   pc += ((long)register_file[instr.dst_reg] <= (long)register_file[instr.src_reg]) ? instr.offset : 0;
 BRANCH_POST_CODE
 JT_CASE_END
-
 #ifdef __GNUC__
 #ifndef __clang__
 #pragma GCC diagnostic pop

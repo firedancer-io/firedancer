@@ -25,14 +25,15 @@ void
 fd_quic_crypto_ctx_init( fd_quic_crypto_ctx_t * ctx ) {
 
   /* initialize suites map */
-#define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, ... ) \
+#define EACH( ID, SUITE, MAJ, MIN, PKT, HP, HASHFN, KEY_SZ, IV_SZ, PKT_LIMIT, ... ) \
   ctx->suites[ ID ].id         = ID;                       \
   ctx->suites[ ID ].major      = MAJ;                      \
   ctx->suites[ ID ].minor      = MIN;                      \
   ctx->suites[ ID ].key_sz     = KEY_SZ;                   \
   ctx->suites[ ID ].iv_sz      = IV_SZ;                    \
   ctx->suites[ ID ].hmac_fn    = fd_hmac_##HASHFN;         \
-  ctx->suites[ ID ].hash_sz    = FD_QUIC_HASH_SZ_##HASHFN;
+  ctx->suites[ ID ].hash_sz    = FD_QUIC_HASH_SZ_##HASHFN; \
+  ctx->suites[ ID ].pkt_limit  = PKT_LIMIT;
   FD_QUIC_CRYPTO_SUITE_LIST( EACH, )
 #undef EACH
 }
@@ -397,12 +398,12 @@ fd_quic_crypto_encrypt(
   ulong cipher_out_bound = hdr_sz + pkt_sz + FD_QUIC_CRYPTO_TAG_SZ;
 
   if( FD_UNLIKELY( *out_sz < cipher_out_bound ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: output buffer not big enough" ));
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_encrypt: output buffer not big enough" )) );
     return FD_QUIC_FAILED;
   }
 
   if( FD_UNLIKELY( ( hdr_sz < 4 ) | ( hdr_sz > INT_MAX ) ) ) {
-    FD_LOG_ERR(( "fd_quic_crypto_encrypt: packet header size out of bounds" ));
+    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_encrypt: packet header size out of bounds" )) );
     return FD_QUIC_FAILED;
   }
 
@@ -508,7 +509,9 @@ fd_quic_crypto_decrypt(
     nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
   }
 
-  if( FD_UNLIKELY( in_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) )
+  if( FD_UNLIKELY( ( pkt_number_off >= in_sz ) |
+                   ( hdr_sz         >  in_sz ) |
+                   ( in_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) )
     return FD_QUIC_FAILED;
 
   /* AES-GCM decrypt */
@@ -560,15 +563,11 @@ fd_quic_crypto_decrypt_hdr(
 
   (void)suite;
 
-  /* must have at least a short header */
-  if( FD_UNLIKELY( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) ) {
-    FD_LOG_WARNING(( "fd_quic_crypto_decrypt: cipher text too small" ));
-    return FD_QUIC_FAILED;
-  }
-
-  /* must have capacity for header */
-  if( FD_UNLIKELY( plain_text_sz < pkt_number_off + 4 ) ) {
-    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
+  /* bounds checks */
+  if( FD_UNLIKELY( ( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) |
+                   ( pkt_number_off >= cipher_text_sz       ) |
+                   ( plain_text_sz < pkt_number_off + 4     ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING(( "decrypt hdr: bounds checks failed" )) );
     return FD_QUIC_FAILED;
   }
 
@@ -577,7 +576,7 @@ fd_quic_crypto_decrypt_hdr(
   ulong         sample_off = pkt_number_off + 4;
 
   if( FD_UNLIKELY( sample_off + FD_QUIC_HP_SAMPLE_SZ > cipher_text_sz ) ) {
-    FD_DEBUG( FD_LOG_WARNING(( "fd_quic_crypto_decrypt failed. Not enough bytes for a sample" )) );
+    FD_DEBUG( FD_LOG_WARNING(( "decrypt hdr: not enough bytes for a sample" )) );
     return FD_QUIC_FAILED;
   }
 

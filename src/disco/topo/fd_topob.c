@@ -120,7 +120,7 @@ fd_topob_tile( fd_topo_t *    topo,
   if( FD_UNLIKELY( topo->tile_cnt>=FD_TOPO_MAX_TILES ) ) FD_LOG_ERR(( "too many tiles" ));
 
   ulong kind_id = 0UL;
-  for( ulong i=0UL; i<topo->link_cnt; i++ ) {
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     if( !strcmp( topo->tiles[ i ].name, tile_name ) ) kind_id++;
   }
 
@@ -402,7 +402,8 @@ fd_topob_finish( fd_topo_t * topo,
 
       offset = fd_ulong_align_up( offset, align( topo, obj ) );
       obj->offset = offset;
-      offset += footprint( topo, obj );
+      obj->footprint = footprint( topo, obj );
+      offset += obj->footprint;
     }
 
     ulong footprint = fd_ulong_align_up( offset, fd_topo_workspace_align() );

@@ -25,7 +25,7 @@ where `mode` is one of:
    privileges and will not make any changes to the system.
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
-`stage` can be one or more of `large-pages`, `shmem`, `sysctl`, `xdp`,
+`stage` can be one or more of `hugetlbfs`, `sysctl`, `xdp`,
 `xdp-leftover`, `ethtool`, `workspace-leftover`, or `workspace` and
 these stages are described below. You can also use the stage `all`
 which will configure everything.
@@ -35,56 +35,49 @@ trying to run the stage without privileges. The `check` mode never
 requires privileges, and the `init` mode will only require
 privileges if it needs to actually change something.
 
-## large-pages
-The `large-pages` stage is used to reserve `huge` (2MiB) and `gigantic`
-(1GiB) memory pages from the Linux kernel. See also the [kernel
+## hugetlbfs
+The `hugetlbfs` stage is used to reserve `huge` (2MiB) and `gigantic`
+(1GiB) memory pages from the Linux kernel for use by Firedancer. See
+also the [kernel
 documentation](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html)
 of these pages. Almost all memory in Firedancer is allocated out of
 these pages for performance reasons.
 
-Firedancer calculates the number of each page kind it needs to run the
-validator, and will then tell the kernel to reserve these pages by
-writing the number to a file like
-`/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages`.
-You can see how many pages will be reserved by running the `fdctl mem`
-command.
+This is a two step process. First, the number of `huge` and `gigantic`
+pages available on the entire system is increased in the kernel by
+increasing `/sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages`
+until the `free_hugepages` value is high enough for all the memory
+needs of the validator.
+
+Once the pages have been reserved globally in the kernel pool, they are
+assigned specifically to Firedancer by creating a `hugetlbfs` mount at
+each of `/mnt/.fd/.gigantic/` and `/mnt/.fd/.huge` for gigantic and huge
+pages respectively. These paths can be configured in the TOML file under
+the `[hugetlbfs]` section. Lets run it:
+
+<<< @/snippets/hugetlbfs.ansi
 
 This stage requires root privileges, and cannot be performed with
-capabilities. If the minimum required pages are already reserved, the
-`init` mode does nothing and the `check` mode will return successfully
-without requiring privileges. The `fini` mode always does nothing and
-will not decrease the reserved page count.
-
-::: tip TIP
-
-The `large-pages` step should be run immediately when the system is
-booted. If run later, it may fail because the operating system memory is
-fragmented and a large contiguous block cannot be reserved.
-
-:::
-
-## shmem
-The `shmem` step must be run after `large-pages`, and mounts a gigantic
-page filesystem at `/mnt/.fd/.gigantic/` and a huge page filesystem at
-`/mnt/.fd/.huge`. These paths can be configured in the TOML file under
-the `[shmem]` section. Lets run it:
-
-<<< @/snippets/shmem.ansi
-
-If the correct `hugetlbfs` filesystems have already been mounted at the
-right locations, the `init` mode will do nothing and Firedancer will use
-the pre-existing mounts. The `check` mode will return successfully
-without requiring privileges. Mounts should be large enough to fit the
-memory needed by Firedancer, which you can see by running the `fdctl
-mem` command.
+capabilities. If the required hugetlbfs mounts are already present, with
+at least the amount of memory reserved that we required then the `init`
+mode does nothing and the `check` mode will return successfully
+without requiring privileges.
 
 The `fini` mode will unmount the two filesystems, and remove them from
 `/mnt/.fd/`, although it will leave the `/mnt/.fd/` directory in place.
 The `fini` mode will not succeed if memory from the mounts is mapped
-into a running process.
+into a running process. This will return the huge and gigantic pages
+that Firedancer had reserved to the global kernel pool, although we
+will not decrease the global pool size, even if it was earlier increased
+during `init`.
 
-This stage requires root privileges, and cannot be performed with
-capabilities.
+::: tip TIP
+
+The `hugetlbfs` step should be run immediately when the system is booted.
+If run later, it may fail because the operating system memory is
+fragmented and a large contiguous block cannot be reserved.
+
+:::
 
 ## sysctl
 It is suggested to run Firedancer with certain kernel parameters tuned

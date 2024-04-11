@@ -1,10 +1,13 @@
 #include "fd_config_program.h"
+#include "../fd_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../context/fd_exec_txn_ctx.h"
+#include "../context/fd_exec_instr_ctx.h"
 
 /* Useful links:
 
@@ -25,7 +28,10 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   fd_config_keys_t key_list;
   int decode_result = fd_config_keys_decode( &key_list, &decode );
-  if( decode_result != FD_BINCODE_SUCCESS )
+  /* Fail if the number of bytes consumed by deserialize exceeds 1232
+     (hardcoded constant by Agave limited_deserialize) */
+  if( decode_result != FD_BINCODE_SUCCESS ||
+      (ulong)ctx.instr->data + 1232UL < (ulong)decode.data )
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
@@ -164,20 +170,33 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   /* Upgrade to writable handle
-     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L133 */
+     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L129 */
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( config_acc_rec ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx.instr, 0 ) ) )
-    return FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+  /* Upgrade to writable handle
+     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
-  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen < ctx.instr->data_sz ) )
+  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen < ctx.instr->data_sz ) ) {
+    /* TODO Log: "instruction data too large" */
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
-  int modify_err = fd_instr_borrowed_account_modify_idx( &ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
-  if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) )
-    return FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+  /* Inlined solana_sdk::transaction_context::BorrowedAccount::get_data_mut */
+
+  do {
+    int err;
+    if( !fd_account_can_data_be_changed( ctx.instr, 0, &err ) )
+      return err;
+  } while(0);
+
+  do {
+    int err = fd_instr_borrowed_account_modify_idx( &ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
+  } while(0);
+
+  /* copy_from_slice */
 
   fd_memcpy( config_acc_rec->data, ctx.instr->data, ctx.instr->data_sz );
 
@@ -192,6 +211,15 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
 int
 fd_config_program_execute( fd_exec_instr_ctx_t ctx ) {
+
+  /* https://github.com/solana-labs/solana/blob/v1.17.27/programs/config/src/config_processor.rs#L14
+     See DEFAULT_COMPUTE_UNITS */
+
+  do {
+    int err = fd_exec_consume_cus( ctx.txn_ctx, 450UL );
+    if( FD_UNLIKELY( err ) ) return err;
+  } while(0);
+
   fd_scratch_push();
   int ret = _process_config_instr( ctx );
   fd_scratch_pop();

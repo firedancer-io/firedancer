@@ -186,7 +186,7 @@ JT_START;
 JT_END;
 
   ctx->compute_meter = compute_meter;
-  ctx->due_insn_cnt = due_insn_cnt;
+  ctx->due_insn_cnt = fd_ulong_sat_add( due_insn_cnt, 1 );
   ctx->previous_instruction_meter = previous_instruction_meter;
 
   ctx->compute_meter = fd_ulong_sat_sub(ctx->compute_meter, ctx->due_insn_cnt);
@@ -222,7 +222,7 @@ fd_vm_interp_instrs_trace( fd_vm_exec_context_t * ctx ) {
 #define JMP_TAB_ID interp_trace
 #define JMP_TAB_PRE_CASE_CODE \
   if( ic > ctx->trace_ctx->trace_entries_sz ) goto JT_RET_LOC; \
-  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic, previous_instruction_meter - due_insn_cnt, register_file );
+  fd_vm_trace_context_add_entry( ctx->trace_ctx, (ulong)pc, ic+(ulong)(pc-start_pc)-skipped_insns, previous_instruction_meter - due_insn_cnt, register_file );
 #define JMP_TAB_POST_CASE_CODE
 #include "fd_jump_tab.c"
 

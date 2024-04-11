@@ -12,7 +12,6 @@
    declarations. */
 
 #define FD_FUNK_REC_ALIGN     (32UL)
-#define FD_FUNK_REC_FOOTPRINT (160UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.

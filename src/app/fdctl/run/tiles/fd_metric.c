@@ -257,6 +257,9 @@ prometheus_print( fd_topo_t * topo,
   PRINT( "\n" );
   result = prometheus_print1( topo, out, out_len, "bank", FD_METRICS_BANK_TOTAL, FD_METRICS_BANK, PRINT_TILE );
   if( FD_UNLIKELY( result<0 ) ) return result;
+  PRINT( "\n" );
+  result = prometheus_print1( topo, out, out_len, "poh", FD_METRICS_POH_TOTAL, FD_METRICS_POH, PRINT_TILE );
+  if( FD_UNLIKELY( result<0 ) ) return result;
 
   /* Now backfill Content-Length */
   ulong printed;

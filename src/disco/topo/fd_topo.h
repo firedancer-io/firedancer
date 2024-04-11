@@ -12,15 +12,15 @@
 /* Maximum number of tiles that may be present in a topology. */
 #define FD_TOPO_MAX_TILES         (256UL)
 /* Maximum number of objects that may be present in a topology. */
-#define FD_TOPO_MAX_OBJS          (1024UL)
+#define FD_TOPO_MAX_OBJS          (4096UL)
 /* Maximum number of links that may go into any one tile in the
    topology. */
-#define FD_TOPO_MAX_TILE_IN_LINKS  ( 32UL)
+#define FD_TOPO_MAX_TILE_IN_LINKS  ( 128UL)
 /* Maximum number of links that a tile may write to in addition
    to the primary output link. */
 #define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
 /* Maximum number of objects that a tile can use. */
-#define FD_TOPO_MAX_TILE_OBJS      ( 128UL)
+#define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
 
 /* A workspace is a Firedance specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
@@ -28,6 +28,8 @@
 typedef struct {
   ulong id;           /* The ID of this workspace.  Indexed from [0, wksp_cnt).  When placed in a topology, the ID must be the index of the workspace in the workspaces list. */
   char  name[ 13UL ]; /* The name of this workspace, like "pack".  There can be at most one of each workspace name in a topology. */
+
+  ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
@@ -150,6 +152,7 @@ typedef struct {
       ulong  max_inflight_quic_packets;
       ulong  tx_buf_size;
       ulong  max_concurrent_streams_per_connection;
+      ulong  stream_pool_cnt;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
@@ -165,6 +168,8 @@ typedef struct {
     struct {
       ulong max_pending_transactions;
       ulong bank_tile_count;
+      int   larger_max_cost_per_block;
+      int   larger_shred_limits_per_block;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
@@ -200,6 +205,10 @@ typedef struct {
       ushort rpc_port;
       uint   rpc_ip_addr;
     } bencho;
+
+    struct {
+      ulong accounts_cnt;
+    } benchg;
   };
 } fd_topo_tile_t;
 
@@ -209,6 +218,7 @@ typedef struct {
   ulong wksp_id;
 
   ulong offset;
+  ulong footprint;
 } fd_topo_obj_t;
 
 /* An fd_topo_t represents the overall structure of a Firedancer
@@ -405,17 +415,37 @@ void
 fd_topo_join_workspaces( fd_topo_t *  topo,
                          int          mode );
 
-/* Leave (unmap from the process) all shared memory needed by all
-   tiles in the topology, if each of them was mapped. */
-void
-fd_topo_leave_workspaces( fd_topo_t *  topo );
+/* Leave (unmap from the process) the shared memory needed for the
+   given workspace in the topology, if it was previously mapped.
+   
+   topo and wksp are assumed non-NULL.  It is OK if the workspace
+   has not been previously joined, in which case this is a no-op. */
 
-/* Create all the workspaces needed by the topology on the system. This
-   does not "join" the workspaces (map their memory into the process),
-   but only creates the .wksp files and formats them correctly as
-   workspaces. */
 void
-fd_topo_create_workspaces( fd_topo_t * topo );
+fd_topo_leave_workspace( fd_topo_t *      topo,
+                         fd_topo_wksp_t * wksp );
+
+/* Leave (unmap from the process) all shared memory needed by all
+   tiles in the topology, if each of them was mapped.
+
+   topo is assumed non-NULL.  Only workspaces which were previously
+   joined are unmapped. */
+
+void
+fd_topo_leave_workspaces( fd_topo_t * topo );
+
+/* Create the given workspace needed by the topology on the system.
+   This does not "join" the workspaces (map their memory into the
+   process), but only creates the .wksp file and formats it correctly
+   as a workspace.
+
+   Returns 0 on success and -1 on failure, with errno set to the error.
+   The only reason for failure currently that will be returned is
+   ENOMEM, as other unexpected errors will cause the program to exit. */
+
+int
+fd_topo_create_workspace( fd_topo_t *      topo,
+                          fd_topo_wksp_t * wksp );
 
 /* Join the standard IPC objects needed by the topology of this particular
    tile */
@@ -430,16 +460,38 @@ void
 fd_topo_workspace_fill( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp );
 
-/* Apply a function to every object in the topology. */
+/* Apply a function to every object that is resident in the given
+   workspace in the topology. */
 
 void
-fd_topo_wksp_apply( fd_topo_t * topo,
+fd_topo_wksp_apply( fd_topo_t *      topo,
+                    fd_topo_wksp_t * wksp,
                     void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
 
 /* Same as fd_topo_fill_tile but fills in all tiles in the topology. */
 
 void
 fd_topo_fill( fd_topo_t * topo );
+
+/* fd_topo_tile_stack_new creates a new huge page optimized stack for
+   provided tile.  The stack is placed in a workspace in the hugetlbfs
+   mount.
+   
+   If optimize is 1, fd_topo_tile_stack_new creates a new huge page
+   optimized stack for the provided tile.  The stack will be placed
+   in a workspace in the hugetlbfs, with a name determined by the
+   provided app_name, tile_name, and tile_kind_id arguments.
+   
+   If optimize is 0, fd_topo_tile_stack_new creates a new regular
+   page backed stack, which is not placed in the hugetlbfs.  In
+   this case cpu_idx and the other arguments are ignored. */
+
+void *
+fd_topo_tile_stack_new( int          optimize,
+                        char const * app_name,
+                        char const * tile_name,
+                        ulong        tile_kind_id,
+                        ulong        cpu_idx );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
@@ -546,19 +598,25 @@ fd_topo_mlock_max_tile( fd_topo_t * topo );
 FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo );
 
-/* This returns the number of gigantic pages needed by the topology.
-   It includes pages needed by the workspaces, as well as additional
-   allocations like huge pages for process stacks and private key
-   storage. */
-FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo );
+/* This returns the number of gigantic pages needed by the topology on
+   the provided numa node.  It includes pages needed by the workspaces,
+   as well as additional allocations like huge pages for process stacks
+   and private key storage. */
 
-/* This returns the number of gigantic pages needed by the topology.
-   It includes pages needed by the workspaces, as well as additional
-   allocations like huge pages for process stacks and private key
-   storage. */
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo );
+fd_topo_gigantic_page_cnt( fd_topo_t * topo,
+                           ulong       numa_idx );
+
+/* This returns the number of huge pages in the application needed by
+   the topology on the provided numa node.  It includes pages needed by
+   things placed in the hugetlbfs (workspaces, process stacks).  If
+   include_anonymous is true, it also includes anonymous hugepages which
+   are needed but are not placed in the hugetlbfs. */
+
+FD_FN_PURE ulong
+fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       ulong       numa_idx,
+                       int         include_anonymous );
 
 /* Check all invariants of the given topology to make sure it is valid.
    An invalid topology will cause the program to abort with an error

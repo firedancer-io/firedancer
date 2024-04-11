@@ -53,85 +53,81 @@ fd_topo_join_workspaces( fd_topo_t *  topo,
 }
 
 void
+fd_topo_leave_workspace( fd_topo_t *      topo,
+                         fd_topo_wksp_t * wksp ) {
+  (void)topo;
+
+  if( FD_LIKELY( wksp->wksp ) ) {
+    if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
+    wksp->wksp            = NULL;
+    wksp->known_footprint = 0UL;
+    wksp->total_footprint = 0UL;
+  }
+}
+
+void
 fd_topo_leave_workspaces( fd_topo_t * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
-
-    if( FD_LIKELY( wksp->wksp ) ) {
-      if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
-      wksp->wksp            = NULL;
-      wksp->known_footprint = 0UL;
-      wksp->total_footprint = 0UL;
-    }
+    fd_topo_leave_workspace( topo, &topo->workspaces[ i ] );
   }
 }
 
 extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
 
-void
-fd_topo_create_workspaces( fd_topo_t * topo ) {
-  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &topo->workspaces[ i ];
+int
+fd_topo_create_workspace( fd_topo_t *      topo,
+                          fd_topo_wksp_t * wksp ) {
+  char name[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
-    char name[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
+  ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
+  ulong sub_cpu_idx [ 1 ] = { fd_shmem_cpu_idx( wksp->numa_idx ) };
 
-    ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
-    ulong sub_cpu_idx [ 1 ] = { 0 }; /* todo, use CPU nearest to the workspace consumers */
+  int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+  if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
+  else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 
-    int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
-    if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
-      char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-      FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
-      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
-                   "with %lu %s pages. The memory needed should already be successfully "
-                   "reserved by the `large-pages` configure step, so there are two "
-                   "likely reasons. You might have workspaces leftover in the same "
-                   "directory from an older release of Firedancer which can be removed "
-                   "with `fdctl configure fini workspace`, or another process on the "
-                   "system is using the pages we reserved.",
-                   name, mount_path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
-    }
-    else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
+  void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
 
-    void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ); /* logs details */
+  void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
+  if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
 
-    void * wkspmem = fd_wksp_new( shmem, name, 0U, wksp->part_max, wksp->total_footprint ); /* logs details */
-    if( FD_UNLIKELY( !wkspmem ) ) FD_LOG_ERR(( "fd_wksp_new failed" ));
+  fd_wksp_t * join = fd_wksp_join( wkspmem );
+  if( FD_UNLIKELY( !join ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
 
-    fd_wksp_t * join = fd_wksp_join( wkspmem );
-    if( FD_UNLIKELY( !join ) ) FD_LOG_ERR(( "fd_wksp_join failed" ));
+  /* Footprint has been predetermined so that this alloc() call must
+      succeed inside the data region.  The difference between total_footprint
+      and known_footprint is given to "loose" data, that may be dynamically
+      allocated out of the workspace at runtime. */
+  if( FD_LIKELY( wksp->known_footprint ) ) {
+    ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
+    if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
 
-    /* Footprint has been predetermined so that this alloc() call must
-       succeed inside the data region.  The difference between total_footprint
-       and known_footprint is given to "loose" data, that may be dynamically
-       allocated out of the workspace at runtime. */
-    if( FD_LIKELY( wksp->known_footprint ) ) {
-      ulong offset = fd_wksp_alloc( join, fd_topo_workspace_align(), wksp->known_footprint, 1UL );
-      if( FD_UNLIKELY( !offset ) ) FD_LOG_ERR(( "fd_wksp_alloc failed" ));
-
-      /* gaddr_lo is the start of the workspace data region that can be
-         given out in response to wksp alloc requests.  We rely on an
-         implicit assumption everywhere that the bytes we are given by
-         this single allocation will be at gaddr_lo, so that we can find
-         them, so we verify this here for paranoia in case the workspace
-         alloc implementation changes. */
-      if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
-        FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
-    }
-
-    fd_wksp_leave( join );
-
-    if( FD_UNLIKELY( fd_shmem_leave( shmem, NULL, NULL ) ) ) /* logs details */
-      FD_LOG_ERR(( "fd_shmem_leave failed" ));
+    /* gaddr_lo is the start of the workspace data region that can be
+        given out in response to wksp alloc requests.  We rely on an
+        implicit assumption everywhere that the bytes we are given by
+        this single allocation will be at gaddr_lo, so that we can find
+        them, so we verify this here for paranoia in case the workspace
+        alloc implementation changes. */
+    if( FD_UNLIKELY( fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ) != offset ) )
+      FD_LOG_ERR(( "wksp gaddr_lo %lu != offset %lu", fd_ulong_align_up( ((struct fd_wksp_private*)join)->gaddr_lo, fd_topo_workspace_align() ), offset ));
   }
+
+  fd_wksp_leave( join );
+
+  if( FD_UNLIKELY( fd_shmem_leave( shmem, NULL, NULL ) ) ) /* logs details */
+    FD_LOG_ERR(( "fd_shmem_leave failed" ));
+
+  return 0;
 }
 
 void
-fd_topo_wksp_apply( fd_topo_t * topo,
+fd_topo_wksp_apply( fd_topo_t *      topo,
+                    fd_topo_wksp_t * wksp,
                     void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) ) {
   for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
     fd_topo_obj_t * obj = &topo->objs[ i ];
+    if( FD_LIKELY( obj->wksp_id!=wksp->id ) ) continue;
     fn( topo, obj );
   }
 }
@@ -242,28 +238,41 @@ fd_topo_mlock_max_tile( fd_topo_t * topo ) {
 }
 
 FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo ) {
+fd_topo_gigantic_page_cnt( fd_topo_t * topo,
+                           ulong       numa_idx ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
-      result += topo->workspaces[ i ].page_cnt;
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
+    if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+
+    if( FD_LIKELY( wksp->page_sz==FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
+      result += wksp->page_cnt;
     }
   }
   return result;
 }
 
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo ) {
+fd_topo_huge_page_cnt( fd_topo_t * topo,
+                       ulong       numa_idx,
+                       int         include_anonymous ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
-    if( FD_LIKELY( topo->workspaces[ i ].page_sz == FD_SHMEM_HUGE_PAGE_SZ ) ) {
-      result += topo->workspaces[ i ].page_cnt;
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
+    if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+
+    if( FD_LIKELY( wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ ) ) {
+      result += wksp->page_cnt;
     }
   }
 
+  /* The stack huge pages are also placed in the hugetlbfs. */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ] );
   }
+
+  /* No anonymous huge pages in use yet. */
+  (void)include_anonymous;
 
   return result;
 }
@@ -314,7 +323,7 @@ fd_topo_print_log( int         stdout,
   PRINT( "\nSUMMARY\n" );
 
   /* The logic to compute number of stack pages is taken from
-     fd_tile_thread.cxx, in function fd_tile_private_stack_new, and this
+     fd_tile_thread.cxx, in function fd_topo_tile_stack_new, and this
      should match that. */
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 
@@ -331,9 +340,22 @@ fd_topo_print_log( int         stdout,
     total_bytes / (1 << 30),
     (total_bytes % (1 << 30)) / (1 << 20),
     (total_bytes % (1 << 20)) / (1 << 10) );
-  PRINT("  %23s: %lu\n", "Required Gigantic Pages", fd_topo_gigantic_page_cnt( topo ) );
-  PRINT("  %23s: %lu\n", "Required Huge Pages", fd_topo_huge_page_cnt( topo ) );
+
+  ulong required_gigantic_pages = 0UL;
+  ulong required_huge_pages = 0UL;
+
+  ulong numa_node_cnt = fd_shmem_numa_cnt();
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    required_gigantic_pages += fd_topo_gigantic_page_cnt( topo, i );
+    required_huge_pages += fd_topo_huge_page_cnt( topo, i, 0 );
+  }
+  PRINT("  %23s: %lu\n", "Required Gigantic Pages", required_gigantic_pages );
+  PRINT("  %23s: %lu\n", "Required Huge Pages", required_huge_pages );
   PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
+  for( ulong i=0UL; i<numa_node_cnt; i++ ) {
+    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Gigantic Pages", i, fd_topo_gigantic_page_cnt( topo, i ) );
+    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
+  }
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -341,7 +363,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
-    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+    PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
   }
 
   PRINT( "\nLINKS\n" );
@@ -401,7 +423,7 @@ fd_topo_print_log( int         stdout,
       FD_TEST( fd_cstr_printf_check( out_link_id, 24, NULL, "%lu", tile->out_link_id_primary ) );
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, out_link_id, in, out );
+    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=%-2lu  out_link=%-2s  in=[%s]  out=[%s]", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id, tile->cpu_idx, out_link_id, in, out );
     if( FD_LIKELY( i != topo->tile_cnt-1 ) ) PRINT( "\n" );
   }
 

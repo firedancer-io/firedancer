@@ -13,6 +13,7 @@ const fd_pubkey_t fd_sysvar_stake_history_id       = { .uc = { SYSVAR_STAKE_HIST
 const fd_pubkey_t fd_sysvar_owner_id               = { .uc = { SYSVAR_PROG_ID           } };
 const fd_pubkey_t fd_sysvar_last_restart_slot_id   = { .uc = { SYSVAR_LAST_RESTART_ID   } };
 const fd_pubkey_t fd_sysvar_instructions_id        = { .uc = { SYSVAR_INSTRUCTIONS_ID   } };
+const fd_pubkey_t fd_sysvar_incinerator_id         = { .uc = { SYSVAR_INCINERATOR_ID    } };
 
 const fd_pubkey_t fd_solana_native_loader_id                  = { .uc = { NATIVE_LOADER_ID         } };
 const fd_pubkey_t fd_solana_feature_program_id                = { .uc = { FEATURE_ID               } };

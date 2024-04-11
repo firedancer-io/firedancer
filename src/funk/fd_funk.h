@@ -167,6 +167,7 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
   ulong wksp_tag;   /* Tag to use for wksp allocations, positive */
   ulong seed;       /* Seed for various hashing function used under the hood, arbitrary */
   ulong cycle_tag;  /* Next cycle_tag to use, used internally for various data integrity checks */
+  volatile int readonly; /* Read-only flag on database */
 
   /* The funk transaction map stores the details about transactions
      in preparation and their relationships to each other.  This is a
@@ -348,6 +349,10 @@ FD_FN_PURE static inline ulong fd_funk_seed( fd_funk_t * funk ) { return funk->s
 
 FD_FN_PURE static inline ulong fd_funk_txn_max( fd_funk_t * funk ) { return funk->txn_max; }
 
+/* Set/clear the readonly flag, which marks the entire database as
+ * read-only. Any writes will fail. */
+static inline void fd_funk_set_readonly( fd_funk_t * funk, int flag ) { funk->readonly = flag; }
+
 /* fd_funk_txn_map returns a pointer in the caller's address space to
    the funk's transaction map. */
 
@@ -458,7 +463,7 @@ fd_funk_last_publish_rec_tail( fd_funk_t const *     funk,       /* Assumes curr
 FD_FN_PURE static inline fd_alloc_t *  /* Lifetime is that of the local join */
 fd_funk_alloc( fd_funk_t * funk,       /* Assumes current local join */
                fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funk_wksp( funk ) */
-  return (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr );
+  return fd_alloc_join_cgroup_hint_set( (fd_alloc_t *)fd_wksp_laddr_fast( wksp, funk->alloc_gaddr ), fd_tile_idx() );
 }
 
 /* Operations */
@@ -490,6 +495,11 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
 
 int
 fd_funk_verify( fd_funk_t * funk );
+
+/* fd_funk_log_mem_usage logs useful statistics about memory usage */
+
+void
+fd_funk_log_mem_usage( fd_funk_t * funk );
 
 FD_PROTOTYPES_END
 

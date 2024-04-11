@@ -25,7 +25,8 @@ def generate(feature_map_path, header_path, body_path):
     rmap = {}
     fm = feature_map
     for x in fm:
-        fd_features_t_params.append(f"    ulong {x['name']};")
+        short_id = "0x%016x" % (struct.unpack("<Q", b58decode(x["pubkey"])[0:8]))
+        fd_features_t_params.append(f"    /* {short_id} */ ulong {x['name']};")
         rmap[x["pubkey"]] = x["name"]
     fd_features_t_params = "\n".join(fd_features_t_params)
 

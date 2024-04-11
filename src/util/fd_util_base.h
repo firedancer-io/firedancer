@@ -603,6 +603,29 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_FN_UNSANITIZED __attribute__((no_sanitize("address", "undefined")))
 
+/* FD_FN_SENSITIVE instruments the compiler to sanitize sensitive functions.
+   https://eprint.iacr.org/2023/1713 (Sec 3.2)
+   - Clear all registers with __attribute__((zero_call_used_regs("all")))
+   - Clear stack with __attribute__((strub)), available in gcc 14+ */
+
+#if __has_attribute(strub)
+#define FD_FN_SENSITIVE __attribute__((strub)) __attribute__((zero_call_used_regs("all")))
+#elif __has_attribute(zero_call_used_regs)
+#define FD_FN_SENSITIVE __attribute__((zero_call_used_regs("all")))
+#else
+#define FD_FN_SENSITIVE
+#endif
+
+/* FD_PARAM_UNUSED indicates that it is okay if the function parameter is not
+   used. */
+
+#define FD_PARAM_UNUSED __attribute__((unused))
+
+/* FD_TYPE_PACKED indicates that a type is to be packed, reseting its alignment
+   to 1. */
+
+#define FD_TYPE_PACKED __attribute__((packed))
+
 /* FD_WARN_UNUSED tells the compiler the result (from a function) should
    be checked. This is useful to force callers to either check the result
    or deliberately and explicitly ignore it. Good for result codes and
@@ -970,6 +993,11 @@ fd_memset( void  * d,
 }
 
 #endif
+
+/* C23 has memset_explicit, i.e. a memset that can't be removed by the
+   optimizer. This is our own equivalent. */
+
+static void * (* volatile fd_memset_explicit)(void *, int, size_t) = memset;
 
 /* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
    equal or sz is zero and 0 otherwise.  No memory accesses made if sz

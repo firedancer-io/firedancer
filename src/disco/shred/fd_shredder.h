@@ -111,7 +111,7 @@ void *          fd_shredder_delete( void *          mem      );
    There are two legitimate ways to send certain payload sizes.  We
    always pick the larger value of payload_bytes_per_shred. */
 
-#define NORMAL_FEC_SET_PAYLOAD_SZ (31840UL)
+#define FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ (31840UL)
 
 FD_FN_CONST static inline ulong
 fd_shredder_count_fec_sets(      ulong sz_bytes ) {
@@ -119,12 +119,12 @@ fd_shredder_count_fec_sets(      ulong sz_bytes ) {
      multiple of 31840, we make exactly sz_bytes/31840 sets.  Otherwise,
      we make floor(sz_bytes/31840)-1 normal set + one odd-sized set.
      These cases can be simplified to make it branchless: */
-  return fd_ulong_max( sz_bytes, 2UL*NORMAL_FEC_SET_PAYLOAD_SZ - 1UL ) / NORMAL_FEC_SET_PAYLOAD_SZ;
+  return fd_ulong_max( sz_bytes, 2UL*FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - 1UL ) / FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
 }
 FD_FN_CONST static inline ulong
 fd_shredder_count_data_shreds(   ulong sz_bytes ) {
   ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
-  ulong remaining_bytes = sz_bytes - normal_sets * NORMAL_FEC_SET_PAYLOAD_SZ;
+  ulong remaining_bytes = sz_bytes - normal_sets * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
   ulong shreds = normal_sets * 32UL;
   if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL );
   else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds +=                    (remaining_bytes +  994UL)/ 995UL;
@@ -135,7 +135,7 @@ fd_shredder_count_data_shreds(   ulong sz_bytes ) {
 FD_FN_CONST static inline ulong
 fd_shredder_count_parity_shreds( ulong sz_bytes ) {
   ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
-  ulong remaining_bytes = sz_bytes - normal_sets * NORMAL_FEC_SET_PAYLOAD_SZ;
+  ulong remaining_bytes = sz_bytes - normal_sets * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
   ulong shreds = normal_sets * 32UL;
   if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_shredder_data_to_parity_cnt[ fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL ) ];
   else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds += fd_shredder_data_to_parity_cnt[                    (remaining_bytes +  994UL)/ 995UL   ];
@@ -143,7 +143,6 @@ fd_shredder_count_parity_shreds( ulong sz_bytes ) {
   else                                                 shreds +=                                                    (remaining_bytes +  954UL)/ 955UL;
   return shreds;
 }
-#undef NORMAL_FEC_SET_PAYLOAD_SZ
 
 /* fd_shredder_init_batch begins the computation of shreds for an entry
    batch.  shredder must be a valid local join.  entry_batch points to
@@ -163,6 +162,18 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
                                         ulong                         entry_batch_sz,
                                         ulong                         slot,
                                         fd_entry_batch_meta_t const * meta );
+
+/* fd_shredder_skip_batch updates the shredder state as necessary
+   to skip processing this current batch.  shredder must be a valid
+   local join.  entry_batch_sz must be strictly positive.
+
+   Returns shredder, which will have data and parity shred indices
+   updated as if the caller had called fd_shredder_init_batch with
+   a batch of the specified size, followed by fd_shredder_next_fec_set
+   exactly fd_shredder_count_fec_sets( entry_batch_sz ) times. */
+fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
+                                        ulong           entry_batch_sz,
+                                        ulong           slot );
 
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
    progress batch.  Computes the entirety of both data and parity

@@ -12,7 +12,7 @@ struct __attribute__((aligned(64))) fd_mux_tile_in {
   fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
   ulong *                fseq;     /* local join to the fseq used to return flow control credits to the in */
   uint                   accum[6]; /* local diagnostic accumulators.  These are drained during in housekeeping. */
-                                   /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNR_CONT} are 0:5 */
+                                   /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNP_FRAG_CNT} are 0:5 */
 };
 
 typedef struct fd_mux_tile_in fd_mux_tile_in_t;
@@ -469,7 +469,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
           /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_out!=ULONG_MAX ) ) {
             FD_COMPILER_MFENCE();
-            (*out_slow[ slowest_out ])++;
+            (*out_slow[ slowest_out ]) += metric_in_backp;
             FD_COMPILER_MFENCE();
           }
 
@@ -585,6 +585,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
         this_in->seq = seq_found; /* Resume from here (probably reasonably current, could query in mcache sync directly instead) */
         hist = hist_ovrnp_ticks;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
+        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
       }
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
@@ -631,7 +632,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-      this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++;
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
       long next = fd_tickcount();
       fd_histf_sample( hist_ovrnr_ticks, (ulong)(next - now) );

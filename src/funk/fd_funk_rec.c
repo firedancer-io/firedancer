@@ -75,7 +75,7 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
     /* TODO: const correct and/or fortify? */
     do {
       fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-      fd_funk_rec_t const * rec = fd_funk_rec_map_query( rec_map, pair, NULL );
+      fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
       if( FD_LIKELY( rec ) ) return rec;
       txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
     } while( FD_UNLIKELY( txn ) );
@@ -85,7 +85,7 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
   /* Query the last published transaction */
 
   fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-  return fd_funk_rec_map_query( rec_map, pair, NULL );
+  return fd_funk_rec_map_query_const( rec_map, pair, NULL );
 }
 
 fd_funk_rec_t const *
@@ -170,6 +170,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec ) {
   if( FD_UNLIKELY( (!funk) | (!rec) ) )
     return NULL;
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -266,6 +267,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -406,6 +408,7 @@ fd_funk_rec_insert_prealloc( fd_funk_t *               funk,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -519,6 +522,7 @@ fd_funk_rec_fixup_links( fd_funk_t *               funk,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -540,7 +544,7 @@ fd_funk_rec_fixup_links( fd_funk_t *               funk,
     _rec_head_idx = &txn->rec_head_idx;
     _rec_tail_idx = &txn->rec_tail_idx;
   }
-   
+
   ulong           rec_idx = (ulong)(rec - rec_map);
   if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
 
@@ -572,6 +576,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     int             erase ) {
 
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
+  FD_TEST(!funk->readonly);
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -763,7 +768,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   else
     rec_con = irec;
 
-  if ( rec_con ) {
+  if ( rec_con && !FD_UNLIKELY( rec_con->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */
@@ -808,7 +813,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
 fd_funk_rec_t *
 fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
                                     fd_funk_txn_t *           txn,
-                                    fd_funk_rec_key_t const * key,                                    
+                                    fd_funk_rec_key_t const * key,
                                     ulong                     min_val_size,
                                     int                       do_create,
                                     fd_funk_rec_t *           prealloc_rec,
@@ -837,7 +842,7 @@ fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
     } else {
       /* Copy the record into the transaction */
       rec = fd_funk_rec_modify( funk, fd_funk_rec_insert_prealloc( funk, txn, key, prealloc_rec, opt_err ) );
-      
+
       if ( !rec )
         return NULL;
 

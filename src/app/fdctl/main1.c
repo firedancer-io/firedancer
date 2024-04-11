@@ -78,6 +78,52 @@ should_colorize( void ) {
   return 0;
 }
 
+static void
+initialize_numa_assignments( fd_topo_t * topo ) {
+  /* Assign workspaces to NUMA nodes.  The heuristic here is pretty
+     simple for now: workspacess go on the NUMA node of the first
+     tile which maps the largest object in the workspace. */
+
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    ulong max_footprint = 0UL;
+    ulong max_obj = ULONG_MAX;
+
+    for( ulong j=0UL; j<topo->obj_cnt; j++ ) {
+      fd_topo_obj_t * obj = &topo->objs[ j ];
+      if( obj->wksp_id!=i ) continue;
+
+      if( FD_UNLIKELY( !max_footprint || obj->footprint>max_footprint ) ) {
+        max_footprint = obj->footprint;
+        max_obj = j;
+      }
+    }
+
+    if( FD_UNLIKELY( max_obj==ULONG_MAX ) ) FD_LOG_ERR(( "no object found for workspace %s", topo->workspaces[ i ].name ));
+
+    int found = 0;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * tile = &topo->tiles[ j ];
+      for( ulong k=0UL; k<tile->uses_obj_cnt; k++ ) {
+        if( FD_LIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx!=USHORT_MAX ) {
+          topo->workspaces[ i ].numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+          found = 1;
+          break;
+        } else if( FD_UNLIKELY( tile->uses_obj_id[ k ]==max_obj ) && tile->cpu_idx==USHORT_MAX ) {
+          topo->workspaces[ i ].numa_idx = 0;
+          found = 1;
+          /* Don't break, keep looking -- a tile with a CPU assignment
+             might also use object in which case we want to use that
+             NUMA node. */
+        }
+      }
+
+      if( FD_UNLIKELY( found ) ) break;
+    }
+
+    if( FD_UNLIKELY( !found ) ) FD_LOG_ERR(( "no tile uses object %s for workspace %s", topo->objs[ max_obj ].name, topo->workspaces[ i ].name ));
+  }
+}
+
 void
 fdctl_boot( int *        pargc,
             char ***     pargv,
@@ -136,6 +182,16 @@ fdctl_boot( int *        pargc,
   config->log.log_fd = fd_log_private_logfile_fd();
   fd_shmem_private_boot( pargc, pargv );;
   fd_tile_private_boot( 0, NULL );
+
+  /* Kind of a hack but initializing NUMA config depends on shmem, which
+     depends on logging, which depends on loading the config file, but
+     we would like to do this as part of loading config ... the topo
+     creation needs to be moved out of configuration and happen after
+     boot. */
+
+  if( FD_LIKELY( -1==config_fd ) ) {
+    initialize_numa_assignments( &config->topo );
+  }
 }
 
 static config_t config;

@@ -496,7 +496,24 @@ dynamic_port_range = "8900-9000"
     #
     # It is suggested to use all available CPU cores for Firedancer, so
     # that the Solana network can run as fast as possible.
-    affinity = "0-21"
+    affinity = "1-22"
+
+    # In addition to the Firedancer tiles which use a core each, the
+    # current version of Firedancer hosts a Solana Labs (Agave)
+    # validator as a subprocess.
+    #
+    # This affinity congtrols which logical CPU cores the Solana Labs
+    # subprocess and all of its threads are allowed to run on.  This is
+    # specified in the same format as the above Firedancer affinity.
+    #
+    # It is strongly suggested that you do not overlap the Firedancer
+    # affinity with the Solana Labs affinity, as Firedancer tiles expect
+    # to have exclusive use of their core.  Unexpected latency  spikes
+    # due to context switching may decrease performance overall.
+    #
+    # An empty string here will not affine the process, and it will run
+    # be free to run on any floating core.
+    solana_labs_affinity = "22-31"
 
     # How many net tiles to run.  Each networking tile will service
     # exactly one queue from a network device being listened to.  If
@@ -522,6 +539,10 @@ dynamic_port_range = "8900-9000"
     # How many bank tiles to run.  Multiple banks can run in parallel,
     # if they are not writing to the same accounts at the same time.
     bank_tile_count = 2
+
+    # How many shred tiles to run.  Multiple shred tiles can run in
+    # parallel to create shreds from transaction entries.
+    shred_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
@@ -555,7 +576,7 @@ dynamic_port_range = "8900-9000"
 #                                pages]
 #        +-- scratch1.wksp
 #        +-- scratch2.wksp
-[shmem]
+[hugetlbfs]
     # The absolute path to a directory in the filesystem.  Firedancer
     # will mount the hugetlbfs filesystem for gigantic pages at this
     # path, or if the path already exists, will use it as-is.  If the
@@ -672,7 +693,17 @@ dynamic_port_range = "8900-9000"
         # underlying link bandwidth.  Supporting more streams per
         # connection currently has a memory footprint cost on the order
         # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 16
+        max_concurrent_streams_per_connection = 32
+
+        # QUIC uses a fixed-size pool of streams to use for all the
+        # connections in the QUIC instance.  When a new connection is
+        # established, QUIC attempts to allocate stream objects to it for
+        # incoming peer-initiated streams. Locally-initiated streams are
+        # allocated explicitly.  One stream per connection is reserved, so
+        # every connection can be used.  This means that this value MUST
+        # be at least as high as max_concurrent_connections.
+        # The size of the pool is defined here:
+        stream_pool_cnt = 65536
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -697,7 +728,7 @@ dynamic_port_range = "8900-9000"
         # above.
         #
         # TODO: This should be removed.
-        max_concurrent_handshakes = 32
+        max_concurrent_handshakes = 2048
 
         # QUIC has a concept of a "QUIC packet", there can be multiple
         # of these inside a UDP packet.  Each QUIC packet we send to the
@@ -710,7 +741,7 @@ dynamic_port_range = "8900-9000"
         # rather than the underlying link bandwidth.  If you have a lot
         # of memory available and are constrained by this, it can make
         # sense to increase.
-        max_inflight_quic_packets = 4096
+        max_inflight_quic_packets = 2048
 
         # TODO: This should be removed.  We never transmit stream data
         # so this should be unused.
@@ -721,16 +752,14 @@ dynamic_port_range = "8900-9000"
         # a period of time.  Once this timeout is reached the connection
         # will be terminated.
         #
-        # An idle connection will be terminated if it remains idle longer than
-        # some threshold. "idle_timeout_millis" represents this threshold in
-        # milliseconds
+        # An idle connection will be terminated if it remains idle
+        # longer than this threshold.
         idle_timeout_millis = 10000
 
-        # Whether QUIC RETRY is enabled
-        # QUIC RETRY is a feature to combat New Connection Request spamming
-        #
-        # This is a boolean
-        retry = true
+        # QUIC retry is a feature to combat new connection request
+        # spamming.  See rfc9000 8.1.2 for more details.  This flag
+        # determines whether the feature is enabled in the validator.
+        retry = false
 
     # Verify tiles perform signature verification of incoming
     # transactions, making sure that the data is well-formed, and that
@@ -820,8 +849,7 @@ dynamic_port_range = "8900-9000"
     # endpoint.
     [tiles.metric]
         # The port to listen on for HTTP request for Prometheus metrics.
-        # Firedancer serves metrics at a URI like
-        # 127.0.0.1:7999/metrics
+        # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
 # These options can be useful for development, but should not be used
@@ -852,28 +880,29 @@ dynamic_port_range = "8900-9000"
     # `--no-clone` argument to `fddev`.
     no_clone = false
 
-    # Firedancer currently hosts a Solana Labs client as a child process when
-    # it starts up, to provide functionality that has not yet been implemented.
-    # For development sometimes it is desirable to not launch this subprocess,
-    # although it will prevent the validator from operating correctly.
+    # Firedancer currently hosts a Solana Labs client as a child process
+    # when it starts up, to provide functionality that has not yet been
+    # implemented. For development sometimes it is desirable to not
+    # launch this subprocess, although it will prevent the validator
+    # from operating correctly.
     #
-    # In development, you can disable solana for testing and debugging with
-    # the `--no-solana-labs` argument to `fddev`.
+    # In development, you can disable solana for testing and debugging
+    # with the `--no-solana-labs` argument to `fddev`.
     no_solana_labs = false
 
-    # Sometimes, it may be useful to run a bootstrap firedancer validator,
-    # either for development or for testing purposes.  The `fddev` tool is
-    # provided for this purpose, which creates the bootstrap keys and does
-    # the cluster genesis using some parameters that are typically useful
-    # for development.
+    # Sometimes, it may be useful to run a bootstrap firedancer
+    # validator, either for development or for testing purposes.  The
+    # `fddev` tool is provided for this purpose, which creates the
+    # bootstrap keys and does the cluster genesis using some parameters
+    # that are typically useful for development.
     #
     # Enabling this allows de-coupling the genesis and key creation from
-    # the validator startup.  The bootstrap validator can then be started
-    # up with `fdctl`.  It will expect the genesis to already exist at
-    # [ledger.path].  The keys used during genesis should be the same as
-    # the ones supplied in the [consensus.identity_path] and
-    # [consensus.vote_account_path].  This option will not be effective if
-    # [gossip.entrypoints] is non-empty.
+    # the validator startup.  The bootstrap validator can then be
+    # started up with `fdctl`.  It will expect the genesis to already
+    # exist at [ledger.path].  The keys used during genesis should be
+    # the same as the ones supplied in the [consensus.identity_path] and
+    # [consensus.vote_account_path].  This option will not be effective
+    # if [gossip.entrypoints] is non-empty.
     bootstrap = false
 
     # It can be convenient during development to use a network namespace
@@ -918,8 +947,108 @@ dynamic_port_range = "8900-9000"
         interface1_mac = "52:F1:7E:DA:2C:E1"
         # IP address of the second network namespace.
         interface1_addr = "198.18.0.2"
+
     [development.gossip]
-        # Under normal operating conditions, a validator should always reach out to a host located on the public internet.
-        # This configuration item allows Firedancer to gossip with nodes located on a private internet (rfc1918).
-        # This option is passed to the Solana Labs client with the `--allow-private-addr` flag.
+        # Under normal operating conditions, a validator should always
+        # reach out to a host located on the public internet.  If this
+        # value is true, it allows the validator to gossip with nodes
+        # configuration item allows Firedancer to gossip with nodes
+        # located on a private internet (rfc1918).
+        #
+        # This option is passed to the Solana Labs client with the
+        # `--allow-private-addr` flag.
         allow_private_address = false
+
+    [development.genesis]
+        # When creating a new chain from genesis during development,
+        # this option can be used to specify the number of hashes in
+        # each tick of the proof history component.
+        #
+        # A value of one is the default, and will be used to mean that
+        # the proof of history component will run in low power mode,
+        # and use one hash per tick.  This is equivalent to a value of
+        # "sleep" when providing hashes-per-tick to the Solana Labs
+        # genesis.
+        #
+        # A value of zero means the genesis will automatically determine
+        # the number of hashes in each tick based on how many hashes
+        # the generating computer can do in the target tick duration
+        # specified below.
+        #
+        # A value of 12500 is the same as mainnet, devnet, and testnet.
+        #
+        # This value specifies the initial value for chain in the
+        # genesis, but it might be immediately overriden at runtime if
+        # the related features which increase this value are enabled.
+        # The features are like update_hashes_per_tick2.
+        hashes_per_tick = 1
+
+        # How long each tick of the proof of history component should
+        # take, in microseconds.  This value specifies the initial value
+        # of the chain and it will not change at runtime.  The default
+        # value used here is the same as mainnet, devnet, and testnet.
+        target_tick_duration_micros = 6250
+
+        # The number of ticks in each slot.  This value specifies the
+        # initial value of the chain and it will not change at runtime.
+        # The default value used here is the same as mainnet, devnet,
+        # and testnet.
+        ticks_per_slot = 64
+
+        # The count of accounts to pre-fund in the genesis block with
+        # SOL.  Useful for benchmarking and development.  The specific
+        # accounts that will be funded are those with private-keys of
+        # 0, 1, 2, .... N.
+        fund_initial_accounts = 1024
+
+        # The amount of SOL to pre-fund each account with.
+        fund_initial_amount_lamports = 50000000000000
+
+    [development.bench]
+        # How many benchg tiles to run when benchmarking.  benchg tiles
+        # are responsible for generating and signing outgoing
+        # transactions to the validator which is expensive.
+        benchg_tile_count = 4
+
+        # How many benchs tiles to run when benchmarking.  benchs tiles
+        # are responsible for sending transactions to the validator, for
+        # example by calling send() on a socket.  On loopback, a single
+        # benchs tile can send around 320k packets a second.
+        benchs_tile_count = 2
+
+        # Which cores to run the benchmarking tiles on.  By default the
+        # cores will be floating but to get good performance
+        # measurements on your machine, you should create a topology
+        # where these generators get their own cores.
+        #
+        # The tiles included in this affinity are,
+        #
+        #      bencho, benchg1, .... benchgN, benchs1, ... benchsN
+        affinity = "f7"
+
+        # Solana has a hard-coded maximum CUs per block limit of
+        # 48,000,000 which works out to around 80,000 transfers a
+        # second, since each consumes about 1500 CUs.  When
+        # benchmarking, this can be the limiting bottleneck of the
+        # system, so this option is provided to raise the limit.  If set
+        # to true, the limit will be lifted to 624,000,000 for a little
+        # over 1 million transfers per second.
+        #
+        # This option should not be used in production, and would cause
+        # consensus violations and a consensus difference between the
+        # validator and the rest of the network.
+        larger_max_cost_per_block = false
+
+        # Solana has a consensus-agreed-upon limit of 32,768 data and
+        # parity shreds per block.  This limit prevents a malicious (or
+        # mistaken) validator from slowing down the network by producing
+        # a huge block.  When benchmarking, this limit can be the
+        # bottleneck of the whole system, so this option is provided to
+        # raise the limit.  If set to true, the limit will be raised to
+        # 131,072 data and parity shreds per block, for about 1,200,000
+        # small transactions per second.
+        #
+        # This option should not be used in a production network, since
+        # it would cause consensus violations between the validator and
+        # the rest of the network.
+        larger_shred_limits_per_block = false

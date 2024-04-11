@@ -63,13 +63,11 @@ typedef struct configure_stage {
   configure_result_t (*check)    ( config_t * const config );
 } configure_stage_t;
 
-extern configure_stage_t large_pages;
-extern configure_stage_t shmem;
+extern configure_stage_t hugetlbfs;
 extern configure_stage_t sysctl;
 extern configure_stage_t xdp;
 extern configure_stage_t xdp_leftover;
 extern configure_stage_t ethtool;
-extern configure_stage_t workspace_leftover;
 extern configure_stage_t workspace;
 
 extern configure_stage_t * STAGES[];
@@ -84,20 +82,6 @@ typedef struct {
   configure_cmd_t      command;
   configure_stage_t ** stages;
 } configure_args_t;
-
-/* read_uint_file() reads a uint from the given path, or exits the
-   program with an error if any error was encountered.  If the path
-   cannot be opened due to ENOENT, the error message is prefixed
-   with the string provided in errmsg_enoent. */
-uint
-read_uint_file( const char * path,
-                const char * errmsg_enoent );
-
-/* write_uint_file() writes a uint to the given path, or exits the
-   program with an error if any error was encountered. */
-void
-write_uint_file( const char * path,
-                 uint         value );
 
 /* try_defragment_memory() tells the operating system to defragment
    memory allocations, it it is hint, and can be useful to call before

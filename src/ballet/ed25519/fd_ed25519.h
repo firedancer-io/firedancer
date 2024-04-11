@@ -37,9 +37,9 @@ FD_PROTOTYPES_BEGIN
    duration the call.  Sanitizes the sha and stack to minimize risk of
    leaking private key info before returning.  Returns public_key. */
 
-void *
-fd_ed25519_public_from_private( void *        public_key,
-                                void const *  private_key,
+uchar * FD_FN_SENSITIVE
+fd_ed25519_public_from_private( uchar         public_key [ 32 ],
+                                uchar const   private_key[ 32 ],
                                 fd_sha512_t * sha );
 
 /* fd_ed25519_sign signs a message according to the ED25519 standard.
@@ -64,12 +64,12 @@ fd_ed25519_public_from_private( void *        public_key,
    takes a write interest in sig and sha and a read interest in msg,
    public_key and private_key for the duration the call.  Returns sig. */
 
-void *
-fd_ed25519_sign( void *        sig,
-                 void const *  msg,
-                 ulong         sz,
-                 void const *  public_key,
-                 void const *  private_key,
+uchar * FD_FN_SENSITIVE
+fd_ed25519_sign( uchar         sig[ 64 ],
+                 uchar const   msg[], /* msg_sz */
+                 ulong         msg_sz,
+                 uchar const   public_key[ 32 ],
+                 uchar const   private_key[ 32 ],
                  fd_sha512_t * sha );
 
 /* fd_ed25519_verify verifies message according to the ED25519 standard.
@@ -94,10 +94,10 @@ fd_ed25519_sign( void *        sig,
    FD_ED25519_ERR_* code indicating the failure reason otherwise. */
 
 int
-fd_ed25519_verify( void const *  msg,
-                   ulong         sz,
-                   void const *  sig,
-                   void const *  public_key,
+fd_ed25519_verify( uchar const   msg[], /* msg_sz */
+                   ulong         msg_sz,
+                   uchar const   sig[ 64 ],
+                   uchar const   public_key[ 32 ],
                    fd_sha512_t * sha );
 
 /* fd_ed25519_verify_batch_single_msg verifies a batch of signatures
@@ -124,8 +124,8 @@ fd_ed25519_verify( void const *  msg,
 int
 fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
                                     ulong const   msg_sz,
-                                    uchar const   signatures[ static 64 ], /* 64 * batch_sz */
-                                    uchar const   pubkeys[ static 32 ],    /* 32 * batch_sz */
+                                    uchar const   signatures[ 64 ], /* 64 * batch_sz */
+                                    uchar const   pubkeys[ 32 ],    /* 32 * batch_sz */
                                     fd_sha512_t * shas[ 1 ],               /* batch_sz */
                                     uchar const   batch_sz );
 

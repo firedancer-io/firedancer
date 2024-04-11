@@ -10,13 +10,15 @@ FD_IMPORT_BINARY( sample_vote, "src/ballet/pack/sample_vote.bin" );
 #define SAMPLE_VOTE_COST (3435UL)
 
 #define MAX_TEST_TXNS (1024UL)
+#define MAX_DATA_PER_BLOCK (5UL*1024UL*1024UL)
 #define DUMMY_PAYLOAD_MAX_SZ (FD_TXN_ACCT_ADDR_SZ * 256UL + 64UL)
 uchar txn_scratch[ MAX_TEST_TXNS ][ FD_TXN_MAX_SZ ];
 uchar payload_scratch[ MAX_TEST_TXNS ][ DUMMY_PAYLOAD_MAX_SZ ];
 ulong payload_sz[ MAX_TEST_TXNS ];
 
-#define PACK_SCRATCH_SZ (272UL*1024UL*1024UL)
+#define PACK_SCRATCH_SZ (300UL*1024UL*1024UL)
 uchar pack_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
+uchar pack_verify_scratch[ PACK_SCRATCH_SZ ] __attribute__((aligned(128)));
 
 uchar metrics_scratch[ FD_METRICS_FOOTPRINT( 0, 0 ) ] __attribute__((aligned(FD_METRICS_ALIGN)));
 
@@ -25,6 +27,7 @@ const char WORK_PROGRAM_ID[ FD_TXN_ACCT_ADDR_SZ ] = "Work Program Id Consumes 1<
 
 fd_rng_t _rng[1];
 fd_rng_t * rng;
+int extra_verify;
 
 #define SET_NAME aset
 #include "../../util/tmpl/fd_smallset.c"
@@ -42,17 +45,25 @@ pack_outcome_t outcome;
 
 static fd_pack_t *
 init_all( ulong pack_depth,
-          ulong gap,
+          ulong bank_tile_cnt,
           ulong max_txn_per_microblock,
           pack_outcome_t * outcome     ) {
-  ulong footprint = fd_pack_footprint( pack_depth, gap, max_txn_per_microblock );
+  fd_pack_limits_t limits[1] = { {
+    .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+    .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
+    .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block  = MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = max_txn_per_microblock,
+    .max_microblocks_per_block = MAX_TEST_TXNS,
+  } };
+  ulong footprint = fd_pack_footprint( pack_depth, bank_tile_cnt, limits );
 
   if( footprint>PACK_SCRATCH_SZ ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, PACK_SCRATCH_SZ ));
 #if DETAILED_STATUS_MESSAGES
   else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
 #endif
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, gap, max_txn_per_microblock, MAX_TEST_TXNS, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, bank_tile_cnt, limits, rng ) );
 #define MAX_BANKING_THREADS 64
 
   outcome->microblock_cnt = 0UL;
@@ -227,17 +238,18 @@ schedule_validate_microblock( fd_pack_t * pack,
     total_rewards += rewards;
 
     fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, txnp->payload );
-    fd_txn_acct_iter_t ctrl[1];
-    for( ulong j=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM, ctrl ); j<fd_txn_acct_iter_end();
-        j = fd_txn_acct_iter_next( j, ctrl ) ) {
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      ulong j=fd_txn_acct_iter_idx( iter );
       uchar b0 = acct[j].b[0]; uchar b1 = acct[j].b[1];
       if( (0x30UL<=b0) & (b0<0x70UL) & (b0==b1) ) {
         FD_TEST( !aset_test( write_accts, (ulong)b0-0x30 ) );
         write_accts = aset_insert( write_accts, (ulong)b0-0x30UL );
       }
     }
-    for( ulong j=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM, ctrl ); j<fd_txn_acct_iter_end();
-        j = fd_txn_acct_iter_next( j, ctrl ) ) {
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      ulong j=fd_txn_acct_iter_idx( iter );
       uchar b0 = acct[j].b[0]; uchar b1 = acct[j].b[1];
       if( (0x30UL<=b0) & (b0<0x70UL) & (b0==b1) )
         read_accts = aset_insert( read_accts, (ulong)b0-0x30UL );
@@ -260,6 +272,7 @@ schedule_validate_microblock( fd_pack_t * pack,
   outcome->w_accts_in_use[ bank_tile ] = write_accts;
 
   outcome->microblock_cnt++;
+  if( extra_verify ) FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
 }
 
 void test0( void ) {
@@ -451,6 +464,88 @@ test_expiration( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
+static void
+performance_test2( void ) {
+  FD_LOG_NOTICE(( "TEST INDEPENDENT PERFORMANCE" ));
+
+  fd_pack_limits_t limits[ 1 ] = { {
+      .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+      .max_vote_cost_per_block   = 0UL,
+      .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+      .max_data_bytes_per_block  = ULONG_MAX/2UL,
+      .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+      .max_microblocks_per_block = 10000000UL,
+  } };
+  /* Make 1024 transaction with different fee payers, no instructions,
+     no other accounts. */
+  for( ulong i=0UL; i<MAX_TEST_TXNS; i++ ) {
+    uchar    * p      = payload_scratch[ i ];
+    uchar    * p_base = p;
+    fd_txn_t * t      = (fd_txn_t*) txn_scratch[ i ];
+
+    *(p++) = (uchar)1;
+    fd_memcpy( p,                                   &i,               sizeof(ulong)                                    );
+    fd_memcpy( p+sizeof(ulong),                     SIGNATURE_SUFFIX, FD_TXN_SIGNATURE_SZ - sizeof(ulong)-sizeof(uint) );
+
+    /* Just enough of a transaction to satisfy pack */
+    p += FD_TXN_SIGNATURE_SZ;
+    t->transaction_version   = FD_TXN_VLEGACY;
+    t->signature_cnt         = 1;
+    t->signature_off         = 1;
+    t->message_off           = FD_TXN_SIGNATURE_SZ+1UL;
+    t->readonly_signed_cnt   = 0;
+    t->readonly_unsigned_cnt = 0;
+    t->acct_addr_cnt         = 1;
+    t->acct_addr_off         = FD_TXN_SIGNATURE_SZ+1UL;
+
+    t->recent_blockhash_off         = 0;
+    t->addr_table_lookup_cnt        = 0;
+    t->addr_table_adtl_writable_cnt = 0;
+    t->addr_table_adtl_cnt          = 0;
+    t->instr_cnt                    = 0;
+
+    /* Add the signer */
+    *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', 32-9 ); p += FD_TXN_ACCT_ADDR_SZ;
+
+    payload_sz[ i ] = (ulong)(p-p_base);
+  }
+  FD_TEST( fd_pack_footprint( 1024UL, 4UL, limits )<PACK_SCRATCH_SZ );
+#define INNER_ROUNDS (FD_PACK_MAX_COST_PER_BLOCK/(1020UL * 1024UL))
+#define OUTER_ROUNDS 88
+  long elapsed = 0L;
+
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 4UL, limits, rng ) );
+
+  for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
+    elapsed -= fd_log_wallclock();
+    for( ulong j=0UL; j<INNER_ROUNDS; j++ ) {
+      for( ulong i=0UL; i<1024UL; i++ ) {
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
+        slot->payload_sz        = payload_sz[ i ];
+        fd_memcpy( slot->payload, payload_scratch[ i ], payload_sz[ i ]                                                );
+        fd_memcpy( TXN(slot),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
+      }
+      ulong scheduled = 0UL;
+      for( ulong i=0UL; i<1024UL/MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
+        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*1200UL, 0.0f, i&3UL, outcome.results );
+        fd_pack_microblock_complete( pack, i&3UL );
+      }
+      FD_TEST( scheduled==1024UL );
+    }
+    elapsed += fd_log_wallclock();
+    fd_pack_end_block( pack );
+  }
+
+  ulong txns = OUTER_ROUNDS*INNER_ROUNDS*1024UL;
+  FD_LOG_NOTICE(( "Inserted and scheduled %lu minimal transactions in %li ns. %f ns/txn", txns, elapsed,
+                                                                                          (double)elapsed/(double)txns ));
+#undef OUTER_ROUNDS
+#undef INNER_ROUNDS
+}
+
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
@@ -471,7 +566,16 @@ void performance_test( int extra_bench ) {
 #define ITER_CNT 10UL
 #define WARMUP    2UL
   for( ulong heap_sz=16UL; heap_sz<=max_heap_sz; heap_sz = fd_ulong_min( heap_sz*2UL, heap_sz+linear_inc ) ) {
-    ulong footprint = fd_pack_footprint( heap_sz, 1UL, 3UL );
+    fd_pack_limits_t limits[ 1 ] = { {
+        .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+        .max_vote_cost_per_block   = 0UL,
+        .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+        .max_data_bytes_per_block  = ULONG_MAX/2UL,
+        .max_txn_per_microblock    = 3UL,
+        .max_microblocks_per_block = heap_sz
+    } };
+
+    ulong footprint = fd_pack_footprint( heap_sz, 1UL, limits );
     void * _mem;
     if( FD_LIKELY( wksp ) ) _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
     else                    { FD_TEST( footprint<PACK_SCRATCH_SZ ); _mem = pack_scratch; }
@@ -485,7 +589,7 @@ void performance_test( int extra_bench ) {
     long schedule  = 0L;
 
     for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
-      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, 3UL, heap_sz, rng ) );
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 1UL, limits, rng ) );
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
 
@@ -612,6 +716,65 @@ void performance_test( int extra_bench ) {
 
     if( FD_LIKELY( wksp ) ) fd_wksp_free_laddr( _mem );
   }
+  if( FD_LIKELY( wksp ) ) fd_wksp_delete_anon( wksp );
+}
+
+void performance_end_block( void ) {
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
+
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_NOTICE(( "TEST END BLOCK PERFORMANCE skipped" ));
+    return;
+  }
+  FD_LOG_NOTICE(( "TEST END BLOCK PERFORMANCE" ));
+
+  fd_pack_limits_t limits[ 1 ] = { {
+    .max_cost_per_block          = 13UL*FD_PACK_MAX_COST_PER_BLOCK,
+      .max_vote_cost_per_block   = 0UL,
+      .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
+      .max_data_bytes_per_block  = ULONG_MAX/2UL,
+      .max_txn_per_microblock    = 31UL,
+      .max_microblocks_per_block = 16384UL,
+  } };
+  ulong footprint = fd_pack_footprint( 4096UL, 8UL, limits );
+  void * _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
+
+  make_transaction( 0UL, 800U, 4.0, "", "" );
+
+  FD_LOG_NOTICE(( "Writers\tTime (ms/call)" ));
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 8UL, limits, rng ) );
+  for( ulong writers_cnt=1UL; writers_cnt<=16*1024UL; writers_cnt *= 2UL ) {
+    long end_block = 0L;
+
+    for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
+      for( ulong i=0UL; i<writers_cnt; i++ ) {
+        /* Make signature and signer unique */
+        for( int k=0UL; k<4; k++ ) {
+          payload_scratch[ 0UL ][ 0x01+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
+          payload_scratch[ 0UL ][ 0x45+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
+        }
+        fd_txn_p_t * slot       = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 0UL ];
+        slot->payload_sz        = payload_sz[ 0UL ];
+        fd_memcpy( slot->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
+        fd_memcpy( TXN(slot),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+
+        fd_pack_insert_txn_fini( pack, slot, 0UL );
+      }
+      while( fd_pack_avail_txn_cnt( pack )>0UL ) {
+        FD_TEST( fd_pack_schedule_next_microblock( pack, 5000000UL, 0.0f, 0UL, outcome.results ) );
+        fd_pack_microblock_complete( pack, 0UL );
+      }
+
+      if( FD_LIKELY( iter>=WARMUP ) ) end_block -= fd_log_wallclock( );
+      fd_pack_end_block( pack );
+      if( FD_LIKELY( iter>=WARMUP ) ) end_block += fd_log_wallclock( );
+    }
+    FD_LOG_NOTICE(( "%8lu\t%2.3f", writers_cnt, (double)end_block/(1000000.0 * (double)(ITER_CNT-WARMUP)) ));
+  }
+
+  fd_wksp_free_laddr( _mem );
+  fd_wksp_delete_anon( wksp );
 #undef WARMUP
 #undef ITER_CNT
 }
@@ -783,6 +946,37 @@ test_limits( void ) {
     fd_pack_end_block( pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
   }
+
+  /* Test the data size limit */
+  if( 1 ) {
+    /* 1024 microblocks, each with 5 max size transactions */
+    fd_pack_t * pack = init_all( 1024UL, 1UL, 5UL, &outcome );
+
+    /* Iterates 844 times, consuming all but 3328 bytes */
+    ulong i=0UL;
+    for( ulong j=0UL; j<MAX_DATA_PER_BLOCK/(48UL + 5UL*1232UL); j++ ) {
+      make_transaction( i, 1000U, 11.0, "A", "B" );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000U, 11.0, "C", "D" );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000U, 11.0, "E", "F" );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000U, 11.0, "G", "H" );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000U, 11.0, "I", "J" );   payload_sz[i]=1232UL;  insert( i++, pack );
+
+      schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 5UL, 0UL, 0UL, &outcome );
+      i = i%512UL;
+    }
+
+    make_transaction( i, 1000U, 11.0, "A", "B" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000U, 11.0, "C", "D" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000U, 11.0, "E", "F" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000U, 11.0, "G", "H" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000U, 11.0, "I", "J" );   payload_sz[i]=1232UL;  insert( i++, pack );
+
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 2UL, 0UL, 0UL, &outcome );
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+
+    fd_pack_end_block( pack );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
+  }
 }
 
 static inline void
@@ -847,6 +1041,7 @@ main( int     argc,
   fd_metrics_register( (ulong *)fd_metrics_new( metrics_scratch, 0UL, 0UL ) );
 
   int extra_benchmark = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-bench" );
+  extra_verify = fd_env_strip_cmdline_contains( &argc, &argv, "--extra-verify" );
 
   test0();
   test1();
@@ -859,6 +1054,8 @@ main( int     argc,
   test_limits();
   test_reject_writes_to_sysvars();
   performance_test( extra_benchmark );
+  performance_test2();
+  performance_end_block();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
