@@ -16,6 +16,11 @@
 
 struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
   ulong shred_cnt;
+
+  /* est_txn_cnt: An estimate of the number of transactions contained in this
+     shred34_t.  The true value might not be a whole number, but this is
+     helpful for diagnostic purposes. */
+  ulong est_txn_cnt;
   ulong stride;
   ulong offset;
   ulong shred_sz; /* The size of each shred */

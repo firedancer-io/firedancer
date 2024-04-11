@@ -147,6 +147,7 @@ typedef struct {
   /* These are used in between during_frag and after_frag */
   fd_shred_dest_weighted_t * new_dest_ptr;
   ulong                      new_dest_cnt;
+  ulong                      shredded_txn_cnt;
 
   ushort net_id;
 
@@ -197,6 +198,7 @@ typedef struct {
   ulong       store_out_chunk;
 
   struct {
+    ulong txn_cnt;
     ulong pos; /* in payload, so 0<=pos<63671 */
     ulong slot; /* set to 0 when pos==0 */
     union {
@@ -335,13 +337,16 @@ during_frag( void * _ctx,
     fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->poh_in_mem, chunk );
-    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark ) || sz>FD_POH_SHRED_MTU )
+    if( FD_UNLIKELY( chunk<ctx->poh_in_chunk0 || chunk>ctx->poh_in_wmark ) || sz>FD_POH_SHRED_MTU ||
+        sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->poh_in_chunk0, ctx->poh_in_wmark ));
 
     fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
     uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);
     ulong                         entry_sz   = sz           - sizeof(fd_entry_batch_meta_t);
+
+    fd_entry_batch_header_t const * microblock = (fd_entry_batch_header_t const *)entry;
 
     /* It should never be possible for this to fail, but we check it
        anyway. */
@@ -359,6 +364,7 @@ during_frag( void * _ctx,
       ctx->pending_batch.slot           = 0UL;
       ctx->pending_batch.pos            = 0UL;
       ctx->pending_batch.microblock_cnt = 0UL;
+      ctx->pending_batch.txn_cnt        = 0UL;
       ctx->batch_cnt                    = 0UL;
     }
 
@@ -375,8 +381,9 @@ during_frag( void * _ctx,
       /* If we are not processing this batch, filter */
       *opt_filter = 1;
     }
-    ctx->pending_batch.pos += entry_sz;
-    ctx->pending_batch.microblock_cnt++;
+    ctx->pending_batch.pos            += entry_sz;
+    ctx->pending_batch.microblock_cnt += 1UL;
+    ctx->pending_batch.txn_cnt        += microblock->txn_cnt;
 
     int last_in_batch = entry_meta->block_complete | (ctx->pending_batch.pos > PENDING_BATCH_WMARK);
 
@@ -391,6 +398,7 @@ during_frag( void * _ctx,
 
         d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
         p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
+        ctx->shredded_txn_cnt = ctx->pending_batch.txn_cnt;
 
         ctx->send_fec_set_idx = ctx->shredder_fec_set_idx;
       } else {
@@ -401,6 +409,7 @@ during_frag( void * _ctx,
       ctx->pending_batch.slot           = 0UL;
       ctx->pending_batch.pos            = 0UL;
       ctx->pending_batch.microblock_cnt = 0UL;
+      ctx->pending_batch.txn_cnt        = 0UL;
       ctx->batch_cnt++;
     }
   } else { /* the common case, from the netmux tile */
@@ -544,6 +553,7 @@ after_frag( void *             _ctx,
 
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
+    ctx->shredded_txn_cnt = 0UL;
   } else {
     /* We know we didn't get overrun, so advance the index */
     ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
@@ -560,6 +570,15 @@ after_frag( void *             _ctx,
   s34[ 1 ].shred_cnt = set->data_shred_cnt   - fd_ulong_min( set->data_shred_cnt,   34UL );
   s34[ 2 ].shred_cnt =                         fd_ulong_min( set->parity_shred_cnt, 34UL );
   s34[ 3 ].shred_cnt = set->parity_shred_cnt - fd_ulong_min( set->parity_shred_cnt, 34UL );
+
+  ulong s34_cnt     = 2UL + !!(s34[ 1 ].shred_cnt) + !!(s34[ 3 ].shred_cnt);
+  ulong txn_per_s34 = ctx->shredded_txn_cnt / s34_cnt;
+
+  /* Attribute the transactions evenly to the non-empty shred34s */
+  for( ulong j=0UL; j<4UL; j++ ) s34[ j ].est_txn_cnt = fd_ulong_if( s34[ j ].shred_cnt>0UL, txn_per_s34, 0UL );
+
+  /* Add whatever is left to the last shred34 */
+  s34[ fd_ulong_if( s34[ 3 ].shred_cnt>0UL, 3, 2 ) ].est_txn_cnt += ctx->shredded_txn_cnt - txn_per_s34*s34_cnt;
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
   ulong sig = 0UL;
@@ -830,6 +849,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
 
   ctx->pending_batch.microblock_cnt = 0UL;
+  ctx->pending_batch.txn_cnt        = 0UL;
   ctx->pending_batch.pos            = 0UL;
   ctx->pending_batch.slot           = 0UL;
   fd_memset( ctx->pending_batch.payload, 0, sizeof(ctx->pending_batch.payload) );

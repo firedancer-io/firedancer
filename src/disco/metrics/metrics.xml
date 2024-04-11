@@ -290,6 +290,7 @@ metric introduced.
 </group>
 
 <group name="StoreTile" tile="store">
+  <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </group>
 
 </metrics>
