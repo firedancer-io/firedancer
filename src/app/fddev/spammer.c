@@ -60,6 +60,8 @@ spammer_cmd_args( int *    pargc,
       FD_LOG_ERR(( "invalid --rpc-ip" ));
   }
 
+  args->spammer.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+
 }
 
 void
@@ -104,7 +106,8 @@ spammer_cmd_fn( args_t *         args,
                   args->spammer.tpu_port,
                   args->spammer.tpu_ip,
                   args->spammer.rpc_port,
-                  args->spammer.rpc_ip );
+                  args->spammer.rpc_ip,
+                  args->spammer.no_quic );
   config->topo = *topo;
 
   args_t configure_args = {
