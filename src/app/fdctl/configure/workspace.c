@@ -19,8 +19,8 @@ init_perm( fd_caps_ctx_t *  caps,
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
     mlock_limit = fd_ulong_max( mlock_limit, wksp->page_cnt * wksp->page_sz );
   }
-
-  fd_caps_check_resource( caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory" );
+  /* One 4K page is used by the logging lock */
+  fd_caps_check_resource( caps, NAME, RLIMIT_MEMLOCK, mlock_limit+4096UL, "increase `RLIMIT_MEMLOCK` to lock the workspace in memory" );
 }
 
 static void
