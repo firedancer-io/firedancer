@@ -37,6 +37,9 @@ struct fd_quic_pkt_hdr {
 };
 typedef struct fd_quic_pkt_hdr fd_quic_pkt_hdr_t;
 ulong fd_quic_pkt_hdr_encode(uchar *cur_ptr, ulong cur_sz, fd_quic_pkt_hdr_t *pkt_hdr, uint enc_level);
+ulong fd_quic_pkt_hdr_footprint( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level );
+void fd_quic_pkt_hdr_set_payload_sz( fd_quic_pkt_hdr_t * pkt_hdr, uint enc_level, uint payload_sz );
+uint fd_quic_pkt_hdr_pkt_number_len( fd_quic_pkt_hdr_t * pkt_hdr,uint enc_level );
 
 ulong test_clock(void *ctx) {
   (void)ctx;
@@ -113,6 +116,8 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
   if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL || pkt_type == FD_QUIC_PKTTYPE_V1_HANDSHAKE) {
     fd_quic_pkt_hdr_t pkt_hdr;
     if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL) {
+
+
       pkt_hdr.enc_level = fd_quic_enc_level_initial_id;
       fd_quic_initial_t *initial = &pkt_hdr.quic_pkt.initial;
       initial->hdr_form = 1;
@@ -123,7 +128,9 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
       initial->version = 1;
       initial->dst_conn_id_len = 8;
       initial->src_conn_id_len = 5;
-
+      initial->token_len = 0;
+      initial->len = payload_sz;
+      initial->pkt_num = 0;
       // Print the values of the struct members for debugging
       printf("hdr_form: %u\n", initial->hdr_form);
       printf("fixed_bit: %u\n", initial->fixed_bit);
@@ -136,22 +143,40 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
       printf("token_len: %lu\n", initial->token_len);
       printf("len: %lu\n", initial->len);
       printf("pkt_num: %lu\n", initial->pkt_num);
-
-
       // Generate or hardcode the connection IDs
       memcpy(initial->dst_conn_id, "\x11\x22\x33\x44\x55\x66\x77\x88", 8);
-      memcpy(initial->src_conn_id, "\x88\x77\x66\x55\x44", 8);
+      memcpy(initial->src_conn_id, "\x88\x77\x66\x55\x44", 5);
 
-      initial->token_len = 0;
-      initial->len = payload_sz;
-      initial->pkt_num = 0;
+      ulong initial_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, fd_quic_enc_level_initial_id );
+      //padding
+      uint initial_pkt = 1;
+      uint base_pkt_len = (uint)cur_sz + fd_quic_pkt_hdr_pkt_number_len( &pkt_hdr, fd_quic_enc_level_initial_id ) +
+                            FD_QUIC_CRYPTO_TAG_SZ;
+      uint padding      = initial_pkt ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
+      if( base_pkt_len + padding < ( FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ ) ) {
+        padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ - base_pkt_len;
+      }
+      //size calcs
+      uint quic_pkt_len = base_pkt_len + padding;
+      fd_quic_pkt_hdr_set_payload_sz( &pkt_hdr, fd_quic_enc_level_initial_id, quic_pkt_len );
+      ulong act_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, fd_quic_enc_level_initial_id );
+      cur_ptr += initial_hdr_sz + 3u - act_hdr_sz;
+    ulong rc = fd_quic_pkt_hdr_encode( cur_ptr, act_hdr_sz, &pkt_hdr, fd_quic_enc_level_initial_id );
+if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
+      printf("fd_quic_pkt_hdr_encode INITIAL failed\n");
+      return 1;
+    }
 
     }
     else { //handle handshake 
       pkt_hdr.enc_level = fd_quic_enc_level_handshake_id;
     }
 
-    
+
+
+
+
+
     ulong hdr_sz = fd_quic_pkt_hdr_encode(cur_ptr, cur_sz, &pkt_hdr, pkt_hdr.enc_level);
     if (FD_UNLIKELY(hdr_sz == FD_QUIC_PARSE_FAIL)) {
       printf("fd_quic_pkt_hdr_encode failed\n");
@@ -171,7 +196,9 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
 
   fd_aio_pkt_info_t batch = {.buf = (void *)scratch,
                              .buf_sz = (ushort)(scratch_sz - cur_sz)};
-
+  if ( pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL  && batch.buf_sz < (ushort) 1200 ) {
+    return 1200;
+  }
   fd_quic_aio_cb_receive((void *)server_quic, &batch, 1, NULL, 0);
 
   return FD_QUIC_SUCCESS;
