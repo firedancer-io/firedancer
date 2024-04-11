@@ -275,6 +275,10 @@ metric introduced.
   <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
   <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
 
+  <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
+  <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
+  <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
+
   <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
   <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
   <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
