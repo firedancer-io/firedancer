@@ -555,15 +555,15 @@ fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
   fd_pubkey_t program_id[1];  memcpy( program_id, test->input.program_id, sizeof(fd_pubkey_t) );
   fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
 
-  if( FD_UNLIKELY( !native_prog_fn ) ) {
+  int exec_result;
+  if( FD_LIKELY( native_prog_fn ) ) {
+    exec_result = native_prog_fn( *ctx );
+  } else {
     char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
     REPORTV( NOTICE, "execution failed (program %s not found)",
              fd_acct_addr_cstr( program_id_cstr, test->input.program_id ) );
-    _context_destroy( runner, ctx );
-    return 0;
+    exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
-
-  int exec_result = native_prog_fn( *ctx );
 
   int has_diff;
   do {
@@ -603,14 +603,6 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   fd_pubkey_t program_id[1];  memcpy( program_id, input->program_id, sizeof(fd_pubkey_t) );
   fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( program_id );
 
-  if( FD_UNLIKELY( !native_prog_fn ) ) {
-    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    REPORTV( NOTICE, "execution failed (program %s not found)",
-             fd_acct_addr_cstr( program_id_cstr, input->program_id ) );
-    _context_destroy( runner, ctx );
-    return 0UL;
-  }
-
   /* TODO: Agave currently fails with UnsupportedProgramId if the
            owner of the native program is weird. */
   do {
@@ -626,8 +618,15 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   } while(0);
 
   /* Execute the test */
-
-  int exec_result = native_prog_fn( *ctx );
+  int exec_result;
+  if ( FD_LIKELY( native_prog_fn ) ) {
+    exec_result = native_prog_fn( *ctx );
+  } else {
+    exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    char program_id_cstr[ FD_BASE58_ENCODED_32_SZ ];
+    REPORTV( NOTICE, "execution failed (program %s not found)",
+             fd_acct_addr_cstr( program_id_cstr, input->program_id ) );
+  }
 
   /* Allocate space to capture outputs */
 
