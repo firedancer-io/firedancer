@@ -80,6 +80,7 @@ typedef union {
     ulong   connections;
     ulong   benchg;
     ulong   benchs;
+    int     no_quic;
   } spammer;
 } args_t;
 
