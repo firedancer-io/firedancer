@@ -325,6 +325,13 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         FD_LOG_WARNING(("starting lamports mismatched %lu %lu %lu", starting_lamports, instr->starting_lamports, ending_lamports ));
         exec_result = FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
       }
+
+      /* TODO where does Agave do this? */
+      for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
+        if( FD_UNLIKELY( txn_ctx->borrowed_accounts[j].refcnt_excl ) ) {
+          FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc ));
+        }
+      }
     }
 
 #ifdef VLOG

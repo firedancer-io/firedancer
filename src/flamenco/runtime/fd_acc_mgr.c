@@ -173,21 +173,21 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
     FD_LOG_WARNING(( "null pubkey (system program?) is being modified" ));
 
-#ifdef VLOG
-  ulong rec_cnt = 0;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
-       NULL != rec;
-       rec = fd_funk_txn_next_rec( funk, rec ) ) {
-
-    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
-
-    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s  rec_cnt: %d", rec->pair.key->uc, do_create ? "true" : "false", rec_cnt));
-
-    rec_cnt++;
-  }
-
-  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s", pubkey->uc, do_create ? "true" : "false"));
-#endif
+//#ifdef VLOG
+//  ulong rec_cnt = 0;
+//  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+//       NULL != rec;
+//       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+//
+//    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
+//
+//    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s  rec_cnt: %d", rec->pair.key->uc, do_create ? "true" : "false", rec_cnt));
+//
+//    rec_cnt++;
+//  }
+//
+//  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %32J create: %s", pubkey->uc, do_create ? "true" : "false"));
+//#endif
 
   int funk_err = FD_FUNK_SUCCESS;
   fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );

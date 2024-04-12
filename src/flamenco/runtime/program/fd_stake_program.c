@@ -1353,6 +1353,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
                                                                   .stake       = stake,
                                                                   .stake_flags = STAKE_FLAGS_EMPTY,
                                                        } } };
+    fd_borrowed_account_release_write( stake_account );
     return set_state( ctx, stake_account_index, &new_stake_state );
   }
   case fd_stake_state_v2_enum_stake: {
@@ -1385,13 +1386,12 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
                                                                   .stake       = stake,
                                                                   .stake_flags = stake_flags,
                                                        } } };
+    fd_borrowed_account_release_write( stake_account );
     return set_state( ctx, stake_account_index, &new_stake_state );
   }
   default:
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-
-  fd_borrowed_account_release_write( stake_account );
 }
 
 static int
@@ -1476,7 +1476,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   fd_stake_state_v2_t split_get_state = { 0 };
   rc = get_state( split, fd_scratch_virtual(), &split_get_state );
   if( FD_UNLIKELY( rc ) ) return rc;
-  if( !FD_UNLIKELY( split_get_state.discriminant == fd_stake_state_v2_enum_uninitialized ) ) {
+  if( FD_UNLIKELY( split_get_state.discriminant != fd_stake_state_v2_enum_uninitialized ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -1687,6 +1687,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   rc = fd_account_checked_sub_lamports( ctx, stake_account_index, lamports );
   if( FD_UNLIKELY( rc ) ) return rc;
 
+  fd_borrowed_account_release_write( stake_account );
   return 0;
 }
 
