@@ -1,8 +1,8 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test help clean distclean asm ppp show-deps
-.PHONY: run-unit-test run-script-test run-fuzz-test run-integration-test
+.PHONY: all info bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report
 .SECONDARY:
 .SECONDEXPANSION:
@@ -13,7 +13,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test cov-report dist-cov-report
+AUX_RULES:=clean distclean help show-deps run-unit-test run-integration-test cov-report dist-cov-report
 
 all: info bin include lib unit-test fuzz-test
 
@@ -45,15 +45,17 @@ help:
 	# SCRUB           = $(SCRUB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
+	# Explicit goals are: all bin include lib unit-test integration-test help clean distclean asm ppp
 	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make integration-test" makes all integration-tests for the current platform
 	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
+	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
@@ -88,6 +90,12 @@ run-unit-test:
 	# Running unit tests
 	#######################################################################
 	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
+
+run-integration-test:
+	#######################################################################
+	# Running integration tests
+	#######################################################################
+	contrib/test/run_integration_tests.sh --tests $(OBJDIR)/integration-test/automatic.txt $(TEST_OPTS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -175,7 +183,9 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-shared,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call make-integration-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
+# Usage: $(call run-integration-test,name,args)
 # Usage: $(call make-fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
@@ -212,6 +222,16 @@ $(OBJDIR)/unit-test/automatic.txt:
 	$(MKDIR) "$(OBJDIR)/unit-test"
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
 
+# Generate list of automatic integration tests from $(call run-integration-test,...)
+integration-test: $(OBJDIR)/integration-test/automatic.txt
+define _run-integration-test
+RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
+endef
+$(OBJDIR)/integration-test/automatic.txt:
+	$(MKDIR) "$(OBJDIR)/integration-test"
+	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
+	$(TOUCH) "$@"
+
 ifndef FD_HAS_FUZZ
 FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a
 endif
@@ -247,6 +267,8 @@ make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
+make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test))
+run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 
 ##############################
@@ -401,12 +423,6 @@ OBJDIR=$(OBJDIR) \
 MACHINE=$(MACHINE) \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_test-%p.profraw" \
 contrib/test/run_script_tests.sh
-
-run-integration-test: fddev
-	mkdir -p "$(OBJDIR)/cov/raw" && \
-OBJDIR=$(OBJDIR) \
-LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/integration_tests.profraw" \
-contrib/test/run_integration_tests.sh
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;

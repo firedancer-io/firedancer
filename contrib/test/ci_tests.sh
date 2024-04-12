@@ -29,9 +29,12 @@ for MACHINE in ${MACHINES[*]}; do
   OBJDIR="$(make help | grep OBJDIR | awk '{print $4}')"
   OBJDIRS+=( "${OBJDIR}" )
   make clean --silent >/dev/null
-  contrib/make-j
+  contrib/make-j all integration-test
   if [[ "$NOTEST" != 1 ]]; then
     make run-unit-test
+    if [[ "$EXTRAS" != *"ubsan"* && "$EXTRAS" != *"asan"* ]]; then
+      make run-integration-test
+    fi
     make run-fuzz-test
     make run-script-test
     if [[ "$HAS_LLVM_COV" == 1 ]]; then
