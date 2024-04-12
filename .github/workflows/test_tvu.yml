@@ -26,6 +26,7 @@ jobs:
 
       - name: build
         run: |
+          . /opt/rh/gcc-toolset-12/enable
           ./contrib/make-j fddev all
 
       - name: ./${{ matrix.test_case }}
