@@ -60,7 +60,7 @@ _process_config_instr( fd_exec_instr_ctx_t ctx ) {
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
     .valloc  = ctx.valloc,
-    .data    = config_acc_rec->orig_data,
+    .data    = config_acc_rec->const_data,
     .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
   };
   fd_config_keys_t current_data;
