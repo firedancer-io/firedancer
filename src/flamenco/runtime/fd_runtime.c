@@ -2,6 +2,7 @@
 #include "fd_runtime.h"
 #include "fd_account.h"
 #include "fd_hashes.h"
+#include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar.h"
@@ -3686,6 +3687,8 @@ int fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(!slot_ctx->acc_mgr)) return -1;
   // if (FD_UNLIKELY(!slot_ctx->funk_txn)) return -1;
   /* TODO check valloc */
+
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
 
   fd_slot_hashes_new( slot_ctx->sysvar_cache_old.slot_hashes );
   if( FD_UNLIKELY( !fd_sysvar_slot_hashes_read( slot_ctx->sysvar_cache_old.slot_hashes, slot_ctx ) ) ) {

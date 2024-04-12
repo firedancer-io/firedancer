@@ -71,7 +71,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 FD_PROTOTYPES_BEGIN
 
 void *
-fd_exec_slot_ctx_new( void * mem );
+fd_exec_slot_ctx_new( void *      mem,
+                      fd_valloc_t valloc );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_join( void * mem );

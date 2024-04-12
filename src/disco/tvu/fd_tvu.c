@@ -834,7 +834,7 @@ void slot_ctx_setup( fd_valloc_t valloc,
 
   out->exec_epoch_ctx   = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
   out->fork             = fd_fork_pool_ele_acquire( fork_pool );
-  out->exec_slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx ) );
+  out->exec_slot_ctx    = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork_pool->slot_ctx, valloc ) );
 
   FD_TEST( out->exec_slot_ctx );
 
@@ -924,7 +924,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
   (void)runtime_ctx;
 
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( replay->forks->pool );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, replay->valloc ) );
   slot_ctx->acc_mgr               = replay->acc_mgr;
   slot_ctx->blockstore            = replay->blockstore;
   slot_ctx->valloc                = replay->valloc;
@@ -1366,7 +1366,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   /* Disabling capture_txns speeds up runtime and makes solcap captures significantly smaller */
-  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "true" ); 
+  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "true" );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   /* TODO @yunzhang: I added this to get the shred_cap file path,
    *  but shred_cap is now NULL despite there is such an entry in the toml config */

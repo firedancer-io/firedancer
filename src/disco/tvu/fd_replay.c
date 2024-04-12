@@ -280,7 +280,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
     /* Format and join the slot_ctx */
 
     fd_exec_slot_ctx_t * slot_ctx =
-        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx ) );
+        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, replay->valloc ) );
     if( FD_UNLIKELY( !slot_ctx ) ) { FD_LOG_ERR( ( "failed to new and join slot_ctx" ) ); }
 
     /* Restore and decode w/ funk */

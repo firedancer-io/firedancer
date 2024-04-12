@@ -2743,7 +2743,8 @@ typedef struct fd_stake_instruction_authorize_off fd_stake_instruction_authorize
 struct __attribute__((aligned(8UL))) fd_authorize_with_seed_args {
   fd_pubkey_t new_authorized_pubkey;
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_with_seed_args fd_authorize_with_seed_args_t;
@@ -2764,7 +2765,8 @@ typedef struct fd_authorize_with_seed_args_off fd_authorize_with_seed_args_off_t
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_authorize_checked_with_seed_args {
   fd_stake_authorize_t stake_authorize;
-  char* authority_seed;
+  ulong authority_seed_len;
+  uchar* authority_seed;
   fd_pubkey_t authority_owner;
 };
 typedef struct fd_authorize_checked_with_seed_args fd_authorize_checked_with_seed_args_t;

@@ -29,7 +29,7 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 
 /* Entry-point for the Solana Stake Program */
 int
-fd_executor_stake_program_execute_instruction( fd_exec_instr_ctx_t ctx );
+fd_stake_program_execute( fd_exec_instr_ctx_t ctx );
 
 FD_PROTOTYPES_END
 

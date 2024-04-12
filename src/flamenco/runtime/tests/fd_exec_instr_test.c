@@ -163,7 +163,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem  ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   epoch_ctx->valloc = fd_scratch_virtual();
@@ -186,7 +186,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
     ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      FD_LOG_CRIT(( "unsupported feature ID 0x%016lx", prefix ));
+      FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
       return 0;
     }
     /* Enabled since genesis */
@@ -203,9 +203,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->epoch_ctx = epoch_ctx;
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->acc_mgr   = acc_mgr;
-  slot_ctx->valloc    = fd_scratch_virtual();
 
   /* TODO: Restore slot_bank */
+
   fd_slot_bank_new( &slot_ctx->slot_bank );
   fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc );
   slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
@@ -269,6 +269,9 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
         ( rent->lamports_per_uint8_year > UINT_MAX ) |
         ( rent->burn_percent            >      100 ) )
       return 0;
+
+    /* Override epoch bank settings */
+    epoch_ctx->epoch_bank.rent = *rent;
   }
 
   /* Override most recent blockhash if given */

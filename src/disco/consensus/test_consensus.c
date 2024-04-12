@@ -162,12 +162,11 @@ main( int argc, char ** argv ) {
 
   /* slot_ctx */
 
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, valloc ) );
   FD_TEST( slot_ctx );
   slot_ctx->acc_mgr    = acc_mgr;
   slot_ctx->blockstore = blockstore;
   slot_ctx->epoch_ctx  = epoch_ctx;
-  slot_ctx->valloc     = valloc;
 
   /* snapshot restore */
 

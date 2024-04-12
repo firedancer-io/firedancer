@@ -46,7 +46,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_config_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_config_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_stake_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_stake_program_execute_instruction;
+    return fd_stake_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_ed25519_sig_verify_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_ed25519_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -366,7 +366,9 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_account_meta_t const * meta = borrowed_account->const_meta ? borrowed_account->const_meta : borrowed_account->meta;
     if (meta == NULL) {
       static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      borrowed_account->const_meta = &sentinel;
+      borrowed_account->const_meta        = &sentinel;
+      borrowed_account->starting_lamports = 0UL;
+      borrowed_account->starting_dlen     = 0UL;
       continue;
     }
 

@@ -225,14 +225,13 @@ int fd_executor_run_test(
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
 
   uchar * slot_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, suite->valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
 
   if ( FD_UNLIKELY( NULL == slot_ctx ) )
     FD_LOG_ERR(( "failed to join a slot context" ));
 
   int ret = 0;
-  slot_ctx->valloc     = suite->valloc;
 
   epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
   epoch_ctx->epoch_bank.rent.exemption_threshold = 2;

@@ -115,7 +115,7 @@ fd_forks_delete( void * forks ) {
 fd_fork_t *
 fd_forks_rollback( fd_forks_t * forks, ulong slot ) {
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( forks->pool );
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, forks->valloc ) );
   if( FD_UNLIKELY( !slot_ctx ) ) FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
   fork->slot = slot;
 

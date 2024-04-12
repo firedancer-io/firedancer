@@ -40,9 +40,6 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_borrowed_account_t * borrowed_accounts,
                                fd_instr_info_t *       instr );
 
-ulong
-fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
-
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
                               ulong                   idx ) {
@@ -66,6 +63,17 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }
 
+static inline int
+fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
+  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
+    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
+      return fd_instr_acc_is_signer_idx( instr, i );
+    }
+  }
+
+  return 0;
+}
+
 /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
 
    fd_instr_any_signed matches
@@ -81,14 +89,25 @@ FD_FN_PURE int
 fd_instr_any_signed( fd_instr_info_t const * info,
                      fd_pubkey_t const *     pubkey );
 
-static inline int
-fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
-  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
-    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
-      return fd_instr_acc_is_signer_idx( instr, i );
-    }
-  }
+ulong
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr );
 
+static inline void
+fd_instr_get_signers( fd_instr_info_t const * self,
+                      fd_pubkey_t const *     signers[static FD_TXN_SIG_MAX] ) {
+  ulong j = 0UL;
+  for( uchar i = 0; i < self->acct_cnt && j < FD_TXN_SIG_MAX; i++ )
+    if( fd_instr_acc_is_signer_idx( self, i ) )
+      signers[j++] = &self->acct_pubkeys[i];
+}
+
+/* Loop conditions could be optimized to allow for unroll/vectorize */
+
+static inline int
+fd_instr_signers_contains( fd_pubkey_t const * signers[FD_TXN_SIG_MAX],
+                           fd_pubkey_t const * pubkey ) {
+  for( ulong i = 0; i < FD_TXN_SIG_MAX && signers[i]; i++ )
+    if( 0==memcmp( signers[i], pubkey, sizeof( fd_pubkey_t ) ) ) return 1;
   return 0;
 }
 
