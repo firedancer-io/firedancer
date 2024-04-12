@@ -76,7 +76,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  *out = deq_fd_block_block_hash_entry_t_peek_tail_const( hashes )->blockhash;
+  *out = deq_fd_block_block_hash_entry_t_peek_head_const( hashes )->blockhash;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
