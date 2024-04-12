@@ -31,6 +31,8 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t ctx );
 
+void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_stake_program_h */

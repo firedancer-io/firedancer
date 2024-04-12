@@ -952,7 +952,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
         fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
 
-        if( dirty_vote_acc ) {
+        if( dirty_vote_acc && 0==memcmp( acc_rec->meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
           FD_SCRATCH_SCOPE_BEGIN {
             fd_vote_state_versioned_t vsv[1];
             fd_bincode_decode_ctx_t decode_vsv =
@@ -983,8 +983,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           FD_SCRATCH_SCOPE_END;
         }
 
-        if( dirty_stake_acc ) {
-          FD_LOG_ERR(( "stake account dirty" ));
+        if( dirty_stake_acc && 0==memcmp( acc_rec->meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+          // TODO does this correctly handle stake account close?
+          fd_store_stake_delegation( slot_ctx, acc_rec );
         }
 
         if( txn_ctx->unknown_accounts[i] ) {
