@@ -18,6 +18,7 @@ clone_firedancer( config_t * const config,
                   int *            out_pipe );
 
 void
-run_firedancer( config_t * const config );
+run_firedancer( config_t * const config,
+                int              parent_pipefd );
 
 #endif /* HEADER_fd_src_app_fdctl_run_h */

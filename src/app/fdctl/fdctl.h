@@ -37,6 +37,7 @@ typedef union {
   } configure;
 
   struct {
+    int  parent_pipefd;
     int  monitor;
     int  no_configure;
     int  no_solana_labs;

@@ -385,7 +385,8 @@ clone_firedancer( config_t * const config,
         died, and it can terminate itself, which due to (a) and (b)
         will kill all other processes. */
 void
-run_firedancer( config_t * const config ) {
+run_firedancer( config_t * const config,
+                int              parent_pipefd ) {
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
 
@@ -393,7 +394,7 @@ run_firedancer( config_t * const config ) {
   if( FD_UNLIKELY( close( 1 ) ) ) FD_LOG_ERR(( "close(1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int pipefd;
-  pid_namespace = clone_firedancer( config, -1, &pipefd );
+  pid_namespace = clone_firedancer( config, parent_pipefd, &pipefd );
 
   /* Print the location of the logfile on SIGINT or SIGTERM, and also
      kill the child.  They are connected by a pipe which the child is
@@ -407,12 +408,14 @@ run_firedancer( config_t * const config ) {
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_main( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), (uint)pid_namespace );
 
-  int allow_fds[3];
+  int allow_fds[ 4 ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   allow_fds[ allow_fds_cnt++ ] = pipefd; /* read end of main pipe */
+  if( FD_UNLIKELY( parent_pipefd!=-1 ) )
+    allow_fds[ allow_fds_cnt++ ] = parent_pipefd; /* write end of parent pipe */
 
   fd_sandbox( config->development.sandbox,
               config->uid,
@@ -451,5 +454,5 @@ run_cmd_fn( args_t *         args,
                    "empty. Please remove the empty entrypoint or set it correctly. "));
   }
 
-  run_firedancer( config );
+  run_firedancer( config, -1 );
 }

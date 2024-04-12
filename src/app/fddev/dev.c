@@ -19,6 +19,7 @@ void
 dev_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args ) {
+  args->dev.parent_pipefd = -1;
   args->dev.monitor = fd_env_strip_cmdline_contains( pargc, pargv, "--monitor" );
   args->dev.no_configure = fd_env_strip_cmdline_contains( pargc, pargv, "--no-configure" );
   args->dev.no_solana_labs = fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana-labs" ) ||
@@ -228,7 +229,7 @@ dev_cmd_fn( args_t *         args,
   }
 
   if( FD_LIKELY( !args->dev.monitor ) ) {
-      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config );
+      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd );
       else                                             run_firedancer_threaded( config );
   } else {
     install_parent_signals();
@@ -244,7 +245,7 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
         FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config );
+      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1 );
       else                                             run_firedancer_threaded( config );
     } else {
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

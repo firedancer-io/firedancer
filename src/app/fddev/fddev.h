@@ -3,6 +3,9 @@
 
 #include "../fdctl/fdctl.h"
 
+int fddev_main( int     argc,
+                char ** argv );
+
 void
 update_config_for_dev( config_t * const config );
 
