@@ -67,6 +67,7 @@ typedef struct {
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
     int   require_tower;
+    int   use_fifo_compaction;
     char  snapshot_archive_format[ 10 ];
   } ledger;
 

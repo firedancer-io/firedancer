@@ -193,6 +193,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_VSTR  ( ., ledger,              account_index_exclude_keys                                );
   ENTRY_STR   ( ., ledger,              snapshot_archive_format                                   );
   ENTRY_BOOL  ( ., ledger,              require_tower                                             );
+  ENTRY_BOOL  ( ., ledger,              use_fifo_compaction                                       );
 
   ENTRY_VSTR  ( ., gossip,              entrypoints                                               );
   ENTRY_BOOL  ( ., gossip,              port_check                                                );

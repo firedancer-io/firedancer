@@ -202,6 +202,22 @@ dynamic_port_range = "8900-9000"
     # argument.
     require_tower = false
 
+    # Controls how RocksDB compacts shreds.  You will lose your ledger
+    # data when switching this option.  This is an experimental option
+    # to improve performance of the blockstore, and not write so much
+    # data to disk per transaction.  It also may be helpful in reducing
+    # periodical stalls, when compaction occurs.  See
+    # https://github.com/solana-labs/solana/pull/21358 for more
+    # information on this option.
+    #
+    # If starting a new validator, with no existing ledger data
+    # directory present, this must be set to false.  You can only switch
+    # to using FIFO compaction once a ledger has already been created.
+    #
+    # This option is passed to the Solana Labs client with the
+    # `--rocksdb-shred-compaction` argument.
+    use_fifo_compaction = false
+
 [gossip]
     # Routable DNS name or IP address and port number to use to
     # rendezvous with the gossip cluster.  These entrypoints are passed

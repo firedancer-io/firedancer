@@ -87,6 +87,7 @@ solana_labs_boot( config_t * config ) {
 
   ADD( "--snapshot-archive-format", config->ledger.snapshot_archive_format );
   if( FD_UNLIKELY( config->ledger.require_tower ) ) ADD1( "--require-tower" );
+  if( FD_UNLIKELY( config->ledger.use_fifo_compaction ) ) ADD( "--rocksdb-shred-compaction", "fifo" );
 
   if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
