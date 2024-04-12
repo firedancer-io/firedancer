@@ -1919,6 +1919,9 @@ redelegate( fd_exec_instr_ctx_t const * ctx,
                                    .stake_flags = STAKE_FLAGS_MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED } } };
   rc = set_state( ctx, uninitialized_stake_account_index, &new_stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
+
+  fd_borrowed_account_release_write( vote_account );
+  fd_borrowed_account_release_write( uninitialized_stake_account );
   return 0;
 }
 
@@ -2137,7 +2140,7 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
                                                         current_epoch ) ) ) {
       rc = stake_deactivate( stake, current_epoch, custom_err );
       if( FD_UNLIKELY( rc ) ) return rc;
-      return set_state( ctx, stake_acc_index, &stake_state );
+      rc = set_state( ctx, stake_acc_index, &stake_state );
     } else {
       *custom_err = FD_STAKE_ERR_MINIMUM_DELIQUENT_EPOCHS_FOR_DEACTIVATION_NOT_MET;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -2145,6 +2148,10 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   } else {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
+
+  fd_borrowed_account_release_write( reference_vote_account  );
+  fd_borrowed_account_release_write( delinquent_vote_account );
+  return rc;
 }
 
 /**********************************************************************/
@@ -2854,7 +2861,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
 
         fd_stake_config_t stake_config;
         rc = fd_stake_config_decode( &stake_config, &decode_ctx );
-        if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        if( FD_UNLIKELY( rc != FD_BINCODE_SUCCESS ) )
+          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
         fd_borrowed_account_release_write( config_account );
       }
