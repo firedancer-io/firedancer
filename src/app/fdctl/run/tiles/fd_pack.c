@@ -126,6 +126,11 @@ typedef struct {
   ulong slot_max_data;
   int   larger_shred_limits_per_block;
 
+  /* Updated during housekeeping and used only for checking if the
+     leader slot has ended.  Might be off by one housekeeping duration,
+     but that should be small relative to a slot duration. */
+  long  approx_wallclock_ns;
+
   fd_rng_t * rng;
 
   /* The end wallclock time of the leader slot we are currently packing
@@ -136,9 +141,15 @@ typedef struct {
   long _slot_end_ns;
   long slot_end_ns;
 
-  /* last_successful_insert stores the wall time in ns of the last
+  /* last_successful_insert stores the tickcount of the last
      succcessful transaction insert. */
   long last_successful_insert;
+
+  /* transaction_lifetime_ns, microblock_duration_ns, and wait_duration
+     respectively scaled to be in ticks instead of nanoseconds */
+  ulong transaction_lifetime_ticks;
+  ulong microblock_duration_ticks;
+  ulong wait_duration_ticks[ MAX_TXN_PER_MICROBLOCK+1UL ];
 
   /* In addition to the available transactions that pack knows about, we
      also store a larger ring buffer for handling cases when pack is
@@ -151,6 +162,8 @@ typedef struct {
   ulong    bank_cnt;
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
+  /* bank_ready_at[x] means don't check bank x until tickcount is at
+     least bank_ready_at[x]. */
   long     bank_ready_at[ FD_PACK_PACK_MAX_OUT  ];
 
   fd_wksp_t * out_mem;
@@ -234,6 +247,12 @@ metrics_write( void * _ctx ) {
 }
 
 static inline void
+during_housekeeping( void * _ctx ) {
+  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+  ctx->approx_wallclock_ns = fd_log_wallclock();
+}
+
+static inline void
 before_credit( void * _ctx,
                fd_mux_context_t * mux ) {
   (void)mux;
@@ -255,9 +274,9 @@ after_credit( void *             _ctx,
               fd_mux_context_t * mux ) {
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
+  long now = fd_tickcount();
   /* If we time out on our slot, then stop being leader. */
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
+  if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
          if it receives the maximum allowed microblocks, since it knows
@@ -288,7 +307,7 @@ after_credit( void *             _ctx,
 
   /* Do I have enough microblocks and/or have I waited enough time? */
   if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
-        wait_duration[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
+        ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
     return;
   }
@@ -312,7 +331,7 @@ after_credit( void *             _ctx,
 
       fd_pack_microblock_complete( ctx->pack, i );
       /* TODO: record metrics for expire */
-      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, TRANSACTION_LIFETIME_NS )-TRANSACTION_LIFETIME_NS );
+      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
 
       void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       long schedule_duration = -fd_tickcount();
@@ -331,7 +350,7 @@ after_credit( void *             _ctx,
         ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i );
         fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
         ctx->bank_expect[ i ] = *mux->seq-1UL;
-        ctx->bank_ready_at[i] = now + MICROBLOCK_DURATION_NS;
+        ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
         ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
         ctx->slot_microblock_cnt++;
 
@@ -344,7 +363,7 @@ after_credit( void *             _ctx,
   }
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,       any_ready     );
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
-  now = fd_log_wallclock();
+  now = fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
   if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) ) ) {
@@ -425,7 +444,7 @@ during_frag( void * _ctx,
     ctx->slot_end_ns = 0L;
     ctx->_slot_end_ns = became_leader->slot_end_ns;
 
-    update_metric_state( ctx, fd_log_wallclock(), FD_PACK_METRIC_STATE_LEADER, 1 );
+    update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
     return;
   }
 
@@ -512,7 +531,7 @@ after_frag( void *             _ctx,
   (void)mux;
 
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
-  long now = fd_log_wallclock();
+  long now = fd_tickcount();
 
   if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
     ctx->slot_end_ns = ctx->_slot_end_ns;
@@ -577,7 +596,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
   ctx->rng                           = rng;
   ctx->last_successful_insert        = 0L;
+  ctx->transaction_lifetime_ticks    = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)TRANSACTION_LIFETIME_NS + 0.5);
+  ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
   ctx->insert_to_extra               = 0;
+
+  ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
+  for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
+    ctx->wait_duration_ticks[ i ]=(ulong)(fd_tempo_tick_per_ns( NULL )*(double)wait_duration[ i ] + 0.5);
+  }
+
 
   ctx->bank_cnt = tile->pack.bank_tile_count;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
@@ -611,7 +638,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
   ctx->metric_state = 0;
-  ctx->metric_state_begin = fd_log_wallclock();
+  ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing, '\0', 16*sizeof(long) );
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
@@ -665,6 +692,7 @@ fd_topo_run_tile_t fd_tile_pack = {
   .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
   .burst                    = 1UL,
   .mux_ctx                  = mux_ctx,
+  .mux_during_housekeeping  = during_housekeeping,
   .mux_before_credit        = before_credit,
   .mux_after_credit         = after_credit,
   .mux_during_frag          = during_frag,
