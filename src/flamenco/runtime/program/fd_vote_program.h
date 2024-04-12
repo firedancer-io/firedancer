@@ -70,6 +70,10 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           ulong                       on,
                           fd_commission_split_t *     result );
 
+void
+fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
+                       fd_borrowed_account_t * vote_account );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_vote_program_h */

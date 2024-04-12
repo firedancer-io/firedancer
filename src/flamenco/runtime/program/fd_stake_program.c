@@ -2998,7 +2998,15 @@ void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_accou
   if (memcmp(owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) != 0) {
       return;
   }
-  if (stake_account->const_meta->info.lamports == 0) {
+
+  int is_empty  = stake_account->const_meta->info.lamports == 0;
+  int is_uninit = 1;
+  if( stake_account->const_meta->dlen >= 4 ) {
+    uint prefix = FD_LOAD( uint, stake_account->const_data );
+    is_uninit = ( prefix == fd_stake_state_v2_enum_uninitialized );
+  }
+
+  if( is_empty || is_uninit ) {
     fd_stakes_remove_stake_delegation( slot_ctx, stake_account );
   } else {
     fd_stakes_upsert_stake_delegation( slot_ctx, stake_account );

@@ -946,18 +946,19 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
         if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
           continue;
         }
 
-        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-        if( dirty_vote_acc && 0==memcmp( acc_rec->meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+          fd_vote_store_account( slot_ctx, acc_rec );
           FD_SCRATCH_SCOPE_BEGIN {
             fd_vote_state_versioned_t vsv[1];
             fd_bincode_decode_ctx_t decode_vsv =
-              { .data    = acc_rec->data,
-                .dataend = acc_rec->data + acc_rec->meta->dlen,
+              { .data    = acc_rec->const_data,
+                .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
                 .valloc  = fd_scratch_virtual() };
 
             int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
@@ -983,7 +984,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
           FD_SCRATCH_SCOPE_END;
         }
 
-        if( dirty_stake_acc && 0==memcmp( acc_rec->meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+        if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
           // TODO does this correctly handle stake account close?
           fd_store_stake_delegation( slot_ctx, acc_rec );
         }
