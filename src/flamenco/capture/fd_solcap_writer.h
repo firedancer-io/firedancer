@@ -65,7 +65,7 @@ fd_solcap_writer_init( fd_solcap_writer_t * writer,
                        void *               stream );
 
 /* fd_solcap_writer_flush finishes any outstanding writes and yields
-   ownership of the stream handle back to the caller of init. Always returns 
+   ownership of the stream handle back to the caller of init. Always returns
    writer for convenience. If an error occurs, writes reason to log. */
 
 fd_solcap_writer_t *
@@ -131,17 +131,9 @@ fd_solcap_write_bank_preimage2( fd_solcap_writer_t *     writer,
    stream.  Must only be called for transactions that are part of the
    current slot's transaction hash. */
 
-int fd_solcap_write_transaction( fd_solcap_writer_t * writer,
-                                 void const *         txn_sig,
-                                 int                  txn_err,
-                                 uint                 custom_err,
-                                 ulong                slot,
-                                 ulong                fd_cus,
-                                 ulong                solana_cus,
-                                 ulong                solana_err );
-
-int fd_solcap_write_transaction2( fd_solcap_writer_t * writer,
-                                  fd_solcap_Transaction * txn );
+int
+fd_solcap_write_transaction2( fd_solcap_writer_t *    writer,
+                              fd_solcap_Transaction * txn );
 
 FD_PROTOTYPES_END
 

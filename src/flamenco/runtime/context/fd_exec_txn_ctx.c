@@ -207,6 +207,10 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len = 0;
+
+  txn_ctx->dirty_vote_acc  = 0;
+  txn_ctx->dirty_stake_acc = 0;
+  txn_ctx->failed_instr    = NULL;
 }
 
 void

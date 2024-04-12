@@ -77,12 +77,20 @@ message AccountMeta {
 }
 
 message Transaction {
-  bytes txn_sig = 1
-      [(nanopb).max_size = 64, (nanopb).fixed_length = true];
-  uint64 slot = 2;
-  int32 fd_txn_err = 3;
-  uint32 fd_custom_err = 4;
-  uint64 solana_txn_err = 5;
-  uint64 fd_cus_used = 6;
-  uint64 solana_cus_used = 7;
+    bytes txn_sig = 1
+        [(nanopb).max_size = 64, (nanopb).fixed_length = true];
+    uint64 slot = 2;
+    int32 fd_txn_err = 3;
+    uint32 fd_custom_err = 4;
+    uint64 solana_txn_err = 5;
+    uint64 fd_cus_used = 6;
+    uint64 solana_cus_used = 7;
+
+    // failed_instr_path is the tree path to the failed instruction.
+    // Zero length implies success.
+    repeated uint32 failed_instr_path = 8
+        [(nanopb).max_count = 4];
+
+    // instr_err is the instruction processing error code.
+    uint32 instr_err = 9;
 }

@@ -925,9 +925,28 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
               solana_txn_err = txn_status.err.err->bytes[0];
             }
 
-            fd_solcap_write_transaction( capture_ctx->capture, sig, exec_txn_err,
-                                        txn_ctx->custom_err, slot_ctx->slot_bank.slot,
-                                        fd_cus_consumed, solana_cus_consumed, solana_txn_err );
+            fd_solcap_Transaction txn = {
+              .slot            = slot_ctx->slot_bank.slot,
+              .fd_txn_err      = exec_txn_err,
+              .fd_custom_err   = txn_ctx->custom_err,
+              .solana_txn_err  = solana_txn_err,
+              .fd_cus_used     = fd_cus_consumed,
+              .solana_cus_used = solana_cus_consumed,
+            };
+            memcpy( txn.txn_sig, sig, sizeof(fd_signature_t) );
+
+            fd_exec_instr_ctx_t const * failed_instr = txn_ctx->failed_instr;
+            if( failed_instr ) {
+              assert( failed_instr->depth < 4 );
+              txn.instr_err               = failed_instr->instr_err;
+              txn.failed_instr_path_count = failed_instr->depth + 1;
+              for( long j = failed_instr->depth; j>=0L; j-- ) {
+                txn.failed_instr_path[j] = failed_instr->index;
+                failed_instr             = failed_instr->parent;
+              }
+            }
+
+            fd_solcap_write_transaction2( capture_ctx->capture, &txn );
           }
         }
       }

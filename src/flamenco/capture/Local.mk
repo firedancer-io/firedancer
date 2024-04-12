@@ -1,4 +1,3 @@
-$(call gen-protobuf,fd_solcap)
 $(call add-hdrs,fd_solcap_proto.h fd_solcap_writer.h fd_solcap_reader.h)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128

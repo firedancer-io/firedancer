@@ -15,11 +15,18 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   fd_exec_slot_ctx_t *        slot_ctx; /* TODO: needs to be made const to be thread safe. */
   fd_exec_txn_ctx_t *         txn_ctx;  /* The transaction context for this instruction */
 
+  fd_exec_instr_ctx_t const * parent;
+
+  uint depth;      /* starts at 0 */
+  uint index;      /* number of preceding instructions with same parent */
+  uint child_cnt;  /* number of child instructions */
+  uint instr_err;
+
   fd_funk_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
   fd_valloc_t     valloc;
 
-  fd_instr_info_t const *     instr;
+  fd_instr_info_t const * instr;
 };
 
 #define FD_EXEC_INSTR_CTX_ALIGN     (alignof(fd_exec_instr_ctx_t))

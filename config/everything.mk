@@ -43,7 +43,6 @@ help:
 	# SED             = $(SED)
 	# FIND            = $(FIND)
 	# SCRUB           = $(SCRUB)
-	# NANOPB          = $(NANOPB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
 	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
@@ -60,7 +59,6 @@ help:
 	# "make distclean" removes editor temp files and all platform builds
 	# "make asm" makes all source files into assembly language files
 	# "make ppp" run all source files through the preprocessor
-	# "make nanopb" generate nanopb Protobuf sources (if available)
 	# "make show-deps" shows all the dependencies
 	# "make cov-report" creates an LCOV coverage report from LLVM profdata. Requires make run-unit-test EXTRAS="llvm-cov"
 	# Fuzzing (requires fuzzing profile):

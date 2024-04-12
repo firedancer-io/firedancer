@@ -267,6 +267,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     ulong starting_lamports = fd_instr_info_sum_account_lamports( instr );
     instr->starting_lamports = starting_lamports;
 
+    fd_exec_instr_ctx_t * parent = NULL;
+    if( txn_ctx->instr_stack_sz )
+      parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
+
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz++ ];
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
@@ -276,6 +280,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .valloc    = fd_scratch_virtual(),
       .acc_mgr   = txn_ctx->acc_mgr,
       .funk_txn  = txn_ctx->funk_txn,
+      .parent    = parent,
+      .index     = parent ? (parent->child_cnt++) : 0,
+      .depth     = parent ? (parent->depth+1    ) : 0,
+      .child_cnt = 0U,
     };
 
     // defense in depth
@@ -332,6 +340,9 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
           FD_LOG_ERR(( "Txn %64J: Program %32J didn't release lock (%u) on %32J", fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0], instr->program_id_pubkey.uc, *(uint *)(instr->data), txn_ctx->borrowed_accounts[j].pubkey->uc ));
         }
       }
+    } else if( !txn_ctx->failed_instr ) {
+      txn_ctx->failed_instr = ctx;
+      ctx->instr_err        = (uint)( -exec_result - 1 );
     }
 
 #ifdef VLOG
