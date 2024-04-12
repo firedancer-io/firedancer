@@ -119,7 +119,7 @@ int fd_feature_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -131,7 +131,7 @@ int fd_feature_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_feature_decode_unsafe(fd_feature_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_activated_at = !!o;
     if( o ) {
       fd_bincode_uint64_decode_unsafe( &self->activated_at, ctx );
@@ -144,7 +144,7 @@ int fd_feature_decode_offsets(fd_feature_off_t* self, fd_bincode_decode_ctx_t * 
   self->activated_at_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -185,10 +185,10 @@ ulong fd_feature_size(fd_feature_t const * self) {
 
 int fd_feature_encode(fd_feature_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_option_encode( self->has_activated_at, ctx );
+  err = fd_bincode_bool_encode( self->has_activated_at, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_activated_at ) {
-    err = fd_bincode_uint64_encode( &self->activated_at, ctx );
+    err = fd_bincode_uint64_encode( self->activated_at, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -242,7 +242,7 @@ ulong fd_fee_calculator_size(fd_fee_calculator_t const * self) {
 
 int fd_fee_calculator_encode(fd_fee_calculator_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -311,11 +311,11 @@ ulong fd_epoch_rewards_size(fd_epoch_rewards_t const * self) {
 
 int fd_epoch_rewards_encode(fd_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->total_rewards, ctx);
+  err = fd_bincode_uint64_encode(self->total_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->distributed_rewards, ctx);
+  err = fd_bincode_uint64_encode(self->distributed_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->distribution_complete_block_height, ctx);
+  err = fd_bincode_uint64_encode(self->distribution_complete_block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -388,9 +388,9 @@ int fd_hash_age_encode(fd_hash_age_t const * self, fd_bincode_encode_ctx_t * ctx
   int err;
   err = fd_fee_calculator_encode(&self->fee_calculator, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->hash_index, ctx);
+  err = fd_bincode_uint64_encode(self->hash_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  err = fd_bincode_uint64_encode(self->timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -477,7 +477,7 @@ int fd_block_hash_queue_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_hash_decode_preflight( ctx );
@@ -501,7 +501,7 @@ void fd_block_hash_queue_decode_unsafe(fd_block_hash_queue_t* self, fd_bincode_d
   fd_bincode_uint64_decode_unsafe(&self->last_hash_index, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->last_hash = (fd_hash_t*)fd_valloc_malloc( ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
       fd_hash_new( self->last_hash );
@@ -529,7 +529,7 @@ int fd_block_hash_queue_decode_offsets(fd_block_hash_queue_off_t* self, fd_binco
   self->last_hash_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_hash_decode_preflight( ctx );
@@ -606,18 +606,18 @@ ulong fd_block_hash_queue_size(fd_block_hash_queue_t const * self) {
 
 int fd_block_hash_queue_encode(fd_block_hash_queue_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->last_hash_index, ctx);
+  err = fd_bincode_uint64_encode(self->last_hash_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->last_hash != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_hash_encode( self->last_hash, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->ages_len, ctx);
+  err = fd_bincode_uint64_encode(self->ages_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->ages_len != 0) {
     for (ulong i = 0; i < self->ages_len; ++i) {
@@ -625,7 +625,7 @@ int fd_block_hash_queue_encode(fd_block_hash_queue_t const * self, fd_bincode_en
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->max_age, ctx);
+  err = fd_bincode_uint64_encode(self->max_age, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -710,15 +710,15 @@ ulong fd_fee_rate_governor_size(fd_fee_rate_governor_t const * self) {
 
 int fd_fee_rate_governor_encode(fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->target_lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->target_lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->target_signatures_per_slot, ctx);
+  err = fd_bincode_uint64_encode(self->target_signatures_per_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->min_lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->min_lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->max_lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->max_lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->burn_percent, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->burn_percent), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -779,9 +779,9 @@ ulong fd_slot_pair_size(fd_slot_pair_t const * self) {
 
 int fd_slot_pair_encode(fd_slot_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->val, ctx);
+  err = fd_bincode_uint64_encode(self->val, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -871,7 +871,7 @@ ulong fd_hard_forks_size(fd_hard_forks_t const * self) {
 
 int fd_hard_forks_encode(fd_hard_forks_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->hard_forks_len, ctx);
+  err = fd_bincode_uint64_encode(self->hard_forks_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->hard_forks_len != 0) {
     for (ulong i = 0; i < self->hard_forks_len; ++i) {
@@ -970,17 +970,17 @@ ulong fd_inflation_size(fd_inflation_t const * self) {
 
 int fd_inflation_encode(fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_double_encode(&self->initial, ctx);
+  err = fd_bincode_double_encode( self->initial, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->terminal, ctx);
+  err = fd_bincode_double_encode( self->terminal, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->taper, ctx);
+  err = fd_bincode_double_encode( self->taper, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->foundation, ctx);
+  err = fd_bincode_double_encode( self->foundation, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->foundation_term, ctx);
+  err = fd_bincode_double_encode( self->foundation_term, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->__unused, ctx);
+  err = fd_bincode_double_encode( self->__unused, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1049,11 +1049,11 @@ ulong fd_rent_size(fd_rent_t const * self) {
 
 int fd_rent_encode(fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_uint8_year, ctx);
+  err = fd_bincode_uint64_encode(self->lamports_per_uint8_year, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->exemption_threshold, ctx);
+  err = fd_bincode_double_encode( self->exemption_threshold, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->burn_percent, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->burn_percent), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1138,15 +1138,15 @@ ulong fd_epoch_schedule_size(fd_epoch_schedule_t const * self) {
 
 int fd_epoch_schedule_encode(fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slots_per_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->slots_per_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->leader_schedule_slot_offset, ctx);
+  err = fd_bincode_uint64_encode(self->leader_schedule_slot_offset, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->warmup, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->warmup), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->first_normal_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->first_normal_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->first_normal_slot, ctx);
+  err = fd_bincode_uint64_encode(self->first_normal_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1227,11 +1227,11 @@ ulong fd_rent_collector_size(fd_rent_collector_t const * self) {
 
 int fd_rent_collector_encode(fd_rent_collector_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_epoch_schedule_encode(&self->epoch_schedule, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->slots_per_year, ctx);
+  err = fd_bincode_double_encode( self->slots_per_year, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1309,22 +1309,18 @@ ulong fd_stake_history_entry_size(fd_stake_history_entry_t const * self) {
   size += sizeof(ulong);
   size += sizeof(ulong);
   size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   return size;
 }
 
 int fd_stake_history_entry_encode(fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->effective, ctx);
+  err = fd_bincode_uint64_encode(self->effective, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->activating, ctx);
+  err = fd_bincode_uint64_encode(self->activating, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->deactivating, ctx);
+  err = fd_bincode_uint64_encode(self->deactivating, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1426,7 +1422,7 @@ int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_c
   int err;
   if (self->treap) {
     ulong fd_stake_history_len = fd_stake_history_treap_ele_cnt( self->treap );
-    err = fd_bincode_uint64_encode( &fd_stake_history_len, ctx );
+    err = fd_bincode_uint64_encode( fd_stake_history_len, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
     for ( fd_stake_history_treap_rev_iter_t iter = fd_stake_history_treap_rev_iter_init( self->treap, self->pool );
           !fd_stake_history_treap_rev_iter_done( iter );
@@ -1437,7 +1433,7 @@ int fd_stake_history_encode(fd_stake_history_t const * self, fd_bincode_encode_c
     }
   } else {
     ulong fd_stake_history_len = 0;
-    err = fd_bincode_uint64_encode(&fd_stake_history_len, ctx);
+    err = fd_bincode_uint64_encode(fd_stake_history_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -1547,9 +1543,9 @@ ulong fd_solana_account_size(fd_solana_account_t const * self) {
 
 int fd_solana_account_encode(fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  err = fd_bincode_uint64_encode(self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->data_len, ctx);
+  err = fd_bincode_uint64_encode(self->data_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->data_len != 0) {
     err = fd_bincode_bytes_encode(self->data, self->data_len, ctx);
@@ -1557,9 +1553,9 @@ int fd_solana_account_encode(fd_solana_account_t const * self, fd_bincode_encode
   }
   err = fd_pubkey_encode(&self->owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->executable, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->executable), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->rent_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->rent_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1634,7 +1630,7 @@ int fd_vote_accounts_pair_encode(fd_vote_accounts_pair_t const * self, fd_bincod
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->stake, ctx);
+  err = fd_bincode_uint64_encode(self->stake, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_solana_account_encode(&self->value, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -1727,7 +1723,7 @@ int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_c
   int err;
   if (self->vote_accounts_root) {
     ulong vote_accounts_len = fd_vote_accounts_pair_t_map_size(self->vote_accounts_pool, self->vote_accounts_root);
-    err = fd_bincode_uint64_encode(&vote_accounts_len, ctx);
+    err = fd_bincode_uint64_encode(vote_accounts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(self->vote_accounts_pool, self->vote_accounts_root); n; n = fd_vote_accounts_pair_t_map_successor(self->vote_accounts_pool, n) ) {
       err = fd_vote_accounts_pair_encode(&n->elem, ctx);
@@ -1735,7 +1731,7 @@ int fd_vote_accounts_encode(fd_vote_accounts_t const * self, fd_bincode_encode_c
     }
   } else {
     ulong vote_accounts_len = 0;
-    err = fd_bincode_uint64_encode(&vote_accounts_len, ctx);
+    err = fd_bincode_uint64_encode(vote_accounts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -1801,7 +1797,7 @@ int fd_stake_accounts_pair_encode(fd_stake_accounts_pair_t const * self, fd_binc
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->exists, ctx);
+  err = fd_bincode_uint32_encode( self->exists, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -1892,7 +1888,7 @@ int fd_stake_accounts_encode(fd_stake_accounts_t const * self, fd_bincode_encode
   int err;
   if (self->stake_accounts_root) {
     ulong stake_accounts_len = fd_stake_accounts_pair_t_map_size(self->stake_accounts_pool, self->stake_accounts_root);
-    err = fd_bincode_uint64_encode(&stake_accounts_len, ctx);
+    err = fd_bincode_uint64_encode(stake_accounts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( fd_stake_accounts_pair_t_mapnode_t* n = fd_stake_accounts_pair_t_map_minimum(self->stake_accounts_pool, self->stake_accounts_root); n; n = fd_stake_accounts_pair_t_map_successor(self->stake_accounts_pool, n) ) {
       err = fd_stake_accounts_pair_encode(&n->elem, ctx);
@@ -1900,7 +1896,7 @@ int fd_stake_accounts_encode(fd_stake_accounts_t const * self, fd_bincode_encode
     }
   } else {
     ulong stake_accounts_len = 0;
-    err = fd_bincode_uint64_encode(&stake_accounts_len, ctx);
+    err = fd_bincode_uint64_encode(stake_accounts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -1966,7 +1962,7 @@ int fd_stake_weight_encode(fd_stake_weight_t const * self, fd_bincode_encode_ctx
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->stake, ctx);
+  err = fd_bincode_uint64_encode(self->stake, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -2057,7 +2053,7 @@ int fd_stake_weights_encode(fd_stake_weights_t const * self, fd_bincode_encode_c
   int err;
   if (self->stake_weights_root) {
     ulong stake_weights_len = fd_stake_weight_t_map_size(self->stake_weights_pool, self->stake_weights_root);
-    err = fd_bincode_uint64_encode(&stake_weights_len, ctx);
+    err = fd_bincode_uint64_encode(stake_weights_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( fd_stake_weight_t_mapnode_t* n = fd_stake_weight_t_map_minimum(self->stake_weights_pool, self->stake_weights_root); n; n = fd_stake_weight_t_map_successor(self->stake_weights_pool, n) ) {
       err = fd_stake_weight_encode(&n->elem, ctx);
@@ -2065,7 +2061,7 @@ int fd_stake_weights_encode(fd_stake_weights_t const * self, fd_bincode_encode_c
     }
   } else {
     ulong stake_weights_len = 0;
-    err = fd_bincode_uint64_encode(&stake_weights_len, ctx);
+    err = fd_bincode_uint64_encode(stake_weights_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -2155,13 +2151,13 @@ int fd_delegation_encode(fd_delegation_t const * self, fd_bincode_encode_ctx_t *
   int err;
   err = fd_pubkey_encode(&self->voter_pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->stake, ctx);
+  err = fd_bincode_uint64_encode(self->stake, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->activation_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->activation_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->deactivation_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->deactivation_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->warmup_cooldown_rate, ctx);
+  err = fd_bincode_double_encode( self->warmup_cooldown_rate, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -2357,7 +2353,7 @@ int fd_stakes_encode(fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   if (self->stake_delegations_root) {
     ulong stake_delegations_len = fd_delegation_pair_t_map_size(self->stake_delegations_pool, self->stake_delegations_root);
-    err = fd_bincode_uint64_encode(&stake_delegations_len, ctx);
+    err = fd_bincode_uint64_encode(stake_delegations_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( fd_delegation_pair_t_mapnode_t* n = fd_delegation_pair_t_map_minimum(self->stake_delegations_pool, self->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(self->stake_delegations_pool, n) ) {
       err = fd_delegation_pair_encode(&n->elem, ctx);
@@ -2365,12 +2361,12 @@ int fd_stakes_encode(fd_stakes_t const * self, fd_bincode_encode_ctx_t * ctx) {
     }
   } else {
     ulong stake_delegations_len = 0;
-    err = fd_bincode_uint64_encode(&stake_delegations_len, ctx);
+    err = fd_bincode_uint64_encode(stake_delegations_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->unused, ctx);
+  err = fd_bincode_uint64_encode(self->unused, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_stake_history_encode(&self->stake_history, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -2461,15 +2457,15 @@ ulong fd_bank_incremental_snapshot_persistence_size(fd_bank_incremental_snapshot
 
 int fd_bank_incremental_snapshot_persistence_encode(fd_bank_incremental_snapshot_persistence_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->full_slot, ctx);
+  err = fd_bincode_uint64_encode(self->full_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->full_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->full_capitalization, ctx);
+  err = fd_bincode_uint64_encode(self->full_capitalization, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->incremental_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->incremental_capitalization, ctx);
+  err = fd_bincode_uint64_encode(self->incremental_capitalization, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -2567,7 +2563,7 @@ ulong fd_node_vote_accounts_size(fd_node_vote_accounts_t const * self) {
 
 int fd_node_vote_accounts_encode(fd_node_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->vote_accounts_len, ctx);
+  err = fd_bincode_uint64_encode(self->vote_accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->vote_accounts_len != 0) {
     for (ulong i = 0; i < self->vote_accounts_len; ++i) {
@@ -2575,7 +2571,7 @@ int fd_node_vote_accounts_encode(fd_node_vote_accounts_t const * self, fd_bincod
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->total_stake, ctx);
+  err = fd_bincode_uint64_encode(self->total_stake, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -2864,9 +2860,9 @@ int fd_epoch_stakes_encode(fd_epoch_stakes_t const * self, fd_bincode_encode_ctx
   int err;
   err = fd_stakes_encode(&self->stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->total_stake, ctx);
+  err = fd_bincode_uint64_encode(self->total_stake, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->node_id_to_vote_accounts_len, ctx);
+  err = fd_bincode_uint64_encode(self->node_id_to_vote_accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->node_id_to_vote_accounts_len != 0) {
     for (ulong i = 0; i < self->node_id_to_vote_accounts_len; ++i) {
@@ -2874,7 +2870,7 @@ int fd_epoch_stakes_encode(fd_epoch_stakes_t const * self, fd_bincode_encode_ctx
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->epoch_authorized_voters_len, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_authorized_voters_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->epoch_authorized_voters_len != 0) {
     for (ulong i = 0; i < self->epoch_authorized_voters_len; ++i) {
@@ -2943,7 +2939,7 @@ ulong fd_epoch_epoch_stakes_pair_size(fd_epoch_epoch_stakes_pair_t const * self)
 
 int fd_epoch_epoch_stakes_pair_encode(fd_epoch_epoch_stakes_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->key, ctx);
+  err = fd_bincode_uint64_encode(self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_epoch_stakes_encode(&self->value, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3010,7 +3006,7 @@ int fd_pubkey_u64_pair_encode(fd_pubkey_u64_pair_t const * self, fd_bincode_enco
   int err;
   err = fd_pubkey_encode(&self->_0, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->_1, ctx);
+  err = fd_bincode_uint64_encode(self->_1, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3190,7 +3186,7 @@ ulong fd_unused_accounts_size(fd_unused_accounts_t const * self) {
 
 int fd_unused_accounts_encode(fd_unused_accounts_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->unused1_len, ctx);
+  err = fd_bincode_uint64_encode(self->unused1_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->unused1_len != 0) {
     for (ulong i = 0; i < self->unused1_len; ++i) {
@@ -3198,7 +3194,7 @@ int fd_unused_accounts_encode(fd_unused_accounts_t const * self, fd_bincode_enco
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->unused2_len, ctx);
+  err = fd_bincode_uint64_encode(self->unused2_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->unused2_len != 0) {
     for (ulong i = 0; i < self->unused2_len; ++i) {
@@ -3206,7 +3202,7 @@ int fd_unused_accounts_encode(fd_unused_accounts_t const * self, fd_bincode_enco
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->unused3_len, ctx);
+  err = fd_bincode_uint64_encode(self->unused3_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->unused3_len != 0) {
     for (ulong i = 0; i < self->unused3_len; ++i) {
@@ -3259,7 +3255,7 @@ int fd_deserializable_versioned_bank_decode_preflight(fd_bincode_decode_ctx_t * 
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -3311,7 +3307,7 @@ int fd_deserializable_versioned_bank_decode_preflight(fd_bincode_decode_ctx_t * 
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3337,7 +3333,7 @@ void fd_deserializable_versioned_bank_decode_unsafe(fd_deserializable_versioned_
   fd_bincode_uint64_decode_unsafe(&self->max_tick_height, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->hashes_per_tick = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
@@ -3371,7 +3367,7 @@ void fd_deserializable_versioned_bank_decode_unsafe(fd_deserializable_versioned_
     }
   } else
     self->epoch_stakes = NULL;
-  fd_bincode_uint8_decode_unsafe((uchar *) &self->is_delta, ctx);
+  fd_bincode_bool_decode_unsafe(&self->is_delta, ctx);
 }
 int fd_deserializable_versioned_bank_decode_offsets(fd_deserializable_versioned_bank_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -3419,7 +3415,7 @@ int fd_deserializable_versioned_bank_decode_offsets(fd_deserializable_versioned_
   self->hashes_per_tick_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -3491,7 +3487,7 @@ int fd_deserializable_versioned_bank_decode_offsets(fd_deserializable_versioned_
     }
   }
   self->is_delta_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3591,7 +3587,7 @@ void fd_deserializable_versioned_bank_walk(void * w, fd_deserializable_versioned
       fd_epoch_epoch_stakes_pair_walk(w, self->epoch_stakes + i, fun, "epoch_epoch_stakes_pair", level );
     fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "epoch_stakes", level-- );
   }
-  fun( w, &self->is_delta, "is_delta", FD_FLAMENCO_TYPE_SCHAR,   "char",      level );
+  fun( w, &self->is_delta, "is_delta", FD_FLAMENCO_TYPE_BOOL,    "bool",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_deserializable_versioned_bank", level--);
 }
 ulong fd_deserializable_versioned_bank_size(fd_deserializable_versioned_bank_t const * self) {
@@ -3646,7 +3642,7 @@ int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t c
   int err;
   err = fd_block_hash_queue_encode(&self->blockhash_queue, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->ancestors_len, ctx);
+  err = fd_bincode_uint64_encode(self->ancestors_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->ancestors_len != 0) {
     for (ulong i = 0; i < self->ancestors_len; ++i) {
@@ -3658,54 +3654,54 @@ int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->parent_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->parent_slot, ctx);
+  err = fd_bincode_uint64_encode(self->parent_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hard_forks_encode(&self->hard_forks, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->transaction_count, ctx);
+  err = fd_bincode_uint64_encode(self->transaction_count, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->tick_height, ctx);
+  err = fd_bincode_uint64_encode(self->tick_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->signature_count, ctx);
+  err = fd_bincode_uint64_encode(self->signature_count, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->capitalization, ctx);
+  err = fd_bincode_uint64_encode(self->capitalization, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->max_tick_height, ctx);
+  err = fd_bincode_uint64_encode(self->max_tick_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->hashes_per_tick != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->hashes_per_tick, ctx );
+    err = fd_bincode_uint64_encode( self->hashes_per_tick[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->ticks_per_slot, ctx);
+  err = fd_bincode_uint64_encode(self->ticks_per_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint128_encode(&self->ns_per_slot, ctx);
+  err = fd_bincode_uint128_encode( self->ns_per_slot, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->genesis_creation_time, ctx);
+  err = fd_bincode_uint64_encode(self->genesis_creation_time, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->slots_per_year, ctx);
+  err = fd_bincode_double_encode( self->slots_per_year, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->accounts_data_len, ctx);
+  err = fd_bincode_uint64_encode(self->accounts_data_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->block_height, ctx);
+  err = fd_bincode_uint64_encode(self->block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->collector_id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collector_fees, ctx);
+  err = fd_bincode_uint64_encode(self->collector_fees, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_calculator_encode(&self->fee_calculator, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected_rent, ctx);
+  err = fd_bincode_uint64_encode(self->collected_rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_collector_encode(&self->rent_collector, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -3717,7 +3713,7 @@ int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_unused_accounts_encode(&self->unused_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch_stakes_len, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_stakes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->epoch_stakes_len != 0) {
     for (ulong i = 0; i < self->epoch_stakes_len; ++i) {
@@ -3725,7 +3721,7 @@ int fd_deserializable_versioned_bank_encode(fd_deserializable_versioned_bank_t c
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint8_encode((uchar *) &self->is_delta, ctx);
+  err = fd_bincode_bool_encode( (uchar)(self->is_delta), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3810,15 +3806,15 @@ ulong fd_bank_hash_stats_size(fd_bank_hash_stats_t const * self) {
 
 int fd_bank_hash_stats_encode(fd_bank_hash_stats_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->num_updated_accounts, ctx);
+  err = fd_bincode_uint64_encode(self->num_updated_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num_removed_accounts, ctx);
+  err = fd_bincode_uint64_encode(self->num_removed_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num_lamports_stored, ctx);
+  err = fd_bincode_uint64_encode(self->num_lamports_stored, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->total_data_len, ctx);
+  err = fd_bincode_uint64_encode(self->total_data_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num_executable_accounts, ctx);
+  err = fd_bincode_uint64_encode(self->num_executable_accounts, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -3960,7 +3956,7 @@ ulong fd_slot_map_pair_size(fd_slot_map_pair_t const * self) {
 
 int fd_slot_map_pair_encode(fd_slot_map_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -4023,9 +4019,9 @@ ulong fd_snapshot_acc_vec_size(fd_snapshot_acc_vec_t const * self) {
 
 int fd_snapshot_acc_vec_encode(fd_snapshot_acc_vec_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->id, ctx);
+  err = fd_bincode_uint64_encode(self->id, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->file_sz, ctx);
+  err = fd_bincode_uint64_encode(self->file_sz, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4123,9 +4119,9 @@ ulong fd_snapshot_slot_acc_vecs_size(fd_snapshot_slot_acc_vecs_t const * self) {
 
 int fd_snapshot_slot_acc_vecs_encode(fd_snapshot_slot_acc_vecs_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->account_vecs_len, ctx);
+  err = fd_bincode_uint64_encode(self->account_vecs_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->account_vecs_len != 0) {
     for (ulong i = 0; i < self->account_vecs_len; ++i) {
@@ -4258,7 +4254,7 @@ int fd_reward_type_inner_encode(fd_reward_type_inner_t const * self, uint discri
 }
 int fd_reward_type_encode(fd_reward_type_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_reward_type_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -4355,15 +4351,15 @@ int fd_reward_info_encode(fd_reward_info_t const * self, fd_bincode_encode_ctx_t
   int err;
   err = fd_reward_type_encode(&self->reward_type, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  err = fd_bincode_uint64_encode(self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->staker_rewards, ctx);
+  err = fd_bincode_uint64_encode(self->staker_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->new_credits_observed, ctx);
+  err = fd_bincode_uint64_encode(self->new_credits_observed, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->post_balance, ctx);
+  err = fd_bincode_uint64_encode(self->post_balance, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode((ulong *) &self->commission, ctx);
+  err = fd_bincode_uint64_encode( (ulong)self->commission, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -4520,7 +4516,7 @@ ulong fd_serializable_stake_rewards_size(fd_serializable_stake_rewards_t const *
 
 int fd_serializable_stake_rewards_encode(fd_serializable_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->body_len, ctx);
+  err = fd_bincode_uint64_encode(self->body_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->body_len != 0) {
     for (ulong i = 0; i < self->body_len; ++i) {
@@ -4624,9 +4620,9 @@ ulong fd_start_block_height_and_rewards_size(fd_start_block_height_and_rewards_t
 
 int fd_start_block_height_and_rewards_encode(fd_start_block_height_and_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->start_block_height, ctx);
+  err = fd_bincode_uint64_encode(self->start_block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->stake_rewards_by_partition_len, ctx);
+  err = fd_bincode_uint64_encode(self->stake_rewards_by_partition_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->stake_rewards_by_partition_len != 0) {
     for (ulong i = 0; i < self->stake_rewards_by_partition_len; ++i) {
@@ -4759,7 +4755,7 @@ int fd_serializable_epoch_reward_status_inner_encode(fd_serializable_epoch_rewar
 }
 int fd_serializable_epoch_reward_status_encode(fd_serializable_epoch_reward_status_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_serializable_epoch_reward_status_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -4961,7 +4957,7 @@ ulong fd_solana_accounts_db_fields_size(fd_solana_accounts_db_fields_t const * s
 
 int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->storages_len, ctx);
+  err = fd_bincode_uint64_encode(self->storages_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->storages_len != 0) {
     for (ulong i = 0; i < self->storages_len; ++i) {
@@ -4969,20 +4965,20 @@ int fd_solana_accounts_db_fields_encode(fd_solana_accounts_db_fields_t const * s
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->version, ctx);
+  err = fd_bincode_uint64_encode(self->version, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bank_hash_info_encode(&self->bank_hash_info, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->historical_roots_len, ctx);
+  err = fd_bincode_uint64_encode(self->historical_roots_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->historical_roots_len != 0) {
     for (ulong i = 0; i < self->historical_roots_len; ++i) {
-      err = fd_bincode_uint64_encode(self->historical_roots + i, ctx);
+      err = fd_bincode_uint64_encode(self->historical_roots[i], ctx);
     }
   }
-  err = fd_bincode_uint64_encode(&self->historical_roots_with_hash_len, ctx);
+  err = fd_bincode_uint64_encode(self->historical_roots_with_hash_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->historical_roots_with_hash_len != 0) {
     for (ulong i = 0; i < self->historical_roots_with_hash_len; ++i) {
@@ -5013,7 +5009,7 @@ int fd_solana_manifest_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bank_incremental_snapshot_persistence_decode_preflight( ctx );
@@ -5023,7 +5019,7 @@ int fd_solana_manifest_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_hash_decode_preflight( ctx );
@@ -5033,7 +5029,7 @@ int fd_solana_manifest_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_serializable_epoch_reward_status_decode_preflight( ctx );
@@ -5049,7 +5045,7 @@ void fd_solana_manifest_decode_unsafe(fd_solana_manifest_t* self, fd_bincode_dec
   if( ctx->data == ctx->dataend ) return;
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->bank_incremental_snapshot_persistence = (fd_bank_incremental_snapshot_persistence_t*)fd_valloc_malloc( ctx->valloc, FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN, FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_FOOTPRINT );
       fd_bank_incremental_snapshot_persistence_new( self->bank_incremental_snapshot_persistence );
@@ -5060,7 +5056,7 @@ void fd_solana_manifest_decode_unsafe(fd_solana_manifest_t* self, fd_bincode_dec
   if( ctx->data == ctx->dataend ) return;
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->epoch_account_hash = (fd_hash_t*)fd_valloc_malloc( ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
       fd_hash_new( self->epoch_account_hash );
@@ -5071,7 +5067,7 @@ void fd_solana_manifest_decode_unsafe(fd_solana_manifest_t* self, fd_bincode_dec
   if( ctx->data == ctx->dataend ) return;
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->epoch_reward_status = (fd_serializable_epoch_reward_status_t*)fd_valloc_malloc( ctx->valloc, FD_SERIALIZABLE_EPOCH_REWARD_STATUS_ALIGN, FD_SERIALIZABLE_EPOCH_REWARD_STATUS_FOOTPRINT );
       fd_serializable_epoch_reward_status_new( self->epoch_reward_status );
@@ -5096,7 +5092,7 @@ int fd_solana_manifest_decode_offsets(fd_solana_manifest_off_t* self, fd_bincode
   if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bank_incremental_snapshot_persistence_decode_preflight( ctx );
@@ -5107,7 +5103,7 @@ int fd_solana_manifest_decode_offsets(fd_solana_manifest_off_t* self, fd_bincode
   if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_hash_decode_preflight( ctx );
@@ -5118,7 +5114,7 @@ int fd_solana_manifest_decode_offsets(fd_solana_manifest_off_t* self, fd_bincode
   if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_serializable_epoch_reward_status_decode_preflight( ctx );
@@ -5203,33 +5199,33 @@ int fd_solana_manifest_encode(fd_solana_manifest_t const * self, fd_bincode_enco
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_solana_accounts_db_fields_encode(&self->accounts_db, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->bank_incremental_snapshot_persistence != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_bank_incremental_snapshot_persistence_encode( self->bank_incremental_snapshot_persistence, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->epoch_account_hash != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_hash_encode( self->epoch_account_hash, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->epoch_reward_status != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_serializable_epoch_reward_status_encode( self->epoch_reward_status, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -5291,9 +5287,9 @@ ulong fd_rust_duration_size(fd_rust_duration_t const * self) {
 
 int fd_rust_duration_encode(fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->seconds, ctx);
+  err = fd_bincode_uint64_encode(self->seconds, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->nanoseconds, ctx);
+  err = fd_bincode_uint32_encode( self->nanoseconds, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -5313,7 +5309,7 @@ int fd_poh_config_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -5322,7 +5318,7 @@ int fd_poh_config_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -5335,7 +5331,7 @@ void fd_poh_config_decode_unsafe(fd_poh_config_t* self, fd_bincode_decode_ctx_t 
   fd_rust_duration_decode_unsafe(&self->target_tick_duration, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->target_tick_count = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->target_tick_count, ctx );
@@ -5344,7 +5340,7 @@ void fd_poh_config_decode_unsafe(fd_poh_config_t* self, fd_bincode_decode_ctx_t 
   }
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->hashes_per_tick = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
@@ -5361,7 +5357,7 @@ int fd_poh_config_decode_offsets(fd_poh_config_off_t* self, fd_bincode_decode_ct
   self->target_tick_count_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -5371,7 +5367,7 @@ int fd_poh_config_decode_offsets(fd_poh_config_off_t* self, fd_bincode_decode_ct
   self->hashes_per_tick_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -5433,21 +5429,21 @@ int fd_poh_config_encode(fd_poh_config_t const * self, fd_bincode_encode_ctx_t *
   err = fd_rust_duration_encode(&self->target_tick_duration, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->target_tick_count != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->target_tick_count, ctx );
+    err = fd_bincode_uint64_encode( self->target_tick_count[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->hashes_per_tick != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->hashes_per_tick, ctx );
+    err = fd_bincode_uint64_encode( self->hashes_per_tick[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -5526,7 +5522,7 @@ ulong fd_string_pubkey_pair_size(fd_string_pubkey_pair_t const * self) {
 int fd_string_pubkey_pair_encode(fd_string_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   ulong slen = strlen( (char *) self->string );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_bytes_encode((uchar *) self->string, slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5867,9 +5863,9 @@ ulong fd_genesis_solana_size(fd_genesis_solana_t const * self) {
 
 int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->creation_time, ctx);
+  err = fd_bincode_uint64_encode(self->creation_time, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->accounts_len, ctx);
+  err = fd_bincode_uint64_encode(self->accounts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->accounts_len != 0) {
     for (ulong i = 0; i < self->accounts_len; ++i) {
@@ -5877,7 +5873,7 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->native_instruction_processors_len, ctx);
+  err = fd_bincode_uint64_encode(self->native_instruction_processors_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->native_instruction_processors_len != 0) {
     for (ulong i = 0; i < self->native_instruction_processors_len; ++i) {
@@ -5885,7 +5881,7 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->rewards_pools_len, ctx);
+  err = fd_bincode_uint64_encode(self->rewards_pools_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->rewards_pools_len != 0) {
     for (ulong i = 0; i < self->rewards_pools_len; ++i) {
@@ -5893,13 +5889,13 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->ticks_per_slot, ctx);
+  err = fd_bincode_uint64_encode(self->ticks_per_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->unused, ctx);
+  err = fd_bincode_uint64_encode(self->unused, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_poh_config_encode(&self->poh_config, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->__backwards_compat_with_v0_23, ctx);
+  err = fd_bincode_uint64_encode(self->__backwards_compat_with_v0_23, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -5909,7 +5905,7 @@ int fd_genesis_solana_encode(fd_genesis_solana_t const * self, fd_bincode_encode
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_epoch_schedule_encode(&self->epoch_schedule, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->cluster_type, ctx);
+  err = fd_bincode_uint32_encode( self->cluster_type, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -5994,15 +5990,15 @@ ulong fd_sol_sysvar_clock_size(fd_sol_sysvar_clock_t const * self) {
 
 int fd_sol_sysvar_clock_encode(fd_sol_sysvar_clock_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode((ulong *) &self->epoch_start_timestamp, ctx);
+  err = fd_bincode_uint64_encode( (ulong)self->epoch_start_timestamp, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->leader_schedule_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->leader_schedule_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode((ulong *) &self->unix_timestamp, ctx);
+  err = fd_bincode_uint64_encode( (ulong)self->unix_timestamp, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6055,7 +6051,7 @@ ulong fd_sol_sysvar_last_restart_slot_size(fd_sol_sysvar_last_restart_slot_t con
 
 int fd_sol_sysvar_last_restart_slot_encode(fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6116,9 +6112,9 @@ ulong fd_vote_lockout_size(fd_vote_lockout_t const * self) {
 
 int fd_vote_lockout_encode(fd_vote_lockout_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->confirmation_count, ctx);
+  err = fd_bincode_uint32_encode( self->confirmation_count, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6181,7 +6177,7 @@ int fd_lockout_offset_encode(fd_lockout_offset_t const * self, fd_bincode_encode
   int err;
   err = fd_bincode_varint_encode(self->offset, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->confirmation_count, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->confirmation_count), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6243,16 +6239,12 @@ ulong fd_vote_authorized_voter_size(fd_vote_authorized_voter_t const * self) {
   ulong size = 0;
   size += sizeof(ulong);
   size += fd_pubkey_size(&self->pubkey);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
-  size += sizeof(ulong);
   return size;
 }
 
 int fd_vote_authorized_voter_encode(fd_vote_authorized_voter_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6327,9 +6319,9 @@ int fd_vote_prior_voter_encode(fd_vote_prior_voter_t const * self, fd_bincode_en
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch_start, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_start, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch_end, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_end, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6410,11 +6402,11 @@ int fd_vote_prior_voter_0_23_5_encode(fd_vote_prior_voter_0_23_5_t const * self,
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch_start, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_start, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch_end, ctx);
+  err = fd_bincode_uint64_encode(self->epoch_end, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6483,11 +6475,11 @@ ulong fd_vote_epoch_credits_size(fd_vote_epoch_credits_t const * self) {
 
 int fd_vote_epoch_credits_encode(fd_vote_epoch_credits_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->credits, ctx);
+  err = fd_bincode_uint64_encode(self->credits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->prev_credits, ctx);
+  err = fd_bincode_uint64_encode(self->prev_credits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6548,9 +6540,9 @@ ulong fd_vote_block_timestamp_size(fd_vote_block_timestamp_t const * self) {
 
 int fd_vote_block_timestamp_encode(fd_vote_block_timestamp_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  err = fd_bincode_uint64_encode(self->timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6572,7 +6564,7 @@ int fd_vote_prior_voters_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6581,7 +6573,7 @@ void fd_vote_prior_voters_decode_unsafe(fd_vote_prior_voters_t* self, fd_bincode
     fd_vote_prior_voter_decode_unsafe(self->buf + i, ctx);
   }
   fd_bincode_uint64_decode_unsafe(&self->idx, ctx);
-  fd_bincode_uint8_decode_unsafe(&self->is_empty, ctx);
+  fd_bincode_bool_decode_unsafe(&self->is_empty, ctx);
 }
 int fd_vote_prior_voters_decode_offsets(fd_vote_prior_voters_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -6595,7 +6587,7 @@ int fd_vote_prior_voters_decode_offsets(fd_vote_prior_voters_off_t* self, fd_bin
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->is_empty_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6619,7 +6611,7 @@ void fd_vote_prior_voters_walk(void * w, fd_vote_prior_voters_t const * self, fd
     fd_vote_prior_voter_walk(w, self->buf + i, fun, "vote_prior_voter", level );
   fun(w, NULL, "buf", FD_FLAMENCO_TYPE_ARR_END, "vote_prior_voter[]", level--);
   fun( w, &self->idx, "idx", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w, &self->is_empty, "is_empty", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->is_empty, "is_empty", FD_FLAMENCO_TYPE_BOOL,    "bool",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_prior_voters", level--);
 }
 ulong fd_vote_prior_voters_size(fd_vote_prior_voters_t const * self) {
@@ -6637,9 +6629,9 @@ int fd_vote_prior_voters_encode(fd_vote_prior_voters_t const * self, fd_bincode_
     err = fd_vote_prior_voter_encode(self->buf + i, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->idx, ctx);
+  err = fd_bincode_uint64_encode(self->idx, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->is_empty, ctx);
+  err = fd_bincode_bool_encode( (uchar)(self->is_empty), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6661,8 +6653,6 @@ int fd_vote_prior_voters_0_23_5_decode_preflight(fd_bincode_decode_ctx_t * ctx) 
   }
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint8_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_prior_voters_0_23_5_decode_unsafe(fd_vote_prior_voters_0_23_5_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -6670,7 +6660,6 @@ void fd_vote_prior_voters_0_23_5_decode_unsafe(fd_vote_prior_voters_0_23_5_t* se
     fd_vote_prior_voter_0_23_5_decode_unsafe(self->buf + i, ctx);
   }
   fd_bincode_uint64_decode_unsafe(&self->idx, ctx);
-  fd_bincode_uint8_decode_unsafe(&self->is_empty, ctx);
 }
 int fd_vote_prior_voters_0_23_5_decode_offsets(fd_vote_prior_voters_0_23_5_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -6683,9 +6672,6 @@ int fd_vote_prior_voters_0_23_5_decode_offsets(fd_vote_prior_voters_0_23_5_off_t
   self->idx_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_uint64_decode_preflight(ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  self->is_empty_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint8_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_prior_voters_0_23_5_new(fd_vote_prior_voters_0_23_5_t* self) {
@@ -6708,7 +6694,6 @@ void fd_vote_prior_voters_0_23_5_walk(void * w, fd_vote_prior_voters_0_23_5_t co
     fd_vote_prior_voter_0_23_5_walk(w, self->buf + i, fun, "vote_prior_voter_0_23_5", level );
   fun(w, NULL, "buf", FD_FLAMENCO_TYPE_ARR_END, "vote_prior_voter_0_23_5[]", level--);
   fun( w, &self->idx, "idx", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
-  fun( w, &self->is_empty, "is_empty", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_prior_voters_0_23_5", level--);
 }
 ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t const * self) {
@@ -6716,7 +6701,6 @@ ulong fd_vote_prior_voters_0_23_5_size(fd_vote_prior_voters_0_23_5_t const * sel
   for (ulong i = 0; i < 32; ++i)
     size += fd_vote_prior_voter_0_23_5_size(self->buf + i);
   size += sizeof(ulong);
-  size += sizeof(char);
   return size;
 }
 
@@ -6726,9 +6710,7 @@ int fd_vote_prior_voters_0_23_5_encode(fd_vote_prior_voters_0_23_5_t const * sel
     err = fd_vote_prior_voter_0_23_5_encode(self->buf + i, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->idx, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->is_empty, ctx);
+  err = fd_bincode_uint64_encode(self->idx, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -6791,7 +6773,7 @@ ulong fd_landed_vote_size(fd_landed_vote_t const * self) {
 
 int fd_landed_vote_encode(fd_landed_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->latency, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->latency), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_lockout_encode(&self->lockout, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -6824,11 +6806,18 @@ int fd_vote_state_0_23_5_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   ulong votes_len;
   err = fd_bincode_uint64_decode( &votes_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( votes_len > 100 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( votes_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(votes_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
@@ -6854,7 +6843,14 @@ void fd_vote_state_0_23_5_decode_unsafe(fd_vote_state_0_23_5_t* self, fd_bincode
     fd_vote_lockout_new(elem);
     fd_vote_lockout_decode_unsafe(elem, ctx);
   }
-  fd_option_slot_decode_unsafe(&self->root_slot, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
   ulong epoch_credits_len;
   fd_bincode_uint64_decode_unsafe( &epoch_credits_len, ctx );
   self->epoch_credits = deq_fd_vote_epoch_credits_t_alloc( ctx->valloc );
@@ -6890,12 +6886,19 @@ int fd_vote_state_0_23_5_decode_offsets(fd_vote_state_0_23_5_off_t* self, fd_bin
   ulong votes_len;
   err = fd_bincode_uint64_decode( &votes_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( votes_len > 100 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( votes_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(votes_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->root_slot_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   self->epoch_credits_off = (uint)((ulong)ctx->data - (ulong)data);
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
@@ -6914,7 +6917,6 @@ void fd_vote_state_0_23_5_new(fd_vote_state_0_23_5_t* self) {
   fd_pubkey_new(&self->authorized_voter);
   fd_vote_prior_voters_0_23_5_new(&self->prior_voters);
   fd_pubkey_new(&self->authorized_withdrawer);
-  fd_option_slot_new(&self->root_slot);
   fd_vote_block_timestamp_new(&self->last_timestamp);
 }
 void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -6930,7 +6932,9 @@ void fd_vote_state_0_23_5_destroy(fd_vote_state_0_23_5_t* self, fd_bincode_destr
     fd_valloc_free( ctx->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->votes) ) );
     self->votes = NULL;
   }
-  fd_option_slot_destroy(&self->root_slot, ctx);
+  if( self->has_root_slot ) {
+    self->has_root_slot = 0;
+  }
   if ( self->epoch_credits ) {
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
       fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
@@ -6967,7 +6971,11 @@ void fd_vote_state_0_23_5_walk(void * w, fd_vote_state_0_23_5_t const * self, fd
   fun( w, self->votes, "votes", FD_FLAMENCO_TYPE_ARR_END, "votes", level-- );
   /* Done walking deque */
 
-  fd_option_slot_walk(w, &self->root_slot, fun, "root_slot", level);
+  if( !self->has_root_slot ) {
+    fun( w, NULL, "root_slot", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
 
   /* Walk deque */
   fun( w, self->epoch_credits, "epoch_credits", FD_FLAMENCO_TYPE_ARR, "epoch_credits", level++ );
@@ -7002,7 +7010,10 @@ ulong fd_vote_state_0_23_5_size(fd_vote_state_0_23_5_t const * self) {
   } else {
     size += sizeof(ulong);
   }
-  size += fd_option_slot_size(&self->root_slot);
+  size += sizeof(char);
+  if( self->has_root_slot ) {
+    size += sizeof(ulong);
+  }
   if ( self->epoch_credits ) {
     size += sizeof(ulong);
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
@@ -7022,42 +7033,46 @@ int fd_vote_state_0_23_5_encode(fd_vote_state_0_23_5_t const * self, fd_bincode_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->authorized_voter, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->authorized_voter_epoch, ctx);
+  err = fd_bincode_uint64_encode(self->authorized_voter_epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_0_23_5_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->authorized_withdrawer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->commission, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->commission), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->votes ) {
     ulong votes_len = deq_fd_vote_lockout_t_cnt(self->votes);
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
-      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
+      fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( self->votes, iter );
       err = fd_vote_lockout_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong votes_len = 0;
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_option_slot_encode(&self->root_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_root_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root_slot ) {
+    err = fd_bincode_uint64_encode( self->root_slot, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   if ( self->epoch_credits ) {
     ulong epoch_credits_len = deq_fd_vote_epoch_credits_t_cnt(self->epoch_credits);
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
+      fd_vote_epoch_credits_t const * ele = deq_fd_vote_epoch_credits_t_iter_ele_const( self->epoch_credits, iter );
       err = fd_vote_epoch_credits_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong epoch_credits_len = 0;
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_vote_block_timestamp_encode(&self->last_timestamp, ctx);
@@ -7087,6 +7102,7 @@ int fd_vote_authorized_voters_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_authorized_voters_decode_unsafe(fd_vote_authorized_voters_t* self, fd_bincode_decode_ctx_t * ctx) {
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };
   ulong fd_vote_authorized_voters_treap_len;
   fd_bincode_uint64_decode_unsafe(&fd_vote_authorized_voters_treap_len, ctx);
   self->pool = fd_vote_authorized_voters_pool_alloc( ctx->valloc );
@@ -7095,6 +7111,12 @@ void fd_vote_authorized_voters_decode_unsafe(fd_vote_authorized_voters_t* self, 
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     fd_vote_authorized_voter_new( ele );
     fd_vote_authorized_voter_decode_unsafe( ele, ctx );
+    fd_vote_authorized_voter_t * repeated_entry = fd_vote_authorized_voters_treap_ele_query( self->treap, ele->epoch, self->pool );
+    if ( repeated_entry ) {
+        fd_vote_authorized_voters_treap_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication
+        fd_vote_authorized_voter_destroy( repeated_entry, &destroy_ctx );
+        fd_vote_authorized_voters_pool_ele_release( self->pool, repeated_entry );
+    }
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
   }
 }
@@ -7162,7 +7184,7 @@ int fd_vote_authorized_voters_encode(fd_vote_authorized_voters_t const * self, f
   int err;
   if (self->treap) {
     ulong fd_vote_authorized_voters_len = fd_vote_authorized_voters_treap_ele_cnt( self->treap );
-    err = fd_bincode_uint64_encode( &fd_vote_authorized_voters_len, ctx );
+    err = fd_bincode_uint64_encode( fd_vote_authorized_voters_len, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
     for ( fd_vote_authorized_voters_treap_fwd_iter_t iter = fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
           !fd_vote_authorized_voters_treap_fwd_iter_done( iter );
@@ -7173,7 +7195,7 @@ int fd_vote_authorized_voters_encode(fd_vote_authorized_voters_t const * self, f
     }
   } else {
     ulong fd_vote_authorized_voters_len = 0;
-    err = fd_bincode_uint64_encode(&fd_vote_authorized_voters_len, ctx);
+    err = fd_bincode_uint64_encode(fd_vote_authorized_voters_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -7199,11 +7221,18 @@ int fd_vote_state_1_14_11_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   ulong votes_len;
   err = fd_bincode_uint64_decode( &votes_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( votes_len > 35 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( votes_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(votes_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   err = fd_vote_authorized_voters_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_decode_preflight(ctx);
@@ -7230,7 +7259,14 @@ void fd_vote_state_1_14_11_decode_unsafe(fd_vote_state_1_14_11_t* self, fd_binco
     fd_vote_lockout_new(elem);
     fd_vote_lockout_decode_unsafe(elem, ctx);
   }
-  fd_option_slot_decode_unsafe(&self->root_slot, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
   fd_vote_authorized_voters_decode_unsafe(&self->authorized_voters, ctx);
   fd_vote_prior_voters_decode_unsafe(&self->prior_voters, ctx);
   ulong epoch_credits_len;
@@ -7259,12 +7295,19 @@ int fd_vote_state_1_14_11_decode_offsets(fd_vote_state_1_14_11_off_t* self, fd_b
   ulong votes_len;
   err = fd_bincode_uint64_decode( &votes_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( votes_len > 35 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( votes_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(votes_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->root_slot_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   self->authorized_voters_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_vote_authorized_voters_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7287,7 +7330,6 @@ void fd_vote_state_1_14_11_new(fd_vote_state_1_14_11_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_state_1_14_11_t));
   fd_pubkey_new(&self->node_pubkey);
   fd_pubkey_new(&self->authorized_withdrawer);
-  fd_option_slot_new(&self->root_slot);
   fd_vote_authorized_voters_new(&self->authorized_voters);
   fd_vote_prior_voters_new(&self->prior_voters);
   fd_vote_block_timestamp_new(&self->last_timestamp);
@@ -7303,7 +7345,9 @@ void fd_vote_state_1_14_11_destroy(fd_vote_state_1_14_11_t* self, fd_bincode_des
     fd_valloc_free( ctx->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->votes) ) );
     self->votes = NULL;
   }
-  fd_option_slot_destroy(&self->root_slot, ctx);
+  if( self->has_root_slot ) {
+    self->has_root_slot = 0;
+  }
   fd_vote_authorized_voters_destroy(&self->authorized_voters, ctx);
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);
   if ( self->epoch_credits ) {
@@ -7339,7 +7383,11 @@ void fd_vote_state_1_14_11_walk(void * w, fd_vote_state_1_14_11_t const * self, 
   fun( w, self->votes, "votes", FD_FLAMENCO_TYPE_ARR_END, "votes", level-- );
   /* Done walking deque */
 
-  fd_option_slot_walk(w, &self->root_slot, fun, "root_slot", level);
+  if( !self->has_root_slot ) {
+    fun( w, NULL, "root_slot", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
   fd_vote_authorized_voters_walk(w, &self->authorized_voters, fun, "authorized_voters", level);
   fd_vote_prior_voters_walk(w, &self->prior_voters, fun, "prior_voters", level);
 
@@ -7373,7 +7421,10 @@ ulong fd_vote_state_1_14_11_size(fd_vote_state_1_14_11_t const * self) {
   } else {
     size += sizeof(ulong);
   }
-  size += fd_option_slot_size(&self->root_slot);
+  size += sizeof(char);
+  if( self->has_root_slot ) {
+    size += sizeof(ulong);
+  }
   size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -7395,40 +7446,44 @@ int fd_vote_state_1_14_11_encode(fd_vote_state_1_14_11_t const * self, fd_bincod
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->authorized_withdrawer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->commission, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->commission), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->votes ) {
     ulong votes_len = deq_fd_vote_lockout_t_cnt(self->votes);
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->votes ); !deq_fd_vote_lockout_t_iter_done( self->votes, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->votes, iter ) ) {
-      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->votes, iter );
+      fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( self->votes, iter );
       err = fd_vote_lockout_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong votes_len = 0;
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_option_slot_encode(&self->root_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_root_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root_slot ) {
+    err = fd_bincode_uint64_encode( self->root_slot, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->epoch_credits ) {
     ulong epoch_credits_len = deq_fd_vote_epoch_credits_t_cnt(self->epoch_credits);
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
+      fd_vote_epoch_credits_t const * ele = deq_fd_vote_epoch_credits_t_iter_ele_const( self->epoch_credits, iter );
       err = fd_vote_epoch_credits_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong epoch_credits_len = 0;
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_vote_block_timestamp_encode(&self->last_timestamp, ctx);
@@ -7461,8 +7516,15 @@ int fd_vote_state_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
     err = fd_landed_vote_decode_preflight(ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   err = fd_vote_authorized_voters_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_decode_preflight(ctx);
@@ -7489,7 +7551,14 @@ void fd_vote_state_decode_unsafe(fd_vote_state_t* self, fd_bincode_decode_ctx_t 
     fd_landed_vote_new(elem);
     fd_landed_vote_decode_unsafe(elem, ctx);
   }
-  fd_option_slot_decode_unsafe(&self->root_slot, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
   fd_vote_authorized_voters_decode_unsafe(&self->authorized_voters, ctx);
   fd_vote_prior_voters_decode_unsafe(&self->prior_voters, ctx);
   ulong epoch_credits_len;
@@ -7524,8 +7593,15 @@ int fd_vote_state_decode_offsets(fd_vote_state_off_t* self, fd_bincode_decode_ct
     if ( FD_UNLIKELY(err) ) return err;
   }
   self->root_slot_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   self->authorized_voters_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_vote_authorized_voters_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -7548,7 +7624,6 @@ void fd_vote_state_new(fd_vote_state_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_state_t));
   fd_pubkey_new(&self->node_pubkey);
   fd_pubkey_new(&self->authorized_withdrawer);
-  fd_option_slot_new(&self->root_slot);
   fd_vote_authorized_voters_new(&self->authorized_voters);
   fd_vote_prior_voters_new(&self->prior_voters);
   fd_vote_block_timestamp_new(&self->last_timestamp);
@@ -7564,7 +7639,9 @@ void fd_vote_state_destroy(fd_vote_state_t* self, fd_bincode_destroy_ctx_t * ctx
     fd_valloc_free( ctx->valloc, deq_fd_landed_vote_t_delete( deq_fd_landed_vote_t_leave( self->votes) ) );
     self->votes = NULL;
   }
-  fd_option_slot_destroy(&self->root_slot, ctx);
+  if( self->has_root_slot ) {
+    self->has_root_slot = 0;
+  }
   fd_vote_authorized_voters_destroy(&self->authorized_voters, ctx);
   fd_vote_prior_voters_destroy(&self->prior_voters, ctx);
   if ( self->epoch_credits ) {
@@ -7600,7 +7677,11 @@ void fd_vote_state_walk(void * w, fd_vote_state_t const * self, fd_types_walk_fn
   fun( w, self->votes, "votes", FD_FLAMENCO_TYPE_ARR_END, "votes", level-- );
   /* Done walking deque */
 
-  fd_option_slot_walk(w, &self->root_slot, fun, "root_slot", level);
+  if( !self->has_root_slot ) {
+    fun( w, NULL, "root_slot", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->root_slot, "root_slot", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
   fd_vote_authorized_voters_walk(w, &self->authorized_voters, fun, "authorized_voters", level);
   fd_vote_prior_voters_walk(w, &self->prior_voters, fun, "prior_voters", level);
 
@@ -7634,7 +7715,10 @@ ulong fd_vote_state_size(fd_vote_state_t const * self) {
   } else {
     size += sizeof(ulong);
   }
-  size += fd_option_slot_size(&self->root_slot);
+  size += sizeof(char);
+  if( self->has_root_slot ) {
+    size += sizeof(ulong);
+  }
   size += fd_vote_authorized_voters_size(&self->authorized_voters);
   size += fd_vote_prior_voters_size(&self->prior_voters);
   if ( self->epoch_credits ) {
@@ -7656,40 +7740,44 @@ int fd_vote_state_encode(fd_vote_state_t const * self, fd_bincode_encode_ctx_t *
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->authorized_withdrawer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->commission, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->commission), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->votes ) {
     ulong votes_len = deq_fd_landed_vote_t_cnt(self->votes);
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( self->votes ); !deq_fd_landed_vote_t_iter_done( self->votes, iter ); iter = deq_fd_landed_vote_t_iter_next( self->votes, iter ) ) {
-      fd_landed_vote_t * ele = deq_fd_landed_vote_t_iter_ele( self->votes, iter );
+      fd_landed_vote_t const * ele = deq_fd_landed_vote_t_iter_ele_const( self->votes, iter );
       err = fd_landed_vote_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong votes_len = 0;
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_option_slot_encode(&self->root_slot, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_root_slot, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root_slot ) {
+    err = fd_bincode_uint64_encode( self->root_slot, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   err = fd_vote_authorized_voters_encode(&self->authorized_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_prior_voters_encode(&self->prior_voters, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if ( self->epoch_credits ) {
     ulong epoch_credits_len = deq_fd_vote_epoch_credits_t_cnt(self->epoch_credits);
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( self->epoch_credits ); !deq_fd_vote_epoch_credits_t_iter_done( self->epoch_credits, iter ); iter = deq_fd_vote_epoch_credits_t_iter_next( self->epoch_credits, iter ) ) {
-      fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( self->epoch_credits, iter );
+      fd_vote_epoch_credits_t const * ele = deq_fd_vote_epoch_credits_t_iter_ele_const( self->epoch_credits, iter );
       err = fd_vote_epoch_credits_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong epoch_credits_len = 0;
-    err = fd_bincode_uint64_encode(&epoch_credits_len, ctx);
+    err = fd_bincode_uint64_encode(epoch_credits_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_vote_block_timestamp_encode(&self->last_timestamp, ctx);
@@ -7873,7 +7961,7 @@ int fd_vote_state_versioned_inner_encode(fd_vote_state_versioned_inner_t const *
 }
 int fd_vote_state_versioned_encode(fd_vote_state_versioned_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_state_versioned_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -7892,16 +7980,23 @@ int fd_vote_state_update_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   ulong lockouts_len;
   err = fd_bincode_uint64_decode( &lockouts_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( lockouts_len > 35 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( lockouts_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(lockouts_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   err = fd_hash_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -7919,11 +8014,18 @@ void fd_vote_state_update_decode_unsafe(fd_vote_state_update_t* self, fd_bincode
     fd_vote_lockout_new(elem);
     fd_vote_lockout_decode_unsafe(elem, ctx);
   }
-  fd_option_slot_decode_unsafe(&self->root, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root, ctx );
+    }
+  }
   fd_hash_decode_unsafe(&self->hash, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->timestamp, ctx );
@@ -7938,19 +8040,26 @@ int fd_vote_state_update_decode_offsets(fd_vote_state_update_off_t* self, fd_bin
   ulong lockouts_len;
   err = fd_bincode_uint64_decode( &lockouts_len, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  if ( lockouts_len > 35 ) return FD_BINCODE_ERR_SMALL_DEQUE;
+  if ( lockouts_len > 1228 ) return FD_BINCODE_ERR_SMALL_DEQUE;
   err = fd_bincode_bytes_decode_preflight(lockouts_len * 12, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->root_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_option_slot_decode_preflight(ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
   self->hash_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_hash_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -7961,7 +8070,6 @@ int fd_vote_state_update_decode_offsets(fd_vote_state_update_off_t* self, fd_bin
 }
 void fd_vote_state_update_new(fd_vote_state_update_t* self) {
   fd_memset(self, 0, sizeof(fd_vote_state_update_t));
-  fd_option_slot_new(&self->root);
   fd_hash_new(&self->hash);
 }
 void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_bincode_destroy_ctx_t * ctx) {
@@ -7973,7 +8081,9 @@ void fd_vote_state_update_destroy(fd_vote_state_update_t* self, fd_bincode_destr
     fd_valloc_free( ctx->valloc, deq_fd_vote_lockout_t_delete( deq_fd_vote_lockout_t_leave( self->lockouts) ) );
     self->lockouts = NULL;
   }
-  fd_option_slot_destroy(&self->root, ctx);
+  if( self->has_root ) {
+    self->has_root = 0;
+  }
   fd_hash_destroy(&self->hash, ctx);
   if( NULL != self->timestamp ) {
     fd_valloc_free( ctx->valloc, self->timestamp );
@@ -8000,7 +8110,11 @@ void fd_vote_state_update_walk(void * w, fd_vote_state_update_t const * self, fd
   fun( w, self->lockouts, "lockouts", FD_FLAMENCO_TYPE_ARR_END, "lockouts", level-- );
   /* Done walking deque */
 
-  fd_option_slot_walk(w, &self->root, fun, "root", level);
+  if( !self->has_root ) {
+    fun( w, NULL, "root", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
   fd_hash_walk(w, &self->hash, fun, "hash", level);
   if( !self->timestamp ) {
     fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "ulong", level );
@@ -8020,7 +8134,10 @@ ulong fd_vote_state_update_size(fd_vote_state_update_t const * self) {
   } else {
     size += sizeof(ulong);
   }
-  size += fd_option_slot_size(&self->root);
+  size += sizeof(char);
+  if( self->has_root ) {
+    size += sizeof(ulong);
+  }
   size += fd_hash_size(&self->hash);
   size += sizeof(char);
   if( NULL !=  self->timestamp ) {
@@ -8033,29 +8150,33 @@ int fd_vote_state_update_encode(fd_vote_state_update_t const * self, fd_bincode_
   int err;
   if ( self->lockouts ) {
     ulong lockouts_len = deq_fd_vote_lockout_t_cnt(self->lockouts);
-    err = fd_bincode_uint64_encode(&lockouts_len, ctx);
+    err = fd_bincode_uint64_encode(lockouts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( self->lockouts ); !deq_fd_vote_lockout_t_iter_done( self->lockouts, iter ); iter = deq_fd_vote_lockout_t_iter_next( self->lockouts, iter ) ) {
-      fd_vote_lockout_t * ele = deq_fd_vote_lockout_t_iter_ele( self->lockouts, iter );
+      fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( self->lockouts, iter );
       err = fd_vote_lockout_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong lockouts_len = 0;
-    err = fd_bincode_uint64_encode(&lockouts_len, ctx);
+    err = fd_bincode_uint64_encode(lockouts_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_option_slot_encode(&self->root, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_root, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root ) {
+    err = fd_bincode_uint64_encode( self->root, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->timestamp != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->timestamp, ctx );
+    err = fd_bincode_uint64_encode( self->timestamp[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -8087,7 +8208,7 @@ int fd_compact_vote_state_update_decode_preflight(fd_bincode_decode_ctx_t * ctx)
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -8110,7 +8231,7 @@ void fd_compact_vote_state_update_decode_unsafe(fd_compact_vote_state_update_t* 
   fd_hash_decode_unsafe(&self->hash, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->timestamp, ctx );
@@ -8140,7 +8261,7 @@ int fd_compact_vote_state_update_decode_offsets(fd_compact_vote_state_update_off
   self->timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -8206,7 +8327,7 @@ ulong fd_compact_vote_state_update_size(fd_compact_vote_state_update_t const * s
 
 int fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->root, ctx);
+  err = fd_bincode_uint64_encode(self->root, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_compact_u16_encode(&self->lockouts_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -8219,12 +8340,12 @@ int fd_compact_vote_state_update_encode(fd_compact_vote_state_update_t const * s
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->timestamp != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->timestamp, ctx );
+    err = fd_bincode_uint64_encode( self->timestamp[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -8378,11 +8499,11 @@ ulong fd_slot_history_inner_size(fd_slot_history_inner_t const * self) {
 
 int fd_slot_history_inner_encode(fd_slot_history_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->blocks_len, ctx);
+  err = fd_bincode_uint64_encode(self->blocks_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->blocks_len != 0) {
     for (ulong i = 0; i < self->blocks_len; ++i) {
-      err = fd_bincode_uint64_encode(self->blocks + i, ctx);
+      err = fd_bincode_uint64_encode(self->blocks[i], ctx);
     }
   }
   return FD_BINCODE_SUCCESS;
@@ -8401,7 +8522,7 @@ int fd_slot_history_bitvec_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_slot_history_inner_decode_preflight( ctx );
@@ -8415,7 +8536,7 @@ int fd_slot_history_bitvec_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_slot_history_bitvec_decode_unsafe(fd_slot_history_bitvec_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->bits = (fd_slot_history_inner_t*)fd_valloc_malloc( ctx->valloc, FD_SLOT_HISTORY_INNER_ALIGN, FD_SLOT_HISTORY_INNER_FOOTPRINT );
       fd_slot_history_inner_new( self->bits );
@@ -8431,7 +8552,7 @@ int fd_slot_history_bitvec_decode_offsets(fd_slot_history_bitvec_off_t* self, fd
   self->bits_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_slot_history_inner_decode_preflight( ctx );
@@ -8480,15 +8601,15 @@ ulong fd_slot_history_bitvec_size(fd_slot_history_bitvec_t const * self) {
 int fd_slot_history_bitvec_encode(fd_slot_history_bitvec_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if( self->bits != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_slot_history_inner_encode( self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->len, ctx);
+  err = fd_bincode_uint64_encode(self->len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -8553,7 +8674,7 @@ int fd_slot_history_encode(fd_slot_history_t const * self, fd_bincode_encode_ctx
   int err;
   err = fd_slot_history_bitvec_encode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->next_slot, ctx);
+  err = fd_bincode_uint64_encode(self->next_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -8616,7 +8737,7 @@ ulong fd_slot_hash_size(fd_slot_hash_t const * self) {
 
 int fd_slot_hash_encode(fd_slot_hash_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -8721,16 +8842,16 @@ int fd_slot_hashes_encode(fd_slot_hashes_t const * self, fd_bincode_encode_ctx_t
   int err;
   if ( self->hashes ) {
     ulong hashes_len = deq_fd_slot_hash_t_cnt(self->hashes);
-    err = fd_bincode_uint64_encode(&hashes_len, ctx);
+    err = fd_bincode_uint64_encode(hashes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( self->hashes ); !deq_fd_slot_hash_t_iter_done( self->hashes, iter ); iter = deq_fd_slot_hash_t_iter_next( self->hashes, iter ) ) {
-      fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( self->hashes, iter );
+      fd_slot_hash_t const * ele = deq_fd_slot_hash_t_iter_ele_const( self->hashes, iter );
       err = fd_slot_hash_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong hashes_len = 0;
-    err = fd_bincode_uint64_encode(&hashes_len, ctx);
+    err = fd_bincode_uint64_encode(hashes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -8901,16 +9022,16 @@ int fd_recent_block_hashes_encode(fd_recent_block_hashes_t const * self, fd_binc
   int err;
   if ( self->hashes ) {
     ulong hashes_len = deq_fd_block_block_hash_entry_t_cnt(self->hashes);
-    err = fd_bincode_uint64_encode(&hashes_len, ctx);
+    err = fd_bincode_uint64_encode(hashes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_fd_block_block_hash_entry_t_iter_t iter = deq_fd_block_block_hash_entry_t_iter_init( self->hashes ); !deq_fd_block_block_hash_entry_t_iter_done( self->hashes, iter ); iter = deq_fd_block_block_hash_entry_t_iter_next( self->hashes, iter ) ) {
-      fd_block_block_hash_entry_t * ele = deq_fd_block_block_hash_entry_t_iter_ele( self->hashes, iter );
+      fd_block_block_hash_entry_t const * ele = deq_fd_block_block_hash_entry_t_iter_ele_const( self->hashes, iter );
       err = fd_block_block_hash_entry_encode(ele, ctx);
       if ( FD_UNLIKELY(err) ) return err;
     }
   } else {
     ulong hashes_len = 0;
-    err = fd_bincode_uint64_encode(&hashes_len, ctx);
+    err = fd_bincode_uint64_encode(hashes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -9094,32 +9215,32 @@ ulong fd_slot_meta_size(fd_slot_meta_t const * self) {
 
 int fd_slot_meta_encode(fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->consumed, ctx);
+  err = fd_bincode_uint64_encode(self->consumed, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->received, ctx);
+  err = fd_bincode_uint64_encode(self->received, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->first_shred_timestamp, ctx);
+  err = fd_bincode_uint64_encode(self->first_shred_timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->last_index, ctx);
+  err = fd_bincode_uint64_encode(self->last_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->parent_slot, ctx);
+  err = fd_bincode_uint64_encode(self->parent_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->next_slot_len, ctx);
+  err = fd_bincode_uint64_encode(self->next_slot_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->next_slot_len != 0) {
     for (ulong i = 0; i < self->next_slot_len; ++i) {
-      err = fd_bincode_uint64_encode(self->next_slot + i, ctx);
+      err = fd_bincode_uint64_encode(self->next_slot[i], ctx);
     }
   }
-  err = fd_bincode_uint8_encode(&self->is_connected, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->is_connected), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->entry_end_indexes_len, ctx);
+  err = fd_bincode_uint64_encode(self->entry_end_indexes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->entry_end_indexes_len != 0) {
     for (ulong i = 0; i < self->entry_end_indexes_len; ++i) {
-      err = fd_bincode_uint32_encode(self->entry_end_indexes + i, ctx);
+      err = fd_bincode_uint32_encode(self->entry_end_indexes[i], ctx);
     }
   }
   return FD_BINCODE_SUCCESS;
@@ -9193,9 +9314,9 @@ int fd_clock_timestamp_vote_encode(fd_clock_timestamp_vote_t const * self, fd_bi
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode((ulong *) &self->timestamp, ctx);
+  err = fd_bincode_uint64_encode( (ulong)self->timestamp, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -9286,7 +9407,7 @@ int fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t const * self, fd_
   int err;
   if (self->votes_root) {
     ulong votes_len = fd_clock_timestamp_vote_t_map_size(self->votes_pool, self->votes_root);
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( fd_clock_timestamp_vote_t_mapnode_t* n = fd_clock_timestamp_vote_t_map_minimum(self->votes_pool, self->votes_root); n; n = fd_clock_timestamp_vote_t_map_successor(self->votes_pool, n) ) {
       err = fd_clock_timestamp_vote_encode(&n->elem, ctx);
@@ -9294,7 +9415,7 @@ int fd_clock_timestamp_votes_encode(fd_clock_timestamp_votes_t const * self, fd_
     }
   } else {
     ulong votes_len = 0;
-    err = fd_bincode_uint64_encode(&votes_len, ctx);
+    err = fd_bincode_uint64_encode(votes_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -9423,13 +9544,13 @@ int fd_config_keys_pair_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_config_keys_pair_decode_unsafe(fd_config_keys_pair_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_pubkey_decode_unsafe(&self->key, ctx);
-  fd_bincode_uint8_decode_unsafe(&self->signer, ctx);
+  fd_bincode_bool_decode_unsafe(&self->signer, ctx);
 }
 int fd_config_keys_pair_decode_offsets(fd_config_keys_pair_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -9438,7 +9559,7 @@ int fd_config_keys_pair_decode_offsets(fd_config_keys_pair_off_t* self, fd_binco
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->signer_off = (uint)((ulong)ctx->data - (ulong)data);
-  err = fd_bincode_uint8_decode_preflight(ctx);
+  err = fd_bincode_bool_decode_preflight(ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -9456,7 +9577,7 @@ ulong fd_config_keys_pair_align( void ){ return FD_CONFIG_KEYS_PAIR_ALIGN; }
 void fd_config_keys_pair_walk(void * w, fd_config_keys_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_config_keys_pair", level++);
   fd_pubkey_walk(w, &self->key, fun, "key", level);
-  fun( w, &self->signer, "signer", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );
+  fun( w, &self->signer, "signer", FD_FLAMENCO_TYPE_BOOL,    "bool",      level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_config_keys_pair", level--);
 }
 ulong fd_config_keys_pair_size(fd_config_keys_pair_t const * self) {
@@ -9470,7 +9591,7 @@ int fd_config_keys_pair_encode(fd_config_keys_pair_t const * self, fd_bincode_en
   int err;
   err = fd_pubkey_encode(&self->key, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->signer, ctx);
+  err = fd_bincode_bool_encode( (uchar)(self->signer), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -9585,9 +9706,9 @@ int fd_stake_config_encode(fd_stake_config_t const * self, fd_bincode_encode_ctx
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_double_encode(&self->warmup_cooldown_rate, ctx);
+  err = fd_bincode_double_encode( self->warmup_cooldown_rate, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->slash_penalty, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->slash_penalty), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -9675,11 +9796,11 @@ int fd_feature_entry_encode(fd_feature_entry_t const * self, fd_bincode_encode_c
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   ulong slen = strlen( (char *) self->description );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_bytes_encode((uchar *) self->description, slen, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->since_slot, ctx);
+  err = fd_bincode_uint64_encode(self->since_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -9944,9 +10065,9 @@ int fd_firedancer_bank_encode(fd_firedancer_bank_t const * self, fd_bincode_enco
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_clock_timestamp_votes_encode(&self->timestamp_votes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->prev_slot, ctx);
+  err = fd_bincode_uint64_encode(self->prev_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -9954,23 +10075,23 @@ int fd_firedancer_bank_encode(fd_firedancer_bank_t const * self, fd_bincode_enco
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->capitalization, ctx);
+  err = fd_bincode_uint64_encode(self->capitalization, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->block_height, ctx);
+  err = fd_bincode_uint64_encode(self->block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->hashes_per_tick, ctx);
+  err = fd_bincode_uint64_encode(self->hashes_per_tick, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->ticks_per_slot, ctx);
+  err = fd_bincode_uint64_encode(self->ticks_per_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint128_encode(&self->ns_per_slot, ctx);
+  err = fd_bincode_uint128_encode( self->ns_per_slot, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->genesis_creation_time, ctx);
+  err = fd_bincode_uint64_encode(self->genesis_creation_time, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->slots_per_year, ctx);
+  err = fd_bincode_double_encode( self->slots_per_year, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->max_tick_height, ctx);
+  err = fd_bincode_uint64_encode(self->max_tick_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_inflation_encode(&self->inflation, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -9978,9 +10099,9 @@ int fd_firedancer_bank_encode(fd_firedancer_bank_t const * self, fd_bincode_enco
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected_fees, ctx);
+  err = fd_bincode_uint64_encode(self->collected_fees, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected_rent, ctx);
+  err = fd_bincode_uint64_encode(self->collected_rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_accounts_encode(&self->epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10171,17 +10292,17 @@ int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t *
   int err;
   err = fd_stakes_encode(&self->stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->hashes_per_tick, ctx);
+  err = fd_bincode_uint64_encode(self->hashes_per_tick, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->ticks_per_slot, ctx);
+  err = fd_bincode_uint64_encode(self->ticks_per_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint128_encode(&self->ns_per_slot, ctx);
+  err = fd_bincode_uint128_encode( self->ns_per_slot, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->genesis_creation_time, ctx);
+  err = fd_bincode_uint64_encode(self->genesis_creation_time, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->slots_per_year, ctx);
+  err = fd_bincode_double_encode( self->slots_per_year, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->max_tick_height, ctx);
+  err = fd_bincode_uint64_encode(self->max_tick_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_inflation_encode(&self->inflation, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10189,15 +10310,15 @@ int fd_epoch_bank_encode(fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t *
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_rent_encode(&self->rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->eah_start_slot, ctx);
+  err = fd_bincode_uint64_encode(self->eah_start_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->eah_stop_slot, ctx);
+  err = fd_bincode_uint64_encode(self->eah_stop_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->eah_interval, ctx);
+  err = fd_bincode_uint64_encode(self->eah_interval, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->genesis_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->cluster_type, ctx);
+  err = fd_bincode_uint32_encode( self->cluster_type, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_accounts_encode(&self->next_epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10428,9 +10549,9 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_clock_timestamp_votes_encode(&self->timestamp_votes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->prev_slot, ctx);
+  err = fd_bincode_uint64_encode(self->prev_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_hash_encode(&self->poh, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10440,15 +10561,15 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_fee_rate_governor_encode(&self->fee_rate_governor, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->capitalization, ctx);
+  err = fd_bincode_uint64_encode(self->capitalization, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->block_height, ctx);
+  err = fd_bincode_uint64_encode(self->block_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->max_tick_height, ctx);
+  err = fd_bincode_uint64_encode(self->max_tick_height, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected_fees, ctx);
+  err = fd_bincode_uint64_encode(self->collected_fees, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->collected_rent, ctx);
+  err = fd_bincode_uint64_encode(self->collected_rent, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_accounts_encode(&self->epoch_stakes, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -10458,11 +10579,11 @@ int fd_slot_bank_encode(fd_slot_bank_t const * self, fd_bincode_encode_ctx_t * c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_vote_accounts_encode(&self->vote_account_keys, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lamports_per_signature, ctx);
+  err = fd_bincode_uint64_encode(self->lamports_per_signature, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->transaction_count, ctx);
+  err = fd_bincode_uint64_encode(self->transaction_count, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode(&self->lthash[0], sizeof(self->lthash), ctx);
+  err = fd_bincode_bytes_encode( self->lthash, sizeof(self->lthash ), ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -10539,13 +10660,13 @@ ulong fd_prev_epoch_inflation_rewards_size(fd_prev_epoch_inflation_rewards_t con
 
 int fd_prev_epoch_inflation_rewards_encode(fd_prev_epoch_inflation_rewards_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->validator_rewards, ctx);
+  err = fd_bincode_uint64_encode(self->validator_rewards, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->prev_epoch_duration_in_years, ctx);
+  err = fd_bincode_double_encode( self->prev_epoch_duration_in_years, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->validator_rate, ctx);
+  err = fd_bincode_double_encode( self->validator_rate, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_double_encode(&self->foundation_rate, ctx);
+  err = fd_bincode_double_encode( self->foundation_rate, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -10573,7 +10694,7 @@ int fd_vote_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -10593,7 +10714,7 @@ void fd_vote_decode_unsafe(fd_vote_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_hash_decode_unsafe(&self->hash, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->timestamp, ctx );
@@ -10619,7 +10740,7 @@ int fd_vote_decode_offsets(fd_vote_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   self->timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -10692,26 +10813,26 @@ int fd_vote_encode(fd_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if ( self->slots ) {
     ulong slots_len = deq_ulong_cnt(self->slots);
-    err = fd_bincode_uint64_encode(&slots_len, ctx);
+    err = fd_bincode_uint64_encode(slots_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     for ( deq_ulong_iter_t iter = deq_ulong_iter_init( self->slots ); !deq_ulong_iter_done( self->slots, iter ); iter = deq_ulong_iter_next( self->slots, iter ) ) {
-      ulong * ele = deq_ulong_iter_ele( self->slots, iter );
-      err = fd_bincode_uint64_encode(ele, ctx);
+      ulong const * ele = deq_ulong_iter_ele_const( self->slots, iter );
+      err = fd_bincode_uint64_encode( ele[0], ctx );
     }
   } else {
     ulong slots_len = 0;
-    err = fd_bincode_uint64_encode(&slots_len, ctx);
+    err = fd_bincode_uint64_encode(slots_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
   err = fd_hash_encode(&self->hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->timestamp != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->timestamp, ctx );
+    err = fd_bincode_uint64_encode( self->timestamp[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -10801,7 +10922,7 @@ int fd_vote_init_encode(fd_vote_init_t const * self, fd_bincode_encode_ctx_t * c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->authorized_withdrawer, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->commission, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->commission), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -10904,7 +11025,7 @@ int fd_vote_authorize_inner_encode(fd_vote_authorize_inner_t const * self, uint 
 }
 int fd_vote_authorize_encode(fd_vote_authorize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_authorize_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -11125,11 +11246,13 @@ int fd_vote_authorize_with_seed_args_decode_preflight(fd_bincode_decode_ctx_t * 
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong current_authority_derived_key_seed_len;
+  err = fd_bincode_uint64_decode(&current_authority_derived_key_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(current_authority_derived_key_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -11137,11 +11260,12 @@ int fd_vote_authorize_with_seed_args_decode_preflight(fd_bincode_decode_ctx_t * 
 void fd_vote_authorize_with_seed_args_decode_unsafe(fd_vote_authorize_with_seed_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_vote_authorize_decode_unsafe(&self->authorization_type, ctx);
   fd_pubkey_decode_unsafe(&self->current_authority_derived_key_owner, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->current_authority_derived_key_seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->current_authority_derived_key_seed, slen, ctx );
-  self->current_authority_derived_key_seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->current_authority_derived_key_seed_len, ctx);
+  if (self->current_authority_derived_key_seed_len != 0) {
+    self->current_authority_derived_key_seed = fd_valloc_malloc( ctx->valloc, 8UL, self->current_authority_derived_key_seed_len );
+    fd_bincode_bytes_decode_unsafe(self->current_authority_derived_key_seed, self->current_authority_derived_key_seed_len, ctx);
+  } else
+    self->current_authority_derived_key_seed = NULL;
   fd_pubkey_decode_unsafe(&self->new_authority, ctx);
 }
 int fd_vote_authorize_with_seed_args_decode_offsets(fd_vote_authorize_with_seed_args_off_t* self, fd_bincode_decode_ctx_t * ctx) {
@@ -11154,11 +11278,13 @@ int fd_vote_authorize_with_seed_args_decode_offsets(fd_vote_authorize_with_seed_
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->current_authority_derived_key_seed_off = (uint)((ulong)ctx->data - (ulong)data);
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong current_authority_derived_key_seed_len;
+  err = fd_bincode_uint64_decode(&current_authority_derived_key_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(current_authority_derived_key_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   self->new_authority_off = (uint)((ulong)ctx->data - (ulong)data);
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -11174,7 +11300,7 @@ void fd_vote_authorize_with_seed_args_destroy(fd_vote_authorize_with_seed_args_t
   fd_vote_authorize_destroy(&self->authorization_type, ctx);
   fd_pubkey_destroy(&self->current_authority_derived_key_owner, ctx);
   if (NULL != self->current_authority_derived_key_seed) {
-    fd_valloc_free( ctx->valloc, self->current_authority_derived_key_seed);
+    fd_valloc_free( ctx->valloc, self->current_authority_derived_key_seed );
     self->current_authority_derived_key_seed = NULL;
   }
   fd_pubkey_destroy(&self->new_authority, ctx);
@@ -11187,7 +11313,7 @@ void fd_vote_authorize_with_seed_args_walk(void * w, fd_vote_authorize_with_seed
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize_with_seed_args", level++);
   fd_vote_authorize_walk(w, &self->authorization_type, fun, "authorization_type", level);
   fd_pubkey_walk(w, &self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level);
-  fun( w,  self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fd_pubkey_walk(w, &self->new_authority, fun, "new_authority", level);
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize_with_seed_args", level--);
 }
@@ -11195,7 +11321,10 @@ ulong fd_vote_authorize_with_seed_args_size(fd_vote_authorize_with_seed_args_t c
   ulong size = 0;
   size += fd_vote_authorize_size(&self->authorization_type);
   size += fd_pubkey_size(&self->current_authority_derived_key_owner);
-  size += sizeof(ulong) + strlen(self->current_authority_derived_key_seed);
+  do {
+    size += sizeof(ulong);
+    size += self->current_authority_derived_key_seed_len;
+  } while(0);
   size += fd_pubkey_size(&self->new_authority);
   return size;
 }
@@ -11206,11 +11335,12 @@ int fd_vote_authorize_with_seed_args_encode(fd_vote_authorize_with_seed_args_t c
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->current_authority_derived_key_owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->current_authority_derived_key_seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(self->current_authority_derived_key_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->current_authority_derived_key_seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->current_authority_derived_key_seed, self->current_authority_derived_key_seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   err = fd_pubkey_encode(&self->new_authority, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
@@ -11231,21 +11361,24 @@ int fd_vote_authorize_checked_with_seed_args_decode_preflight(fd_bincode_decode_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong current_authority_derived_key_seed_len;
+  err = fd_bincode_uint64_decode(&current_authority_derived_key_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(current_authority_derived_key_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_authorize_checked_with_seed_args_decode_unsafe(fd_vote_authorize_checked_with_seed_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   fd_vote_authorize_decode_unsafe(&self->authorization_type, ctx);
   fd_pubkey_decode_unsafe(&self->current_authority_derived_key_owner, ctx);
-  ulong slen;
-  fd_bincode_uint64_decode_unsafe( &slen, ctx );
-  self->current_authority_derived_key_seed = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );
-  fd_bincode_bytes_decode_unsafe( (uchar *)self->current_authority_derived_key_seed, slen, ctx );
-  self->current_authority_derived_key_seed[slen] = '\0';
+  fd_bincode_uint64_decode_unsafe(&self->current_authority_derived_key_seed_len, ctx);
+  if (self->current_authority_derived_key_seed_len != 0) {
+    self->current_authority_derived_key_seed = fd_valloc_malloc( ctx->valloc, 8UL, self->current_authority_derived_key_seed_len );
+    fd_bincode_bytes_decode_unsafe(self->current_authority_derived_key_seed, self->current_authority_derived_key_seed_len, ctx);
+  } else
+    self->current_authority_derived_key_seed = NULL;
 }
 int fd_vote_authorize_checked_with_seed_args_decode_offsets(fd_vote_authorize_checked_with_seed_args_off_t* self, fd_bincode_decode_ctx_t * ctx) {
   uchar const * data = ctx->data;
@@ -11257,11 +11390,13 @@ int fd_vote_authorize_checked_with_seed_args_decode_offsets(fd_vote_authorize_ch
   err = fd_bincode_bytes_decode_preflight(32, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   self->current_authority_derived_key_seed_off = (uint)((ulong)ctx->data - (ulong)data);
-  ulong slen;
-  err = fd_bincode_uint64_decode( &slen, ctx );
+  ulong current_authority_derived_key_seed_len;
+  err = fd_bincode_uint64_decode(&current_authority_derived_key_seed_len, ctx);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bytes_decode_preflight( slen, ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if (current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_decode_preflight(current_authority_derived_key_seed_len, ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_authorize_checked_with_seed_args_new(fd_vote_authorize_checked_with_seed_args_t* self) {
@@ -11273,7 +11408,7 @@ void fd_vote_authorize_checked_with_seed_args_destroy(fd_vote_authorize_checked_
   fd_vote_authorize_destroy(&self->authorization_type, ctx);
   fd_pubkey_destroy(&self->current_authority_derived_key_owner, ctx);
   if (NULL != self->current_authority_derived_key_seed) {
-    fd_valloc_free( ctx->valloc, self->current_authority_derived_key_seed);
+    fd_valloc_free( ctx->valloc, self->current_authority_derived_key_seed );
     self->current_authority_derived_key_seed = NULL;
   }
 }
@@ -11285,14 +11420,17 @@ void fd_vote_authorize_checked_with_seed_args_walk(void * w, fd_vote_authorize_c
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_authorize_checked_with_seed_args", level++);
   fd_vote_authorize_walk(w, &self->authorization_type, fun, "authorization_type", level);
   fd_pubkey_walk(w, &self->current_authority_derived_key_owner, fun, "current_authority_derived_key_owner", level);
-  fun( w,  self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_CSTR,    "char*",     level );
+  fun(w, self->current_authority_derived_key_seed, "current_authority_derived_key_seed", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_authorize_checked_with_seed_args", level--);
 }
 ulong fd_vote_authorize_checked_with_seed_args_size(fd_vote_authorize_checked_with_seed_args_t const * self) {
   ulong size = 0;
   size += fd_vote_authorize_size(&self->authorization_type);
   size += fd_pubkey_size(&self->current_authority_derived_key_owner);
-  size += sizeof(ulong) + strlen(self->current_authority_derived_key_seed);
+  do {
+    size += sizeof(ulong);
+    size += self->current_authority_derived_key_seed_len;
+  } while(0);
   return size;
 }
 
@@ -11302,11 +11440,12 @@ int fd_vote_authorize_checked_with_seed_args_encode(fd_vote_authorize_checked_wi
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->current_authority_derived_key_owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  ulong slen = strlen( (char *) self->current_authority_derived_key_seed );
-  err = fd_bincode_uint64_encode(&slen, ctx);
+  err = fd_bincode_uint64_encode(self->current_authority_derived_key_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_bytes_encode((uchar *) self->current_authority_derived_key_seed, slen, ctx);
-  if ( FD_UNLIKELY(err) ) return err;
+  if (self->current_authority_derived_key_seed_len != 0) {
+    err = fd_bincode_bytes_encode(self->current_authority_derived_key_seed, self->current_authority_derived_key_seed_len, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
   return FD_BINCODE_SUCCESS;
 }
 
@@ -11770,12 +11909,12 @@ int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t const * self, u
     break;
   }
   case 3: {
-    err = fd_bincode_uint64_encode(&self->withdraw, ctx);
+    err = fd_bincode_uint64_encode(self->withdraw, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 5: {
-    err = fd_bincode_uint8_encode(&self->update_commission, ctx);
+    err = fd_bincode_uint8_encode( (uchar)(self->update_commission), ctx );
   if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -11824,7 +11963,7 @@ int fd_vote_instruction_inner_encode(fd_vote_instruction_inner_t const * self, u
 }
 int fd_vote_instruction_encode(fd_vote_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_vote_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -11895,9 +12034,9 @@ ulong fd_system_program_instruction_create_account_size(fd_system_program_instru
 
 int fd_system_program_instruction_create_account_encode(fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  err = fd_bincode_uint64_encode(self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->space, ctx);
+  err = fd_bincode_uint64_encode(self->space, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -12012,15 +12151,15 @@ int fd_system_program_instruction_create_account_with_seed_encode(fd_system_prog
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->seed_len != 0) {
     err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  err = fd_bincode_uint64_encode(self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->space, ctx);
+  err = fd_bincode_uint64_encode(self->space, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -12127,13 +12266,13 @@ int fd_system_program_instruction_allocate_with_seed_encode(fd_system_program_in
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->seed_len != 0) {
     err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
     if ( FD_UNLIKELY(err) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->space, ctx);
+  err = fd_bincode_uint64_encode(self->space, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->owner, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -12232,7 +12371,7 @@ int fd_system_program_instruction_assign_with_seed_encode(fd_system_program_inst
   int err;
   err = fd_pubkey_encode(&self->base, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->seed_len != 0) {
     err = fd_bincode_bytes_encode(self->seed, self->seed_len, ctx);
@@ -12331,9 +12470,9 @@ ulong fd_system_program_instruction_transfer_with_seed_size(fd_system_program_in
 
 int fd_system_program_instruction_transfer_with_seed_encode(fd_system_program_instruction_transfer_with_seed_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->lamports, ctx);
+  err = fd_bincode_uint64_encode(self->lamports, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->from_seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->from_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->from_seed_len != 0) {
     err = fd_bincode_bytes_encode(self->from_seed, self->from_seed_len, ctx);
@@ -12753,7 +12892,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
     break;
   }
   case 2: {
-    err = fd_bincode_uint64_encode(&self->transfer, ctx);
+    err = fd_bincode_uint64_encode(self->transfer, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -12763,7 +12902,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
     break;
   }
   case 5: {
-    err = fd_bincode_uint64_encode(&self->withdraw_nonce_account, ctx);
+    err = fd_bincode_uint64_encode(self->withdraw_nonce_account, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -12778,7 +12917,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
     break;
   }
   case 8: {
-    err = fd_bincode_uint64_encode(&self->allocate, ctx);
+    err = fd_bincode_uint64_encode(self->allocate, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -12802,7 +12941,7 @@ int fd_system_program_instruction_inner_encode(fd_system_program_instruction_inn
 }
 int fd_system_program_instruction_encode(fd_system_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_system_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -12989,7 +13128,7 @@ int fd_system_error_inner_encode(fd_system_error_inner_t const * self, uint disc
 }
 int fd_system_error_encode(fd_system_error_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_system_error_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -13127,9 +13266,9 @@ ulong fd_stake_lockup_size(fd_stake_lockup_t const * self) {
 
 int fd_stake_lockup_encode(fd_stake_lockup_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode((ulong *) &self->unix_timestamp, ctx);
+  err = fd_bincode_uint64_encode( (ulong)self->unix_timestamp, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->epoch, ctx);
+  err = fd_bincode_uint64_encode(self->epoch, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->custodian, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -13220,7 +13359,7 @@ int fd_stake_lockup_custodian_args_decode_preflight(fd_bincode_decode_ctx_t * ct
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -13234,7 +13373,7 @@ void fd_stake_lockup_custodian_args_decode_unsafe(fd_stake_lockup_custodian_args
   fd_sol_sysvar_clock_decode_unsafe(&self->clock, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->custodian = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
       fd_pubkey_new( self->custodian );
@@ -13255,7 +13394,7 @@ int fd_stake_lockup_custodian_args_decode_offsets(fd_stake_lockup_custodian_args
   self->custodian_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -13311,12 +13450,12 @@ int fd_stake_lockup_custodian_args_encode(fd_stake_lockup_custodian_args_t const
   err = fd_sol_sysvar_clock_encode(&self->clock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->custodian != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_pubkey_encode( self->custodian, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -13420,7 +13559,7 @@ int fd_stake_authorize_inner_encode(fd_stake_authorize_inner_t const * self, uin
 }
 int fd_stake_authorize_encode(fd_stake_authorize_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_stake_authorize_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -13596,7 +13735,7 @@ int fd_authorize_with_seed_args_encode(fd_authorize_with_seed_args_t const * sel
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_stake_authorize_encode(&self->stake_authorize, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->authority_seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->authority_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->authority_seed_len != 0) {
     err = fd_bincode_bytes_encode(self->authority_seed, self->authority_seed_len, ctx);
@@ -13699,7 +13838,7 @@ int fd_authorize_checked_with_seed_args_encode(fd_authorize_checked_with_seed_ar
   int err;
   err = fd_stake_authorize_encode(&self->stake_authorize, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->authority_seed_len, ctx);
+  err = fd_bincode_uint64_encode(self->authority_seed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->authority_seed_len != 0) {
     err = fd_bincode_bytes_encode(self->authority_seed, self->authority_seed_len, ctx);
@@ -13723,7 +13862,7 @@ int fd_lockup_checked_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13732,7 +13871,7 @@ int fd_lockup_checked_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13744,7 +13883,7 @@ int fd_lockup_checked_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_lockup_checked_args_decode_unsafe(fd_lockup_checked_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->unix_timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->unix_timestamp, ctx );
@@ -13753,7 +13892,7 @@ void fd_lockup_checked_args_decode_unsafe(fd_lockup_checked_args_t* self, fd_bin
   }
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->epoch = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->epoch, ctx );
@@ -13767,7 +13906,7 @@ int fd_lockup_checked_args_decode_offsets(fd_lockup_checked_args_off_t* self, fd
   self->unix_timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13777,7 +13916,7 @@ int fd_lockup_checked_args_decode_offsets(fd_lockup_checked_args_off_t* self, fd
   self->epoch_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13833,21 +13972,21 @@ ulong fd_lockup_checked_args_size(fd_lockup_checked_args_t const * self) {
 int fd_lockup_checked_args_encode(fd_lockup_checked_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if( self->unix_timestamp != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->unix_timestamp, ctx );
+    err = fd_bincode_uint64_encode( self->unix_timestamp[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->epoch != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->epoch, ctx );
+    err = fd_bincode_uint64_encode( self->epoch[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -13866,7 +14005,7 @@ int fd_lockup_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13875,7 +14014,7 @@ int fd_lockup_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13884,7 +14023,7 @@ int fd_lockup_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   }
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -13896,7 +14035,7 @@ int fd_lockup_args_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_lockup_args_decode_unsafe(fd_lockup_args_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->unix_timestamp = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->unix_timestamp, ctx );
@@ -13905,7 +14044,7 @@ void fd_lockup_args_decode_unsafe(fd_lockup_args_t* self, fd_bincode_decode_ctx_
   }
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->epoch = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
       fd_bincode_uint64_decode_unsafe( self->epoch, ctx );
@@ -13914,7 +14053,7 @@ void fd_lockup_args_decode_unsafe(fd_lockup_args_t* self, fd_bincode_decode_ctx_
   }
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->custodian = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
       fd_pubkey_new( self->custodian );
@@ -13929,7 +14068,7 @@ int fd_lockup_args_decode_offsets(fd_lockup_args_off_t* self, fd_bincode_decode_
   self->unix_timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13939,7 +14078,7 @@ int fd_lockup_args_decode_offsets(fd_lockup_args_off_t* self, fd_bincode_decode_
   self->epoch_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint64_decode_preflight( ctx );
@@ -13949,7 +14088,7 @@ int fd_lockup_args_decode_offsets(fd_lockup_args_off_t* self, fd_bincode_decode_
   self->custodian_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -14019,30 +14158,30 @@ ulong fd_lockup_args_size(fd_lockup_args_t const * self) {
 int fd_lockup_args_encode(fd_lockup_args_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if( self->unix_timestamp != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->unix_timestamp, ctx );
+    err = fd_bincode_uint64_encode( self->unix_timestamp[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->epoch != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->epoch, ctx );
+    err = fd_bincode_uint64_encode( self->epoch[0], ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   if( self->custodian != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_pubkey_encode( self->custodian, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -14463,12 +14602,12 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t const * self,
     break;
   }
   case 3: {
-    err = fd_bincode_uint64_encode(&self->split, ctx);
+    err = fd_bincode_uint64_encode(self->split, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 4: {
-    err = fd_bincode_uint64_encode(&self->withdraw, ctx);
+    err = fd_bincode_uint64_encode(self->withdraw, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -14502,7 +14641,7 @@ int fd_stake_instruction_inner_encode(fd_stake_instruction_inner_t const * self,
 }
 int fd_stake_instruction_encode(fd_stake_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_stake_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -14575,7 +14714,7 @@ ulong fd_stake_meta_size(fd_stake_meta_t const * self) {
 
 int fd_stake_meta_encode(fd_stake_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->rent_exempt_reserve, ctx);
+  err = fd_bincode_uint64_encode(self->rent_exempt_reserve, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_stake_authorized_encode(&self->authorized, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -14644,7 +14783,7 @@ int fd_stake_encode(fd_stake_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   err = fd_delegation_encode(&self->delegation, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->credits_observed, ctx);
+  err = fd_bincode_uint64_encode(self->credits_observed, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -14697,7 +14836,7 @@ ulong fd_stake_flags_size(fd_stake_flags_t const * self) {
 
 int fd_stake_flags_encode(fd_stake_flags_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->bits, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->bits), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -15003,7 +15142,7 @@ int fd_stake_state_v2_inner_encode(fd_stake_state_v2_inner_t const * self, uint 
 }
 int fd_stake_state_v2_encode(fd_stake_state_v2_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_stake_state_v2_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -15209,7 +15348,7 @@ int fd_nonce_state_inner_encode(fd_nonce_state_inner_t const * self, uint discri
 }
 int fd_nonce_state_encode(fd_nonce_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_nonce_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -15357,7 +15496,7 @@ int fd_nonce_state_versions_inner_encode(fd_nonce_state_versions_inner_t const *
 }
 int fd_nonce_state_versions_encode(fd_nonce_state_versions_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_nonce_state_versions_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -15418,9 +15557,9 @@ ulong fd_compute_budget_program_instruction_request_units_deprecated_size(fd_com
 
 int fd_compute_budget_program_instruction_request_units_deprecated_encode(fd_compute_budget_program_instruction_request_units_deprecated_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->units, ctx);
+  err = fd_bincode_uint32_encode( self->units, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->additional_fee, ctx);
+  err = fd_bincode_uint32_encode( self->additional_fee, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -15637,22 +15776,22 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
     break;
   }
   case 1: {
-    err = fd_bincode_uint32_encode(&self->request_heap_frame, ctx);
+    err = fd_bincode_uint32_encode( self->request_heap_frame, ctx );
   if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 2: {
-    err = fd_bincode_uint32_encode(&self->set_compute_unit_limit, ctx);
+    err = fd_bincode_uint32_encode( self->set_compute_unit_limit, ctx );
   if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 3: {
-    err = fd_bincode_uint64_encode(&self->set_compute_unit_price, ctx);
+    err = fd_bincode_uint64_encode(self->set_compute_unit_price, ctx);
     if ( FD_UNLIKELY(err) ) return err;
     break;
   }
   case 4: {
-    err = fd_bincode_uint32_encode(&self->set_loaded_accounts_data_size_limit, ctx);
+    err = fd_bincode_uint32_encode( self->set_loaded_accounts_data_size_limit, ctx );
   if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -15661,7 +15800,7 @@ int fd_compute_budget_program_instruction_inner_encode(fd_compute_budget_program
 }
 int fd_compute_budget_program_instruction_encode(fd_compute_budget_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_compute_budget_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -15841,9 +15980,9 @@ ulong fd_bpf_loader_program_instruction_write_size(fd_bpf_loader_program_instruc
 
 int fd_bpf_loader_program_instruction_write_encode(fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->offset, ctx);
+  err = fd_bincode_uint32_encode( self->offset, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->bytes_len, ctx);
+  err = fd_bincode_uint64_encode(self->bytes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->bytes_len != 0) {
     err = fd_bincode_bytes_encode(self->bytes, self->bytes_len, ctx);
@@ -15974,7 +16113,7 @@ int fd_bpf_loader_program_instruction_inner_encode(fd_bpf_loader_program_instruc
 }
 int fd_bpf_loader_program_instruction_encode(fd_bpf_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_bpf_loader_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -16057,9 +16196,9 @@ ulong fd_bpf_loader_v4_program_instruction_write_size(fd_bpf_loader_v4_program_i
 
 int fd_bpf_loader_v4_program_instruction_write_encode(fd_bpf_loader_v4_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->offset, ctx);
+  err = fd_bincode_uint32_encode( self->offset, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->bytes_len, ctx);
+  err = fd_bincode_uint64_encode(self->bytes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->bytes_len != 0) {
     err = fd_bincode_bytes_encode(self->bytes, self->bytes_len, ctx);
@@ -16236,7 +16375,7 @@ int fd_bpf_loader_v4_program_instruction_inner_encode(fd_bpf_loader_v4_program_i
     break;
   }
   case 1: {
-    err = fd_bincode_uint32_encode(&self->truncate, ctx);
+    err = fd_bincode_uint32_encode( self->truncate, ctx );
   if ( FD_UNLIKELY(err) ) return err;
     break;
   }
@@ -16245,7 +16384,7 @@ int fd_bpf_loader_v4_program_instruction_inner_encode(fd_bpf_loader_v4_program_i
 }
 int fd_bpf_loader_v4_program_instruction_encode(fd_bpf_loader_v4_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_bpf_loader_v4_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -16328,9 +16467,9 @@ ulong fd_bpf_upgradeable_loader_program_instruction_write_size(fd_bpf_upgradeabl
 
 int fd_bpf_upgradeable_loader_program_instruction_write_encode(fd_bpf_upgradeable_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->offset, ctx);
+  err = fd_bincode_uint32_encode( self->offset, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->bytes_len, ctx);
+  err = fd_bincode_uint64_encode(self->bytes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->bytes_len != 0) {
     err = fd_bincode_bytes_encode(self->bytes, self->bytes_len, ctx);
@@ -16387,7 +16526,7 @@ ulong fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_siz
 
 int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_encode(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->max_data_len, ctx);
+  err = fd_bincode_uint64_encode(self->max_data_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -16440,7 +16579,7 @@ ulong fd_bpf_upgradeable_loader_program_instruction_extend_program_size(fd_bpf_u
 
 int fd_bpf_upgradeable_loader_program_instruction_extend_program_encode(fd_bpf_upgradeable_loader_program_instruction_extend_program_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->additional_bytes, ctx);
+  err = fd_bincode_uint32_encode( self->additional_bytes, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -16681,7 +16820,7 @@ int fd_bpf_upgradeable_loader_program_instruction_inner_encode(fd_bpf_upgradeabl
 }
 int fd_bpf_upgradeable_loader_program_instruction_encode(fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_bpf_upgradeable_loader_program_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -16699,7 +16838,7 @@ int fd_bpf_upgradeable_loader_state_buffer_decode_preflight(fd_bincode_decode_ct
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -16711,7 +16850,7 @@ int fd_bpf_upgradeable_loader_state_buffer_decode_preflight(fd_bincode_decode_ct
 void fd_bpf_upgradeable_loader_state_buffer_decode_unsafe(fd_bpf_upgradeable_loader_state_buffer_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->authority_address = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
       fd_pubkey_new( self->authority_address );
@@ -16726,7 +16865,7 @@ int fd_bpf_upgradeable_loader_state_buffer_decode_offsets(fd_bpf_upgradeable_loa
   self->authority_address_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -16770,12 +16909,12 @@ ulong fd_bpf_upgradeable_loader_state_buffer_size(fd_bpf_upgradeable_loader_stat
 int fd_bpf_upgradeable_loader_state_buffer_encode(fd_bpf_upgradeable_loader_state_buffer_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
   if( self->authority_address != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_pubkey_encode( self->authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -16851,7 +16990,7 @@ int fd_bpf_upgradeable_loader_state_program_data_decode_preflight(fd_bincode_dec
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -16864,7 +17003,7 @@ void fd_bpf_upgradeable_loader_state_program_data_decode_unsafe(fd_bpf_upgradeab
   fd_bincode_uint64_decode_unsafe(&self->slot, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     if( o ) {
       self->upgrade_authority_address = (fd_pubkey_t*)fd_valloc_malloc( ctx->valloc, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT );
       fd_pubkey_new( self->upgrade_authority_address );
@@ -16882,7 +17021,7 @@ int fd_bpf_upgradeable_loader_state_program_data_decode_offsets(fd_bpf_upgradeab
   self->upgrade_authority_address_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -16927,15 +17066,15 @@ ulong fd_bpf_upgradeable_loader_state_program_data_size(fd_bpf_upgradeable_loade
 
 int fd_bpf_upgradeable_loader_state_program_data_encode(fd_bpf_upgradeable_loader_state_program_data_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if( self->upgrade_authority_address != NULL ) {
-    err = fd_bincode_option_encode( 1, ctx );
+    err = fd_bincode_bool_encode( 1, ctx );
     if( FD_UNLIKELY( err ) ) return err;
     err = fd_pubkey_encode( self->upgrade_authority_address, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   } else {
-    err = fd_bincode_option_encode( 0, ctx );
+    err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -17129,7 +17268,7 @@ int fd_bpf_upgradeable_loader_state_inner_encode(fd_bpf_upgradeable_loader_state
 }
 int fd_bpf_upgradeable_loader_state_encode(fd_bpf_upgradeable_loader_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_bpf_upgradeable_loader_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -17194,7 +17333,7 @@ int fd_frozen_hash_status_encode(fd_frozen_hash_status_t const * self, fd_bincod
   int err;
   err = fd_hash_encode(&self->frozen_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->frozen_status, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->frozen_status), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -17309,7 +17448,7 @@ int fd_frozen_hash_versioned_inner_encode(fd_frozen_hash_versioned_inner_t const
 }
 int fd_frozen_hash_versioned_encode(fd_frozen_hash_versioned_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_frozen_hash_versioned_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -17333,7 +17472,7 @@ int fd_lookup_table_meta_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if ( FD_UNLIKELY(err) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -17350,7 +17489,7 @@ void fd_lookup_table_meta_decode_unsafe(fd_lookup_table_meta_t* self, fd_bincode
   fd_bincode_uint8_decode_unsafe(&self->last_extended_slot_start_index, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_authority = !!o;
     if( o ) {
       fd_pubkey_new( &self->authority );
@@ -17374,7 +17513,7 @@ int fd_lookup_table_meta_decode_offsets(fd_lookup_table_meta_off_t* self, fd_bin
   self->authority_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_pubkey_decode_preflight( ctx );
@@ -17427,19 +17566,19 @@ ulong fd_lookup_table_meta_size(fd_lookup_table_meta_t const * self) {
 
 int fd_lookup_table_meta_encode(fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->deactivation_slot, ctx);
+  err = fd_bincode_uint64_encode(self->deactivation_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->last_extended_slot, ctx);
+  err = fd_bincode_uint64_encode(self->last_extended_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->last_extended_slot_start_index, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->last_extended_slot_start_index), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_option_encode( self->has_authority, ctx );
+  err = fd_bincode_bool_encode( self->has_authority, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_authority ) {
     err = fd_pubkey_encode( &self->authority, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint16_encode(&self->_padding, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->_padding), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -17621,7 +17760,7 @@ int fd_address_lookup_table_state_inner_encode(fd_address_lookup_table_state_inn
 }
 int fd_address_lookup_table_state_encode(fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_address_lookup_table_state_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -17696,7 +17835,7 @@ ulong fd_gossip_bitvec_u8_inner_size(fd_gossip_bitvec_u8_inner_t const * self) {
 
 int fd_gossip_bitvec_u8_inner_encode(fd_gossip_bitvec_u8_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
+  err = fd_bincode_uint64_encode(self->vec_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->vec_len != 0) {
     err = fd_bincode_bytes_encode(self->vec, self->vec_len, ctx);
@@ -17718,7 +17857,7 @@ int fd_gossip_bitvec_u8_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_gossip_bitvec_u8_inner_decode_preflight( ctx );
@@ -17732,7 +17871,7 @@ int fd_gossip_bitvec_u8_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_gossip_bitvec_u8_decode_unsafe(fd_gossip_bitvec_u8_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_bits = !!o;
     if( o ) {
       fd_gossip_bitvec_u8_inner_new( &self->bits );
@@ -17747,7 +17886,7 @@ int fd_gossip_bitvec_u8_decode_offsets(fd_gossip_bitvec_u8_off_t* self, fd_binco
   self->bits_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_gossip_bitvec_u8_inner_decode_preflight( ctx );
@@ -17794,13 +17933,13 @@ ulong fd_gossip_bitvec_u8_size(fd_gossip_bitvec_u8_t const * self) {
 
 int fd_gossip_bitvec_u8_encode(fd_gossip_bitvec_u8_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_option_encode( self->has_bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_bits ) {
     err = fd_gossip_bitvec_u8_inner_encode( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->len, ctx);
+  err = fd_bincode_uint64_encode(self->len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -17886,11 +18025,11 @@ ulong fd_gossip_bitvec_u64_inner_size(fd_gossip_bitvec_u64_inner_t const * self)
 
 int fd_gossip_bitvec_u64_inner_encode(fd_gossip_bitvec_u64_inner_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->vec_len, ctx);
+  err = fd_bincode_uint64_encode(self->vec_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->vec_len != 0) {
     for (ulong i = 0; i < self->vec_len; ++i) {
-      err = fd_bincode_uint64_encode(self->vec + i, ctx);
+      err = fd_bincode_uint64_encode(self->vec[i], ctx);
     }
   }
   return FD_BINCODE_SUCCESS;
@@ -17909,7 +18048,7 @@ int fd_gossip_bitvec_u64_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   int err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_gossip_bitvec_u64_inner_decode_preflight( ctx );
@@ -17923,7 +18062,7 @@ int fd_gossip_bitvec_u64_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
 void fd_gossip_bitvec_u64_decode_unsafe(fd_gossip_bitvec_u64_t* self, fd_bincode_decode_ctx_t * ctx) {
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_bits = !!o;
     if( o ) {
       fd_gossip_bitvec_u64_inner_new( &self->bits );
@@ -17938,7 +18077,7 @@ int fd_gossip_bitvec_u64_decode_offsets(fd_gossip_bitvec_u64_off_t* self, fd_bin
   self->bits_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_gossip_bitvec_u64_inner_decode_preflight( ctx );
@@ -17985,13 +18124,13 @@ ulong fd_gossip_bitvec_u64_size(fd_gossip_bitvec_u64_t const * self) {
 
 int fd_gossip_bitvec_u64_encode(fd_gossip_bitvec_u64_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_option_encode( self->has_bits, ctx );
+  err = fd_bincode_bool_encode( self->has_bits, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_bits ) {
     err = fd_gossip_bitvec_u64_inner_encode( &self->bits, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint64_encode(&self->len, ctx);
+  err = fd_bincode_uint64_encode(self->len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18218,7 +18357,7 @@ int fd_gossip_ip_addr_inner_encode(fd_gossip_ip_addr_inner_t const * self, uint 
 }
 int fd_gossip_ip_addr_encode(fd_gossip_ip_addr_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_gossip_ip_addr_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -18348,7 +18487,7 @@ int fd_gossip_prune_data_encode(fd_gossip_prune_data_t const * self, fd_bincode_
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->prunes_len, ctx);
+  err = fd_bincode_uint64_encode(self->prunes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->prunes_len != 0) {
     for (ulong i = 0; i < self->prunes_len; ++i) {
@@ -18360,7 +18499,7 @@ int fd_gossip_prune_data_encode(fd_gossip_prune_data_t const * self, fd_bincode_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->destination, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18480,7 +18619,7 @@ int fd_gossip_prune_sign_data_encode(fd_gossip_prune_sign_data_t const * self, f
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->prunes_len, ctx);
+  err = fd_bincode_uint64_encode(self->prunes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->prunes_len != 0) {
     for (ulong i = 0; i < self->prunes_len; ++i) {
@@ -18490,7 +18629,7 @@ int fd_gossip_prune_sign_data_encode(fd_gossip_prune_sign_data_t const * self, f
   }
   err = fd_pubkey_encode(&self->destination, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18555,7 +18694,7 @@ int fd_gossip_socket_addr_encode(fd_gossip_socket_addr_t const * self, fd_bincod
   int err;
   err = fd_gossip_ip_addr_encode(&self->addr, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->port, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->port), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18748,9 +18887,9 @@ int fd_gossip_contact_info_v1_encode(fd_gossip_contact_info_v1_t const * self, f
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_gossip_socket_addr_encode(&self->serve_repair, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->shred_version, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->shred_version), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18831,13 +18970,13 @@ ulong fd_gossip_vote_size(fd_gossip_vote_t const * self) {
 
 int fd_gossip_vote_encode(fd_gossip_vote_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->index, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->index), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_flamenco_txn_encode(&self->txn, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -18973,24 +19112,24 @@ ulong fd_gossip_lowest_slot_size(fd_gossip_lowest_slot_t const * self) {
 
 int fd_gossip_lowest_slot_encode(fd_gossip_lowest_slot_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->u8, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->u8), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->root, ctx);
+  err = fd_bincode_uint64_encode(self->root, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->lowest, ctx);
+  err = fd_bincode_uint64_encode(self->lowest, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slots_len, ctx);
+  err = fd_bincode_uint64_encode(self->slots_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->slots_len != 0) {
     for (ulong i = 0; i < self->slots_len; ++i) {
-      err = fd_bincode_uint64_encode(self->slots + i, ctx);
+      err = fd_bincode_uint64_encode(self->slots[i], ctx);
     }
   }
-  err = fd_bincode_uint64_encode(&self->i_dont_know, ctx);
+  err = fd_bincode_uint64_encode(self->i_dont_know, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -19100,7 +19239,7 @@ int fd_gossip_slot_hashes_encode(fd_gossip_slot_hashes_t const * self, fd_bincod
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->hashes_len, ctx);
+  err = fd_bincode_uint64_encode(self->hashes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->hashes_len != 0) {
     for (ulong i = 0; i < self->hashes_len; ++i) {
@@ -19108,7 +19247,7 @@ int fd_gossip_slot_hashes_encode(fd_gossip_slot_hashes_t const * self, fd_bincod
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -19179,9 +19318,9 @@ ulong fd_gossip_slots_size(fd_gossip_slots_t const * self) {
 
 int fd_gossip_slots_encode(fd_gossip_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->first_slot, ctx);
+  err = fd_bincode_uint64_encode(self->first_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num, ctx);
+  err = fd_bincode_uint64_encode(self->num, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_gossip_bitvec_u8_encode(&self->slots, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -19274,11 +19413,11 @@ ulong fd_gossip_flate2_slots_size(fd_gossip_flate2_slots_t const * self) {
 
 int fd_gossip_flate2_slots_encode(fd_gossip_flate2_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->first_slot, ctx);
+  err = fd_bincode_uint64_encode(self->first_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num, ctx);
+  err = fd_bincode_uint64_encode(self->num, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->compressed_len, ctx);
+  err = fd_bincode_uint64_encode(self->compressed_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->compressed_len != 0) {
     err = fd_bincode_bytes_encode(self->compressed, self->compressed_len, ctx);
@@ -19430,7 +19569,7 @@ int fd_gossip_slots_enum_inner_encode(fd_gossip_slots_enum_inner_t const * self,
 }
 int fd_gossip_slots_enum_encode(fd_gossip_slots_enum_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_gossip_slots_enum_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -19546,11 +19685,11 @@ ulong fd_gossip_epoch_slots_size(fd_gossip_epoch_slots_t const * self) {
 
 int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->u8, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->u8), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slots_len, ctx);
+  err = fd_bincode_uint64_encode(self->slots_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->slots_len != 0) {
     for (ulong i = 0; i < self->slots_len; ++i) {
@@ -19558,7 +19697,7 @@ int fd_gossip_epoch_slots_encode(fd_gossip_epoch_slots_t const * self, fd_bincod
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -19586,7 +19725,7 @@ int fd_gossip_version_v1_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint32_decode_preflight( ctx );
@@ -19603,7 +19742,7 @@ void fd_gossip_version_v1_decode_unsafe(fd_gossip_version_v1_t* self, fd_bincode
   fd_bincode_uint16_decode_unsafe(&self->patch, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_commit = !!o;
     if( o ) {
       fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
@@ -19631,7 +19770,7 @@ int fd_gossip_version_v1_decode_offsets(fd_gossip_version_v1_off_t* self, fd_bin
   self->commit_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint32_decode_preflight( ctx );
@@ -19686,18 +19825,18 @@ int fd_gossip_version_v1_encode(fd_gossip_version_v1_t const * self, fd_bincode_
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->major, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_option_encode( self->has_commit, ctx );
+  err = fd_bincode_bool_encode( self->has_commit, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_commit ) {
-    err = fd_bincode_uint32_encode( &self->commit, ctx );
+    err = fd_bincode_uint32_encode( self->commit, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
@@ -19726,7 +19865,7 @@ int fd_gossip_version_v2_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint32_decode_preflight( ctx );
@@ -19745,7 +19884,7 @@ void fd_gossip_version_v2_decode_unsafe(fd_gossip_version_v2_t* self, fd_bincode
   fd_bincode_uint16_decode_unsafe(&self->patch, ctx);
   {
     uchar o;
-    fd_bincode_option_decode_unsafe( &o, ctx );
+    fd_bincode_bool_decode_unsafe( &o, ctx );
     self->has_commit = !!o;
     if( o ) {
       fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
@@ -19774,7 +19913,7 @@ int fd_gossip_version_v2_decode_offsets(fd_gossip_version_v2_off_t* self, fd_bin
   self->commit_off = (uint)((ulong)ctx->data - (ulong)data);
   {
     uchar o;
-    err = fd_bincode_option_decode( &o, ctx );
+    err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
       err = fd_bincode_uint32_decode_preflight( ctx );
@@ -19834,21 +19973,21 @@ int fd_gossip_version_v2_encode(fd_gossip_version_v2_t const * self, fd_bincode_
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->major, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_option_encode( self->has_commit, ctx );
+  err = fd_bincode_bool_encode( self->has_commit, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   if( self->has_commit ) {
-    err = fd_bincode_uint32_encode( &self->commit, ctx );
+    err = fd_bincode_uint32_encode( self->commit, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
-  err = fd_bincode_uint32_encode(&self->feature_set, ctx);
+  err = fd_bincode_uint32_encode( self->feature_set, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -19941,17 +20080,17 @@ ulong fd_gossip_version_v3_size(fd_gossip_version_v3_t const * self) {
 
 int fd_gossip_version_v3_encode(fd_gossip_version_v3_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint16_encode(&self->major, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->major), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->minor, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->minor), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->patch, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->patch), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->commit, ctx);
+  err = fd_bincode_uint32_encode( self->commit, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->feature_set, ctx);
+  err = fd_bincode_uint32_encode( self->feature_set, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->client, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->client), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -20032,11 +20171,11 @@ int fd_gossip_node_instance_encode(fd_gossip_node_instance_t const * self, fd_bi
   int err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  err = fd_bincode_uint64_encode(self->timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->token, ctx);
+  err = fd_bincode_uint64_encode(self->token, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -20177,23 +20316,23 @@ ulong fd_gossip_duplicate_shred_size(fd_gossip_duplicate_shred_t const * self) {
 
 int fd_gossip_duplicate_shred_encode(fd_gossip_duplicate_shred_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint16_encode(&self->version, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->version), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->from, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->shred_index, ctx);
+  err = fd_bincode_uint32_encode( self->shred_index, ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->shred_variant, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->shred_variant), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->chunk_cnt, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->chunk_cnt), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->chunk_idx, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->chunk_idx), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->chunk_len, ctx);
+  err = fd_bincode_uint64_encode(self->chunk_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->chunk_len != 0) {
     err = fd_bincode_bytes_encode(self->chunk, self->chunk_len, ctx);
@@ -20319,7 +20458,7 @@ int fd_gossip_incremental_snapshot_hashes_encode(fd_gossip_incremental_snapshot_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_slot_hash_encode(&self->base_hash, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->hashes_len, ctx);
+  err = fd_bincode_uint64_encode(self->hashes_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->hashes_len != 0) {
     for (ulong i = 0; i < self->hashes_len; ++i) {
@@ -20327,7 +20466,7 @@ int fd_gossip_incremental_snapshot_hashes_encode(fd_gossip_incremental_snapshot_
       if ( FD_UNLIKELY(err) ) return err;
     }
   }
-  err = fd_bincode_uint64_encode(&self->wallclock, ctx);
+  err = fd_bincode_uint64_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -20396,11 +20535,11 @@ ulong fd_gossip_socket_entry_size(fd_gossip_socket_entry_t const * self) {
 
 int fd_gossip_socket_entry_encode(fd_gossip_socket_entry_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint8_encode(&self->key, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->key), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->index, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->index), ctx );
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->offset, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->offset), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -20627,9 +20766,9 @@ int fd_gossip_contact_info_v2_encode(fd_gossip_contact_info_v2_t const * self, f
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_bincode_varint_encode(self->wallclock, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->outset, ctx);
+  err = fd_bincode_uint64_encode(self->outset, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint16_encode(&self->shred_version, ctx);
+  err = fd_bincode_uint16_encode( (ushort)(self->shred_version), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_gossip_version_v3_encode(&self->version, ctx);
   if ( FD_UNLIKELY(err) ) return err;
@@ -20653,7 +20792,7 @@ int fd_gossip_contact_info_v2_encode(fd_gossip_contact_info_v2_t const * self, f
   if ( FD_UNLIKELY(err) ) return err;
   if (self->extensions_len != 0) {
     for (ulong i = 0; i < self->extensions_len; ++i) {
-      err = fd_bincode_uint32_encode(self->extensions + i, ctx);
+      err = fd_bincode_uint32_encode(self->extensions[i], ctx);
     }
   }
   return FD_BINCODE_SUCCESS;
@@ -21132,7 +21271,7 @@ int fd_crds_data_inner_encode(fd_crds_data_inner_t const * self, uint discrimina
 }
 int fd_crds_data_encode(fd_crds_data_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_crds_data_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -21236,16 +21375,16 @@ ulong fd_crds_bloom_size(fd_crds_bloom_t const * self) {
 
 int fd_crds_bloom_encode(fd_crds_bloom_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->keys_len, ctx);
+  err = fd_bincode_uint64_encode(self->keys_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->keys_len != 0) {
     for (ulong i = 0; i < self->keys_len; ++i) {
-      err = fd_bincode_uint64_encode(self->keys + i, ctx);
+      err = fd_bincode_uint64_encode(self->keys[i], ctx);
     }
   }
   err = fd_gossip_bitvec_u64_encode(&self->bits, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->num_bits_set, ctx);
+  err = fd_bincode_uint64_encode(self->num_bits_set, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -21318,9 +21457,9 @@ int fd_crds_filter_encode(fd_crds_filter_t const * self, fd_bincode_encode_ctx_t
   int err;
   err = fd_crds_bloom_encode(&self->filter, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->mask, ctx);
+  err = fd_bincode_uint64_encode(self->mask, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->mask_bits, ctx);
+  err = fd_bincode_uint32_encode( self->mask_bits, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -21556,7 +21695,7 @@ int fd_gossip_pull_resp_encode(fd_gossip_pull_resp_t const * self, fd_bincode_en
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->crds_len, ctx);
+  err = fd_bincode_uint64_encode(self->crds_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->crds_len != 0) {
     for (ulong i = 0; i < self->crds_len; ++i) {
@@ -21664,7 +21803,7 @@ int fd_gossip_push_msg_encode(fd_gossip_push_msg_t const * self, fd_bincode_enco
   int err;
   err = fd_pubkey_encode(&self->pubkey, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->crds_len, ctx);
+  err = fd_bincode_uint64_encode(self->crds_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->crds_len != 0) {
     for (ulong i = 0; i < self->crds_len; ++i) {
@@ -22017,7 +22156,7 @@ int fd_gossip_msg_inner_encode(fd_gossip_msg_inner_t const * self, uint discrimi
 }
 int fd_gossip_msg_encode(fd_gossip_msg_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_gossip_msg_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -22078,9 +22217,9 @@ ulong fd_addrlut_create_size(fd_addrlut_create_t const * self) {
 
 int fd_addrlut_create_encode(fd_addrlut_create_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->recent_slot, ctx);
+  err = fd_bincode_uint64_encode(self->recent_slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint8_encode(&self->bump_seed, ctx);
+  err = fd_bincode_uint8_encode( (uchar)(self->bump_seed), ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22170,7 +22309,7 @@ ulong fd_addrlut_extend_size(fd_addrlut_extend_t const * self) {
 
 int fd_addrlut_extend_encode(fd_addrlut_extend_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint64_encode(&self->new_addrs_len, ctx);
+  err = fd_bincode_uint64_encode(self->new_addrs_len, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   if (self->new_addrs_len != 0) {
     for (ulong i = 0; i < self->new_addrs_len; ++i) {
@@ -22360,7 +22499,7 @@ int fd_addrlut_instruction_inner_encode(fd_addrlut_instruction_inner_t const * s
 }
 int fd_addrlut_instruction_encode(fd_addrlut_instruction_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_addrlut_instruction_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -22457,9 +22596,9 @@ int fd_repair_request_header_encode(fd_repair_request_header_t const * self, fd_
   if ( FD_UNLIKELY(err) ) return err;
   err = fd_pubkey_encode(&self->recipient, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->timestamp, ctx);
+  err = fd_bincode_uint64_encode(self->timestamp, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint32_encode(&self->nonce, ctx);
+  err = fd_bincode_uint32_encode( self->nonce, ctx );
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22532,9 +22671,9 @@ int fd_repair_window_index_encode(fd_repair_window_index_t const * self, fd_binc
   int err;
   err = fd_repair_request_header_encode(&self->header, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->shred_index, ctx);
+  err = fd_bincode_uint64_encode(self->shred_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22607,9 +22746,9 @@ int fd_repair_highest_window_index_encode(fd_repair_highest_window_index_t const
   int err;
   err = fd_repair_request_header_encode(&self->header, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->shred_index, ctx);
+  err = fd_bincode_uint64_encode(self->shred_index, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22674,7 +22813,7 @@ int fd_repair_orphan_encode(fd_repair_orphan_t const * self, fd_bincode_encode_c
   int err;
   err = fd_repair_request_header_encode(&self->header, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -22739,7 +22878,7 @@ int fd_repair_ancestor_hashes_encode(fd_repair_ancestor_hashes_t const * self, f
   int err;
   err = fd_repair_request_header_encode(&self->header, ctx);
   if ( FD_UNLIKELY(err) ) return err;
-  err = fd_bincode_uint64_encode(&self->slot, ctx);
+  err = fd_bincode_uint64_encode(self->slot, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -23070,7 +23209,7 @@ int fd_repair_protocol_inner_encode(fd_repair_protocol_inner_t const * self, uin
 }
 int fd_repair_protocol_encode(fd_repair_protocol_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_repair_protocol_inner_encode(&self->inner, self->discriminant, ctx);
 }
@@ -23185,7 +23324,7 @@ int fd_repair_response_inner_encode(fd_repair_response_inner_t const * self, uin
 }
 int fd_repair_response_encode(fd_repair_response_t const * self, fd_bincode_encode_ctx_t * ctx) {
   int err;
-  err = fd_bincode_uint32_encode(&self->discriminant, ctx);
+  err = fd_bincode_uint32_encode(self->discriminant, ctx);
   if ( FD_UNLIKELY(err) ) return err;
   return fd_repair_response_inner_encode(&self->inner, self->discriminant, ctx);
 }

@@ -435,7 +435,7 @@ main( int     argc,
           rec->meta->dlen            = a->account.data_len;
           rec->meta->info.lamports   = a->account.lamports;
           rec->meta->info.rent_epoch = a->account.rent_epoch;
-          rec->meta->info.executable = (char)a->account.executable;
+          rec->meta->info.executable = !!a->account.executable;
           memcpy( rec->meta->info.owner, a->account.owner.key, 32UL );
           if( a->account.data_len )
             memcpy( rec->data, a->account.data, a->account.data_len );

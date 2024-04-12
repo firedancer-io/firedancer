@@ -282,7 +282,7 @@ int fd_executor_run_test(
       rec->meta->info.lamports   = test->accs[ i ].lamports;
       rec->meta->info.rent_epoch = test->accs[ i ].rent_epoch;
       memcpy( rec->meta->info.owner, test->accs[ i ].owner.uc, 32UL );
-      rec->meta->info.executable = (char)test->accs[ i ].executable;
+      rec->meta->info.executable = !!test->accs[ i ].executable;
       if( test->accs[ i ].data_len )
         memcpy( rec->data, test->accs[ i ].data, test->accs[ i ].data_len );
 

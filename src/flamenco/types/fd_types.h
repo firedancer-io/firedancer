@@ -384,8 +384,8 @@ struct __attribute__((packed)) fd_solana_account_meta {
   ulong lamports;
   ulong rent_epoch;
   uchar owner[32];
-  char executable;
-  char padding[7];
+  uchar executable;
+  uchar padding[7];
 };
 typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 #define FD_SOLANA_ACCOUNT_META_FOOTPRINT sizeof(fd_solana_account_meta_t)
@@ -880,7 +880,7 @@ struct __attribute__((aligned(16UL))) fd_deserializable_versioned_bank {
   fd_unused_accounts_t unused_accounts;
   ulong epoch_stakes_len;
   fd_epoch_epoch_stakes_pair_t* epoch_stakes;
-  char is_delta;
+  uchar is_delta;
 };
 typedef struct fd_deserializable_versioned_bank fd_deserializable_versioned_bank_t;
 #define FD_DESERIALIZABLE_VERSIONED_BANK_FOOTPRINT sizeof(fd_deserializable_versioned_bank_t)
@@ -1488,7 +1488,6 @@ typedef struct fd_vote_prior_voters_off fd_vote_prior_voters_off_t;
 struct __attribute__((aligned(8UL))) fd_vote_prior_voters_0_23_5 {
   fd_vote_prior_voter_0_23_5_t buf[32];
   ulong idx;
-  uchar is_empty;
 };
 typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_t)
@@ -1497,7 +1496,6 @@ typedef struct fd_vote_prior_voters_0_23_5 fd_vote_prior_voters_0_23_5_t;
 struct __attribute__((aligned(8UL))) fd_vote_prior_voters_0_23_5_off {
   uint buf_off;
   uint idx_off;
-  uint is_empty_off;
 };
 typedef struct fd_vote_prior_voters_0_23_5_off fd_vote_prior_voters_0_23_5_off_t;
 #define FD_VOTE_PRIOR_VOTERS_0_23_5_OFF_FOOTPRINT sizeof(fd_vote_prior_voters_0_23_5_off_t)
@@ -1523,7 +1521,7 @@ typedef struct fd_landed_vote_off fd_landed_vote_off_t;
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
-#define DEQUE_MAX 100
+#define DEQUE_MAX 1228
 #include "../../util/tmpl/fd_deque.c"
 #undef DEQUE_NAME
 #undef DEQUE_T
@@ -1555,7 +1553,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_epoch_credits_t * epoch_credits;
   fd_vote_block_timestamp_t last_timestamp;
 };
@@ -1630,7 +1629,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -1674,7 +1674,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_landed_vote_t * votes;
-  fd_option_slot_t root_slot;
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits;
@@ -1735,7 +1736,8 @@ typedef struct fd_vote_state_versioned_off fd_vote_state_versioned_off_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
   fd_vote_lockout_t * lockouts;
-  fd_option_slot_t root;
+  ulong root;
+  uchar has_root;
   fd_hash_t hash;
   ulong* timestamp;
 };
@@ -2419,7 +2421,8 @@ typedef struct fd_update_vote_state_switch_off fd_update_vote_state_switch_off_t
 struct __attribute__((aligned(8UL))) fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
   fd_pubkey_t new_authority;
 };
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
@@ -2441,7 +2444,8 @@ typedef struct fd_vote_authorize_with_seed_args_off fd_vote_authorize_with_seed_
 struct __attribute__((aligned(8UL))) fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t current_authority_derived_key_owner;
-  char* current_authority_derived_key_seed;
+  ulong current_authority_derived_key_seed_len;
+  uchar* current_authority_derived_key_seed;
 };
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_FOOTPRINT sizeof(fd_vote_authorize_checked_with_seed_args_t)

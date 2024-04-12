@@ -942,12 +942,50 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
         continue;
       }
 
+      int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
+      int dirty_stake_acc = txn_ctx->dirty_stake_acc;
+
       for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
         if( !fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, txn_ctx->accounts, (int)i) ) {
           continue;
         }
 
         fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+        if( dirty_vote_acc ) {
+          FD_SCRATCH_SCOPE_BEGIN {
+            fd_vote_state_versioned_t vsv[1];
+            fd_bincode_decode_ctx_t decode_vsv =
+              { .data    = acc_rec->data,
+                .dataend = acc_rec->data + acc_rec->meta->dlen,
+                .valloc  = fd_scratch_virtual() };
+
+            int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
+            if( err ) break; /* out of scratch scope */
+
+            fd_vote_block_timestamp_t const * ts = NULL;
+            switch( vsv->discriminant ) {
+            case fd_vote_state_versioned_enum_v0_23_5:
+              ts = &vsv->inner.v0_23_5.last_timestamp;
+              break;
+            case fd_vote_state_versioned_enum_v1_14_11:
+              ts = &vsv->inner.v1_14_11.last_timestamp;
+              break;
+            case fd_vote_state_versioned_enum_current:
+              ts = &vsv->inner.current.last_timestamp;
+              break;
+            default:
+              __builtin_unreachable();
+            }
+
+            fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot );
+          }
+          FD_SCRATCH_SCOPE_END;
+        }
+
+        if( dirty_stake_acc ) {
+          FD_LOG_ERR(( "stake account dirty" ));
+        }
 
         if( txn_ctx->unknown_accounts[i] ) {
           memset( acc_rec->meta->hash, 0xFF, sizeof(fd_hash_t) );

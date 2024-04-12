@@ -407,7 +407,7 @@ int fd_account_set_executable2( fd_exec_instr_ctx_t * ctx,
     }
   }
 
-  metadata->info.executable = is_executable;
+  metadata->info.executable = !!is_executable;
   return 0;
 }
 
