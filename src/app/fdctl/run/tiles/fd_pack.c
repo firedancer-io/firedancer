@@ -88,7 +88,7 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
 
 #define DEQUE_NAME extra_txn_deq
 #define DEQUE_T    fd_txn_p_t
-#define DEQUE_MAX  (1024UL*1024UL)
+#define DEQUE_MAX  (8UL*1024UL)
 #include "../../../../util/tmpl/fd_deque.c"
 
 
@@ -351,8 +351,11 @@ after_credit( void *             _ctx,
     ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ),
                                         ctx->max_pending_transactions-fd_pack_avail_txn_cnt( ctx->pack ) );
     for( ulong i=0UL; i<qty_to_insert; i++ ) {
-      fd_txn_p_t * spot = fd_pack_insert_txn_init( ctx->pack );
-      *spot = *extra_txn_deq_peek_head( ctx->extra_txn_deq );
+      fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
+      fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
+      fd_txn_t   const * insert_txn = TXN(insert);
+      fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
+      fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
       extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
 
@@ -429,7 +432,7 @@ during_frag( void * _ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_LIKELY( fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
     ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
     ctx->insert_to_extra = 0;
   } else {
