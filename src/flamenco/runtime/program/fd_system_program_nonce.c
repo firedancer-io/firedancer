@@ -227,6 +227,11 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
 
+    /* Mark this as a nonce account usage.  This prevents the account
+       state from reverting in case the transaction fails. */
+
+    ctx->txn_ctx->nonce_accounts[ ctx->instr->acct_txn_idxs[ instr_acc_idx ] ] = 1;
+
     break;
   }
 
