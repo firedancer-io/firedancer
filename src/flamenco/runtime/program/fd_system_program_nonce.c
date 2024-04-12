@@ -76,7 +76,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  *out = deq_fd_block_block_hash_entry_t_peek_tail_const( hashes )->blockhash;
+  *out = deq_fd_block_block_hash_entry_t_peek_head_const( hashes )->blockhash;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -226,6 +226,11 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       int err = fd_system_program_set_nonce_state( ctx, instr_acc_idx, &new_state );
       if( FD_UNLIKELY( err ) ) return err;
     } while(0);
+
+    /* Mark this as a nonce account usage.  This prevents the account
+       state from reverting in case the transaction fails. */
+
+    ctx->txn_ctx->nonce_accounts[ ctx->instr->acct_txn_idxs[ instr_acc_idx ] ] = 1;
 
     break;
   }
