@@ -247,17 +247,21 @@ typedef struct {
     struct {
       ulong  depth;
       uint   reasm_cnt;
-      ulong  max_concurrent_connections;
-      ulong  max_concurrent_handshakes;
-      ulong  max_inflight_quic_packets;
-      ulong  tx_buf_size;
-      ulong  max_concurrent_streams_per_connection;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;
-      ulong  idle_timeout_millis;
-      char  identity_key_path[ PATH_MAX ];
+      char   identity_key_path[ PATH_MAX ];
+
+      uint txn_reassembly_count;
+      uint max_concurrent_connections;
+      uint max_concurrent_streams_per_connection;
+      uint stream_pool_cnt;
+      uint max_concurrent_handshakes;
+      uint max_inflight_quic_packets;
+      uint tx_buf_size;
+      uint idle_timeout_millis;
+      int  retry;
     } quic;
 
     struct {
@@ -322,7 +326,7 @@ typedef struct {
     struct {
       char    gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
       char    gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
-      
+
       char    tvu_my_addr[ 22 ];      // len('255.255.255.255:65535') == 22
       char    tvu_my_fwd_addr[ 22 ];  // len('255.255.255.255:65535') == 22
 

@@ -220,6 +220,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
+  ENTRY_UINT  ( ., tiles.quic,          stream_pool_cnt                                           );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_handshakes                                 );
   ENTRY_UINT  ( ., tiles.quic,          max_inflight_quic_packets                                 );
   ENTRY_UINT  ( ., tiles.quic,          tx_buf_size                                               );
@@ -677,6 +678,7 @@ config_tiles( config_t * config ) {
         tile->quic.max_inflight_quic_packets = config->tiles.quic.max_inflight_quic_packets;
         tile->quic.tx_buf_size = config->tiles.quic.tx_buf_size;
         tile->quic.max_concurrent_streams_per_connection = config->tiles.quic.max_concurrent_streams_per_connection;
+        tile->quic.stream_pool_cnt = config->tiles.quic.stream_pool_cnt;
         tile->quic.ip_addr = config->tiles.net.ip_addr;
         fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
         tile->quic.quic_transaction_listen_port = config->tiles.quic.quic_transaction_listen_port;
@@ -748,10 +750,10 @@ config_tiles( config_t * config ) {
         tile->gossip.gossip_listen_port =  config->tiles.gossip.gossip_listen_port;
         strncpy( tile->gossip.gossip_peer_addr, config->tiles.gossip.gossip_peer_addr, sizeof(tile->gossip.gossip_peer_addr) );
         strncpy( tile->gossip.gossip_my_addr, config->tiles.gossip.gossip_my_addr, sizeof(tile->gossip.gossip_my_addr) );
-        
+
         strncpy( tile->gossip.repair_my_intake_addr, config->tiles.repair.repair_my_intake_addr, sizeof(tile->gossip.repair_my_intake_addr) );
         strncpy( tile->gossip.repair_my_serve_addr, config->tiles.repair.repair_my_serve_addr, sizeof(tile->gossip.repair_my_serve_addr) );
-        
+
         strncpy( tile->gossip.tvu_my_addr, config->tiles.tvu.tvu_addr, sizeof(tile->gossip.tvu_my_addr) );
         strncpy( tile->gossip.tvu_my_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->gossip.tvu_my_fwd_addr) );
 
