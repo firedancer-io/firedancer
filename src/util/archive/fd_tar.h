@@ -207,9 +207,9 @@ fd_tar_reader_delete( fd_tar_reader_t * reader );
    fd_decompress_cb_t callback. */
 
 int
-fd_tar_read( fd_tar_reader_t * reader,
-             uchar const *     data,
-             ulong             data_sz );
+fd_tar_read( void *        reader,
+             uchar const * data,
+             ulong         data_sz );
 
 FD_PROTOTYPES_END
 

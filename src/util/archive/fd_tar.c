@@ -132,10 +132,11 @@ fd_tar_read_data( fd_tar_reader_t * reader,
 }
 
 int
-fd_tar_read( fd_tar_reader_t * const reader,
-             uchar const *     const data,
-             ulong             const data_sz ) {
+fd_tar_read( void *        const reader_,
+             uchar const * const data,
+             ulong         const data_sz ) {
 
+  fd_tar_reader_t * reader = reader_;
   ulong const pos = reader->pos;
 
   uchar const * cur = data;
