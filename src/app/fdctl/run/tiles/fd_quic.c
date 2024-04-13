@@ -100,18 +100,18 @@ quic_limits( fd_topo_tile_t const * tile ) {
        FD_QUIC_MAX_CONN_ID_PER_CONN because it cannot exceed a buffer
        size determined by that constant. */
     .conn_id_cnt                                   = FD_QUIC_MAX_CONN_ID_PER_CONN,
-    .conn_id_sparsity                              = 0.0,
+    .conn_id_sparsity                              = FD_QUIC_DEFAULT_SPARSITY,
     .inflight_pkt_cnt                              = tile->quic.max_inflight_quic_packets,
     .tx_buf_sz                                     = tile->quic.tx_buf_size,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 2,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 3,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
     .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
-    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 4,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 2,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 3,
+    .stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
+    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_CLIENT ] = 0,
+    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_BIDI_SERVER ] = 0,
     .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT  ] = tile->quic.max_concurrent_streams_per_connection,
-    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 4,
-    .stream_sparsity                               = 0.0,
+    .initial_stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_SERVER  ] = 0,
+    .stream_sparsity                               = FD_QUIC_DEFAULT_SPARSITY,
     .stream_pool_cnt                               = tile->quic.stream_pool_cnt,
   };
   return limits;
