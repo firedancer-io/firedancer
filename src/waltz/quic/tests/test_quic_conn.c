@@ -403,7 +403,7 @@ main( int argc, char ** argv ) {
 
     switch( state ) {
       case 0:
-      
+
         /* obtain a free stream */
         meta = get_stream();
 
