@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdint.h>
 #include "../../../util/sanitize/fd_fuzz.h"
 
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -86,6 +87,7 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
   pkt.udp->check = 0x0000;
 
   ulong rc = fd_quic_encode_eth(cur_ptr, cur_sz, pkt.eth);
+
   if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
     return 1;
   }
@@ -116,8 +118,6 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
   if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL || pkt_type == FD_QUIC_PKTTYPE_V1_HANDSHAKE) {
     fd_quic_pkt_hdr_t pkt_hdr;
     if (pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL) {
-
-
       pkt_hdr.enc_level = fd_quic_enc_level_initial_id;
       fd_quic_initial_t *initial = &pkt_hdr.quic_pkt.initial;
       initial->hdr_form = 1;
@@ -131,74 +131,69 @@ uint send_packet(uchar const *payload, size_t payload_sz, uint pkt_type) {
       initial->token_len = 0;
       initial->len = payload_sz;
       initial->pkt_num = 0;
+      initial->pkt_num_bits = 4 * 8;  /* actual number of bits to encode */
+
       // Print the values of the struct members for debugging
-      printf("hdr_form: %u\n", initial->hdr_form);
-      printf("fixed_bit: %u\n", initial->fixed_bit);
-      printf("long_packet_type: %u\n", initial->long_packet_type);
-      printf("reserved_bits: %u\n", initial->reserved_bits);
-      printf("pkt_number_len: %u\n", initial->pkt_number_len);
-      printf("version: %u\n", initial->version);
-      printf("dst_conn_id_len: %u\n", initial->dst_conn_id_len);
-      printf("src_conn_id_len: %u\n", initial->src_conn_id_len);
-      printf("token_len: %lu\n", initial->token_len);
-      printf("len: %lu\n", initial->len);
-      printf("pkt_num: %lu\n", initial->pkt_num);
+      //printf("hdr_form: %u\n", initial->hdr_form);
+      //printf("fixed_bit: %u\n", initial->fixed_bit);
+      //printf("long_packet_type: %u\n", initial->long_packet_type);
+      //printf("reserved_bits: %u\n", initial->reserved_bits);
+      //printf("pkt_number_len: %u\n", initial->pkt_number_len);
+      //printf("version: %u\n", initial->version);
+      //printf("dst_conn_id_len: %u\n", initial->dst_conn_id_len);
+      //printf("src_conn_id_len: %u\n", initial->src_conn_id_len);
+      //printf("token_len: %lu\n", initial->token_len);
+      //printf("len: %lu\n", initial->len);
+      //printf("pkt_num: %lu\n", initial->pkt_num);
       // Generate or hardcode the connection IDs
       memcpy(initial->dst_conn_id, "\x11\x22\x33\x44\x55\x66\x77\x88", 8);
       memcpy(initial->src_conn_id, "\x88\x77\x66\x55\x44", 5);
 
-      ulong initial_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, fd_quic_enc_level_initial_id );
+      // ulong initial_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, fd_quic_enc_level_initial_id );
       //padding
       uint initial_pkt = 1;
       uint base_pkt_len = (uint)cur_sz + fd_quic_pkt_hdr_pkt_number_len( &pkt_hdr, fd_quic_enc_level_initial_id ) +
                             FD_QUIC_CRYPTO_TAG_SZ;
+
       uint padding      = initial_pkt ? FD_QUIC_INITIAL_PAYLOAD_SZ_MIN - base_pkt_len : 0u;
       if( base_pkt_len + padding < ( FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ ) ) {
         padding = FD_QUIC_CRYPTO_SAMPLE_SZ + FD_QUIC_CRYPTO_TAG_SZ - base_pkt_len;
+
       }
+
       //size calcs
       uint quic_pkt_len = base_pkt_len + padding;
+
       fd_quic_pkt_hdr_set_payload_sz( &pkt_hdr, fd_quic_enc_level_initial_id, quic_pkt_len );
       ulong act_hdr_sz = fd_quic_pkt_hdr_footprint( &pkt_hdr, fd_quic_enc_level_initial_id );
-      cur_ptr += initial_hdr_sz + 3u - act_hdr_sz;
+      // cur_ptr += (initial_hdr_sz + 3u - act_hdr_sz);
+      // printf("advanced cur_ptr by initial_hdr_sz + 3u - act_hdr_sz: %lu\n", (initial_hdr_sz + 3u - act_hdr_sz));
     ulong rc = fd_quic_pkt_hdr_encode( cur_ptr, act_hdr_sz, &pkt_hdr, fd_quic_enc_level_initial_id );
-if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
-      printf("fd_quic_pkt_hdr_encode INITIAL failed\n");
+    if (FD_UNLIKELY(rc == FD_QUIC_PARSE_FAIL)) {
       return 1;
     }
 
+    cur_ptr += rc;
+    cur_sz -= rc;
     }
     else { //handle handshake 
       pkt_hdr.enc_level = fd_quic_enc_level_handshake_id;
+      // ulong hdr_sz = fd_quic_pkt_hdr_encode(cur_ptr, cur_sz, &pkt_hdr, pkt_hdr.enc_level); //TODO do this for the fuzz case when appropriate
     }
-
-
-
-
-
-
-    ulong hdr_sz = fd_quic_pkt_hdr_encode(cur_ptr, cur_sz, &pkt_hdr, pkt_hdr.enc_level);
-    if (FD_UNLIKELY(hdr_sz == FD_QUIC_PARSE_FAIL)) {
-      printf("fd_quic_pkt_hdr_encode failed\n");
-      return 1;
-    }
-    cur_ptr += hdr_sz;
-    cur_sz -= hdr_sz;
-  }
+  }// end handshake/initial packet creation.
 
   if (FD_UNLIKELY((ulong)payload_sz > cur_sz)) {
     return FD_QUIC_FAILED;
   }
+  //finally copy our junk into the packets
+  //TODO this is where you would put a CRYPTO frame if so inclined for an Initial packet
   fd_memcpy(cur_ptr, payload, (ulong)payload_sz);
 
   cur_ptr += (ulong)payload_sz;
   cur_sz -= (ulong)payload_sz;
-
+  
   fd_aio_pkt_info_t batch = {.buf = (void *)scratch,
                              .buf_sz = (ushort)(scratch_sz - cur_sz)};
-  if ( pkt_type == FD_QUIC_PKTTYPE_V1_INITIAL  && batch.buf_sz < (ushort) 1200 ) {
-    return 1200;
-  }
   fd_quic_aio_cb_receive((void *)server_quic, &batch, 1, NULL, 0);
 
   return FD_QUIC_SUCCESS;
@@ -285,10 +280,10 @@ int LLVMFuzzerTestOneInput(uchar const *data, ulong size) {
   init_quic();
 
   // Send initial packet
-  send_packet(NULL, 3, FD_QUIC_PKTTYPE_V1_INITIAL);
+  send_packet(data, size, FD_QUIC_PKTTYPE_V1_INITIAL);
 
-  // Send handshake packet
-  send_packet(NULL, 3, FD_QUIC_PKTTYPE_V1_HANDSHAKE);
+  // // Send handshake packet
+    send_packet(data, size, FD_QUIC_PKTTYPE_V1_HANDSHAKE);
 
   while (s > 2) {
     FD_FUZZ_MUST_BE_COVERED;

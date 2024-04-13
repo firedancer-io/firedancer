@@ -36,7 +36,7 @@ $(call make-unit-test,test_quic_arp_server,arp/test_quic_arp_server,fd_aio fd_qu
 $(call make-unit-test,test_quic_arp_client,arp/test_quic_arp_client,fd_aio fd_quic fd_tls fd_ballet fd_waltz fd_util fd_fibre)
 
 $(call make-fuzz-test,fuzz_quic,fuzz_quic,fd_aio fd_quic fd_tls fd_ballet fd_waltz fd_util)
-
+$(call make-fuzz-test,fuzz_quic_client,fuzz_quic_client,fd_aio fd_quic fd_tls fd_ballet fd_waltz fd_util)
 $(call run-unit-test,test_quic_frames)
 # $(call run-unit-test,test_quic_flow_control)
 endif
