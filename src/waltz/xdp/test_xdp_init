@@ -1,0 +1,176 @@
+#!/bin/bash
+
+: "${NUMA_IDX:=0}"
+
+: "${WKSP:=test_xdp}"
+: "${WKSP_CNT:=256}"
+: "${WKSP_PAGE:=huge}"
+
+: "${IFACE0:=veth_test_xdp_0}"
+: "${IFACE1:=veth_test_xdp_1}"
+
+NETNS0=/var/run/netns/"$IFACE0"
+NETNS1=/var/run/netns/"$IFACE1"
+
+: "${IFACE0_MAC:=52:F1:7E:DA:2C:E0}"
+: "${IFACE1_MAC:=52:F1:7E:DA:2C:E1}"
+
+: "${IFACE0_ADDR:=198.18.0.1}"
+: "${IFACE1_ADDR:=198.18.0.2}"
+
+: "${PORT:=9000}"
+
+: "${XSK_FRAME_SZ:=2048}"
+: "${XSK_RX_DEPTH:=64}"
+: "${XSK_TX_DEPTH:=64}"
+: "${AIO_BATCH_CNT:=32}"
+
+: "${XDP_PROGRAM:=src/ballet/ebpf/ebpf_xdp_flow.o}"
+
+if [[ -z "$WKSP" ]]; then
+  echo 'Missing $WKSP' >2
+  exit 1
+fi
+
+CONF=tmp/test_xdp.conf
+
+########################################################################
+
+if [ $# -ne 1 ]; then
+  echo ""
+  echo "        build directory not specified"
+  echo ""
+  echo "        Usage: $0 [BUILD_DIRECTORY]"
+  echo ""
+  echo "        This is meant to be run from the firedancer base directory.  It"
+  echo "        assumes that there is a firedancer shared memory sandbox setup"
+  echo "        on the host in the default location, the user has permissions to"
+  echo "        use this sandbox and the host has $WKSP_CNT $WKSP_PAGE unused page(s) on"
+  echo "        numa node $NUMA_IDX (and ideally a large number unused huge pages there"
+  echo "        too for tile stack usage).  This will recreate from scratch any"
+  echo "        pre-existing wksp named $WKSP in the sandbox.  The details"
+  echo "        about the shared memory objects used for interprocess"
+  echo "        communications will be stored to:"
+  echo "                $CONF"
+  echo ""
+  echo "        A suitable shared memory sandbox can usually be setup by running:"
+  echo "                sudo [BUILD_DIRECTORY]/bin/fd_shmem_cfg init 0700 $USER \"\""
+  echo "        once."
+  echo ""
+  exit 1
+fi
+
+BIN=$1/bin
+UNIT_TEST=$1/unit-test
+
+# Disable permanent log for all the controls we are going to run in here
+
+FD_LOG_PATH=""
+export FD_LOG_PATH
+
+# Do basic box config (if not done already)
+
+"$BIN/fd_wksp_ctl" delete $WKSP # Okay if this fails
+
+#sudo $BIN/fd_shmem_cfg init 0700 $USER ""
+#sudo $BIN/fd_shmem_cfg alloc 1 gigantic 0
+#sudo $BIN/fd_shmem_cfg alloc 256 huge 0
+
+# Create the wksp
+
+"$BIN/fd_wksp_ctl" new $WKSP $WKSP_CNT $WKSP_PAGE $NUMA_IDX 0600 || exit $?
+
+CNC="$( "$BIN/fd_waltz_ctl" new-cnc "$WKSP" 0 tic 4032 )" || exit $?
+
+# (Re-)create veth virtual network devices
+
+ip netns delete "$IFACE0"
+ip netns delete "$IFACE1"
+ip netns add "$IFACE0" || exit $?
+ip netns add "$IFACE1" || exit $?
+
+ip link del dev "$IFACE0" # Destroys IFACE1 too. Okay if this fails
+ip link add dev "$IFACE0"       \
+            netns "$IFACE0"     \
+            type veth           \
+            peer name "$IFACE1" netns "$IFACE1" \
+            numrxqueues 1       \
+            numtxqueues 1       \
+  || exit $?
+
+ip netns exec "$IFACE0" ip link set dev "$IFACE0" arp off address "$IFACE0_MAC" || exit $?
+ip netns exec "$IFACE1" ip link set dev "$IFACE1" arp off address "$IFACE1_MAC" || exit $?
+
+ip netns exec "$IFACE0" arp -v -i "$IFACE0" -Ds "$IFACE0_ADDR" "$IFACE0" || exit $?
+ip netns exec "$IFACE1" arp -v -i "$IFACE1" -Ds "$IFACE1_ADDR" "$IFACE1" || exit $?
+
+ip netns exec "$IFACE0" ip address add "$IFACE0_ADDR"/30 dev "$IFACE0" scope link || exit $?
+ip netns exec "$IFACE1" ip address add "$IFACE1_ADDR"/30 dev "$IFACE1" scope link || exit $?
+
+ip netns exec "$IFACE0" ip link set dev "$IFACE0" up || exit $?
+ip netns exec "$IFACE1" ip link set dev "$IFACE1" up || exit $?
+
+# Create XDP env
+
+rm -rvf /sys/fs/bpf/"$WKSP"
+rm -rvf /sys/fs/bpf/"$WKSP"
+"$BIN/fd_xdp_ctl" init "$WKSP" 0755 "$USER" "" || exit $?
+
+# Install XDP program
+
+"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" # Okay if this fails
+"$BIN/fd_xdp_ctl" unhook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" # Okay if this fails
+"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS0" "$WKSP" "$IFACE0" drv || exit $?
+"$BIN/fd_xdp_ctl"   hook-iface --netns "$NETNS1" "$WKSP" "$IFACE1" drv || exit $?
+
+# Show XDP program status (xdp-tools)
+
+if command -v xdp-loader; then
+  nsenter --net="$NETNS0" xdp-loader status "$IFACE0" || exit $?
+  nsenter --net="$NETNS1" xdp-loader status "$IFACE1" || exit $?
+fi
+
+# Setup listener
+
+"$BIN/fd_xdp_ctl" listen-udp-port "$WKSP" "$IFACE0_ADDR" "$PORT" tpu-quic-user || exit $?
+
+# Setup XSK
+
+XSK0="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+XSK_AIO0="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+
+XSK1="$(    "$BIN/fd_xdp_ctl" new-xsk     "$WKSP" "$XSK_FRAME_SZ" "$XSK_RX_DEPTH" "$XSK_TX_DEPTH")" || exit $?
+XSK_AIO1="$("$BIN/fd_xdp_ctl" new-xsk-aio "$WKSP" "$XSK_TX_DEPTH" "$AIO_BATCH_CNT"               )" || exit $?
+
+"$BIN/fd_xdp_ctl" --netns "$NETNS0" bind-xsk "$XSK0" "$WKSP" "$IFACE0" 0 || exit $?
+"$BIN/fd_xdp_ctl" --netns "$NETNS1" bind-xsk "$XSK1" "$WKSP" "$IFACE1" 0 || exit $?
+
+# Write out the details
+
+dumpvar () { printf "$1=%q\n" "${!1}"; }
+
+mkdir -pv "$(dirname "$CONF")" || exit $?
+( echo "#!/bin/bash"
+  echo "# AUTOGENERATED"
+  dumpvar BIN
+  dumpvar UNIT_TEST
+  dumpvar NUMA_IDX
+  dumpvar WKSP
+  dumpvar CNC
+  dumpvar NETNS0
+  dumpvar NETNS1
+  dumpvar IFACE0
+  dumpvar IFACE0_MAC
+  dumpvar IFACE0_ADDR
+  dumpvar IFACE1
+  dumpvar IFACE1_MAC
+  dumpvar IFACE1_ADDR
+  dumpvar PORT
+  dumpvar XSK0
+  dumpvar XSK_AIO0
+) > "$CONF" || exit $?
+
+echo "Autogenerated unit test configuration at $CONF"
+echo pass
+exit 0
+

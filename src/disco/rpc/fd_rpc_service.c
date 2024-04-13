@@ -1,7 +1,7 @@
 #include "fd_rpc_service.h"
 #include <microhttpd.h>
-#include "../../tango/webserver/fd_methods.h"
-#include "../../tango/webserver/fd_webserver.h"
+#include "../../waltz/webserver/fd_methods.h"
+#include "../../waltz/webserver/fd_webserver.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/fd_runtime.h"

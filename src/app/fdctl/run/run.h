@@ -5,7 +5,7 @@
 #include "tiles/tiles.h"
 #include "topos/topos.h"
 
-#include "../../../tango/xdp/fd_xsk.h"
+#include "../../../waltz/xdp/fd_xsk.h"
 
 typedef struct {
   config_t *       config;

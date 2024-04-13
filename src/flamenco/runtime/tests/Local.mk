@@ -10,7 +10,7 @@ $(call run-unit-test,test_native_programs)
 $(call make-unit-test,test_sign_programs,test_sign_programs fd_tests,fd_ballet fd_funk fd_util fd_flamenco)
 $(call make-unit-test,test_rent_lists,test_rent_lists,fd_flamenco fd_funk fd_ballet fd_util)
 $(call make-unit-test,test_hashes,test_hashes,fd_ballet fd_funk fd_util fd_flamenco)
-$(call make-unit-test,bench_tps,bench_tps,fd_aio fd_quic fd_tls fd_ballet fd_tango fd_util)
+$(call make-unit-test,bench_tps,bench_tps,fd_waltz fd_aio fd_quic fd_tls fd_ballet fd_util)
 
 run-runtime-test: run-runtime-test-1 run-runtime-test-2
 

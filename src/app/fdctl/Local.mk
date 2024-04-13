@@ -10,7 +10,7 @@ $(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_choreo fd_flamenco fd_funk 
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
 
-$(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/tango/xdp/fd_xdp_redirect_prog.o
+$(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config.o: src/app/fdctl/config/default.toml
 
 $(OBJDIR)/obj/app/fdctl/run/run.o: src/app/fdctl/run/generated/main_seccomp.h src/app/fdctl/run/generated/pidns_seccomp.h

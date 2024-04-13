@@ -6,7 +6,7 @@
 #include "../../../../disco/shred/fd_fec_resolver.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
-#include "../../../../tango/ip/fd_ip.h"
+#include "../../../../waltz/ip/fd_ip.h"
 
 #include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"

@@ -2,10 +2,10 @@
 
 #include "generated/quic_seccomp.h"
 #include "../../../../disco/metrics/generated/fd_metrics_quic.h"
-#include "../../../../tango/quic/fd_quic.h"
-#include "../../../../tango/xdp/fd_xsk_aio.h"
-#include "../../../../tango/xdp/fd_xsk.h"
-#include "../../../../tango/ip/fd_netlink.h"
+#include "../../../../waltz/quic/fd_quic.h"
+#include "../../../../waltz/xdp/fd_xsk_aio.h"
+#include "../../../../waltz/xdp/fd_xsk.h"
+#include "../../../../waltz/ip/fd_netlink.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
 #include <openssl/err.h>
