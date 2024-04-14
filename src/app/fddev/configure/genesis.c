@@ -17,13 +17,6 @@
 
 #define NAME "genesis"
 
-static int
-enabled( config_t * const config ) {
-  /* always enabled by default, this only gets run directly from the `dev` command */
-  (void)config;
-  return 1;
-}
-
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
    the hashes per tick achieved, where tick_mhz is the target tick rate
@@ -51,13 +44,14 @@ estimate_hashes_per_tick( ulong tick_mhz,
   return (ulong)lroundl( hashes_per_tick );
 }
 
-/* TODO This function uses 32 MiB .bss.  Consider allocating from a
-        workspace instead.  Does fdctl provide a workspace during init? */
+/* Create a new genesis.bin file contents into the provided blob buffer
+   and return the size of the buffer.  Will abort on error if the
+   provided buffer is not large enough. */
 
-static void
-init( config_t * const config ) {
-  mkdir_all( config->ledger.path, config->uid, config->gid );
-
+static ulong
+create_genesis( config_t * const config,
+                uchar *          blob,
+                ulong            blob_sz ) {
   /* Read in keys */
   /* TODO: This tool should ideally read in public keys, not private keys */
 
@@ -136,12 +130,36 @@ init( config_t * const config ) {
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
 
-  static uchar blob[ 16<<20UL ];
-
-  ulong blob_sz = fd_genesis_create( blob, sizeof(blob), pod );
+  ulong blob_len = fd_genesis_create( blob, blob_sz, pod );
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
-  FD_LOG_DEBUG(( "Created genesis blob (sz=%lu)", blob_sz ));
+  FD_LOG_DEBUG(( "Created genesis blob (sz=%lu)", blob_len ));
+
+  fd_scratch_detach( NULL );
+
+  return blob_len;
+}
+
+/* TODO This function uses 32 MiB .bss.  Consider allocating from a
+        workspace instead.  Does fdctl provide a workspace during init? */
+
+static void
+init( config_t * const config ) {
+  mkdir_all( config->ledger.path, config->uid, config->gid );
+
+  static uchar blob[ 16<<20UL ];
+  ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
+
+  /* Switch to target user in the configuration when creating the
+     genesis.bin file so it is permissioned correctly. */
+  gid_t gid = getgid();
+  uid_t uid = getuid();
+  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
+    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
+    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  mode_t previous = umask( S_IRWXO | S_IRWXG );
 
   char genesis_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
@@ -149,33 +167,61 @@ init( config_t * const config ) {
     FILE * genesis_file = fopen( genesis_path, "w" );
     FD_TEST( genesis_file );
     FD_TEST( 1L == fwrite( blob, blob_sz, 1L, genesis_file ) );
-    fclose( genesis_file );
+    FD_TEST( !fclose( genesis_file ) );
   } while(0);
 
-  fd_scratch_detach( NULL );
+  umask( previous );
 
+  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static void
 fini( config_t * const config ) {
-  rmtree( config->ledger.path, 1 );
+  char genesis_path[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path ) );
+  if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
+    FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 }
 
 static configure_result_t
 check( config_t * const config ) {
+  char genesis_path[ PATH_MAX ];
+  fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path );
+
   struct stat st;
-  if( FD_UNLIKELY( stat( config->ledger.path, &st ) && errno == ENOENT ) )
-    NOT_CONFIGURED( "`%s` does not exist", config->ledger.path );
+  if( FD_UNLIKELY( stat( genesis_path, &st ) && errno==ENOENT ) )
+    NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
   CHECK( check_dir( config->ledger.path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  CHECK( check_file( genesis_path, config->uid, config->gid, S_IRUSR | S_IWUSR | S_IXUSR ) );
 
-  PARTIALLY_CONFIGURED( "genesis directory exists at `%s`", config->ledger.path );
+  static uchar existing_blob[ 16<<20UL ];
+
+  FILE * genesis_file = fopen( genesis_path, "r" );
+  FD_TEST( genesis_file );
+
+  ulong bytes_read = 0UL;
+  while( !feof( genesis_file ) ) {
+    bytes_read += fread( existing_blob + bytes_read, 1, sizeof(existing_blob) - bytes_read, genesis_file );
+    if( FD_UNLIKELY( ferror( genesis_file ) ) )
+      FD_LOG_ERR(( "error reading genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( bytes_read >= sizeof(existing_blob) ) )
+      PARTIALLY_CONFIGURED( "genesis file `%s` is too large", genesis_path );
+  }
+
+  static uchar generated_blob[ 16<<20UL ];
+  ulong generated_sz = create_genesis( config, generated_blob, sizeof(generated_blob) );
+  if( FD_UNLIKELY( generated_sz!=bytes_read ) )
+    PARTIALLY_CONFIGURED( "genesis file `%s` changed and will be rewritten", genesis_path );
+  if( FD_UNLIKELY( memcmp( generated_blob, existing_blob, generated_sz ) ) )
+    PARTIALLY_CONFIGURED( "genesis file `%s` changed and will be rewritten", genesis_path );
+
+  CONFIGURE_OK();
 }
 
 configure_stage_t genesis = {
   .name            = NAME,
-  .always_recreate = 1,
-  .enabled         = enabled,
   .init            = init,
   .fini            = fini,
   .check           = check,
