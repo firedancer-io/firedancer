@@ -28,7 +28,7 @@
    a different key is being loaded, or it is not being loaded for use
    in the production binary. */
 
-uchar const *
+uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path, int public_key_only );
 
 #endif /* HEADER_fd_src_disco_keyguard_fd_keyload_h */
