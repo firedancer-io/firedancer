@@ -4424,11 +4424,10 @@ void fd_poh_config_decode_unsafe(fd_poh_config_t* self, fd_bincode_decode_ctx_t 
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_hashes_per_tick = !!o;
     if( o ) {
-      self->hashes_per_tick = fd_valloc_malloc( ctx->valloc, 8, sizeof(ulong) );
-      fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
-    } else
-      self->hashes_per_tick = NULL;
+      fd_bincode_uint64_decode_unsafe( &self->hashes_per_tick, ctx );
+    }
   }
 }
 void fd_poh_config_new(fd_poh_config_t* self) {
@@ -4441,9 +4440,8 @@ void fd_poh_config_destroy(fd_poh_config_t* self, fd_bincode_destroy_ctx_t * ctx
     fd_valloc_free( ctx->valloc, self->target_tick_count );
     self->target_tick_count = NULL;
   }
-  if( NULL != self->hashes_per_tick ) {
-    fd_valloc_free( ctx->valloc, self->hashes_per_tick );
-    self->hashes_per_tick = NULL;
+  if( self->has_hashes_per_tick ) {
+    self->has_hashes_per_tick = 0;
   }
 }
 
@@ -4458,10 +4456,10 @@ void fd_poh_config_walk(void * w, fd_poh_config_t const * self, fd_types_walk_fn
   } else {
     fun( w, self->target_tick_count, "target_tick_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
-  if( !self->hashes_per_tick ) {
+  if( !self->has_hashes_per_tick ) {
     fun( w, NULL, "hashes_per_tick", FD_FLAMENCO_TYPE_NULL, "ulong", level );
   } else {
-    fun( w, self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+    fun( w, &self->hashes_per_tick, "hashes_per_tick", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   }
   fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_poh_config", level--);
 }
@@ -4473,7 +4471,7 @@ ulong fd_poh_config_size(fd_poh_config_t const * self) {
     size += sizeof(ulong);
   }
   size += sizeof(char);
-  if( NULL !=  self->hashes_per_tick ) {
+  if( self->has_hashes_per_tick ) {
     size += sizeof(ulong);
   }
   return size;
@@ -4492,14 +4490,11 @@ int fd_poh_config_encode(fd_poh_config_t const * self, fd_bincode_encode_ctx_t *
     err = fd_bincode_bool_encode( 0, ctx );
     if ( FD_UNLIKELY( err ) ) return err;
   }
-  if( self->hashes_per_tick != NULL ) {
-    err = fd_bincode_bool_encode( 1, ctx );
+  err = fd_bincode_bool_encode( self->has_hashes_per_tick, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_hashes_per_tick ) {
+    err = fd_bincode_uint64_encode( self->hashes_per_tick, ctx );
     if( FD_UNLIKELY( err ) ) return err;
-    err = fd_bincode_uint64_encode( self->hashes_per_tick[0], ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-  } else {
-    err = fd_bincode_bool_encode( 0, ctx );
-    if ( FD_UNLIKELY( err ) ) return err;
   }
   return FD_BINCODE_SUCCESS;
 }

@@ -65,22 +65,10 @@ typedef struct fd_commission_split fd_commission_split_t;
 /* size_of                                                            */
 /**********************************************************************/
 
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_1_14_11.rs#L45-L49
-static inline ulong
-size_of_1_14_11( void ) {
-  return 3731UL;
-}
-
-// https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/mod.rs#L338-L342
-static inline ulong
-size_of( void ) {
-  return 3762UL;
-}
-
 // https://github.com/firedancer-io/solana/blob/da470eef4652b3b22598a1f379cacfe82bd5928d/sdk/program/src/vote/state/vote_state_versions.rs#L78
 static inline ulong
 size_of_versioned( int is_current ) {
-  return fd_ulong_if( is_current, size_of(), size_of_1_14_11() );
+  return fd_ulong_if( is_current, FD_VOTE_STATE_V3_SZ, FD_VOTE_STATE_V2_SZ );
 }
 
 /**********************************************************************/
@@ -1956,7 +1944,7 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
   // VoteState::is_correct_size_and_initialized
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/mod.rs#L696
 
-  uint data_len_check = vote_account->const_meta->dlen == size_of();
+  uint data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V3_SZ;
   uchar test_data[DEFAULT_PRIOR_VOTERS_OFFSET] = {0};
   uint data_check = memcmp((
     (uchar*)vote_account->const_data + VERSION_OFFSET), test_data, DEFAULT_PRIOR_VOTERS_OFFSET) != 0;
@@ -1966,7 +1954,7 @@ uint vote_state_versions_is_correct_and_initialized( fd_borrowed_account_t * vot
 
   // VoteState1_14_11::is_correct_size_and_initialized
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/sdk/program/src/vote/state/vote_state_1_14_11.rs#L51
-  data_len_check = vote_account->const_meta->dlen == size_of_1_14_11();
+  data_len_check = vote_account->const_meta->dlen == FD_VOTE_STATE_V2_SZ;
   uchar test_data_1_14_11[DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11] = {0};
   data_check = memcmp(
     ((uchar*)vote_account->const_data + VERSION_OFFSET), test_data_1_14_11, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11) != 0;
