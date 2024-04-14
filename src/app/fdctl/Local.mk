@@ -7,7 +7,7 @@ $(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION
 
 # When we don't have libsolana_validator.a in the PHONY list, make fails
 # to realize that it has been updated. Not sure why this happens.
-.PHONY: fdctl cargo rust solana $(OBJDIR)/lib/libsolana_validator.a
+.PHONY: fdctl cargo-validator cargo-solana rust solana
 
 # fdctl core
 $(call add-objs,main1 config caps utility keys ready mem spy help,fd_fdctl)
@@ -57,7 +57,8 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sign.o: src/app/fdctl/run/tiles/generated/s
 
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.
-cargo:
+cargo-validator:
+cargo-solana:
 
 # Cargo build cannot cache the prior build if the command line changes,
 # for example if we did,
@@ -71,19 +72,25 @@ cargo:
 # with one cargo command, even if the dependency could be more fine
 # grained.
 ifeq ($(RUST_PROFILE),release)
-cargo:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+cargo-validator:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator
+cargo-solana:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --bin solana
 else ifeq ($(RUST_PROFILE),release-with-debug)
-cargo:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+cargo-validator:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator
+cargo-solana:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --bin solana
 else
-cargo:
-	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+cargo-validator:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator
+cargo-solana:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --bin solana
 endif
 
-solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo
+solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo-validator
 
-solana/target/$(RUST_PROFILE)/solana: cargo
+solana/target/$(RUST_PROFILE)/solana: cargo-solana
 
 $(OBJDIR)/lib/libsolana_validator.a: solana/target/$(RUST_PROFILE)/libsolana_validator.a
 	$(MKDIR) $(dir $@) && cp solana/target/$(RUST_PROFILE)/libsolana_validator.a $@
@@ -93,9 +100,7 @@ fdctl: $(OBJDIR)/bin/fdctl
 $(OBJDIR)/bin/solana: solana/target/$(RUST_PROFILE)/solana
 	$(MKDIR) -p $(dir $@) && cp solana/target/$(RUST_PROFILE)/solana $@
 
-rust: $(OBJDIR)/bin/solana
-
-solana: $(OBJDIR)/bin/solana
+solana: $(OBJDIR)/bin/solana $(OBJDIR)/bin/solana
 
 endif
 endif
