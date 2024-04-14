@@ -11,6 +11,8 @@
 
 #include "../context/fd_exec_instr_ctx.h"
 
+#define FD_STAKE_STATE_V2_SZ (200UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_stake_program_execute is the instruction processing entrypoint

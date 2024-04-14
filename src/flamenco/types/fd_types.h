@@ -659,7 +659,8 @@ typedef struct fd_rust_duration fd_rust_duration_t;
 struct __attribute__((aligned(8UL))) fd_poh_config {
   fd_rust_duration_t target_tick_duration;
   ulong* target_tick_count;
-  ulong* hashes_per_tick;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_FOOTPRINT sizeof(fd_poh_config_t)
