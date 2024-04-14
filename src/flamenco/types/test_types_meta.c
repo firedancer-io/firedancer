@@ -1,4 +1,5 @@
 #include "fd_types_meta.h"
+#include "../../util/fd_util.h"
 
 int
 main( int     argc,
