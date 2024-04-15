@@ -346,6 +346,24 @@ fd_shmem_create_multi( char const *  name,         /* Should point to cstr with 
                        ulong const * sub_cpu_idx,  /* Indexed [0,sub_cnt), each should be in [0,fd_shmem_cpu_cnt()) */
                        ulong         mode );       /* E.g. 0660 for user rw, group rw, world none */
 
+/* fd_shmem_update_multi updates a shared memory region created by
+   fd_shmem_create_multi in place, to be as-if it was created with
+   the provided parameters instead.
+   
+   This can be preferable to deleting and recreating the shmem region
+   because it prevents needing to zero all of the underlying memory.
+   
+   WARNING: The memory returned will not be zeroed and the user will
+   be able to read any contents that were in the previous workspace. */
+
+int
+fd_shmem_update_multi( char const *  name,
+                       ulong         page_sz,
+                       ulong         sub_cnt,
+                       ulong const * sub_page_cnt,
+                       ulong const * sub_cpu_idx,
+                       ulong         mode );
+
 static inline int
 fd_shmem_create( char const * name,
                  ulong        page_sz,

@@ -182,7 +182,10 @@ warn_mount_users( char const * mount_path ) {
 }
 
 static void
-fini( config_t * const config ) {
+fini( config_t * const config,
+      int              pre_init ) {
+  (void)pre_init;
+
   const char * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,

@@ -98,7 +98,10 @@ fini_perm( fd_caps_ctx_t *  caps,
 }
 
 static void
-fini( config_t * const config ) {
+fini( config_t * const config,
+      int              pre_init ) {
+  (void)pre_init;
+
   if( FD_UNLIKELY( fd_xdp_fini( config->name ) ) )
     FD_LOG_ERR(( "fd_xdp_fini failed" ));
 
