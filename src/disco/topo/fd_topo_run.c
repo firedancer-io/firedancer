@@ -234,8 +234,8 @@ fd_topo_tile_stack_new( int          optimize,
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
                    "with %lu %s pages. Firedancer has successfully reserved enough memory "
                    "for all of its workspaces during the `hugetlbfs` configure step, so it is "
-                   "likely you have unused files left over in this directory which are consuming "
-                   "memory.",
+                   "likely you have unknown files left over in this directory which are consuming "
+                   "memory, or another program on the system is using pages from the same mount.",
                    name, mount_path, sub_page_cnt[ 0 ], fd_shmem_page_sz_to_cstr( FD_SHMEM_HUGE_PAGE_SZ ) ));
     }
     else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));

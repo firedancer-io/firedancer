@@ -75,10 +75,17 @@ workspace_path( config_t * const config,
 static void
 warn_unknown_files( config_t * const config,
                     ulong            mount_type ) {
-  static char const * MOUNT_NAMES[ 2 ] = { "huge", "gigantic" };
-
-  char mount_path[ FD_SHMEM_PRIVATE_PATH_BUF_MAX ];
-  FD_TEST( fd_cstr_printf_check( mount_path, FD_SHMEM_PRIVATE_PATH_BUF_MAX, NULL, "%s/.%s", fd_shmem_private_base, MOUNT_NAMES[ mount_type ] ));
+  char const * mount_path;
+  switch( mount_type ) {
+    case 0UL:
+      mount_path = config->hugetlbfs.huge_page_mount_path;
+      break;
+    case 1UL:
+      mount_path = config->hugetlbfs.gigantic_page_mount_path;
+      break;
+    default:
+      FD_LOG_ERR(( "invalid mount type %lu", mount_type ));
+  }
 
   /* Check if there are any files in mount_path */
   DIR * dir = opendir( mount_path );
@@ -107,6 +114,20 @@ warn_unknown_files( config_t * const config,
       }
     }
 
+    if( mount_type==0UL ) {
+      for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+        fd_topo_tile_t * tile = &config->topo.tiles [ i ];
+
+        char expected_path[ PATH_MAX ];
+        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+
+        if( !strcmp( entry_path, expected_path ) ) {
+          known_file = 1;
+          break;
+        }
+      }
+    }
+
     if( FD_UNLIKELY( !known_file ) ) FD_LOG_WARNING(( "unknown file `%s` found in `%s`", entry->d_name, mount_path ));
   }
 
@@ -129,14 +150,14 @@ init( config_t * const config ) {
     if( FD_UNLIKELY( -1==fd_topo_create_workspace( &config->topo, wksp ) ) ) {
       FD_TEST( errno==ENOMEM );
 
-      warn_unknown_files( config, i );
+      warn_unknown_files( config, wksp->page_sz==FD_SHMEM_HUGE_PAGE_SZ ? 0UL : 1UL );
 
       char path[ PATH_MAX ];
       workspace_path( config, wksp, path );
       FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create workspace `%s` at `%s` "
                    "with %lu %s pages. Firedancer has successfully reserved enough memory "
                    "for all of its workspaces during the `hugetlbfs` configure step, so it is "
-                   "likely you have unused files left over in this directory which are consuming "
+                   "likely you have unknown files left over in this directory which are consuming "
                    "memory, or another program on the system is using pages from the same mount.",
                    wksp->name, path, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ) ));
     }
