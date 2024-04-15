@@ -788,7 +788,7 @@ fd_runtime_prepare_txns_phase2_tpool( fd_exec_slot_ctx_t * slot_ctx,
       slot_ctx->slot_bank.collected_fees += collect_fee_task_info->fee;
     }
 
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, fee_payer_accs, txn_cnt, tpool, max_workers );
+    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, fee_payer_accs, txn_cnt, tpool, max_workers );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_acc_mgr_save_many failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
       return -1;
@@ -1047,7 +1047,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     // TODO: we need to use the txn ctx funk_txn, valloc, etc.
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, accounts_to_save, accounts_to_save_cnt, tpool, max_workers );
+    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, accounts_to_save, accounts_to_save_cnt, tpool, max_workers );
     if( err != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;

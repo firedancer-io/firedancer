@@ -1,4 +1,6 @@
-build/native/gcc/bin/fd_shmem_cfg alloc 256 gigantic 0
+sudo build/native/gcc/bin/fd_shmem_cfg alloc 256 gigantic 0
+
+sudo chown -R asiegel:asiegel /mnt/.fd
 
 build/native/gcc/bin/fd_shmem_cfg reset
 

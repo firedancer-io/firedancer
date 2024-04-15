@@ -735,6 +735,7 @@ MAP_(pop_free_ele)( MAP_T * join ) {
      succeed as per contract) */
 
   ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
+  FD_TEST(ele_idx != MAP_IDX_NULL);
   MAP_T * ele = join + ele_idx;
   map->free_stack = ele->MAP_NEXT; /* already tagged free */
 

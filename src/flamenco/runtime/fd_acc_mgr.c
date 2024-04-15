@@ -220,52 +220,6 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   return ret;
 }
 
-void *
-fd_acc_mgr_modify_raw_prealloc( fd_acc_mgr_t *        acc_mgr,
-                                fd_funk_txn_t *       txn,
-                                fd_pubkey_t const *   pubkey,
-                                int                   do_create,
-                                ulong                 min_data_sz,
-                                fd_funk_rec_t *       prealloc_rec,
-                                fd_funk_rec_t const * opt_con_rec,
-                                fd_funk_rec_t **      opt_out_rec,
-                                int *                 opt_err ) {
-
-  fd_funk_t *       funk = acc_mgr->funk;
-  fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
-
-  int funk_err = FD_FUNK_SUCCESS;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare_prealloc( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, prealloc_rec, opt_con_rec, &funk_err );
-
-  if( FD_UNLIKELY( !rec ) )  {
-    if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-      return NULL;
-    }
-    /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare_prealloc(%32J) failed (%i-%s)", pubkey->key, funk_err, fd_funk_strerror( funk_err ) ));
-  }
-
-  if (NULL != opt_out_rec)
-    *opt_out_rec = rec;
-
-  // At this point, we don't know if the record WILL be rent exempt so
-  // it is safer to just stick it into the partition and look at it later.
-  if ( acc_mgr->slots_per_epoch != 0 )
-    fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
-
-  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp(funk) );
-
-  if( do_create && ret->magic == 0 )
-    fd_account_meta_init(ret);
-
-  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
-    FD_LOG_ERR(( "bad magic" ));
-  }
-
-  return ret;
-}
-
 int
 fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
                    fd_funk_txn_t *         txn,
@@ -321,85 +275,43 @@ fd_acc_mgr_strerror( int err ) {
   }
 }
 
-static inline int
-fd_acc_mgr_save_prealloc( fd_acc_mgr_t *          acc_mgr,
-                          fd_funk_txn_t *         txn,
-                          fd_funk_rec_t *         prealloc_rec,
-                          fd_valloc_t             valloc,
-                          fd_borrowed_account_t * account ) {
-  int err = FD_ACC_MGR_SUCCESS;
-
-  if( account->meta == NULL ) {
+int
+fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
+                 fd_borrowed_account_t * account ) {
+  if( account->meta == NULL || account->rec == NULL ) {
     // The meta is NULL so the account is not writable.
     FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %32J", account->pubkey ));
     return FD_ACC_MGR_SUCCESS;
   }
 
-  if( account->orig_data == account->data ) {
-    // We never had to realloc/resize the account, so we have nothing to do.
-    return FD_ACC_MGR_SUCCESS;
+  fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
+  ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+  int err;
+  if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+    FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
-
-  uchar * raw = fd_acc_mgr_modify_raw_prealloc( acc_mgr, txn, account->pubkey, 1, account->meta->dlen, prealloc_rec, account->const_rec, &account->rec, &err );
-  if( FD_UNLIKELY( !raw ) ) {
-    return err;
-  }
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  fd_account_meta_t * meta = (fd_account_meta_t *)raw;
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-  }
-
-  fd_memcpy( raw, account->meta, sizeof(fd_account_meta_t)+account->const_meta->dlen );
-  fd_valloc_free( valloc, account->meta );
-
-  account->orig_rec = account->const_rec = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = raw + meta->hlen;
+  uchar * raw = fd_funk_val( account->rec, wksp );
+  fd_memcpy( raw, account->meta, reclen );
 
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
-fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t *         txn,
-                 fd_valloc_t             valloc,
-                 fd_borrowed_account_t * account ) {
-  int err = FD_ACC_MGR_SUCCESS;
-
-  if( account->meta == NULL ) {
-    // The meta is NULL so the account is not writable.
-    FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %32J", account->pubkey ));
-    return FD_ACC_MGR_SUCCESS;
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
+                           fd_funk_txn_t *         txn,
+                           fd_borrowed_account_t * account ) {
+  fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
+  fd_funk_t * funk = acc_mgr->funk;
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
+  if( rec == NULL ) {
+    int err;
+    rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+    if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %s", err ));
   }
-
-  if( account->orig_data == account->data ) {
-    // We never had to realloc/resize the account, so we have nothing to do.
-    return FD_ACC_MGR_SUCCESS;
-  }
-
-  fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, txn, account->pubkey, 1, account->meta->dlen, account->const_rec, &account->rec, &err );
-  if( FD_UNLIKELY( !meta ) ) {
-    return err;
-  }
-
-  FD_TEST(FD_BORROWED_ACCOUNT_MAGIC == account->magic);
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) ) {
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-  }
-
-  fd_memcpy( meta, account->meta, sizeof(fd_account_meta_t)+account->const_meta->dlen );
-  fd_valloc_free( valloc, account->meta );
-
-  account->orig_rec = account->const_rec = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = (uchar *)meta + meta->hlen;
-
-  return FD_ACC_MGR_SUCCESS;
+  account->rec = rec;
+  if ( acc_mgr->slots_per_epoch != 0 )
+    fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+  return fd_acc_mgr_save( acc_mgr, account );
 }
 
 void
@@ -416,14 +328,11 @@ fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr ) {
 
 struct fd_acc_mgr_save_task_args {
   fd_acc_mgr_t * acc_mgr;
-  fd_funk_txn_t * txn;
-  fd_valloc_t valloc;
 };
 typedef struct fd_acc_mgr_save_task_args fd_acc_mgr_save_task_args_t;
 
 struct fd_acc_mgr_save_task_info {
   fd_borrowed_account_t * * accounts;
-  fd_funk_rec_t * * prealloc_recs;
   ulong accounts_cnt;
   int result;
 };
@@ -441,18 +350,18 @@ fd_acc_mgr_save_task( void *tpool,
   fd_acc_mgr_save_task_info_t * task_info = (fd_acc_mgr_save_task_info_t *)tpool + m0;
 
   for( ulong i = 0; i < task_info->accounts_cnt; i++ ) {
-    int err = fd_acc_mgr_save_prealloc(task_args->acc_mgr, task_args->txn, task_info->prealloc_recs[i], task_args->valloc, task_info->accounts[i] );
+    int err = fd_acc_mgr_save(task_args->acc_mgr,task_info->accounts[i] );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       task_info->result = err;
       return;
     }
   }
+  task_info->result = FD_ACC_MGR_SUCCESS;
 }
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
                             fd_funk_txn_t *         txn,
-                            fd_valloc_t             valloc,
                             fd_borrowed_account_t * * accounts,
                             ulong accounts_cnt,
                             fd_tpool_t * tpool,
@@ -462,50 +371,24 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
     fd_wksp_t * wksp = fd_funk_wksp( funk );
     fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-    ulong pre_key_cnt = fd_funk_rec_map_key_cnt( rec_map );
-
-#if 0
     ulong batch_cnt = fd_ulong_min(
       fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
       fd_ulong_pow2_up( max_workers )
     );
-#else
-    ulong batch_cnt = 1;
-#endif
     ulong batch_mask = (batch_cnt - 1UL);
 
     ulong * batch_szs = fd_scratch_alloc( 8UL, batch_cnt * sizeof(ulong) );
     fd_memset( batch_szs, 0, batch_cnt * sizeof(ulong) );
 
-    ulong * account_batch_idxs = fd_scratch_alloc( 8UL, accounts_cnt * sizeof(ulong) );
-    fd_funk_rec_t * * task_prealloc_recs = fd_scratch_alloc( 8UL, accounts_cnt * sizeof(fd_funk_rec_t *) );
-
     /* Compute the batch sizes */
     for( ulong i = 0; i < accounts_cnt; i++ ) {
-      fd_borrowed_account_t * borrowed_account = accounts[i];
-
-#ifdef VLOG
-      FD_TEST (!((borrowed_account->pubkey->ul[0] == 0) & (borrowed_account->pubkey->ul[1] == 0) & (borrowed_account->pubkey->ul[2] == 0) & (borrowed_account->pubkey->ul[3] == 0)));
-#endif
-
-      fd_funk_rec_key_t rec_key = fd_acc_funk_key( borrowed_account->pubkey );
-      fd_funk_xid_key_pair_t xid_key_pair[1];
-
-      fd_funk_xid_key_pair_init( xid_key_pair, fd_funk_txn_xid( txn ), &rec_key );
-
-      ulong rec_map_list_idx = fd_funk_rec_map_list_idx( rec_map, xid_key_pair );
-
-      task_prealloc_recs[i] = fd_funk_rec_map_pop_free_ele( rec_map );
-
-      ulong batch_idx = rec_map_list_idx & batch_mask;
+      ulong batch_idx = i & batch_mask;
       batch_szs[batch_idx]++;
-      account_batch_idxs[i] = batch_idx;
     }
 
     fd_borrowed_account_t * * task_accounts = fd_scratch_alloc( 8UL, accounts_cnt * sizeof(fd_borrowed_account_t *) );
     fd_acc_mgr_save_task_info_t * task_infos = fd_scratch_alloc( 8UL, batch_cnt * sizeof(fd_acc_mgr_save_task_info_t) );
     fd_borrowed_account_t * * task_accounts_cursor = task_accounts;
-    fd_funk_rec_t * * task_prealloc_recs_cursor = task_prealloc_recs;
 
     /* Construct the batches */
     for( ulong i = 0; i < batch_cnt; i++ ) {
@@ -514,26 +397,30 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
       task_info->accounts_cnt = 0;
       task_info->accounts = task_accounts_cursor;
-      task_info->prealloc_recs = task_prealloc_recs_cursor;
-
       task_info->result = 0;
 
       task_accounts_cursor += batch_sz;
-      task_prealloc_recs_cursor += batch_sz;
     }
 
     for( ulong i = 0; i < accounts_cnt; i++ ) {
-      fd_borrowed_account_t * borrowed_account = accounts[i];
-      ulong batch_idx = account_batch_idxs[i];
-
+      fd_borrowed_account_t * account = accounts[i];
+      ulong batch_idx = i & batch_mask;
       fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
-      task_info->accounts[task_info->accounts_cnt++] = borrowed_account;
+      task_info->accounts[task_info->accounts_cnt++] = account;
+      fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
+      fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
+      if( rec == NULL ) {
+        int err;
+        rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %s", err ));
+      }
+      account->rec = rec;
+      if ( acc_mgr->slots_per_epoch != 0 )
+        fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
     }
 
     fd_acc_mgr_save_task_args_t task_args = {
-      .acc_mgr = acc_mgr,
-      .txn = txn,
-      .valloc = valloc,
+      .acc_mgr = acc_mgr
     };
 
     /* Save accounts in a thread pool */
@@ -546,25 +433,6 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
         return task_info->result;
       }
     }
-
-    /* Fix up and clean up */
-    ulong added_rec_cnt = 0;
-    for( ulong i = 0; i < accounts_cnt; i++ ) {
-      fd_borrowed_account_t * borrowed_account = task_accounts[i];
-      fd_funk_rec_t * prealloc_rec = task_prealloc_recs[i];
-
-      if( prealloc_rec != borrowed_account->rec ) {
-        fd_funk_rec_map_push_free_ele( rec_map, prealloc_rec );
-      } else {
-        if( fd_funk_rec_fixup_links( funk, txn, borrowed_account->rec, NULL ) == NULL ) {
-          FD_LOG_ERR(( "error while fixing links" ));
-        }
-        added_rec_cnt++;
-      }
-    }
-
-    /* Fix the key_cnt */
-    fd_funk_rec_map_set_key_cnt( rec_map, pre_key_cnt + added_rec_cnt );
 
     return FD_ACC_MGR_SUCCESS;
   } FD_SCRATCH_SCOPE_END;

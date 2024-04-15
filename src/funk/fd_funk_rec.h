@@ -490,22 +490,6 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,         /* Funky data
                            fd_funk_rec_t const *     irec,         /* Prior result of fd_funk_rec_query_global if known */
                            int *                     opt_err );    /* Optional error code return */
 
-fd_funk_rec_t *
-fd_funk_rec_write_prepare_prealloc( fd_funk_t *               funk,
-                                    fd_funk_txn_t *           txn,
-                                    fd_funk_rec_key_t const * key,                                    
-                                    ulong                     min_val_size,
-                                    int                       do_create,
-                                    fd_funk_rec_t *           prealloc_rec,
-                                    fd_funk_rec_t const     * irec,
-                                    int *                     opt_err );
-
-
-fd_funk_rec_t const *
-fd_funk_rec_fixup_links( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
-                         fd_funk_rec_t *           rec,
-                         int *                     opt_err );
 /* Misc */
 
 /* fd_funk_rec_verify verifies the record map.  Returns FD_FUNK_SUCCESS

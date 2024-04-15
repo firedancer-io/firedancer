@@ -234,14 +234,18 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
 
 int
 fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t *         txn,
-                 fd_valloc_t             valloc,
                  fd_borrowed_account_t * account );
+
+/* This version of save is for old code written before tpool integration */
+
+int
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
+                           fd_funk_txn_t *         txn,
+                           fd_borrowed_account_t * account );
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
                             fd_funk_txn_t *          txn,
-                            fd_valloc_t              valloc,
                             fd_borrowed_account_t ** accounts,
                             ulong                    accounts_cnt,
                             fd_tpool_t *             tpool,

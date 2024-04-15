@@ -473,7 +473,7 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
   }
   slot_ctx->slot_bank.collected_fees += fee;
 
-  err = fd_acc_mgr_save( slot_ctx->acc_mgr, slot_ctx->funk_txn, slot_ctx->valloc, rec );
+  err = fd_acc_mgr_save( slot_ctx->acc_mgr, rec );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_acc_mgr_save(%32J) failed (%d-%s)", fee_payer_acc->uc, err, fd_acc_mgr_strerror( err ) ));
     // TODO: The fee payer does not seem to exist?!  what now?
@@ -563,7 +563,7 @@ fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
       }
     }
 
-    int ret = fd_acc_mgr_save( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->valloc, acc_rec );
+    int ret = fd_acc_mgr_save_non_tpool( txn_ctx->acc_mgr, txn_ctx->funk_txn, acc_rec );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       FD_LOG_ERR(( "failed to save edits to accounts" ));
       return -1;
