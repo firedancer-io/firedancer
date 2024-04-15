@@ -165,7 +165,7 @@ fd_wksp_new( void *       shmem,
     return NULL;
   }
 
-  fd_memset( wksp, 0, footprint );
+  fd_memset( wksp, 0, fd_wksp_footprint( part_max, 1UL ) );
 
   wksp->part_max       = part_max;
   wksp->data_max       = data_max;

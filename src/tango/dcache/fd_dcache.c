@@ -67,13 +67,15 @@ fd_dcache_new( void * shmem,
     return NULL;
   }
 
-  fd_memset( shmem, 0, footprint );
+  fd_memset( shmem, 0, sizeof(fd_dcache_private_hdr_t ) );
 
   fd_dcache_private_hdr_t * hdr = (fd_dcache_private_hdr_t *)shmem;
 
   hdr->data_sz = data_sz;
   hdr->app_sz  = app_sz;
   hdr->app_off = sizeof(fd_dcache_private_hdr_t) + fd_ulong_align_up( data_sz, FD_DCACHE_ALIGN );
+
+  fd_memset( (uchar*)shmem+hdr->app_off, 0, app_sz );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = FD_DCACHE_MAGIC;
