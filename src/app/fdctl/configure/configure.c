@@ -90,7 +90,7 @@ configure_stage( configure_stage_t * stage,
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED ) ) {
         if( FD_LIKELY( stage->fini ) ) {
           FD_LOG_NOTICE(( "%s ... undoing ... %s", stage->name, result.message ));
-          stage->fini( config );
+          stage->fini( config, 1 );
         } else if( FD_UNLIKELY( !stage->always_recreate ) ) {
           FD_LOG_ERR(( "%s ... does not support undo but was not valid ... %s", stage->name, result.message ));
         }
@@ -139,7 +139,7 @@ configure_stage( configure_stage_t * stage,
       }
 
       FD_LOG_NOTICE(( "%s ... finishing", stage->name ));
-      if( FD_LIKELY( stage->fini ) ) stage->fini( config );
+      if( FD_LIKELY( stage->fini ) ) stage->fini( config, 0 );
 
       result = stage->check( config );
       if( FD_UNLIKELY( result.result == CONFIGURE_OK && stage->init && stage->fini ) ) {

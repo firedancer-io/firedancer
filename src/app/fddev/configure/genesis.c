@@ -153,7 +153,9 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * const config ) {
+fini( config_t * const config,
+      int              pre_init ) {
+  (void)pre_init;
   rmtree( config->ledger.path, 1 );
 }
 

@@ -76,7 +76,10 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * const config ) {
+fini( config_t * const config,
+      int              pre_init ) {
+  (void)pre_init;
+
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 

@@ -441,11 +441,20 @@ fd_topo_leave_workspaces( fd_topo_t * topo );
 
    Returns 0 on success and -1 on failure, with errno set to the error.
    The only reason for failure currently that will be returned is
-   ENOMEM, as other unexpected errors will cause the program to exit. */
+   ENOMEM, as other unexpected errors will cause the program to exit.
+   
+   If update_existing is 1, the workspace will not be created from
+   scratch but it will be assumed that it already exists from a prior
+   run and needs to be maybe resized and then have the header
+   structures reinitialized.  This can save a very expensive operation
+   of zeroing all of the workspace pages.  This is dangerous in
+   production because it can leave stray memory from prior runs around,
+   and should only be used in development environments. */
 
 int
 fd_topo_create_workspace( fd_topo_t *      topo,
-                          fd_topo_wksp_t * wksp );
+                          fd_topo_wksp_t * wksp,
+                          int              update_existing );
 
 /* Join the standard IPC objects needed by the topology of this particular
    tile */

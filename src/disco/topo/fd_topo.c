@@ -76,14 +76,20 @@ extern char fd_shmem_private_base[ FD_SHMEM_PRIVATE_BASE_MAX ];
 
 int
 fd_topo_create_workspace( fd_topo_t *      topo,
-                          fd_topo_wksp_t * wksp ) {
+                          fd_topo_wksp_t * wksp,
+                          int              update_existing ) {
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
   ulong sub_page_cnt[ 1 ] = { wksp->page_cnt };
   ulong sub_cpu_idx [ 1 ] = { fd_shmem_cpu_idx( wksp->numa_idx ) };
 
-  int err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+  int err;
+  if( FD_UNLIKELY( update_existing ) ) {
+    err = fd_shmem_update_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+  } else {
+    err = fd_shmem_create_multi( name, wksp->page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+  }
   if( FD_UNLIKELY( err && errno==ENOMEM ) ) return -1;
   else if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_shmem_create_multi failed" ));
 

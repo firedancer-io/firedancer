@@ -28,7 +28,10 @@ init( config_t * const config ) {
 
 
 static void
-fini( config_t * const config ) {
+fini( config_t * const config,
+      int              pre_init ) {
+  (void)pre_init;
+
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
