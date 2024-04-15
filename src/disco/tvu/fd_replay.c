@@ -406,8 +406,8 @@ fd_replay_slot_execute( fd_replay_t *      replay,
   }
   fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
-  fd_bft_fork_update( replay->bft, child );
-  fd_bft_fork_choice( replay->bft );
+  // fd_bft_fork_update( replay->bft, child );
+  // fd_bft_fork_choice( replay->bft );
 }
 
 void
