@@ -160,6 +160,7 @@ typedef struct {
   fd_pack_in_ctx_t in[ 32 ];
 
   ulong    bank_cnt;
+  ulong    bank_poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -314,61 +315,55 @@ after_credit( void *             _ctx,
 
   ulong bank_cnt = ctx->bank_cnt;
 
-  /* Randomize the starting point for the loop so that bank tile 0
-     doesn't always get the best transactions. */
-  ulong offset = fd_rng_ulong_roll( ctx->rng, bank_cnt );
-
-  int any_ready = 0;
+  int any_ready     = 0;
   int any_scheduled = 0;
-  /* Is it time to schedule the next microblock? For each banking
-     thread, if it's not busy... */
-  for( ulong _i=0UL; _i<bank_cnt; _i++ ) {
-    ulong i = (_i + offset)%bank_cnt;
 
-    /* optimize for the case we send a microblock */
-    if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
-      any_ready = 1;
+  /* Is it time to schedule the next microblock? Check the next banking
+     tile to see if it is busy... */
+  ulong i = ctx->bank_poll_cursor;
+  ctx->bank_poll_cursor = fd_ulong_if( ctx->bank_poll_cursor==bank_cnt-1UL, 0UL, i+1UL );
 
-      fd_pack_microblock_complete( ctx->pack, i );
-      /* TODO: record metrics for expire */
-      fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
+  /* optimize for the case we send a microblock */
+  if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
+    any_ready = 1;
 
-      void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-      long schedule_duration = -fd_tickcount();
-      ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, i, microblock_dst );
-      schedule_duration      += fd_tickcount();
-      fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
+    fd_pack_microblock_complete( ctx->pack, i );
+    /* TODO: record metrics for expire */
+    fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
 
-      if( FD_LIKELY( schedule_cnt ) ) {
-        any_scheduled = 1;
-        ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong chunk  = ctx->out_chunk;
-        ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
-        fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
-        trailer->bank = ctx->leader_bank;
+    void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+    long schedule_duration = -fd_tickcount();
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, i, microblock_dst );
+    schedule_duration      += fd_tickcount();
+    fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
 
-        ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i );
-        fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
-        ctx->bank_expect[ i ] = *mux->seq-1UL;
-        ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
-        ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
-        ctx->slot_microblock_cnt++;
+    if( FD_LIKELY( schedule_cnt ) ) {
+      any_scheduled = 1;
+      ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+      ulong chunk  = ctx->out_chunk;
+      ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
+      fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
+      trailer->bank = ctx->leader_bank;
 
-        /* We have set burst to 1 below, so we might have no credits
-           after publishing here.  We need to wait til the next credit
-           loop check to publish another microblock. */
-        break;
-      }
+      ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i );
+      fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
+      ctx->bank_expect[ i ] = *mux->seq-1UL;
+      ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
+      ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
+      ctx->slot_microblock_cnt++;
     }
   }
+
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,       any_ready     );
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS, any_scheduled );
   now = fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
   if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) ) ) {
-    ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ),
-                                        ctx->max_pending_transactions-fd_pack_avail_txn_cnt( ctx->pack ) );
+    /* Don't start pulling from the extra storage until the available
+       transaction count drops below half. */
+    ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
+    ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space );
     for( ulong i=0UL; i<qty_to_insert; i++ ) {
       fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
       fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
@@ -606,7 +601,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
 
-  ctx->bank_cnt = tile->pack.bank_tile_count;
+  ctx->bank_cnt         = tile->pack.bank_tile_count;
+  ctx->bank_poll_cursor = 0UL;
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
