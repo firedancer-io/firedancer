@@ -564,13 +564,13 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
   if( FD_UNLIKELY( tile->in_cnt!=2UL ||
-                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "netmux_out" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ||
                    strcmp( topo->links[ tile->in_link_id[ 1UL ] ].name, "sign_quic" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_netmux" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_net" ) ||
                    strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_sign" ) ) )
     FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
