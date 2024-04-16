@@ -115,7 +115,7 @@ count_votes( fd_bft_t * bft, fd_fork_t * fork ) {
       fd_vote_accounts_pair_t_mapnode_t * vote_node =
           fd_vote_accounts_pair_t_map_find( pool, root, &key );
       if( !vote_node ) {
-        FD_LOG_WARNING( ( "couldn't find %32J in vote account stakes", pubkey->key ) );
+        FD_LOG_DEBUG( ( "couldn't find %32J in vote account stakes", pubkey->key ) );
         continue;
       }
     }

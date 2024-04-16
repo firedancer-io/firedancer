@@ -1236,6 +1236,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
       }
 
       fd_repair_set_stake_weights( repair, stake_weights, stake_weights_cnt );
+      fd_gossip_set_stake_weights( gossip, stake_weights, stake_weights_cnt );
     } FD_SCRATCH_SCOPE_END;
 
     replay_setup_out.replay->blockstore  = blockstore_setup_out.blockstore;

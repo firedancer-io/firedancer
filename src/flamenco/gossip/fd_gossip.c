@@ -92,6 +92,7 @@ struct fd_active_elem {
     uint pingcount;  /* Number of pings it took to get a pong */
     fd_hash_t pingtoken;  /* Random data used in ping/pong */
     long pongtime;   /* Last time we received a pong */
+    ulong weight;    /* Selection weight */
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
@@ -108,6 +109,7 @@ void
 fd_active_new_value(fd_active_elem_t * val) {
   val->pingcount = 1;
   val->pingtime = val->pongtime = 0;
+  val->weight = 0;
   fd_memset(val->id.uc, 0, 32U);
   fd_memset(val->pingtoken.uc, 0, 32U);
 }
@@ -149,6 +151,23 @@ typedef struct fd_value_elem fd_value_elem_t;
 #define MAP_KEY_HASH fd_hash_hash
 #define MAP_KEY_COPY fd_hash_copy
 #define MAP_T        fd_value_elem_t
+#include "../../util/tmpl/fd_map_giant.c"
+
+/* Weights table element. This table stores the weight for each peer
+   (determined by stake). */
+struct fd_weights_elem {
+    fd_pubkey_t key;
+    ulong next;
+    ulong weight;
+};
+/* Weights table */
+typedef struct fd_weights_elem fd_weights_elem_t;
+#define MAP_NAME     fd_weights_table
+#define MAP_KEY_T    fd_hash_t
+#define MAP_KEY_EQ   fd_hash_eq
+#define MAP_KEY_HASH fd_hash_hash
+#define MAP_KEY_COPY fd_hash_copy
+#define MAP_T        fd_weights_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
 /* Queue of pending timed events, stored as a priority heap */
@@ -275,6 +294,8 @@ struct fd_gossip {
     ulong push_cnt;
     /* Count of values not pushed due to pruning */
     ulong not_push_cnt;
+    /* Stake weights */
+    fd_weights_elem_t * weights;
     /* Heap allocator */
     fd_valloc_t valloc;
 };
@@ -307,6 +328,7 @@ fd_gossip_new ( void * shmem, ulong seed, fd_valloc_t valloc ) {
   fd_rng_new(glob->rng, (uint)seed, 0UL);
   shm = fd_valloc_malloc(valloc, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX));
   glob->stats = fd_stats_table_join(fd_stats_table_new(shm, FD_STATS_KEY_MAX, seed));
+  glob->weights = NULL;
   return glob;
 }
 
@@ -335,6 +357,8 @@ fd_gossip_delete ( void * shmap, fd_valloc_t valloc ) {
   fd_valloc_free(valloc, fd_pending_pool_delete(fd_pending_pool_leave(glob->event_pool)));
   fd_valloc_free(valloc, fd_pending_heap_delete(fd_pending_heap_leave(glob->event_heap)));
   fd_valloc_free(valloc, fd_stats_table_delete(fd_stats_table_leave(glob->stats)));
+  if( glob->weights )
+    fd_valloc_free(valloc, fd_weights_table_delete(fd_weights_table_leave(glob->weights)));
   return glob;
 }
 
@@ -714,6 +738,7 @@ fd_gossip_random_active( fd_gossip_t * glob ) {
   /* Create a list of active peers with minimal pings */
   fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
   ulong listlen = 0;
+  ulong totweight = 0;
   for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
        !fd_active_table_iter_done( glob->actives, iter );
        iter = fd_active_table_iter_next( glob->actives, iter ) ) {
@@ -723,20 +748,31 @@ fd_gossip_random_active( fd_gossip_t * glob ) {
     } else if (listlen == 0) {
       list[0] = ele;
       listlen = 1;
+      totweight = ele->weight;
     } else if (ele->pingcount > list[0]->pingcount) {
       continue;
     } else if (ele->pingcount < list[0]->pingcount) {
       /* Reset the list */
       list[0] = ele;
       listlen = 1;
+      totweight = ele->weight;
     } else {
       list[listlen++] = ele;
+      totweight += ele->weight;
     }
   }
-  if (listlen == 0)
+  if (listlen == 0 || totweight == 0)
     return NULL;
-  /* Choose a random list element */
-  return list[fd_rng_ulong(glob->rng) % listlen];
+  /* Choose a random list element by weight */
+  ulong w = fd_rng_ulong(glob->rng) % totweight;
+  ulong j = 0;
+  for( ulong i = 0; i < listlen; ++i) {
+    if( w < j + list[i]->weight )
+      return list[i];
+    j += list[i]->weight;
+  }
+  FD_LOG_CRIT(( "I shouldn't be here" ));
+  return NULL;
 }
 
 /* Generate a pull request for a random active peer */
@@ -895,6 +931,13 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   }
   peerval->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
   fd_hash_copy(&peerval->id, &pong->from);
+
+  if( glob->weights ) {
+    fd_weights_elem_t const * val2 = fd_weights_table_query_const( glob->weights, &val->id, NULL );
+    val->weight = ( val2 == NULL ? 1UL : val2->weight );
+  } else {
+    val->weight = 1UL;
+  }
 }
 
 /* Initiate a ping/pong with a random active partner to confirm it is
@@ -904,7 +947,7 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 1 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
+  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)100e8);
   if (ev) {
     ev->fun = fd_gossip_random_ping;
   }
@@ -1401,27 +1444,18 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     glob->push_states[worst_i] = glob->push_states[--(glob->push_states_cnt)];
   }
 
-  /* Make a list of actives that we are not pushing to yet */
-  fd_active_elem_t * list[FD_ACTIVE_KEY_MAX];
-  ulong listlen = 0;
-  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
-       !fd_active_table_iter_done( glob->actives, iter );
-       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
-    fd_active_elem_t * ele = fd_active_table_iter_ele( glob->actives, iter );
+  /* Add random actives as new pushers */
+  int failcnt = 0;
+  while (glob->push_states_cnt < FD_PUSH_LIST_MAX && failcnt < 5) {
+    fd_active_elem_t * a = fd_gossip_random_active( glob );
+    if( a == NULL ) break;
+    
     for (ulong i = 0; i < glob->push_states_cnt; ++i) {
       fd_push_state_t* s = glob->push_states[i];
-      if (fd_gossip_peer_addr_eq(&s->addr, &ele->key))
+      if (fd_gossip_peer_addr_eq(&s->addr, &a->key))
         goto skipadd;
     }
-    list[listlen++] = ele;
-    skipadd: ;
-  }
-
-  /* Add random actives as new pushers */
-  while (listlen > 0 && glob->push_states_cnt < FD_PUSH_LIST_MAX) {
-    ulong i = fd_rng_ulong(glob->rng) % listlen;
-    fd_active_elem_t * a = list[i];
-    list[i] = list[--listlen];
+    failcnt = 0;
 
     /* Build the pusher state */
     fd_push_state_t * s = (fd_push_state_t *)fd_valloc_malloc(glob->valloc, alignof(fd_push_state_t), sizeof(fd_push_state_t));
@@ -1446,6 +1480,10 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
     s->packet_end_init = s->packet_end = (uchar *)ctx.data;
 
     glob->push_states[glob->push_states_cnt++] = s;
+    break;
+
+  skipadd:
+    ++failcnt;
   }
 }
 
@@ -1795,4 +1833,37 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
 ushort
 fd_gossip_get_shred_version( fd_gossip_t const * glob ) {
   return glob->my_contact_info.shred_version;
+}
+
+void 
+fd_gossip_set_stake_weights( fd_gossip_t * gossip, 
+                             fd_stake_weight_t const * stake_weights,
+                             ulong stake_weights_cnt ) {
+  if( stake_weights == NULL ) {
+    FD_LOG_ERR(( "stake weights NULL" ));
+  }
+
+  fd_gossip_lock( gossip );
+
+  if( gossip->weights )
+    fd_valloc_free(gossip->valloc, fd_weights_table_delete(fd_weights_table_leave(gossip->weights)));
+  void * shm = fd_valloc_malloc(gossip->valloc, fd_weights_table_align(), fd_weights_table_footprint(stake_weights_cnt));
+  gossip->weights = fd_weights_table_join(fd_weights_table_new(shm, stake_weights_cnt, gossip->seed));
+  for( ulong i = 0; i < stake_weights_cnt; ++i ) {
+    if( !stake_weights[i].stake ) continue;
+    fd_weights_elem_t * val = fd_weights_table_insert( gossip->weights, &stake_weights[i].key );
+    // Weight is log2(stake)^2
+    ulong w = (ulong)fd_ulong_find_msb( stake_weights[i].stake ) + 1;
+    val->weight = w*w;
+  }
+
+  for( fd_active_table_iter_t iter = fd_active_table_iter_init( gossip->actives );
+       !fd_active_table_iter_done( gossip->actives, iter );
+       iter = fd_active_table_iter_next( gossip->actives, iter ) ) {
+    fd_active_elem_t * ele = fd_active_table_iter_ele( gossip->actives, iter );
+    fd_weights_elem_t const * val = fd_weights_table_query_const( gossip->weights, &ele->id, NULL );
+    ele->weight = ( val == NULL ? 1UL : val->weight );
+  }
+
+  fd_gossip_unlock( gossip );
 }

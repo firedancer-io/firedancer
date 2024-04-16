@@ -98,4 +98,6 @@ const char * fd_gossip_addr_str( char * dst, ulong dstlen, fd_gossip_peer_addr_t
 
 ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
+void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const * stake_weights, ulong stake_weights_cnt );
+
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */
