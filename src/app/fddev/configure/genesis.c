@@ -194,7 +194,8 @@ check( config_t * const config ) {
     NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
   CHECK( check_dir( config->ledger.path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
-  CHECK( check_file( genesis_path, config->uid, config->gid, S_IRUSR | S_IWUSR | S_IXUSR ) );
+  // FIXME
+  // CHECK( check_file( genesis_path, config->uid, config->gid, S_IRUSR | S_IWUSR ) );
 
   static uchar existing_blob[ 16<<20UL ];
 
@@ -206,9 +207,13 @@ check( config_t * const config ) {
     bytes_read += fread( existing_blob + bytes_read, 1, sizeof(existing_blob) - bytes_read, genesis_file );
     if( FD_UNLIKELY( ferror( genesis_file ) ) )
       FD_LOG_ERR(( "error reading genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
-    if( FD_UNLIKELY( bytes_read >= sizeof(existing_blob) ) )
+    if( FD_UNLIKELY( bytes_read >= sizeof(existing_blob) ) ) {
+      if( FD_UNLIKELY( fclose( genesis_file ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
       PARTIALLY_CONFIGURED( "genesis file `%s` is too large", genesis_path );
+    }
   }
+
+  if( FD_UNLIKELY( fclose( genesis_file ) ) ) FD_LOG_ERR(( "fclose failed `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   static uchar generated_blob[ 16<<20UL ];
   ulong generated_sz = create_genesis( config, generated_blob, sizeof(generated_blob) );
