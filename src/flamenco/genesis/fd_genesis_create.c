@@ -8,6 +8,11 @@
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
+#define SORT_NAME sort_acct
+#define SORT_KEY_T fd_pubkey_account_pair_t
+#define SORT_BEFORE(a,b) (0>memcmp( (a).key.ul, (b).key.ul, sizeof(fd_pubkey_t) ))
+#include "../../util/tmpl/fd_sort.c"
+
 static ulong
 genesis_create( void *        buf,
                 ulong         bufsz,
@@ -85,6 +90,7 @@ genesis_create( void *        buf,
   /* Create faucet account */
 
   fd_pubkey_account_pair_t const faucet_account = {
+    .key = faucet_pubkey,
     .account = {
       .lamports   = fd_pod_query_ulong( pod, "faucet.balance", 1000000000UL /* 1 SOL */ ),
       .owner      = fd_solana_system_program_id,
@@ -96,6 +102,7 @@ genesis_create( void *        buf,
   /* Create identity account (vote authority, withdraw authority) */
 
   fd_pubkey_account_pair_t const identity_account = {
+    .key = identity_pubkey,
     .account = {
       .lamports   = 500000000000UL /* 500 SOL */,
       .owner      = fd_solana_system_program_id,
@@ -109,7 +116,6 @@ genesis_create( void *        buf,
   ulong const vote_account_index = genesis->accounts_len++;
 
   uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
-  ulong vote_state_dlen = 0UL;
 
   FD_SCRATCH_SCOPE_BEGIN {
     fd_vote_state_versioned_t vsv[1];
@@ -135,7 +141,6 @@ genesis_create( void *        buf,
       { .data    = vote_state_data,
         .dataend = vote_state_data + sizeof(vote_state_data) };
     REQUIRE( fd_vote_state_versioned_encode( vsv, &encode ) == FD_BINCODE_SUCCESS );
-    vote_state_dlen = (ulong)encode.data - (ulong)vote_state_data;
   }
   FD_SCRATCH_SCOPE_END;
 
@@ -144,13 +149,13 @@ genesis_create( void *        buf,
   ulong const stake_account_index = genesis->accounts_len++;
 
   uchar stake_data[ FD_STAKE_STATE_V2_SZ ];
-  ulong stake_dlen = 0UL;
+
+  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance2( &genesis->rent, FD_STAKE_STATE_V2_SZ );
+  ulong vote_min_bal        = fd_rent_exempt_minimum_balance2( &genesis->rent, FD_VOTE_STATE_V3_SZ  );
 
   do {
     fd_stake_state_v2_t state[1];
     fd_stake_state_v2_new_disc( state, fd_stake_state_v2_enum_stake );
-
-    ulong stake_state_min_bal = fd_rent_exempt_minimum_balance2( &genesis->rent, FD_STAKE_STATE_V2_SZ );
 
     fd_stake_state_v2_stake_t * stake = &state->inner.stake;
     stake->meta = (fd_stake_meta_t) {
@@ -162,9 +167,10 @@ genesis_create( void *        buf,
     };
     stake->stake = (fd_stake_t) {
       .delegation = (fd_delegation_t) {
-        .voter_pubkey     = vote_pubkey,
-        .stake            = fd_ulong_max( stake_state_min_bal, 500000000UL /* 0.5 SOL */ ),
-        .activation_epoch = 0UL
+        .voter_pubkey       = vote_pubkey,
+        .stake              = fd_ulong_max( stake_state_min_bal, 500000000UL /* 0.5 SOL */ ),
+        .activation_epoch   = ULONG_MAX, /*  bootstrap stake denoted with ULONG_MAX */
+        .deactivation_epoch = ULONG_MAX
       },
       .credits_observed = 0UL
     };
@@ -173,7 +179,6 @@ genesis_create( void *        buf,
       { .data    = stake_data,
         .dataend = stake_data + sizeof(stake_data) };
     REQUIRE( fd_stake_state_v2_encode( state, &encode ) == FD_BINCODE_SUCCESS );
-    stake_dlen = (ulong)encode.data - (ulong)stake_data;
   } while(0);
 
   /* Allocate the account table */
@@ -191,8 +196,8 @@ genesis_create( void *        buf,
   genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = stake_pubkey,
     .account = (fd_solana_account_t) {
-      .lamports   = 0UL,
-      .data_len   = stake_dlen,
+      .lamports   = stake_state_min_bal,
+      .data_len   = FD_STAKE_STATE_V2_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id,
       .rent_epoch = ULONG_MAX
@@ -201,8 +206,8 @@ genesis_create( void *        buf,
   genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
     .key     = vote_pubkey,
     .account = (fd_solana_account_t) {
-      .lamports   = 0UL,
-      .data_len   = vote_state_dlen,
+      .lamports   = vote_min_bal,
+      .data_len   = FD_VOTE_STATE_V3_SZ,
       .data       = vote_state_data,
       .owner      = fd_solana_vote_program_id,
       .rent_epoch = ULONG_MAX
@@ -228,7 +233,18 @@ genesis_create( void *        buf,
     };
   }
 
-  /* TODO make sure that none of the accounts are duplicate */
+  /* Sort and check for duplicates */
+
+  sort_acct_inplace( genesis->accounts, genesis->accounts_len );
+
+  for( ulong j=1UL; j < genesis->accounts_len; j++ ) {
+    if( 0==memcmp( genesis->accounts[j-1].key.ul, genesis->accounts[j].key.ul, sizeof(fd_pubkey_t) ) ) {
+      char dup_cstr[ FD_BASE58_ENCODED_32_SZ ];
+      fd_base58_encode_32( genesis->accounts[j].key.uc, NULL, dup_cstr );
+      FD_LOG_WARNING(( "Account %s is duplicate", dup_cstr ));
+      return 0UL;
+    }
+  }
 
   /* Serialize bincode blob */
 
