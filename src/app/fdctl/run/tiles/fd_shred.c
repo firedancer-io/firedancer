@@ -673,7 +673,7 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
   if( FD_UNLIKELY( tile->in_cnt!=5UL ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "netmux_out" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_shred" )    ||
                    strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].name, "poh_shred"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"  )    ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "crds_shred" )    ||
@@ -682,7 +682,7 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "shred_netmux" )  ||
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,  "shred_net" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name, "shred_sign"   ) ) )
     FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));

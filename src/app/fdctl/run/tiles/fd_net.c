@@ -10,6 +10,26 @@
 
 #include <linux/unistd.h>
 
+#define MAX_NET_INS (32UL)
+
+typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+} fd_net_in_ctx_t;
+
+typedef struct {
+  fd_frag_meta_t * mcache;
+  ulong *          sync;
+  ulong            depth;
+  ulong            seq;
+
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+} fd_net_out_ctx_t;
+
 typedef struct {
   ulong xsk_aio_cnt;
   fd_xsk_aio_t * xsk_aio[ 2 ];
@@ -22,8 +42,6 @@ typedef struct {
 
   uchar frame[ FD_NET_MTU ];
 
-  fd_mux_context_t * mux;
-
   uint   src_ip_addr;
   uchar  src_mac_addr[6];
 
@@ -31,14 +49,11 @@ typedef struct {
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
 
-  fd_wksp_t * in_mem;
-  ulong       in_chunk0;
-  ulong       in_wmark;
+  ulong in_cnt;
+  fd_net_in_ctx_t in[ MAX_NET_INS ];
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_net_out_ctx_t quic_out[1];
+  fd_net_out_ctx_t shred_out[1];
 
   fd_ip_t *   ip;
   long        ip_next_upd;
@@ -148,15 +163,18 @@ net_rx_aio_send( void *                    _ctx,
                    ctx->legacy_transaction_listen_port ));
     }
 
-    fd_memcpy( fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk ), packet, batch[i].buf_sz );
+    fd_net_out_ctx_t * out = ( proto==DST_PROTO_TPU_QUIC || proto==DST_PROTO_TPU_UDP ) ? ctx->quic_out : ctx->shred_out;
+
+    fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), packet, batch[ i ].buf_sz );
 
     /* tile can decide how to partition based on src ip addr and src port */
     ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_mux_publish( ctx->mux, sig, ctx->out_chunk, batch[i].buf_sz, 0, 0, tspub );
+    fd_mcache_publish( out->mcache, out->depth, out->seq, sig, out->chunk, batch[ i ].buf_sz, 0, 0, tspub );
 
-    ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, FD_NET_MTU, ctx->out_chunk0, ctx->out_wmark );
+    out->seq = fd_seq_inc( out->seq, 1UL );
+    out->chunk = fd_dcache_compact_next( out->chunk, FD_NET_MTU, out->chunk0, out->wmark );
   }
 
   if( FD_LIKELY( opt_batch_idx ) ) {
@@ -169,9 +187,9 @@ net_rx_aio_send( void *                    _ctx,
 static void
 before_credit( void * _ctx,
                fd_mux_context_t * mux ) {
-  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+  (void)mux;
 
-  ctx->mux = mux;
+  fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
   for( ulong i=0; i<ctx->xsk_aio_cnt; i++ ) {
     fd_xsk_aio_service( ctx->xsk_aio[i] );
@@ -245,10 +263,10 @@ during_frag( void * _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   fd_memcpy( ctx->frame, src, sz ); // TODO: Change xsk_aio interface to eliminate this copy
 }
 
@@ -459,23 +477,37 @@ unprivileged_init( fd_topo_t *      topo,
   /* Put a bound on chunks we read from the input, to make sure they
       are within in the data region of the workspace. */
   if( FD_UNLIKELY( !tile->in_cnt ) ) FD_LOG_ERR(( "net tile in link cnt is zero" ));
-  fd_topo_link_t * link0 = &topo->links[ tile->in_link_id[ 0 ] ];
-
-  for( ulong i=1; i<tile->in_cnt; i++ ) {
+  if( FD_UNLIKELY( tile->in_cnt>MAX_NET_INS ) ) FD_LOG_ERR(( "net tile in link cnt %lu exceeds MAX_NET_INS %lu", tile->in_cnt, MAX_NET_INS ));
+  FD_TEST( tile->in_cnt<=32 );
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link does not have a normal MTU" ));
 
-    if( FD_UNLIKELY( topo->objs[ link0->dcache_obj_id ].wksp_id!=topo->objs[ link->dcache_obj_id ].wksp_id ) ) FD_LOG_ERR(( "net tile reads input from multiple workspaces" ));
-    if( FD_UNLIKELY( link0->mtu!=link->mtu         ) ) FD_LOG_ERR(( "net tile reads input from multiple links with different MTUs" ));
+    ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->in_mem    = topo->workspaces[ topo->objs[ link0->dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_chunk0 = fd_disco_compact_chunk0( ctx->in_mem );
-  ctx->in_wmark  = fd_disco_compact_wmark ( ctx->in_mem, link0->mtu );
+  fd_topo_link_t * quic_out = &topo->links[ tile->out_link_id[ 0 ] ];
+  fd_topo_link_t * shred_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->quic_out->mcache = quic_out->mcache;
+  ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
+  ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
+  ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
+  ctx->quic_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
+  ctx->quic_out->mem    = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->quic_out->wmark  = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
+  ctx->quic_out->chunk  = ctx->quic_out->chunk0;
+
+  ctx->shred_out->mcache = shred_out->mcache;
+  ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
+  ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
+  ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+  ctx->shred_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
+  ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
+  ctx->shred_out->chunk  = ctx->shred_out->chunk0;
 
   ctx->ip = init_ctx->ip;
 
