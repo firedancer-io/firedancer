@@ -160,7 +160,8 @@ typedef struct {
   fd_pack_in_ctx_t in[ 32 ];
 
   ulong    bank_cnt;
-  ulong    bank_poll_cursor; /* in [0, bank_cnt), the next bank to poll */
+  ulong    bank_idle_bitset; /* bit i is 1 if we've observed *bank_current[i]==bank_expect[i] */
+  int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -276,7 +277,46 @@ after_credit( void *             _ctx,
   fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   long now = fd_tickcount();
-  /* If we time out on our slot, then stop being leader. */
+
+  ulong bank_cnt = ctx->bank_cnt;
+
+  /* If any banks are busy, check one of the busy ones see if it is
+     still busy. */
+  if( FD_LIKELY( ctx->bank_idle_bitset!=fd_ulong_mask_lsb( (int)bank_cnt ) ) ) {
+    int   poll_cursor = ctx->poll_cursor;
+    ulong busy_bitset = (~ctx->bank_idle_bitset) & fd_ulong_mask_lsb( (int)bank_cnt );
+
+    /* Suppose bank_cnt is 4 and idle_bitset looks something like this
+       (pretending it's a uchar):
+                0000 1001
+                       ^ busy cursor is 1
+       Then busy_bitset is
+                0000 0110
+       Rotate it right by 2 bits
+                1000 0001
+       Find lsb returns 0, so busy cursor remains 2, and we poll bank 2.
+
+       If instead idle_bitset were
+                0000 1110
+                       ^
+       The rotated version would be
+                0100 0000
+       Find lsb will return 6, so busy cursor would be set to 0, and
+       we'd poll bank 0, which is the right one. */
+    poll_cursor++;
+    poll_cursor = (poll_cursor + fd_ulong_find_lsb( fd_ulong_rotate_right( busy_bitset, (poll_cursor&63) ) )) & 63;
+
+    if( FD_UNLIKELY( (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) &
+                     (ctx->bank_ready_at[poll_cursor]<now) ) ) {
+      ctx->bank_idle_bitset |= 1UL<<poll_cursor;
+    }
+
+    ctx->poll_cursor = poll_cursor;
+  }
+
+
+  /* If we time out on our slot, then stop being leader.  This can only
+     happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
@@ -306,34 +346,35 @@ after_credit( void *             _ctx,
   /* Have I sent the max allowed microblocks? Nothing to do. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt>=ctx->slot_max_microblocks ) ) return;
 
-  /* Do I have enough microblocks and/or have I waited enough time? */
+  /* Do I have enough transactions and/or have I waited enough time? */
   if( FD_UNLIKELY( (ulong)(now-ctx->last_successful_insert) <
         ctx->wait_duration_ticks[ fd_ulong_min( fd_pack_avail_txn_cnt( ctx->pack ), MAX_TXN_PER_MICROBLOCK ) ] ) ) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, 0 );
     return;
   }
 
-  ulong bank_cnt = ctx->bank_cnt;
-
   int any_ready     = 0;
   int any_scheduled = 0;
 
-  /* Is it time to schedule the next microblock? Check the next banking
-     tile to see if it is busy... */
-  ulong i = ctx->bank_poll_cursor;
-  ctx->bank_poll_cursor = fd_ulong_if( ctx->bank_poll_cursor==bank_cnt-1UL, 0UL, i+1UL );
 
-  /* optimize for the case we send a microblock */
-  if( FD_LIKELY( (fd_fseq_query( ctx->bank_current[i] )==ctx->bank_expect[i]) & (ctx->bank_ready_at[i]<now) ) ) {
+  /* Try to schedule the next microblock.  Do we have any idle bank
+     tiles? */
+  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
     any_ready = 1;
 
-    fd_pack_microblock_complete( ctx->pack, i );
+    int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
+
+    /* TODO: You can maybe make the case that this should happen as soon
+       as we detect the bank has become idle, but doing it now probably
+       helps with account locality. */
+    fd_pack_microblock_complete( ctx->pack, (ulong)i );
+
     /* TODO: record metrics for expire */
     fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, i, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
 
@@ -345,12 +386,14 @@ after_credit( void *             _ctx,
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
       trailer->bank = ctx->leader_bank;
 
-      ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, i );
+      ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
       fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
       ctx->bank_expect[ i ] = *mux->seq-1UL;
       ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt++;
+
+      ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
     }
   }
 
@@ -602,7 +645,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 
   ctx->bank_cnt         = tile->pack.bank_tile_count;
-  ctx->bank_poll_cursor = 0UL;
+  ctx->poll_cursor      = 0;
+  ctx->bank_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.bank_tile_count );
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
     FD_TEST( busy_obj_id!=ULONG_MAX );
