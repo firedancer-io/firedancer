@@ -1,8 +1,8 @@
 MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
-.PHONY: all info bin rust include lib unit-test fuzz-test help clean distclean asm ppp show-deps
-.PHONY: run-unit-test run-script-test run-fuzz-test run-integration-test
+.PHONY: all info bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
+.PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
 .PHONY: seccomp-policies cov-report dist-cov-report
 .SECONDARY:
 .SECONDEXPANSION:
@@ -13,7 +13,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help show-deps run-unit-test cov-report dist-cov-report
+AUX_RULES:=clean distclean help show-deps run-unit-test run-integration-test cov-report dist-cov-report
 
 all: info bin include lib unit-test fuzz-test
 
@@ -45,15 +45,17 @@ help:
 	# SCRUB           = $(SCRUB)
 	# FUZZFLAGS       = $(FUZZFLAGS)
 	# EXTRAS_CPPFLAGS = $(EXTRA_CPPFLAGS)
-	# Explicit goals are: all bin include lib unit-test help clean distclean asm ppp
-	# "make all" is equivalent to "make bin include lib unit-test"
+	# Explicit goals are: all bin include lib unit-test integration-test help clean distclean asm ppp
+	# "make all" is equivalent to "make bin include lib unit-test fuzz-test"
 	# "make info" makes build info $(OBJDIR)/info for the current platform (if not already made)
 	# "make bin" makes all binaries for the current platform (except those requiring the Rust toolchain)
 	# "make include" makes all include files for the current platform
 	# "make lib" makes all libraries for the current platform
 	# "make unit-test" makes all unit-tests for the current platform
+	# "make integration-test" makes all integration-tests for the current platform
 	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
+	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
@@ -88,6 +90,12 @@ run-unit-test:
 	# Running unit tests
 	#######################################################################
 	contrib/test/run_unit_tests.sh --tests $(OBJDIR)/unit-test/automatic.txt $(TEST_OPTS)
+
+run-integration-test:
+	#######################################################################
+	# Running integration tests
+	#######################################################################
+	contrib/test/run_integration_tests.sh --tests $(OBJDIR)/integration-test/automatic.txt $(TEST_OPTS)
 
 ##############################
 # Usage: $(call make-lib,name)
@@ -175,7 +183,9 @@ add-test-scripts = $(foreach script,$(1),$(eval $(call _add-script,unit-test,$(s
 # Usage: $(call make-bin,name,objs,libs)
 # Usage: $(call make-shared,name,objs,libs)
 # Usage: $(call make-unit-test,name,objs,libs)
+# Usage: $(call make-integration-test,name,objs,libs)
 # Usage: $(call run-unit-test,name,args)
+# Usage: $(call run-integration-test,name,args)
 # Usage: $(call make-fuzz-test,name,objs,libs)
 
 # Note: The library arguments require customization of each target
@@ -202,37 +212,6 @@ $(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/ob
 $(4): $(OBJDIR)/$(5)/$(1)
 
 endef
-# TODO: LML revisit this to figure out a better way of keeping component 1 build rules in sync with component 2
-define _make-exe-rust
-
-DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
-
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	#######################################################################
-	# Creating $(5) $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(filter-out -lrocksdb -lz,$(LDFLAGS)) -Wl,--end-group -o $$@
-
-$(4): $(OBJDIR)/$(5)/$(1)
-
-endef
-
-# TODO: LML revisit this to figure out a better way of keeping component 1 build rules in sync with component 2
-define _make-exe-rust
-
-DEPFILES+=$(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).d))
-
-$(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) $(foreach lib,$(3),$(OBJDIR)/lib/lib$(lib).a)
-	#######################################################################
-	# Creating $(5) $$@ from $$^
-	#######################################################################
-	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) $(filter-out -lrocksdb,$(LDFLAGS)) -Wl,--end-group -o $$@
-
-$(4): $(OBJDIR)/$(5)/$(1)
-
-endef
 
 # Generate list of automatic unit tests from $(call run-unit-test,...)
 unit-test: $(OBJDIR)/unit-test/automatic.txt
@@ -242,6 +221,16 @@ endef
 $(OBJDIR)/unit-test/automatic.txt:
 	$(MKDIR) "$(OBJDIR)/unit-test"
 	@$(foreach test,$(RUN_UNIT_TEST),echo $(test)>>$@;)
+
+# Generate list of automatic integration tests from $(call run-integration-test,...)
+integration-test: $(OBJDIR)/integration-test/automatic.txt
+define _run-integration-test
+RUN_INTEGRATION_TEST+=$(OBJDIR)/integration-test/$(1)
+endef
+$(OBJDIR)/integration-test/automatic.txt:
+	$(MKDIR) "$(OBJDIR)/integration-test"
+	@$(foreach test,$(RUN_INTEGRATION_TEST),echo $(test)>>$@;)
+	$(TOUCH) "$@"
 
 ifndef FD_HAS_FUZZ
 FUZZ_EXTRA:=$(OBJDIR)/lib/libfd_fuzz_stub.a
@@ -274,10 +263,12 @@ run-fuzz-test: $(1)_unit
 endef
 
 make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4)))
-make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin,$(4)))
+make-bin-rust  = $(eval $(call _make-exe,$(1),$(2),$(3),rust,bin,$(4)))
 make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared $(4)))
 make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
+make-integration-test = $(eval $(call _make-exe,$(1),$(2),$(3),integration-test,integration-test))
+run-integration-test  = $(eval $(call _run-integration-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 
 ##############################
@@ -433,12 +424,6 @@ MACHINE=$(MACHINE) \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/script_test-%p.profraw" \
 contrib/test/run_script_tests.sh
 
-run-integration-test: fddev
-	mkdir -p "$(OBJDIR)/cov/raw" && \
-OBJDIR=$(OBJDIR) \
-LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/integration_tests.profraw" \
-contrib/test/run_integration_tests.sh
-
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
 
@@ -459,54 +444,57 @@ seccomp-policies:
 # Documentation:
 #   https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
 #   https://llvm.org/docs/CoverageMappingFormat.html
+#   https://man.archlinux.org/man/lcov.1.en
 #
-# We thus have these steps:
-# 1. Compile with llvm-cov
-# 2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
-# 3. Merge raw profiles from test runs into a single profile per machine using 'llvm-profdata merge'
-# 4. Merge coverage mappings from all objects across all machines into an .ar file
-# 5. Combine profile data and coverage mapping using 'llvm-cov export'
-# 6. Generate HTML report using 'genhtml'
+# We thus have these steps
+#
+# 1. For each machine
+# 1.1. Compile with llvm-cov
+# 1.2. Run tests (This Makefile sets $LLVM_PROFILE_DATA appropriately for each kind of test)
+# 1.3. Merge raw profiles from test runs into a per-machine profile using 'llvm-profdata merge'
+# 1.4. Merge all machine objects into a thin .ar file
+# 1.5. Generate lcov tracefile from coverage mappings (step 1.4) and indexed profile data (step 1.3)
+# 1.6. Generate machine-specific HTML report using 'genhtml'
+#
+# 2. Once across all machines
+# 2.1. Merge lcov tracefiles using 'lcov -a'
+# 2.2. Generate combined HTML report using 'genhtml'
 
-# llvm-cov step 3: Merge and index "raw" profile data from test runs
+# llvm-cov step 1.3: Merge and index "raw" profile data from test runs
 $(OBJDIR)/cov/cov.profdata: $(wildcard $(OBJDIR)/cov/raw/*.profraw)
-	mkdir -p $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
+	$(MKDIR) $(OBJDIR)/cov && $(LLVM_PROFDATA) merge -o $@ $^
 
-# Usage: $(call make-lcov,<report_objdir>,<profdata_objdirs>)
-# e.g. $(call make-lcov,build/cov,build/machine1 build/machine2)
-#      will create build/cov/cov.lcov from build/machine{1,2}/cov/cov.profdata
-define _make-lcov
-# llvm-cov step 4
+# llvm-cov step 1.4
 # Create a thin archive containing all objects with coverage mappings.
 # Sigh ... llvm-cov has a bug that makes it blow up when it encounters
 # any object in the archive without an __llvm_covmap section, such as
 # objects compiled from assembly code.
-.PHONY: $(1)/cov/mappings.ar
-$(1)/cov/mappings.ar:
-	rm -f $(1)/cov/mappings.ar &&                       \
-  mkdir -p $$(dir $$@) &&                                   \
-  find $$(addsuffix /obj,$(2)) -name '*.o' -exec sh -c      \
-    '[[ -n "`llvm-objdump -h $$$$1 | grep llvm_covmap`" ]]  \
-    && llvm-ar --thin q $$@ $$$$1' sh {} \;
+.PHONY: $(OBJDIR)/cov/mappings.ar
+$(OBJDIR)/cov/mappings.ar:
+	rm -f $(OBJDIR)/cov/mappings.ar &&                       \
+  $(MKDIR) $(dir $@) &&                                    \
+  find $(addsuffix /obj,$(OBJDIR)) -name '*.o' -exec sh -c \
+    '[ -n "`llvm-objdump -h $$1 | grep llvm_covmap`" ]     \
+    && llvm-ar --thin q $@ $$1' sh {} \;
 
-# llvm-cov step 5
-$(1)/cov/cov.lcov: $$(addsuffix /cov/cov.profdata,$(2)) $(1)/cov/mappings.ar
-ifeq ($(2),)
+# llvm-cov step 1.5
+$(OBJDIR)/cov/cov.lcov: $(addsuffix /cov/cov.profdata,$(OBJDIR)) $(OBJDIR)/cov/mappings.ar
+ifeq ($(OBJDIR),)
 	echo "No profile data found. Did you set OBJDIRS?" >&2 && exit 1
 endif
-	$(LLVM_COV) export                             \
-  -format=lcov                                 \
-  $$(addprefix -instr-profile=,$$<)            \
-  $(1)/cov/mappings.ar                         \
-  --ignore-filename-regex="test_.*\\.c"        \
-> $$@
-endef
-make-lcov = $(eval $(call _make-lcov,$(1),$(2)))
+	$(LLVM_COV) export                    \
+  -format=lcov                          \
+  $(addprefix -instr-profile=,$<)       \
+  $(OBJDIR)/cov/mappings.ar             \
+  --ignore-filename-regex="test_.*\\.c" \
+> $@
 
-# Create lcov report for current target
-$(call make-lcov,$(OBJDIR),$(OBJDIR))
+# llvm-cov step 2.1
+# Merge multiple lcov files together
+$(BASEDIR)/cov/cov.lcov: $(shell find $(BASEDIR) -name 'cov.lcov' -print)
+	$(MKDIR) $(BASEDIR)/cov && $(LCOV) -o $@ $(addprefix -a ,$^)
 
-# llvm-cov step 6
+# llvm-cov step 1.6, 2.2
 # Create HTML coverage report using lcov genhtml
 %/cov/html/index.html: %/cov/cov.lcov
 	rm -rf $(dir $@) && $(GENHTML) --output $(dir $@) $<
@@ -515,8 +503,9 @@ $(call make-lcov,$(OBJDIR),$(OBJDIR))
 # `make cov-report` produces a coverage report from test runs for the
 # currently selected build profile
 cov-report: $(OBJDIR)/cov/html/index.html
+	$(LCOV) --summary $(OBJDIR)/cov/cov.lcov
 
 # `make dist-cov-report OBJDIRS="build/native/gcc build/native/clang ..."`
 # produces a coverage report from multiple build profiles
-$(call make-lcov,$(BASEDIR),$(OBJDIRS))
 dist-cov-report: $(BASEDIR)/cov/html/index.html
+	$(LCOV) --summary $(BASEDIR)/cov/cov.lcov

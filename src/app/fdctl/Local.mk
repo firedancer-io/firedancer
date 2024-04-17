@@ -2,10 +2,51 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_DOUBLE
 
-.PHONY: fdctl cargo rust solana
+include src/app/fdctl/with-version.mk
+$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
 
-$(call add-objs,main1 config caps utility topology keys ready mem spy help run/run run/tiles/tiles run/run1 run/run_solana run/tiles/tiles run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_poh run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_ext_store run/tiles/fd_gossip run/tiles/fd_sign run/tiles/fd_repair run/tiles/fd_tvu run/tiles/fd_store run/tiles/fd_replay run/tiles/fd_blackhole run/tiles/fd_pack_int monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
+# When we don't have libsolana_validator.a in the PHONY list, make fails
+# to realize that it has been updated. Not sure why this happens.
+.PHONY: fdctl cargo rust solana $(OBJDIR)/lib/libsolana_validator.a
+
+# fdctl core
+$(call add-objs,main1 config caps utility topology keys ready mem spy help,fd_fdctl)
+$(call add-objs,run/run run/run1 run/run_solana run/tiles/tiles,fd_fdctl)
+$(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 $(call add-objs,run/topos/topos run/topos/tvu run/topos/firedancer,fd_fdctl)
+
+# fdctl tiles
+$(call add-objs,run/tiles/fd_net,fd_fdctl)
+$(call add-objs,run/tiles/fd_metric,fd_fdctl)
+$(call add-objs,run/tiles/fd_netmux,fd_fdctl)
+$(call add-objs,run/tiles/fd_dedup,fd_fdctl)
+$(call add-objs,run/tiles/fd_pack,fd_fdctl)
+$(call add-objs,run/tiles/fd_quic,fd_fdctl)
+$(call add-objs,run/tiles/fd_verify,fd_fdctl)
+$(call add-objs,run/tiles/fd_poh,fd_fdctl)
+$(call add-objs,run/tiles/fd_bank,fd_fdctl)
+$(call add-objs,run/tiles/fd_shred,fd_fdctl)
+$(call add-objs,run/tiles/fd_ext_store,fd_fdctl)
+$(call add-objs,run/tiles/fd_gossip,fd_fdctl)
+$(call add-objs,run/tiles/fd_sign,fd_fdctl)
+$(call add-objs,run/tiles/fd_repair,fd_fdctl)
+$(call add-objs,run/tiles/fd_tvu,fd_fdctl)
+$(call add-objs,run/tiles/fd_store,fd_fdctl)
+$(call add-objs,run/tiles/fd_replay,fd_fdctl)
+$(call add-objs,run/tiles/fd_blackhole,fd_fdctl)
+$(call add-objs,run/tiles/fd_pack_int,fd_fdctl)
+
+# fdctl configure stages
+$(call add-objs,configure/configure,fd_fdctl)
+$(call add-objs,configure/large_pages,fd_fdctl)
+$(call add-objs,configure/shmem,fd_fdctl)
+$(call add-objs,configure/sysctl,fd_fdctl)
+$(call add-objs,configure/xdp,fd_fdctl)
+$(call add-objs,configure/xdp_leftover,fd_fdctl)
+$(call add-objs,configure/ethtool,fd_fdctl)
+$(call add-objs,configure/workspace,fd_fdctl)
+$(call add-objs,configure/workspace_leftover,fd_fdctl)
+
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_waltz fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_tango fd_tvu fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_tiles_verify)
@@ -44,10 +85,13 @@ cargo:
 # grained.
 ifeq ($(RUST_PROFILE),release)
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --release --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+else ifeq ($(RUST_PROFILE),release-with-debug)
+cargo:
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --profile=release-with-debug --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 else
 cargo:
-	cd ./solana && env --unset=LDFLAGS ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
+	cd ./solana && env --unset=LDFLAGS RUSTFLAGS="$(RUSTFLAGS)" ./cargo build --lib -p solana-validator -p solana-genesis -p solana-cli --bin solana
 endif
 
 solana/target/$(RUST_PROFILE)/libsolana_validator.a: cargo
