@@ -343,14 +343,14 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_t **         p_conn,
                            fd_quic_pkt_t *           pkt,
                            fd_quic_conn_id_t const * conn_id,
-                           uchar const *             cur_ptr,
+                           uchar *                   cur_ptr,
                            ulong                     cur_sz );
 
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            fd_quic_conn_t * conn,
                            fd_quic_pkt_t *  pkt,
-                           uchar const *    cur_ptr,
+                           uchar *          cur_ptr,
                            ulong            cur_sz );
 
 /* fd_quic_assign_streams attempts to distribute streams across         */
