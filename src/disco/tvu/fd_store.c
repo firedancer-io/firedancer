@@ -153,7 +153,7 @@ fd_store_slot_prepare( fd_store_t *   store,
 
   /* Prepare the replay_slot struct. */
   *block_out    = fd_blockstore_block_data_laddr( store->blockstore, block );
-  *block_sz_out = block->sz;
+  *block_sz_out = block->data_sz;
 
   /* Mark the block as prepared, and thus unsafe to remove. */
   block->flags = fd_uchar_set_bit( block->flags, FD_BLOCK_FLAG_PREPARED );

@@ -283,7 +283,7 @@ int fd_block_to_json( fd_textstream_t * ts,
   fd_slot_meta_t * meta = fd_blockstore_slot_meta_query(blks, slot);
 
   uchar const * block = fd_blockstore_block_data_laddr(blks, blk);
-  ulong block_sz = blk->sz;
+  ulong block_sz = blk->data_sz;
 
   FD_LOG_DEBUG(("converting ptr %p, sz %lu", (void *)block, block_sz));
 

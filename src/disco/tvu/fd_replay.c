@@ -196,6 +196,7 @@ fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i ) {
 
 fd_fork_t *
 fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
+
   fd_blockstore_start_read( replay->blockstore );
 
   ulong re_adds[2];
@@ -217,6 +218,7 @@ fd_replay_slot_prepare( fd_replay_t * replay, ulong slot ) {
   }
 
   ulong            parent_slot = slot_meta->parent_slot;
+
   fd_slot_meta_t * parent_slot_meta =
       fd_blockstore_slot_meta_query( replay->blockstore, parent_slot );
 
@@ -339,7 +341,7 @@ fd_replay_slot_execute( fd_replay_t *      replay,
       fd_runtime_block_eval_tpool( &fork->slot_ctx,
                                    capture_ctx,
                                    fd_blockstore_block_data_laddr( replay->blockstore, fork->head ),
-                                   fork->head->sz,
+                                   fork->head->data_sz,
                                    replay->tpool,
                                    replay->max_workers,
                                    1,

@@ -24,8 +24,11 @@
 #define FD_BLOCKSTORE_MAGIC ( 0xf17eda2ce7b10c00UL ) /* firedancer bloc version 0 */
 
 #define FD_BLOCKSTORE_SLOT_HISTORY_MAX ( 1UL << 13UL )
-#define FD_BLOCKSTORE_DUP_SHREDS_MAX   ( 32UL ) /* TODO think more about this */
 #define FD_BLOCKSTORE_BLOCK_SZ_MAX     ( FD_SHRED_MAX_SZ * ( 1 << 15UL ) )
+
+/* TODO think more about these */
+#define FD_BLOCKSTORE_NEXT_SLOT_MAX ( 32UL ) /* the maximum # of children a slot can have */
+#define FD_BLOCKSTORE_EQV_MAX       ( 32UL ) /* the maximum # of equivocating blocks in a slot */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -142,18 +145,32 @@ typedef struct fd_block_txn_ref fd_block_txn_ref_t;
 #define FD_BLOCK_FLAG_SNAPSHOT  7 /* 1xxxxxxx */
 
 struct fd_block {
-  ulong     shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
-  ulong     shreds_cnt;
-  ulong     micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
-  ulong     micros_cnt;
-  ulong     txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
-  ulong     txns_cnt;
+
+  /* metadata region */
+
   long      ts;         /* timestamp in nanosecs */
-  ulong     data_gaddr; /* ptr to the beginning of the block's allocated data region */
-  ulong     sz;         /* block size */
   ulong     height;     /* block height */
   fd_hash_t bank_hash;
   uchar     flags;
+
+  /* data region
+
+  A block's data region is indexed to support iterating by shred, microblock, or
+  transaction. This is done by iterating the headers for each, stored in allocated memory. To
+  iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
+  (offsetting by the bytes indicated in the shred header).
+
+  Note random access of individual shred indices is not performant, due to the variable-length
+  nature of shreds. */
+
+  ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
+  ulong data_sz;      /* block size */
+  ulong shreds_gaddr; /* ptr to the list of fd_blockstore_shred_t */
+  ulong shreds_cnt;
+  ulong micros_gaddr; /* ptr to the list of fd_blockstore_micro_t */
+  ulong micros_cnt;
+  ulong txns_gaddr; /* ptr to the list of fd_blockstore_txn_ref_t */
+  ulong txns_cnt;
 };
 typedef struct fd_block fd_block_t;
 
@@ -513,6 +530,9 @@ fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot 
 
 void
 fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
+
+void
+fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank );
 
 FD_PROTOTYPES_END
 
