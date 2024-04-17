@@ -32,7 +32,7 @@
    These are the main technical innovations that enable Solana to work
    well.
 
-   What about Proof of History? 
+   What about Proof of History?
 
    One particular niche problem is about the leader schedule.  When the
    leader computer is moving from one bank to another, the new bank must
@@ -66,10 +66,10 @@
     (1) Whenever any other leader in the network finishes a slot, and
         the slot is determined to be the best one to build off of, this
         tile gets "reset" onto that block, the so called "reset slot".
-    
+
     (2) The tile is constantly doing busy work, hash(hash(hash(...))) on
         top of the last reset slot, even when it is not leader.
-    
+
     (3) When the tile becomes leader, it continues hashing from where it
         was.  Typically, the prior leader finishes their slot, so the
         reset slot will be the parent one, and this tile only publishes
@@ -134,7 +134,7 @@
         hashcnt rate of the proof of history component.  This value is
         fixed at genesis time, and could be different for other chains
         and development environments which we also support.
-        
+
         There is a set of features, which increase the number of hashes
         per tick while keeping tick duration constant, which make the
         time per hashcnt lower although they are not yet deployed.  See
@@ -153,7 +153,7 @@
         The leader needs to periodically checkpoint the hash value
         associated with a given hashcnt so that they can publish it to
         other nodes for verification.
-        
+
         On mainnet-beta, testnet, and devnet this occurs once every
         12,500 hashcnts, or approximately once every 6.25 milliseconds.
         This value is determined at genesis time, and could be
@@ -364,7 +364,7 @@ typedef struct {
   /* We need to tell pack when we are done with a microblock so that it
      can reschedule (unlock) the accounts that were in it. */
   ulong * pack_busy[ 32 ];
-  
+
   fd_sha256_t * sha256;
   void * bmtree;
 
@@ -490,7 +490,7 @@ fd_ext_poh_initialize( ulong         hashcnt_duration_ns, /* See clock comments 
     FD_SPIN_PAUSE();
   }
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
-  
+
   ctx->hashcnt             = tick_height*hashcnt_per_tick;
   ctx->last_hashcnt        = ctx->hashcnt;
   ctx->reset_slot_hashcnt  = ctx->hashcnt;
@@ -552,12 +552,12 @@ fd_ext_poh_reset_slot( void ) {
 /* fd_ext_poh_reached_leader_slot returns 1 if we have reached a slot
    where we are leader.  This is used by the replay stage to determine
    if it should create a new leader bank descendant of the prior reset
-   slot block. 
-   
+   slot block.
+
    Sometimes, even when we reach our slot we do not return 1, as we are
    giving a grace period to the prior leader to finish publishing their
-   block. 
-   
+   block.
+
    out_leader_slot is the slot height of the leader slot we reached, and
    reset_slot is the slot height of the last good (unskipped) slot we
    are building on top of. */
@@ -735,7 +735,7 @@ fd_ext_poh_reset( ulong         reset_bank_slot, /* The slot that successfully p
     /* No longer have a leader bank if we are reset. Replay stage will
        call back again to give us a new one if we should become leader
        for the reset slot.
-       
+
        The order is important here, ctx->hashcnt must be updated before
        calling no_longer_leader. */
     no_longer_leader( ctx );
@@ -840,7 +840,7 @@ after_credit( void *             _ctx,
   if( FD_UNLIKELY( is_leader && !ctx->current_leader_bank ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay stage, do not do any hashing.
-       
+
        This is not ideal, but greatly simplifies the control flow. */
     return;
   }
@@ -857,7 +857,7 @@ after_credit( void *             _ctx,
 
        (a) Ticks. These occur every 12,500 (hashcnt_per_tick) hashcnts,
            and there will be 64 (ticks_per_slot) of them in each slot.
-           
+
            Ticks must not have any transactions mixed into the hash.
            This is not strictly needed in theory, but is required by the
            current consensus protocol.
@@ -1137,6 +1137,41 @@ privileged_init( fd_topo_t *      topo,
 
   const uchar * identity_key = load_key_into_protected_memory( tile->poh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
+}
+
+/* The Solana Labs client needs to communicate to the shred tile what
+   the shred version is on boot, but shred tile does not live in the
+   same address space, so have the PoH tile pass the value through
+   via. a shared memory ulong. */
+
+static volatile ulong * fd_shred_version;
+
+void
+fd_ext_shred_set_shred_version( ulong shred_version ) {
+  while( FD_UNLIKELY( !fd_shred_version ) ) FD_SPIN_PAUSE();
+  *fd_shred_version = shred_version;
+}
+
+
+void
+fd_ext_poh_publish_gossip_vote( uchar * data,
+                                ulong   data_len ) {
+  (void)data; (void)data_len;
+  //poh_link_publish( &gossip_pack, 1UL, data, data_len );
+}
+
+void
+fd_ext_poh_publish_leader_schedule( uchar * data,
+                                    ulong   data_len ) {
+  (void)data; (void)data_len;
+  //poh_link_publish( &stake_out, 2UL, data, data_len );
+}
+
+void
+fd_ext_poh_publish_cluster_info( uchar * data,
+                                 ulong   data_len ) {
+  (void)data; (void)data_len;
+  //poh_link_publish( &crds_shred, 2UL, data, data_len );
 }
 
 static void
