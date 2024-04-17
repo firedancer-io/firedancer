@@ -376,15 +376,15 @@ fd_quic_gen_new_keys(
 
 int
 fd_quic_crypto_encrypt(
-    uchar *                  const out,
-    ulong *                  const out_sz,
-    uchar const *            const hdr,
-    ulong                    const hdr_sz,
-    uchar const *            const pkt,
-    ulong                    const pkt_sz,
+    uchar *                        const out,
+    ulong *                        const out_sz,
+    uchar const *                  const hdr,
+    ulong                          const hdr_sz,
+    uchar const *                  const pkt,
+    ulong                          const pkt_sz,
     fd_quic_crypto_suite_t const * const suite,
-    fd_quic_crypto_keys_t *  const pkt_keys,
-    fd_quic_crypto_keys_t *  const hp_keys ) {
+    fd_quic_crypto_keys_t const *  const pkt_keys,
+    fd_quic_crypto_keys_t const *  const hp_keys ) {
 
   (void)suite;
 
@@ -472,30 +472,26 @@ fd_quic_crypto_encrypt(
 
 int
 fd_quic_crypto_decrypt(
-    uchar *                  const out,
-    ulong *                  const p_out_sz,
-    uchar const *            const in,
-    ulong                    const in_sz,
-    ulong                    const pkt_number_off,
-    ulong                    const pkt_number,
-    fd_quic_crypto_suite_t const * const suite,
-    fd_quic_crypto_keys_t  const * const keys ) {
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
+    ulong                          pkt_number,
+    fd_quic_crypto_suite_t const * suite,
+    fd_quic_crypto_keys_t const *  keys ) {
 
   (void)suite;
 
-  ulong const out_bufsz = *p_out_sz;
-
-  /* must have space for cipher_text_sz - FD_QUIC_CRYPTO_TAG_SZ */
-  if( FD_UNLIKELY( out_bufsz + FD_QUIC_CRYPTO_TAG_SZ < in_sz ) ) {
-    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
+  if( FD_UNLIKELY( ( pkt_number_off >= buf_sz      ) |
+                   ( buf_sz < FD_QUIC_SHORTEST_PKT ) ) ) {
+    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: cipher text buffer too small" ) ) );
     return FD_QUIC_FAILED;
   }
 
   /* Derive header size */
-  uint          first         = out[0];
-  ulong         pkt_number_sz = ( first & 0x03u ) + 1u;
-  uchar const * hdr           = out;
-  ulong         hdr_sz        = pkt_number_off + pkt_number_sz;
+  uint    first         = buf[0];
+  ulong   pkt_number_sz = ( first & 0x03u ) + 1u;
+  uchar * hdr           = buf;
+  ulong   hdr_sz        = pkt_number_off + pkt_number_sz;
 
   /* calculate nonce for decryption
      nonce is quic-iv XORed with *reconstructed* packet-number
@@ -509,78 +505,70 @@ fd_quic_crypto_decrypt(
     nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
   }
 
-  if( FD_UNLIKELY( ( pkt_number_off >= in_sz ) |
-                   ( hdr_sz         >  in_sz ) |
-                   ( in_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) )
+  if( FD_UNLIKELY( ( buf_sz < hdr_sz ) |
+                   ( buf_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) )
     return FD_QUIC_FAILED;
 
-  /* AES-GCM decrypt */
-  uchar *       const gcm_p   = out    + hdr_sz;
-  uchar const * const gcm_c   = in     + hdr_sz;
-  uchar const * const in_end  = in     + in_sz;
-  uchar const * const gcm_tag = in_end - FD_QUIC_CRYPTO_TAG_SZ;
-  ulong         const gcm_sz  = (ulong)( gcm_tag - gcm_c );
-  uchar const * const out_end = gcm_p  + gcm_sz;
-  uchar const * const gcm_a   = hdr;
-  ulong         const gcm_asz = hdr_sz;
-  if( FD_UNLIKELY( out_end > out + out_bufsz ) ) {
-    FD_DEBUG( FD_LOG_WARNING( ( "fd_quic_crypto_decrypt: plain text buffer too small" ) ) );
-    return FD_QUIC_FAILED;
-  }
+  /* Derive offsets
 
-  assert( FD_QUIC_CRYPTO_TAG_SZ<=in_sz  );
-  assert( gcm_p         >=out           );
-  assert( gcm_p+gcm_sz  <=out+out_bufsz );
-  assert( gcm_c         >=in            );
-  assert( gcm_c+gcm_sz  <=in+in_sz      );
-  assert( gcm_tag       >=in            );
-  assert( gcm_tag+FD_QUIC_CRYPTO_TAG_SZ<=in+in_sz );
+     +----------+ <-- buf
+     | Header   |
+     +----------+ <-- out
+     | Payload  |
+     +----------+ <-- gcm_tag
+     | GCM Tag  |
+     +----------+ <-- buf_end */
+
+  uchar * const out     = buf     + hdr_sz;
+  uchar * const buf_end = buf     + buf_sz;
+  uchar * const gcm_tag = buf_end - FD_QUIC_CRYPTO_TAG_SZ;
+  ulong   const gcm_sz  = (ulong)( gcm_tag - out );
 
   fd_aes_gcm_t pkt_cipher[1];
   fd_aes_128_gcm_init( pkt_cipher, keys->pkt_key, nonce );
 
   int decrypt_ok =
-    fd_aes_gcm_aead_decrypt( pkt_cipher, gcm_c, gcm_p, gcm_sz, gcm_a, gcm_asz, gcm_tag );
+   fd_aes_gcm_aead_decrypt( pkt_cipher,
+                            out /* ciphertext */, out /* plaintext */,
+                            gcm_sz,      /* size of plaintext */
+                            hdr, hdr_sz, /* associated data */
+                            gcm_tag      /* auth tag */ );
   if( FD_UNLIKELY( !decrypt_ok ) ) {
-    FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_aead_decrypt failed" )) );
-    return FD_QUIC_FAILED;
+   FD_DEBUG( FD_LOG_WARNING(( "fd_aes_gcm_aead_decrypt failed" )) );
+   return FD_QUIC_FAILED;
   }
 
-  *p_out_sz = (ulong)(out_end - out);
   return FD_QUIC_SUCCESS;
 }
 
 
 int
 fd_quic_crypto_decrypt_hdr(
-    uchar *                  plain_text,
-    ulong                    plain_text_sz,
-    uchar const *            cipher_text,
-    ulong                    cipher_text_sz,
-    ulong                    pkt_number_off,
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
     fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys ) {
 
   (void)suite;
 
   /* bounds checks */
-  if( FD_UNLIKELY( ( cipher_text_sz < FD_QUIC_CRYPTO_TAG_SZ ) |
-                   ( pkt_number_off >= cipher_text_sz       ) |
-                   ( plain_text_sz < pkt_number_off + 4     ) ) ) {
+  if( FD_UNLIKELY( ( buf_sz < FD_QUIC_CRYPTO_TAG_SZ ) |
+                   ( pkt_number_off >= buf_sz       ) ) ) {
     FD_DEBUG( FD_LOG_WARNING(( "decrypt hdr: bounds checks failed" )) );
     return FD_QUIC_FAILED;
   }
 
-  uint          first      = cipher_text[0]; /* first byte */
+  uint          first      = buf[0]; /* first byte */
   uint          long_hdr   = first & 0x80u;  /* long header? (this bit is not encrypted) */
   ulong         sample_off = pkt_number_off + 4;
 
-  if( FD_UNLIKELY( sample_off + FD_QUIC_HP_SAMPLE_SZ > cipher_text_sz ) ) {
+  if( FD_UNLIKELY( sample_off + FD_QUIC_HP_SAMPLE_SZ > buf_sz ) ) {
     FD_DEBUG( FD_LOG_WARNING(( "decrypt hdr: not enough bytes for a sample" )) );
     return FD_QUIC_FAILED;
   }
 
-  uchar const * sample = cipher_text + sample_off;
+  uchar * sample = buf + sample_off;
 
   /* TODO this is hardcoded to AES-128 */
   uchar hp_cipher[16];
@@ -588,22 +576,19 @@ fd_quic_crypto_decrypt_hdr(
   fd_aes_set_encrypt_key( keys->hp_key, 128, ecb );
   fd_aes_encrypt( sample, hp_cipher, ecb );
 
-  /* copy header, up to packet number, into output */
-  fd_memcpy( plain_text, cipher_text, sample_off );
-
   /* hp_cipher is mask */
   uchar const * mask = hp_cipher;
 
   /* undo first byte mask */
-  first        ^= (uint)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
-  plain_text[0] = (uchar)first;
+  first  ^= (uint)mask[0] & ( long_hdr ? 0x0fu : 0x1fu );
+  buf[0]  = (uchar)first;
 
   /* now we can calculate the actual packet number size */
   ulong pkt_number_sz = ( first & 0x03u ) + 1u;
 
   /* undo packet number encryption */
   for( ulong j = 0u; j < pkt_number_sz; ++j ) {
-    plain_text[pkt_number_off + j] ^= mask[1u+j];
+    buf[ pkt_number_off + j ] ^= mask[ 1u+j ];
   }
 
   return FD_QUIC_SUCCESS;
