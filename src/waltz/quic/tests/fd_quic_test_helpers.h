@@ -5,6 +5,7 @@
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../xdp/fd_xdp.h"
 #include "../../udpsock/fd_udpsock.h"
+#include "../../tls/test_tls_helper.h"
 
 /* Common helpers for QUIC tests.  The tests using these gain the
    following command-line options:
@@ -37,6 +38,14 @@ fd_quic_test_boot( int *    pargc,
                    char *** pargv );
 void
 fd_quic_test_halt( void );
+
+void
+fd_quic_config_anonymous( fd_quic_t * quic,
+                          int         role );
+
+void
+fd_quic_config_test_signer( fd_quic_t *              quic,
+                            fd_tls_test_sign_ctx_t * sign_ctx );
 
 /* fd_quic_new_anonymous creates an anonymous QUIC instance with the
    given limits.  Vacant config fields are auto-generated, except for
