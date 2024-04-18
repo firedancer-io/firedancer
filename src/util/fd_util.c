@@ -26,4 +26,3 @@ fd_halt( void ) {
 void fd_yield( void ) { sched_yield(); }
 
 #endif
-

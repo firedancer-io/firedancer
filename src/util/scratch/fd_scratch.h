@@ -17,7 +17,7 @@
    to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
-#define FD_SCRATCH_USE_HANDHOLDING 0
+#define FD_SCRATCH_USE_HANDHOLDING 1
 #endif
 
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
@@ -177,6 +177,13 @@ fd_scratch_attach( void * smem,
   fd_scratch_private_frame     = (ulong *)fmem;
   fd_scratch_private_frame_cnt = 0UL;
   fd_scratch_private_frame_max = depth;
+
+# if FD_HAS_DEEPASAN
+  /* Poison the entire smem region and populate with junk bytes for debugging.
+     Alignment should be hanmdled by the caller */
+  fd_memset( smem, 'A', smax );
+  fd_asan_poison( smem, smax );
+# endif
 }
 
 /* fd_scratch_detach detaches the calling thread from its current
@@ -198,6 +205,13 @@ fd_scratch_detach( void ** _opt_fmem ) {
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
   fd_scratch_in_prepare = 0;
+# endif
+
+# if FD_HAS_DEEPASAN
+  /* Unpoison the entire scratch space and fill with junk bytes. We have a guarantee
+     about the alignment region already. */
+  fd_asan_unpoison( (void *)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
+  fd_memset( (void *)fd_scratch_private_start, 'B', fd_scratch_private_stop - fd_scratch_private_start );
 # endif
 
   void * smem = (void *)fd_scratch_private_start;
@@ -255,6 +269,11 @@ fd_scratch_reset( void ) {
 # endif
   fd_scratch_private_free      = fd_scratch_private_start;
   fd_scratch_private_frame_cnt = 0UL;
+
+# if FD_HAS_DEEPASAN
+  /* Poison entire scratch space again. */
+  fd_asan_poison( (void *)fd_scratch_private_start, fd_scratch_private_stop - fd_scratch_private_start );
+# endif
 }
 
 /* fd_scratch_push creates a new scratch frame and makes it the current
@@ -292,6 +311,19 @@ fd_scratch_pop( void ) {
   fd_scratch_in_prepare = 0;
 # endif
   fd_scratch_private_free = fd_scratch_private_frame[ --fd_scratch_private_frame_cnt ];
+
+# if FD_HAS_DEEPASAN
+  /* On a pop() operation, the entire range from fd_scratch_private_free to the
+     end of the scratch space can be safely poisoned. The region must be aligned
+     to accomodate asan manual poisoning requirements. The region from the new
+     fd_scratch_private_free to the poisoned region is populated with junk bytes
+     for debugging. If the junk bytes are accessed before a frame is pushed and
+     is populated with allocations, then it is a bad memory access.*/
+  ulong aligned_free = fd_ulong_align_up( fd_scratch_private_free, FD_ASAN_ALIGN );
+  ulong poison_range = fd_scratch_private_stop - aligned_free;
+  fd_asan_poison( (void *)aligned_free, poison_range );
+  fd_memset( (void *)fd_scratch_private_free, 'C', aligned_free - fd_scratch_private_free );
+# endif
 }
 
 /* fd_scratch_prepare starts an allocation of unknown size and known
@@ -351,6 +383,10 @@ fd_scratch_prepare( ulong align ) {
 # endif
 
   ulong true_align = fd_scratch_private_true_align( align );
+# if FD_HAS_DEEPASAN
+  /* Need 8 byte alignment */
+  align            = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
+# endif
   ulong smem       = fd_ulong_align_up( fd_scratch_private_free, true_align );
 
 # if FD_SCRATCH_USE_HANDHOLDING
@@ -374,6 +410,22 @@ fd_scratch_publish( void * _end ) {
   if( FD_UNLIKELY( end > fd_scratch_private_stop ) )
     FD_LOG_ERR(( "publish needs %lu additional scratch", end-fd_scratch_private_stop ));
   fd_scratch_in_prepare   = 0;
+# endif
+
+# if FD_HAS_DEEPASAN
+  /* Unpoison the range from the previous fd_scratch_private_free to the end
+     address specified by the caller. The start address is aligned down because
+     the start of the scratch space is aligned and any prior bytes should be
+     unpoisoned already. The size is aligned up to accomodate 8 byte alignment
+     for asan manual poisoning. This is also acceptable because future allocations
+     will be aligned up. For debugging purposes the range from end_ to the end of
+     the unpoisoned region will be filled with junk bytes because these bytes
+     should not ever be accessed (until the frame is popped, pushed, and the
+     region is allocated again).  */
+  ulong aligned_addr = fd_ulong_align_dn( fd_scratch_private_free, FD_ASAN_ALIGN );
+  ulong aligned_sz = fd_ulong_align_up( end - aligned_addr, FD_ASAN_ALIGN );
+  fd_asan_unpoison( (void *) aligned_addr, aligned_sz );
+  fd_memset( _end, 'D', aligned_addr + aligned_sz - end );
 # endif
 
   fd_scratch_private_free = end;
@@ -427,7 +479,7 @@ fd_scratch_alloc( ulong align,
   ulong end  = smem + sz;
 
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( end < smem ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
+  if( FD_UNLIKELY( (end < smem) | (end > fd_scratch_private_stop) ) ) FD_LOG_ERR(( "sz (%lu) overflow", sz ));
 # endif
 
   fd_scratch_publish( (void *)end );
@@ -475,6 +527,16 @@ fd_scratch_trim( void * _end ) {
   if( FD_UNLIKELY( end < fd_scratch_private_frame[ fd_scratch_private_frame_cnt-1UL ] ) ) FD_LOG_ERR(( "trim underflow" ));
   if( FD_UNLIKELY( end > fd_scratch_private_free                                      ) ) FD_LOG_ERR(( "trim overflow" ));
   fd_scratch_in_prepare = 0;
+# endif
+
+# if FD_HAS_DEEPASAN
+  /* The region to poison should be from _end to the end of the scratch's region.
+     The same alignment considerations need to be taken into account. The region
+     that is trimmed but not poisoned will be populated with junk bytes. */
+  ulong aligned_free = fd_ulong_align_up( end, FD_ASAN_ALIGN );
+  ulong poison_range = fd_scratch_private_stop - aligned_free;
+  fd_asan_poison( (void*)aligned_free, poison_range );
+  fd_memset( (void*)end, 'E', aligned_free - end );
 # endif
 
   fd_scratch_private_free = end;

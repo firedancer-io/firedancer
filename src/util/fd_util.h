@@ -20,7 +20,7 @@
 #include "hist/fd_histf.h"
 #include "rng/fd_rng.h"             /* includes bits/fd_bits.h */
 #include "tpool/fd_tpool.h"         /* includes tile/fd_tile.h and scratch/fd_scratch.h */
-#include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h */
+#include "alloc/fd_alloc.h"         /* includes wksp/fd_wksp.h valloc/fd_valloc.h */
 #include "sandbox/fd_sandbox.h"
 
 /* Additional fd_util APIs that are not included by default */
@@ -286,7 +286,6 @@ FD_PROTOTYPES_BEGIN
 void
 fd_boot( int *    pargc,
          char *** pargv );
-
 void
 fd_halt( void );
 
