@@ -34,6 +34,15 @@ extern int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz );
 
+__attribute__((weak))
+ulong
+LLVMFuzzerMutate( uchar * data,
+                  ulong   data_sz,
+                  ulong   max_sz ) {
+  (void)data; (void)data_sz; (void)max_sz;
+  return 0UL;
+}
+
 int
 main( int     argc,
       char ** argv ) {
