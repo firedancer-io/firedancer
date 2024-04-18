@@ -12,6 +12,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   NULL,
   NULL,
   NULL,
+  NULL,
 };
 
 extern fd_topo_run_tile_t fd_tile_net;

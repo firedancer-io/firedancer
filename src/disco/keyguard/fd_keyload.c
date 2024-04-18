@@ -90,3 +90,17 @@ fd_keyload_load( char const * key_path,
   if( public_key_only ) return key_page+32UL;
   else                  return key_page;
 }
+
+void FD_FN_SENSITIVE
+fd_keyload_unload( uchar const * key,
+                   int           public_key_only ) {
+  void * key_page = public_key_only ? (uchar *)key-32UL : (uchar *)key;
+  ulong sz = (2UL*1UL+2UL)*4096UL;
+
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  explicit_bzero( key_page, 4096UL );
+
+  if( FD_UNLIKELY( -1==munmap( (uchar*)key_page - 2UL*4096UL, sz ) ) )
+    FD_LOG_ERR(( "munmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
