@@ -127,6 +127,14 @@ user = "firedancer"
     ]
 ```
 
+::: warning WARNING
+
+The Firedancer blockstore in the ledger directory is not compatible with
+the one for the Agave validator, and you should not attempt to switch
+between validator clients while keeping the `ledger` directory in place.
+
+:::
+
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
 be Solana Labs style keys, which can be generated with the Solana Labs
