@@ -7,8 +7,14 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
   if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
 
-  /* Unpack the VM configuration */
+  /* Unpack the configuration */
+  /* FIXME: move this into fd_vm_init */
+  int err = fd_vm_setup_state_for_execution( vm );
+  if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
+    return err;
+  }
 
+  /* Pull out variables needed for the fd_vm_interp_core template */
   int   check_align = vm->check_align;
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
   ulong heap_max    = vm->heap_max;
@@ -21,33 +27,15 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
   fd_sbpf_syscalls_t const * FD_RESTRICT syscalls = vm->syscalls;
 
-  fd_vm_mem_cfg( vm ); /* unpacks input and rodata */
   ulong const * FD_RESTRICT region_haddr = vm->region_haddr;
   uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
   uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
 
-  /* Initialize the VM state */
-
-  vm->pc        = vm->entry_pc;
-  vm->ic        = 0UL;
-  vm->cu        = vm->entry_cu;
-  vm->frame_cnt = 0UL;
-
-  vm->heap_sz = 0UL;
-  vm->log_sz  = 0UL;
-
-  /* FIXME: Zero out reg, shadow, stack and heap here? */
-
   ulong * FD_RESTRICT reg = vm->reg;
-  reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
-  reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
   /* Run the VM */
-
-  int err = FD_VM_SUCCESS;
-
 # include "fd_vm_interp_core.c"
 
   return err;
