@@ -31,6 +31,9 @@ deps-bundle.tar.zst
 *.swp
 *.swo
 
+# VSCode
+.vscode
+
 # Packet Captures
 *.pcap
 *.pcapng
