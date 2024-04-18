@@ -97,4 +97,5 @@ ifdef FD_HAS_OPENSSL
 include config/extra/with-openssl.mk
 endif
 
+include config/extra/with-libsecp256k1.mk
 include config/extra/with-zstd.mk
