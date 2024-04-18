@@ -1838,10 +1838,11 @@ fd_quic_handle_v1_retry(
 ) {
   (void)pkt;
 
-  if ( FD_UNLIKELY ( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
-    if ( FD_UNLIKELY( conn ) ) { /* likely a misbehaving client w/o a conn */
-      fd_quic_conn_close( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
-    }
+  if( FD_UNLIKELY( !conn ) ) {
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( FD_UNLIKELY( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1851,7 +1852,7 @@ fd_quic_handle_v1_retry(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer->conn_id;
+  fd_quic_conn_id_t * orig_dst_conn_id = &conn->peer[0].conn_id;
 
   /* Validate the Retry Integrity Tag. TODO can we make this more efficient? */
   fd_quic_retry_pseudo_t retry_pseudo_pkt = {
@@ -1962,7 +1963,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
   ulong rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, cur_sz );
   if( rc == FD_QUIC_PARSE_FAIL ) {
-    FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_one_rtt failed" )) );
+    FD_DEBUG( FD_LOG_DEBUG(( "1-RTT: failed to decode" )) );
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1974,7 +1975,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
   /* check our suite has been chosen */
   if( FD_UNLIKELY( !suite ) ) {
-    FD_LOG_WARNING(( "fd_quic_handle_v1_one_rtt - suite missing" ));
+    FD_DEBUG( FD_LOG_DEBUG(( "1-RTT: no decryption secrets" )) );
     return FD_QUIC_PARSE_FAIL;
   }
 
