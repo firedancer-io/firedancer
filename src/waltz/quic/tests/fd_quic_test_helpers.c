@@ -1,5 +1,4 @@
 #include "fd_quic_test_helpers.h"
-#include "../../tls/test_tls_helper.h"
 #include "../../../util/net/fd_pcapng.h"
 #include <errno.h>
 #include <stdlib.h>
@@ -106,16 +105,9 @@ fd_quic_test_halt( void ) {
 
 /* QUIC creation helper */
 
-fd_quic_t *
-fd_quic_new_anonymous( fd_wksp_t *              wksp,
-                       fd_quic_limits_t const * limits,
-                       int                      role,
-                       fd_rng_t *               rng ) {
-  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits );
-  FD_TEST( shquic );
-
-  fd_quic_t * quic = fd_quic_join( shquic );
-  FD_TEST( quic );
+void
+fd_quic_config_anonymous( fd_quic_t * quic,
+                          int         role ) {
 
   fd_quic_config_t * config = &quic->config;
   config->role = role;
@@ -142,14 +134,6 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   config->service_interval = (ulong) 10e6; /*  10ms */
   strcpy( config->sni, "local" );
 
-  /* Signer */
-  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
-  *sign_ctx = fd_tls_test_sign_ctx( rng );
-
-  fd_memcpy( config->identity_public_key, sign_ctx->public_key, 32UL );
-  config->sign_ctx = sign_ctx;
-  config->sign     = fd_tls_test_sign_sign;
-
   /* Default callbacks */
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;
   quic->cb.conn_hs_complete = fd_quic_test_cb_conn_handshake_complete;
@@ -160,6 +144,33 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
   quic->cb.now              = fd_quic_test_now;
   quic->cb.now_ctx          = NULL;
+}
+
+void
+fd_quic_config_test_signer( fd_quic_t *              quic,
+                            fd_tls_test_sign_ctx_t * sign_ctx ) {
+  fd_quic_config_t * config = &quic->config;
+  fd_memcpy( config->identity_public_key, sign_ctx->public_key, 32UL );
+  config->sign_ctx = sign_ctx;
+  config->sign     = fd_tls_test_sign_sign;
+}
+
+fd_quic_t *
+fd_quic_new_anonymous( fd_wksp_t *              wksp,
+                       fd_quic_limits_t const * limits,
+                       int                      role,
+                       fd_rng_t *               rng ) {
+  void * shquic = fd_quic_new( fd_wksp_alloc_laddr( wksp, fd_quic_align(), fd_quic_footprint( limits ), 1UL ), limits );
+  FD_TEST( shquic );
+
+  fd_quic_t * quic = fd_quic_join( shquic );
+  FD_TEST( quic );
+
+  fd_quic_config_anonymous( quic, role );
+
+  fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
+  *sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_quic_config_test_signer( quic, sign_ctx );
 
   return quic;
 }
