@@ -98,6 +98,21 @@ void *
 fd_blake3_fini( fd_blake3_t * sha,
                 void *        hash );
 
+/* fd_blake3_fini_512 is the same as fd_blake3_fini, but returns
+   a 512-bit hash value instead of 256-bit. */
+
+void *
+fd_blake3_fini_512( fd_blake3_t * sha,
+                    void *        hash );
+
+/* fd_blake3_fini_varlen is the same as fd_blake3_fini, but returns
+   hash_len bytes instead of 256-bit. */
+
+void *
+fd_blake3_fini_varlen( fd_blake3_t * sha,
+                       void *        hash, 
+                       ulong         hash_len );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_blake3_fd_blake3_h */
