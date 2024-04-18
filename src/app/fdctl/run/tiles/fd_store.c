@@ -98,7 +98,11 @@ after_frag( void *             _ctx,
   fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;
 
   FD_TEST( shred34->shred_sz<=shred34->stride );
-  FD_TEST( shred34->shred_cnt==0UL || (shred34->offset + shred34->stride*(shred34->shred_cnt-1) + shred34->shred_sz <= *opt_sz) );
+  if( FD_LIKELY( shred34->shred_cnt ) ) {
+    FD_TEST( shred34->offset<*opt_sz  );
+    FD_TEST( shred34->shred_cnt<=34UL );
+    FD_TEST( shred34->stride==sizeof(shred34->pkts[0]) );
+  }
 
   /* No error code because this cannot fail. */
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, shred34->shred_cnt, ctx->mem+shred34->offset, shred34->shred_sz, shred34->stride );
