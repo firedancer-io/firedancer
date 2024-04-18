@@ -149,6 +149,8 @@ struct fd_vm {
                                                               operations can clobber to simplify a lot of string parsing code. */
 
    fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
+
+   ulong magic;    /* ==FD_VM_MAGIC */
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -158,12 +160,98 @@ FD_PROTOTYPES_BEGIN
 
 /* FIXME: FD_VM_T NEEDS PROPER CONSTRUCTORS */
 
+/* FD_VM_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
+   for a memory region to hold a fd_vm_t.  ALIGN is a positive
+   integer power of 2.  FOOTPRINT is a multiple of align. These are provided to facilitate compile time declarations. */
+#define FD_VM_ALIGN     (8UL) 
+#define FD_VM_FOOTPRINT (799528UL)
+
+/* fd_vm_{align,footprint} give the needed alignment and footprint
+   of a memory region suitable to hold an fd_vm_t.
+   Declaration / aligned_alloc / fd_alloca friendly (e.g. a memory
+   region declared as "fd_vm_t _vm[1];", or created by
+   "aligned_alloc(alignof(fd_vm_t),sizeof(fd_vm_t))" or created
+   by "fd_alloca(alignof(fd_vm_t),sizeof(fd_vm_t))" will all
+   automatically have the needed alignment and footprint).
+   fd_vm_{align,footprint} return the same value as
+   FD_VM_{ALIGN,FOOTPRINT}. */
+FD_FN_CONST ulong
+fd_vm_align( void );
+
+FD_FN_CONST ulong
+fd_vm_footprint( void );
+
+#define FD_VM_MAGIC (0xF17EDA2CEF0) /* FIREDANCE SBPF V0 */
+ 
+/* fd_vm_new formats memory region with suitable alignment and
+   footprint suitable for holding a fd_vm_t.  Assumes
+   shmem points on the caller to the first byte of the memory region
+   owned by the caller to use.  Returns shmem on success and NULL on
+   failure (logs details).  The memory region will be owned by the state
+   on successful return.  The caller is not joined on return. */
+
+void *
+fd_vm_new( void * shmem );
+
+/* fd_vm_join joins the caller to a vm.
+   Assumes shmem points to the first byte of the memory region holding
+   the vm.  Returns a local handle to the join on success (this is
+   not necessarily a simple cast of the address) and NULL on failure
+   (logs details). */
+fd_vm_t *
+fd_vm_join( void * shmem );
+
+/* fd_vm_init initializes the given fd_vm_t struct, checking that it is 
+   not null and has the correct magic value.
+   
+   It modifies the vm object and also returns the object for convenience. */
+fd_vm_t *
+fd_vm_init( 
+   fd_vm_t * vm,
+   fd_exec_instr_ctx_t *instr_ctx,
+   ulong heap_max,
+   ulong entry_cu,
+   uchar * rodata,
+   ulong rodata_sz,
+   ulong * text,
+   ulong text_cnt,
+   ulong text_off,
+   ulong entry_pc,
+   ulong * calldests,
+   fd_sbpf_syscalls_t * syscalls,
+   uchar * input,
+   ulong input_sz,
+   fd_vm_trace_t * trace,
+   fd_sha256_t * sha );
+
+/* fd_vm_leave leaves the caller's current local join to a vm. 
+   Returns a pointer to the memory region holding the vm on success 
+   (this is not necessarily a simple cast of the
+   address) and NULL on failure (logs details).  The caller is not
+   joined on successful return. */
+void *
+fd_vm_leave( fd_vm_t * vm );
+
+/* fd_vm_delete unformats a memory region that holds a vm.
+   Assumes shmem points on the caller to the first
+   byte of the memory region holding the state and that nobody is
+   joined.  Returns a pointer to the memory region on success and NULL
+   on failure (logs details).  The caller has ownership of the memory
+   region on successful return. */
+void *
+fd_vm_delete( void * shmem );
+
 /* fd_vm_validate validates the sBPF program in the given vm.  Returns
    success or an error code.  Called before executing a sBPF program.
    FIXME: DOCUMENT BETTER */
 
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
+
+/* FIXME: make this trace-aware, and move into fd_vm_init
+   This is a temporary hack to make the fuzz harness work. */
+int
+fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
 
 /* fd_vm_exec runs vm from program start to program halt or program
    fault, appending an execution trace if vm is attached to a trace.
