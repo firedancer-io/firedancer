@@ -1,0 +1,28 @@
+# Configuration file used for benchmarking on an Intel Icelake CPU with
+# AVX512 support for the 1.4 Milestone demo.  The configuration expects
+# 80 physical cores (40 on each socket of a dual socket CPU).  In production,
+# the configuration would be different as cores do not need to be dedicated
+# to generating and sending transactions for benchmarking.
+[ledger]
+  path = "/data/shm/{name}/ledger"
+
+[layout]
+  affinity = "14-73"
+  solana_labs_affinity = "74-79"
+  verify_tile_count = 32
+  bank_tile_count = 19
+
+[development.genesis]
+  hashes_per_tick = 12500
+  fund_initial_accounts = 10000
+
+[development.bench]
+  benchg_tile_count = 12
+  benchs_tile_count = 2
+  affinity = "f1,0-13"
+  larger_max_cost_per_block = true
+  larger_shred_limits_per_block = true
+
+[rpc]
+  transaction_history = false
+  extended_tx_metadata_storage = false
