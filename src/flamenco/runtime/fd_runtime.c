@@ -3662,7 +3662,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       continue;
     }
     uchar * val = fd_blockstore_block_data_laddr( blockstore, blk );
-    ulong   sz  = blk->sz;
+    ulong   sz  = blk->data_sz;
     fd_blockstore_end_read( blockstore );
 
     ulong blk_txn_cnt = 0;

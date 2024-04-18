@@ -1,3 +1,3 @@
 FD_HAS_ROCKSDB:=1
 CFLAGS+=-DFD_HAS_ROCKSDB=1
-LDFLAGS+=-lrocksdb -lz
+ROCKSDB_LIBS:=-lrocksdb -lz
