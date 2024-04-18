@@ -91,7 +91,7 @@ checkout_repo () {
   echo "[~] Checking out $1 $3"
   (
     cd ./opt/git/"$1"
-    git fetch origin "$3" --depth=1
+    git fetch origin "$3" --tags --depth=1
     git -c advice.detachedHead=false checkout "$3"
   )
   echo
@@ -105,7 +105,7 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
-  #checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 }
 
@@ -292,7 +292,9 @@ install_secp256k1 () {
     -DSECP256K1_ENABLE_MODULE_RECOVERY=ON \
     -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=OFF \
     -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=OFF \
-    -DSECP256K1_ENABLE_MODULE_ECDH=OFF
+    -DSECP256K1_ENABLE_MODULE_ECDH=OFF \
+    -DCMAKE_C_FLAGS_RELEASE="-O3" \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
   echo "[+] Building secp256k1"
   "${MAKE[@]}"
@@ -444,7 +446,7 @@ install () {
   #( install_zlib      )
   #( install_bzip2     )
   ( install_zstd      )
-  #( install_secp256k1 )
+  ( install_secp256k1 )
   ( install_openssl   )
   #( install_rocksdb   )
   #( install_libff     )
