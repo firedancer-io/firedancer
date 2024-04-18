@@ -23,6 +23,9 @@
        for Merkle shreds, followed by:
 
       +------------------------+
+      | (Chained merkle root)  | 32 bytes
+      +------------------------+
+      +------------------------+
       | Merkle node #0 (root)  | 20 bytes
       +------------------------+
       | Merkle node #1         | 20 bytes
@@ -87,14 +90,18 @@
 #define FD_SHRED_TYPE_MERKLE_DATA ((uchar)0x80)
 /* FD_SHRED_TYPE_MERKLE_CODE: A shred carrying Reed-Solomon ECC and a merkle inclusion proof. */
 #define FD_SHRED_TYPE_MERKLE_CODE ((uchar)0x40)
+/* FD_SHRED_TYPE_MERKLE_DATA_CHAINED: A shred carrying raw binary data and a chained merkle inclusion proof. */
+#define FD_SHRED_TYPE_MERKLE_DATA_CHAINED ((uchar)0x90)
+/* FD_SHRED_TYPE_MERKLE_CODE_CHAINED: A shred carrying Reed-Solomon ECC and a chained merkle inclusion proof. */
+#define FD_SHRED_TYPE_MERKLE_CODE_CHAINED ((uchar)0x60)
 
 /* FD_SHRED_TYPEMASK_DATA: bitwise AND with type matches data shred */
 #define FD_SHRED_TYPEMASK_DATA FD_SHRED_TYPE_MERKLE_DATA
 /* FD_SHRED_TYPEMASK_CODE: bitwise AND with type matches code shred */
 #define FD_SHRED_TYPEMASK_CODE FD_SHRED_TYPE_MERKLE_CODE
-/* FD_SHRED_TYPEMASK_LEGACY: bitwise AND with type matches legacy shred */
-#define FD_SHRED_TYPEMASK_LEGACY ((uchar)0x30)
 
+/* FD_SHRED_MERKLE_ROOT_SZ: the size of a merkle tree root in bytes. */
+#define FD_SHRED_MERKLE_ROOT_SZ (32UL)
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
 /* A merkle inclusion proof node. */
@@ -109,6 +116,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 #define FD_SHRED_DATA_FLAG_SLOT_COMPLETE ((uchar)0x80)
 /* Mask of the "data batch complete" bit in shred.data.flags */
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
+
+/* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
+#define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
 
 /* Firedancer-specific internal error codes.
 
@@ -134,10 +144,19 @@ struct __attribute__((packed)) fd_shred {
   /* Shred variant specifier
      Consists of two four bit fields. (Deliberately not using bit fields here)
 
-     The high bits indicate the shred type.
+     The high four bits indicate the shred type:
+     - 0101: legacy code
+     - 1010: legacy data
+     - 0100: merkle code
+     - 0110: merkle code (chained)
+     - 1000: merkle data
+     - 1001: merkle data (chained)
 
-     For legacy type shreds, the low bits are set to static patterns.
-     For merkle type shreds, the low bits are set to the number of non-root nodes in the inclusion proof. */
+     For legacy type shreds, the low four bits are set to static patterns.
+     For merkle type shreds, the low four bits are set to the number of non-root nodes in the inclusion proof.
+     For chained merkle code type shreds, the 3rd highest bit represents if the merkle tree is chained.
+     For chained merkle data type shreds, the 4th highest bit represents if the merkle tree is 
+     chained. */
   /* 0x40 */ uchar  variant;
 
   /* Slot number that this shred is part of */
@@ -162,12 +181,12 @@ struct __attribute__((packed)) fd_shred {
       /* Bit field (MSB first)
          See FD_SHRED_DATA_FLAG_*
 
-          [XX.. ....] Block complete?       0b00=no 0b11=yes (implies Entry batch complete)
+          [XX.. ....] Block complete?       0b00=no 0b01=no 0b11=yes (implies Entry batch complete)
           [.X.. ....] Entry batch complete?  0b0=no  0b1=yes
           [..XX XXXX] Reference tick number */
       /* 0x55 */ uchar  flags;
 
-      /* Actual shred size including headers and Merkle proof */
+      /* Shred size: size of data shred headers (88 bytes) + payload length */
       /* 0x56 */ ushort size;
     } data;
 
@@ -217,9 +236,13 @@ fd_shred_variant( uchar type,
 
 FD_FN_PURE static inline ulong
 fd_shred_sz( fd_shred_t const * shred ) {
-  return fd_ulong_if( shred->variant & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ,
-         fd_ulong_if( fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA, FD_SHRED_MIN_SZ,
-                                                                                  shred->data.size ) ); /* Legacy data */
+  uchar type = fd_shred_type( shred->variant );
+  return fd_ulong_if( 
+    type & FD_SHRED_TYPEMASK_CODE,
+    FD_SHRED_MAX_SZ,
+    fd_ulong_if( ( type==FD_SHRED_TYPE_MERKLE_DATA ) | ( type==FD_SHRED_TYPE_MERKLE_DATA_CHAINED ),
+      FD_SHRED_MIN_SZ,
+      shred->data.size ) ); /* Legacy data */
 }
 
 /* fd_shred_header_sz: Returns the header size of a shred.
@@ -229,9 +252,9 @@ fd_shred_sz( fd_shred_t const * shred ) {
 FD_FN_CONST static inline ulong
 fd_shred_header_sz( uchar variant ) {
   uchar type = fd_shred_type( variant );
-  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_DATA) | (type==FD_SHRED_TYPE_LEGACY_DATA) ) )
+  if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) )
     return FD_SHRED_DATA_HEADER_SZ;
-  if( FD_LIKELY( (type==FD_SHRED_TYPE_MERKLE_CODE) | (type==FD_SHRED_TYPE_LEGACY_CODE) ) )
+  if( FD_LIKELY( type & FD_SHRED_TYPEMASK_CODE ) )
     return FD_SHRED_CODE_HEADER_SZ;
   return 0;
 }
@@ -242,7 +265,7 @@ fd_shred_header_sz( uchar variant ) {
 FD_FN_CONST static inline uint
 fd_shred_merkle_cnt( uchar variant ) {
   uchar type = fd_shred_type( variant );
-  if( FD_UNLIKELY( type & FD_SHRED_TYPEMASK_LEGACY ) )
+  if( FD_UNLIKELY( ( type == FD_SHRED_TYPE_LEGACY_DATA ) | ( type == FD_SHRED_TYPE_LEGACY_CODE ) ) )
     return 0;
   return (variant&0xfU);
 }
@@ -254,14 +277,25 @@ fd_shred_merkle_sz( uchar variant ) {
   return fd_shred_merkle_cnt( variant ) * FD_SHRED_MERKLE_NODE_SZ;
 }
 
+
+/* fd_is_chained_shred: Returns true if the shred is a chained merkle data or code shred. */
+FD_FN_CONST static inline uchar
+fd_is_chained_shred( ulong type ) {
+  return ( type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) 
+       | ( type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED );
+}
+
 /* fd_shred_payload_sz: Returns the payload size of a shred.
    Undefined behavior if the shred has not passed `fd_shred_parse`. */
 FD_FN_PURE static inline ulong
 fd_shred_payload_sz( fd_shred_t const * shred ) {
-  if( FD_LIKELY( fd_shred_type( shred->variant ) & FD_SHRED_TYPEMASK_DATA ) ) {
+  ulong type = fd_shred_type( shred->variant );
+  if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
     return shred->data.size - FD_SHRED_DATA_HEADER_SZ;
   } else {
-    return fd_shred_sz( shred ) - FD_SHRED_CODE_HEADER_SZ - fd_shred_merkle_sz( shred->variant );
+    return fd_shred_sz( shred ) - FD_SHRED_CODE_HEADER_SZ 
+      - fd_shred_merkle_sz( shred->variant ) 
+      - fd_ulong_if( fd_is_chained_shred( type ), FD_SHRED_MERKLE_ROOT_SZ, 0 );
   }
 
 }
@@ -287,7 +321,7 @@ fd_shred_merkle_nodes( fd_shred_t const * shred ) {
 /* fd_shred_data_payload: Returns a pointer to a data shred payload.
 
   The provided shred must have passed validation in fd_shred_parse(),
-  and must satisfy `type==FD_SHRED_TYPE_LEGACY_DATA || type==FD_SHRED_TYPE_MERKLE_DATA`
+  and must satisfy `type&FD_SHRED_TYPEMASK_DATA`
   where `uchar type = fd_shred_type( shred->variant )`. */
 FD_FN_CONST static inline uchar const *
 fd_shred_data_payload( fd_shred_t const * shred ) {
@@ -297,7 +331,7 @@ fd_shred_data_payload( fd_shred_t const * shred ) {
 /* fd_shred_code_payload: Returns a pointer to a coding shred payload.
 
   The provided shred must have passed validation in fd_shred_parse(),
-  and must satisfy `type==FD_SHRED_TYPE_LEGACY_CODE || type==FD_SHRED_TYPE_MERKLE_CODE`
+  and must satisfy `type&FD_SHRED_TYPEMASK_CODE`
   where `uchar type = fd_shred_type( shred->variant )`. */
 FD_FN_CONST static inline uchar const *
 fd_shred_code_payload( fd_shred_t const * shred ) {

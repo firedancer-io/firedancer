@@ -68,15 +68,16 @@ main( int     argc,
     buf[0x40] = (uchar)i;
 
     /* Make sure our buffer is larger than the smallest size of the largest shred variant. */
-    FD_STATIC_ASSERT( sizeof(buf) > sizeof(fd_shred_t)+(((1<<4)-1))*FD_SHRED_MERKLE_NODE_SZ,
+    FD_STATIC_ASSERT( sizeof(buf) > sizeof(fd_shred_t)+(((1<<4)-1))*FD_SHRED_MERKLE_NODE_SZ+FD_SHRED_MERKLE_ROOT_SZ,
                       "buffer must be large enough to fit shred with 15 merkle nodes" );
 
     /* Test type detection */
-    int is_legacy =  i      ==0x5a ||  i      ==0xa5;
-    int is_merkle = (i&0xf0)==0x40 || (i&0xf0)==0x80;
-    int is_data   =  i      ==0xa5 || (i&0xf0)==0x80;
-    int is_code   =  i      ==0x5a || (i&0xf0)==0x40;
-    int is_valid  = (is_legacy^is_merkle) && (is_data^is_code);
+    int is_legacy  =  i      ==0x5a ||  i      ==0xa5;
+    int is_merkle  = (i&0xf0)==0x40 || (i&0xf0)==0x80 || (i&0xf0)==0x90 || (i&0xf0)==0x60;
+    int is_data    =  i      ==0xa5 || (i&0xf0)==0x80 || (i&0xf0)==0x90;
+    int is_code    = (i      ==0x5a || (i&0xf0)==0x40 || (i&0xf0)==0x60);
+    int is_chained = ((i&0xf0)==0x90 || (i&0xf0)==0x60 );
+    int is_valid   = (is_legacy^is_merkle) && (is_data^is_code) && (!is_chained || is_merkle);
 
     /* Find sizes for shred type */
     ulong header_sz = 0;
@@ -84,7 +85,9 @@ main( int     argc,
     if( FD_LIKELY( is_code   ) ) header_sz = 0x59;
     ulong merkle_sz = 0;
     if( FD_LIKELY( is_merkle ) ) merkle_sz = (i&0x0f)*FD_SHRED_MERKLE_NODE_SZ;
-    ulong payload_sz = ((is_merkle&is_data) ? FD_SHRED_MIN_SZ : FD_SHRED_MAX_SZ) - header_sz - merkle_sz;
+    ulong chained_root_sz = 0;
+    if( FD_LIKELY( is_chained ) ) chained_root_sz = FD_SHRED_MERKLE_ROOT_SZ;
+    ulong payload_sz = ((is_merkle&is_data) ? FD_SHRED_MIN_SZ : FD_SHRED_MAX_SZ) - header_sz - merkle_sz - chained_root_sz;
 
     if( is_data )
       *(ushort*)(buf+0x56) = (ushort)(payload_sz + header_sz); /* write data.size */
