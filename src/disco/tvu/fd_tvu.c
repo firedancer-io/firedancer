@@ -916,11 +916,11 @@ void snapshot_setup( char const * snapshot,
 }
 
 void
-snapshot_insert( fd_fork_t *       fork,
-                 ulong             snapshot_slot,
-                 fd_blockstore_t * blockstore,
-                 fd_replay_t *     replay,
-                 fd_tower_t *      towers ) {
+snapshot_insert( fd_fork_t *        fork,
+                 ulong              snapshot_slot,
+                 fd_blockstore_t *  blockstore,
+                 fd_replay_t *      replay,
+                 fd_latest_vote_t * latest_votes ) {
 
   /* Add snapshot slot to blockstore.*/
 
@@ -931,9 +931,9 @@ snapshot_insert( fd_fork_t *       fork,
   fork->slot = snapshot_slot;
   fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
 
-  /* Set the towers pointer to passed-in towers mem. */
+  /* Set the latest_votes pointer to passed-in latest_votes mem. */
 
-  fork->slot_ctx.towers = towers;
+  fork->slot_ctx.latest_votes = latest_votes;
 
   /* Add snapshot slot to ghost. */
 
@@ -983,7 +983,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
-  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay, towers);
+  snapshot_insert( fork, snapshot_slot, replay->blockstore, replay, latest_votes);
 
   return slot_ctx;
 }
@@ -1155,7 +1155,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 1024UL, 1 << 16, 42UL ) );
 
     /***********************************************************************/
-    /* towers                                                           */
+    /* latest_votes                                                           */
     /***********************************************************************/
 
     void * latest_votes_mem =
@@ -1284,13 +1284,13 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     /* bootstrap replay with the snapshot slot */
 
-    slot_ctx_setup_out.exec_slot_ctx->towers = towers;
+    slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
     if( !runtime_ctx->need_incr_snap ) {
       snapshot_insert( slot_ctx_setup_out.fork,
                        slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot,
                        blockstore_setup_out.blockstore,
                        replay_setup_out.replay,
-                       towers );
+                       latest_votes );
     }
 
     /* TODO @yunzhang open files, set the replay pointers, etc. you need here*/
