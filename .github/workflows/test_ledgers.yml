@@ -5,7 +5,7 @@ on:
   pull_request:
 jobs:
   Ledgers:
-    runs-on: icelake
+    runs-on: private
     env:
       CC: gcc
     strategy:
