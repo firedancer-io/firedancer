@@ -273,10 +273,10 @@ run-fuzz-test: $(1)_unit
 
 endef
 
-make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin))
-make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin))
-make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared))
-make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test))
+make-bin       = $(eval $(call _make-exe,$(1),$(2),$(3),bin,bin,$(4)))
+make-bin-rust  = $(eval $(call _make-exe-rust,$(1),$(2),$(3),rust,bin,$(4)))
+make-shared    = $(eval $(call _make-exe,$(1),$(2),$(3),lib,lib,-shared $(4)))
+make-unit-test = $(eval $(call _make-exe,$(1),$(2),$(3),unit-test,unit-test,$(4)))
 run-unit-test  = $(eval $(call _run-unit-test,$(1)))
 make-fuzz-test = $(eval $(call _fuzz-test,$(1),$(2),$(3)))
 
