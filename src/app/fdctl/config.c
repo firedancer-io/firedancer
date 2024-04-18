@@ -295,6 +295,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., development.bench,   affinity                                                  );
   ENTRY_BOOL  ( ., development.bench,   larger_max_cost_per_block                                 );
   ENTRY_BOOL  ( ., development.bench,   larger_shred_limits_per_block                             );
+  ENTRY_BOOL  ( ., development.bench,   rocksdb_disable_wal                                       );
 
   /* We have encountered a token that is not recognized, return 0 to indicate failure. */
   return 0;
@@ -1210,6 +1211,8 @@ config_parse( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.rocksdb_disable_wal ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.rocksdb_disable_wal] which is a development only feature" ));
   }
 
   if( FD_UNLIKELY( config->ledger.bigtable_storage ) ) {
