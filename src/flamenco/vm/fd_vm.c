@@ -253,3 +253,177 @@ if( FD_UNLIKELY( !memcmp( signature, sig, 64 ) ) ) fd_vm_trace_event_mem( vm->tr
 
   return haddr;
 }
+
+FD_FN_CONST ulong
+fd_vm_align( void ) {
+  return FD_VM_ALIGN;
+}
+
+FD_FN_CONST ulong
+fd_vm_footprint( void ) {
+  return FD_VM_FOOTPRINT;
+}
+
+void *
+fd_vm_new( void * shmem ) {
+  
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_vm_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  fd_vm_t * vm = (fd_vm_t *)shmem;
+  fd_memset( vm, 0, fd_vm_footprint() );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vm->magic ) = FD_VM_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return shmem;
+}
+
+fd_vm_t *
+fd_vm_join( void * shmem ) {
+
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_vm_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  fd_vm_t * vm = (fd_vm_t *)shmem;
+
+  if( FD_UNLIKELY( vm->magic!=FD_VM_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  return vm;
+}
+
+void *
+fd_vm_leave( fd_vm_t * vm ) {
+
+  if( FD_UNLIKELY( !vm ) ) {
+    FD_LOG_WARNING(( "NULL vm" ));
+    return NULL;
+  }
+
+  return (void *)vm;
+}
+
+void *
+fd_vm_delete( void * shmem ) {
+
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_vm_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  fd_vm_t * vm = (fd_vm_t *)shmem;
+
+  if( FD_UNLIKELY( vm->magic!=FD_VM_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( vm->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return (void *)vm;
+}
+
+fd_vm_t *
+fd_vm_init( 
+   fd_vm_t * vm,
+   fd_exec_instr_ctx_t *instr_ctx,
+   ulong heap_max,
+   ulong entry_cu,
+   uchar * rodata,
+   ulong rodata_sz,
+   ulong * text,
+   ulong text_cnt,
+   ulong text_off,
+   ulong entry_pc,
+   ulong * calldests,
+   fd_sbpf_syscalls_t * syscalls,
+   uchar * input,
+   ulong input_sz,
+   fd_vm_trace_t * trace,
+   fd_sha256_t * sha ) {
+
+  if ( FD_UNLIKELY( vm == NULL ) ) {
+    FD_LOG_WARNING(( "NULL vm" ));
+    return NULL;
+  }
+
+  if ( FD_UNLIKELY( vm->magic != FD_VM_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  // Set the vm fields
+  vm->instr_ctx = instr_ctx;
+  vm->heap_max = heap_max;
+  vm->entry_cu = entry_cu;
+  vm->rodata = rodata;
+  vm->rodata_sz = rodata_sz;
+  vm->text = text;
+  vm->text_cnt = text_cnt;
+  vm->text_off = text_off;
+  vm->entry_pc = entry_pc;
+  vm->calldests = calldests;
+  vm->syscalls = syscalls;
+  vm->input = input;
+  vm->input_sz = input_sz;
+  vm->trace = trace;
+  vm->sha = sha;
+
+  // TODO: call fd_vm_setup_state_for_execution here once it is trace-aware
+
+  return vm;
+}
+
+/* FIXME: this should eventually be moved into fd_vm_init */
+int
+fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
+
+  if ( FD_UNLIKELY( !vm ) ) {
+    FD_LOG_WARNING(( "NULL vm" ));
+    return FD_VM_ERR_INVAL;
+  }
+
+  /* Unpack input and rodata */
+  fd_vm_mem_cfg( vm );
+
+  /* Initialize registers */
+  /* FIXME: Zero out reg, shadow, stack and heap here? */
+  vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
+  vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START + 0x1000;
+
+  /* Set execution state */
+  vm->pc        = vm->entry_pc;
+  vm->ic        = 0UL;
+  vm->cu        = vm->entry_cu;
+  vm->frame_cnt = 0UL;
+
+  vm->heap_sz = 0UL;
+  vm->log_sz  = 0UL;
+
+  return FD_VM_SUCCESS;
+}
