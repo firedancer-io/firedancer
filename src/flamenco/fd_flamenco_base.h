@@ -52,6 +52,30 @@ fd_acct_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
   return fd_base58_encode_32( addr, NULL, cstr );
 }
 
+/* fd_pod utils */
+
+FD_FN_UNUSED static fd_pubkey_t *
+fd_pod_query_pubkey( uchar const * pod,
+                     char const *  path,
+                     fd_pubkey_t * val ) {
+
+  ulong        bufsz = 0UL;
+  void const * buf   = fd_pod_query_buf( pod, path, &bufsz );
+
+  if( FD_UNLIKELY( (!buf) | (bufsz!=sizeof(fd_pubkey_t)) ) )
+    return NULL;
+
+  memcpy( val->uc, buf, sizeof(fd_pubkey_t) );
+  return val;
+}
+
+static inline ulong
+fd_pod_insert_pubkey( uchar *             pod,
+                      char const *        path,
+                      fd_pubkey_t const * val ) {
+  return fd_pod_insert_buf( pod, path, val->uc, sizeof(fd_pubkey_t) );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_fd_flamenco_base_h */

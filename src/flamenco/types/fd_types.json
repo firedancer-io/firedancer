@@ -563,7 +563,7 @@
       "fields": [
         { "name": "target_tick_duration", "type": "rust_duration" },
         { "name": "target_tick_count", "type": "option", "element": "ulong" },
-        { "name": "hashes_per_tick", "type": "option", "element": "ulong" }
+        { "name": "hashes_per_tick", "type": "option", "element": "ulong", "flat": true }
       ]
     },
     {

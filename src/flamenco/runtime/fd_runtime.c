@@ -52,8 +52,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_poh_config_t *poh = &genesis_block->poh_config;
 
-  if (poh->hashes_per_tick)
-    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = *poh->hashes_per_tick;
+  if (poh->has_hashes_per_tick)
+    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = poh->hashes_per_tick;
   else
     slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick = 0;
   slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot = genesis_block->ticks_per_slot;

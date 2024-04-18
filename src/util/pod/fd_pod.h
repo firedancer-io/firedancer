@@ -467,7 +467,7 @@ fd_pod_resize( uchar * pod,
    is done such that the pod_max is reduced to be equal to pod_used and
    the pod header is accordingly compacted (otherwise, the pod_max will
    be unchanged on return).
-   
+
    Regardless of full, all subpods will be recursively fully compacted
    and all cstrs in the pod will have had their padding removed (they
    will be still be '\0' terminated if originally correctly '\0'
@@ -508,7 +508,7 @@ fd_pod_val_type_to_cstr( int    val_type,
    bytes), 0 on failure.  Failure reasons include NULL pod, NULL path,
    one of the path prefixes resolved to a non-subpod, path is already in
    the pod, invalid val_type or no room in pod for val_sz.
-   
+
    If subpods along the path do not exist, they will be created in the
    process.
 
@@ -655,7 +655,7 @@ fd_pod_insert_subpod( uchar       * FD_RESTRICT pod,
 static inline ulong
 fd_pod_insert_buf( uchar      * FD_RESTRICT pod,
                    char const * FD_RESTRICT path,
-                   void       * FD_RESTRICT val,
+                   void const * FD_RESTRICT val,
                    ulong                    val_sz ) {
   return fd_pod_insert( pod, path, FD_POD_VAL_TYPE_BUF, val_sz, val );
 }

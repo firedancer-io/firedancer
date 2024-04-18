@@ -73,26 +73,12 @@ FD_PROTOTYPES_BEGIN
    in `[addr,addr+sz)` is poisoned, returns the address of the first
    such byte.  Otherwise returns NULL.
 
-   If FD_HAS_DEEPASAN is not set fd_asan_{poison,unpoison} just return addr,
+   If FD_HAS_ASAN is not set fd_asan_{poison,unpoison} just return addr,
    fd_asan_test returns 0 and fd_asan_query returns NULL.
-
-   In order to poison/unpoison regions, currently need to have an 8 byte 
-   alignment as 8 bytes of memory are mapped to regions of shadow memory.
-   There may be issues if this invariant isn't followed. Examples can be 
-   seen here: https://github.com/mcgov/asan_alignment_example. 
-
-   In order to satisfy this with exisiting allocators, when FD_HAS_DEEPASAN 
-   is set, fd_wksp and fd_alloc currently will round up alignment and
-   allocation values to non-zero multiples of 8. However, fd_scratch 
-   will under-poison by rounding down to the nearest multiple of 8. The
-   behavior in fd_scratch with FD_HAS_DEEPASAN will not change the number of
-   bytes allocated unlike in fd_wksp or fd_alloc.
 
    FIXME: CONST CORRECT VERSIONS? */
 
-#define FD_ASAN_ALIGN (8UL)
-
-#if FD_HAS_DEEPASAN
+#if FD_HAS_ASAN
 
 /* These are for internal use only */
 
