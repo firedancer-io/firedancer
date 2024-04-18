@@ -1,6 +1,7 @@
 #include "../../fdctl/run/tiles/tiles.h"
 
 #include "../../../flamenco/types/fd_types_custom.h"
+#include "../../../flamenco/runtime/fd_system_ids_pp.h"
 
 #include <linux/unistd.h>
 
@@ -54,20 +55,18 @@ typedef struct __attribute__((packed)) {
   uchar signature[64];
   uchar _sig_cnt; /* also 1 */
   uchar ro_signed_cnt; /* = 0 */
-  uchar ro_unsigned_cnt; /* = 1 . System program */
-  uchar acct_addr_cnt; /* = 3 */
+  uchar ro_unsigned_cnt; /* = 1 . Compute Budget Program */
+  uchar acct_addr_cnt; /* = 2 */
   uchar fee_payer[32];
-  uchar dest_acct[32];
-  uchar system_program[32]; /* = {0} */
+  uchar compute_budget_program[32]; /* = {COMPUTE_BUDGET_PROG_ID} */
   uchar recent_blockhash[32];
   uchar instr_cnt; /* = 1 */
   /* Start of instruction */
-  uchar prog_id; /* = 2 */
-  uchar acct_cnt; /* = 2 */
-  uchar acct_idx[2]; /* 0, 1 */
-  uchar data_sz; /* = 12 */
-  uint  transfer_descriminant; /* = 2 */
-  ulong lamports;
+  uchar prog_id; /* = 1 */
+  uchar acct_cnt; /* = 0 */
+  uchar data_sz; /* = 9 */
+  uchar set_cu_price; /* = 3 */
+  ulong micro_lamports_per_cu; /* Can be any value, doesn't affect the transaction price */
 } transfer_t;
 
 static inline void
@@ -84,24 +83,19 @@ after_credit( void *             _ctx,
     ._sig_cnt        = 1,
     .ro_signed_cnt   = 0,
     .ro_unsigned_cnt = 1,
-    .acct_addr_cnt   = 3,
-    .system_program  = {0},
+    .acct_addr_cnt   = 2,
+    .compute_budget_program  = {COMPUTE_BUDGET_PROG_ID},
     .instr_cnt       = 1,
-    .prog_id         = 2,
-    .acct_cnt        = 2,
-    .acct_idx        = { 0, 1 },
-    .data_sz         = 12,
-    .transfer_descriminant = 2,
+    .prog_id         = 1,
+    .acct_cnt        = 0,
+    .data_sz         = 9,
+    .set_cu_price    = 3,
 
     /* Variable */
-    .lamports = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
+    .micro_lamports_per_cu = ctx->lamport_idx, /* Unique per transaction so they aren't duplicates */
   };
 
-  ulong receiver_idx = fd_rng_ulong_roll( ctx->rng, ctx->acct_cnt-1UL );
-  receiver_idx = fd_ulong_if( receiver_idx>=ctx->sender_idx, receiver_idx+1UL, receiver_idx );
-
   fd_memcpy( transfer->fee_payer, ctx->acct_public_keys[ ctx->sender_idx ].uc, 32UL );
-  fd_memcpy( transfer->dest_acct, ctx->acct_public_keys[ receiver_idx ].uc, 32UL );
   fd_memcpy( transfer->recent_blockhash, ctx->recent_blockhash, 32UL );
 
   fd_ed25519_sign( transfer->signature,
