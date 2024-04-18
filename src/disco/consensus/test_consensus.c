@@ -128,8 +128,8 @@ main( int argc, char ** argv ) {
   /* towers */
 
   void * towers_mem =
-      fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), 1UL );
-  fd_tower_t * towers = fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
+      fd_wksp_alloc_laddr( wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 1UL );
+  fd_latest_vote_t * towers = fd_latest_vote_deque_join( fd_latest_vote_deque_new( towers_mem ) );
   FD_TEST( towers );
 
   /* bft */

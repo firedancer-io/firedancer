@@ -336,11 +336,11 @@ struct fd_gossip_thread_args {
 static int fd_gossip_thread( int argc, char ** argv );
 
 static fd_exec_slot_ctx_t *
-fd_tvu_late_incr_snap( fd_runtime_ctx_t *    runtime_ctx,
-                       fd_runtime_args_t *   runtime_args,
-                       fd_replay_t *         replay,
-                       ulong                 snapshot_slot,
-                       fd_tower_t * towers );
+fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
+                       fd_runtime_args_t * runtime_args,
+                       fd_replay_t *       replay,
+                       ulong               snapshot_slot,
+                       fd_latest_vote_t *  latest_votes );
 
 int
 fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
@@ -437,7 +437,7 @@ fd_tvu_main( fd_runtime_ctx_t *    runtime_ctx,
       nanosleep(&ts, NULL);
       if( fd_tile_shutdown_flag ) goto shutdown;
     }
-    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->towers );
+    slot_ctx = fd_tvu_late_incr_snap( runtime_ctx, runtime_args, replay, slot_ctx->slot_bank.slot, slot_ctx->latest_votes );
     runtime_ctx->need_incr_snap = 0;
   }
 
@@ -920,7 +920,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
                        fd_runtime_args_t * runtime_args,
                        fd_replay_t *       replay,
                        ulong               snapshot_slot,
-                       fd_tower_t *        towers ) {
+                       fd_latest_vote_t *  latest_votes ) {
   (void)runtime_ctx;
 
   fd_fork_t *          fork     = fd_fork_pool_ele_acquire( replay->forks->pool );
@@ -948,8 +948,8 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
   fork->slot = snapshot_slot;
   replay->epoch_ctx->bank_hash_cmp->slot = snapshot_slot;
   fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
-  fork->slot_ctx.towers = towers;
-  FD_TEST( fork->slot_ctx.towers );
+  fork->slot_ctx.latest_votes = latest_votes;
+  FD_TEST( fork->slot_ctx.latest_votes );
 
   /* fake the snapshot slot's block and mark it as executed */
   fd_blockstore_slot_map_t * slot_entry =
@@ -1137,11 +1137,11 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* towers                                                           */
     /***********************************************************************/
 
-    void * towers_mem =
-        fd_wksp_alloc_laddr( wksp, fd_tower_deque_align(), fd_tower_deque_footprint(), 42UL );
-    fd_tower_t * towers =
-        fd_tower_deque_join( fd_tower_deque_new( towers_mem ) );
-    FD_TEST( towers );
+    void * latest_votes_mem =
+        fd_wksp_alloc_laddr( wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 42UL );
+    fd_latest_vote_t * latest_votes =
+        fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+    FD_TEST( latest_votes );
 
     /***********************************************************************/
     /* bft                                                                 */
@@ -1253,7 +1253,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
 
     fd_bft_epoch_stake_update(bft, slot_ctx_setup_out.exec_epoch_ctx);
 
-    slot_ctx_setup_out.exec_slot_ctx->towers = towers;
+    slot_ctx_setup_out.exec_slot_ctx->latest_votes = latest_votes;
     if( !runtime_ctx->need_incr_snap ) {
       /* add it to the frontier */
       fd_fork_frontier_ele_insert( replay_setup_out.replay->forks->frontier,
@@ -1367,7 +1367,7 @@ fd_tvu_parse_args( fd_runtime_args_t * args, int argc, char ** argv ) {
       fd_env_strip_cmdline_cstr( &argc, &argv, "--check_hash", NULL, "false" );
   args->capture_fpath = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture", NULL, NULL );
   /* Disabling capture_txns speeds up runtime and makes solcap captures significantly smaller */
-  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "true" );
+  args->capture_txns  = fd_env_strip_cmdline_cstr( &argc, &argv, "--capture-txns", NULL, "false" );
   args->trace_fpath   = fd_env_strip_cmdline_cstr( &argc, &argv, "--trace", NULL, NULL );
   /* TODO @yunzhang: I added this to get the shred_cap file path,
    *  but shred_cap is now NULL despite there is such an entry in the toml config */

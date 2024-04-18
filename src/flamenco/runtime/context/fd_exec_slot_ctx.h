@@ -11,20 +11,17 @@
 #include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 
-/* fd_tower is represents a given pubkey's vote tower. */
+/* fd_latest_vote_t records the latest voted slot hash by a given node. */
 
-struct fd_tower {
+struct fd_latest_vote {
    fd_pubkey_t node_pubkey;
-   fd_pubkey_t vote_acc_addr;
-   fd_option_slot_t root;
-   ulong slots[32];
-   ulong cnt;
+   fd_slot_hash_t slot_hash;
 };
-typedef struct fd_tower fd_tower_t;
+typedef struct fd_latest_vote fd_latest_vote_t;
 
-#define DEQUE_NAME fd_tower_deque
-#define DEQUE_T    fd_tower_t
-#define DEQUE_MAX  10000UL
+#define DEQUE_NAME fd_latest_vote_deque
+#define DEQUE_T    fd_latest_vote_t
+#define DEQUE_MAX  (1UL << 16)
 #include "../../../util/tmpl/fd_deque.c"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
@@ -52,7 +49,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_hash_t                account_delta_hash;
   fd_hash_t                prev_banks_hash;
 
-  fd_tower_t * towers;
+  fd_latest_vote_t *       latest_votes;
   fd_sysvar_cache_t *      sysvar_cache;
 };
 

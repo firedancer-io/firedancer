@@ -23,9 +23,9 @@ fd_exec_slot_ctx_new( void *      mem,
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
   self->valloc = valloc;
-  self->towers = NULL;
-
   fd_slot_bank_new(&self->slot_bank);
+
+  self->latest_votes = NULL;
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
 
   FD_COMPILER_MFENCE();
