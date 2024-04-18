@@ -1,3 +1,3 @@
-CPPFLAGS+=-g 
-CPPFLAGS+=-fno-omit-frame-pointer
+CPPFLAGS+=-g -DUSER_$(USER) 
+# CPPFLAGS+=-DFD_DEBUG_SBPF_TRACES
 LDFLAGS+=-rdynamic

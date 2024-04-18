@@ -2,13 +2,12 @@ BASEDIR?=build
 
 SHELL:=bash
 CPPFLAGS:=-isystem ./opt/include -DFD_LOG_UNCLEAN_EXIT=1 -DFD_HAS_BACKTRACE=0
-RUSTFLAGS:=-C force-frame-pointers=yes
 CC:=gcc
 CFLAGS:=-std=c17
 CXX:=g++
 CXXFLAGS:=-std=c++17
 LD:=g++
-LDFLAGS:=-lm -lrt -ldl -L./opt/lib
+LDFLAGS:=-lm -lrt -ldl -L./opt/lib  -Wl,-rpath=$(shell pwd)/opt/lib
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
@@ -23,6 +22,7 @@ FIND:=find
 SCRUB:=$(FIND) . -type f -name "*~" -o -name "\#*" | xargs $(RM)
 DATE:=date
 CAT:=cat
+NANOPB:=nanopb_generator.py
 
 # LLVM toolchain
 LLVM_COV?=llvm-cov
@@ -32,7 +32,6 @@ LLVM_PROFDATA?=llvm-profdata
 RUST_PROFILE=debug
 
 # lcov
-LCOV=lcov
 GENHTML=genhtml
 # newer versions of genhtml will require '-ignore-errors unmapped'
 

@@ -11,6 +11,11 @@ include config/extra/with-threads.mk
 include config/extra/with-ucontext.mk
 include config/extra/with-openssl.mk
 include config/extra/with-zstd.mk
+include config/extra/with-secp256k1.mk
+include config/extra/with-bz2.mk
+include config/extra/with-rocksdb.mk
+include config/extra/with-libff.mk
+include config/extra/with-libmicrohttp.mk
 
 CPPFLAGS+=-march=haswell -mtune=haswell
 

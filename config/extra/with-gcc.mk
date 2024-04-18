@@ -6,7 +6,10 @@ LD:=g++
 # FD_USING_CLANG should not be both set simultaneously
 
 CPPFLAGS+=-DFD_USING_GCC=1
-LDFLAGS+=-static-libgcc
+
+ifneq ($(EMACS),1)
+CPPFLAGS+=-fdiagnostics-color=always
+endif
 
 FD_USING_GCC:=1
 
