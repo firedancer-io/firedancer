@@ -1,5 +1,8 @@
 #include "fd_vm_private.h"
 
+FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
+FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
+
 /* Verify error codes */
 
 FD_STATIC_ASSERT( FD_VM_SUCCESS                         ==  0, vm_err );
