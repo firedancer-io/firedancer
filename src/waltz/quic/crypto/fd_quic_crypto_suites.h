@@ -380,15 +380,15 @@ fd_quic_gen_new_keys(
    */
 int
 fd_quic_crypto_encrypt(
-    uchar *                  out,
-    ulong *                  out_sz,
-    uchar const *            hdr,
-    ulong                    hdr_sz,
-    uchar const *            pkt,
-    ulong                    pkt_sz,
-    fd_quic_crypto_suite_t const * suite,
-    fd_quic_crypto_keys_t *  pkt_keys,
-    fd_quic_crypto_keys_t *  hp_keys );
+    uchar *                        const out,
+    ulong *                        const out_sz,
+    uchar const *                  const hdr,
+    ulong                          const hdr_sz,
+    uchar const *                  const pkt,
+    ulong                          const pkt_sz,
+    fd_quic_crypto_suite_t const * const suite,
+    fd_quic_crypto_keys_t const *  const pkt_keys,
+    fd_quic_crypto_keys_t const *  const hp_keys );
 
 
 /* decrypt a quic protected packet
@@ -403,12 +403,11 @@ fd_quic_crypto_encrypt(
      FD_QUIC_FAILED    otherwise
 
    args
-     plain_text         the resulting decrypted data
-     plain_text_sz      a pointer to the size of the decrypted data in bytes
-                          this is used on input as the capacity of the buffer and
-                            in output as the resulting output size
-     cipher_text        the input cypher text
-     cipher_text_sz     the input size in bytes of the cipher text
+     buf                buffer containing a QUIC packet with a decrypted
+                        header, and encrypted payload, and the auth tag
+                        of size FD_QUIC_CRYPTO_TAG_SZ.  On return, the
+                        payload will be decrypted.
+     buf_sz             the size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
      suite              which particular cipher suite the packet was protected with
@@ -416,12 +415,10 @@ fd_quic_crypto_encrypt(
 
 int
 fd_quic_crypto_decrypt(
-    uchar *                  plain_text,
-    ulong *                  plain_text_sz,
-    uchar const *            cipher_text,
-    ulong                    cipher_text_sz,
-    ulong                    pkt_number_off,
-    ulong                    pkt_number,
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
+    ulong                          pkt_number,
     fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
@@ -440,10 +437,10 @@ fd_quic_crypto_decrypt(
      FD_QUIC_FAILED    otherwise
 
    args
-     plain_text         the resulting decrypted data
-     plain_text_cap     the capacity of the plain text buffer
-     cipher_text        the input cypher text
-     cipher_text_sz     the input size in bytes of the cipher text
+     buf                buffer containing an encrypted QUIC packet.
+                        On return, the header is decrypted, the rest
+                        still encrypted
+     buf_sz             size of the QUIC packet
      pkt_number_off     the offset of the packet number within the cipher text
                         this must be determined from unprotected header data
      suite              which particular cipher suite the packet was protected with
@@ -451,11 +448,9 @@ fd_quic_crypto_decrypt(
 
 int
 fd_quic_crypto_decrypt_hdr(
-    uchar *                  plain_text,
-    ulong                    plain_text_cap,
-    uchar const *            cipher_text,
-    ulong                    cipher_text_sz,
-    ulong                    pkt_number_off,
+    uchar *                        buf,
+    ulong                          buf_sz,
+    ulong                          pkt_number_off,
     fd_quic_crypto_suite_t const * suite,
     fd_quic_crypto_keys_t const *  keys );
 
