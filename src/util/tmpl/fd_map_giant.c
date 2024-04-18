@@ -676,6 +676,33 @@ MAP_(delete)( void * shmap ) {
   return shmap;
 }
 
+static inline long
+MAP_(verify_key)( MAP_T *           join,
+                  MAP_KEY_T const * key,
+                  ulong             cnt ) {
+# define MAP_TEST(c) do {                                                        \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); __asm("int $3"); return -1; } \
+  } while(0)
+
+  MAP_(private_t) * map = MAP_(private)( join );
+  ulong list_idx = MAP_(private_list_idx)( key, map->seed, map->list_cnt );
+  ulong key_max  = map->key_max;
+  ulong key_cnt  = map->key_cnt;
+  ulong ele_idx  = MAP_(private_list)( map )[ MAP_(private_list_idx)( key, map->seed, map->list_cnt ) ];
+  while( !MAP_(private_is_null)( ele_idx ) ) {
+    MAP_TEST( cnt<key_cnt );
+    MAP_TEST( ele_idx<key_max );
+    MAP_T const * ele = join + ele_idx;
+    MAP_TEST( MAP_(private_list_idx)( &ele->MAP_KEY, map->seed, map->list_cnt )==list_idx );
+    cnt++;
+    ele_idx  = MAP_(private_unbox_idx)( ele->MAP_NEXT );
+    MAP_TEST( !MAP_(private_unbox_tag)( ele->MAP_NEXT ) ); /* Element marked as used */
+  }
+
+# undef MAP_TEST
+  return (long)cnt;;
+}
+
 MAP_IMPL_STATIC MAP_T *
 MAP_(insert)( MAP_T *           join,
               MAP_KEY_T const * key ) {
@@ -867,7 +894,7 @@ FD_FN_PURE MAP_IMPL_STATIC int
 MAP_(verify)( MAP_T const * join ) {
 
 # define MAP_TEST(c) do {                                                        \
-    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); __asm("int $3"); return -1; } \
   } while(0)
 
   MAP_TEST( join );
