@@ -627,11 +627,15 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
     if( h->nlmsg_type == NLMSG_ERROR ) {
       struct nlmsgerr * err = NLMSG_DATA(h);
 
-      FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error) ));
+      /* EBUSY occurs from time to time, and should prevent loading
+       * the remaining entries */
+      if( FD_UNLIKELY( err->error != -EBUSY ) ) {
+        FD_LOG_WARNING(( "netlink returned data with error: %d %s", -err->error, strerror( -err->error) ));
 
-      /* error occurred - don't switch to new routing table */
+        /* error occurred - don't switch to new routing table */
 
-      return FD_IP_ERROR; /* return failure */
+        return FD_IP_ERROR; /* return failure */
+      }
     }
 
     struct ndmsg *  msg       = NLMSG_DATA( h );
@@ -670,8 +674,6 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
       switch( rat->rta_type ) {
         case NDA_DST:
           if( rta_data_sz != 4 ) {
-            FD_LOG_WARNING(( "Neighbor entry has IP address with other than"
-                  " 4 byte address" ));
             fd_nl_dump_rat( saved_rat, saved_ratmsglen );
             entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
           } else {
@@ -686,8 +688,6 @@ fd_nl_load_arp_table( fd_nl_t *           nl,
         case NDA_LLADDR:
           if( FD_UNLIKELY( rta_data_sz != 6 ) ) {
             if( rta_data_sz != 0 ) {
-              FD_LOG_WARNING(( "Neighbor entry has LL address with other than"
-                    " 6 byte MAC address" ));
               fd_nl_dump_rat( saved_rat, saved_ratmsglen );
             }
             entry->flags |= FD_NL_ARP_FLAGS_UNSUPPORTED;
