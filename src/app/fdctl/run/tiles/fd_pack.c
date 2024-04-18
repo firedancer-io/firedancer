@@ -700,7 +700,7 @@ lazy( fd_topo_tile_t * tile ) {
      1000ns per microblock, and then reduce it further (in line with the
      default lazy value computation) to ensure the random value chosen
      based on this won't lead to credit return stalls. */
-  return 128L * 300L;
+  return 128L * 3000L;
 }
 
 

@@ -31,7 +31,7 @@ typedef struct {
   ulong * tcache_ring;
   ulong * tcache_map;
 
-  fd_dedup_in_ctx_t in[ 32 ];
+  fd_dedup_in_ctx_t in[ 64UL ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -146,6 +146,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tcache_ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
 
+  FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
