@@ -3,6 +3,8 @@
 
 #include "fd_tile_private.h"
 
+volatile int fd_tile_shutdown_flag = 0;
+
 int
 fd_cpuset_getaffinity( ulong         pid,
                        fd_cpuset_t * mask ) {

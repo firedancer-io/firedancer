@@ -795,7 +795,7 @@ fd_tpool_wait( fd_tpool_t const * tpool,
                ulong              worker_idx ) {
   int volatile * vstate = (int volatile *)&(fd_tpool_private_worker( tpool )[ worker_idx ]->state);
   int            state;
-  for(;;) {
+  while( FD_LIKELY( !fd_tile_shutdown_flag ) ) {
     state = *vstate;
     if( FD_LIKELY( state!=FD_TPOOL_WORKER_STATE_EXEC ) ) break;
     FD_SPIN_PAUSE();
