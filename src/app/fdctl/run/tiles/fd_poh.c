@@ -915,6 +915,27 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   fd_ext_poh_write_unlock();
 }
 
+/* Since it can't easily return an Option<Pubkey>, return 1 for Some and
+   0 for None. */
+CALLED_FROM_RUST int
+fd_ext_poh_get_leader_after_n_slots( ulong n,
+                                     uchar out_pubkey[ static 32 ] ) {
+  fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
+  ulong slot = (ctx->hashcnt/ctx->hashcnt_per_slot) + n;
+  fd_epoch_leaders_t * leaders = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, slot ); /* Safe to call from Rust */
+
+  int copied = 0;
+  if( FD_LIKELY( leaders ) ) {
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, slot ); /* Safe to call from Rust */
+    if( FD_LIKELY( leader ) ) {
+      memcpy( out_pubkey, leader, 32UL );
+      copied = 1;
+    }
+  }
+  fd_ext_poh_write_unlock();
+  return copied;
+}
+
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
