@@ -1052,3 +1052,18 @@ dynamic_port_range = "8900-9000"
         # it would cause consensus violations between the validator and
         # the rest of the network.
         larger_shred_limits_per_block = false
+
+        # The Solana blockstore is a database that stores the state of
+        # shred that have been received and validated, or produced by
+        # us when we are the leader.  The blockstore is implemented with
+        # rocksdb, which uses a write ahead log (WAL) to prevent data
+        # loss when the system crashes.
+        #
+        # In the context of Solana, data loss is not a particular big
+        # problem because if they validator crashes it can recover the
+        # live data from the rest of the network via. a snapshot.
+        #
+        # Currently, Firedancer supports disabling the WAL for
+        # performance testing and benchmarking, but not in production as
+        # it has not been thoroughly tested.
+        rocksdb_disable_wal = false

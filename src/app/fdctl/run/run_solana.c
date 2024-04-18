@@ -63,6 +63,9 @@ solana_labs_boot( config_t * config ) {
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 
+  if( FD_UNLIKELY( config->development.bench.rocksdb_disable_wal ) )
+    ADD1( "--firedancer-disable-wal" );
+
   /* consensus */
   ADD( "--identity", config->consensus.identity_path );
   if( strcmp( config->consensus.vote_account_path, "" ) )
