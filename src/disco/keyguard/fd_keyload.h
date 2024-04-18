@@ -28,7 +28,17 @@
    a different key is being loaded, or it is not being loaded for use
    in the production binary. */
 
-uchar const *
-fd_keyload_load( char const * key_path, int public_key_only );
+uchar const * FD_FN_SENSITIVE
+fd_keyload_load( char const * key_path,
+                 int          public_key_only );
+
+/* fd_keyload_unload() unloads a key from shared memory that was loaded
+   with fd_keyload_load.  The argument public_key_only must match the
+   one provided when the key was loaded.  The key should not be accessed
+   once this function returns and the memory is no longer valid. */
+
+void FD_FN_SENSITIVE
+fd_keyload_unload( uchar const * key,
+                   int           public_key_only );
 
 #endif /* HEADER_fd_src_disco_keyguard_fd_keyload_h */

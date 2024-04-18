@@ -12,6 +12,7 @@
 extern configure_stage_t _kill;
 extern configure_stage_t netns;
 extern configure_stage_t genesis;
+extern configure_stage_t blockstore;
 extern configure_stage_t keys;
 
 configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
@@ -24,6 +25,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &keys,
   &workspace,
   &genesis,
+  &blockstore,
   NULL,
 };
 
