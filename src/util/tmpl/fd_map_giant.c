@@ -894,7 +894,7 @@ FD_FN_PURE MAP_IMPL_STATIC int
 MAP_(verify)( MAP_T const * join ) {
 
 # define MAP_TEST(c) do {                                                        \
-    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); __asm("int $3"); return -1; } \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
   } while(0)
 
   MAP_TEST( join );
