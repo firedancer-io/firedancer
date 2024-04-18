@@ -8418,6 +8418,187 @@ int fd_compact_vote_state_update_switch_encode(fd_compact_vote_state_update_swit
   return FD_BINCODE_SUCCESS;
 }
 
+int fd_tower_sync_decode(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx) {
+  void const * data = ctx->data;
+  int err = fd_tower_sync_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  fd_tower_sync_new(self);
+  fd_tower_sync_decode_unsafe(self, ctx);
+  return FD_BINCODE_SUCCESS;
+}
+int fd_tower_sync_decode_preflight(fd_bincode_decode_ctx_t * ctx) {
+  int err;
+  for (ulong i = 0; i < 32; ++i) {
+    err = fd_vote_lockout_decode_preflight(ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_tower_sync_decode_unsafe(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx) {
+  for (ulong i = 0; i < 32; ++i) {
+    fd_vote_lockout_decode_unsafe(self->lockouts + i, ctx);
+  }
+  fd_bincode_uint64_decode_unsafe(&self->lockouts_cnt, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root, ctx );
+    }
+  }
+  fd_hash_decode_unsafe(&self->hash, ctx);
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->timestamp, ctx );
+    }
+  }
+}
+int fd_tower_sync_decode_offsets(fd_tower_sync_off_t* self, fd_bincode_decode_ctx_t * ctx) {
+  uchar const * data = ctx->data;
+  int err;
+  self->lockouts_off = (uint)((ulong)ctx->data - (ulong)data);
+  for (ulong i = 0; i < 32; ++i) {
+    err = fd_vote_lockout_decode_preflight(ctx);
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  self->lockouts_cnt_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_bincode_uint64_decode_preflight(ctx);
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->root_off = (uint)((ulong)ctx->data - (ulong)data);
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  self->hash_off = (uint)((ulong)ctx->data - (ulong)data);
+  err = fd_hash_decode_preflight(ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  self->timestamp_off = (uint)((ulong)ctx->data - (ulong)data);
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_uint64_decode_preflight( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_tower_sync_new(fd_tower_sync_t* self) {
+  fd_memset(self, 0, sizeof(fd_tower_sync_t));
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_lockout_new(self->lockouts + i);
+  fd_hash_new(&self->hash);
+}
+void fd_tower_sync_destroy(fd_tower_sync_t* self, fd_bincode_destroy_ctx_t * ctx) {
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_lockout_destroy(self->lockouts + i, ctx);
+  if( self->has_root ) {
+    self->has_root = 0;
+  }
+  fd_hash_destroy(&self->hash, ctx);
+  if( self->has_timestamp ) {
+    self->has_timestamp = 0;
+  }
+}
+
+ulong fd_tower_sync_footprint( void ){ return FD_TOWER_SYNC_FOOTPRINT; }
+ulong fd_tower_sync_align( void ){ return FD_TOWER_SYNC_ALIGN; }
+
+void fd_tower_sync_walk(void * w, fd_tower_sync_t const * self, fd_types_walk_fn_t fun, const char *name, uint level) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_tower_sync", level++);
+  fun(w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR, "vote_lockout[]", level++);
+  for (ulong i = 0; i < 32; ++i)
+    fd_vote_lockout_walk(w, self->lockouts + i, fun, "vote_lockout", level );
+  fun(w, NULL, "lockouts", FD_FLAMENCO_TYPE_ARR_END, "vote_lockout[]", level--);
+  fun( w, &self->lockouts_cnt, "lockouts_cnt", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );
+  if( !self->has_root ) {
+    fun( w, NULL, "root", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->root, "root", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
+  fd_hash_walk(w, &self->hash, fun, "hash", level);
+  if( !self->has_timestamp ) {
+    fun( w, NULL, "timestamp", FD_FLAMENCO_TYPE_NULL, "ulong", level );
+  } else {
+    fun( w, &self->timestamp, "timestamp", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  }
+  fun(w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_tower_sync", level--);
+}
+ulong fd_tower_sync_size(fd_tower_sync_t const * self) {
+  ulong size = 0;
+  for (ulong i = 0; i < 32; ++i)
+    size += fd_vote_lockout_size(self->lockouts + i);
+  size += sizeof(ulong);
+  size += sizeof(char);
+  if( self->has_root ) {
+    size += sizeof(ulong);
+  }
+  size += fd_hash_size(&self->hash);
+  size += sizeof(char);
+  if( self->has_timestamp ) {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+int fd_tower_sync_encode(fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx) {
+  int err;
+  for (ulong i = 0; i < 32; ++i) {
+    err = fd_vote_lockout_encode(self->lockouts + i, ctx);
+    if ( FD_UNLIKELY(err) ) return err;
+  }
+  err = fd_bincode_uint64_encode(self->lockouts_cnt, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_root, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_root ) {
+    err = fd_bincode_uint64_encode( self->root, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_hash_encode(&self->hash, ctx);
+  if ( FD_UNLIKELY(err) ) return err;
+  err = fd_bincode_bool_encode( self->has_timestamp, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->has_timestamp ) {
+    err = fd_bincode_uint64_encode( self->timestamp, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+
 int fd_slot_history_inner_decode(fd_slot_history_inner_t* self, fd_bincode_decode_ctx_t * ctx) {
   void const * data = ctx->data;
   int err = fd_slot_history_inner_decode_preflight(ctx);

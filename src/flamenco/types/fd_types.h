@@ -1795,6 +1795,32 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_FOOTPRINT sizeof(fd_compact_vote_state_update_switch_off_t)
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_OFF_ALIGN (8UL)
 
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_tower_sync {
+  fd_vote_lockout_t lockouts[32];
+  ulong lockouts_cnt;
+  ulong root;
+  uchar has_root;
+  fd_hash_t hash;
+  ulong timestamp;
+  uchar has_timestamp;
+};
+typedef struct fd_tower_sync fd_tower_sync_t;
+#define FD_TOWER_SYNC_FOOTPRINT sizeof(fd_tower_sync_t)
+#define FD_TOWER_SYNC_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_tower_sync_off {
+  uint lockouts_off;
+  uint lockouts_cnt_off;
+  uint root_off;
+  uint hash_off;
+  uint timestamp_off;
+};
+typedef struct fd_tower_sync_off fd_tower_sync_off_t;
+#define FD_TOWER_SYNC_OFF_FOOTPRINT sizeof(fd_tower_sync_off_t)
+#define FD_TOWER_SYNC_OFF_ALIGN (8UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_history_inner {
   ulong blocks_len;
@@ -5171,6 +5197,18 @@ void fd_compact_vote_state_update_switch_walk(void * w, fd_compact_vote_state_up
 ulong fd_compact_vote_state_update_switch_size(fd_compact_vote_state_update_switch_t const * self);
 ulong fd_compact_vote_state_update_switch_footprint( void );
 ulong fd_compact_vote_state_update_switch_align( void );
+
+void fd_tower_sync_new(fd_tower_sync_t* self);
+int fd_tower_sync_decode(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_decode_preflight(fd_bincode_decode_ctx_t * ctx);
+void fd_tower_sync_decode_unsafe(fd_tower_sync_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_decode_offsets(fd_tower_sync_off_t* self, fd_bincode_decode_ctx_t * ctx);
+int fd_tower_sync_encode(fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx);
+void fd_tower_sync_destroy(fd_tower_sync_t* self, fd_bincode_destroy_ctx_t * ctx);
+void fd_tower_sync_walk(void * w, fd_tower_sync_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);
+ulong fd_tower_sync_size(fd_tower_sync_t const * self);
+ulong fd_tower_sync_footprint( void );
+ulong fd_tower_sync_align( void );
 
 void fd_slot_history_inner_new(fd_slot_history_inner_t* self);
 int fd_slot_history_inner_decode(fd_slot_history_inner_t* self, fd_bincode_decode_ctx_t * ctx);

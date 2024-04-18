@@ -813,6 +813,18 @@
       "comment": "https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143"
     },
     {
+      "name": "tower_sync",
+      "type": "struct",
+      "fields": [
+        { "name": "lockouts", "type": "array", "element": "vote_lockout", "length": 32 },
+        { "name": "lockouts_cnt", "type": "ulong" },
+        { "name": "root", "type": "option", "element": "ulong", "flat": true },
+        { "name": "hash", "type": "hash" },
+        { "name": "timestamp", "type": "option", "element": "ulong", "flat": true }
+      ],
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185"
+    },
+    {
       "name": "slot_history_inner",
       "type": "struct",
       "fields": [
