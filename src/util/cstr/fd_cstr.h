@@ -261,6 +261,25 @@ fd_cstr_append_ulong_as_text( char * p,
   return p;
 }
 
+#if FD_HAS_INT128
+
+static inline char *
+fd_cstr_append_uint128_as_text( char *  p,
+                                char    ws,
+                                char    pm,
+                                uint128 x,
+                                ulong   n ) {
+  char * p0 = p;
+  p += n;
+  char * q = p;
+  do { uint128 d = x % (uint128)10UL; x /= (uint128)10UL; *(--q) = (char)( d + (uint128)'0' ); } while( x );
+  if( pm ) *(--q) = pm;
+  while( p0<q ) *(p0++) = ws;
+  return p;
+}
+
+#endif
+
 static inline char *
 fd_cstr_append_uchar_as_text ( char * p,
                                char   ws,
