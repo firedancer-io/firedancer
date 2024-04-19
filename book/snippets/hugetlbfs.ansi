@@ -1,0 +1,7 @@
+$ sudo fdctl configure init hugetlbfs
+[32mNOTICE [0m hugetlbfs ... unconfigured ... mounts `/mnt/.fd/.huge` and `/mnt/.fd/.gigantic` do not exist
+[32mNOTICE [0m hugetlbfs ... configuring
+
+$ cat /proc/mounts
+none /mnt/.fd/.gigantic hugetlbfs rw,seclabel,relatime,pagesize=1024M,min_size=540092137472 0 0
+none /mnt/.fd/.huge hugetlbfs rw,seclabel,relatime,pagesize=2M,min_size=95124124 0 0

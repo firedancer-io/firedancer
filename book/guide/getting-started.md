@@ -67,6 +67,9 @@ some Solana components.
 $ make -j fdctl solana
 ```
 
+You will need around 32GiB of available memory to build Firedancer.  If
+you run out of memory compiling, make can return a variety of errors.
+
 ::: tip TIP
 
 The Firedancer production validator is built as a single binary `fdctl`
@@ -122,13 +125,15 @@ user = "firedancer"
         "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
         "9QxCLckBiJc783jnMvXZubK4wH86Eqqvashtrwvcsgkv",
     ]
-
-[layout]
-    affinity = "0-9"
-
-    net_tile_count = 2
-    verify_tile_count = 2
 ```
+
+::: warning WARNING
+
+The Firedancer blockstore in the ledger directory is not compatible with
+the one for the Agave validator, and you should not attempt to switch
+between validator clients while keeping the `ledger` directory in place.
+
+:::
 
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
