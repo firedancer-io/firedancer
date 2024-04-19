@@ -102,16 +102,6 @@
     tmp_len = out->LEN_NAME;                                           \
     if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
                      ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
-      FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
-            "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
-            "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
-            (ulong)out->LEN_NAME,                                      \
-            (ulong)( tmp_len * 8 ) ));                                 \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \
@@ -131,16 +121,6 @@
     tmp_len = out->LEN_NAME;                                           \
     if( FD_UNLIKELY( ( tmp_len < (ulong)(BITS_MIN / 8) ) ||            \
                      ( tmp_len > (ulong)(BITS_MAX / 8) ) ) ) {         \
-      FD_LOG_DEBUG(( "buffer overflow parsing variable length field."  \
-            "  field: " #NAME                                          \
-            "  BITS_MIN: %lu"                                          \
-            "  BITS_MAX: %lu"                                          \
-            "  " #LEN_NAME ": %lu"                                     \
-            "  tmp_len*8: %lu\n",                                      \
-            (ulong)BITS_MIN,                                           \
-            (ulong)BITS_MAX,                                           \
-            (ulong)out->LEN_NAME,                                      \
-            (ulong)( tmp_len * 8 ) ));                                 \
       return FD_QUIC_PARSE_FAIL;                                       \
     }                                                                  \
     if( FD_UNLIKELY( cur_byte + tmp_len > sz )) {                      \

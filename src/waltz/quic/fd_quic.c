@@ -735,7 +735,7 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-  FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) ));
+  FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %d  at offset: %ld", (int)*p, (long)( p - buf ) )); )
 
   // if we get here we didn't understand "frame type"
   return FD_QUIC_PARSE_FAIL;
@@ -2042,7 +2042,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *           quic,
 
     /* is this a new request to change key_phase? */
     if( !current_key_phase && !conn->key_phase_upd ) {
-      FD_LOG_DEBUG(( "key update started" ));
+      FD_DEBUG( FD_LOG_DEBUG(( "key update started" )); )
 
       /* generate new secrets */
       if( fd_quic_gen_new_secrets( &conn->secrets, suite->hmac_fn, suite->hash_sz ) != FD_QUIC_SUCCESS ) {
@@ -5505,7 +5505,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       conn->key_phase     = pkt_meta_key_phase; /* switch to new key phase */
       conn->key_phase_upd = 0;                  /* no longer updating */
 
-      FD_LOG_DEBUG(( "key update completed" ));
+      FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 
       /* TODO still need to add code to initiate key update */
     }
