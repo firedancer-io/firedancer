@@ -176,6 +176,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   conn->peer_sup_stream_id[ 3 ] = 32UL;
 
   if( established ) {
+    conn->state = FD_QUIC_CONN_STATE_ACTIVE;
     conn->suites[ fd_quic_enc_level_initial_id    ] = suite;
     conn->suites[ fd_quic_enc_level_early_data_id ] = suite;
     conn->suites[ fd_quic_enc_level_handshake_id  ] = suite;
