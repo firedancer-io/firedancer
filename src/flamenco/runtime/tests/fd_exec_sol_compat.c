@@ -3,6 +3,7 @@
 #include "../../nanopb/pb_encode.h"
 #include <assert.h>
 #include <stdlib.h>
+#include "../../vm/fd_vm.h"
 
 typedef struct {
   ulong   struct_size;
@@ -24,6 +25,7 @@ static ulong supported_features[] =
   { 0xe8f97382b03240a1,  // system_transfer_zero_check
     0x10a1e092dd7f1573,  // dedupe_config_program_signers
     0xfba69c4970d7ad9d,  // vote_stake_checked_instructions
+    0x65b79c7f3e7441b3,  // require_custodian_for_locked_stake_authorize
     0x74b022574093eeec,  // reduce_stake_warmup_cooldown
     0xd56fc1708dc98c13,  // stake_redelegate_instruction
     0x6d22c4ce75df6f0b,  // stake_merge_with_unmatched_credits_observed
@@ -126,6 +128,7 @@ sol_compat_instr_execute_v1( uchar *       out,
       output = NULL;
       break;
     }
+
   } while(0);
 
   int ok = 0;
@@ -148,4 +151,63 @@ sol_compat_instr_execute_v1( uchar *       out,
 sol_compat_features_t const *
 sol_compat_get_features_v1( void ) {
   return &features;
+}
+
+int
+sol_compat_vm_syscall_execute_v1( uchar *       out,
+                                  ulong *       out_sz,
+                                  uchar const * in,
+                                  ulong         in_sz ) {
+
+  // Setup scratch
+  ulong fmem[ 64 ];
+  fd_scratch_attach( smem, fmem, smax, 64UL );
+  fd_scratch_push();
+
+  // Decode protobuf
+  pb_istream_t istream = pb_istream_from_buffer( in, in_sz );
+  fd_exec_test_syscall_context_t input[1] = {0};
+  int decode_ok = pb_decode_ex( &istream, &fd_exec_test_syscall_context_t_msg, input, PB_DECODE_NOINIT );
+  if( !decode_ok ) {
+    pb_release( &fd_exec_test_syscall_context_t_msg, input );
+    return 0;
+  }
+
+  // Setup the test runner
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), 2 );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, 3 );
+
+  // Execute the syscall
+  fd_exec_test_syscall_effects_t * output = NULL;
+  do {
+    ulong out_bufsz = 100000000;  /* 100 MB */
+    void * out0 = fd_scratch_prepare( 1UL );
+    assert( out_bufsz < fd_scratch_free() );
+    fd_scratch_publish( (void *)( (ulong)out0 + out_bufsz ) );
+    ulong out_used = fd_exec_vm_syscall_test_run( runner, input, &output, out0, out_bufsz );
+    if( FD_UNLIKELY( !out_used ) ) {
+      output = NULL;
+      fd_scratch_cancel();
+      break;
+    }
+
+  } while (0);
+
+  // Write the effects to the protobuf stream
+  int ok = 0;
+  if( output ) {
+    pb_ostream_t ostream = pb_ostream_from_buffer( out, *out_sz );
+    int encode_ok = pb_encode( &ostream, &fd_exec_test_syscall_effects_t_msg, output );
+    if( encode_ok ) {
+      *out_sz = ostream.bytes_written;
+      ok = 1;
+    }
+  }
+
+  // Cleanup
+  fd_wksp_free_laddr( fd_exec_instr_test_runner_delete( runner ) );
+  pb_release( &fd_exec_test_syscall_context_t_msg, input );
+  fd_scratch_pop();
+  fd_scratch_detach( NULL );
+  return ok;
 }
