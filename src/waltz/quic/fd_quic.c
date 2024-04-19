@@ -1922,6 +1922,10 @@ fd_quic_handle_v1_retry(
   }
   /* The token length is the remaining bytes in the retry packet after subtracting known fields. */
   conn->token_len = cur_sz - FD_QUIC_EMPTY_RETRY_PKT_SZ - retry_pkt.src_conn_id_len - retry_pkt.dst_conn_id_len;
+  if( FD_UNLIKELY( conn->token_len > FD_QUIC_TOKEN_SZ_MAX ) ) {
+    conn->token_len = 0UL;
+    return FD_QUIC_PARSE_FAIL;
+  }
   fd_memcpy(&conn->token, retry_pkt.retry_token, conn->token_len);
 
   return cur_sz;
