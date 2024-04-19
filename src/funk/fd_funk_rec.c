@@ -36,17 +36,6 @@ fd_funk_rec_query( fd_funk_t *               funk,
 
   fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, txn ? fd_funk_txn_xid( txn ) : fd_funk_root( funk ), key );
 
-  return fd_funk_rec_map_query( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ), pair, NULL );
-}
-
-fd_funk_rec_t const *
-fd_funk_rec_query_const( fd_funk_t *               funk,
-                         fd_funk_txn_t const *     txn,
-                         fd_funk_rec_key_t const * key ) {
-  if( FD_UNLIKELY( (!funk) | (!key) ) ) return NULL;
-
-  fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, txn ? fd_funk_txn_xid( txn ) : fd_funk_root( funk ), key );
-
   return fd_funk_rec_map_query_const( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ), pair, NULL );
 }
 
@@ -88,42 +77,107 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
   return fd_funk_rec_map_query_const( rec_map, pair, NULL );
 }
 
-fd_funk_rec_t const *
-fd_funk_rec_query_global_const( fd_funk_t *               funk,
-                                fd_funk_txn_t const *     txn,
-                                fd_funk_rec_key_t const * key ) {
-
-  if( FD_UNLIKELY( (!funk) | (!key) ) ) return NULL;
-
+void *
+fd_funk_rec_query_safe( fd_funk_t *               funk,
+                        fd_funk_txn_t const *     txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_valloc_t               valloc,
+                        ulong *                   result_len ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );
-
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  
+  for(;;) {
+    ulong lock_start;
+    for(;;) {
+      lock_start = funk->write_lock;
+      if( FD_LIKELY(!(lock_start&1UL)) ) break;
+      /* Funk is currently write locked */
+      FD_SPIN_PAUSE();
+    }
+    FD_COMPILER_MFENCE();
 
-  if( txn ) { /* Query txn and its in-prep ancestors */
+    fd_funk_xid_key_pair_t pair[1];
+    if( txn != NULL ) {
+      ulong txn_max = funk->txn_max;
+      ulong txn_idx = (ulong)(txn - txn_map);
+      if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) ) {
+        return NULL;
+      }
+      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
+    } else {
+      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
+    }
 
-    fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
-
-    ulong txn_max = funk->txn_max;
-
-    ulong txn_idx = (ulong)(txn - txn_map);
-
-    if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) )
-      return NULL;
-
-    /* TODO: const correct and/or fortify? */
-    do {
-      fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-      fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) return rec;
-      txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
-    } while( FD_UNLIKELY( txn ) );
-
+    fd_funk_rec_t const * rec = fd_funk_rec_map_query_safe( rec_map, pair, NULL );
+    if( FD_UNLIKELY( rec == NULL ) ) {
+      FD_COMPILER_MFENCE();
+      if( lock_start == funk->write_lock ) return NULL;
+    } else {
+      void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
+      FD_COMPILER_MFENCE();
+      if( lock_start == funk->write_lock ) return res;
+      fd_valloc_free( valloc, res );
+    }
+    
+    /* else try again */
+    FD_SPIN_PAUSE();
   }
+}
 
-  /* Query the last published transaction */
+void *
+fd_funk_rec_query_global_safe( fd_funk_t *               funk,
+                               fd_funk_txn_t const *     txn,
+                               fd_funk_rec_key_t const * key,
+                               fd_valloc_t               valloc,
+                               ulong *                   result_len ) {
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
 
-  fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-  return fd_funk_rec_map_query_const( rec_map, pair, NULL );
+  for(;;) {
+    ulong lock_start;
+    for(;;) {
+      lock_start = funk->write_lock;
+      if( FD_LIKELY(!(lock_start&1UL)) ) break;
+      /* Funk is currently write locked */
+      FD_SPIN_PAUSE();
+    }
+    FD_COMPILER_MFENCE();
+
+    fd_funk_xid_key_pair_t pair[1];
+    if( txn != NULL ) {
+      ulong txn_max = funk->txn_max;
+      ulong txn_idx = (ulong)(txn - txn_map);
+      if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) ) {
+        return NULL;
+      }
+      fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
+    } else {
+      fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
+    }
+
+    fd_funk_rec_t const * rec = fd_funk_rec_map_query_safe( rec_map, pair, NULL );
+    if( rec == NULL ) {
+      if( txn == NULL ) return NULL; /* At the root */
+      ulong par_idx = fd_funk_txn_idx( txn->parent_cidx );
+      FD_COMPILER_MFENCE();
+      if( lock_start == funk->write_lock ) {
+        /* Walk up to the parent transaction */
+        txn = ( par_idx == FD_FUNK_TXN_IDX_NULL ? NULL : txn_map + par_idx );
+        continue;
+      }
+      
+    } else {
+      void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
+      FD_COMPILER_MFENCE();
+      if( lock_start == funk->write_lock ) return res;
+      fd_valloc_free( valloc, res );
+    }
+    
+    /* else try again */
+    FD_SPIN_PAUSE();
+  }
 }
 
 int
@@ -170,7 +224,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec ) {
   if( FD_UNLIKELY( (!funk) | (!rec) ) )
     return NULL;
-  FD_TEST(!funk->readonly);
+  fd_funk_check_write( funk );
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -267,7 +321,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
     return NULL;
   }
-  FD_TEST(!funk->readonly);
+  fd_funk_check_write( funk );
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -402,7 +456,7 @@ fd_funk_rec_remove( fd_funk_t *     funk,
                     int             erase ) {
 
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
-  FD_TEST(!funk->readonly);
+  fd_funk_check_write( funk );
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
@@ -590,7 +644,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   fd_funk_rec_t * rec = NULL;
   fd_funk_rec_t const * rec_con = NULL;
   if ( FD_LIKELY (NULL == irec ) )
-    rec_con = fd_funk_rec_query_global_const( funk, txn, key );
+    rec_con = fd_funk_rec_query_global( funk, txn, key );
   else
     rec_con = irec;
 
@@ -683,7 +737,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
       if( (rec->flags & FD_FUNK_REC_FLAG_ERASE) ) {
         fd_funk_rec_t const * erase_rec =
-          fd_funk_rec_query_global_const( funk, fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map ), fd_funk_rec_key( rec ) );
+          fd_funk_rec_query_global( funk, fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map ), fd_funk_rec_key( rec ) );
         TEST( erase_rec && !(erase_rec->flags & FD_FUNK_REC_FLAG_ERASE) );
       }
 

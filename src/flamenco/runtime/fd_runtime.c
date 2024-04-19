@@ -1244,7 +1244,9 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       }
     }
 
+    fd_funk_start_write( slot_ctx->acc_mgr->funk );
     int ret = fd_funk_txn_merge_all_children(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1);
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     if( ret != FD_FUNK_SUCCESS ) {
       FD_LOG_ERR(( "failed merging funk transaction: (%i-%s) ", ret, fd_funk_strerror(ret) ));
     }
@@ -1268,8 +1270,6 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                fd_execute_txn_task_info_t * task_infos,
                                fd_tpool_t * tpool,
                                ulong max_workers ) {
-  fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 1 ); /* Funk is not safe for concurrent writes */
-
   for (ulong i = 0; i < txn_cnt; i++) {
     if ( !(txns[i].flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) {
       continue;
@@ -1287,7 +1287,6 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 0 );
   int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool, max_workers );
   if( res != 0 ) {
     return res;
@@ -1457,9 +1456,7 @@ fd_runtime_execute_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
         return res;
       }
 
-      fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 1 ); /* Funk is not safe for concurrent writes */
       fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_runtime_execute_txn_task, wave_task_infos, NULL, NULL, 1, 0, wave_task_infos_cnt );
-      fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 0 );
       res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, wave_task_infos, wave_task_infos_cnt, tpool, max_workers );
       if( res != 0 ) {
         return res;
@@ -1588,7 +1585,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
     if( prev_epoch < new_epoch || slot_idx == 0 ) {
       FD_LOG_DEBUG(("Epoch boundary"));
       /* Epoch boundary! */
+      fd_funk_start_write(slot_ctx->acc_mgr->funk);
       fd_process_new_epoch(slot_ctx, new_epoch - 1UL);
+      fd_funk_end_write(slot_ctx->acc_mgr->funk);
     }
   }
 
@@ -1602,7 +1601,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
     return result;
   }
 
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
   result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx );
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
   if (result != 0) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -1665,6 +1666,8 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_block_info_t const * block_info,
                                          fd_tpool_t * tpool,
                                          ulong max_workers ) {
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  
   fd_sysvar_slot_history_update(slot_ctx);
 
   // this slot is frozen... and cannot change anymore...
@@ -1674,12 +1677,14 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
   if( result != 0 ) {
     FD_LOG_WARNING(("update bpf program cache failed"));
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
   result = fd_update_hash_bank_tpool(slot_ctx, capture_ctx, &slot_ctx->slot_bank.banks_hash, block_info->signature_cnt, tpool, max_workers);
   if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_WARNING(("hashing bank failed"));
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
@@ -1692,8 +1697,11 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
   result = fd_runtime_save_slot_bank(slot_ctx);
   if( result != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_WARNING(("failed to save slot bank"));
+    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
+
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   fd_bincode_destroy_ctx_t destroy_sysvar_ctx = {
     .valloc = slot_ctx->valloc,
@@ -2188,6 +2196,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
+      
+      fd_funk_start_write(funk);
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
         FD_LOG_ERR(("publish err"));
@@ -2209,6 +2219,8 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
         if (err)
           FD_LOG_ERR(("backup failed: error %d", err));
       }
+
+      fd_funk_end_write(funk);
 
       break;
     }
@@ -2232,7 +2244,9 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
     fd_memcpy(xid.uc, hash->uc, sizeof(fd_funk_txn_xid_t));
     xid.ul[0] = slot_ctx->slot_bank.slot;
     /* push a new transaction on the stack */
+    fd_funk_start_write( funk );
     slot_ctx->funk_txn = fd_funk_txn_prepare(funk, slot_ctx->funk_txn, &xid, 1);
+    fd_funk_end_write( funk );
   }
   fd_blockstore_end_read(slot_ctx->blockstore);
 
@@ -2263,7 +2277,9 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   /* progress to next slot next time */
   slot_ctx->blockstore->root++;
 
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
   fd_runtime_save_slot_bank( slot_ctx );
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->slot_bank.prev_slot = slot;
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though

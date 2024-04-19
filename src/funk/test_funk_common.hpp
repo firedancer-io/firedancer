@@ -116,12 +116,14 @@ struct fake_funk {
       fake_rec * rec = fake_rec::make_random();
       txn->insert(rec);
 
+      fd_funk_start_write(_real);
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
       fd_funk_rec_t * rec2 = fd_funk_rec_write_prepare(_real, txn2, &key, rec->size(), 1, NULL, NULL);
       if (fd_funk_val_sz(rec2) > rec->size())
         rec2 = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc(_real, _wksp), _wksp, NULL);
       memcpy(fd_funk_val(rec2, _wksp), rec->data(), rec->size());
+      fd_funk_end_write(_real);
     }
 
     void random_remove() {
@@ -135,6 +137,7 @@ struct fake_funk {
       if (!listlen) return;
       auto* rec = list[((uint)lrand48())%listlen];
 
+      fd_funk_start_write(_real);
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
       auto* rec2 = fd_funk_rec_query(_real, txn2, &key);
@@ -143,12 +146,14 @@ struct fake_funk {
 
       rec->_erased = true;
       rec->_data.clear();
+      fd_funk_end_write(_real);
     }
 
     void random_new_txn() {
       if (_txns.size() == MAX_TXNS)
         return;
 
+      fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
       uint listlen = 0;
       for (auto i : _txns)
@@ -164,18 +169,22 @@ struct fake_funk {
       fd_funk_txn_t * parent2 = get_real_txn(parent);
       auto xid = txn->real_id();
       assert(fd_funk_txn_prepare(_real, parent2, &xid, 1) != NULL);
+      fd_funk_end_write(_real);
     }
 
     void fake_cancel_family(fake_txn* txn) {
       assert(txn->_key != ROOT_KEY);
       while (!txn->_children.empty())
         fake_cancel_family(txn->_children.begin()->second);
+      fd_funk_start_write(_real);
       txn->_parent->_children.erase(txn->_key);
       _txns.erase(txn->_key);
       delete txn;
+      fd_funk_end_write(_real);
     }
     
     void fake_publish_to_parent(fake_txn* txn) {
+      fd_funk_start_write(_real);
       // Move records into parent
       auto* parent = txn->_parent;
       for (auto i : txn->_recs)
@@ -187,7 +196,9 @@ struct fake_funk {
         bool repeat = false;
         for (auto i : parent->_children)
           if (txn != i.second) {
+            fd_funk_end_write(_real);
             fake_cancel_family(i.second);
+            fd_funk_start_write(_real);
             repeat = true;
             break;
           }
@@ -205,6 +216,7 @@ struct fake_funk {
 
       _txns.erase(txn->_key);
       delete txn;
+      fd_funk_end_write(_real);
     }
     
     void fake_publish(fake_txn* txn) {
@@ -216,6 +228,7 @@ struct fake_funk {
     }
 
     void fake_merge(fake_txn* txn) {
+      fd_funk_start_write(_real);
       for (auto i : txn->_children) {
         auto* child = i.second;
         for (auto i : child->_recs)
@@ -225,9 +238,11 @@ struct fake_funk {
         delete child;
       }
       txn->_children.clear();
+      fd_funk_end_write(_real);
     }
     
     void random_publish() {
+      fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
       uint listlen = 0;
       for (auto i : _txns)
@@ -238,12 +253,14 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       assert(fd_funk_txn_publish(_real, txn2, 1) > 0);
+      fd_funk_end_write(_real);
 
       // Simulate publication
       fake_publish(txn);
     }
     
     void random_publish_into_parent() {
+      fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
       uint listlen = 0;
       for (auto i : _txns)
@@ -254,12 +271,14 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       assert(fd_funk_txn_publish_into_parent(_real, txn2, 1) == FD_FUNK_SUCCESS);
+      fd_funk_end_write(_real);
 
       // Simulate publication
       fake_publish_to_parent(txn);
     }
     
     void random_cancel() {
+      fd_funk_start_write(_real);
       fake_txn* list[MAX_TXNS];
       uint listlen = 0;
       for (auto i : _txns)
@@ -270,12 +289,14 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       assert(fd_funk_txn_cancel(_real, txn2, 1) > 0);
+      fd_funk_end_write(_real);
 
       // Simulate cancel
       fake_cancel_family(txn);
     }
     
     void random_merge() {
+      fd_funk_start_write(_real);
       // Look for transactions with children but no grandchildren
       fake_txn* list[MAX_TXNS];
       uint listlen = 0;
@@ -293,9 +314,32 @@ struct fake_funk {
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
       assert(fd_funk_txn_merge_all_children(_real, txn2, 1) == FD_FUNK_SUCCESS);
+      fd_funk_end_write(_real);
 
       // Simulate merge
       fake_merge(txn);
+    }
+
+    void random_safe_read() {
+      fake_txn* list[MAX_TXNS];
+      uint listlen = 0;
+      for (auto i : _txns)
+        list[listlen++] = i.second;
+      auto * txn = list[((uint)lrand48())%listlen];
+      
+      fake_rec* list2[MAX_CHILDREN];
+      uint list2len = 0;
+      for (auto i : txn->_recs)
+        if (!i.second->_erased)
+          list2[list2len++] = i.second;
+      if (!list2len) return;
+      auto* rec = list2[((uint)lrand48())%list2len];
+
+      fd_funk_txn_t * txn2 = get_real_txn(txn);
+      auto key = rec->real_id();
+      ulong datalen;
+      auto* data = fd_funk_rec_query_safe(_real, txn2, &key, fd_libc_alloc_virtual(), &datalen);
+      if( data ) free(data);
     }
     
     void verify() {

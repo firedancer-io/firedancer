@@ -54,6 +54,17 @@ fd_funk_val_const( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's
   return fd_wksp_laddr_fast( wksp, val_gaddr );
 }
 
+/* fd_funk_val_safe copies out the record value into a buffer
+ * allocated by the valloc. The result should eventually be freed by
+ * the same valloc. This API is safe in the presence of concurrent writes. */
+
+void *
+fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
+                  fd_wksp_t const *     wksp,
+                  fd_valloc_t           valloc,
+                  ulong *               result_len );
+
+
 /* fd_funk_rec_read reads bytes [off,off+sz) and returns a pointer to
    the requested data on success and NULL on failure.  Reasons for
    failure include NULL rec, 0 sz, [off,off+sz) does not overlap

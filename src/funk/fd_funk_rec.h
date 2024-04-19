@@ -143,9 +143,6 @@ FD_FN_PURE static inline int fd_funk_rec_is_full( fd_funk_rec_t const * map ) { 
    returned record.  The record value metadata will be updated whenever
    the record value modified.
 
-   fd_funk_rec_query_const is the same but it is safe to have multiple
-   threads concurrently run queries.
-
    These are a reasonably fast O(1).
 
    fd_funk_rec_query_global is the same but will query txn's ancestors
@@ -169,19 +166,29 @@ fd_funk_rec_query( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key );
 
 FD_FN_PURE fd_funk_rec_t const *
-fd_funk_rec_query_const( fd_funk_t *               funk,
-                         fd_funk_txn_t const *     txn,
-                         fd_funk_rec_key_t const * key );
-
-FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
                           fd_funk_rec_key_t const * key );
 
-FD_FN_PURE fd_funk_rec_t const *
-fd_funk_rec_query_global_const( fd_funk_t *               funk,
-                                fd_funk_txn_t const *     txn,
-                                fd_funk_rec_key_t const * key );
+/* fd_funk_rec_query_safe and fd_funk_rec_query_global_safe are
+   queries that are safe in the presence of concurrent writes. The
+   result data is copied into a buffer allocated by the given
+   valloc and should be freed with the same valloc. NULL is returned
+   if the query fails. */
+  
+FD_FN_PURE void *
+fd_funk_rec_query_safe( fd_funk_t *               funk,
+                        fd_funk_txn_t const *     txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_valloc_t               valloc,
+                        ulong *                   result_len );
+
+FD_FN_PURE void *
+fd_funk_rec_query_global_safe( fd_funk_t *               funk,
+                               fd_funk_txn_t const *     txn,
+                               fd_funk_rec_key_t const * key,
+                               fd_valloc_t               valloc,
+                               ulong *                   result_len );
 
 /* fd_funk_rec_test tests the record pointed to by rec.  Returns
    FD_FUNK_SUCCESS (0) if rec appears to be a live unfrozen record in

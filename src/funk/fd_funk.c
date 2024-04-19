@@ -408,3 +408,33 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
   FD_LOG_NOTICE(( "part vec footprint: %s",
                   fd_smart_size( fd_funk_partvec_footprint(0U), tmp1, sizeof(tmp1) ) ));
 }
+
+void
+fd_funk_start_write( fd_funk_t * funk ) {
+  register ulong oldval;
+  for(;;) {
+    oldval = funk->write_lock;
+    if( FD_LIKELY( FD_ATOMIC_CAS( &funk->write_lock, oldval, oldval+1U) == oldval ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  if( FD_UNLIKELY(oldval&1UL) ) FD_LOG_CRIT(( "attempt to lock funky when it is already locked" ));
+  FD_COMPILER_MFENCE();
+}
+
+void
+fd_funk_end_write( fd_funk_t * funk ) {
+  FD_COMPILER_MFENCE();
+  register ulong oldval;
+  for(;;) {
+    oldval = funk->write_lock;
+    if( FD_LIKELY( FD_ATOMIC_CAS( &funk->write_lock, oldval, oldval+1U) == oldval ) ) break;
+    FD_SPIN_PAUSE();
+  }
+  if( FD_UNLIKELY(!(oldval&1UL)) ) FD_LOG_CRIT(( "attempt to unlock funky when it is already unlocked" ));
+}
+
+void
+fd_funk_check_write( fd_funk_t * funk ) {
+  ulong val = funk->write_lock;
+  if( FD_UNLIKELY(!(val&1UL)) ) FD_LOG_CRIT(( "missing call to fd_funk_start_write" ));
+}

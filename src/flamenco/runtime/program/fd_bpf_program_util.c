@@ -253,7 +253,7 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   fd_funk_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global_const(funk, funk_txn, &id);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, funk_txn, &id);
 
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
     return -1;

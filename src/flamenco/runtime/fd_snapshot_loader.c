@@ -155,6 +155,8 @@ fd_snapshot_load( const char *         snapshotfile,
   FD_TEST(sizeof(xid) == sizeof(fhash));
   memcpy(&xid, &fhash.ul[0], sizeof(xid));
 
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  
   fd_funk_txn_t * child_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, parent_txn, &xid, 1 );
   slot_ctx->funk_txn = child_txn;
 
@@ -212,6 +214,8 @@ fd_snapshot_load( const char *         snapshotfile,
     child_txn = NULL;
   }
   fd_hashes_load(slot_ctx);
+
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 }
 
 void

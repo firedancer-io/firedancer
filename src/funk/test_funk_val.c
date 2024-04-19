@@ -43,6 +43,8 @@ main( int     argc,
                                                wksp_tag, seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !tst ) ) FD_LOG_ERR(( "Unable to create tst" ));
 
+  fd_funk_start_write( tst );
+
   fd_funk_txn_t * txn_map = fd_funk_txn_map( tst, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( tst, wksp );
   fd_alloc_t *    alloc   = fd_funk_alloc  ( tst, wksp );
@@ -576,6 +578,8 @@ main( int     argc,
 
     }
   }
+
+  fd_funk_end_write( tst );
 
   funk_delete( ref );
 

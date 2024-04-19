@@ -406,6 +406,8 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
       task_accounts_cursor += batch_sz;
     }
 
+    fd_funk_start_write( funk );
+    
     for( ulong i = 0; i < accounts_cnt; i++ ) {
       fd_borrowed_account_t * account = accounts[i];
       ulong batch_idx = i & batch_mask;
@@ -429,6 +431,8 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
 
     /* Save accounts in a thread pool */
     fd_tpool_exec_all_taskq( tpool, 0, max_workers, fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
+
+    fd_funk_end_write( funk );
 
     /* Check results */
     for( ulong i = 0; i < batch_cnt; i++ ) {
