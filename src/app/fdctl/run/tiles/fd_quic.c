@@ -40,6 +40,7 @@ typedef struct {
 
   fd_mux_context_t * mux;
 
+  uchar identity_public_key[ 32UL ];
   fd_quic_t *      quic;
   const fd_aio_t * quic_rx_aio;
 
@@ -187,7 +188,7 @@ during_housekeeping( void * _ctx ) {
    can.  It would currently be difficult trying to backpressure further
    up the stack to the network itself. */
 static void
-before_credit( void * _ctx,
+before_credit( void *             _ctx,
                fd_mux_context_t * mux ) {
   fd_quic_ctx_t * ctx = (fd_quic_ctx_t *)_ctx;
 
@@ -536,19 +537,19 @@ privileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_quic_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_quic_ctx_t ), sizeof( fd_quic_ctx_t ) );
-  (void)FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() );
 
-  fd_quic_limits_t limits = quic_limits( tile );
-  void * quic_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) );
-  fd_quic_t * quic = fd_quic_join( fd_quic_new( quic_mem, &limits ) );
   uchar const * public_key = fd_keyload_load( tile->quic.identity_key_path, 1 /* public key only */ );
-  fd_memcpy( quic->config.identity_public_key, public_key, 32UL );
+  fd_memcpy( ctx->identity_public_key, public_key, 32UL );
 
-  /* needed so unprivileged can finish initializing quic */
-  ctx->quic = quic;
+  /* The fd_quic implementation calls fd_log_wallclock() internally
+     which itself calls clock_gettime() which on most kernels is not a
+     real syscall but a virtual one in the process via. the vDSO.
 
-  /* call wallclock so glibc loads VDSO, which requires calling mmap while
-     privileged */
+     The first time this virtual call is made to the vDSO it does an
+     mmap(2) of some shared memory into userspace, which cannot
+     happen while sandboxed so we need to ensure that initialization
+     happens here. */
+
   fd_log_wallclock();
 }
 
@@ -597,8 +598,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( FD_SCRATCH_ALLOC_APPEND( l, fd_aio_align(), fd_aio_footprint() ), ctx, quic_tx_aio_send ) );
   if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-  fd_quic_t * quic = ctx->quic;
-  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "quic is NULL" ));
+  fd_quic_limits_t limits = quic_limits( tile );
+  fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &limits ) ), &limits ) );
+  if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_join failed" ));
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.net.ip_addr                = tile->quic.ip_addr;
@@ -607,6 +609,7 @@ unprivileged_init( fd_topo_t *      topo,
   quic->config.initial_rx_max_stream_data = 1<<15;
   quic->config.retry                      = tile->quic.retry;
   fd_memcpy( quic->config.link.src_mac_addr, tile->quic.src_mac_addr, 6 );
+  fd_memcpy( quic->config.identity_public_key, ctx->identity_public_key, 32UL );
 
   quic->config.sign         = fd_quic_tls_cv_signer;
   quic->config.sign_ctx     = ctx->keyguard_client;
