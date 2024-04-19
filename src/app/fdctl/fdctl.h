@@ -122,8 +122,9 @@ main1( int     argc,
        char ** _argv );
 
 void
-generate_keypair( const char * keyfile,
-                  config_t * const config );
+generate_keypair( char const *     keyfile,
+                  config_t * const config,
+                  int              use_grnd_random );
 
 void
 configure_cmd_args( int *    pargc,
