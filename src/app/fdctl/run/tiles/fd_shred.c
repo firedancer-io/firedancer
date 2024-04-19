@@ -83,10 +83,10 @@
 
 
 #define NET_IN_IDX      0
-#define POH_IN_IDX      1
-#define STAKE_IN_IDX    2
-#define CONTACT_IN_IDX  3
-#define SIGN_IN_IDX   4
+#define POH_IN_IDX      4
+#define STAKE_IN_IDX    1//2
+#define CONTACT_IN_IDX  2//3
+#define SIGN_IN_IDX     3//4
 
 #define NET_OUT_IDX     0
 #define SIGN_OUT_IDX    1
@@ -220,7 +220,7 @@ scratch_footprint( fd_topo_tile_t * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_shred_ctx_t),          sizeof(fd_shred_ctx_t)                  );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint                  );
   l = FD_LAYOUT_APPEND( l, fd_shredder_align(),              fd_shredder_footprint()                 );
   l = FD_LAYOUT_APPEND( l, alignof(fd_fec_set_t),            sizeof(fd_fec_set_t)*fec_set_cnt        );
@@ -304,7 +304,6 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->contact_in_chunk0 || chunk>ctx->contact_in_wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->contact_in_chunk0, ctx->contact_in_wmark ));
-
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->contact_in_mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry );
     return;
@@ -314,7 +313,6 @@ during_frag( void * _ctx,
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
             ctx->stake_in_chunk0, ctx->stake_in_wmark ));
-
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->stake_in_mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, dcache_entry );
     return;
@@ -469,6 +467,7 @@ after_frag( void *             _ctx,
   }
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
+    // FD_LOG_WARNING(("AF SW"));
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;
   }
@@ -486,13 +485,22 @@ after_frag( void *             _ctx,
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
 
     fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
-    if( FD_UNLIKELY( !shred ) ) return;
+    if( FD_UNLIKELY( !shred ) ) {
+      FD_LOG_WARNING(("Shred parse failed"));
+      return;
+    }
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
-    if( FD_UNLIKELY( !lsched ) ) return;
+    if( FD_UNLIKELY( !lsched ) ) {
+      // FD_LOG_WARNING(("Get leader schedule for slot %lu failed", shred->slot));
+      return;
+    }
 
     fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, shred->slot );
-    if( FD_UNLIKELY( !slot_leader ) ) return;
+    if( FD_UNLIKELY( !slot_leader ) ) {
+      FD_LOG_WARNING(("Epoch leaders get fails"));
+      return;
+    }
 
     fd_fec_set_t const * out_fec_set[ 1 ];
     fd_shred_t   const * out_shred[ 1 ];
@@ -503,13 +511,19 @@ after_frag( void *             _ctx,
       ulong fanout = 200UL;
       ulong max_dest_cnt[1];
       fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( ctx->stake_ci, shred->slot );
-      if( FD_UNLIKELY( !sdest ) ) return;
+      if( FD_UNLIKELY( !sdest ) ) {
+        return;
+      }
       fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, _dests, 1UL, fanout, fanout, max_dest_cnt );
-      if( FD_UNLIKELY( !dests ) ) return;
+      if( FD_UNLIKELY( !dests ) ) {
+        return;
+      }
 
       for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
     }
-    if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
+    if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
+      return;
+    }
 
     FD_TEST( ctx->fec_sets <= *out_fec_set );
     ctx->send_fec_set_idx = (ulong)(*out_fec_set - ctx->fec_sets);
@@ -622,15 +636,15 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile,
                    void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
-                   topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_POH_TO_SHRED     ||
-                   topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].kind != FD_TOPO_LINK_KIND_STAKE_TO_OUT     ||
-                   (topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED &&
-                    topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ||
-                   topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_SHRED ) )
-    FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %lu %lu",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
+  // if( FD_UNLIKELY( tile->in_cnt != 5 ||
+  //                  topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_NETMUX_TO_OUT    ||
+  //                  topo->links[ tile->in_link_id[ POH_IN_IDX     ] ].kind != FD_TOPO_LINK_KIND_POH_TO_SHRED     ||
+  //                  topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].kind != FD_TOPO_LINK_KIND_STAKE_TO_OUT     ||
+  //                  (topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_GOSSIP_TO_SHRED &&
+  //                   topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].kind != FD_TOPO_LINK_KIND_CRDS_TO_SHRED ) ||
+  //                  topo->links[ tile->in_link_id[ SIGN_IN_IDX    ] ].kind != FD_TOPO_LINK_KIND_SIGN_TO_SHRED ) )
+  //   FD_LOG_ERR(( "shred tile has none or unexpected input links %lu %lu %lu",
+  //                tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].kind, topo->links[ tile->in_link_id[ 1 ] ].kind ));
 
   if( FD_UNLIKELY( tile->out_cnt != 2 ||
                    topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].kind != FD_TOPO_LINK_KIND_SHRED_TO_NETMUX  ||
@@ -669,9 +683,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
-  ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
-  if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
-  if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
+  // ulong bank_cnt = fd_topo_tile_kind_cnt( topo, FD_TOPO_TILE_KIND_BANK );
+  // if( FD_UNLIKELY( !bank_cnt ) ) FD_LOG_ERR(( "0 bank tiles" ));
+  // if( FD_UNLIKELY( bank_cnt>MAX_BANK_CNT ) ) FD_LOG_ERR(( "Too many banks" ));
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),              fd_stake_ci_footprint()            );
   void * _resolver = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_resolver_align(),          fec_resolver_footprint             );
@@ -740,7 +754,7 @@ unprivileged_init( fd_topo_t *      topo,
   populate_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
 
   fd_topo_link_t * netmux_shred_link = &topo->links[ tile->in_link_id[ NET_IN_IDX     ] ];
-  fd_topo_link_t * poh_shred_link    = &topo->links[ tile->in_link_id[ POH_IN_IDX     ] ];
+  // fd_topo_link_t * poh_shred_link    = &topo->links[ tile->in_link_id[ POH_IN_IDX     ] ];
   fd_topo_link_t * stake_in_link     = &topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ];
   fd_topo_link_t * contact_in_link   = &topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ];
 
@@ -750,9 +764,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_in_chunk0 = fd_disco_compact_chunk0( ctx->net_in_mem );
   ctx->net_in_wmark  = fd_disco_compact_wmark ( ctx->net_in_mem, netmux_shred_link->mtu );
 
-  ctx->poh_in_mem    = topo->workspaces[ poh_shred_link->wksp_id ].wksp;
-  ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, poh_shred_link->dcache );
-  ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, poh_shred_link->dcache, poh_shred_link->mtu );
+  // ctx->poh_in_mem    = topo->workspaces[ poh_shred_link->wksp_id ].wksp;
+  // ctx->poh_in_chunk0 = fd_dcache_compact_chunk0( ctx->poh_in_mem, poh_shred_link->dcache );
+  // ctx->poh_in_wmark  = fd_dcache_compact_wmark ( ctx->poh_in_mem, poh_shred_link->dcache, poh_shred_link->mtu );
 
   ctx->stake_in_mem    = topo->workspaces[ stake_in_link->wksp_id ].wksp;
   ctx->stake_in_chunk0 = fd_dcache_compact_chunk0( ctx->stake_in_mem, stake_in_link->dcache );

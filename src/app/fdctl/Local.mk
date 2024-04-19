@@ -4,7 +4,7 @@ ifdef FD_HAS_DOUBLE
 
 .PHONY: fdctl cargo rust solana
 
-$(call add-objs,main1 config caps utility topology keys ready mem spy help run/run run/tiles/tiles run/run1 run/run_solana run/tiles/tiles run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_poh run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_ext_store run/tiles/fd_gossip run/tiles/fd_sign run/tiles/fd_repair run/tiles/fd_tvu run/tiles/fd_store monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
+$(call add-objs,main1 config caps utility topology keys ready mem spy help run/run run/tiles/tiles run/run1 run/run_solana run/tiles/tiles run/tiles/fd_net run/tiles/fd_metric run/tiles/fd_netmux run/tiles/fd_dedup run/tiles/fd_pack run/tiles/fd_quic run/tiles/fd_verify run/tiles/fd_poh run/tiles/fd_bank run/tiles/fd_shred run/tiles/fd_ext_store run/tiles/fd_gossip run/tiles/fd_sign run/tiles/fd_repair run/tiles/fd_tvu run/tiles/fd_store run/tiles/fd_replay run/tiles/fd_blackhole run/tiles/fd_pack_int monitor/monitor monitor/helper configure/configure configure/large_pages configure/sysctl configure/shmem configure/xdp configure/xdp_leftover configure/ethtool configure/workspace_leftover configure/workspace,fd_fdctl)
 $(call add-objs,run/topos/topos run/topos/tvu run/topos/firedancer,fd_fdctl)
 $(call make-bin-rust,fdctl,main,fd_fdctl fd_waltz fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_ip fd_reedsol fd_ballet fd_tango fd_tvu fd_util solana_validator)
 $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
@@ -25,6 +25,7 @@ $(OBJDIR)/obj/app/fdctl/run/tiles/fd_metric.o: src/app/fdctl/run/tiles/generated
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_sign.o: src/app/fdctl/run/tiles/generated/sign_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_repair.o: src/app/fdctl/run/tiles/generated/repair_seccomp.h
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_tvu.o: src/app/fdctl/run/tiles/generated/tvu_seccomp.h
+$(OBJDIR)/obj/app/fdctl/run/tiles/fd_replay.o: src/app/fdctl/run/tiles/generated/replay_seccomp.h
 
 # Phony target to always rerun cargo build ... it will detect if anything
 # changed on the library side.

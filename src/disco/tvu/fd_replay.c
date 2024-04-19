@@ -476,6 +476,7 @@ void
 fd_replay_slot_ctx_restore( fd_replay_t * replay, ulong slot, fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_txn_t *   txn_map    = fd_funk_txn_map( replay->funk, fd_funk_wksp( replay->funk ) );
   fd_hash_t const * block_hash = fd_blockstore_block_hash_query( replay->blockstore, slot );
+  FD_LOG_WARNING(("Current slot %lu", slot));
   if( !block_hash ) FD_LOG_ERR( ( "missing block hash of slot we're trying to restore" ) );
   fd_funk_txn_xid_t xid;
   fd_memcpy( xid.uc, block_hash, sizeof( fd_funk_txn_xid_t ) );
@@ -617,4 +618,42 @@ fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred ) {
     fd_replay_add_pending( replay, shred->slot, FD_REPAIR_BACKOFF_TIME );
   }
   // return rc;
+}
+
+fd_fork_t *
+fd_replay_prepare_ctx( fd_replay_t * replay,
+                       ulong parent_slot ) {
+
+  /* Query for the fork to execute the block on in the frontier */
+
+  fd_fork_t * fork = fd_fork_frontier_ele_query(
+      replay->forks->frontier, &parent_slot, NULL, replay->forks->pool );
+
+  /* If the parent block is both present and executed (see earlier conditionals), but isn't in the
+     frontier, that means this block is starting a new fork and needs to be added to the
+     frontier. This requires rolling back to that txn in funk. */
+
+  if( FD_UNLIKELY( !fork ) ) {
+
+    /* Alloc a new slot_ctx */
+
+    fork       = fd_fork_pool_ele_acquire( replay->forks->pool );
+    fork->slot = parent_slot;
+
+    /* Format and join the slot_ctx */
+
+    fd_exec_slot_ctx_t * slot_ctx =
+        fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, replay->valloc ) );
+    if( FD_UNLIKELY( !slot_ctx ) ) { FD_LOG_ERR( ( "failed to new and join slot_ctx" ) ); }
+
+    /* Restore and decode w/ funk */
+
+    fd_replay_slot_ctx_restore( replay, fork->slot, slot_ctx );
+
+    /* Add to frontier */
+
+    fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
+  }
+
+  return fork;
 }

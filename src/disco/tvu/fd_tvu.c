@@ -77,6 +77,7 @@
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/program/fd_bpf_program_util.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "fd_replay.h"
 #ifdef FD_HAS_LIBMICROHTTP
 #include "../rpc/fd_rpc_service.h"
 #endif
@@ -317,6 +318,7 @@ fd_tvu_create_socket( fd_gossip_peer_addr_t * addr ) {
 struct fd_turbine_thread_args {
   int            tvu_fd;
   fd_replay_t *  replay;
+  fd_store_t *   store;
 };
 
 static int fd_turbine_thread( int argc, char ** argv );
@@ -1179,6 +1181,19 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     bft->valloc     = valloc;
 
     replay_setup_out.replay->bft = bft;
+
+    /**********************************************************************/
+    /* Store                                                              */
+    /**********************************************************************/
+    ulong snapshot_slot = slot_ctx_setup_out.exec_slot_ctx->slot_bank.slot;
+    void *        store_mem = fd_valloc_malloc( valloc, fd_store_align(), fd_store_footprint() );
+    fd_store_t * store     = fd_store_join( fd_store_new( store_mem, snapshot_slot ) );
+    store->blockstore = blockstore_setup_out.blockstore;
+    store->smr = snapshot_slot;
+    store->snapshot_slot = snapshot_slot;
+    store->valloc = valloc;
+
+    // repair_ctx->store = store;
 
     /**********************************************************************/
     /* Gossip                                                             */

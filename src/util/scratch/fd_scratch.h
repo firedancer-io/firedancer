@@ -286,7 +286,9 @@ fd_scratch_reset( void ) {
 FD_FN_UNUSED static void /* Work around -Winline */
 fd_scratch_push( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_max                              ) ) FD_LOG_ERR(( "not attached" ));
+  if( FD_UNLIKELY( !fd_scratch_private_frame_max                              ) ) {
+    FD_LOG_ERR(( "not attached" ));
+  }
   if( FD_UNLIKELY( fd_scratch_private_frame_cnt>=fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "too many frames" ));
   fd_scratch_in_prepare = 0;
 # endif
@@ -378,7 +380,9 @@ FD_FN_UNUSED static void * /* Work around -Winline */
 fd_scratch_prepare( ulong align ) {
 
 # if FD_SCRATCH_USE_HANDHOLDING
-  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) FD_LOG_ERR(( "unmatched push" ));
+  if( FD_UNLIKELY( !fd_scratch_private_frame_cnt               ) ) {
+    FD_LOG_ERR(( "unmatched push" ));
+  }
   if( FD_UNLIKELY( !fd_scratch_private_align_is_valid( align ) ) ) FD_LOG_ERR(( "bad align (%lu)", align ));
 # endif
 

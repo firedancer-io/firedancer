@@ -15,6 +15,7 @@
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
+#include "../../ballet/pack/fd_microblock.h"
 
 #define FD_RUNTIME_EXECUTE_SUCCESS                               ( 0 )  /* Slot executed successfully */
 #define FD_RUNTIME_EXECUTE_GENERIC_ERR                          ( -1 ) /* The Slot execute returned an error */
@@ -43,6 +44,48 @@
 /* FD_BLOCK_EPOCH_BANK_TYPE stores fd_epoch_bank_t bincode encoded */
 #define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
 
+#define FD_BLOCKHASH_QUEUE_MAX_ENTRIES       (300UL)
+#define FD_RECENT_BLOCKHASHES_MAX_ENTRIES    (150UL)
+
+/* Transaction errors */
+#define FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE                            -1
+#define FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE                      -2
+#define FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND                         -3
+#define FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND                 -4
+#define FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE                -5
+#define FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE                   -6
+#define FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED                         -7
+#define FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND                       -8
+#define FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR                         -9
+#define FD_RUNTIME_TXN_ERR_CALL_CHAIN_TOO_DEEP                       -10
+#define FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE                 -11
+#define FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_INDEX                     -12
+#define FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE                         -13
+#define FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION             -14
+#define FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE                          -15
+#define FD_RUNTIME_TXN_ERR_CLUSTER_MAINTENANCE                       -16
+#define FD_RUNTIME_TXN_ERR_ACCOUNT_BORROW_OUTSTANDING                -17
+#define FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT         -18
+#define FD_RUNTIME_TXN_ERR_UNSUPPORTED_VERSION                       -19
+#define FD_RUNTIME_TXN_ERR_INVALID_WRITABLE_ACCOUNT                  -20
+#define FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT       -21
+#define FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT     -22
+#define FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS                    -23
+#define FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND            -24
+#define FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER        -25
+#define FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA         -26
+#define FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX        -27
+#define FD_RUNTIME_TXN_ERR_INVALID_RENT_PAYING_ACCOUNT               -28
+#define FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT          -29
+#define FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT     -30
+#define FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION                     -31
+#define FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT               -32
+#define FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED    -33
+#define FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT   -34
+#define FD_RUNTIME_TXN_ERR_RESANITIZATION_NEEDED                     -35
+#define FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED  -36
+#define FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION                    -37
+
 struct fd_runtime_ctx {
   /* Private variables needed to construct objects */
   uchar                 epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
@@ -56,7 +99,7 @@ struct fd_runtime_ctx {
   fd_alloc_t           *alloc;
   fd_gossip_config_t    gossip_config;
   fd_gossip_peer_addr_t gossip_peer_addr;
-  uchar                 private_key[32];
+  uchar                 private_key[32]; 
   fd_pubkey_t           public_key;
 
   /* Public variables */
@@ -112,6 +155,13 @@ struct fd_runtime_args {
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 
+struct fd_execute_txn_task_info {
+  fd_exec_txn_ctx_t * txn_ctx;
+  fd_txn_p_t * txn;
+  int exec_res;
+};
+typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -129,6 +179,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx );
+
+int
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t *slot_ctx );
 
 int
 fd_runtime_block_execute( fd_exec_slot_ctx_t * slot_ctx,
@@ -158,6 +211,10 @@ fd_runtime_block_prepare( void const * buf,
                           ulong buf_sz,
                           fd_valloc_t valloc,
                           fd_block_info_t * out_block_info );
+
+ulong
+fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
+                               fd_txn_p_t * out_txns );
 
 int
 fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -270,6 +327,28 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
 
 void
 fd_runtime_cleanup_incinerator( fd_exec_slot_ctx_t * slot_ctx );
+
+int
+fd_runtime_prepare_txns( fd_exec_slot_ctx_t * slot_ctx,
+                         fd_execute_txn_task_info_t * task_info,
+                         fd_txn_p_t * txns,
+                         ulong txn_cnt );
+                        
+int
+fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                               fd_capture_ctx_t * capture_ctx,
+                               fd_txn_p_t * txns,
+                               ulong txn_cnt,
+                               fd_execute_txn_task_info_t * task_infos,
+                               fd_tpool_t * tpool,
+                               ulong max_workers );
+
+int
+fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
+                                         fd_capture_ctx_t * capture_ctx,
+                                         fd_block_info_t const * block_info,
+                                         fd_tpool_t * tpool,
+                                         ulong max_workers );
 
 FD_PROTOTYPES_END
 

@@ -346,6 +346,10 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
         loose_sz += config->loose_footprint( tile );
     }
 
+    if( FD_UNLIKELY( wksp->kind==FD_TOPO_WKSP_KIND_BLOCKSTORE ) ) {
+      loose_sz += 32UL*1024UL*1024UL*1024UL;
+    }
+
     /* Typical size is fd_alloc top level superblock-ish, and then one alloc for all of the scratch space */
     ulong part_max = 1UL + (loose_sz / (64UL << 10));
 

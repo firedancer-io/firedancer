@@ -69,6 +69,13 @@ int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_
 int
 fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu, const fd_gossip_peer_addr_t * tvu_fwd );
 
+/* Update the tpu addr */
+int
+fd_gossip_update_tpu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu );
+
+/* Update the tpu vote addr */
+int fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote );
+
 /* Set the shred version (after receiving a contact info msg) */
 void fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version );
 

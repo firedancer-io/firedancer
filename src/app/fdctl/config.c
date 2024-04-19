@@ -217,6 +217,10 @@ static int parse_key_value( config_t *   config,
 
   ENTRY_USHORT( ., tiles.quic,          regular_transaction_listen_port                           );
   ENTRY_USHORT( ., tiles.quic,          quic_transaction_listen_port                              );
+  ENTRY_USHORT( ., tiles.quic,          vote_transaction_listen_port                              );
+  ENTRY_STR   ( ., tiles.quic,          regular_transaction_my_addr                               );
+  ENTRY_STR   ( ., tiles.quic,          quic_transaction_my_addr                                  );
+  ENTRY_STR   ( ., tiles.quic,          vote_transaction_my_addr                                  );
   ENTRY_UINT  ( ., tiles.quic,          txn_reassembly_count                                      );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_connections                                );
   ENTRY_UINT  ( ., tiles.quic,          max_concurrent_streams_per_connection                     );
@@ -255,7 +259,7 @@ static int parse_key_value( config_t *   config,
   ENTRY_STR   ( ., tiles.tvu,           tvu_addr                                                  );
   ENTRY_STR   ( ., tiles.tvu,           tvu_fwd_addr                                              );
   ENTRY_STR   ( ., tiles.tvu,           snapshot                                                  );
-  ENTRY_STR   ( ., tiles.tvu,           incremental_snapshot                                                  );
+  ENTRY_STR   ( ., tiles.tvu,           incremental_snapshot                                      );
   ENTRY_STR   ( ., tiles.tvu,           load                                                      );
   ENTRY_STR   ( ., tiles.tvu,           validate_snapshot                                         );
   ENTRY_STR   ( ., tiles.tvu,           check_hash                                                );
@@ -270,6 +274,17 @@ static int parse_key_value( config_t *   config,
   ENTRY_UINT  ( ., tiles.tvu,           txn_max                                                   );
   ENTRY_STR   ( ., tiles.tvu,           solcap_path                                               );
   ENTRY_STR   ( ., tiles.tvu,           solcap_txns                                               );
+
+  ENTRY_STR   ( ., tiles.replay,        genesis                                                   );
+  ENTRY_STR   ( ., tiles.replay,        snapshot                                                  );
+  ENTRY_STR   ( ., tiles.replay,        incremental                                               );
+  ENTRY_UINT  ( ., tiles.replay,        pages                                                     );
+  ENTRY_UINT  ( ., tiles.replay,        txn_max                                                   );
+  ENTRY_UINT  ( ., tiles.replay,        index_max                                                 );
+  ENTRY_UINT  ( ., tiles.replay,        shred_max                                                 );
+  ENTRY_UINT  ( ., tiles.replay,        slot_history_max                                          );
+
+  ENTRY_UINT ( ., tiles.store,         snapshot_slot                                             );
 
   ENTRY_BOOL  ( ., development,         sandbox                                                   );
   ENTRY_BOOL  ( ., development,         no_clone                                                  );
@@ -666,6 +681,7 @@ config_tiles( config_t * config ) {
         tile->net.allow_ports[ 7 ] = config->tiles.gossip.gossip_listen_port;
         tile->net.allow_ports[ 8 ] = config->tiles.repair.repair_intake_listen_port;
         tile->net.allow_ports[ 9 ] = config->tiles.repair.repair_serve_listen_port;
+        tile->net.allow_ports[ 10 ] = config->tiles.quic.vote_transaction_listen_port;
         memcpy( tile->net.src_mac_addr, config->tiles.net.mac_addr, 6UL );
         break;
       case FD_TOPO_TILE_KIND_NETMUX:
@@ -690,6 +706,11 @@ config_tiles( config_t * config ) {
         break;
       case FD_TOPO_TILE_KIND_DEDUP:
         tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
+        break;
+      case FD_TOPO_TILE_KIND_PACK_INT:
+        tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
+        tile->pack.bank_tile_count = config->layout.bank_tile_count;
+        strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_PACK:
         tile->pack.max_pending_transactions = config->tiles.pack.max_pending_transactions;
@@ -730,7 +751,7 @@ config_tiles( config_t * config ) {
         strncpy( tile->tvu.tvu_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->tvu.tvu_fwd_addr) );
         strncpy( tile->tvu.load, config->tiles.tvu.load, sizeof(tile->tvu.load) );
         strncpy( tile->tvu.snapshot, config->tiles.tvu.snapshot, sizeof(tile->tvu.snapshot) );
-	strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
+	      strncpy( tile->tvu.incremental_snapshot, config->tiles.tvu.incremental_snapshot, sizeof(tile->tvu.incremental_snapshot) );
         strncpy( tile->tvu.validate_snapshot, config->tiles.tvu.validate_snapshot, sizeof(tile->tvu.validate_snapshot) );
         strncpy( tile->tvu.shred_cap, config->tiles.tvu.shred_cap, sizeof(tile->tvu.shred_cap) );
         strncpy( tile->tvu.check_hash, config->tiles.tvu.check_hash, sizeof(tile->tvu.check_hash) );
@@ -757,7 +778,13 @@ config_tiles( config_t * config ) {
         strncpy( tile->gossip.tvu_my_addr, config->tiles.tvu.tvu_addr, sizeof(tile->gossip.tvu_my_addr) );
         strncpy( tile->gossip.tvu_my_fwd_addr, config->tiles.tvu.tvu_fwd_addr, sizeof(tile->gossip.tvu_my_fwd_addr) );
 
+        strncpy( tile->gossip.tpu_quic_my_addr, config->tiles.quic.quic_transaction_my_addr, sizeof(tile->gossip.tpu_quic_my_addr) );
+        strncpy( tile->gossip.tpu_udp_my_addr, config->tiles.quic.regular_transaction_my_addr, sizeof(tile->gossip.tpu_udp_my_addr) );
+
+        strncpy( tile->gossip.tpu_vote_udp_my_addr, config->tiles.quic.vote_transaction_my_addr, sizeof(tile->gossip.tpu_vote_udp_my_addr) );
+
         fd_memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6 );
+        strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
         break;
       case FD_TOPO_TILE_KIND_REPAIR:
         tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;
@@ -767,8 +794,23 @@ config_tiles( config_t * config ) {
         fd_memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );
         break;
       case FD_TOPO_TILE_KIND_STORE:
+        tile->store.snapshot_slot = config->tiles.store.snapshot_slot;
+        strncpy( tile->store.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
+        break;
+      case FD_TOPO_TILE_KIND_REPLAY:
+        strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
+        strncpy( tile->replay.snapshot, config->tiles.replay.snapshot, sizeof(tile->replay.snapshot) );
+        strncpy( tile->replay.incremental, config->tiles.replay.incremental, sizeof(tile->replay.incremental));
+        tile->replay.pages     = config->tiles.replay.pages;
+        tile->replay.txn_max   = config->tiles.replay.txn_max;
+        tile->replay.index_max = config->tiles.replay.index_max;
+        tile->replay.shred_max = config->tiles.replay.shred_max;
+        tile->replay.slot_history_max = config->tiles.replay.slot_history_max;
+        tile->replay.snapshot_slot = config->tiles.store.snapshot_slot;
         break;
       case FD_TOPO_TILE_KIND_TVU_THREAD:
+        break;
+      case FD_TOPO_TILE_KIND_BLACKHOLE:
         break;
       default:
         FD_LOG_ERR(( "unknown tile kind %lu", tile->kind ));

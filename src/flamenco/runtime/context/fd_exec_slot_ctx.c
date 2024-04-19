@@ -27,6 +27,7 @@ fd_exec_slot_ctx_new( void *      mem,
 
   fd_slot_bank_new(&self->slot_bank);
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
+  self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_SLOT_CTX_MAGIC;
@@ -213,6 +214,22 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->capitalization = oldbank->capitalization;
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
+  if ( oldbank->blockhash_queue.last_hash ) {
+    slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+    fd_memcpy( slot_bank->block_hash_queue.last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
+  } else {
+    slot_bank->block_hash_queue.last_hash = NULL;
+  }
+  slot_bank->block_hash_queue.last_hash_index = oldbank->blockhash_queue.last_hash_index;
+  slot_bank->block_hash_queue.max_age = oldbank->blockhash_queue.max_age;
+  slot_bank->block_hash_queue.ages_root = NULL;
+  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
+  for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
+    fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
+    fd_memcpy( &node->elem, elem, FD_HASH_HASH_AGE_PAIR_FOOTPRINT );
+    fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
+  }
 
   recover_clock( slot_ctx );
 

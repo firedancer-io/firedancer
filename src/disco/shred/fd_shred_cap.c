@@ -1,4 +1,5 @@
 #include "fd_shred_cap.h"
+#include "../tvu/fd_replay.h"
 #include <time.h>
 
 #define MAX_STABLE_PREFIX 200

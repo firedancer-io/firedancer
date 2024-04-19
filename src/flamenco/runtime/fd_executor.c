@@ -2,6 +2,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
+#include "context/fd_exec_slot_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 
@@ -28,6 +29,8 @@
 #include "../vm/fd_vm_context.h"
 
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/pack/fd_pack.h"
+#include "../../ballet/pack/fd_pack_cost.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -35,6 +38,9 @@
 #include <fcntl.h>   /* openat(2) */
 #include <unistd.h>  /* write(3) */
 #include <time.h>
+
+#define MAX_COMPUTE_UNITS_PER_BLOCK                (48000000UL)
+#define MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT (12000000UL)
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
@@ -92,15 +98,200 @@ fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx ) {
   return 0;
 }
 
-// TODO: handle error codes
-void
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+int
+is_invoked_account( fd_txn_t const * txn_descriptor, uchar idx ) {
+  for ( uchar i = 0; i < txn_descriptor->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn_descriptor->instr[i];
+    if ( instr->program_id == idx ) return 1;
+  }
+  return 0;
+}
+
+int
+is_passed_to_program_account( fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * raw_ptr, uchar idx ) {
+  for ( uchar i = 0; i < txn_descriptor->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn_descriptor->instr[i];
+    uchar const * instr_accs = ((uchar const *)raw_ptr->raw + instr->acct_off );
+    for ( uchar j = 0; j < instr->acct_cnt; j++ ) {
+      if ( instr_accs[j] == idx ) return 1;
+    }
+  }
+  return 0;
+}
+
+int
+is_non_loader_program_key( fd_txn_t const * txn_descriptor, fd_rawtxn_b_t const * raw_ptr, uchar idx ) {
+  return !is_invoked_account( txn_descriptor, idx ) || is_passed_to_program_account( txn_descriptor, raw_ptr, idx );
+}
+
+int
+is_system_nonce_account( fd_borrowed_account_t * account ) {
+FD_SCRATCH_SCOPE_BEGIN {
+  if ( memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
+    if ( account->const_meta->dlen == 0 ) {
+      return 0;
+    } else if ( account->const_meta->dlen == 80 ) { // TODO: none size macro
+      fd_bincode_decode_ctx_t decode = { .data = account->const_data, 
+                                         .dataend = account->const_data + account->const_meta->dlen, 
+                                         .valloc = fd_scratch_virtual() };
+      fd_nonce_state_versions_t nonce_versions;
+      if (fd_nonce_state_versions_decode( &nonce_versions, &decode ) != 0 ) {
+        FD_LOG_ERR(("Not a nonce account"));
+      }
+      fd_nonce_state_t * state;;
+      if ( fd_nonce_state_versions_is_current( &nonce_versions ) ) {
+        state = &nonce_versions.inner.current;
+      } else {
+        state = &nonce_versions.inner.legacy;
+      }
+
+      if ( fd_nonce_state_is_initialized( state ) ) {
+        return 1;
+      }
+    }
+  }
+
+  return -1;
+} FD_SCRATCH_SCOPE_END;
+}
+
+int
+check_rent_transition( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee ) {
+  ulong min_balance   = fd_rent_exempt_minimum_balance2( rent, account->const_meta->dlen );
+  ulong pre_lamports  = account->const_meta->info.lamports;
+  uchar pre_is_exempt = pre_lamports >= min_balance;
+
+  ulong post_lamports  = pre_lamports - fee;
+  uchar post_is_exempt = post_lamports >= min_balance;
+
+  if ( post_lamports == 0 || post_is_exempt ) {
+    return 1;
+  }
+
+  if ( pre_lamports == 0 || pre_is_exempt ) {
+    return 0;
+  }
+
+  return post_lamports <= pre_lamports;
+}
+
+int
+validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee, uchar checked_arithmetic_feature ) {
+  if ( account->const_meta->info.lamports == 0 ) {
+    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+  }
+
+  ulong min_balance = 0;
+
+  int is_nonce = is_system_nonce_account( account );
+  if ( is_nonce < 0 ) {
+    return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
+  }
+
+  if ( is_nonce ) {
+    min_balance = fd_rent_exempt_minimum_balance2( rent, 80 );
+  }
+
+  if ( checked_arithmetic_feature ) {
+    ulong out = ULONG_MAX;
+    int cf = fd_ulong_checked_sub( account->const_meta->info.lamports, min_balance, &out);
+    if ( cf != FD_PROGRAM_OK ) {
+      return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
+    }
+
+    cf = fd_ulong_checked_sub( out, fee, &out );
+    if ( cf != FD_PROGRAM_OK ) {
+      return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
+    }
+  } else {
+    if ( account->const_meta->info.lamports < fee + min_balance ) {
+      return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
+    }
+  }
+
+  if ( account->const_meta->info.lamports < fee ) {
+    return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
+  } else {
+    if ( memcmp( account->pubkey->key, fd_sysvar_incinerator_id.key, sizeof(fd_pubkey_t) ) != 0 && !check_rent_transition( account, rent, fee ) ) {
+      return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
+    }
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int
+fd_executor_check_txn_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
+  ulong fee = fd_runtime_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw );
+
+  if ( txn_ctx->txn_descriptor->signature_cnt == 0 && fee != 0 ) {
+    return FD_RUNTIME_TXN_ERR_MISSING_SIGNATURE_FOR_FEE;
+  }
+
   fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
-  // Set up accounts in the transaction body
+  ulong accumulated_account_size = 0;
+  ulong requested_loaded_accounts_data_size;
+
+  if ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, cap_transaction_accounts_data_size) ) {
+    if ( txn_ctx->loaded_accounts_data_size_limit == 0 ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+    }
+    requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
+  } else {
+    requested_loaded_accounts_data_size = ULONG_MAX;
+  }
+   
+  uchar validated_fee_payer = 0;
+
+  // Set up accounts in the transaction body and perform checks
+  for( ulong i = 0; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
+
+    // Check for max loaded acct size
+    FD_BORROWED_ACCOUNT_DECL(acct);
+    ulong acc_size = 0;
+    int err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, &tx_accs[i], acct );
+    if ( err == FD_ACC_MGR_SUCCESS ) {
+      acc_size = acct->const_meta->dlen;
+    } else {
+      continue;
+    }
+    accumulated_account_size = fd_ulong_sat_add( accumulated_account_size, acc_size );
+    if ( accumulated_account_size > requested_loaded_accounts_data_size ) {
+      return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
+    }
+
+    if (!validated_fee_payer && is_non_loader_program_key( txn_ctx->txn_descriptor, txn_ctx->_txn_raw, (uchar)i)) {
+      fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->slot_ctx->sysvar_cache );
+      int err = validate_fee_payer( acct, rent, fee, FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, checked_arithmetic_in_fee_validation ) );
+      if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+        return err;
+      }
+      validated_fee_payer = 1;
+    }
+
+    if ( txn_ctx->slot_ctx->epoch_reward_status.is_active && fd_txn_account_is_writable_idx( txn_ctx->txn_descriptor, tx_accs, (int)i)
+          && memcmp( acct->const_meta->info.owner, fd_solana_stake_program_id.uc, sizeof(fd_pubkey_t)) == 0 ) {
+      return FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED;
+    }
+  }
+  if ( !validated_fee_payer ) {
+    return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+void
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+  
+  fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
+
+  // Set up accounts in the transaction body and perform checks
   for( ulong i = 0; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
     txn_ctx->accounts[i] = tx_accs[i];
   }
+
   txn_ctx->accounts_cnt += (uchar) txn_ctx->txn_descriptor->acct_addr_cnt;
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
@@ -224,7 +415,7 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
     //
     // (Should this be lamps + whatever is required to keep the payer rent exempt?)
     FD_LOG_WARNING(( "Not enough lamps" ));
-    return -1;
+    return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;
   }
 
   // FD_LOG_DEBUG(( "fd_execute_txn: global->collected: %ld->%ld (%ld)", slot_ctx->slot_bank.collected_fees, slot_ctx->slot_bank.collected_fees + fee, fee));
@@ -236,7 +427,7 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t *          slot_ctx,
     if (cf) {
       // Sature_sub failure
       FD_LOG_WARNING(( "Not enough lamps" ));
-      return -1;
+      return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE;;
     }
     rec->meta->info.lamports = x;
   } else {
@@ -432,21 +623,50 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
-  fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  int err;
+  fd_nonce_state_versions_t state;
+  int is_nonce = fd_load_nonce_account(txn_ctx, &state, txn_ctx->valloc, &err);
+  if ((NULL == txn_descriptor) || !is_nonce) {
+    if ( txn_raw == NULL ) {
+      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+    }
+    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_raw->raw + txn_descriptor->recent_blockhash_off);
 
-  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
-  if( compute_budget_status != 0 ) {
-    return -1;
+    fd_hash_hash_age_pair_t_mapnode_t key;
+    fd_memcpy( key.elem.key.uc, blockhash, sizeof(fd_hash_t) );
+
+    if ( fd_hash_hash_age_pair_t_map_find( slot_ctx->slot_bank.block_hash_queue.ages_pool, slot_ctx->slot_bank.block_hash_queue.ages_root, &key ) == NULL ) {
+      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+    }
   }
 
-#ifdef VLOG
-  fd_txn_t const *txn = txn_ctx->txn_descriptor;
-  fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
-  uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
-  FD_LOG_WARNING(("Preparing Transaction %64J, %lu", sig, txn_ctx->heap_size));
-#endif
+  #ifdef VLOG
+    fd_txn_t const *txn = txn_ctx->txn_descriptor;
+    fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
+    uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+    FD_LOG_WARNING(("Preparing Transaction %64J, %lu", sig, txn_ctx->heap_size));
+  #endif
 
-  return 0;
+  fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  int compute_budget_status = fd_executor_compute_budget_program_execute_instructions( txn_ctx, txn_ctx->_txn_raw );
+  err = fd_executor_check_txn_accounts( txn_ctx );
+  if ( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
+    return err;
+  }
+
+  if ((NULL != txn_descriptor) && is_nonce) {
+    uchar found_fee_payer = 0;
+    for ( ulong i = 0; i < txn_descriptor->acct_addr_cnt; i++ ) {
+      if( is_non_loader_program_key( txn_descriptor, txn_raw, (uchar)i ) ) {
+        found_fee_payer = 1;
+      }
+    }
+    if ( !found_fee_payer ) {
+      return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+    }
+  }
+
+  return compute_budget_status;
 }
 
 int
@@ -485,7 +705,8 @@ fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
 
 int
 fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx ) {
+                               fd_exec_txn_ctx_t * txn_ctx,
+                               fd_txn_p_t * txn ) {
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   // fd_funk_txn_xid_t xid;
   // fd_ed25519_sig_t const * sig0 = &fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw )[0];
@@ -495,6 +716,38 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
   // txn_ctx->funk_txn = txn;
   txn_ctx->funk_txn = parent_txn;
 
+  if (FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, apply_cost_tracker_during_replay ) ) {
+    ulong est_cost = fd_pack_compute_cost( txn, &txn->flags );
+    if( slot_ctx->total_compute_units_requested + est_cost <= MAX_COMPUTE_UNITS_PER_BLOCK ) {
+      slot_ctx->total_compute_units_requested += est_cost;
+    } else {
+      return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
+    }
+
+    fd_pubkey_t * tx_accs   = txn_ctx->accounts;
+    fd_txn_acct_iter_t ctrl;
+    for( ulong i = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM, &ctrl );
+            i < fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i, &ctrl ) ) {
+      fd_pubkey_t * acct = &tx_accs[i];
+      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, tx_accs, (int)i) &&
+                          !fd_txn_account_is_demotion( txn_ctx, (int)i );
+      if (!is_writable) {
+        continue;
+      }
+      fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
+      if ( !elem ) {
+        elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, acct );
+        elem->cu_consumed = 0;
+      }
+
+      if ( elem->cu_consumed + est_cost > MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT ) {
+        return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT;
+      }
+
+      elem->cu_consumed += est_cost;
+    }
+  }
+  
   return 0;
 }
 

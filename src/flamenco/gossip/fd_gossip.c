@@ -485,6 +485,30 @@ fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu
   return 0;
 }
 
+int
+fd_gossip_update_tpu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating tpu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu)));
+
+  fd_gossip_lock( glob );
+  fd_gossip_to_soladdr(&glob->my_contact_info.tpu, tpu);
+  fd_gossip_unlock( glob );
+  
+  return 0;
+}
+
+int
+fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote ) {
+  char tmp[100];
+  FD_LOG_NOTICE(("updating tpu vote service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu_vote)));
+
+  fd_gossip_lock( glob );
+  fd_gossip_to_soladdr(&glob->my_contact_info.tpu_vote, tpu_vote);
+  fd_gossip_unlock( glob );
+  
+  return 0;
+}
+
 void
 fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
   glob->my_contact_info.shred_version = shred_version;
@@ -526,9 +550,11 @@ fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossi
   }
   size_t sz = (size_t)((const uchar *)ctx.data - buf);
   fd_gossip_send_raw( glob, dest, buf, sz);
-  char tmp[100];
-  FD_LOG_DEBUG(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
-  // FD_LOG_HEXDUMP_DEBUG(("dump: ", buf, sz));
+  // char tmp[100];
+  // if ( gmsg->discriminant == 0) {
+  //   FD_LOG_WARNING(("sent msg type %d to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
+  //   FD_LOG_HEXDUMP_WARNING(("dump: ", buf, sz));
+  // }
 }
 
 /* Initiate the ping/pong protocol to a validator address */

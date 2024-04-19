@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 196
+#define FD_TYPE_NAME_COUNT 197
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -11,6 +11,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_epoch_rewards",
  "fd_hash_age",
  "fd_hash_hash_age_pair",
+ "fd_block_hash_vec",
  "fd_block_hash_queue",
  "fd_fee_rate_governor",
  "fd_slot_pair",

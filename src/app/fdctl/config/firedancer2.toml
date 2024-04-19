@@ -7,30 +7,29 @@ topology = "firedancer"
     verify_tile_count = 1
     bank_tile_count = 1
 
-
 [tiles.tvu]
     repair_peer_id = "6VfruTG68WhnhsngCdN23WgGTDsa7oRTKvhBxshYFxkn"
-    repair_peer_addr = "147.75.102.241:8008"
+    repair_peer_addr = "147.75.87.77:8008"
     gossip_peer_addr = "139.178.68.207:8001"
     snapshot = "snapshot-100-FKQ9e5RarvUPRB1rXQmEbbPtAS4qwV363U1x1mJdpQ3W.tar.zst"
     page_cnt = 25
     validate_snapshot = "true"
     check_hash = "true"
-    tvu_addr         = "147.75.102.241:9003"
-    tvu_fwd_addr     = "147.75.102.241:9004"
+    tvu_addr         = "147.75.87.77:9003"
+    tvu_fwd_addr     = "147.75.87.77:9004"
     gossip_listen_port = 8010
     repair_listen_port = 8011
     tvu_port           = 9003
     tvu_fwd_port       = 9004
 
 [tiles.gossip]
-    gossip_peer_addr = "147.75.38.117:8001"
-    gossip_my_addr = "147.75.102.241:8010"
+    gossip_peer_addr = "139.178.68.207:8001"
+    gossip_my_addr = "147.75.87.77:8010"
     gossip_listen_port = 8010
 
 [tiles.repair]
-    repair_my_intake_addr = "147.75.102.241:8012"
-    repair_my_serve_addr = "147.75.102.241:8011"
+    repair_my_intake_addr = "147.75.87.77:8012"
+    repair_my_serve_addr = "147.75.87.77:8011"
     repair_intake_listen_port = 8012
     repair_serve_listen_port = 8011
 
@@ -38,17 +37,17 @@ topology = "firedancer"
     shred_listen_port = 9003
 
 [tiles.replay]
-    snapshot = "/data/arjain/snapshot-259222570-7zLDR5CZ5FrSxzeKahTAjYumpQdRe6RQzEcYc9sBNu4o.tar.zst"
-    incremental = "/data/arjain/incremental-snapshot-259222570-259251605-7xV1EnXCUvM3u8V4CkNd7tKMtLZaCSBmSadZqkQCa4TX.tar.zst"
-    index_max = 900000000
+    snapshot = "snapshot-262549777-3NLYnoRb4yWsuozpXbdLisb3ikYubKc8QecLUuaYjA19.tar.zst"
+    incremental = "incremental-snapshot-262549777-262552181-E1F6aP78HaAYmsERcSuH5NiC7nV2sytEUeK5cNSLpTqZ.tar.zst"
+    index_max = 350000000
     txn_max = 1024
-    pages = 500
+    pages = 180
 
 [tiles.store]
-    snapshot_slot = 259251605
+    snapshot_slot = 262552181
 
 [development]
     no_clone = true
 
 [consensus]
-    expected_shred_version = 50093
+    expected_shred_version = 35459

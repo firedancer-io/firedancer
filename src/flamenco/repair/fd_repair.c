@@ -734,7 +734,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };
@@ -767,7 +767,7 @@ fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };
@@ -800,7 +800,7 @@ fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   fd_repair_lock( glob );
   fd_active_elem_t * peer = actives_sample( glob );
   if (!peer) {
-    FD_LOG_WARNING( ( "failed to find a good peer." ) );
+    FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
     return -1;
   };

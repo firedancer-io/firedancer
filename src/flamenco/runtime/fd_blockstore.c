@@ -439,6 +439,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
 /* Remove a slot from blockstore */
 int
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
+  FD_LOG_WARNING(("REMOVE SLOT %lu", slot));
   fd_wksp_t *                wksp       = fd_blockstore_wksp( blockstore );
   fd_blockstore_slot_map_t * slot_map   = fd_wksp_laddr_fast( wksp, blockstore->slot_map_gaddr );
   fd_blockstore_slot_map_t * slot_entry = fd_blockstore_slot_map_query( slot_map, slot, NULL );

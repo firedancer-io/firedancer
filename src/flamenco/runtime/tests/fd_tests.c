@@ -386,7 +386,7 @@ int fd_executor_run_test(
     txn_ctx.valloc          = slot_ctx->valloc;
     txn_ctx.funk_txn        = slot_ctx->funk_txn;
     txn_ctx.txn_descriptor  = txn_descriptor;
-    txn_ctx._txn_raw        = &raw_txn_b;
+    fd_memcpy( txn_ctx._txn_raw, &raw_txn_b, sizeof(fd_rawtxn_b_t) );
     txn_ctx.instr_stack_sz = 0;
     txn_ctx.compute_meter   = 200000;
 

@@ -627,6 +627,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
     FD_COMPILER_MFENCE();
 
     int filter = 0;
+    // if (sig == 50) FD_LOG_WARNING(("Mux: %lu %lu", sz, seq_found));
     if( FD_LIKELY( callbacks->during_frag ) ) callbacks->during_frag( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, &filter );
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */

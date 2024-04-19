@@ -22,6 +22,7 @@
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "fd_pending_slots.h"
 #include "../shred/fd_fec_resolver.h"
 
 #ifdef FD_HAS_LIBMICROHTTP
@@ -30,6 +31,7 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 
 #define FD_REPLAY_DATA_SHRED_CNT   ( 32UL )
 #define FD_REPLAY_PARITY_SHRED_CNT ( 32UL )
+
 #define FD_REPLAY_PENDING_MAX      ( 1U << 14U ) /* 16 kb */
 #define FD_REPLAY_PENDING_MASK     ( FD_REPLAY_PENDING_MAX - 1U )
 
@@ -99,6 +101,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
 #endif
 };
 typedef struct fd_replay fd_replay_t;
+
+
 /* clang-format on */
 
 struct slot_capitalization {
@@ -134,7 +138,7 @@ fd_replay_footprint( void ) {
     FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
       alignof( fd_replay_t ), sizeof( fd_replay_t ) ),
       fd_replay_commitment_align(), fd_replay_commitment_footprint() ),
-      alignof( long ), sizeof( long )*FD_REPLAY_PENDING_MAX ),
+      alignof( long ), sizeof( long )*FD_PENDING_MAX ),
     alignof( fd_replay_t ) );
   /* clang-format on */
 }
@@ -174,15 +178,6 @@ fd_replay_delete( void * replay );
 /* fd_replay_add_pending adds the slot to the list of slots which
    require attention (getting shreds or executing). delay is the
    number of nanosecs before we should actually act on this. */
-void
-fd_replay_add_pending( fd_replay_t * replay, ulong slot, long delay );
-
-ulong
-fd_replay_pending_iter_init( fd_replay_t * replay );
-
-/* Returns ULONG_MAX if there are no more */
-ulong
-fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong iter );
 
 /* fd_replay_shred_insert inserts a shred into the blockstore. If this completes a block, and it is
    connected to a frontier fork, it also executes the block and updates the frontier accordingly. */
@@ -194,7 +189,7 @@ fd_replay_shred_insert( fd_replay_t * replay, fd_shred_t const * shred );
      2. the block is not an orphan (parent block is present).
      3. checks if the parent block is in the frontier (adding it if not).
 
-   It is intended to be called in a loop as shreds are asynchronously received.
+//    It is intended to be called in a loop as shreds are asynchronously received.
 
    Returns FD_REPLAY_READY on 3, otherwise FD_REPLAY_PENDING.
 */
@@ -223,6 +218,16 @@ fd_replay_turbine_rx( fd_replay_t * replay, fd_shred_t const * shred, ulong shre
 
 void
 fd_replay_repair_rx( fd_replay_t * replay, fd_shred_t const * shred );
+
+ulong
+fd_replay_pending_iter_init( fd_replay_t * replay );
+
+ulong
+fd_replay_pending_iter_next( fd_replay_t * replay, long now, ulong i );
+
+fd_fork_t *
+fd_replay_prepare_ctx( fd_replay_t * replay,
+                       ulong parent_slot );
 
 FD_PROTOTYPES_END
 

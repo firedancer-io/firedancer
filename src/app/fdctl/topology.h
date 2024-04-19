@@ -42,28 +42,34 @@
 #define FD_TOPO_WKSP_KIND_SIGN_QUIC    (12UL)
 #define FD_TOPO_WKSP_KIND_SHRED_SIGN   (13UL)
 #define FD_TOPO_WKSP_KIND_SIGN_SHRED   (14UL)
+#define FD_TOPO_WKSP_KIND_STORE_REPAIR (15UL)
 
-#define FD_TOPO_WKSP_KIND_NET          (15UL)
-#define FD_TOPO_WKSP_KIND_NETMUX       (16UL)
-#define FD_TOPO_WKSP_KIND_QUIC         (17UL)
-#define FD_TOPO_WKSP_KIND_VERIFY       (18UL)
-#define FD_TOPO_WKSP_KIND_DEDUP        (19UL)
-#define FD_TOPO_WKSP_KIND_PACK         (20UL)
-#define FD_TOPO_WKSP_KIND_BANK         (21UL)
-#define FD_TOPO_WKSP_KIND_POH          (22UL)
-#define FD_TOPO_WKSP_KIND_SHRED        (23UL)
-#define FD_TOPO_WKSP_KIND_EXT_STORE    (24UL)
-#define FD_TOPO_WKSP_KIND_SIGN         (25UL)
-#define FD_TOPO_WKSP_KIND_METRIC       (26UL)
-#define FD_TOPO_WKSP_KIND_GOSSIP       (27UL)
-#define FD_TOPO_WKSP_KIND_REPAIR       (28UL)
-#define FD_TOPO_WKSP_KIND_TVU          (29UL)
-#define FD_TOPO_WKSP_KIND_STORE        (30UL)
-#define FD_TOPO_WKSP_KIND_GOSSIP_SIGN  (31UL)
-#define FD_TOPO_WKSP_KIND_SIGN_GOSSIP  (32UL)
-#define FD_TOPO_WKSP_KIND_REPAIR_SIGN  (33UL)
-#define FD_TOPO_WKSP_KIND_SIGN_REPAIR  (34UL)
-#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_SIGN_REPAIR+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_WKSP_KIND_NET          (16UL)
+#define FD_TOPO_WKSP_KIND_NETMUX       (17UL)
+#define FD_TOPO_WKSP_KIND_QUIC         (18UL)
+#define FD_TOPO_WKSP_KIND_VERIFY       (19UL)
+#define FD_TOPO_WKSP_KIND_DEDUP        (20UL)
+#define FD_TOPO_WKSP_KIND_PACK         (21UL)
+#define FD_TOPO_WKSP_KIND_BANK         (22UL)
+#define FD_TOPO_WKSP_KIND_POH          (23UL)
+#define FD_TOPO_WKSP_KIND_SHRED        (24UL)
+#define FD_TOPO_WKSP_KIND_EXT_STORE    (25UL)
+#define FD_TOPO_WKSP_KIND_SIGN         (26UL)
+#define FD_TOPO_WKSP_KIND_METRIC       (27UL)
+#define FD_TOPO_WKSP_KIND_GOSSIP       (28UL)
+#define FD_TOPO_WKSP_KIND_REPAIR       (29UL)
+#define FD_TOPO_WKSP_KIND_TVU          (30UL)
+#define FD_TOPO_WKSP_KIND_STORE        (31UL)
+#define FD_TOPO_WKSP_KIND_BLOCKSTORE   (32UL)
+#define FD_TOPO_WKSP_KIND_REPLAY       (33UL)
+#define FD_TOPO_WKSP_KIND_STORE_REPLAY (34UL)
+#define FD_TOPO_WKSP_KIND_GOSSIP_SIGN  (35UL)
+#define FD_TOPO_WKSP_KIND_SIGN_GOSSIP  (36UL)
+#define FD_TOPO_WKSP_KIND_REPAIR_SIGN  (37UL)
+#define FD_TOPO_WKSP_KIND_SIGN_REPAIR  (38UL)
+#define FD_TOPO_WKSP_KIND_BLACKHOLE    (39UL)
+#define FD_TOPO_WKSP_KIND_GOSSIP_PACK  (40UL)
+#define FD_TOPO_WKSP_KIND_MAX          ( FD_TOPO_WKSP_KIND_GOSSIP_PACK+1 ) /* Keep updated with maximum tile IDX */
 
 /* FD_TOPO_LINK_KIND_* is an identifier for a particular kind of link. A
    link is a single producer multi consumer communication channel.  In
@@ -102,33 +108,39 @@
 #define FD_TOPO_LINK_KIND_GOSSIP_TO_REPAIR    (22UL)
 #define FD_TOPO_LINK_KIND_SHRED_TO_STORE      (23UL)
 #define FD_TOPO_LINK_KIND_REPAIR_TO_STORE     (24UL)
-#define FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN      (25UL)
-#define FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP      (26UL)
-#define FD_TOPO_LINK_KIND_REPAIR_TO_SIGN      (27UL)
-#define FD_TOPO_LINK_KIND_SIGN_TO_REPAIR      (28UL)
-#define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (29UL)
+#define FD_TOPO_LINK_KIND_STORE_TO_REPLAY     (25UL)
+#define FD_TOPO_LINK_KIND_REPLAY_TO_SHRED     (26UL)
+#define FD_TOPO_LINK_KIND_STORE_TO_REPAIR     (27UL)
+#define FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN      (28UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP      (29UL)
+#define FD_TOPO_LINK_KIND_REPAIR_TO_SIGN      (30UL)
+#define FD_TOPO_LINK_KIND_SIGN_TO_REPAIR      (31UL)
 
 /* FD_TOPO_TILE_KIND_* is an identifier for a particular kind of tile.
    There may be multiple or in some cases zero of a particular tile
    kind in the application. */
-#define FD_TOPO_TILE_KIND_NET        ( 0UL)
-#define FD_TOPO_TILE_KIND_NETMUX     ( 1UL)
-#define FD_TOPO_TILE_KIND_QUIC       ( 2UL)
-#define FD_TOPO_TILE_KIND_VERIFY     ( 3UL)
-#define FD_TOPO_TILE_KIND_DEDUP      ( 4UL)
-#define FD_TOPO_TILE_KIND_PACK       ( 5UL)
-#define FD_TOPO_TILE_KIND_BANK       ( 6UL)
-#define FD_TOPO_TILE_KIND_POH        ( 7UL)
-#define FD_TOPO_TILE_KIND_SHRED      ( 8UL)
-#define FD_TOPO_TILE_KIND_EXT_STORE  ( 9UL)
-#define FD_TOPO_TILE_KIND_SIGN       (10UL)
-#define FD_TOPO_TILE_KIND_METRIC     (11UL)
-#define FD_TOPO_TILE_KIND_GOSSIP     (12UL)
-#define FD_TOPO_TILE_KIND_REPAIR     (13UL)
-#define FD_TOPO_TILE_KIND_TVU        (14UL)
-#define FD_TOPO_TILE_KIND_TVU_THREAD (15UL)
-#define FD_TOPO_TILE_KIND_STORE      (16UL)
-#define FD_TOPO_TILE_KIND_MAX        ( FD_TOPO_TILE_KIND_STORE+1 ) /* Keep updated with maximum tile IDX */
+#define FD_TOPO_TILE_KIND_NET       ( 0UL)
+#define FD_TOPO_TILE_KIND_NETMUX    ( 1UL)
+#define FD_TOPO_TILE_KIND_QUIC      ( 2UL)
+#define FD_TOPO_TILE_KIND_VERIFY    ( 3UL)
+#define FD_TOPO_TILE_KIND_DEDUP     ( 4UL)
+#define FD_TOPO_TILE_KIND_PACK      ( 5UL)
+#define FD_TOPO_TILE_KIND_BANK      ( 6UL)
+#define FD_TOPO_TILE_KIND_POH       ( 7UL)
+#define FD_TOPO_TILE_KIND_SHRED     ( 8UL)
+#define FD_TOPO_TILE_KIND_EXT_STORE ( 9UL)
+#define FD_TOPO_TILE_KIND_SIGN      (10UL)
+#define FD_TOPO_TILE_KIND_METRIC    (11UL)
+#define FD_TOPO_TILE_KIND_GOSSIP    (12UL)
+#define FD_TOPO_TILE_KIND_REPAIR    (13UL)
+#define FD_TOPO_TILE_KIND_TVU       (14UL)
+#define FD_TOPO_TILE_KIND_STORE     (15UL)
+#define FD_TOPO_TILE_KIND_REPLAY    (16UL)
+#define FD_TOPO_TILE_KIND_TVU_THREAD (17UL)
+#define FD_TOPO_TILE_KIND_BLACKHOLE  (18UL)
+#define FD_TOPO_TILE_KIND_PACK_INT  (19UL)
+#define FD_TOPO_TILE_KIND_POH_INT   (20UL)
+#define FD_TOPO_TILE_KIND_MAX       ( FD_TOPO_TILE_KIND_POH_INT+1 ) /* Keep updated with maximum tile IDX */
 
 #define FD_TOPO_KIND_TVU             (0UL)
 #define FD_TOPO_KIND_FIREDANCER      (1UL)
@@ -241,7 +253,7 @@ typedef struct {
       ulong  xdp_aio_depth;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
-      ushort allow_ports[ 10 ];
+      ushort allow_ports[ 11 ];
     } net;
 
     struct {
@@ -323,6 +335,7 @@ typedef struct {
       char   solcap_path[ PATH_MAX ];
       char   solcap_txns[ PATH_MAX ];
     } tvu;
+
     struct {
       char    gossip_peer_addr[ 22 ]; // len('255.255.255.255:65535') == 22
       char    gossip_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
@@ -333,8 +346,15 @@ typedef struct {
       char    repair_my_intake_addr[ 22 ];   // len('255.255.255.255:65535') == 22
       char    repair_my_serve_addr[ 22 ];    // len('255.255.255.255:65535') == 22
 
+      char    tpu_udp_my_addr[ 22 ];   // len('255.255.255.255:65535') == 22
+      char    tpu_quic_my_addr[ 22 ];    // len('255.255.255.255:65535') == 22
+
+      char    tpu_vote_udp_my_addr[ 22 ];    // len('255.255.255.255:65535') == 22
+
       ushort  gossip_listen_port;
       uchar   src_mac_addr[ 6 ];
+
+      char    identity_key_path[ PATH_MAX ];
     } gossip;
 
     struct {
@@ -344,6 +364,23 @@ typedef struct {
       ushort  repair_serve_listen_port;
       uchar   src_mac_addr[ 6 ];
     } repair;
+
+    struct {
+      char  genesis[ PATH_MAX ];
+      char  snapshot[ PATH_MAX ];
+      char  incremental[ PATH_MAX ];
+      ulong pages;
+      ulong txn_max;
+      ulong index_max;
+      ulong shred_max;
+      ulong slot_history_max;
+      ulong snapshot_slot;
+    } replay;
+
+    struct {
+      ulong snapshot_slot;
+      char  identity_key_path[ PATH_MAX ];
+    } store;
   };
 } fd_topo_tile_t;
 
@@ -457,6 +494,7 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_SIGN_QUIC:    return "sign_quic";
     case FD_TOPO_WKSP_KIND_SHRED_SIGN:   return "shred_sign";
     case FD_TOPO_WKSP_KIND_SIGN_SHRED:   return "sign_shred";
+    case FD_TOPO_WKSP_KIND_STORE_REPAIR: return "store_repair";
     case FD_TOPO_WKSP_KIND_NET:          return "net";
     case FD_TOPO_WKSP_KIND_NETMUX:       return "netmux";
     case FD_TOPO_WKSP_KIND_QUIC:         return "quic";
@@ -473,10 +511,15 @@ fd_topo_wksp_kind_str( ulong kind ) {
     case FD_TOPO_WKSP_KIND_REPAIR:       return "repair";
     case FD_TOPO_WKSP_KIND_TVU:          return "tvu";
     case FD_TOPO_WKSP_KIND_STORE:        return "store";
+    case FD_TOPO_WKSP_KIND_BLOCKSTORE:   return "bstore";
+    case FD_TOPO_WKSP_KIND_REPLAY:       return "replay";
+    case FD_TOPO_WKSP_KIND_STORE_REPLAY: return "store_replay";
     case FD_TOPO_WKSP_KIND_GOSSIP_SIGN:  return "gossip_sign";
     case FD_TOPO_WKSP_KIND_SIGN_GOSSIP:  return "sign_gossip";
     case FD_TOPO_WKSP_KIND_REPAIR_SIGN:  return "repair_sign";
     case FD_TOPO_WKSP_KIND_SIGN_REPAIR:  return "sign_repair";
+    case FD_TOPO_WKSP_KIND_BLACKHOLE:    return "blackhole";
+    case FD_TOPO_WKSP_KIND_GOSSIP_PACK:  return "gossip_pack";
     default: FD_LOG_ERR(( "unknown workspace kind %lu", kind )); return NULL;
   }
 }
@@ -513,6 +556,8 @@ fd_topo_link_kind_str( ulong kind ) {
     case FD_TOPO_LINK_KIND_SHRED_TO_STORE:      return "shred_store";
     case FD_TOPO_LINK_KIND_REPAIR_TO_STORE:     return "repair_store";
     case FD_TOPO_LINK_KIND_TVU_TO_NETMUX:       return "tvu_netmux";
+    case FD_TOPO_LINK_KIND_STORE_TO_REPLAY:     return "store_replay";
+    case FD_TOPO_LINK_KIND_STORE_TO_REPAIR:     return "store_repair";
     case FD_TOPO_LINK_KIND_GOSSIP_TO_SIGN:      return "gossip_sign";
     case FD_TOPO_LINK_KIND_SIGN_TO_GOSSIP:      return "sign_gossip";
     case FD_TOPO_LINK_KIND_REPAIR_TO_SIGN:      return "repair_sign";
@@ -539,23 +584,27 @@ fd_topo_tile_kind_is_labs( ulong kind ) {
 FD_FN_CONST static inline char *
 fd_topo_tile_kind_str( ulong kind ) {
   switch ( kind ) {
-    case FD_TOPO_TILE_KIND_NET:         return "net";
-    case FD_TOPO_TILE_KIND_NETMUX:      return "netmux";
-    case FD_TOPO_TILE_KIND_QUIC:        return "quic";
-    case FD_TOPO_TILE_KIND_VERIFY:      return "verify";
-    case FD_TOPO_TILE_KIND_DEDUP:       return "dedup";
-    case FD_TOPO_TILE_KIND_PACK:        return "pack";
-    case FD_TOPO_TILE_KIND_BANK:        return "bank";
-    case FD_TOPO_TILE_KIND_POH:         return "poh";
-    case FD_TOPO_TILE_KIND_SHRED:       return "shred";
-    case FD_TOPO_TILE_KIND_EXT_STORE:   return "estore";
-    case FD_TOPO_TILE_KIND_SIGN:        return "sign";
-    case FD_TOPO_TILE_KIND_METRIC:      return "metric";
-    case FD_TOPO_TILE_KIND_GOSSIP:      return "gossip";
-    case FD_TOPO_TILE_KIND_REPAIR:      return "repair";
-    case FD_TOPO_TILE_KIND_TVU:         return "tvu";
-    case FD_TOPO_TILE_KIND_TVU_THREAD:  return "tvu-res";
-    case FD_TOPO_TILE_KIND_STORE:       return "store";
+    case FD_TOPO_TILE_KIND_NET:        return "net";
+    case FD_TOPO_TILE_KIND_NETMUX:     return "netmux";
+    case FD_TOPO_TILE_KIND_QUIC:       return "quic";
+    case FD_TOPO_TILE_KIND_VERIFY:     return "verify";
+    case FD_TOPO_TILE_KIND_DEDUP:      return "dedup";
+    case FD_TOPO_TILE_KIND_PACK:       return "pack";
+    case FD_TOPO_TILE_KIND_BANK:       return "bank";
+    case FD_TOPO_TILE_KIND_POH:        return "poh";
+    case FD_TOPO_TILE_KIND_SHRED:      return "shred";
+    case FD_TOPO_TILE_KIND_EXT_STORE:  return "estore";
+    case FD_TOPO_TILE_KIND_SIGN:       return "sign";
+    case FD_TOPO_TILE_KIND_METRIC:     return "metric";
+    case FD_TOPO_TILE_KIND_GOSSIP:     return "gossip";
+    case FD_TOPO_TILE_KIND_REPAIR:     return "repair";
+    case FD_TOPO_TILE_KIND_TVU:        return "tvu";
+    case FD_TOPO_TILE_KIND_STORE:      return "store";
+    case FD_TOPO_TILE_KIND_REPLAY:     return "replay";
+    case FD_TOPO_TILE_KIND_TVU_THREAD: return "tvu-res";
+    case FD_TOPO_TILE_KIND_BLACKHOLE:  return "bhole";
+    case FD_TOPO_TILE_KIND_PACK_INT:   return "packint";
+    case FD_TOPO_TILE_KIND_POH_INT:    return "pohint";
     default: FD_LOG_ERR(( "unknown tile kind %lu", kind )); return NULL;
   }
 }

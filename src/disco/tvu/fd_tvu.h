@@ -11,6 +11,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "fd_replay.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "fd_store.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../choreo/fd_choreo.h"
 
@@ -20,6 +21,23 @@ struct fd_tvu_gossip_deliver_arg {
   fd_valloc_t valloc;
 };
 typedef struct fd_tvu_gossip_deliver_arg fd_tvu_gossip_deliver_arg_t;
+
+typedef struct {
+  fd_repair_t *        repair;
+  fd_blockstore_t *    blockstore;
+  fd_replay_t *        replay;
+  fd_store_t *         store;
+  fd_exec_slot_ctx_t * slot_ctx;
+  fd_tpool_t *         tpool;
+  ulong                max_workers;
+  ulong                peer_iter;
+} fd_tvu_repair_ctx_t;
+
+typedef struct {
+  fd_gossip_t *      gossip;
+  fd_repair_t *      repair;
+  fd_replay_t *      replay; 
+} fd_tvu_gossip_ctx_t;
 
 void
 fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
