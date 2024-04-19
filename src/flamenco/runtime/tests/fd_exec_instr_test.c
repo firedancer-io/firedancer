@@ -92,7 +92,7 @@ fd_double_is_normal( double x ) {
     double d;
     ulong  ul;
   } u = { .d = x };
-  return !( (!(u.ul>>52 & 0x7ff)) & (u.ul<<1) );
+  return !( (!(u.ul>>52 & 0x7ff)) && (u.ul<<1) );
 }
 
 static int
@@ -263,7 +263,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
-    if( ( fd_double_is_normal( rent->exemption_threshold ) ) |
+    if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
         ( rent->exemption_threshold     <      0.0 ) |
         ( rent->exemption_threshold     >    999.0 ) |
         ( rent->lamports_per_uint8_year > UINT_MAX ) |
