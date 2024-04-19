@@ -47,13 +47,16 @@ err:
 }
 
 void
-generate_keypair( const char * keyfile,
-                  config_t * const config ) {
+generate_keypair( char const *     keyfile,
+                  config_t * const config,
+                  int              use_grnd_random ) {
   uchar keys[ 64 ];
+
+  uint flags = use_grnd_random ? GRND_RANDOM : 0;
 
   long bytes_produced = 0L;
   while( FD_LIKELY( bytes_produced<32 ) ) {
-    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), GRND_RANDOM );
+    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), flags );
     if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create keypair, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     bytes_produced += n;
   }
@@ -115,13 +118,13 @@ void
 keys_cmd_fn( args_t *         args,
              config_t * const config ) {
   if( FD_LIKELY( args->keys.cmd == CMD_NEW_IDENTITY ) ) {
-    generate_keypair( config->consensus.identity_path, config );
+    generate_keypair( config->consensus.identity_path, config, 1 );
   } else if( FD_LIKELY( args->keys.cmd == CMD_NEW_VOTE_ACCOUNT ) ) {
     if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
       FD_LOG_ERR(( "Cannot create a vote account keypair because your validator is not configured "
                    "to vote. Please set [consensus.vote_account_path] in your configuration file." ));
 
-    generate_keypair( config->consensus.vote_account_path, config );
+    generate_keypair( config->consensus.vote_account_path, config, 1 );
   } else if( FD_LIKELY( args->keys.cmd == CMD_PUBKEY ) ) {
     keys_pubkey( args->keys.file_path );
   } else {

@@ -10,20 +10,20 @@ init( config_t * const config ) {
   mkdir_all( config->scratch_directory, config->uid, config->gid );
 
   struct stat st;
-  if( FD_UNLIKELY( stat( config->consensus.identity_path, &st ) && errno == ENOENT ) )
-    generate_keypair( config->consensus.identity_path, config );
+  if( FD_UNLIKELY( stat( config->consensus.identity_path, &st ) && errno==ENOENT ) )
+    generate_keypair( config->consensus.identity_path, config, 0 );
 
   char faucet[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
-  generate_keypair( faucet, config );
+  generate_keypair( faucet, config, 0 );
 
   char stake[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( stake, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
-  generate_keypair( stake, config );
+  generate_keypair( stake, config, 0 );
 
   char vote[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( vote, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
-  generate_keypair( vote, config );
+  generate_keypair( vote, config, 0 );
 }
 
 
