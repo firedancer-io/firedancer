@@ -8,6 +8,7 @@
 #include "../genesis_hash.h"
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <dirent.h>
 
 #define NAME "blockstore"
@@ -88,23 +89,39 @@ init( config_t * const config ) {
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
   fd_shredder_next_fec_set( shredder, &fec );
 
-  /* Switch to target user in the configuration when creating the
-     genesis.bin file so it is permissioned correctly. */
-  gid_t gid = getgid();
-  uid_t uid = getuid();
-  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  /* Fork off a new process for inserting the shreds to the blockstore.
+     RocksDB creates a dozen background workers, and doesn't close them
+     by default.  This would cause problems for sandboxing because you
+     can't unshare a user namespace once multi-threaded, so just do it
+     in another process that we can then terminate. */
 
-  mode_t previous = umask( S_IRWXO | S_IRWXG );
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid == -1 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_ext_blockstore_create_block0( config->ledger.path, fec.data_shred_cnt, (uchar const *)data.pkts, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
+  if( FD_LIKELY( !pid ) ) {
+    /* Switch to target user in the configuration when creating the
+       genesis.bin file so it is permissioned correctly. */
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
+      FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
+      FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  umask( previous );
+    umask( S_IRWXO | S_IRWXG );
 
-  if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    fd_ext_blockstore_create_block0( config->ledger.path, fec.data_shred_cnt, (uchar const *)data.pkts, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
+
+    exit_group( 0 );
+  } else {
+    int wstatus;
+    if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) )
+      FD_LOG_ERR(( "genesis blockstore creation process terminated by signal %i-%s", WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+    if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) )
+      FD_LOG_ERR(( "genesis blockstore creation process exited with status %i", WEXITSTATUS( wstatus ) ));
+  }
+
 }
 
 static void
