@@ -125,6 +125,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( size > 0 ) last_byte = data[ size-1 ];
   int enable_retry = !!(last_byte & 1);
   int role         =   (last_byte & 2) ? FD_QUIC_ROLE_SERVER : FD_QUIC_ROLE_CLIENT;
+  int established  = !!(last_byte & 4);
 
   assert( fd_quic_footprint( &quic_limits ) <= sizeof(quic_mem) );
   void *      shquic = fd_quic_new( quic_mem, &quic_limits );
@@ -173,6 +174,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
   conn->peer_sup_stream_id[ 1 ] = 32UL;
   conn->peer_sup_stream_id[ 2 ] = 32UL;
   conn->peer_sup_stream_id[ 3 ] = 32UL;
+
+  if( established ) {
+    conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+    conn->suites[ fd_quic_enc_level_initial_id    ] = suite;
+    conn->suites[ fd_quic_enc_level_early_data_id ] = suite;
+    conn->suites[ fd_quic_enc_level_handshake_id  ] = suite;
+    conn->suites[ fd_quic_enc_level_appdata_id    ] = suite;
+  }
 
   /* Calls fuzz entrypoint */
   send_udp_packet( quic, data, size );
@@ -273,6 +282,7 @@ decrypt_packet( uchar * const data,
 
   ulong pkt_num_pnoff = 0UL;
   ulong total_len = guess_packet_size( data, size, &pkt_num_pnoff );
+  if( !total_len ) return 0UL;
 
   /* Decrypt the packet */
 
