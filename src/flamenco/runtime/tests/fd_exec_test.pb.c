@@ -33,4 +33,19 @@ PB_BIND(FD_EXEC_TEST_INSTR_EFFECTS, fd_exec_test_instr_effects_t, AUTO)
 PB_BIND(FD_EXEC_TEST_INSTR_FIXTURE, fd_exec_test_instr_fixture_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_INPUT_DATA_REGION, fd_exec_test_input_data_region_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_VM_CONTEXT, fd_exec_test_vm_context_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_SYSCALL_INVOCATION, fd_exec_test_syscall_invocation_t, 2)
+
+
+PB_BIND(FD_EXEC_TEST_SYSCALL_CONTEXT, fd_exec_test_syscall_context_t, 2)
+
+
+PB_BIND(FD_EXEC_TEST_SYSCALL_EFFECTS, fd_exec_test_syscall_effects_t, AUTO)
+
+
 

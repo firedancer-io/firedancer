@@ -882,3 +882,141 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t *        runner,
   *output = effects;
   return actual_end - (ulong)output_buf;
 }
+
+ulong
+fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t *          runner,
+                             fd_exec_test_syscall_context_t const * input,
+                             fd_exec_test_syscall_effects_t **      output,
+                             void *                                 output_buf,
+                             ulong                                  output_bufsz ) {
+
+  /* Create execution context */
+  const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
+  fd_exec_instr_ctx_t ctx[1];
+  if( !_context_create( runner, ctx, input_instr_ctx ) )
+    return 0UL;
+  fd_valloc_t valloc = fd_scratch_virtual();
+
+  /* Capture outputs */
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_syscall_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_syscall_effects_t),
+                                sizeof (fd_exec_test_syscall_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) {
+    _context_destroy( runner, ctx );
+    return 0UL;
+  }
+  fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
+
+  /* Set up the VM instance */
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+  fd_vm_syscall_register_all( syscalls );
+
+  /* Pull out the memory regions */
+  FD_TEST( input->has_vm_ctx );
+  FD_TEST( input->vm_ctx.rodata );
+  uchar * rodata = input->vm_ctx.rodata->bytes;
+  ulong rodata_sz = input->vm_ctx.rodata->size;
+
+  /* Concatenate the input data regions into the flat input memory region */
+  ulong input_data_sz = 0;
+  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    input_data_sz += input->vm_ctx.input_data_regions[i].content->size;
+  }
+  uchar * input_data = fd_valloc_malloc( valloc, alignof(uchar), input_data_sz );
+  uchar * input_data_ptr = input_data;
+  for ( ulong i=0; i<input->vm_ctx.input_data_regions_count; i++ ) {
+    pb_bytes_array_t * array = input->vm_ctx.input_data_regions[i].content;
+    fd_memcpy( input_data_ptr, array->bytes, array->size );
+    input_data_ptr += array->size;
+  }
+  FD_TEST( input_data_ptr == (input_data + input_data_sz) );
+
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
+  FD_TEST( vm );
+  fd_vm_init( 
+    vm,
+    ctx,
+    input->vm_ctx.heap_max,
+    ctx->txn_ctx->compute_meter,
+    rodata,
+    rodata_sz,
+    NULL, // TODO
+    0, // TODO
+    0, // TODO
+    0, // TODO
+    NULL, // TODO
+    syscalls,
+    input_data,
+    input_data_sz,
+    NULL, // TODO
+    sha);
+
+  // Setup the vm state for execution
+  FD_TEST( fd_vm_setup_state_for_execution( vm ) == FD_VM_SUCCESS );
+
+  // Override some execution state values from the syscall fuzzer input
+  // This is so we can test if the syscall mutates any of these erroneously 
+  vm->reg[0] = input->vm_ctx.r0;
+  vm->reg[1] = input->vm_ctx.r1;
+  vm->reg[2] = input->vm_ctx.r2;
+  vm->reg[3] = input->vm_ctx.r3;
+  vm->reg[4] = input->vm_ctx.r4;
+  vm->reg[5] = input->vm_ctx.r5;
+  vm->reg[6] = input->vm_ctx.r6;
+  vm->reg[7] = input->vm_ctx.r7;
+  vm->reg[8] = input->vm_ctx.r8;
+  vm->reg[9] = input->vm_ctx.r9;
+  vm->reg[10] = input->vm_ctx.r10;
+  vm->reg[11] = input->vm_ctx.r11;
+
+  // Look up the syscall to execute
+  const char * syscall_name = input->syscall_invocation.function_name;
+  fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( 
+    syscalls,
+    fd_murmur3_32( syscall_name, strlen( syscall_name ), 0U ),
+    NULL );
+  FD_TEST( syscall );
+
+  /* Actually invoke the syscall */
+  ulong ret[1];
+  int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], ret );
+  vm->reg[0] = ret[0]; /* TODO: does this mirror the behaviour of the other target? */
+
+  /* Capture the effects */
+  effects->error = syscall_err;
+  effects->r0 = vm->reg[0];
+  effects->cu_avail = vm->cu;
+
+  effects->heap = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+  effects->heap->size = (uint)vm->heap_max; 
+  fd_memcpy( effects->heap->bytes, vm->heap, vm->heap_max );
+
+  effects->stack = FD_SCRATCH_ALLOC_APPEND( 
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( FD_VM_STACK_MAX ) );
+  effects->stack->size = (uint)FD_VM_STACK_MAX;
+  fd_memcpy( effects->stack->bytes, vm->stack, FD_VM_STACK_MAX );
+
+  effects->inputdata = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( input_data_sz ) );
+  effects->inputdata->size = (uint)input_data_sz;
+  fd_memcpy( effects->inputdata->bytes, vm->input, input_data_sz );
+
+  effects->frame_count = vm->frame_cnt;
+
+  effects->log = FD_SCRATCH_ALLOC_APPEND(
+    l, alignof(uchar), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->log_sz ) );
+  effects->log->size = (uint)vm->log_sz;
+  fd_memcpy( effects->log->bytes, vm->log, vm->log_sz );
+
+  /* Return the effects */
+  ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  _context_destroy( runner, ctx );
+
+  *output = effects;
+  return actual_end - (ulong)output_buf;
+}
