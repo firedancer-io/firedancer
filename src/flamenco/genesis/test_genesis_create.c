@@ -18,37 +18,21 @@ main( int     argc,
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
 
-  static uchar pod_mem[ 8192 ];
-  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
 
   /* Minimal configuration */
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pubkey_t identity_pubkey = { .ul = { 0, 0, 0, 1 } };
-  fd_pod_insert_pubkey( pod, "identity.pubkey", &identity_pubkey );
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pubkey_t faucet_pubkey = { .ul = { 0, 0, 0, 2 } };
-  fd_pod_insert_pubkey( pod, "faucet.pubkey", &faucet_pubkey );
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pubkey_t stake_pubkey = { .ul = { 0, 0, 0, 3 } };
-  fd_pod_insert_pubkey( pod, "stake.pubkey", &stake_pubkey );
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pubkey_t vote_pubkey = { .ul = { 0, 0, 0, 4 } };
-  fd_pod_insert_pubkey( pod, "vote.pubkey", &vote_pubkey );
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pod_insert_ulong( pod, "creation_time",  123UL );
-  fd_pod_insert_ulong( pod, "ticks_per_slot",  64UL );
-
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
-  fd_pod_insert_ulong( pod, "target_tick_µs", 6250UL );
+  fd_genesis_options_t options[1] = {{
+    .identity_pubkey             = { .ul = { 0, 0, 0, 1 } },
+    .faucet_pubkey               = { .ul = { 0, 0, 0, 2 } },
+    .stake_pubkey                = { .ul = { 0, 0, 0, 3 } },
+    .vote_pubkey                 = { .ul = { 0, 0, 0, 4 } },
+    .creation_time               = 123UL,
+    .ticks_per_slot              = 64UL,
+    .target_tick_duration_micros = 6250UL
+  }};
 
   /* Buffer too small */
 
-  FD_TEST( !fd_genesis_create( NULL, 0UL, pod ) );
+  FD_TEST( !fd_genesis_create( NULL, 0UL, options, NULL, 0UL ) );
 
   /* No more warnings expected */
 
@@ -57,18 +41,16 @@ main( int     argc,
   /* Serialize to buffer */
 
   static uchar result_mem[ BUFSZ ];
-  ulong result_sz = fd_genesis_create( result_mem, sizeof(result_mem), pod );
+  ulong result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options, NULL, 0UL );
   FD_TEST( result_sz );
 
   /* Now try adding a few accounts */
 
-  fd_pod_insert_ulong( pod, "default_funded.cnt", 16UL );
-  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), pod );
+  options->fund_initial_accounts = 16UL;
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options, NULL, 0UL );
   FD_TEST( result_sz );
 
   /* TODO load this into a Firedancer runtime and verify the resulting slot context */
-
-  FD_TEST( fd_pod_delete( fd_pod_leave ( pod ) )==pod_mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -17,6 +17,8 @@
 
 #define NAME "genesis"
 
+FD_IMPORT( feature_gate, "src/app/fddev/configure/genesis_features.bin", fd_pubkey_t, 5, "" );
+
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
    the hashes per tick achieved, where tick_mhz is the target tick rate
@@ -45,6 +47,7 @@ estimate_hashes_per_tick( ulong tick_mhz,
   return (ulong)hashes_per_tick;
 }
 
+
 /* Create a new genesis.bin file contents into the provided blob buffer
    and return the size of the buffer.  Will abort on error if the
    provided buffer is not large enough. */
@@ -53,39 +56,34 @@ static ulong
 create_genesis( config_t * const config,
                 uchar *          blob,
                 ulong            blob_sz ) {
+
+  fd_genesis_options_t options[1];
+
   /* Read in keys */
 
   uchar const * identity_pubkey_ = fd_keyload_load( config->consensus.identity_path, 1 );
   if( FD_UNLIKELY( !identity_pubkey_ ) ) FD_LOG_ERR(( "Failed to load identity key" ));
-  fd_pubkey_t identity_pubkey;  memcpy( identity_pubkey.key, identity_pubkey_, 32 );
+  memcpy( options->identity_pubkey.key, identity_pubkey_, 32 );
 
   char file_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   uchar const * faucet_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !faucet_pubkey_ ) ) FD_LOG_ERR(( "Failed to load faucet key" ));
-  fd_pubkey_t faucet_pubkey;  memcpy( faucet_pubkey.key, faucet_pubkey_, 32 );
+  memcpy( options->faucet_pubkey.key, faucet_pubkey_, 32 );
 
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/stake-account.json", config->scratch_directory ) );
   uchar const * stake_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
-  fd_pubkey_t stake_pubkey;  memcpy( stake_pubkey.key, stake_pubkey_, 32 );
+  memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
 
   FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !vote_pubkey_ ) ) FD_LOG_ERR(( "Failed to load vote account key" ));
-  fd_pubkey_t vote_pubkey;  memcpy( vote_pubkey.key, vote_pubkey_, 32 );
+  memcpy( options->vote_pubkey.key, vote_pubkey_, 32 );
 
-  uchar pod_mem[ 8192 ];
-  uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
 
-  fd_pod_insert_pubkey( pod, "identity.pubkey", &identity_pubkey );
-  fd_pod_insert_pubkey( pod, "faucet.pubkey",   &faucet_pubkey   );
-  fd_pod_insert_pubkey( pod, "stake.pubkey",    &stake_pubkey    );
-  fd_pod_insert_pubkey( pod, "vote.pubkey",     &vote_pubkey     );
-
-  fd_pod_insert_ulong( pod, "creation_time", (ulong)fd_log_wallclock() / (ulong)1e9 );
-
-  fd_pod_insert_ulong( pod, "faucet.balance", 500000000000000000UL );
+  options->creation_time  = (ulong)fd_log_wallclock() / (ulong)1e9;
+  options->faucet_balance = 500000000000000000UL;
 
   /* Set up PoH config */
 
@@ -102,24 +100,35 @@ create_genesis( config_t * const config,
       hashes_per_tick = FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK;
     }
 
-    fd_pod_insert_ulong( pod, "hashes_per_tick", hashes_per_tick );
+    options->hashes_per_tick = hashes_per_tick;
 
   } else if( 1UL==config->development.genesis.hashes_per_tick ) {
 
-    /* do not set hashes_per_tick field */
+    /* set hashes_per_tick field to 0, which means sleep mode */
+    options->hashes_per_tick = 0UL;
 
   } else {
 
     /* set hashes_per_tick to the specified value */
-    fd_pod_insert_ulong( pod, "hashes_per_tick", config->development.genesis.hashes_per_tick );
+    options->hashes_per_tick = config->development.genesis.hashes_per_tick;
 
   }
 
-  fd_pod_insert_ulong( pod, "ticks_per_slot", config->development.genesis.ticks_per_slot );
-  fd_pod_insert_ulong( pod, "target_tick_µs", config->development.genesis.target_tick_duration_micros );
+  options->ticks_per_slot               = config->development.genesis.ticks_per_slot;
+  options->target_tick_duration_micros  = config->development.genesis.target_tick_duration_micros;
 
-  fd_pod_insert_ulong( pod, "default_funded.cnt",     config->development.genesis.fund_initial_accounts );
-  fd_pod_insert_ulong( pod, "default_funded.balance", config->development.genesis.fund_initial_amount_lamports );
+  options->fund_initial_accounts        = config->development.genesis.fund_initial_accounts;
+  options->fund_initial_amount_lamports = config->development.genesis.fund_initial_amount_lamports;
+
+  /* Enable features gates */
+  ulong feature_gate_cnt = feature_gate_sz/32UL;
+  FD_LOG_INFO(( "Enabling %lu feature gates", feature_gate_cnt ));
+  for( ulong i=0UL; i<feature_gate_cnt; i++ ) {
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( feature_gate[i].uc, NULL, base58 );
+    FD_LOG_INFO(( "Enabling %s", base58 ));
+  }
+
 
   /* Serialize blob */
 
@@ -128,7 +137,7 @@ create_genesis( config_t * const config,
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
 
-  ulong blob_len = fd_genesis_create( blob, blob_sz, pod );
+  ulong blob_len = fd_genesis_create( blob, blob_sz, options, feature_gate, feature_gate_sz/32UL );
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
   FD_LOG_DEBUG(( "Created genesis blob (sz=%lu)", blob_len ));
