@@ -14,9 +14,11 @@
 #include "../../util/tmpl/fd_sort.c"
 
 static ulong
-genesis_create( void *        buf,
-                ulong         bufsz,
-                uchar const * pod ) {
+genesis_create( void *                       buf,
+                ulong                        bufsz,
+                fd_genesis_options_t const * options,
+                fd_pubkey_t          const * feature_gates,
+                ulong                        feature_gate_cnt ) {
 
 # define REQUIRE(c)                         \
   do {                                      \
@@ -26,32 +28,21 @@ genesis_create( void *        buf,
     }                                       \
   } while(0);
 
-  fd_pubkey_t identity_pubkey;
-  REQUIRE( fd_pod_query_pubkey( pod, "identity.pubkey", &identity_pubkey ) );
-
-  fd_pubkey_t faucet_pubkey;
-  REQUIRE( fd_pod_query_pubkey( pod, "faucet.pubkey", &faucet_pubkey ) );
-
-  fd_pubkey_t stake_pubkey;
-  REQUIRE( fd_pod_query_pubkey( pod, "stake.pubkey", &stake_pubkey ) );
-
-  fd_pubkey_t vote_pubkey;
-  REQUIRE( fd_pod_query_pubkey( pod, "vote.pubkey", &vote_pubkey ) );
-
   fd_genesis_solana_t genesis[1];
   fd_genesis_solana_new( genesis );
 
   genesis->cluster_type = 3;  /* development */
 
-  genesis->creation_time  = fd_pod_query_ulong( pod, "creation_time",  0UL );
-  genesis->ticks_per_slot = fd_pod_query_ulong( pod, "ticks_per_slot", 0UL );
+  genesis->creation_time  = options->creation_time;
+  genesis->ticks_per_slot = options->ticks_per_slot;
   REQUIRE( genesis->ticks_per_slot );
 
-  ulong hashes_per_tick = fd_pod_query_ulong( pod, "hashes_per_tick", 0UL );
-  genesis->poh_config.has_hashes_per_tick = !!hashes_per_tick;
-  genesis->poh_config.hashes_per_tick     =   hashes_per_tick;
+  genesis->unused = 1024UL; /* match Anza genesis byte-for-byte */
 
-  ulong target_tick_micros = fd_pod_query_ulong( pod, "target_tick_µs", 0UL );
+  genesis->poh_config.has_hashes_per_tick = !!options->hashes_per_tick;
+  genesis->poh_config.hashes_per_tick     =   options->hashes_per_tick;
+
+  ulong target_tick_micros = options->target_tick_duration_micros;
   REQUIRE( target_tick_micros );
   genesis->poh_config.target_tick_duration = (fd_rust_duration_t) {
     .seconds     =         target_tick_micros / 1000000UL,
@@ -61,11 +52,11 @@ genesis_create( void *        buf,
   /* Create fee rate governor */
 
   genesis->fee_rate_governor = (fd_fee_rate_governor_t) {
-    .target_lamports_per_signature  = 10000UL,
-    .target_signatures_per_slot     = 20000UL,
-    .min_lamports_per_signature     =     0UL,
-    .max_lamports_per_signature     =     0UL,
-    .burn_percent                   =    50,
+    .target_lamports_per_signature  =  10000UL,
+    .target_signatures_per_slot     =  20000UL,
+    .min_lamports_per_signature     =   5000UL,
+    .max_lamports_per_signature     = 100000UL,
+    .burn_percent                   =     50,
   };
 
   /* Create rent configuration */
@@ -74,6 +65,17 @@ genesis_create( void *        buf,
     .lamports_per_uint8_year = 3480,
     .exemption_threshold     = 2.0,
     .burn_percent            = 50,
+  };
+
+  /* Create inflation configuration */
+
+  genesis->inflation = (fd_inflation_t) {
+    .initial         = 0.08,
+    .terminal        = 0.015,
+    .taper           = 0.15,
+    .foundation      = 0.05,
+    .foundation_term = 7.0,
+    .__unused        = 0.0,
   };
 
   /* Create epoch schedule */
@@ -90,11 +92,11 @@ genesis_create( void *        buf,
   /* Create faucet account */
 
   fd_pubkey_account_pair_t const faucet_account = {
-    .key = faucet_pubkey,
+    .key = options->faucet_pubkey,
     .account = {
-      .lamports   = fd_pod_query_ulong( pod, "faucet.balance", 1000000000UL /* 1 SOL */ ),
+      .lamports   = options->faucet_balance,
       .owner      = fd_solana_system_program_id,
-      .rent_epoch = ULONG_MAX
+      .rent_epoch = 0UL
     }
   };
   ulong const faucet_account_index = genesis->accounts_len++;
@@ -102,11 +104,11 @@ genesis_create( void *        buf,
   /* Create identity account (vote authority, withdraw authority) */
 
   fd_pubkey_account_pair_t const identity_account = {
-    .key = identity_pubkey,
+    .key = options->identity_pubkey,
     .account = {
       .lamports   = 500000000000UL /* 500 SOL */,
       .owner      = fd_solana_system_program_id,
-      .rent_epoch = ULONG_MAX
+      .rent_epoch = 0UL
     }
   };
   ulong const identity_account_index = genesis->accounts_len++;
@@ -122,8 +124,8 @@ genesis_create( void *        buf,
     fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_current );
 
     fd_vote_state_t * vs = &vsv->inner.current;
-    vs->node_pubkey             = identity_pubkey;
-    vs->authorized_withdrawer   = identity_pubkey;
+    vs->node_pubkey             = options->identity_pubkey;
+    vs->authorized_withdrawer   = options->identity_pubkey;
     vs->commission              = 100;
     vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_alloc ( fd_scratch_virtual() );
     vs->authorized_voters.treap = fd_vote_authorized_voters_treap_alloc( fd_scratch_virtual() );
@@ -132,8 +134,8 @@ genesis_create( void *        buf,
       fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
     *ele = (fd_vote_authorized_voter_t) {
       .epoch  = 0UL,
-      .pubkey = identity_pubkey,
-      .prio   = identity_pubkey.ul[0],  /* treap prio */
+      .pubkey = options->identity_pubkey,
+      .prio   = options->identity_pubkey.ul[0],  /* treap prio */
     };
     fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
 
@@ -161,13 +163,13 @@ genesis_create( void *        buf,
     stake->meta = (fd_stake_meta_t) {
       .rent_exempt_reserve = stake_state_min_bal,
       .authorized = {
-        .staker     = identity_pubkey,
-        .withdrawer = identity_pubkey,
+        .staker     = options->identity_pubkey,
+        .withdrawer = options->identity_pubkey,
       }
     };
     stake->stake = (fd_stake_t) {
       .delegation = (fd_delegation_t) {
-        .voter_pubkey       = vote_pubkey,
+        .voter_pubkey       = options->vote_pubkey,
         .stake              = fd_ulong_max( stake_state_min_bal, 500000000UL /* 0.5 SOL */ ),
         .activation_epoch   = ULONG_MAX, /*  bootstrap stake denoted with ULONG_MAX */
         .deactivation_epoch = ULONG_MAX
@@ -183,9 +185,10 @@ genesis_create( void *        buf,
 
   /* Allocate the account table */
 
-  ulong default_funded_idx = genesis->accounts_len;
-  ulong default_funded_cnt = fd_pod_query_ulong( pod, "default_funded.cnt", 0UL );
-  genesis->accounts_len += default_funded_cnt;
+  ulong default_funded_cnt = options->fund_initial_accounts;
+
+  ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
+  ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_gate_cnt;
 
   genesis->accounts = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
                                         genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
@@ -194,29 +197,29 @@ genesis_create( void *        buf,
   genesis->accounts[ faucet_account_index ] = faucet_account;
   genesis->accounts[ identity_account_index ] = identity_account;
   genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
-    .key     = stake_pubkey,
+    .key     = options->stake_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = stake_state_min_bal,
       .data_len   = FD_STAKE_STATE_V2_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id,
-      .rent_epoch = ULONG_MAX
+      .rent_epoch = 0UL
     }
   };
   genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
-    .key     = vote_pubkey,
+    .key     = options->vote_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = vote_min_bal,
       .data_len   = FD_VOTE_STATE_V3_SZ,
       .data       = vote_state_data,
       .owner      = fd_solana_vote_program_id,
-      .rent_epoch = ULONG_MAX
+      .rent_epoch = 0UL
     }
   };
 
   /* Set up primordial accounts */
 
-  ulong default_funded_balance = fd_pod_query_ulong( pod, "default_funded.balance", 0UL );
+  ulong default_funded_balance = options->fund_initial_amount_lamports;
   for( ulong j=0UL; j<default_funded_cnt; j++ ) {
     fd_pubkey_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
 
@@ -229,9 +232,28 @@ genesis_create( void *        buf,
       .lamports   = default_funded_balance,
       .data_len   = 0UL,
       .owner      = fd_solana_system_program_id,
-      .rent_epoch = ULONG_MAX
+      .rent_epoch = 0UL
     };
   }
+
+#define FEATURE_ENABLED_SZ 9UL
+  static const uchar feature_enabled_data[ FEATURE_ENABLED_SZ ] = { 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+  ulong default_feature_enabled_balance = fd_rent_exempt_minimum_balance2( &genesis->rent, FEATURE_ENABLED_SZ );
+
+  /* Set up feature gate accounts */
+  for( ulong j=0UL; j<feature_gate_cnt; j++ ) {
+    fd_pubkey_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
+
+    pair->key     = feature_gates[ j ];
+    pair->account = (fd_solana_account_t) {
+      .lamports   = default_feature_enabled_balance,
+      .data_len   = FEATURE_ENABLED_SZ,
+      .data       = (uchar *)feature_enabled_data,
+      .owner      = fd_solana_feature_program_id,
+      .rent_epoch = 0UL,
+    };
+  }
+#undef FEATURE_ENABLED_SZ
 
   /* Sort and check for duplicates */
 
@@ -262,11 +284,13 @@ genesis_create( void *        buf,
 }
 
 ulong
-fd_genesis_create( void *        buf,
-                   ulong         bufsz,
-                   uchar const * pod ) {
+fd_genesis_create( void *                       buf,
+                   ulong                        bufsz,
+                   fd_genesis_options_t const * options,
+                   fd_pubkey_t          const * feature_gates,
+                   ulong                        feature_gate_cnt ) {
   fd_scratch_push();
-  ulong ret = genesis_create( buf, bufsz, pod );
+  ulong ret = genesis_create( buf, bufsz, options, feature_gates, feature_gate_cnt );
   fd_scratch_pop();
   return ret;
 }
