@@ -289,22 +289,6 @@ fd_sysvar_rent_checked_read( fd_exec_instr_ctx_t const * invoke_context,
                           rent );
 }
 
-// https://github.com/firedancer-io/solana/blob/debug-master/program-runtime/src/sysvar_cache.rs#L289
-static FD_FN_UNUSED int
-fd_sysvar_stake_history_checked_read( fd_exec_instr_ctx_t const *    invoke_context,
-                                      fd_instr_info_t const *        instruction_context,
-                                      uchar                          instruction_account_index,
-                                      fd_valloc_t *                  valloc,
-                                      /* out */ fd_stake_history_t * stake_history ) {
-  FD_SYSVAR_CHECKED_READ_2( invoke_context,
-                            instruction_context,
-                            instruction_account_index,
-                            fd_sysvar_stake_history_id,
-                            fd_sysvar_stake_history_read,
-                            valloc,
-                            stake_history );
-}
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_native_program_util_h */

@@ -1076,7 +1076,7 @@ fd_runtime_execute_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
       txns[i].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       slot_ctx->signature_cnt += TXN(&txns[i])->signature_cnt;
     }
-  } 
+  }
 
   fd_funk_set_readonly( slot_ctx->acc_mgr->funk, 0 );
   int res = fd_runtime_finalize_txns_tpool( slot_ctx, capture_ctx, task_infos, txn_cnt, tpool, max_workers );
@@ -1494,7 +1494,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t * slot_ctx,
         !fd_account_compute_table_iter_done( slot_ctx->account_compute_table, iter );
         iter = fd_account_compute_table_iter_next( slot_ctx->account_compute_table, iter ) ) {
     fd_account_compute_elem_t * e = fd_account_compute_table_iter_ele( slot_ctx->account_compute_table, iter );
-    fd_account_compute_table_remove( slot_ctx->account_compute_table, &e->key ); 
+    fd_account_compute_table_remove( slot_ctx->account_compute_table, &e->key );
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -3463,12 +3463,9 @@ void fd_process_new_epoch(
 
   fd_update_stake_delegations( slot_ctx );
 
-  fd_stake_history_t history;
-  fd_sysvar_stake_history_read( &history, slot_ctx, &slot_ctx->valloc );
-  refresh_vote_accounts( slot_ctx, &history );
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.valloc  = slot_ctx->valloc;
-  fd_stake_history_destroy( &history, &ctx );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  refresh_vote_accounts( slot_ctx, history );
 
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
   FD_LOG_WARNING(("Leader schedule epoch %lu", fd_slot_to_leader_schedule_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot)));

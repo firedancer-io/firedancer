@@ -42,15 +42,6 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
   return result;
 }
 
-void
-fd_sysvar_stake_history_destroy( fd_stake_history_t * result,
-                                 fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_bincode_destroy_ctx_t ctx = {
-    .valloc  = slot_ctx->valloc
-  };
-  fd_stake_history_destroy( result, &ctx );
-}
-
 void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_stake_history_t stake_history = {
     .pool = fd_stake_history_pool_alloc( slot_ctx->valloc ),

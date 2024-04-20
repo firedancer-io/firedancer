@@ -181,7 +181,9 @@ of delegated stake each vote account has, using the current delegation values fr
 stake account.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
-void refresh_vote_accounts( fd_exec_slot_ctx_t *  slot_ctx, fd_stake_history_t * history ) {
+void
+refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                       fd_stake_history_t const * history ) {
   fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -306,8 +308,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t history;
-  fd_sysvar_stake_history_read( &history, slot_ctx, &slot_ctx->valloc );
+  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   fd_stake_history_entry_t accumulator = {
     .effective = 0,
@@ -333,7 +335,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, &history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
@@ -368,7 +370,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_delegation_t * delegation = &stake_state.inner.stake.stake.delegation;
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, &history, new_rate_activation_epoch );
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating( delegation, stakes->epoch, history, new_rate_activation_epoch );
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
@@ -405,7 +407,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   // Update the list of vote accounts in the epoch stake cache
   // https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L314
   // refresh_vote_accounts( slot_ctx, &history );
-  fd_sysvar_stake_history_destroy( &history, slot_ctx );
 
   // TODO: Update epoch stakes?
   // refresh_vote_accounts( slot_ctx, &history );
