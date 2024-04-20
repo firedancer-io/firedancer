@@ -220,7 +220,10 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
     /* out flow control init */
 
-    /* Since cr_avail is decremented everytime a frag is exposed to the
+    /* When the mux is running in zero-copy mode, we need to be pretty
+       clever with flow control.
+
+       Since cr_avail is decremented every time a frag is exposed to the
        outs by the mux, exposed_cnt=cr_max-cr_avail is the number frags
        that are currently exposed.  Similarly there might be up to
        cr_filt duplicate frags that were filtered.  Exposed frags can be
@@ -246,7 +249,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
        its credits from the outs whenever it has less than cr_max
        credits.  To see this:
 
-       Note that the we require (as is typically the case) an out is to
+       Note that the we require (as is typically the case) an out to
        continuously advertise, via the out's fseq, a recent position in
        mux's sequence space (such that, in the absence of incoming
        fragments, the out's advertised sequence number will eventually
@@ -278,7 +281,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
 
        where mux lag is the number of frags behind the mux is from the
        in and, because of in<>mux flow control, this is in
-       [0,in_cr_max].  Simplifying, we need to insure:
+       [0,in_cr_max].  Simplifying, we need to ensure:
 
          (in_cr_max - mux_lag) - (cr_max - cr_avail) = 0
 
@@ -314,9 +317,13 @@ fd_mux_tile( fd_cnc_t *              cnc,
        Note that the default value for cr_max assumes that
        in[*].depth==in[*].cr_max and out[*].lag_max==mux.depth.  The
        user can override cr_max to handle more general application
-       specific situations. */
+       specific situations.
 
-    ulong cr_max_max = fd_ulong_min( min_in_depth, depth );
+       If the mux copies each frag, then essentially the exposed_cnt for
+       each in is permanently 0.  In that case, it doesn't make sense to
+       take into account in_depth when computing cr_max. */
+
+    ulong cr_max_max = fd_ulong_if( flags&FD_MUX_FLAG_COPY, depth, fd_ulong_min( min_in_depth, depth ) );
     if( !cr_max ) cr_max = cr_max_max; /* use default */
     FD_LOG_INFO(( "Using cr_max %lu", cr_max ));
     if( FD_UNLIKELY( !((1UL<=cr_max) & (cr_max<=cr_max_max)) ) ) {
@@ -413,7 +420,7 @@ fd_mux_tile( fd_cnc_t *              cnc,
            exposed frags first followed by cr_filt frags that got
            filtered). */
 
-        fd_mux_tile_in_update( &in[ in_idx ], cr_max - cr_avail + cr_filt );
+        fd_mux_tile_in_update( &in[ in_idx ], fd_ulong_if( flags&FD_MUX_FLAG_COPY, 0UL, cr_max - cr_avail + cr_filt ) );
 
       } else { /* event_idx==out_cnt, housekeeping event */
 
