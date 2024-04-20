@@ -1424,7 +1424,7 @@ translate_and_update_accounts(
       if ( FD_UNLIKELY( err ) ) return err;
     } else {
       uint found = 0;
-      for (ulong j = 0; j < account_info_cnt; j++) {
+      for (ulong j = 0; j < account_info_cnt && !found; j++) {
         if (memcmp(account_key->uc, account_info_keys[j].uc, sizeof(fd_pubkey_t)) == 0) {
           fd_caller_account_t caller_account;
           ulong err;
