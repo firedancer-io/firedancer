@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
-
-set -euo pipefail
 
 # Load OS information
 OS="$(uname -s)"
@@ -58,8 +58,6 @@ cat <<EOF
     - Fetches dependencies from Git repos into $(pwd)/opt/git
 
     install
-    - Runs 'fetch'
-    - Runs 'check'
     - Builds dependencies
     - Installs all project dependencies into prefix $(pwd)/opt
 
@@ -91,7 +89,7 @@ checkout_repo () {
   echo "[~] Checking out $1 $3"
   (
     cd ./opt/git/"$1"
-    git fetch origin "$3" --depth=1
+    git fetch origin "$3" --tags --depth=1
     git -c advice.detachedHead=false checkout "$3"
   )
   echo
@@ -115,7 +113,7 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
-  checkout_repo openssl   https://github.com/quictls/openssl.git    "openssl-3.2.1"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
   checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
@@ -126,7 +124,7 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -198,7 +196,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
 
   echo "[~] Checking for required brew formulae"
 
@@ -510,6 +508,9 @@ install () {
   cc="$CC"
   export CC
   export cc
+
+  mkdir -p ./opt/{include,lib}
+
   ( install_zlib      )
   ( install_bzip2     )
   ( install_zstd      )
@@ -517,7 +518,7 @@ install () {
   ( install_snappy    )
   ( install_rocksdb   )
   ( install_openssl   )
-  ( install_libmicrohttpd )
+  ( install_libmicrohttpd   )
   ( install_libff     )
 
   # Remove cmake and pkgconfig files, so we don't accidentally
