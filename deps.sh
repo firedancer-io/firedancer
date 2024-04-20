@@ -111,7 +111,6 @@ fetch () {
   mkdir -pv ./opt/git
 
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-  checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
@@ -269,14 +268,6 @@ install_zlib () {
   echo "[+] Successfully installed zlib"
 }
 
-install_bzip2 () {
-  cd ./opt/git/bzip2
-
-  echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" install
-  echo "[+] Successfully installed bzip2"
-}
-
 install_zstd () {
   cd ./opt/git/zstd/lib
 
@@ -421,8 +412,6 @@ install_rocksdb () {
     -DWITH_TOOLS=ON \
     -DWITH_TRACE_TOOLS=OFF \
     -DZLIB_ROOT="$PREFIX" \
-    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
-    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
     -Dzstd_ROOT_DIR="$PREFIX" \
     -DSnappy_LIBRARIES="$PREFIX/lib" \
     -DSnappy_INCLUDE_DIRS="$PREFIX/include" \
@@ -512,7 +501,6 @@ install () {
   mkdir -p ./opt/{include,lib}
 
   ( install_zlib      )
-  ( install_bzip2     )
   ( install_zstd      )
   ( install_secp256k1 )
   ( install_snappy    )
