@@ -6,7 +6,12 @@
 #include "../ballet/sha256/fd_sha256.h"
 #include "types/fd_types_custom.h"
 
-#define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
+#define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
+#define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
+#define FD_SLOT_NULL                 ( ULONG_MAX )
+#define FD_SHRED_IDX_NULL            ( UINT_MAX )
+
+#define FD_FUNK_KEY_TYPE_ACC ((uchar)1)
 #define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
 
 /* Forward declarations */
