@@ -120,6 +120,18 @@ fd_epoch_leaders_leave( fd_epoch_leaders_t * leaders );
 void *
 fd_epoch_leaders_delete( void * shleaders );
 
+/* fd_epoch_leaders_derive derives the leader schedule for a given epoch
+   and stake weights.  leaders is a join to an epoch schedule object.
+   stakes is an array of stake weights sorted by tuple (stake, pubkey)
+   in descending order (as with fd_stake_weight_sort).  The length of
+   stakes equals leaders->pub_cnt.  Current scratch frame must have
+   space sufficient to fit (leaders->pub_cnt + 1) ulongs.  epoch is used
+   to seed the PRNG. */
+
+void
+fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
+                         fd_stake_weight_t const * stakes,
+                         ulong                     epoch );
 
 /* fd_epoch_leaders_get returns a pointer to the selected public key
    given a slot.  Returns NULL if slot is not in [slot0, slot0+slot_cnt)
