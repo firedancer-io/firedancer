@@ -115,3 +115,69 @@ void *
 fd_epoch_leaders_delete( void * shleaders ) {
   return shleaders;
 }
+
+/* fd_epoch_leaders_weighted_index performs binary search to resolve a
+   sample uniformly distributed in [0,accum_stake) to a public key
+   while preserving stake weight probability distribution. */
+
+static ulong
+fd_epoch_leaders_weighted_index( ulong const * scratch,
+                                 ulong         stakes_cnt,
+                                 ulong         roll ) {
+  ulong lo = 0UL;
+  ulong hi = stakes_cnt;
+  while( lo<=hi ) {
+    ulong idx = lo+(hi-lo)/2UL;
+    if( scratch[idx]<=roll && roll<scratch[idx+1] )
+      return idx;
+    if( roll<scratch[idx] )
+      hi = idx-1UL;
+    else
+      lo = idx+1UL;
+  }
+  __builtin_unreachable();
+}
+
+void
+fd_epoch_leaders_derive( fd_epoch_leaders_t *      leaders,
+                         fd_stake_weight_t const * stakes,
+                         ulong                     epoch ) {
+
+  fd_scratch_push();
+
+  ulong pub_cnt   = leaders->pub_cnt;
+  ulong sched_cnt = leaders->sched_cnt;
+
+  /* Copy public keys */
+  for( ulong i=0UL; i<pub_cnt; i++ )
+    memcpy( &leaders->pub[ i ], &stakes[ i ].key, 32UL );
+
+  /* Create map of cumulative stake index */
+  ulong * scratch = fd_scratch_alloc( alignof(ulong), (pub_cnt+1UL)*sizeof(ulong) );
+  ulong accum_stake = 0UL;
+  for( ulong i=0UL; i<pub_cnt; i++ ) {
+    scratch[ i ] = accum_stake;
+    accum_stake += stakes[ i ].stake;
+  }
+  scratch[ pub_cnt ] = accum_stake;
+
+  FD_LOG_DEBUG(( "accum_stake=%016lx", accum_stake ));
+
+  /* Create and seed ChaCha20Rng */
+  fd_chacha20rng_t * rng = fd_chacha20rng_join( fd_chacha20rng_new( fd_alloca(alignof(fd_chacha20rng_t), sizeof(fd_chacha20rng_t)), FD_CHACHA20RNG_MODE_MOD ) );
+  uchar key[ 32 ] = {0};
+  memcpy( key, &epoch, sizeof(ulong) );
+  fd_chacha20rng_init( rng, key );
+
+  /* Sample leader schedule */
+  for( ulong i=0UL; i<sched_cnt; i++ ) {
+    ulong roll = fd_chacha20rng_ulong_roll( rng, accum_stake );
+    ulong idx  = fd_epoch_leaders_weighted_index( scratch, pub_cnt, roll );
+    leaders->sched[ i ] = (uint)idx;
+  }
+
+  /* Clean up */
+  fd_chacha20rng_delete( fd_chacha20rng_leave( rng ) );
+
+  fd_scratch_pop();
+}
