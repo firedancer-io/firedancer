@@ -3,28 +3,25 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 
-void write_stake_history( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_t* stake_history ) {
+void
+write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
+                     fd_stake_history_t * stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  ulong max_size = 16392;
-  ulong curr_size = stake_history->treap->ele_cnt * 32 + 8;
-  ulong          sz = fd_ulong_max( max_size, curr_size );
+  uchar enc[16392] = {0};
 
-  unsigned char *enc = fd_alloca( 1, sz );
-  memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if ( fd_stake_history_encode( stake_history, &ctx ) )
+  fd_bincode_encode_ctx_t encode =
+    { .data    = enc,
+      .dataend = enc + sizeof(enc) };
+  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
-
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sizeof(enc), slot_ctx->slot_bank.slot, NULL );
 }
 
 fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_stake_history_t * result,
                               fd_exec_slot_ctx_t * slot_ctx,
-                              fd_valloc_t *valloc) {
+                              fd_valloc_t *        valloc ) {
 
   FD_BORROWED_ACCOUNT_DECL(stake_rec);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec);
@@ -42,7 +39,8 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
   return result;
 }
 
-void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
+void
+fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_stake_history_t stake_history = {
     .pool = fd_stake_history_pool_alloc( slot_ctx->valloc ),
     .treap = fd_stake_history_treap_alloc( slot_ctx->valloc )
@@ -50,7 +48,9 @@ void fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   write_stake_history( slot_ctx, &stake_history );
 }
 
-void fd_sysvar_stake_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_stake_history_entry_t * entry) {
+void
+fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
+                                fd_stake_history_entry_t * entry ) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
   fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
