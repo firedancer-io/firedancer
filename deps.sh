@@ -117,6 +117,7 @@ fetch () {
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
   checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 
   mkdir -pv ./opt/gnuweb
@@ -396,13 +397,13 @@ install_rocksdb () {
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
   make clean
 
-  ROCKSDB_DISABLE_SNAPPY=1 \
+  ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_LZ4=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
   PORTABLE=haswell \
-  CFLAGS="-isystem $(pwd)/../../include -g0" \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD" \
   make -j $NJOBS \
     LITE=1 \
     V=1 \
@@ -422,6 +423,32 @@ install_libmicrohttpd () {
   make install
 
   echo "[+] Successfully installed libmicrohttpd"
+}
+
+install_snappy () {
+  cd ./opt/git/snappy
+
+  echo "[+] Configuring snappy"
+  mkdir -p build
+  cd build
+  cmake .. \
+    -G"Unix Makefiles" \
+    -DCMAKE_INSTALL_PREFIX:PATH="" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DSNAPPY_BUILD_TESTS=OFF \
+    -DSNAPPY_BUILD_BENCHMARKS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  echo "[+] Configured snappy"
+
+  echo "[+] Building snappy"
+  make -j
+  echo "[+] Successfully built snappy"
+
+  echo "[+] Installing snappy to $PREFIX"
+  make install DESTDIR="$PREFIX"
+  echo "[+] Successfully installed snappy"
 }
 
 install_libff () {
@@ -463,6 +490,7 @@ install () {
   ( install_secp256k1 )
   ( install_openssl   )
   if [[ $DEVMODE ]]; then
+    ( install_snappy  )
     ( install_rocksdb )
     ( install_libff   )
     ( install_libmicrohttpd )
