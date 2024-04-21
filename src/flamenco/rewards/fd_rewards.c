@@ -30,8 +30,8 @@ static FD_FN_CONST ulong
 get_inflation_start_slot( fd_exec_slot_ctx_t * slot_ctx ) {
     ulong devnet_and_testnet = FD_FEATURE_ACTIVE(slot_ctx, devnet_and_testnet) ? slot_ctx->epoch_ctx->features.devnet_and_testnet : ULONG_MAX;
     ulong enable = ULONG_MAX;
-    if (FD_FEATURE_ACTIVE( slot_ctx, vote ) && FD_FEATURE_ACTIVE(slot_ctx, enable)) {
-        enable = slot_ctx->epoch_ctx->features.enable;
+    if (FD_FEATURE_ACTIVE( slot_ctx, full_inflation_vote ) && FD_FEATURE_ACTIVE(slot_ctx, full_inflation_enable)) {
+        enable = slot_ctx->epoch_ctx->features.full_inflation_enable;
     }
 
     ulong min_slot = fd_ulong_min( enable, devnet_and_testnet );
