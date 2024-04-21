@@ -43,7 +43,7 @@ flame_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
 
-  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx]" ));
+  if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|solana]" ));
   strncpy( args->flame.name, **pargv, sizeof( args->flame.name ) - 1 );
 
   (*pargc)--;
@@ -61,12 +61,20 @@ flame_cmd_fn( args_t *         args,
   ulong tile_cnt = 0UL;
   ulong tile_idxs[ 128UL ];
 
+  int whole_process = 0;
   if( FD_UNLIKELY( !strcmp( "all", args->flame.name ) ) ) {
     FD_TEST( config->topo.tile_cnt<sizeof(tile_idxs)/sizeof(tile_idxs[0]) );
     for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
       tile_idxs[ tile_cnt ] = i;
       tile_cnt++;
     }
+  } else if( FD_UNLIKELY( !strcmp( "solana", args->flame.name ) ) ) {
+    /* Find the bank tile so we can get the Solana PID */
+    ulong bank_tile_idx = fd_topo_find_tile( &config->topo, "bank", 0UL );
+    if( FD_UNLIKELY( bank_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `bank` not found" ));
+    whole_process = 1;
+    tile_idxs[ 0 ] = bank_tile_idx;
+    tile_cnt = 1UL;
   } else {
     char * sep = strchr( args->flame.name, ':' );
 
@@ -104,12 +112,12 @@ flame_cmd_fn( args_t *         args,
     }
 
     ulong arg_len;
-    FD_TEST( fd_cstr_printf_check( threads+len, sizeof(threads)-len, &arg_len, "%lu", tid ) );
+    FD_TEST( fd_cstr_printf_check( threads+len, sizeof(threads)-len, &arg_len, "%lu", fd_ulong_if( whole_process, pid, tid ) ) );
     len += arg_len;
   }
   FD_TEST( len<sizeof(threads) );
 
-  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -o - -F 99 -t %s | /usr/bin/perf script report flamegraph -i -", threads ));
+  FD_LOG_NOTICE(( "/usr/bin/perf script record flamegraph -o - -F 99 -%c %s | /usr/bin/perf script report flamegraph -i -", fd_char_if( whole_process, 'p', 't' ), threads ));
 
   int pipefd[ 2 ];
   if( FD_UNLIKELY( -1==pipe( pipefd ) ) ) FD_LOG_ERR(( "pipe() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -130,7 +138,7 @@ flame_cmd_fn( args_t *         args,
       "-",
       "-F",
       "99",
-      "-t",
+      whole_process ? "-p" : "-t",
       threads,
       NULL,
     };
