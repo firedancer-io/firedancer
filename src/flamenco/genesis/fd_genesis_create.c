@@ -93,8 +93,7 @@ genesis_create( void *                       buf,
     .key = options->faucet_pubkey,
     .account = {
       .lamports   = options->faucet_balance,
-      .owner      = fd_solana_system_program_id,
-      .rent_epoch = 0UL
+      .owner      = fd_solana_system_program_id
     }
   };
   ulong const faucet_account_index = genesis->accounts_len++;
@@ -105,8 +104,7 @@ genesis_create( void *                       buf,
     .key = options->identity_pubkey,
     .account = {
       .lamports   = 500000000000UL /* 500 SOL */,
-      .owner      = fd_solana_system_program_id,
-      .rent_epoch = 0UL
+      .owner      = fd_solana_system_program_id
     }
   };
   ulong const identity_account_index = genesis->accounts_len++;
@@ -181,6 +179,25 @@ genesis_create( void *                       buf,
     REQUIRE( fd_stake_state_v2_encode( state, &encode ) == FD_BINCODE_SUCCESS );
   } while(0);
 
+  /* Create stake config account */
+
+  ulong const stake_cfg_account_index = genesis->accounts_len++;
+
+  uchar stake_cfg_data[10];
+  do {
+    fd_stake_config_t config[1] = {{
+      .config_keys_len      =  0,
+      .warmup_cooldown_rate =  0.25,
+      .slash_penalty        = 12
+    }};
+
+    fd_bincode_encode_ctx_t encode =
+      { .data    = stake_cfg_data,
+        .dataend = stake_cfg_data + sizeof(stake_cfg_data) };
+    REQUIRE( fd_stake_config_encode( config, &encode ) == FD_BINCODE_SUCCESS );
+    REQUIRE( encode.data == encode.dataend );
+  } while(0);
+
   /* Read enabled features */
 
   ulong         feature_cnt = 0UL;
@@ -215,8 +232,16 @@ genesis_create( void *                       buf,
       .lamports   = stake_state_min_bal,
       .data_len   = FD_STAKE_STATE_V2_SZ,
       .data       = stake_data,
-      .owner      = fd_solana_stake_program_id,
-      .rent_epoch = 0UL
+      .owner      = fd_solana_stake_program_id
+    }
+  };
+  genesis->accounts[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
+    .key     = fd_solana_stake_program_config_id,
+    .account = (fd_solana_account_t) {
+      .lamports   = fd_rent_exempt_minimum_balance2( &genesis->rent, sizeof(stake_cfg_data) ),
+      .data_len   = sizeof(stake_cfg_data),
+      .data       = stake_cfg_data,
+      .owner      = fd_solana_config_program_id
     }
   };
   genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
@@ -225,8 +250,7 @@ genesis_create( void *                       buf,
       .lamports   = vote_min_bal,
       .data_len   = FD_VOTE_STATE_V3_SZ,
       .data       = vote_state_data,
-      .owner      = fd_solana_vote_program_id,
-      .rent_epoch = 0UL
+      .owner      = fd_solana_vote_program_id
     }
   };
 
@@ -244,8 +268,7 @@ genesis_create( void *                       buf,
     pair->account = (fd_solana_account_t) {
       .lamports   = default_funded_balance,
       .data_len   = 0UL,
-      .owner      = fd_solana_system_program_id,
-      .rent_epoch = 0UL
+      .owner      = fd_solana_system_program_id
     };
   }
 
@@ -262,8 +285,7 @@ genesis_create( void *                       buf,
       .lamports   = default_feature_enabled_balance,
       .data_len   = FEATURE_ENABLED_SZ,
       .data       = (uchar *)feature_enabled_data,
-      .owner      = fd_solana_feature_program_id,
-      .rent_epoch = 0UL,
+      .owner      = fd_solana_feature_program_id
     };
   }
 #undef FEATURE_ENABLED_SZ
