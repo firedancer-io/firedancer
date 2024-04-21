@@ -16,9 +16,7 @@
 static ulong
 genesis_create( void *                       buf,
                 ulong                        bufsz,
-                fd_genesis_options_t const * options,
-                fd_pubkey_t          const * feature_gates,
-                ulong                        feature_gate_cnt ) {
+                fd_genesis_options_t const * options ) {
 
 # define REQUIRE(c)                         \
   do {                                      \
@@ -183,12 +181,27 @@ genesis_create( void *                       buf,
     REQUIRE( fd_stake_state_v2_encode( state, &encode ) == FD_BINCODE_SUCCESS );
   } while(0);
 
+  /* Read enabled features */
+
+  ulong         feature_cnt = 0UL;
+  fd_pubkey_t * features =
+      fd_scratch_alloc( alignof(fd_pubkey_t), FD_FEATURE_ID_CNT * sizeof(fd_pubkey_t) );
+
+  if( options->features ) {
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                     !fd_feature_iter_done( id );
+                                 id = fd_feature_iter_next( id ) ) {
+      if( fd_features_get( options->features, id ) == 0UL )
+        features[ feature_cnt++ ] = id->id;
+    }
+  }
+
   /* Allocate the account table */
 
   ulong default_funded_cnt = options->fund_initial_accounts;
 
   ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
-  ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_gate_cnt;
+  ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
 
   genesis->accounts = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
                                         genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
@@ -241,10 +254,10 @@ genesis_create( void *                       buf,
   ulong default_feature_enabled_balance = fd_rent_exempt_minimum_balance2( &genesis->rent, FEATURE_ENABLED_SZ );
 
   /* Set up feature gate accounts */
-  for( ulong j=0UL; j<feature_gate_cnt; j++ ) {
+  for( ulong j=0UL; j<feature_cnt; j++ ) {
     fd_pubkey_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
 
-    pair->key     = feature_gates[ j ];
+    pair->key     = features[ j ];
     pair->account = (fd_solana_account_t) {
       .lamports   = default_feature_enabled_balance,
       .data_len   = FEATURE_ENABLED_SZ,
@@ -286,11 +299,9 @@ genesis_create( void *                       buf,
 ulong
 fd_genesis_create( void *                       buf,
                    ulong                        bufsz,
-                   fd_genesis_options_t const * options,
-                   fd_pubkey_t          const * feature_gates,
-                   ulong                        feature_gate_cnt ) {
+                   fd_genesis_options_t const * options ) {
   fd_scratch_push();
-  ulong ret = genesis_create( buf, bufsz, options, feature_gates, feature_gate_cnt );
+  ulong ret = genesis_create( buf, bufsz, options );
   fd_scratch_pop();
   return ret;
 }

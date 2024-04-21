@@ -67,9 +67,9 @@ fd_features_enable_all( fd_features_t * );
 
      for( fd_feature_id_t const * id = fd_feature_iter_init();
                                       !fd_feature_iter_done( id );
-                                  id = fd_feature_iter_next( id ) ) {{
+                                  id = fd_feature_iter_next( id ) ) {
        ...
-     }} */
+     } */
 
 static inline fd_feature_id_t const *
 fd_feature_iter_init( void ) {

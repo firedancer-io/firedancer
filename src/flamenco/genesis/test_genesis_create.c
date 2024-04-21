@@ -13,7 +13,7 @@ main( int     argc,
   int log_level = fd_log_level_logfile();
   fd_log_level_logfile_set( fd_int_max( log_level, 4 ) );
 
-  static uchar scratch_smem[ 8192 ];
+  static uchar scratch_smem[ 16384 ];
          ulong scratch_fmem[ 4 ];
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
@@ -32,7 +32,7 @@ main( int     argc,
 
   /* Buffer too small */
 
-  FD_TEST( !fd_genesis_create( NULL, 0UL, options, NULL, 0UL ) );
+  FD_TEST( !fd_genesis_create( NULL, 0UL, options ) );
 
   /* No more warnings expected */
 
@@ -41,13 +41,21 @@ main( int     argc,
   /* Serialize to buffer */
 
   static uchar result_mem[ BUFSZ ];
-  ulong result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options, NULL, 0UL );
+  ulong result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
   FD_TEST( result_sz );
 
   /* Now try adding a few accounts */
 
   options->fund_initial_accounts = 16UL;
-  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options, NULL, 0UL );
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
+  FD_TEST( result_sz );
+
+  /* Add a feature gate */
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+  features->full_inflation_vote = 0UL;
+  options->features = features;
+  result_sz = fd_genesis_create( result_mem, sizeof(result_mem), options );
   FD_TEST( result_sz );
 
   /* TODO load this into a Firedancer runtime and verify the resulting slot context */
