@@ -5,6 +5,7 @@
    A genesis blob is used to bootstrap a Solana ledger. */
 
 #include "../fd_flamenco_base.h"
+#include "../features/fd_features.h"
 
 
 /* fd_genesis_options_t exists as a convenient way to specify options
@@ -25,6 +26,11 @@ struct fd_genesis_options {
 
   ulong fund_initial_accounts;
   ulong fund_initial_amount_lamports;
+
+  /* features points to an externally owned feature map.
+     Adds a feature account to the genesis blob for feature enabled at
+     slot 0.  If features==NULL, creates no feature accounts. */
+  fd_features_t const * features;
 };
 
 typedef struct fd_genesis_options fd_genesis_options_t;
@@ -35,15 +41,12 @@ FD_PROTOTYPES_BEGIN
    (Bincode encoded fd_genesis_solana_t)  [buf,bufsz) it the output
    memory region into which the genesis blob will be written.  options
    points to a struct containing the genesis configuration parameters.
-   Additionally, the feature gates corresponding to the pubkeys
-   feature_gates[ i ] for i in [0, feature_gate_cnt) will be active from
-   genesis.  feature_gates==NULL is okay if feature_gate_cnt==0.
 
    Returns the number of bytes in the output memory region used on
    success.  On failure, returns 0UL and logs reason for error.
 
    Assumes that caller is attached to an fd_scratch with sufficient
-   memory to buffer intermediate data (8192 + 128*n space, 2 frames).
+   memory to buffer intermediate data (16384 + 128*n space, 2 frames).
 
    THIS METHOD IS NOT SAFE FOR PRODUCTION USE.
    It is intended for development only. */
@@ -51,11 +54,9 @@ FD_PROTOTYPES_BEGIN
 ulong
 fd_genesis_create( void *                       buf,
                    ulong                        bufsz,
-                   fd_genesis_options_t const * options,
-                   fd_pubkey_t          const * feature_gates,
-                   ulong                        feature_gate_cnt );
+                   fd_genesis_options_t const * options );
 
-/* TODO Add method to estimate the scratch and genesis blob size given a pod */
+/* TODO Add method to estimate the scratch and genesis blob size given options */
 
 FD_PROTOTYPES_END
 

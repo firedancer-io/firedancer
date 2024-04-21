@@ -11,13 +11,80 @@
 
 #include "../../../ballet/poh/fd_poh.h"
 #include "../../../disco/keyguard/fd_keyload.h"
+#include "../../../flamenco/features/fd_features.h"
 #include "../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
 
 #define NAME "genesis"
 
-FD_IMPORT( feature_gate, "src/app/fddev/configure/genesis_features.bin", fd_pubkey_t, 5, "" );
+/* default_enable_features is a table of features enabled by default */
+
+static void
+default_enable_features( fd_features_t * features ) {
+  features->index_erasure_conflict_duplicate_proofs = 0UL;
+  features->curve25519_restrict_msm_length = 0UL;
+  features->commission_updates_only_allowed_in_first_half_of_epoch = 0UL;
+  features->validate_fee_collector_account = 0UL;
+  features->zk_token_sdk_enabled = 0UL;
+  features->enable_zk_transfer_with_fee = 0UL;
+  features->incremental_snapshot_only_incremental_hash_calculation = 0UL;
+  features->stake_redelegate_instruction = 0UL;
+  features->timely_vote_credits = 0UL;
+  features->apply_cost_tracker_during_replay = 0UL;
+  features->reject_callx_r10 = 0UL;
+  features->update_hashes_per_tick = 0UL;
+  features->enable_partitioned_epoch_reward = 0UL;
+  features->pico_inflation = 0UL;
+  features->libsecp256k1_fail_on_bad_count2 = 0UL;
+  features->remaining_compute_units_syscall_enabled = 0UL;
+  features->simplify_writable_program_account_check = 0UL;
+  features->set_exempt_rent_epoch_max = 0UL;
+  features->enable_bpf_loader_set_authority_checked_ix = 0UL;
+  features->consume_blockstore_duplicate_proofs = 0UL;
+  features->disable_deploy_of_alloc_free_syscall = 0UL;
+  features->disable_bpf_loader_instructions = 0UL;
+  features->full_inflation_enable = 0UL;
+  features->vote_state_add_vote_latency = 0UL;
+  features->curve25519_syscall_enabled = 0UL;
+  features->error_on_syscall_bpf_function_hash_collisions = 0UL;
+  features->update_hashes_per_tick3 = 0UL;
+  features->update_hashes_per_tick4 = 0UL;
+  features->enable_bpf_loader_extend_program_ix = 0UL;
+  features->libsecp256k1_fail_on_bad_count = 0UL;
+  features->enable_program_runtime_v2_and_loader_v4 = 0UL;
+  features->increase_tx_account_lock_limit = 0UL;
+  features->stake_raise_minimum_delegation_to_1_sol = 0UL;
+  features->enable_alt_bn128_syscall = 0UL;
+  features->revise_turbine_epoch_stakes = 0UL;
+  features->clean_up_delegation_errors = 0UL;
+  features->update_hashes_per_tick5 = 0UL;
+  features->full_inflation_vote = 0UL;
+  features->skip_rent_rewrites = 0UL;
+  features->switch_to_new_elf_parser = 0UL;
+  features->require_rent_exempt_split_destination = 0UL;
+  features->enable_turbine_fanout_experiments = 0UL;
+  features->devnet_and_testnet = 0UL;
+  features->enable_big_mod_exp_syscall = 0UL;
+  features->enable_alt_bn128_compression_syscall = 0UL;
+  features->update_hashes_per_tick2 = 0UL;
+  features->include_loaded_accounts_data_size_in_fee_calculation = 0UL;
+  features->bpf_account_data_direct_mapping = 0UL;
+  features->relax_authority_signer_check_for_lookup_table_creation = 0UL;
+  features->update_hashes_per_tick6 = 0UL;
+  features->enable_poseidon_syscall = 0UL;
+  features->better_error_codes_for_tx_lamport_check = 0UL;
+  features->stake_minimum_delegation_for_rewards = 0UL;
+  features->loosen_cpi_size_restriction = 0UL;
+  features->drop_legacy_shreds = 0UL;
+  features->deprecate_rewards_sysvar = 0UL;
+  features->warp_timestamp_again = 0UL;
+  features->reduce_stake_warmup_cooldown = 0UL;
+  features->disable_turbine_fanout_experiments = 0UL;
+  features->blake3_syscall_enabled = 0UL;
+  features->last_restart_slot_sysvar = 0UL;
+  features->disable_fees_sysvar = 0UL;
+}
 
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
@@ -120,15 +187,12 @@ create_genesis( config_t * const config,
   options->fund_initial_accounts        = config->development.genesis.fund_initial_accounts;
   options->fund_initial_amount_lamports = config->development.genesis.fund_initial_amount_lamports;
 
-  /* Enable features gates */
-  ulong feature_gate_cnt = feature_gate_sz/32UL;
-  FD_LOG_INFO(( "Enabling %lu feature gates", feature_gate_cnt ));
-  for( ulong i=0UL; i<feature_gate_cnt; i++ ) {
-    char base58[ FD_BASE58_ENCODED_32_SZ ];
-    fd_base58_encode_32( feature_gate[i].uc, NULL, base58 );
-    FD_LOG_INFO(( "Enabling %s", base58 ));
-  }
+  fd_features_t features[1];
+  fd_features_disable_all( features );
+  fd_features_enable_hardcoded( features );
+  default_enable_features( features );
 
+  options->features = features;
 
   /* Serialize blob */
 
@@ -137,7 +201,7 @@ create_genesis( config_t * const config,
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
 
-  ulong blob_len = fd_genesis_create( blob, blob_sz, options, feature_gate, feature_gate_sz/32UL );
+  ulong blob_len = fd_genesis_create( blob, blob_sz, options );
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
   FD_LOG_DEBUG(( "Created genesis blob (sz=%lu)", blob_len ));
