@@ -932,7 +932,7 @@ FD_PROTOTYPES_BEGIN
 /* FIXME: CONSIDER MEMCPY RELATED FUNC ATTRS */
 
 #ifndef FD_USE_ARCH_MEMCPY
-#define FD_USE_ARCH_MEMCPY 1
+#define FD_USE_ARCH_MEMCPY 0
 #endif
 
 #if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_MSAN
@@ -966,7 +966,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 /* FIXME: CONSIDER MEMSET RELATED FUNC ATTRS */
 
 #ifndef FD_USE_ARCH_MEMSET
-#define FD_USE_ARCH_MEMSET 1
+#define FD_USE_ARCH_MEMSET 0
 #endif
 
 #if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_MSAN
@@ -1005,7 +1005,7 @@ static void * (* volatile fd_memset_explicit)(void *, int, size_t) = memset;
    preferable to __builtin_memcmp in some cases. */
 
 #ifndef FD_USE_ARCH_MEMEQ
-#define FD_USE_ARCH_MEMEQ 1
+#define FD_USE_ARCH_MEMEQ 0
 #endif
 
 #if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
