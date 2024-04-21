@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import struct
 
-from base58 import b58decode
+import fd58
 
 
 def generate(feature_map_path, header_path, body_path):
@@ -25,7 +25,9 @@ def generate(feature_map_path, header_path, body_path):
     rmap = {}
     fm = feature_map
     for x in fm:
-        short_id = "0x%016x" % (struct.unpack("<Q", b58decode(x["pubkey"])[0:8]))
+        short_id = "0x%016x" % (
+            struct.unpack("<Q", fd58.dec32(x["pubkey"].encode("ascii"))[0:8])
+        )
         fd_features_t_params.append(f"    /* {short_id} */ ulong {x['name']};")
         rmap[x["pubkey"]] = x["name"]
     fd_features_t_params = "\n".join(fd_features_t_params)
@@ -55,7 +57,7 @@ union fd_features {{
     )
 
     def pubkey_to_c_array(pubkey):
-        raw = b58decode(pubkey)
+        raw = fd58.dec32(pubkey.encode("ascii"))
         return '"' + "".join([f"\\x{byte:02x}" for byte in raw]) + '"'
 
     print(
@@ -64,35 +66,22 @@ union fd_features {{
 #include "fd_features.h"
 #include <stddef.h>
 
-void
-fd_features_enable_all( fd_features_t * f ) {{
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-    !fd_feature_iter_done( id );
-    id = fd_feature_iter_next( id ) ) {{
-    fd_features_set( f, id, 0UL );
-  }}
-}}
-
-void
-fd_features_disable_all( fd_features_t * f ) {{
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-    !fd_feature_iter_done( id );
-    id = fd_feature_iter_next( id ) ) {{
-    fd_features_set( f, id, FD_FEATURE_DISABLED );
-  }}
-}}
-
-fd_feature_id_t const ids[] = {{
-{
-    chr(0xa).join([
-    f'''  {{ .index  = offsetof(fd_features_t, {x["name"]})>>3,
+fd_feature_id_t const ids[] = {{""",
+        file=body,
+    )
+    for x in fm:
+        print(
+            f"""  {{ .index  = offsetof(fd_features_t, {x["name"]})>>3,
     .id     = {{{pubkey_to_c_array(x["pubkey"])}}}
-              /* {x["pubkey"]} */ }},
-'''
-    for x in fm
-    ])
-}
-  {{ .index = ULONG_MAX }}
+              /* {x["pubkey"]} */""",
+            file=body,
+            end="",
+        )
+        if x.get("hardcoded") == 1:
+            print(f",\n    .hardcoded = 1", file=body, end="")
+        print(" },\n", file=body)
+    print(
+        f"""  {{ .index = ULONG_MAX }}
 }};
 
 /* TODO replace this with fd_map_perfect */
@@ -103,7 +92,7 @@ fd_feature_id_query( ulong prefix ) {{
   switch( prefix ) {{
 {
     chr(0xa).join([
-    f'''  case {"0x%016x" % struct.unpack("<Q", b58decode(x["pubkey"])[:8])}: return &ids[{"% 4d" % (i)} ];'''
+    f'''  case {"0x%016x" % struct.unpack("<Q", fd58.dec32(x["pubkey"].encode('ascii'))[:8])}: return &ids[{"% 4d" % (i)} ];'''
     for i, x in enumerate(fm)
     ])
 }
