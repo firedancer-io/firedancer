@@ -103,8 +103,9 @@ fetch () {
   checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
-  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
+  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
+  checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
   checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 }
 
@@ -375,37 +376,49 @@ install_openssl () {
 
 install_rocksdb () {
   cd ./opt/git/rocksdb
+  local NJOBS
+  NJOBS=$(( $(nproc) / 2 ))
+  NJOBS=$((NJOBS>0 ? NJOBS : 1))
+  make clean
+
+  ROCKSDB_DISABLE_NUMA=1 \
+  ROCKSDB_DISABLE_ZLIB=1 \
+  ROCKSDB_DISABLE_BZIP=1 \
+  ROCKSDB_DISABLE_LZ4=1 \
+  ROCKSDB_DISABLE_GFLAGS=1 \
+  PORTABLE=haswell \
+  CFLAGS="-isystem $(pwd)/../../include -g0 -DSNAPPY -DZSTD" \
+  make -j $NJOBS \
+    LITE=1 \
+    V=1 \
+    static_lib
+  make install-static DESTDIR="$PREFIX"/ PREFIX= LIBDIR=lib
+}
+
+install_snappy () {
+  cd ./opt/git/snappy
+
+  echo "[+] Configuring snappy"
   mkdir -p build
   cd build
   cmake .. \
     -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DCMAKE_INSTALL_PREFIX:PATH="" \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_BUILD_TYPE=Release \
-    -DROCKSDB_BUILD_SHARED=ON \
-    -DWITH_GFLAGS=OFF \
-    -DWITH_LIBURING=OFF \
-    -DWITH_BZ2=OFF \
-    -DWITH_SNAPPY=OFF \
-    -DWITH_ZLIB=ON \
-    -DWITH_ZSTD=ON \
-    -DWITH_ALL_TESTS=OFF \
-    -DWITH_BENCHMARK_TOOLS=OFF \
-    -DWITH_CORE_TOOLS=OFF \
-    -DWITH_RUNTIME_DEBUG=OFF \
-    -DWITH_TESTS=OFF \
-    -DWITH_TOOLS=ON \
-    -DWITH_TRACE_TOOLS=OFF \
-    -DZLIB_ROOT="$PREFIX" \
-    -Dzstd_ROOT_DIR="$PREFIX" \
-    -DUSE_RTTI=ON \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DSNAPPY_BUILD_TESTS=OFF \
+    -DSNAPPY_BUILD_BENCHMARKS=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  echo "[+] Configured snappy"
 
-  local NJOBS
-  NJOBS=$(( $(nproc) / 2 ))
-  NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make -j $NJOBS
-  make install
+  echo "[+] Building snappy"
+  make -j
+  echo "[+] Successfully built snappy"
+
+  echo "[+] Installing snappy to $PREFIX"
+  make install DESTDIR="$PREFIX"
+  echo "[+] Successfully installed snappy"
 }
 
 install_libff () {
@@ -447,6 +460,7 @@ install () {
   ( install_secp256k1 )
   ( install_openssl   )
   if [[ $DEVMODE ]]; then
+    ( install_snappy  )
     ( install_rocksdb )
     ( install_libff   )
   fi
