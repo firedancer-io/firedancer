@@ -2888,3 +2888,21 @@ fd_stake_program_execute( fd_exec_instr_ctx_t ctx ) {
 done:
   return rc;
 }
+
+/* Public API *********************************************************/
+
+int
+fd_stake_get_state( fd_borrowed_account_t const * self,
+                    fd_valloc_t const *           valloc,
+                    fd_stake_state_v2_t *         out ) {
+  return get_state( self, *valloc, out );
+}
+
+fd_stake_history_entry_t
+fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
+                                      ulong                      target_epoch,
+                                      fd_stake_history_t const * stake_history,
+                                      ulong *                    new_rate_activation_epoch ) {
+  return stake_activating_and_deactivating(
+      self, target_epoch, stake_history, new_rate_activation_epoch );
+}
