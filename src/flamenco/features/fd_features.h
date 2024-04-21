@@ -41,8 +41,9 @@ typedef union fd_features fd_features_t;
    byte offset in fd_features_t. */
 
 struct fd_feature_id {
-  ulong       index;  /* index of feature in fd_features_t */
-  fd_pubkey_t id;     /* pubkey of feature */
+  ulong       index;          /* index of feature in fd_features_t */
+  fd_pubkey_t id;             /* pubkey of feature */
+  uint        hardcoded : 1;  /* is always enabled in Firedancer? */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
@@ -52,15 +53,22 @@ FD_PROTOTYPES_BEGIN
    The last element has offset==ULONG_MAX. */
 extern fd_feature_id_t const ids[];
 
-/* fd_features_disable_all disables all available features. */
+/* fd_features_disable_all disables all features (hardcoded or not). */
 
 void
 fd_features_disable_all( fd_features_t * f );
 
-/* fd_features_enable_all enables all available features. */
+/* fd_features_enable_all enables all features (supported or not). */
 
 void
 fd_features_enable_all( fd_features_t * );
+
+/* fd_features_enable_hardcoded enables all features marked as "hard
+   coded".  These are features that are baked into the current version
+   of the Firedancer software and can't be disabled. */
+
+void
+fd_features_enable_hardcoded( fd_features_t * );
 
 /* fd_feature_iter_{...} is an iterator-style API over all supported
    features in this version of Firedancer.  Usage:
