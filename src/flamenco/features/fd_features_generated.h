@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (180UL)
+#define FD_FEATURE_ID_CNT (189UL)
 
 union fd_features {
 
@@ -16,8 +16,8 @@ union fd_features {
     /* 0x2577305f7cc65fe7 */ ulong deprecate_rewards_sysvar;
     /* 0x7095d36bc836da32 */ ulong pico_inflation;
     /* 0x8b990f20829df9b8 */ ulong devnet_and_testnet;
-    /* 0x47e18859d27e3aa3 */ ulong vote;
-    /* 0xe7571f86aa06f160 */ ulong enable;
+    /* 0x47e18859d27e3aa3 */ ulong full_inflation_vote;
+    /* 0xe7571f86aa06f160 */ ulong full_inflation_enable;
     /* 0xd924059c5749c4c1 */ ulong secp256k1_program_enabled;
     /* 0x159967bd804742c2 */ ulong spl_token_v2_multisig_fix;
     /* 0x1d41fee249e6cc37 */ ulong no_overflow_rent_distribution;
@@ -193,6 +193,15 @@ union fd_features {
     /* 0xd17b392feb1e0fe6 */ ulong drop_legacy_shreds;
     /* 0x0207866b7b2c7452 */ ulong consume_blockstore_duplicate_proofs;
     /* 0x592e701c2ba17409 */ ulong index_erasure_conflict_duplicate_proofs;
+    /* 0xbe955088bcb5a209 */ ulong curve25519_restrict_msm_length;
+    /* 0xfbce25936c716309 */ ulong allow_commission_decrease_at_any_time;
+    /* 0x116e31cc55ce7d0b */ ulong merkle_conflict_duplicate_proofs;
+    /* 0x8c43e9b9ea49be60 */ ulong disable_bpf_loader_instructions;
+    /* 0x9b6307ae6da60a0b */ ulong deprecate_executable_meta_update_in_bpf_loader;
+    /* 0xf423d4e1d688cb0e */ ulong enable_zk_proof_from_account;
+    /* 0xa1518043438beb0d */ ulong cost_model_requested_write_lock_cost;
+    /* 0xdb27ab6a4a6379d5 */ ulong enable_gossip_duplicate_proof_ingestion;
+    /* 0x814079c434b79c66 */ ulong enable_chained_merkle_shreds;
   };
 
 };
