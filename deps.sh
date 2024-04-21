@@ -401,9 +401,11 @@ install_rocksdb () {
   ROCKSDB_DISABLE_BZIP=1 \
   ROCKSDB_DISABLE_LZ4=1 \
   ROCKSDB_DISABLE_GFLAGS=1 \
-  CFLAGS="-isystem $(pwd)/../../include -g0 -march=haswell" \
+  PORTABLE=haswell \
+  CFLAGS="-isystem $(pwd)/../../include -g0" \
   make -j $NJOBS \
     LITE=1 \
+    V=1 \
     static_lib
   make install-static DESTDIR="$PREFIX"/ PREFIX= LIBDIR=lib
 }
