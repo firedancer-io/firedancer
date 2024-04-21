@@ -33,6 +33,8 @@ fi
 # Install prefix
 PREFIX="$(pwd)/opt"
 
+DEVMODE=0
+
 help () {
 cat <<EOF
 
@@ -115,7 +117,6 @@ fetch () {
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
   checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.1.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
-  checkout_repo snappy    https://github.com/google/snappy          "1.1.10"
   checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 
   mkdir -pv ./opt/gnuweb
@@ -390,40 +391,21 @@ install_openssl () {
 
 install_rocksdb () {
   cd ./opt/git/rocksdb
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DROCKSDB_BUILD_SHARED=ON \
-    -DWITH_GFLAGS=OFF \
-    -DWITH_LIBURING=OFF \
-    -DWITH_BZ2=OFF \
-    -DWITH_SNAPPY=ON \
-    -DWITH_ZLIB=ON \
-    -DWITH_ZSTD=ON \
-    -DWITH_ALL_TESTS=OFF \
-    -DWITH_BENCHMARK_TOOLS=OFF \
-    -DWITH_CORE_TOOLS=OFF \
-    -DWITH_RUNTIME_DEBUG=OFF \
-    -DWITH_TESTS=OFF \
-    -DWITH_TOOLS=ON \
-    -DWITH_TRACE_TOOLS=OFF \
-    -DZLIB_ROOT="$PREFIX" \
-    -Dzstd_ROOT_DIR="$PREFIX" \
-    -DSnappy_LIBRARIES="$PREFIX/lib" \
-    -DSnappy_INCLUDE_DIRS="$PREFIX/include" \
-    -DUSE_RTTI=ON \
-    -DCMAKE_CXX_FLAGS_RELEASE="-march=native" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make -j $NJOBS
-  make install
+  make clean
+
+  ROCKSDB_DISABLE_SNAPPY=1 \
+  ROCKSDB_DISABLE_ZLIB=1 \
+  ROCKSDB_DISABLE_BZIP=1 \
+  ROCKSDB_DISABLE_LZ4=1 \
+  ROCKSDB_DISABLE_GFLAGS=1 \
+  CFLAGS="-isystem $(pwd)/../../include -g0" \
+  make -j $NJOBS \
+    LITE=1 \
+    static_lib
+  make install-static DESTDIR="$PREFIX"/ PREFIX= LIBDIR=lib
 }
 
 install_libmicrohttpd () {
@@ -438,32 +420,6 @@ install_libmicrohttpd () {
   make install
 
   echo "[+] Successfully installed libmicrohttpd"
-}
-
-install_snappy () {
-  cd ./opt/git/snappy
-
-  echo "[+] Configuring snappy"
-  mkdir -p build
-  cd build
-  cmake .. \
-    -G"Unix Makefiles" \
-    -DCMAKE_INSTALL_PREFIX:PATH="" \
-    -DCMAKE_INSTALL_LIBDIR=lib \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON \
-    -DSNAPPY_BUILD_TESTS=OFF \
-    -DSNAPPY_BUILD_BENCHMARKS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-  echo "[+] Configured snappy"
-
-  echo "[+] Building snappy"
-  make -j
-  echo "[+] Successfully built snappy"
-
-  echo "[+] Installing snappy to $PREFIX"
-  make install DESTDIR="$PREFIX"
-  echo "[+] Successfully installed snappy"
 }
 
 install_libff () {
@@ -503,11 +459,12 @@ install () {
   ( install_zlib      )
   ( install_zstd      )
   ( install_secp256k1 )
-  ( install_snappy    )
-  ( install_rocksdb   )
   ( install_openssl   )
-  ( install_libmicrohttpd   )
-  ( install_libff     )
+  if [[ $DEVMODE ]]; then
+    ( install_rocksdb )
+    ( install_libff   )
+    ( install_libmicrohttpd )
+  fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
@@ -526,11 +483,48 @@ install () {
   echo "[~] Done!"
 }
 
-if [[ $# -eq 0 ]]; then
+ACTION=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help|help)
+      help
+      ;;
+    "+dev")
+      shift
+      DEVMODE=1
+      ;;
+    nuke)
+      shift
+      nuke
+      ACTION=1
+      ;;
+    fetch)
+      shift
+      fetch
+      ACTION=1
+      ;;
+    check)
+      shift
+      check
+      ACTION=1
+      ;;
+    install)
+      shift
+      install
+      ACTION=1
+      ;;
+    *)
+      echo "Unknown command: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ $ACTION == 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
-  echo "[~] Running $0 install"
+  echo "[~] Running $0 fetch check install"
 
   read -r -p "[?] Continue? (y/N) " choice
   case "$choice" in
@@ -545,33 +539,3 @@ if [[ $# -eq 0 ]]; then
       exit 1
   esac
 fi
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -h|--help|help)
-      help
-      ;;
-    nuke)
-      shift
-      nuke
-      ;;
-    fetch)
-      shift
-      fetch
-      ;;
-    check)
-      shift
-      check
-      ;;
-    install)
-      shift
-      fetch
-      check
-      install
-      ;;
-    *)
-      echo "Unknown command: $1" >&2
-      exit 1
-      ;;
-  esac
-done

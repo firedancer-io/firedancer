@@ -207,7 +207,7 @@ $(OBJDIR)/$(5)/$(1): $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj
 	# Creating $(5) $$@ from $$^
 	#######################################################################
 	$(MKDIR) $$(dir $$@) && \
-$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) -Wl,--end-group $(LDFLAGS) $(6) -o $$@
+$(LD) -L$(OBJDIR)/lib $(foreach obj,$(2),$(patsubst $(OBJDIR)/src/%,$(OBJDIR)/obj/%,$(OBJDIR)/$(MKPATH)$(obj).o)) -Wl,--start-group $(foreach lib,$(3),-l$(lib)) -Wl,--end-group $(6) $(LDFLAGS) -o $$@
 
 $(4): $(OBJDIR)/$(5)/$(1)
 
