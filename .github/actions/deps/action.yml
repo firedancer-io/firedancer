@@ -49,6 +49,6 @@ runs:
     - name: Install dependencies from scratch
       shell: bash
       run: |
-        FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' fetch install
+        FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' +dev fetch install
         '${{ inputs.deps-bundle-path }}'
       if: steps.deps-sh-cache.outputs.cache-hit != 'true'

@@ -5,8 +5,6 @@ set -euo pipefail
 # Change into Firedancer root directory
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-set -euo pipefail
-
 # Load OS information
 OS="$(uname -s)"
 case "$OS" in
@@ -34,6 +32,8 @@ fi
 
 # Install prefix
 PREFIX="$(pwd)/opt"
+
+DEVMODE=0
 
 help () {
 cat <<EOF
@@ -100,17 +100,16 @@ checkout_repo () {
 fetch () {
   mkdir -pv ./opt/git
 
-  #checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
-  #checkout_repo bzip2     https://sourceware.org/git/bzip2.git      "bzip2-1.0.8"
+  checkout_repo zlib      https://github.com/madler/zlib            "v1.2.13"
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.5"
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.3.0"
-  #checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
+  checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v7.10.2"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.3.2"
-  #checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
+  checkout_repo libff     https://github.com/firedancer-io/libff.git "develop"
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang protobuf-compiler llvm-toolset lcov )
+  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov )
 
   echo "[~] Checking for required RPM packages"
 
@@ -134,8 +133,7 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov )
-
+  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev )
 
   echo "[~] Checking for required DEB packages"
 
@@ -254,14 +252,6 @@ install_zlib () {
   echo "[+] Installing zlib to $PREFIX"
   make install -j
   echo "[+] Successfully installed zlib"
-}
-
-install_bzip2 () {
-  cd ./opt/git/bzip2
-
-  echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" PREFIX="$PREFIX" install
-  echo "[+] Successfully installed bzip2"
 }
 
 install_zstd () {
@@ -392,10 +382,10 @@ install_rocksdb () {
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR="lib" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DROCKSDB_BUILD_SHARED=OFF \
+    -DROCKSDB_BUILD_SHARED=ON \
     -DWITH_GFLAGS=OFF \
     -DWITH_LIBURING=OFF \
-    -DWITH_BZ2=ON \
+    -DWITH_BZ2=OFF \
     -DWITH_SNAPPY=OFF \
     -DWITH_ZLIB=ON \
     -DWITH_ZSTD=ON \
@@ -404,12 +394,12 @@ install_rocksdb () {
     -DWITH_CORE_TOOLS=OFF \
     -DWITH_RUNTIME_DEBUG=OFF \
     -DWITH_TESTS=OFF \
-    -DWITH_TOOLS=OFF \
+    -DWITH_TOOLS=ON \
     -DWITH_TRACE_TOOLS=OFF \
     -DZLIB_ROOT="$PREFIX" \
-    -DBZIP2_LIBRARIES="$PREFIX/lib/libbz2.a" \
-    -DBZIP2_INCLUDE_DIR="$PREFIX/include" \
-    -Dzstd_ROOT_DIR="$PREFIX"
+    -Dzstd_ROOT_DIR="$PREFIX" \
+    -DUSE_RTTI=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
@@ -427,12 +417,21 @@ install_libff () {
   cmake .. \
     -G"Unix Makefiles" \
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
-    -DCMAKE_INSTALL_LIBDIR="lib"
-  local NJOBS
-  NJOBS=$(( $(nproc) / 2 ))
-  NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make -j $NJOBS
+    -DCMAKE_INSTALL_LIBDIR="lib" \
+    -DBUILD_GMOCK=OFF \
+    -DBUILD_TESTING=OFF \
+    -DINSTALL_GTEST=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  echo "[+] Configured libff"
+
+  echo "[+] Building libff"
+  make -j
+  echo "[+] Successfully built libff"
+
+  echo "[+] Installing libff to $PREFIX"
   make install
+  echo "[+] Successfully installed libff"
 }
 
 install () {
@@ -443,13 +442,24 @@ install () {
 
   mkdir -p ./opt/{include,lib}
 
-  #( install_zlib      )
-  #( install_bzip2     )
+  ( install_zlib      )
   ( install_zstd      )
   ( install_secp256k1 )
   ( install_openssl   )
-  #( install_rocksdb   )
-  #( install_libff     )
+  if [[ $DEVMODE ]]; then
+    ( install_rocksdb )
+    ( install_libff   )
+  fi
+
+  # Remove cmake and pkgconfig files, so we don't accidentally
+  # depend on them.
+  rm -rf ./opt/lib/cmake ./opt/lib/pkgconfig ./opt/lib64/pkgconfig
+
+  # Merge lib64 with lib
+  if [[ -d ./opt/lib64 ]]; then
+    find ./opt/lib64/ -mindepth 1 -exec mv -t ./opt/lib/ {} +
+    rm -rf ./opt/lib64
+  fi
 
   # Remove cmake and pkgconfig files, so we don't accidentally
   # depend on them.
@@ -458,7 +468,44 @@ install () {
   echo "[~] Done!"
 }
 
-if [[ $# -eq 0 ]]; then
+ACTION=0
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help|help)
+      help
+      ;;
+    "+dev")
+      shift
+      DEVMODE=1
+      ;;
+    nuke)
+      shift
+      nuke
+      ACTION=1
+      ;;
+    fetch)
+      shift
+      fetch
+      ACTION=1
+      ;;
+    check)
+      shift
+      check
+      ACTION=1
+      ;;
+    install)
+      shift
+      install
+      ACTION=1
+      ;;
+    *)
+      echo "Unknown command: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ $ACTION == 0 ]]; then
   echo "[~] This will fetch, build, and install Firedancer's dependencies into $(pwd)/opt"
   echo "[~] For help, run: $0 help"
   echo
@@ -477,31 +524,3 @@ if [[ $# -eq 0 ]]; then
       exit 1
   esac
 fi
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -h|--help|help)
-      help
-      ;;
-    nuke)
-      shift
-      nuke
-      ;;
-    fetch)
-      shift
-      fetch
-      ;;
-    check)
-      shift
-      check
-      ;;
-    install)
-      shift
-      install
-      ;;
-    *)
-      echo "Unknown command: $1" >&2
-      exit 1
-      ;;
-  esac
-done
