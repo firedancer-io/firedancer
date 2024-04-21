@@ -38,7 +38,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
   if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, (fd_pubkey_t *) &fd_sysvar_clock_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 

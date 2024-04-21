@@ -35,7 +35,7 @@ void fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 void register_blockhash( fd_exec_slot_ctx_t* slot_ctx, fd_hash_t const * hash ) {
@@ -89,7 +89,7 @@ void fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t* slot_ctx ) {
   if ( fd_recent_block_hashes_encode(&slot_ctx->slot_bank.recent_block_hashes, &ctx) )
     FD_LOG_ERR(("fd_recent_block_hashes_encode failed"));
 
-  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, NULL);
+  fd_sysvar_set(slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot, 0UL);
 
   register_blockhash( slot_ctx, &slot_ctx->slot_bank.poh );
 }

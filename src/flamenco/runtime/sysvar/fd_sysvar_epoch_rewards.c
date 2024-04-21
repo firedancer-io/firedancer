@@ -18,7 +18,7 @@ fd_sysvar_epoch_rewards_burn_and_purge(
 }
 
 static void
-write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards, fd_acc_lamports_t * acc_lamports) {
+write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * epoch_rewards, fd_acc_lamports_t acc_lamports) {
   ulong          sz = fd_sysvar_epoch_rewards_size( epoch_rewards );
   unsigned char *enc = fd_alloca( 1, sz );
   memset( enc, 0, sz );
@@ -74,7 +74,7 @@ fd_sysvar_epoch_rewards_update(
 
     acc_lamports -= distributed;
 
-    write_epoch_rewards( slot_ctx, &result, &acc_lamports);
+    write_epoch_rewards( slot_ctx, &result, acc_lamports);
 }
 
 /* Create EpochRewards syavar with calculated rewards */
@@ -96,5 +96,5 @@ fd_sysvar_epoch_rewards_init(
     };
     // set the account lamports to the undistributed rewards
     fd_acc_lamports_t undistributed_rewards = total_rewards - distributed_rewards;
-    write_epoch_rewards( slot_ctx, &epoch_rewards, &undistributed_rewards);
+    write_epoch_rewards( slot_ctx, &epoch_rewards, undistributed_rewards);
 }

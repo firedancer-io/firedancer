@@ -14,7 +14,7 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
   if ( fd_sysvar_fees_encode( fees, &ctx ) )
     FD_LOG_ERR(("fd_sysvar_fees_encode failed"));
 
-  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot, NULL );
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_fees_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
 }
 
 fd_sysvar_fees_t *

@@ -1,17 +1,16 @@
-#include "../fd_acc_mgr.h"
-#include "../fd_account.h"
-#include "../fd_hashes.h"
-#include "../fd_runtime.h"
 #include "fd_sysvar.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "fd_sysvar_rent.h"
 
 int
-fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
-               uchar const *       owner,
-               fd_pubkey_t const * pubkey,
-               uchar *             data,
-               ulong               sz,
-               ulong               slot,
-               fd_acc_lamports_t const * lamports ) {
+fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
+               uchar const *        owner,
+               fd_pubkey_t const *  pubkey,
+               uchar *              data,
+               ulong                sz,
+               ulong                slot,
+               ulong                lamports ) {
 
   fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
@@ -27,7 +26,7 @@ fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
   // solana code base?  Do I only adjust the lamports if the data
   // increases but not decreases?  I am inventing money here...
   fd_acc_lamports_t lamports_before = rec->meta->info.lamports;
-  rec->meta->info.lamports = (lamports == NULL) ? fd_rent_exempt_minimum_balance2(&slot_ctx->epoch_ctx->epoch_bank.rent, sz) : *lamports;
+  rec->meta->info.lamports = (lamports == 0UL) ? fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, sz ) : lamports;
   slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(
       fd_ulong_sat_add(
         slot_ctx->slot_bank.capitalization,
@@ -40,5 +39,4 @@ fd_sysvar_set( fd_exec_slot_ctx_t *   slot_ctx,
   fd_memcpy(rec->meta->info.owner, owner, 32);
   rec->meta->slot = slot;
   return 0;
-  //fd_acc_mgr_commit( slot_ctx->acc_mgr, rec, slot_ctx );
 }
