@@ -1,7 +1,9 @@
 #include "fd_sysvar_last_restart_slot.h"
-#include "../../../flamenco/types/fd_types.h"
+#include "../../types/fd_types.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {

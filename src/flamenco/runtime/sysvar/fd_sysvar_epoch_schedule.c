@@ -1,7 +1,9 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
-#include "../../../flamenco/types/fd_types.h"
+#include "../../types/fd_types.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,

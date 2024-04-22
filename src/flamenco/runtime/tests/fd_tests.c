@@ -13,6 +13,10 @@
 #include "../fd_blockstore.h"
 #include "../program/fd_bpf_program_util.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar_recent_hashes.h"
+#include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_slot_hashes.h"
 
 const char *verbose = NULL;
 const char *fail_fast = NULL;

@@ -25,6 +25,14 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
 
+#include "sysvar/fd_sysvar_clock.h"
+#include "sysvar/fd_sysvar_fees.h"
+#include "sysvar/fd_sysvar_last_restart_slot.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
+#include "sysvar/fd_sysvar_rent.h"
+#include "sysvar/fd_sysvar_slot_hashes.h"
+#include "sysvar/fd_sysvar_slot_history.h"
+
 #include "../nanopb/pb_decode.h"
 #include "../types/fd_solana_block.pb.h"
 
