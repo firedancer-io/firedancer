@@ -293,7 +293,7 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     fd_sha256_fini( &sha, hash->hash );
   }
 
-  if( capture_ctx != NULL ) {
+  if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
     fd_solcap_write_bank_preimage(
         capture_ctx->capture,
         hash->hash,
@@ -491,7 +491,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
 
-    if( capture_ctx != NULL ) {
+    if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
       fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err);
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_WARNING(( "failed to view account during capture" ));
@@ -764,7 +764,7 @@ fd_update_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
     dirty_entry->hash = (fd_hash_t const *)acc_rec->meta->hash;
 
     /* Add to capture */
-    if( capture_ctx != NULL ) {
+    if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
       err = fd_solcap_write_account(
           capture_ctx->capture,
           acc_key->uc,

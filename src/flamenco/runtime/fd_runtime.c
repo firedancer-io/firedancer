@@ -13,17 +13,19 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
-#include "program/fd_stake_program.h"
 
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "info/fd_block_info.h"
 #include "info/fd_microblock_batch_info.h"
 #include "info/fd_microblock_info.h"
+
+#include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
 #include "program/fd_system_program.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_bpf_program_util.h"
+#include "program/fd_bpf_upgradeable_loader_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_fees.h"
@@ -862,6 +864,148 @@ fd_runtime_prepare_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
+void
+fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
+                                                 fd_funk_txn_t * prune_txn,
+                                                 fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_pubkey_t const * program_pubkey ) {
+  /* If account corresponds to bpf_upgradeable, copy over the programdata as well.
+     This is necessary for executing any bpf upgradeable program. */
+
+  if ( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) != 0 ) {
+    return;
+  }
+
+  fd_account_meta_t const * program_acc = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, NULL, 
+                                                               program_pubkey, NULL, NULL );
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = (uchar *)program_acc + program_acc->hlen,
+    .dataend = (char *) ctx.data + program_acc->dlen,
+    .valloc  = slot_ctx->valloc,
+  };
+  
+  fd_bpf_upgradeable_loader_state_t loader_state;
+  if ( fd_bpf_upgradeable_loader_state_decode( &loader_state, &ctx ) ) {
+    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_decode failed" ));
+  }
+
+  if( !fd_bpf_upgradeable_loader_state_is_program( &loader_state ) ) {
+    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_is_program failed" ));
+  }
+
+  fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&loader_state.inner.program.programdata_address;
+  fd_funk_rec_key_t programdata_reckey = fd_acc_funk_key( programdata_pubkey );
+
+  /* Copy over programdata record */
+  fd_funk_rec_t * new_rec_pd = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &programdata_reckey, 
+                                                          0, 1, NULL, NULL );
+  FD_TEST(( !!new_rec_pd ));
+}
+
+void
+fd_runtime_copy_accounts_to_pruned_funk( fd_funk_t * pruned_funk,
+                                         fd_funk_txn_t * prune_txn,
+                                         fd_exec_slot_ctx_t * slot_ctx,
+                                         fd_exec_txn_ctx_t * txn_ctx ) {
+  /* This function is only responsible for copying over the account ids that are 
+     touched. The account data is copied over after execution is complete. */                
+
+  /* Copy over ALUTs */
+  fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables( (fd_txn_t *) txn_ctx->txn_descriptor );
+  for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
+    fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
+    fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
+    if ( addr_lut_acc ) {
+      fd_funk_rec_key_t acc_lut_rec_key = fd_acc_funk_key( addr_lut_acc );
+      fd_funk_rec_write_prepare( pruned_funk, prune_txn, &acc_lut_rec_key, 0, 1, NULL, NULL );
+    }
+  }
+
+  /* Get program id from top level instructions and copy over programdata */
+  fd_instr_info_t instrs[txn_ctx->txn_descriptor->instr_cnt];
+  for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+    fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_convert_txn_instr_to_instr( txn_ctx, txn_instr, txn_ctx->borrowed_accounts, &instrs[i] );
+    fd_pubkey_t program_pubkey = instrs[i].program_id_pubkey;
+    fd_funk_rec_key_t program_rec_key = fd_acc_funk_key( &program_pubkey );
+    fd_funk_rec_t * new_rec;
+    new_rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &program_rec_key, 0, 1, NULL, NULL );
+    if ( !new_rec ) {
+      FD_LOG_NOTICE(("fd_funk_rec_write_prepare failed %32J", &program_pubkey));
+      continue;
+    }
+
+    /* If account corresponds to bpf_upgradeable, copy over the programdata as well */
+    fd_runtime_copy_program_data_acc_to_pruned_funk( pruned_funk, prune_txn, slot_ctx, &program_pubkey );
+  }
+
+  /* Write out all accounts touched during the transaction, copy over all program data accounts for
+     any BPF upgradeable accounts in case they are a CPI's program account. */
+  for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
+    fd_pubkey_t * acc_pubkey = (fd_pubkey_t *)&txn_ctx->accounts[i].key;
+    fd_funk_rec_key_t rec_key = fd_acc_funk_key( acc_pubkey );
+    fd_funk_rec_t * rec = fd_funk_rec_write_prepare( pruned_funk, prune_txn, &rec_key, 0, 1, NULL, NULL );
+    FD_TEST(( !!rec ));
+    fd_runtime_copy_program_data_acc_to_pruned_funk( pruned_funk, prune_txn, slot_ctx, acc_pubkey );
+  }
+}
+
+void
+fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
+                                     fd_exec_slot_ctx_t * slot_ctx,
+                                     fd_exec_txn_ctx_t * txn_ctx, 
+                                     int exec_txn_err) {
+  /* Look up solana-side transaction status details */
+  fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
+  uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
+  fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
+  if ( txn_map_entry != NULL ) {
+    void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
+
+    fd_solblock_TransactionStatusMeta txn_status = {0};
+    /* Need to handle case for ledgers where transaction status is not available.
+        This case will be handled in fd_solcap_diff. */
+    ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
+    ulong solana_cus_consumed = ULONG_MAX;
+    ulong solana_txn_err      = ULONG_MAX;
+    if ( meta != NULL ) {
+      pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
+      if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
+        FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
+      }
+      if ( txn_status.has_compute_units_consumed ) {
+        solana_cus_consumed = txn_status.compute_units_consumed;
+      }
+      if ( txn_status.has_err ) {
+        solana_txn_err = txn_status.err.err->bytes[0];
+      }
+
+      fd_solcap_Transaction txn = {
+        .slot            = slot_ctx->slot_bank.slot,
+        .fd_txn_err      = exec_txn_err,
+        .fd_custom_err   = txn_ctx->custom_err,
+        .solana_txn_err  = solana_txn_err,
+        .fd_cus_used     = fd_cus_consumed,
+        .solana_cus_used = solana_cus_consumed,
+      };
+      memcpy( txn.txn_sig, sig, sizeof(fd_signature_t) );
+
+      fd_exec_instr_ctx_t const * failed_instr = txn_ctx->failed_instr;
+      if( failed_instr ) {
+        assert( failed_instr->depth < 4 );
+        txn.instr_err               = failed_instr->instr_err;
+        txn.failed_instr_path_count = failed_instr->depth + 1;
+        for( long j = failed_instr->depth; j>=0L; j-- ) {
+          txn.failed_instr_path[j] = failed_instr->index;
+          failed_instr             = failed_instr->parent;
+        }
+      }
+
+      fd_solcap_write_transaction2( capture_ctx->capture, &txn );
+    }
+  }
+}
+
 int
 fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                 fd_capture_ctx_t * capture_ctx,
@@ -871,62 +1015,29 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
     ulong accounts_to_save_cnt = 0;
+
+    /* Query the prune transaction if we are pruning */
+    fd_funk_txn_t * prune_txn = NULL;
+    if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+      fd_funk_txn_xid_t prune_xid;
+      fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t) );
+      fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
+      prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
+    }
+
     /* Finalize */
     for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
       fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
       int exec_txn_err = task_info[txn_idx].exec_res;
 
+      /* Add all involved records to pruned funk */
+      if ( capture_ctx != NULL && capture_ctx->pruned_funk != NULL ) {
+        fd_runtime_copy_accounts_to_pruned_funk( capture_ctx->pruned_funk, prune_txn, slot_ctx, txn_ctx );
+      }
+
       /* For ledgers that contain txn status, decode and write out for solcap */
-      if ( capture_ctx != NULL && capture_ctx->capture_txns ) {
-        /* Look up solana-side transaction status details */
-        fd_blockstore_t * blockstore = txn_ctx->slot_ctx->blockstore;
-        uchar * sig = (uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off;
-        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_query( blockstore, sig );
-        if ( txn_map_entry != NULL ) {
-          void * meta = fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), txn_map_entry->meta_gaddr );
-
-          fd_solblock_TransactionStatusMeta txn_status = {0};
-          /* Need to handle case for ledgers where transaction status is not available.
-             This case will be handled in fd_solcap_diff. */
-          ulong fd_cus_consumed     = txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-          ulong solana_cus_consumed = ULONG_MAX;
-          ulong solana_txn_err      = ULONG_MAX;
-          if ( meta != NULL ) {
-            pb_istream_t stream = pb_istream_from_buffer( meta, txn_map_entry->meta_sz );
-            if ( pb_decode( &stream, fd_solblock_TransactionStatusMeta_fields, &txn_status ) == false ) {
-              FD_LOG_WARNING(("no txn_status decoding found sig=%64J (%s)", sig, PB_GET_ERROR(&stream)));
-            }
-            if ( txn_status.has_compute_units_consumed ) {
-              solana_cus_consumed = txn_status.compute_units_consumed;
-            }
-            if ( txn_status.has_err ) {
-              solana_txn_err = txn_status.err.err->bytes[0];
-            }
-
-            fd_solcap_Transaction txn = {
-              .slot            = slot_ctx->slot_bank.slot,
-              .fd_txn_err      = exec_txn_err,
-              .fd_custom_err   = txn_ctx->custom_err,
-              .solana_txn_err  = solana_txn_err,
-              .fd_cus_used     = fd_cus_consumed,
-              .solana_cus_used = solana_cus_consumed,
-            };
-            memcpy( txn.txn_sig, sig, sizeof(fd_signature_t) );
-
-            fd_exec_instr_ctx_t const * failed_instr = txn_ctx->failed_instr;
-            if( failed_instr ) {
-              assert( failed_instr->depth < 4 );
-              txn.instr_err               = failed_instr->instr_err;
-              txn.failed_instr_path_count = failed_instr->depth + 1;
-              for( long j = failed_instr->depth; j>=0L; j-- ) {
-                txn.failed_instr_path[j] = failed_instr->index;
-                failed_instr             = failed_instr->parent;
-              }
-            }
-
-            fd_solcap_write_transaction2( capture_ctx->capture, &txn );
-          }
-        }
+      if ( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
+        fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
       }
 
       for ( ulong i = 0; i < txn_ctx->accounts_cnt; i++) {
@@ -1575,8 +1686,9 @@ int fd_runtime_block_execute_tpool_v2( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_tpool_t * tpool,
                                        ulong max_workers ) {
   FD_SCRATCH_SCOPE_BEGIN {
-    if ( capture_ctx != NULL )
+    if ( capture_ctx != NULL && capture_ctx->capture ) {
       fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
+    }
 
     long block_execute_time = -fd_log_wallclock();
 
@@ -1981,7 +2093,7 @@ fd_runtime_block_eval_tpool(fd_exec_slot_ctx_t *slot_ctx,
   fd_funk_txn_t * txnmap = fd_funk_txn_map(funk, fd_funk_wksp(funk));
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
-    if (++depth == 31U) {
+    if (++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1) ) {
       FD_LOG_DEBUG(("publishing %32J (slot %ld)", &txn->xid, txn->xid.ul[0]));
       ulong publish_err = fd_funk_txn_publish(funk, txn, 1);
       if (publish_err == 0) {
@@ -2457,7 +2569,9 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
   fd_acc_mgr_t *acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *funk = slot_ctx->acc_mgr->funk;
   fd_wksp_t *wksp = fd_funk_wksp(funk);
+
   fd_funk_partvec_t *partvec = fd_funk_get_partvec(funk, wksp);
+
   fd_funk_rec_t *rec_map = fd_funk_rec_map(funk, wksp);
 
   for (fd_funk_rec_t const *rec_ro = fd_funk_part_head(partvec, (uint)off, rec_map);
@@ -2530,6 +2644,46 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   // FD_LOG_DEBUG(("rent collected - lamports: %lu", slot_ctx->slot_bank.collected_rent));
+}
+
+static void
+fd_runtime_collect_rent_accounts_prune( ulong slot, fd_exec_slot_ctx_t * slot_ctx, fd_capture_ctx_t * capture_ctx ) {
+  /* TODO: Better test if this works across epoch boundaries */
+
+  /* As a note, the number of partitions are determined before execution begins.
+     The rent accounts for each slot are added to the pruned funk. The data in
+     the accounts is populated after execution is completed. */
+
+  fd_epoch_schedule_t const * schedule = &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
+
+  ulong off;
+
+  fd_slot_to_epoch( schedule, slot, &off );
+
+  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+
+  for (fd_funk_rec_t const *rec_ro = fd_funk_part_head(partvec, (uint)off, rec_map);
+      rec_ro != NULL;
+      rec_ro = fd_funk_part_next(rec_ro, rec_map)) {
+
+    fd_pubkey_t const * key = fd_type_pun_const(rec_ro->pair.key[0].uc);
+    fd_funk_rec_key_t rec_key = fd_acc_funk_key( key );
+    
+    fd_funk_txn_xid_t prune_xid;
+    fd_memset( &prune_xid, 0x42, sizeof(fd_funk_txn_xid_t));
+
+    fd_funk_txn_t * txn_map = fd_funk_txn_map( capture_ctx->pruned_funk, fd_funk_wksp( capture_ctx->pruned_funk ) );
+    fd_funk_txn_t * prune_txn = fd_funk_txn_query( &prune_xid, txn_map );
+
+    fd_funk_rec_t * rec = fd_funk_rec_write_prepare( capture_ctx->pruned_funk, prune_txn, &rec_key, 0, 1, NULL, NULL );
+    FD_TEST(( !!rec ));
+
+    int res = fd_funk_part_set( capture_ctx->pruned_funk, rec, (uint)off );
+    FD_TEST(( res == 0 ));   
+  }
 }
 
 ulong fd_runtime_calculate_rent_burn( ulong rent_collected,
@@ -2863,9 +3017,13 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   slot_ctx->slot_bank.block_height += 1UL;
 
   // Update blockstore
-  fd_blockstore_block_height_update( slot_ctx->blockstore,
-                            slot_ctx->slot_bank.slot,
-                            slot_ctx->slot_bank.block_height );
+  if ( slot_ctx->blockstore != NULL ) {
+    fd_blockstore_block_height_update( slot_ctx->blockstore,
+                              slot_ctx->slot_bank.slot,
+                              slot_ctx->slot_bank.block_height );
+  } else {
+    FD_LOG_WARNING(( "NULL blockstore in slot_ctx" ));
+  }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -3610,7 +3768,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
 
   if( state->slot_ctx->blockstore->max < args->end_slot )
     args->end_slot = state->slot_ctx->blockstore->max;
-  // FD_LOG_WARNING(("Failing here"))
+
   fd_runtime_update_leaders( state->slot_ctx, state->slot_ctx->slot_bank.slot );
 
   fd_calculate_epoch_accounts_hash_values( state->slot_ctx );
@@ -3621,11 +3779,24 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
   fd_blockstore_t * blockstore  = state->slot_ctx->blockstore;
 
   ulong prev_slot = state->slot_ctx->slot_bank.slot;
+
+  if ( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+    fd_funk_t * funk = state->slot_ctx->acc_mgr->funk;
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
+    fd_funk_t * pruned_funk = state->capture_ctx->pruned_funk;
+    fd_funk_set_num_partitions( pruned_funk, partvec->num_part );
+  }
+
   for( ulong slot = state->slot_ctx->slot_bank.slot + 1; slot <= args->end_slot; ++slot ) {
     state->slot_ctx->slot_bank.prev_slot = prev_slot;
     state->slot_ctx->slot_bank.slot      = slot;
 
     FD_LOG_DEBUG( ( "reading slot %ld", slot ) );
+
+    if ( state->capture_ctx && state->capture_ctx->pruned_funk != NULL ) {
+      fd_runtime_collect_rent_accounts_prune( slot, state->slot_ctx, state->capture_ctx );
+    }
 
     fd_blockstore_start_read( blockstore );
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
@@ -3634,6 +3805,7 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
       fd_blockstore_end_read( blockstore );
       continue;
     }
+
     uchar * val = fd_blockstore_block_data_laddr( blockstore, blk );
     ulong   sz  = blk->data_sz;
     fd_blockstore_end_read( blockstore );
@@ -3708,8 +3880,6 @@ fd_runtime_replay( fd_runtime_ctx_t * state, fd_runtime_args_t * args ) {
         txn_cnt,
         tps,
         sec_per_slot ) );
-
-  // fd_funk_txn_publish( state->slot_ctx->acc_mgr->funk, state->slot_ctx->acc_mgr->funk_txn, 1);
 
   return 0;
 }

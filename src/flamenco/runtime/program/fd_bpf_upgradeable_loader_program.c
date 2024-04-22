@@ -109,11 +109,13 @@ int write_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx, fd_pubk
 int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey ) {
   int err = 0;
   fd_account_meta_t const * m = fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
-  if (FD_UNLIKELY( !fd_acc_exists( m ) ) )
+  if (FD_UNLIKELY( !fd_acc_exists( m ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
 
-  if( memcmp( m->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) )
+  if( memcmp( m->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
 
   if( m->info.executable != 1) {
     return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
@@ -131,13 +133,15 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  if( !fd_bpf_upgradeable_loader_state_is_program( &loader_state ) )
+  if( !fd_bpf_upgradeable_loader_state_is_program( &loader_state ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Check if programdata is closed */
   fd_account_meta_t const * programdata_meta = (fd_account_meta_t const *) fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) &loader_state.inner.program.programdata_address, NULL, &err);
-  if (FD_UNLIKELY(!fd_acc_exists(programdata_meta)))
+  if (FD_UNLIKELY(!fd_acc_exists(programdata_meta))) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
 
   fd_bincode_destroy_ctx_t ctx_d = { .valloc = slot_ctx->valloc };
   fd_bpf_upgradeable_loader_state_destroy( &loader_state, &ctx_d );

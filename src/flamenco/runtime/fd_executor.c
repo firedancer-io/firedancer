@@ -508,7 +508,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
 
       } else {
-        // FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
+        FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
         exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
     }
@@ -651,6 +651,13 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
     return err;
   }
 
+#ifdef VLOG
+  fd_txn_t const *txn = txn_ctx->txn_descriptor;
+  fd_rawtxn_b_t const *raw_txn = txn_ctx->_txn_raw;
+  uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
+  FD_LOG_WARNING(("Preparing Transaction %64J", sig));
+#endif
+
   if ((NULL != txn_descriptor) && is_nonce) {
     uchar found_fee_payer = 0;
     for ( ulong i = 0; i < txn_descriptor->acct_addr_cnt; i++ ) {
@@ -662,6 +669,7 @@ fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
   }
+
 
   return compute_budget_status;
 }

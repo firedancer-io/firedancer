@@ -146,6 +146,34 @@ fd_funk_repartition(fd_funk_t *            funk,
   }
 }
 
+void
+fd_funk_set_num_partitions( fd_funk_t * funk, uint num_part ) {
+  fd_wksp_t * wksp            = fd_funk_wksp( funk );
+  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
+  fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
+
+  /* Already have the desired number of partitions */
+  if ( partvec->num_part == num_part ) {
+    return;
+  }
+
+  /* Rebuild the header vector */
+  fd_alloc_free( alloc, partvec );
+
+  ulong tmp_max;
+  partvec = (fd_funk_partvec_t *)fd_alloc_malloc_at_least( alloc, fd_funk_partvec_align(), fd_funk_partvec_footprint(num_part), &tmp_max );
+  if( FD_UNLIKELY( !partvec ) ) {
+    FD_LOG_ERR(( "partvec alloc failed" ));
+    return;
+  }
+  partvec->num_part = num_part;
+  funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );
+
+  for ( uint i = 0; i < num_part; ++i ) {
+    partvec->heads[i].head_idx = partvec->heads[i].tail_idx = FD_FUNK_REC_IDX_NULL;
+  }
+}
+
 int
 fd_funk_part_verify( fd_funk_t * funk ) {
   fd_wksp_t * wksp = fd_funk_wksp( funk );

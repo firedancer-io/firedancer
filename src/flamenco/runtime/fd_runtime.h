@@ -33,6 +33,8 @@
 #define FD_RUNTIME_TRACE_SAVE   (1)
 #define FD_RUNTIME_TRACE_REPLAY (2)
 
+#define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
+
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 
 /* FD_BLOCK_BANKS_TYPE stores fd_firedancer_banks_t bincode encoded (obsolete)*/
@@ -152,6 +154,7 @@ struct fd_runtime_args {
   ushort       rpc_port;
   ulong        checkpt_slot;
   char const * checkpt_path;
+  fd_funk_t *  pruned_funk;
 };
 typedef struct fd_runtime_args fd_runtime_args_t;
 
