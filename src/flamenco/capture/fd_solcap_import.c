@@ -2,9 +2,9 @@
 #include "fd_solcap.pb.h"
 #include "fd_solcap_proto.h"
 #include "fd_solcap_writer.h"
-#include "../cjson/cJSON.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
+#include "../../ballet/json/cJSON.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -145,7 +145,7 @@ unmarshal_bank_preimage( cJSON const *            json,
 
   if ( cJSON_GetObjectItem( head, "signature_count" ) != NULL )
     out->signature_cnt = cJSON_GetObjectItem( head, "signature_count" )->valueulong;
-  else 
+  else
     out->signature_cnt = 0;
 
   cJSON * accs = cJSON_GetObjectItem( head, "accounts" );
@@ -205,14 +205,14 @@ unmarshal_account( cJSON const *             json,
   return data;
 }
 
-void write_slots( const char * in_path, 
+void write_slots( const char * in_path,
                   fd_solcap_writer_t * writer,
                   fd_wksp_t * wksp,
                   fd_alloc_t * alloc ) {
   /* Iterate through the directory to get all of the bank hash details file */
   struct dirent * ent;
   DIR * dir = opendir( in_path );
-  
+
   if ( dir == NULL ) {
     FD_LOG_ERR(( "unable to open the directory=%s", in_path ));
   }

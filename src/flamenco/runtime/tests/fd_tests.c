@@ -4,6 +4,7 @@
 #include "../../../ballet/base64/fd_base64.h"
 #include "../../fd_flamenco.h"
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
