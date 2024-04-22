@@ -15,6 +15,7 @@
 #include "../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
+#include "../genesis_hash.h"
 
 #define NAME "genesis"
 
@@ -204,8 +205,6 @@ create_genesis( config_t * const config,
   ulong blob_len = fd_genesis_create( blob, blob_sz, options );
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
-  FD_LOG_DEBUG(( "Created genesis blob (sz=%lu)", blob_len ));
-
   fd_scratch_detach( NULL );
 
   fd_keyload_unload( identity_pubkey_, 1 );
@@ -248,6 +247,16 @@ init( config_t * const config ) {
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  uchar genesis_hash[ 32 ];
+  char  genesis_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
+  ushort shred_version = compute_shred_version( genesis_path, genesis_hash );
+
+  FD_LOG_INFO(( "Created %s:  genesis_hash=%s sz=%lu",
+                genesis_path,
+                fd_base58_encode_32( genesis_hash, NULL, genesis_hash_cstr ),
+                blob_sz ));
+  FD_LOG_INFO(( "Shred version: %hu", shred_version ));
 }
 
 static void
