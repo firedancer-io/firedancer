@@ -60,7 +60,7 @@
    already mapped code pages.
 
    Typically the only things are process will need to do while
-   privileged are read files and map memory. 
+   privileged are read files and map memory.
 
    Calling fd_sandbox will do each of the following, in order,
 

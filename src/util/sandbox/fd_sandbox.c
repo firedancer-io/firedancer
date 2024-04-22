@@ -187,7 +187,7 @@ switch_user( uint uid, uint gid ) {
      There's a problem with this: POSIX states that all threads in a
      process must have the same uid and gid, so glibc does some wacky
      stuff... from man 2 setresgid
-     
+
         C library/kernel differences
             At the kernel level, user IDs and group IDs are a per-thread
             attribute.  However, POSIX requires that all threads in a

@@ -91,6 +91,13 @@ main( int     argc,
   ulong m1   [ 1024UL ]; ulong alloc_cnt = 0UL;
   ulong frame[ DEPTH  ]; ulong frame_cnt = 0UL;
 
+  /* Make sure that the entire region is poisoned */
+  #if FD_HAS_DEEPASAN
+  FD_TEST( fd_asan_query( smem, SMAX ) );
+  FD_TEST( fd_asan_test( smem ));
+  FD_TEST( fd_asan_test( smem + SMAX ));
+  #endif
+
   for( ulong iter=0UL; iter<1000000UL; iter++ ) {
     ulong bits = (ulong)fd_rng_uint(rng);
 
@@ -99,6 +106,12 @@ main( int     argc,
       fd_scratch_reset();
       alloc_cnt = 0UL;
       frame_cnt = 0UL;
+      /* Entire region gets poisoned on a reset */
+      #if FD_HAS_DEEPASAN
+      FD_TEST( fd_asan_query( smem, SMAX ) );
+      FD_TEST( fd_asan_test( smem ));
+      FD_TEST( fd_asan_test( smem + SMAX ));
+      #endif
       continue;
     }
 
@@ -123,6 +136,9 @@ main( int     argc,
     int lg_align = fd_rng_int_roll( rng, 10 ); /* lg_align is in [0,9], 9 means use align==0 */
 
     ulong align = ((ulong)(lg_align<9)) << lg_align;
+#   if FD_HAS_DEEPASAN
+          align = fd_ulong_max( 8UL, align );
+#   endif
     ulong sz    = (ulong)fd_rng_uint( rng ) & 255U;
     if( !( (alloc_cnt<1024UL) & fd_scratch_alloc_is_safe( align, sz ) ) ) continue;
 
@@ -137,6 +153,20 @@ main( int     argc,
       fd_scratch_publish( mem + sz );
     }
 
+    /* Try to safely access memory in allocated region */
+    if ( sz ) {
+      mem[ 0 ] = 1;
+      mem[ sz / 2 ] = 1;
+      mem[ sz - 1 ] = 1;
+      #if FD_HAS_DEEPASAN
+      FD_TEST( fd_asan_query( mem, sz) == NULL );
+      FD_TEST( fd_asan_test( mem ) == 0 );
+      FD_TEST( fd_asan_test( mem + sz - 1 ) == 0 );
+      FD_TEST( fd_asan_test( mem + sz ) || mem[sz] == 'D' );
+      FD_TEST( fd_asan_test( mem + sz + FD_ASAN_ALIGN ) == 1 );
+      # endif
+    }
+
     ulong a = fd_ulong_if( !align, FD_SCRATCH_ALIGN_DEFAULT, align );
     FD_TEST( mem && fd_ulong_is_aligned( (ulong)mem, a ) );
 
@@ -149,6 +179,19 @@ main( int     argc,
 
     sz = fd_rng_ulong_roll( rng, sz+1UL );
     fd_scratch_trim( mem + sz );
+
+    /* Try to safely access memory around freshly poisoned region. Check past the
+       boundary to make sure that it is poisoned, check the boundary itself to
+       see if it either is poisoned or has a junk byte, and check the oriignal memory
+       itself. Note: 187 maps to the char 0xBB which is populated. */
+    #if FD_HAS_DEEPASAN
+    if ( sz ) {
+      FD_TEST( fd_asan_test( mem ) == 0 );
+      FD_TEST( fd_asan_test( mem + sz - 1 ) == 0 );
+    }
+    FD_TEST( fd_asan_test( mem + sz + FD_ASAN_ALIGN ) != 0 );
+    FD_TEST( fd_asan_test( mem + sz ) || mem[sz] == 'E' );
+    #endif
 
     new_m1 = new_m0 + sz;
     for( ulong idx=0UL; idx<alloc_cnt; idx++ ) {
