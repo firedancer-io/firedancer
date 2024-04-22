@@ -1,4 +1,5 @@
 #include "fd_exec_test.pb.h"
+#undef FD_SCRATCH_USE_HANDHOLDING
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
