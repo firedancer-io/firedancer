@@ -3,13 +3,20 @@
 
 /* Choreo is the consensus library.
 
+  - bft: wires it all together.
+  - eqv: equivocating (also called "duplicate") block handling.
   - forks: data structures and associated functions to manage "forks", ie. competing views in the
   canonical state of the blockchain.
   - ghost: fork choice rule, ie. which fork is the best that I should pick.
-  - tower: TowerBFT algorithm for reaching consensus by "finalizing" blocks, ie. you
-  can no longer rollback a block or switch to a different fork.
+  - tower: TowerBFT rules for reaching consensus by "finalizing" blocks, ie. you
+    can no longer rollback a block or switch to a different fork.
 
- */
+    Includes threshold check and switch proof.
+
+    Note this is the TowerBFT implementation on the local ("self") side. The Vote Program is the
+    TowerBFT implementation for the cluster ("others") side. In other words, the local validator
+    runs through these rules before submitting the vote. The other validators in the cluster then
+    process the submitted vote using the Vote Program. */
 
 #include "../flamenco/fd_flamenco_base.h"
 #include "../flamenco/types/fd_types.h"

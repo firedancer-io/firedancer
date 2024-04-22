@@ -41,9 +41,9 @@ fd_shred_cap_archive( fd_replay_t * replay, fd_shred_t const * shred, uchar flag
 }
 
 int
-fd_shred_cap_replay( const char *      shred_cap_fpath,
+fd_shred_cap_replay( const char *      shred_cap_path,
                      fd_replay_t *     replay ) {
-  FILE * shred_cap = fopen( shred_cap_fpath, "rb" );
+  FILE * shred_cap = fopen( shred_cap_path, "rb" );
   FD_TEST( shred_cap );
 
   for( ;; ) {

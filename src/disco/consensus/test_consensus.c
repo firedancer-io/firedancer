@@ -113,7 +113,6 @@ main( int argc, char ** argv ) {
       fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( forks_max ), 1UL );
   fd_forks_t * forks = fd_forks_join( fd_forks_new( forks_mem, forks_max, 42UL ) );
   FD_TEST( forks );
-  fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
 
   /* ghost */
 
@@ -125,12 +124,13 @@ main( int argc, char ** argv ) {
       fd_ghost_join( fd_ghost_new( ghost_mem, ghost_node_max, ghost_vote_max, 1UL ) );
   FD_TEST( ghost );
 
-  /* towers */
+  /* latest votes */
 
-  void * towers_mem =
-      fd_wksp_alloc_laddr( wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 1UL );
-  fd_latest_vote_t * towers = fd_latest_vote_deque_join( fd_latest_vote_deque_new( towers_mem ) );
-  FD_TEST( towers );
+  void * latest_votes_mem = fd_wksp_alloc_laddr(
+      wksp, fd_latest_vote_deque_align(), fd_latest_vote_deque_footprint(), 42UL );
+  fd_latest_vote_t * latest_votes =
+      fd_latest_vote_deque_join( fd_latest_vote_deque_new( latest_votes_mem ) );
+  FD_TEST( latest_votes );
 
   /* bft */
 
@@ -160,61 +160,65 @@ main( int argc, char ** argv ) {
   replay->tpool       = NULL;
   replay->valloc      = valloc;
 
-  /* slot_ctx */
+  /* snapshot init */
 
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, valloc ) );
-  FD_TEST( slot_ctx );
-  slot_ctx->acc_mgr    = acc_mgr;
-  slot_ctx->blockstore = blockstore;
-  slot_ctx->epoch_ctx  = epoch_ctx;
+  fd_fork_t *          snapshot_fork = fd_fork_pool_ele_acquire( forks->pool );
+  fd_exec_slot_ctx_t * snapshot_slot_ctx =
+      fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &snapshot_fork->slot_ctx, valloc ) );
+  FD_TEST( snapshot_slot_ctx );
 
-  /* snapshot restore */
+  snapshot_slot_ctx->epoch_ctx = epoch_ctx;
 
-  fd_runtime_recover_banks( slot_ctx, 0 );
+  fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
+  FD_TEST( snapshot_slot_ctx->funk_txn );
 
-  ulong snapshot_slot                = slot_ctx->slot_bank.slot;
-  slot_ctx->slot_bank.collected_fees = 0;
-  slot_ctx->slot_bank.collected_rent = 0;
-
-  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx ) );
-  fd_features_restore( slot_ctx );
-  fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot );
-  fd_calculate_epoch_accounts_hash_values( slot_ctx );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, slot_ctx->funk_txn );
-
-  replay->smr      = snapshot_slot;
-  blockstore->min  = snapshot_slot;
-  slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
-
+  ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
   FD_LOG_NOTICE( ( "snapshot_slot: %lu", snapshot_slot ) );
 
-  /* fake the snapshot slot's block and mark it as processed */
+  snapshot_slot_ctx->acc_mgr    = acc_mgr;
+  snapshot_slot_ctx->blockstore = blockstore;
+  snapshot_slot_ctx->valloc     = valloc;
 
-  fd_blockstore_slot_map_t * slot_entry =
-      fd_blockstore_slot_map_insert( fd_blockstore_slot_map( replay->blockstore ), snapshot_slot );
-  fd_blockstore_slot_map_insert( fd_blockstore_slot_map( replay->blockstore ), snapshot_slot );
-  slot_entry->block.data_gaddr = ULONG_MAX;
-  slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_SNAPSHOT );
-  slot_entry->block.flags = fd_uchar_set_bit( slot_entry->block.flags, FD_BLOCK_FLAG_PROCESSED );
-  slot_entry->block.bank_hash = fork->slot_ctx.slot_bank.banks_hash;
+  snapshot_slot_ctx->slot_bank.collected_fees = 0;
+  snapshot_slot_ctx->slot_bank.collected_rent = 0;
+  FD_TEST( !fd_runtime_sysvar_cache_load( snapshot_slot_ctx ) );
+  fd_features_restore( snapshot_slot_ctx );
+  fd_runtime_update_leaders( snapshot_slot_ctx, snapshot_slot_ctx->slot_bank.slot );
+  fd_calculate_epoch_accounts_hash_values( snapshot_slot_ctx );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( snapshot_slot_ctx, snapshot_slot_ctx->funk_txn );
 
-  /* initialize various structures to snapshot slot */
+  snapshot_slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
 
-  bft->snapshot_slot = snapshot_slot;
-  fork->slot         = snapshot_slot;
+  /* snapshot init: blockstore */
 
-  /* seed frontier and ghost */
+  fd_blockstore_snapshot_insert( blockstore, &snapshot_slot_ctx->slot_bank );
 
-  fd_fork_frontier_ele_insert( replay->forks->frontier, fork, replay->forks->pool );
+  /* snapshot init: replay */
 
-  fd_slot_hash_t key = { .slot = fork->slot, .hash = fork->slot_ctx.slot_bank.banks_hash };
+  replay->smr = snapshot_slot;
+
+  /* snapshot init: forks */
+
+  snapshot_fork->slot = snapshot_slot;
+  fd_fork_frontier_ele_insert( replay->forks->frontier, snapshot_fork, replay->forks->pool );
+
+  /* snapshot init: ghost */
+
+  fd_slot_hash_t key = { .slot = snapshot_fork->slot,
+                         .hash = snapshot_fork->slot_ctx.slot_bank.banks_hash };
   fd_ghost_leaf_insert( ghost, &key, NULL );
   FD_TEST( fd_ghost_node_map_ele_query( ghost->node_map, &key, NULL, ghost->node_pool ) );
 
-  /* shred cap replay */
+  /* snapshot init: bft */
 
-  const char * shred_cap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shred-cap", NULL, NULL );
-  if( !shred_cap ) FD_LOG_ERR( ( "must pass in --shred-cap <FILE>" ) );
+  bft->snapshot_slot = snapshot_slot;
+
+  /* shred cap */
+
+  const char * _shredcap = fd_env_strip_cmdline_cstr( &argc, &argv, "--shredcap", NULL, NULL );
+  if( !_shredcap ) FD_LOG_ERR( ( "must pass in --shredcap <FILE>" ) );
+
+  fd_shred_cap_replay( _shredcap, replay );
 
   fd_halt();
   return 0;

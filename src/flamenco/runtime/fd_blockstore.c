@@ -992,19 +992,21 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 }
 
 void
-fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * slot_bank ) {
+fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t const * snapshot_slot_bank ) {
+  blockstore->min = blockstore->max = blockstore->smr = snapshot_slot_bank->slot;
+
   fd_blockstore_slot_map_t * slot_entry =
-      fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), slot_bank->slot );
+      fd_blockstore_slot_map_insert( fd_blockstore_slot_map( blockstore ), snapshot_slot_bank->slot );
   
   /* fake the snapshot slot meta */
   
   fd_slot_meta_t * slot_meta = &slot_entry->slot_meta;
-  slot_meta->slot                  = slot_bank->slot;
+  slot_meta->slot                  = snapshot_slot_bank->slot;
   slot_meta->consumed              = 0;
   slot_meta->received              = 0;
   slot_meta->first_shred_timestamp = 0;
   slot_meta->last_index            = 0;
-  slot_meta->parent_slot           = slot_bank->prev_slot;
+  slot_meta->parent_slot           = snapshot_slot_bank->prev_slot;
   slot_meta->next_slot_len         = 0;
   slot_meta->next_slot             = fd_alloc_malloc(
       fd_blockstore_alloc( blockstore ), sizeof( ulong ), FD_BLOCKSTORE_NEXT_SLOT_MAX );
@@ -1014,8 +1016,8 @@ fd_blockstore_snapshot_insert( fd_blockstore_t * blockstore, fd_slot_bank_t cons
 
   fd_block_t * block = &slot_entry->block;
   block->data_gaddr   = ULONG_MAX;
-  block->height    = slot_bank->block_height;
-  block->bank_hash = slot_bank->banks_hash;
+  block->height    = snapshot_slot_bank->block_height;
+  block->bank_hash = snapshot_slot_bank->banks_hash;
   uchar flags[8] = {
       FD_BLOCK_FLAG_PROCESSED,
       FD_BLOCK_FLAG_EQV_SAFE,

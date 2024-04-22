@@ -243,6 +243,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_private {
   ulong root; /* the current root slot */
   ulong min;  /* the min slot still in the blockstore */
   ulong max;  /* the max slot in the blockstore */
+  ulong smr; /* the super-majority root */
 
   /* Internal data structures */
 

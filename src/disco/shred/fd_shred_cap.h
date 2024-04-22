@@ -23,6 +23,6 @@ typedef struct fd_shred_cap_hdr fd_shred_cap_hdr_t;
 
 int fd_shred_cap_mark_stable( fd_replay_t * replay, ulong slot );
 int fd_shred_cap_archive( fd_replay_t * replay, fd_shred_t const * shred , uchar flags);
-int fd_shred_cap_replay( const char * shred_pcap, fd_replay_t * replay );
+int fd_shred_cap_replay( const char * shred_cap_path, fd_replay_t * replay );
     
 #endif
