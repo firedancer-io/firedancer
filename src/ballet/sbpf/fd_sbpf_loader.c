@@ -341,10 +341,6 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
       REQUIRE( (info->shndx_symtab)<0 );
       info->shndx_symtab = (int)i;
     }
-    else if( 0==memcmp( name, ".strtab",   8UL /* equals     */ ) ) {
-      REQUIRE( (info->shndx_strtab)<0 );
-      info->shndx_strtab = (int)i;
-    }
     else if( 0==memcmp( name, ".dynstr",   8UL /* equals     */ ) ) {
       REQUIRE( (info->shndx_dynstr)<0 );
       info->shndx_dynstr = (int)i;
@@ -452,7 +448,6 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
     .rodata_sz        = 0U,
     .shndx_text       = -1,
     .shndx_symtab     = -1,
-    .shndx_strtab     = -1,
     .shndx_dyn        = -1,
     .shndx_dynstr     = -1,
     .phndx_dyn        = -1,
@@ -1018,7 +1013,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
   ulong   insn_cnt = shdr_get_loaded_size( shtext ) / 8UL;
 
   for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
-    ulong insn = *((ulong const *) ptr);
+    ulong insn = *((ulong *) ptr);
 
     /* Check for call instruction.  If immediate is UINT_MAX, assume
        that compiler generated a relocation instead. */
