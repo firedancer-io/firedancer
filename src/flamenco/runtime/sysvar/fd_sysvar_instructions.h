@@ -2,6 +2,8 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_instructions_h
 
 #include "../../fd_flamenco_base.h"
+#include "../fd_executor.h"
+#include "../fd_runtime.h"
 #include "../info/fd_instr_info.h"
 
 FD_PROTOTYPES_BEGIN

@@ -4,8 +4,6 @@
 /* fd_sysvar_epoch_schedule provides methods for epoch numbers, a native
    concept of the Solana runtime.
 
-   Address: SysvarEpochSchedu1e111111111111111111111111
-
    Every Solana slot is assigned an epoch number (ulong), starting with
    epoch 0.  The epoch number either stays constant or increments by one
    between two slots.
@@ -55,6 +53,19 @@
 #define FD_EPOCH_LEN_MAX (0xFFFFFFFFUL)
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_sysvar_epoch_schedule_init initializes the epoch schedule sysvar
+   account.  FIXME document what this actually does. */
+
+void
+fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
+
+/* fd_sysvar_epoch_schedule_read reads the current value of the epoch
+   schedule sysvar into result. */
+
+fd_epoch_schedule_t *
+fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
+                               fd_exec_slot_ctx_t *  slot_ctx );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be
