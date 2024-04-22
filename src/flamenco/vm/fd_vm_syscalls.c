@@ -1209,6 +1209,34 @@ fd_vm_cpi_update_caller_account_c( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
+/* Mirrors solana_bpf_loader_program::syscalls::cpi:update_callee_account.
+
+   This function is called just before a CPI is initiated.
+   In this context, the "caller" is a VM that is about to create a
+   child instruction, the "callee".
+
+   Recall that the fd_borrowed_account_t in the transaction context is
+   what is shared between different instructions.  Also recall that the
+   VM operates on a local copy of the account in VM memory.
+
+   In order to correctly do a CPI, we have to flush the changes in VM
+   memory back up to the transaction context before executing the callee
+   instruction.
+
+   This is what this function does.
+
+   ctx is the callee's instruction context.
+   callee_acc_idx is some instruction account index in that context.
+   caller_account contain the caller's local changes to that account
+   (same address/pubkey)
+
+   Returns an FD_EXECUTOR_INSTR_ERR_{...} code if permission checks
+   fail, in which case the transaction account state is undefined.
+   On success, the caller_account changes are replicated to the callee
+   account changes, and returns FD_EXECUTOR_INSTR_SUCCESS.Lo
+
+   https://github.com/solana-labs/solana/blob/v1.18.9/programs/bpf_loader/src/syscalls/cpi.rs#L1165-L1240 */
+
 FD_FN_UNUSED static ulong
 fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
                                  fd_caller_account_t const * caller_account,
