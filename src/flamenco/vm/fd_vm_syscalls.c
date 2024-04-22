@@ -1,5 +1,8 @@
 #include "fd_vm_syscalls.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/murmur3/fd_murmur3.h"

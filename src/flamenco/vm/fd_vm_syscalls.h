@@ -3,6 +3,7 @@
 
 #include "fd_vm_context.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../runtime/info/fd_instr_info.h"
 
 /* TODO These syscall errors do not map exactly to Labs SyscallError */
 
