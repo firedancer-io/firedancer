@@ -12,6 +12,7 @@
 #include "keywords.h"
 #include "fd_block_to_json.h"
 #include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 
 #define API_VERSION "1.17.6"
 

@@ -23,7 +23,7 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_token_proof_program.h"
 
-#include "sysvar/fd_sysvar.h"
+#include "sysvar/fd_sysvar_instructions.h"
 
 #include "../vm/fd_vm_context.h"
 
