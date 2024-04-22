@@ -12,7 +12,7 @@
 
 #define FD_PACK_ALIGN     (128UL)
 
-#define FD_PACK_MAX_BANK_TILES 62UL
+#define FD_PACK_MAX_BANK_TILES 63UL
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
    CHANGED WITHOUT COORDINATING WITH SOLANA LABS. */
@@ -26,56 +26,6 @@
 #define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
 #define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
 #define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
-
-
-/* The Solana network and Firedancer implementation details impose
-   several limits on what pack can produce.  These limits are grouped in
-   this one struct fd_pack_limits_t, which is just a convenient way to
-   pass them around.  The limits listed below are arithmetic limits.
-   The limits imposed by practical constraints are almost certainly
-   much, much tighter. */
-struct fd_pack_limits {
-  /* max_{cost, vote_cost}_per_block, max_write_cost_per_acct are
-     consensus-critical limits and must be agreed on cluster-wide.  A
-     block that consumes more than max_cost_per_block cost units
-     (closely related to, but not identical to CUs) in total is invalid.
-     Similarly, a block where the sum of the cost of all vote
-     transactions exceeds max_vote_cost_per_block cost units is invalid.
-     Similarly, a block in where the sum of the cost of all transactions
-     that write to a given account exceeds max_write_cost_per_acct is
-     invalid. */
-  ulong max_cost_per_block;          /* in [0, ULONG_MAX) */
-  ulong max_vote_cost_per_block;     /* in [0, max_cost_per_block] */
-  ulong max_write_cost_per_acct;     /* in [0, max_cost_per_block] */
-
-  /* max_data_bytes_per_block is derived from consensus-critical limits
-     on the number of shreds in a block, but is not directly enforced.
-     Separation of concerns means that it's not a good idea for pack to
-     know exactly how the block will be shredded, but at the same time,
-     we don't want to end up in a situation where we produced a block
-     that had too many shreds, because the shred tile's only recourse
-     would be to kill the block.  To address this, pack limits the size
-     of the data it puts into the block to a limit that we can prove
-     will never cause the shred tile to produce too many shreds.
-
-     This limit includes transaction and microblock headers for
-     non-empty microblocks that pack produces. */
-  ulong max_data_bytes_per_block;    /* in [0, ULONG_MAX - 183] */
-
-  /* max_txn_per_microblock and max_microblocks_per_block are
-     Firedancer-imposed implementation limits to bound the amount of
-     memory consumption that pack uses.  Pack will produce microblocks
-     with no more than max_txn_per_microblock transactions.
-     Additionally, once pack produces max_microblocks_per_block
-     non-empty microblocks in a block, all subsequent attempts to
-     schedule a microblock will return an empty microblock until
-     fd_pack_end_block is called. */
-  ulong max_txn_per_microblock;      /* in [0, 16777216] */
-  ulong max_microblocks_per_block;   /* in [0, 1e12) */
-
-};
-typedef struct fd_pack_limits fd_pack_limits_t;
-
 
 /* Forward declare opaque handle */
 struct fd_pack_private;
@@ -92,29 +42,31 @@ typedef struct fd_pack_private fd_pack_t;
    can schedule transactions.  bank_tile_cnt must be in [1,
    FD_PACK_MAX_BANK_TILES].
 
-   limits sets various limits for the blocks and microblocks that pack
-   can produce. */
+   max_txn_per_microblock sets the maximum number of transactions that
+   pack will schedule in a single microblock. */
 
 FD_FN_CONST static inline ulong fd_pack_align       ( void ) { return FD_PACK_ALIGN; }
 
-FD_FN_PURE ulong
-fd_pack_footprint( ulong                    pack_depth,
-                   ulong                    bank_tile_cnt,
-                   fd_pack_limits_t const * limits );
+FD_FN_CONST ulong
+fd_pack_footprint( ulong pack_depth,
+                   ulong bank_tile_cnt,
+                   ulong max_txn_per_microblock );
 
 
 /* fd_pack_new formats a region of memory to be suitable for use as a
    pack object.  mem is a non-NULL pointer to a region of memory in the
    local address space with the required alignment and footprint.
-   pack_depth, bank_tile_cnt, and limits are as above.  rng is a local
-   join to a random number generator used to perturb estimates.
+   pack_depth, bank_tile_cnt, and max_txn_per_microblock are as above.
+   The pack object will produce at most max_microblocks_per_block
+   non-empty microblocks in a block.  rng is a local join to a random
+   number generator used to perturb estimates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
 void * fd_pack_new( void * mem,
-    ulong pack_depth, ulong bank_tile_cnt, fd_pack_limits_t const * limits,
-    fd_rng_t * rng );
+    ulong pack_depth, ulong bank_tile_cnt, ulong max_txn_per_microblock,
+    ulong max_microblocks_per_block, fd_rng_t * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -126,29 +78,14 @@ fd_pack_t * fd_pack_join( void * mem );
    scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
-FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t const * pack );
+FD_FN_PURE ulong fd_pack_avail_txn_cnt( fd_pack_t * pack );
 
 /* fd_pack_bank_tile_cnt: returns the value of bank_tile_cnt provided in
    pack when the pack object was initialized with fd_pack_new.  pack
    must be a valid local join.  The result will be in [1,
    FD_PACK_MAX_BANK_TILES]. */
-FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
+FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t * pack );
 
-/* fd_pack_set_block_limits: Updates the limits provided fd_pack_new to
-   the new values.  Future any future microblocks produced by this pack
-   object will not cause a block to have more than
-   max_microblocks_per_block non-empty microblocks or more than
-   max_data_bytes_per_block data bytes (counting microblock headers as
-   before).  Limits are inclusive, as per ususal (i.e. a block may have
-   exactly max_microblocks_per_block microblocks, but not more).  pack
-   must be a valid local join.
-
-   The typical place to call this is immediately after
-   fd_pack_end_block; if this is called after some microblocks have been
-   produced for the current block, and the current block already exceeds
-   the limits, all the remaining microblocks in the block will be empty,
-   but the call is valid. */
-void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block, ulong max_data_bytes_per_block );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future
@@ -174,11 +111,6 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
       transaction.
     * UNAFFORDABLE: the fee payer could not afford the transaction fee
       (not yet implemented).
-    * ADDR_LUT: the transaction tried to load an account from an address
-      lookup table, which is not yet supported.
-    * EXPIRED: the transaction was already expired upon insertion based
-      on the provided value of expires_at compared to the last call to
-      fd_pack_expire_before.
     * TOO_LARGE: the transaction requested too many CUs and would never
       be scheduled if it had been accepted.
     * ESTIMATION_FAIL: estimation of the transaction's compute cost and
@@ -202,21 +134,16 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
 #define FD_PACK_INSERT_REJECT_PRIORITY        (-1)
 #define FD_PACK_INSERT_REJECT_DUPLICATE       (-2)
 #define FD_PACK_INSERT_REJECT_UNAFFORDABLE    (-3)
-#define FD_PACK_INSERT_REJECT_ADDR_LUT        (-4)
-#define FD_PACK_INSERT_REJECT_EXPIRED         (-5)
-#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-6)
-#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-7)
-#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-8)
-#define FD_PACK_INSERT_REJECT_FULL            (-9)
+#define FD_PACK_INSERT_REJECT_TOO_LARGE       (-4)
+#define FD_PACK_INSERT_REJECT_ESTIMATION_FAIL (-5)
+#define FD_PACK_INSERT_REJECT_WRITES_SYSVAR   (-6)
+#define FD_PACK_INSERT_REJECT_FULL            (-7)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF  9
-#define FD_PACK_INSERT_RETVAL_CNT 13
-
-FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_FULL>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
-FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
+#define FD_PACK_INSERT_RETVAL_OFF  7
+#define FD_PACK_INSERT_RETVAL_CNT 11
 
 /* fd_pack_insert_txn_{init,fini,cancel} execute the process of
    inserting a new transaction into the pool of available transactions
@@ -237,22 +164,15 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_VOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-F
    The caller of these methods should not retain any read or write
    interest in the transaction after _fini or _cancel have been called.
 
-   expires_at (for _fini only) bounds the lifetime of the inserted
-   transaction.  No particular unit is prescribed, and it need not be
-   higher than the previous call to txn_fini.  If fd_pack_expire_before
-   has been previously called with a value larger (strictly) than the
-   provided expires_at, the transaction will be rejected with EXPIRED.
-   See fd_pack_expire_before for more details.
-
    pack must be a local join of a pack object.  From the caller's
    perspective, these functions cannot fail, though pack may reject a
    transaction for a variety of reasons.  fd_pack_insert_txn_fini
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                     );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn, ulong expires_at );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn                   );
+fd_txn_p_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                   );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_p_t * txn );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_p_t * txn );
 
 
 /* fd_pack_schedule_next_microblock schedules transactions to form a
@@ -281,13 +201,6 @@ ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float
    previously scheduled microblock. */
 void fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
 
-/* fd_pack_expire_before deletes all available transactions with
-   expires_at values strictly less than expire_before.  pack must be a
-   local join of a pack object.  Retruns the number of transactions
-   deleted.  Subsequent calls to fd_pack_expire_before with the same or
-   a smaller value are no-ops. */
-ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
-
 /* fd_pack_delete_txn removes a transaction (identified by its first
    signature) from the pool of available transactions.  Returns 1 if the
    transaction was found (and then removed) and 0 if not. */
@@ -312,13 +225,6 @@ void fd_pack_clear_all( fd_pack_t * pack );
    and returns ownership of the memory to the caller.  Returns mem. */
 void * fd_pack_leave(  fd_pack_t * pack );
 void * fd_pack_delete( void      * mem  );
-
-/* fd_pack_verify (for debugging use primarily) checks to ensure several
-   invariants are satisfied.  scratch must point to the first byte of a
-   piece of memory meeting the same alignment and footprint constraints
-   as pack.  Returns 0 on success and a negative value on failure
-   (logging a warning with details). */
-int fd_pack_verify( fd_pack_t * pack, void * scratch );
 
 FD_PROTOTYPES_END
 #endif /*HEADER_fd_src_ballet_pack_fd_pack_h*/

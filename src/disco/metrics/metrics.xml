@@ -26,47 +26,17 @@ metric introduced.
 </enum>
 
 <enum name="PackTxnInsertReturn">
-  <!-- Note: You must keep the list of return values in fd_pack.h in sync with this list -->
-  <int value="-9" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
-  <int value="-8" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
-  <int value="-7" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
-  <int value="-6" name="TooLarge" label="Transaction requests too many CUs" />
-  <int value="-5" name="Expired" label="Transaction already expired" />
-  <int value="-4" name="AddrLut" label="Transaction loaded accounts from a lookup table" />
+  <int value="-7" name="Full" label="Pack couldn't find a transaction that the new transaction could potentially replace" />
+  <int value="-6" name="WriteSysvar" label="Transaction tries to write to a sysvar" />
+  <int value="-5" name="EstimationFail" label="Estimating compute cost and/or fee failed" />
+  <int value="-4" name="TooLarge" label="Transaction requests too many CUs" />
   <int value="-3" name="Unaffordable" label="Fee payer's balance below transaction fee" />
   <int value="-2" name="Duplicate" label="Pack aware of transaction with same signature" />
-  <int value="-1" name="Priority" label="Transaction's fee was too low given its compute unit requirement and other competing transactions" />
+  <int value="-1" name="Priority" label="Transaction's fee was too low given it's compute unit requirement and other competing transactions" />
   <int value="0" name="NonvoteAdd" label="Transaction that was not a simple vote added to pending transactions" />
   <int value="1" name="VoteAdd" label="Simple vote transaction was added to pending transactions" />
   <int value="2" name="NonvoteReplace" label="Transaction that was not a simple vote replaced a lower priority transaction" />
   <int value="3" name="VoteReplace" label="Simple vote transaction replaced a lower priority transaction" />
-</enum>
-<enum name="PackTxnSchedule">
-  <int value="0" name="Taken" label="Pack included the transaction in the microblock" />
-  <int value="1" name="CuLimit" label="Pack skipped the transaction because it would have exceeded the block CU limit" />
-  <int value="2" name="FastPath" label="Pack skipped the transaction because of account conflicts using the fast bitvector check" />
-  <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
-  <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
-  <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
-</enum>
-
-<enum name="PackTimingState">
-  <int value="0" name="NoTxnNoBankNoLeaderNoMicroblock" label="Pack had no transactions available, and wasn't leader" />
-  <int value="1" name="TxnNoBankNoLeaderNoMicroblock" label="Pack had transactions available, but wasn't leader or had hit a limit" />
-  <int value="2" name="NoTxnBankNoLeaderNoMicroblock" label="Pack had no transactions available, had banks but wasn't leader?" />
-  <int value="3" name="TxnBankNoLeaderNoMicroblock" label="Pack had transactions available, had banks but wasn't leader?" />
-  <int value="4" name="NoTxnNoBankLeaderNoMicroblock" label="Pack had no transactions available, and was leader but had no available banks" />
-  <int value="5" name="TxnNoBankLeaderNoMicroblock" label="Pack had transactions available, was leader, but had no available banks" />
-  <int value="6" name="NoTxnBankLeaderNoMicroblock" label="Pack had available banks but no transactions" />
-  <int value="7" name="TxnBankLeaderNoMicroblock" label="Pack had banks and transactions available but couldn't schedule anything non-conflicting" />
-  <int value="8" name="NoTxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="9" name="TxnNoBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="10" name="NoTxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="11" name="TxnBankNoLeaderMicroblock" label="Pack scheduled a non-empty microblock while not leader?" />
-  <int value="12" name="NoTxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
-  <int value="13" name="TxnNoBankLeaderMicroblock" label="Pack scheduled a non-empty microblock but all banks were busy?" />
-  <int value="14" name="NoTxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock and now has no transactions" />
-  <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
 
 <enum name="BankSlotAcquire">
@@ -135,13 +105,11 @@ metric introduced.
     <counter name="FilteredCount" summary="The number of consumed fragments that were filtered." />
     <counter name="FilteredSizeBytes" summary="The total number of bytes read  by the link consumer that were filtered." />
     <counter name="OverrunPollingCount" summary="The number of times the link has been overrun while polling." />
-    <counter name="OverrunPollingFragCount" summary="The number of fragments the link has not processed because it was overrun while polling." />
     <counter name="OverrunReadingCount" summary="The number of input overruns detected while reading metadata by the consumer." />
 </group>
 
 <group name="Tile" tile="all">
     <gauge name="Pid" summary="The process ID of the tile." />
-    <gauge name="Tid" summary="The thread ID of the tile. Always the same as the Pid in production, but might be different in development." />
 </group>
 
 <group name="Stem" tile="all">
@@ -222,15 +190,14 @@ metric introduced.
 </group>
 
 <group name="PohTile" tile="poh">
-  <histogram name="BeginLeaderDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we receive the bank.</summary>
-  </histogram>
-  <histogram name="FirstMicroblockDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we receive the first microblock.</summary>
-  </histogram>
-  <histogram name="SlotDoneDelaySeconds" min="0.001" max="400" converter="seconds">
-    <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
-  </histogram>
+    <counter name="MicroblockTooEarly" summary="Received a microblock but it was for a slot that's after the current leader bank." />
+    <counter name="MicroblockTooLate" summary="Received a microblock but it was for a slot that's before the current leader bank." />
+    <counter name="MicroblockNoLongerLeader" summary="Received a microblock that was on time, but we are no longer leader at the target slot." />
+    <counter name="ReplayTooEarly" summary="Received a notification of a new bank but it was for a slot that's earlier than the current time." />
+    <counter name="ReplayTooLate" summary="Received a notification of a new bank but it was for a slot that's later than the current time." />
+    <counter name="ReplayNoLongerLeader" summary="Received a notification of a new bank that was on time, but we are no longer leader at the target slot." />
+    <counter name="LeaderSlotMissedBackpressure" summary="Couldn't tell pack to start packing, because the PoH tile was backpressured." />
+    <counter name="NoLeaderBank" summary="Got sent transactions for a valid leader slot, but we did not have a leader bank available." />
 </group>
 
 <group name="Quic" tile="quic">
@@ -273,20 +240,14 @@ metric introduced.
   <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
   <counter name="NormalTransactionReceived" summary="Count of transactions received via the normal TPU path" />
   <counter name="TransactionInserted" enum="PackTxnInsertReturn" summary="Result of inserting a transaction into the pack object" />
-  <counter name="MetricTiming" enum="PackTimingState" summary="Time in nanos spent in each state" />
-
-  <counter name="TransactionDroppedFromExtra" summary="Transactions dropped from the extra transaction storage because it was full" />
-  <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
-  <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
 
   <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
   <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
   <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
 
   <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
-  <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
-  <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
-
+  <counter name="TransactionSkipped" summary="The number of times pack considered a transaction but skipped it due to account conflicts" />
+  <!-- TODO: Add more reasons after performance improvement PR -->
 
   <counter name="DeleteMissed" summary="Count of attempts to delete a transaction that wasn't found" />
   <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
@@ -294,7 +255,6 @@ metric introduced.
 </group>
 
 <group name="StoreTile" tile="store">
-  <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </group>
 
 </metrics>

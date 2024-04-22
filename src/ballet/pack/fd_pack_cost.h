@@ -72,9 +72,9 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
                                           PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
 
-#define FD_PACK_COST_PER_SIGNATURE           (720UL)
-#define FD_PACK_COST_PER_WRITABLE_ACCT       (300UL)
-#define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE (  4UL)
+#define COST_PER_SIGNATURE           (720UL)
+#define COST_PER_WRITABLE_ACCT       (300UL)
+#define INV_COST_PER_INSTR_DATA_BYTE (  4UL)
 
 /* This is an extremely conservative upper bound on the max cost.  The
    majority of it comes from TXN_INSTR_MAX*2370, which is excessively
@@ -87,12 +87,12 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST>= (
       ((ulong)FD_TXN_ACCT_ADDR_MAX*(720UL+300UL)) + /* writable signer are the most expensive */
       ((ulong)FD_TXN_INSTR_MAX*2370UL) + /* the most expensive built-in */
-      (FD_TPU_MTU/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE) +
+      (FD_TPU_MTU/INV_COST_PER_INSTR_DATA_BYTE) +
       (ulong)FD_COMPUTE_BUDGET_MAX_CU_LIMIT), fd_pack_max_cost );
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
-#define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
+#define FD_PACK_MIN_TXN_COST (COST_PER_SIGNATURE+COST_PER_WRITABLE_ACCT)
 
 /* A typical vote transaction has the authorized voter (writable
    signer), the vote account (writable non-signer), clock sysvar, slot
@@ -100,9 +100,9 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
    it has one instruction a built-in to the vote program, which is
    typically 61 bytes (1 slot) or 69 bytes (2 slot) long.  The mean over
    1000 slots of vote transactions is 69.3 bytes. */
-static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE                +
-                                                 2UL*FD_PACK_COST_PER_WRITABLE_ACCT        +
-                                                 69UL/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE +
+static const ulong FD_PACK_TYPICAL_VOTE_COST = ( COST_PER_SIGNATURE                +
+                                                 2UL*COST_PER_WRITABLE_ACCT        +
+                                                 69UL/INV_COST_PER_INSTR_DATA_BYTE +
                                                  VOTE_PROG_COST );
 
 #undef VOTE_PROG_COST
@@ -128,8 +128,8 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
          signature_cost <= FD_TXN_ACCT_ADDR_MAX*720,
          writable_cost  <= FD_TXN_ACCT_ADDR_MAX*300 */
 
-  ulong signature_cost = FD_PACK_COST_PER_SIGNATURE      * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER   );
-  ulong writable_cost  = FD_PACK_COST_PER_WRITABLE_ACCT  * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE );
+  ulong signature_cost = COST_PER_SIGNATURE      * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER   );
+  ulong writable_cost  = COST_PER_WRITABLE_ACCT  * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE );
 
   ulong instr_data_sz    = 0UL; /* < FD_TPU_MTU */
   ulong builtin_cost     = 0UL; /* <= 2370*FD_TXN_INSTR_MAX */
@@ -162,7 +162,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
 
   }
 
-  ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
+  ulong instr_data_cost = instr_data_sz / INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
 
   ulong fee[1];
   uint compute[1];
