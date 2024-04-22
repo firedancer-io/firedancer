@@ -62,6 +62,12 @@ fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       min_data_sz,
                                       fd_borrowed_account_t **    account );
 
+int
+fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t *    ctx,
+                                  fd_pubkey_t const *      pubkey,
+                                  ulong                    min_data_sz,
+                                  fd_borrowed_account_t ** account );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_context_fd_exec_instr_ctx_h */

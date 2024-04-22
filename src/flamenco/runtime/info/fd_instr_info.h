@@ -47,6 +47,17 @@ fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
 }
 
+static inline int
+fd_instr_acc_is_writable(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
+  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
+    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
+      return fd_instr_acc_is_writable_idx( instr, i );
+    }
+  }
+
+  return 0;
+}
+
 FD_FN_PURE static inline int
 fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
                             ulong                   idx ) {
