@@ -148,7 +148,8 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
                         cmp->theirs.hash ) );
       if( ++bank_hash_cmp->mismatch_cnt >= 5U ) {
         FD_LOG_WARNING( ( "Too many mismatches, shutting down!" ) );
-        fd_tile_shutdown_flag = 2;
+        //fd_tile_shutdown_flag = 2;
+        exit(2);
       }
     } else {
       FD_LOG_NOTICE( ( "Bank hash match on rooted slot: %lu. hash: %32J",
