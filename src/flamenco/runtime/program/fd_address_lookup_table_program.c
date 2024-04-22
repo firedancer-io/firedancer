@@ -1,14 +1,17 @@
 #include "fd_address_lookup_table_program.h"
-#include "../fd_account.h"
+#include "fd_program_util.h"
 #include "../fd_executor.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_system_ids.h"
-#include "../sysvar/fd_sysvar_clock.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../sysvar/fd_sysvar_slot_hashes.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_pubkey_utils.h"
+#include "../fd_account.h"
+#include "../sysvar/fd_sysvar_clock.h"
+#include "../sysvar/fd_sysvar_slot_hashes.h"
+#include "../../../ballet/ed25519/fd_curve25519.h"
+#include "../../vm/fd_vm_syscalls.h"
+#include "../../vm/fd_vm_cpi.h"
+
+#include <string.h>
 
 struct fd_addrlut {
   fd_address_lookup_table_state_t state;
@@ -21,6 +24,7 @@ typedef struct fd_addrlut fd_addrlut_t;
 
 #define FD_ADDRLUT_META_SZ       (56UL)
 #define FD_ADDRLUT_MAX_ADDR_CNT (256UL)
+#define DEFAULT_COMPUTE_UNITS   (750UL)
 
 static fd_addrlut_t *
 fd_addrlut_new( void * mem ) {
@@ -118,6 +122,117 @@ fd_addrlut_status( fd_lookup_table_meta_t const * state,
 
   return FD_ADDRLUT_STATUS_DEACTIVATED;
 }
+
+static inline void create_account_meta(fd_pubkey_t const * key, uchar is_signer, uchar is_writable, fd_vm_rust_account_meta_t * meta) {
+  meta->is_signer = is_signer;
+  meta->is_writable = is_writable;
+  fd_memcpy(meta->pubkey, key->key, sizeof(fd_pubkey_t));
+}
+
+static int execute_system_program_instruction(fd_exec_instr_ctx_t * ctx,
+                                              fd_system_program_instruction_t const * instr,
+                                              fd_vm_rust_account_meta_t const * acct_metas,
+                                              ulong acct_metas_len,
+                                              fd_pubkey_t const * signers,
+                                              ulong signers_cnt) {
+  fd_instr_info_t instr_info[1];
+  fd_instruction_account_t instruction_accounts[256];
+  ulong instruction_accounts_cnt;
+
+  for (ulong i = 0; i < ctx->txn_ctx->accounts_cnt; i++) {
+    if (memcmp(fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t)) == 0) {
+      instr_info->program_id = (uchar)i;
+      break;
+    }
+  }
+
+  ulong starting_lamports = 0;
+  uchar acc_idx_seen[256];
+  memset(acc_idx_seen, 0, 256);
+
+  instr_info->program_id_pubkey = fd_solana_system_program_id;
+  instr_info->acct_cnt = (ushort)acct_metas_len;
+  for (ulong j = 0; j < acct_metas_len; j++) {
+    fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];
+
+    for (ulong k = 0; k < ctx->txn_ctx->accounts_cnt; k++) {
+      if (memcmp(acct_meta->pubkey, ctx->txn_ctx->accounts[k].uc, sizeof(fd_pubkey_t)) == 0) {
+        instr_info->acct_pubkeys[j] = ctx->txn_ctx->accounts[k];
+        instr_info->acct_txn_idxs[j] = (uchar)k;
+        instr_info->acct_flags[j] = 0;
+        instr_info->borrowed_accounts[j] = &ctx->txn_ctx->borrowed_accounts[k];
+
+        instr_info->is_duplicate[j] = acc_idx_seen[k];
+        if( FD_LIKELY( !acc_idx_seen[k] ) ) {
+          /* This is the first time seeing this account */
+          acc_idx_seen[k] = 1;
+          if( instr_info->borrowed_accounts[j]->const_meta != NULL ) {
+            starting_lamports += instr_info->borrowed_accounts[j]->const_meta->info.lamports;
+          }
+        }
+
+        if( acct_meta->is_writable ) {
+          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+        }
+        // TODO: should check the parent has signer flag set
+        if( acct_meta->is_signer ) {
+          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+        } else {
+          for( ulong k = 0; k < signers_cnt; k++ ) {
+            if( memcmp( &signers[k], &acct_meta->pubkey, sizeof( fd_pubkey_t ) ) == 0 ) {
+              instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+              break;
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    instr_info->starting_lamports = starting_lamports;
+  }
+
+  fd_bincode_encode_ctx_t ctx2;
+  void * buf = fd_valloc_malloc(ctx->valloc, FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN, sizeof(fd_system_program_instruction_t));
+  ctx2.data = buf;
+  ctx2.dataend = (uchar*)ctx2.data + sizeof(fd_system_program_instruction_t);
+  int err = fd_system_program_instruction_encode(instr, &ctx2);
+  if (err != FD_PROGRAM_OK) {
+    FD_LOG_WARNING(("Encode failed"));
+    return err;
+  }
+
+  instr_info->data = buf;
+  instr_info->data_sz = (ushort) sizeof(fd_system_program_instruction_t);
+  ulong exec_err = fd_vm_prepare_instruction(ctx->instr, instr_info, ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_cnt);
+  if( exec_err != FD_PROGRAM_OK ) {
+    FD_LOG_WARNING(("PREPARE FAILED"));
+    return (int)exec_err;
+  }
+  return fd_execute_instr( ctx->txn_ctx, instr_info );
+}
+
+// static ulong
+// find_slot_hash( fd_slot_hash_t const * hashes, ulong slot ) {
+
+//   ulong start = 0;
+//   ulong end = deq_fd_slot_hash_t_cnt( hashes );
+
+//   while (start < end) {
+//     ulong mid = start + (end - start) / 2;
+//     fd_slot_hash_t const * ele = deq_fd_slot_hash_t_peek_index_const( hashes, mid );
+
+//     if ( ele->slot == slot ) {
+//       return slot;
+//     } else if ( ele->slot < slot ) {
+//       start = mid + 1;
+//     } else {
+//       end = mid - 1;
+//     }
+//   }
+
+//   return ULONG_MAX;
+// }
 
 /* Note on uses of fd_borrowed_account_acquire_write_is_safe:
 
@@ -255,11 +370,25 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L109-L118 */
-  FD_LOG_WARNING(( "TODO: Derive PDA" ));
+  fd_pubkey_t derived_tbl_key[1];
+  do {
+    fd_sha256_t sha[1]; fd_sha256_init( sha );
+    fd_sha256_append( sha, authority_key->key, 32UL );
+    fd_sha256_append( sha, &derivation_slot,    8UL );
+    fd_sha256_append( sha, &create->bump_seed,  1UL );
+    fd_sha256_append( sha, fd_solana_address_lookup_table_program_id.key, 32UL );
+    fd_sha256_append( sha, "ProgramDerivedAddress", 21UL );
+    fd_sha256_fini( sha, derived_tbl_key->key );
+  } while(0);
+  if( FD_UNLIKELY( fd_ed25519_point_validate( derived_tbl_key->key ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+  }
 
-  (void)derivation_slot;
-  (void)payer_key;
-  (void)lut_key;
+  /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L120-L127 */
+  if( FD_UNLIKELY( 0!=memcmp( lut_key->key, derived_tbl_key->key, 32UL ) ) ) {
+    /* TODO Log: "Table address must match derived address: {}" */
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L129-L135 */
   if( FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
@@ -269,20 +398,84 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
   ulong tbl_acct_data_len = 0x38UL;
-  ulong required_lamports = 0UL;
-  do {
-    int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, tbl_acct_data_len, &required_lamports );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
-  required_lamports = fd_ulong_max( required_lamports, 1UL );
-  required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
+  ulong required_lamports = fd_rent_exempt_minimum_balance( ctx->slot_ctx, tbl_acct_data_len );
+        required_lamports = fd_ulong_max( required_lamports, 1UL );
+        required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L144-L149 */
   if( required_lamports > 0UL ) {
-    FD_LOG_WARNING(( "TODO system program CPI" ));
+    // Create account metas
+    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t));
+    create_account_meta(payer_key, 1, 1, &acct_metas[0]);
+    create_account_meta(lut_key, 0, 1, &acct_metas[1]);
+
+    // Create signers list
+    fd_pubkey_t signers[16];
+    ulong signers_cnt = 1;
+    signers[0] = *payer_key;
+
+    // Create system program instruction
+    fd_system_program_instruction_t instr;
+    instr.discriminant = fd_system_program_instruction_enum_transfer;
+    instr.inner.transfer = required_lamports;
+
+    int err = execute_system_program_instruction(
+      ctx,
+      &instr,
+      acct_metas,
+      2,
+      signers,
+      signers_cnt
+    );
+    fd_valloc_free(ctx->valloc, acct_metas);
+    if ( err != 0 ) {
+      return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    }
   }
 
-  FD_LOG_WARNING(( "TODO system program CPI" ));
+  fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t));
+  create_account_meta(lut_key, 1, 1, &acct_metas[0]);
+
+  // Create signers list
+  fd_pubkey_t signers[16];
+  ulong signers_cnt = 1;
+  signers[0] = *lut_key;
+
+  // Create system program instruction
+  fd_system_program_instruction_t instr;
+  instr.discriminant = fd_system_program_instruction_enum_allocate;
+  instr.inner.allocate = 56;
+
+  // Execute allocate instruction
+  int err = execute_system_program_instruction(
+    ctx,
+    &instr,
+    acct_metas,
+    1,
+    signers,
+    signers_cnt
+  );
+  if ( err != 0 ) {
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+
+  instr.discriminant = fd_system_program_instruction_enum_assign;
+  instr.inner.assign = fd_solana_address_lookup_table_program_id;
+
+  // Execute assign instruction
+  err = execute_system_program_instruction(
+    ctx,
+    &instr,
+    acct_metas,
+    1,
+    signers,
+    signers_cnt
+  );
+  if ( err != 0 ) {
+    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  }
+
+  fd_valloc_free(ctx->valloc, acct_metas);
 
   if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( lut_acct ) ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
@@ -403,9 +596,6 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L216 */
     int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
     if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-      char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
-      FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%s) failed",
-                       fd_acct_addr_cstr( key_cstr, lut_acct->pubkey->key ) ));
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
 
@@ -544,7 +734,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L308 */
     new_table_data_sz = FD_ADDRLUT_META_SZ + new_addr_cnt * sizeof(fd_pubkey_t);
-    int modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, new_table_data_sz, &lut_acct );
+    int modify_err = fd_instr_borrowed_account_modify( ctx, lut_acct->pubkey, new_table_data_sz, &lut_acct );
     if( FD_UNLIKELY( modify_err ) ) {
       err = FD_EXECUTOR_INSTR_ERR_FATAL; break;
     }
@@ -571,11 +761,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L317-L321 */
-  ulong required_lamports = 0UL;
-  do {
-    int err = fd_rent_exempt_minimum_balance( ctx->slot_ctx, new_table_data_sz, &required_lamports );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  ulong required_lamports =
+    fd_rent_exempt_minimum_balance( ctx->slot_ctx, new_table_data_sz );
   required_lamports = fd_ulong_max    ( required_lamports, 1UL );
   required_lamports = fd_ulong_sat_sub( required_lamports, lut_lamports );
 
@@ -600,11 +787,33 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
-    (void)lut_key;
-    (void)payer_key;
+    // Create account metas
+    fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*) fd_valloc_malloc(ctx->valloc, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t));
+    create_account_meta(payer_key, 1, 1, &acct_metas[0]);
+    create_account_meta(lut_key, 0, 1, &acct_metas[1]);
 
-    FD_LOG_WARNING(( "TODO: System program CPI" ));
-    return FD_EXECUTOR_INSTR_ERR_FATAL;
+    // Create signers list
+    fd_pubkey_t signers[16];
+    ulong signers_cnt = 1;
+    signers[0] = *payer_key;
+
+    // Create system program instruction
+    fd_system_program_instruction_t instr;
+    instr.discriminant = fd_system_program_instruction_enum_transfer;
+    instr.inner.transfer = required_lamports;
+
+    int err = execute_system_program_instruction(
+      ctx,
+      &instr,
+      acct_metas,
+      2,
+      signers,
+      signers_cnt
+    );
+    fd_valloc_free(ctx->valloc, acct_metas);
+    if ( err != 0 ) {
+      return err;
+    }
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -878,10 +1087,9 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
-  do {
-    int err = fd_account_checked_add_lamports( ctx, ACC_IDX_RECIPIENT, withdrawn_lamports );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
+  /* TODO handle is_early_verification_of_account_modifications_enabled */
+  int op_err = fd_borrowed_account_checked_add_lamports( recipient_acct, withdrawn_lamports );
+  if( FD_UNLIKELY( op_err ) ) return op_err;
 
   /* Delete LUT account ***********************************************/
 
@@ -892,9 +1100,6 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* todo is_early_verification_of_account_modifications_enabled */
   modify_err = fd_instr_borrowed_account_modify_idx( ctx, ACC_IDX_LUT, /* min_data_sz */ 0UL, &lut_acct );
   if( FD_UNLIKELY( modify_err!=FD_ACC_MGR_SUCCESS ) ) {
-    char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
-    FD_LOG_WARNING(( "fd_instr_borrowed_account_modify_idx(%s) failed",
-                     fd_acct_addr_cstr( key_cstr, lut_acct->pubkey->key ) ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
   lut_acct->meta->dlen          = 0UL;
@@ -908,14 +1113,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t _ctx ) {
-  do {
-    int err = fd_exec_consume_cus( _ctx.txn_ctx, 750UL );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
 
   fd_exec_instr_ctx_t * ctx = &_ctx;
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
+
+  ctx->txn_ctx->compute_meter = fd_ulong_sat_sub( ctx->txn_ctx->compute_meter, DEFAULT_COMPUTE_UNITS );
 
   FD_SCRATCH_SCOPE_BEGIN {
 
