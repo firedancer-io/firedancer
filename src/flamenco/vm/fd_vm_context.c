@@ -169,8 +169,9 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
     case FD_VM_MEM_MAP_PROGRAM_REGION_START:
       /* Read-only program binary blob memory region */
       if( FD_UNLIKELY( ( write                        )
-                     | ( end_addr > ctx->read_only_sz ) ) )
+                     | ( end_addr > ctx->read_only_sz ) ) ) {
         return 0UL;
+      }
 
       host_addr = (ulong)ctx->read_only + start_addr;
       break;
@@ -185,14 +186,16 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
       break;
     case FD_VM_MEM_MAP_HEAP_REGION_START:
       /* Heap memory region */
-      if( FD_UNLIKELY( end_addr > ctx->heap_sz ) )
+      if( FD_UNLIKELY( end_addr > ctx->heap_sz ) ) {
         return 0UL;
+      }
       host_addr = (ulong)ctx->heap + start_addr;
       break;
     case FD_VM_MEM_MAP_INPUT_REGION_START:
       /* Program input memory region */
-      if( FD_UNLIKELY( end_addr > ctx->input_sz ) )
+      if( FD_UNLIKELY( end_addr > ctx->input_sz ) ) {
         return 0UL;
+      }
       host_addr = (ulong)ctx->input + start_addr;
       break;
     default:
@@ -200,12 +203,13 @@ fd_vm_translate_vm_to_host_private( fd_vm_exec_context_t *  ctx,
   }
 
 #ifdef FD_DEBUG_SBPF_TRACES
-uchar * signature = (uchar*)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
-uchar sig[64];
-fd_base58_decode_64("XXX", sig);
-if (memcmp(signature, sig, 64) == 0) {
-    fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
-}
+  // /* This is for mem entries. Commenting this out speeds up execution.*/
+  // uchar * signature = (uchar*)ctx->instr_ctx->txn_ctx->_txn_raw->raw + ctx->instr_ctx->txn_ctx->txn_descriptor->signature_off;
+  // uchar sig[64];
+  // fd_base58_decode_64("46mXgo95nA6vC7jTYJP3pCE5U1BpSgV7sZnQHpbHmrbPMDqRGes3jrvYEZUk8TfnhUgkpmNN73q7A3GcBVZTg3gq", sig);
+  // if (memcmp(signature, sig, 64) == 0) {
+  //     fd_vm_trace_context_add_mem_entry( ctx->trace_ctx, vm_addr, sz, host_addr, write );
+  // }
 #endif
   return host_addr;
 }

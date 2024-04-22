@@ -64,6 +64,17 @@ fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
   return !!(instr->acct_flags[idx] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
 }
 
+static inline int
+fd_instr_acc_is_signer(fd_instr_info_t const * instr, fd_pubkey_t const * acc) {
+  for( uchar i = 0; i < instr->acct_cnt; i++ ) {
+    if( memcmp( &instr->acct_pubkeys[i], acc, sizeof( fd_pubkey_t ) )==0 ) {
+      return fd_instr_acc_is_signer_idx( instr, i );
+    }
+  }
+
+  return 0;
+}
+
 /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L35-L41
 
    fd_instr_any_signed matches
