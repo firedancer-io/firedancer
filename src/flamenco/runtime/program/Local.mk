@@ -14,9 +14,6 @@ $(call add-objs,fd_bpf_loader_v2_program,fd_flamenco)
 $(call add-hdrs,fd_bpf_loader_v3_program.h)
 $(call add-objs,fd_bpf_loader_v3_program,fd_flamenco)
 
-$(call add-hdrs,fd_bpf_loader_v4_program.h)
-$(call add-objs,fd_bpf_loader_v4_program,fd_flamenco)
-
 $(call add-hdrs,fd_bpf_program_util.h)
 $(call add-objs,fd_bpf_program_util,fd_flamenco)
 
