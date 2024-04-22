@@ -296,9 +296,9 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     ulong readonly_lut_accs_cnt = 0;
 
     // Set up accounts in the account look up tables.
-    const fd_txn_acct_addr_lut_t * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
+    fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
     for( ulong i = 0; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
-      const fd_txn_acct_addr_lut_t * addr_lut = &addr_luts[i];
+      fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
 
       FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
@@ -721,20 +721,19 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
       return FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT;
     }
 
-    fd_acct_addr_t  const * tx_accs = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, (uchar *)txn_ctx->_txn_raw->raw );
-    for( ulong i = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-            i != fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
-      ulong idx = fd_txn_acct_iter_idx( i );
-      fd_pubkey_t  const * acct = (fd_pubkey_t *) &tx_accs[ idx ];
-
-      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, (const fd_pubkey_t *) tx_accs, (int)idx) &&
-                          !fd_txn_account_is_demotion( txn_ctx, (int)idx );
+    fd_pubkey_t * tx_accs   = txn_ctx->accounts;
+    for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+         ctrl < fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+      ulong i = fd_txn_acct_iter_idx( ctrl );
+      fd_pubkey_t * acct = &tx_accs[i];
+      int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, tx_accs, (int)i) &&
+                          !fd_txn_account_is_demotion( txn_ctx, (int)i );
       if (!is_writable) {
         continue;
       }
-      fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, (fd_pubkey_t *) acct, NULL );
+      fd_account_compute_elem_t * elem = fd_account_compute_table_query( slot_ctx->account_compute_table, acct, NULL );
       if ( !elem ) {
-        elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, (fd_pubkey_t *) acct );
+        elem = fd_account_compute_table_insert( slot_ctx->account_compute_table, acct );
         elem->cu_consumed = 0;
       }
 
@@ -757,15 +756,13 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
     TODO this should probably not run on executable accounts
         Also iterate over LUT accounts */
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
-    fd_acct_addr_t  const * acct = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, (uchar *)txn_ctx->_txn_raw->raw );
-
-   for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
-         i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
-     fd_pubkey_t  const * a = (fd_pubkey_t *) &acct[ fd_txn_acct_iter_idx( i ) ];
-
-      if( (i == 0) || fd_pubkey_is_sysvar_id( a ) )
+    fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
+    for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
+         ctrl < fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+      ulong i = fd_txn_acct_iter_idx( ctrl );
+      if( (i == 0) || fd_pubkey_is_sysvar_id( &tx_accs[i] ) )
         continue;
-      fd_set_exempt_rent_epoch_max( txn_ctx, a );
+      fd_set_exempt_rent_epoch_max( txn_ctx, &tx_accs[i] );
     }
   }
 
