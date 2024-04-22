@@ -2,6 +2,27 @@
 #include "fd_exec_txn_ctx.h"
 
 int
+fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
+                                fd_pubkey_t const *      pubkey,
+                                fd_borrowed_account_t * * account ) {
+  for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
+    if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+      // TODO: check if readable???
+      fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
+      *account = instr_account;
+
+      if (FD_UNLIKELY(!fd_acc_exists(instr_account->const_meta))) {
+        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      }
+
+      return FD_ACC_MGR_SUCCESS;
+    }
+  }
+
+  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       idx,
                                       ulong                       min_data_sz,

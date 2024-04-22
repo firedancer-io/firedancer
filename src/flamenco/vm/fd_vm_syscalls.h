@@ -7,8 +7,6 @@
 
 /* TODO These syscall errors do not map exactly to Labs SyscallError */
 
-/* TODO These syscall errors do not map exactly to Labs SyscallError */
-
 #define FD_VM_SYSCALL_SUCCESS           (0UL)
 #define FD_VM_SYSCALL_ERR_ABORT         (1UL)
 #define FD_VM_SYSCALL_ERR_PANIC         (2UL)
@@ -17,6 +15,7 @@
 #define FD_VM_SYSCALL_ERR_INSTR_ERR     (5UL)
 #define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED (6UL)
 #define FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE        (7UL)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS             (8UL)
 #define FD_VM_SYSCALL_ERR_UNIMPLEMENTED (0xFFFFUL) /* TODO: remove when unused */
 #define MAX_RETURN_DATA                 (1024UL)
 
