@@ -518,9 +518,6 @@ fd_alloc_join( void * shalloc,
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
-  #ifdef FD_WKSP_ASAN
-    fd_asan_poison(alloc, fd_alloc_footprint());
-  #endif
   return fd_alloc_join_cgroup_hint_set( alloc, cgroup_hint );
 }
 
@@ -531,9 +528,6 @@ fd_alloc_leave( fd_alloc_t * join ) {
     FD_LOG_WARNING(( "NULL join" ));
     return NULL;
   }
-  #ifdef FD_WKSP_ASAN
-   fd_asan_unpoison(join, fd_alloc_footprint());
-  #endif
   return fd_alloc_private_join_alloc( join );
 }
 
@@ -620,18 +614,29 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
      need to do elaborate overflow checking. */
 
   fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
- 
+
   align = fd_ulong_if( !align, FD_ALLOC_MALLOC_ALIGN_DEFAULT, align );
 
-  ulong footprint = sz + sizeof(fd_alloc_hdr_t) + align - 1UL;
+  #if FD_HAS_DEEPASAN
+  /* The header is prepended and needs to be unpoisoned. Ensure that
+     there is padding for the alloc_hdr to be properly aligned. We
+     want to exit silently if the sz passed in is 0. The alignment must be
+     at least 8. */
+  ulong fd_alloc_hdr_footprint = fd_ulong_align_up( sizeof(fd_alloc_hdr_t), FD_ASAN_ALIGN );
+  if ( sz && sz < ULONG_MAX )
+    sz = fd_ulong_align_up( sz, FD_ASAN_ALIGN );
+  align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
+  #else
+  ulong fd_alloc_hdr_footprint = sizeof(fd_alloc_hdr_t);
+  #endif
+
+  ulong footprint = sz + fd_alloc_hdr_footprint + align - 1UL;
 
   if( FD_UNLIKELY( (!alloc) | (!fd_ulong_is_pow2( align )) | (!sz) | (footprint<=sz) ) ) {
     *max = 0UL;
     return NULL;
   }
-  #ifdef FD_WKSP_ASAN
-   fd_asan_unpoison(alloc,footprint);
-  #endif
+
   fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
 
   /* At this point, alloc is non-NULL and backed by wksp, align is a
@@ -707,18 +712,33 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
       ulong superblock_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].superblock_footprint;
       if( FD_UNLIKELY( superblock_footprint > FD_ALLOC_FOOTPRINT_SMALL_THRESH ) ) {
 
-        ulong wksp_footprint = superblock_footprint + sizeof(fd_alloc_hdr_t) + FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
+        ulong wksp_footprint = superblock_footprint + fd_alloc_hdr_footprint + FD_ALLOC_SUPERBLOCK_ALIGN - 1UL;
         ulong wksp_gaddr     = fd_wksp_alloc( wksp, 1UL, wksp_footprint, alloc->tag );
         if( FD_UNLIKELY( !wksp_gaddr ) ) {
           *max = 0UL;
           return NULL;
         }
-        superblock_gaddr = fd_ulong_align_up( wksp_gaddr + sizeof(fd_alloc_hdr_t), FD_ALLOC_SUPERBLOCK_ALIGN );
-        superblock       = (fd_alloc_superblock_t *)
-          fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
-        #ifdef FD_WKSP_ASAN
-          fd_asan_unpoison(superblock,superblock_footprint);
+
+        superblock_gaddr = fd_ulong_align_up( wksp_gaddr + fd_alloc_hdr_footprint, FD_ALLOC_SUPERBLOCK_ALIGN );
+        #if FD_HAS_DEEPASAN
+        /* At this point, a new superblock is allocated from the wksp and the header
+           is prepended. The alignment needs to be taken into account: the padding
+           should also be unpoisoned.
+
+           Due to ASan requiring 8 byte word alignment for poisoning regions, must
+           guarantee 8 bytes for the header instead of just sizeof(fd_alloc_hdr_t).
+           We have a worst case padding of 15 bytes. Due to forced alignment in
+           fd_wksp_alloc of at least 8 bytes, in the worst case we will use 8 bytes
+           to align up the superblock_gaddr. The remaining 7 padding bytes will be
+           used to safely allow for the superblock_footprint to be aligned up to
+           an 8 byte multiple.  */
+        void * unpoison_laddr = fd_wksp_laddr_fast( wksp, superblock_gaddr - fd_alloc_hdr_footprint );
+        ulong aligned_superblock_footprint = fd_ulong_align_up( superblock_footprint, FD_ASAN_ALIGN );
+        fd_asan_unpoison( unpoison_laddr, aligned_superblock_footprint + fd_alloc_hdr_footprint );
         #endif
+
+        superblock = (fd_alloc_superblock_t *)
+          fd_alloc_hdr_store_large( fd_wksp_laddr_fast( wksp, superblock_gaddr ), 1 /* sb */ );
 
       } else {
 
@@ -839,12 +859,28 @@ fd_alloc_malloc_at_least( fd_alloc_t * join,
 
   ulong block_footprint = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
   ulong block_laddr     = (ulong)superblock + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
-  ulong alloc_laddr     = fd_ulong_align_up( block_laddr + sizeof(fd_alloc_hdr_t), align );
+  ulong alloc_laddr     = fd_ulong_align_up( block_laddr + fd_alloc_hdr_footprint, align );
+
+  #if FD_HAS_DEEPASAN
+  /* The block and the header must be unpoisoned to accomodate the block
+     footprint. The block footprint is determined by the sizeclass which
+     provides the minimum size that accomodates the footprint which is the
+     sz that's passed in, the padded fd_alloc_hdr, and the worst case amount
+     of alignment bytes. Because sz % FD_ASAN_ALIGN == 0, it is known that
+     we will have unused bytes at the end of the block since alloc_laddr %
+     FD_ASAN_ALIGN == 0. To ensure ASAN alignment, the range of bytes used
+     in the block can be safely rounded down.
+  */
+
+  void* laddr = (void*) ( alloc_laddr - fd_alloc_hdr_footprint );
+
+  ulong block_hi_addr = block_laddr + block_footprint;
+  ulong block_unpoison_sz = fd_ulong_align_dn( block_hi_addr - alloc_laddr, FD_ASAN_ALIGN );
+  fd_asan_unpoison( laddr, block_unpoison_sz + fd_alloc_hdr_footprint );
+  #endif
 
   *max = block_footprint - (alloc_laddr - block_laddr);
-  #ifdef FD_WKSP_ASAN
-   fd_asan_poison(superblock,fd_alloc_superblock_footprint());
-  #endif
+
   return fd_alloc_hdr_store( (void *)alloc_laddr, superblock, block_idx, sizeclass );
 }
 
@@ -869,9 +905,6 @@ fd_alloc_free( fd_alloc_t * join,
   if( FD_UNLIKELY( sizeclass==FD_ALLOC_SIZECLASS_LARGE ) ) {
     fd_wksp_t * wksp = fd_alloc_private_wksp( alloc );
     fd_wksp_free( wksp, fd_wksp_gaddr_fast( wksp, laddr ) );
-    #ifdef FD_WKSP_ASAN
-     fd_asan_poison(alloc,fd_alloc_footprint());
-    #endif
     return;
   }
 
@@ -882,9 +915,23 @@ fd_alloc_free( fd_alloc_t * join,
   ulong                   block_idx   = fd_alloc_hdr_block_idx( hdr );
   fd_alloc_block_set_t    block       = fd_alloc_block_set_ele( block_idx );
   fd_alloc_block_set_t    free_blocks = fd_alloc_block_set_add( &superblock->free_blocks, block );
-  
-  #ifdef FD_WKSP_ASAN
-   fd_asan_unpoison(superblock,fd_alloc_superblock_footprint());
+
+
+  #if FD_HAS_DEEPASAN
+  /* The portion of the block which is used for the header and the allocation
+     should get poisoned. The alloc's laddr is already at least 8 byte aligned.
+     The 8 bytes prior to the start of the laddr are used by the fd_alloc_hdr_t.
+     These should get poisoned as the block is freed again. The region used by
+     the allocation should also get poisoned: [laddr,block_laddr+block_footprint].
+     However, we know that the size of the initial allocation was also 8 byte
+     aligned so we align down the size of the range to poison safely.  */
+  ulong block_footprint        = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
+  ulong block_laddr            = (ulong)superblock + sizeof(fd_alloc_superblock_t) + block_idx*block_footprint;
+  ulong block_hi_addr          = fd_ulong_align_dn( block_laddr + block_footprint, FD_ASAN_ALIGN );
+  ulong fd_alloc_hdr_footprint = fd_ulong_align_up( sizeof(fd_alloc_hdr_t), FD_ASAN_ALIGN );
+  ulong fd_alloc_hdr_laddr     = (ulong)laddr - fd_alloc_hdr_footprint;
+  ulong sz                     = block_hi_addr - (ulong)laddr + fd_alloc_hdr_footprint;
+  fd_asan_poison( (void*) fd_alloc_hdr_laddr, sz );
   #endif
 
   /* At this point, free_blocks is the set of free blocks just before
@@ -960,11 +1007,6 @@ fd_alloc_free( fd_alloc_t * join,
 
     if( FD_UNLIKELY( displaced_superblock_gaddr ) )
       fd_alloc_private_inactive_stack_push( alloc->inactive_stack + sizeclass, wksp, displaced_superblock_gaddr );
-
-    #ifdef FD_WKSP_ASAN
-      fd_asan_poison(alloc,fd_alloc_footprint());
-      fd_asan_poison(superblock,fd_alloc_superblock_footprint()); 
-    #endif
     return;
   }
 
@@ -1026,10 +1068,6 @@ fd_alloc_free( fd_alloc_t * join,
        is wide enough to make that risk zero on any practical
        timescale.) */
 
-    #ifdef FD_WKSP_ASAN
-      fd_asan_poison(alloc,fd_alloc_footprint());
-      fd_asan_poison(superblock,fd_alloc_superblock_footprint());
-    #endif
     fd_wksp_t * wksp                     = fd_alloc_private_wksp( alloc );
     ulong       deletion_candidate_gaddr = fd_alloc_private_inactive_stack_pop( alloc->inactive_stack + sizeclass, wksp );
 

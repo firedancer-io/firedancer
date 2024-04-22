@@ -208,6 +208,13 @@
 #define FD_HAS_UBSAN 0
 #endif
 
+/* FD_HAS_DEEPASAN indicates that the build target is using ASAN with manual
+   memory poisoning for fd_alloc, fd_wksp, and fd_scratch. */
+
+#ifndef FD_HAS_DEEPASAN
+#define FD_HAS_DEEPASAN 0
+#endif
+
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
@@ -935,7 +942,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_MSAN
+#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -969,7 +976,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_MSAN
+#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memset( void  * d,
