@@ -30,12 +30,14 @@ include config/base.mk
 	CXX:=g++
 	LD:=g++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
+include config/extra/with-gcc.mk
 else ifdef FD_USING_CLANG
 include config/base.mk
 	CC=clang
 	CXX=clang++
 	LD=clang++
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __clang_major__ |  awk '{print $$3}')
+include config/extra/with-clang.mk
 endif
 
 BUILDDIR?=native/$(CC)
@@ -47,12 +49,6 @@ include config/extra/with-optimization.mk
 include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-ucontext.mk
-
-ifdef FD_USING_GCC
-include config/extra/with-gcc.mk
-else ifdef FD_USING_CLANG
-include config/extra/with-clang.mk
-endif
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)

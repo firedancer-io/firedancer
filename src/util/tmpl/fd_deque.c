@@ -243,7 +243,7 @@ DEQUE_(pop_tail)( DEQUE_T * deque ) {
 FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_head)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  if (hdr->end == hdr->start)
+  if( hdr->end == hdr->start )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->start );
 }
@@ -251,7 +251,7 @@ DEQUE_(peek_head)( DEQUE_T * deque ) {
 FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_tail)( DEQUE_T * deque ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  if (hdr->end == hdr->start)
+  if( hdr->end == hdr->start )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
 }
@@ -259,7 +259,7 @@ DEQUE_(peek_tail)( DEQUE_T * deque ) {
 FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_index)( DEQUE_T * deque, ulong idx ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  if (hdr->end == hdr->start)
+  if( hdr->end == hdr->start )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
 }
@@ -267,7 +267,7 @@ DEQUE_(peek_index)( DEQUE_T * deque, ulong idx ) {
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  if (hdr->end == hdr->start)
+  if( hdr->end == hdr->start )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->start );
 }
@@ -275,7 +275,7 @@ DEQUE_(peek_head_const)( DEQUE_T const * deque ) {
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  if (hdr->end == hdr->start)
+  if( hdr->end == hdr->start )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->end-1UL );
 }
@@ -283,7 +283,7 @@ DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_index_const)( DEQUE_T const * deque, ulong idx ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-  if (hdr->end <= hdr->start + idx)
+  if( hdr->end <= hdr->start + idx )
     return NULL;
   return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
 }
@@ -296,7 +296,7 @@ static inline DEQUE_T * DEQUE_(remove_tail)( DEQUE_T * deque ) { DEQUE_(private_
 static inline DEQUE_T *
 DEQUE_(pop_index)( DEQUE_T * deque, ulong idx ) {
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-  if (hdr->end <= hdr->start + idx)
+  if( hdr->end <= hdr->start + idx )
     return NULL;
   ulong original = idx;
   DEQUE_T * iter = hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
@@ -404,4 +404,3 @@ FD_PROTOTYPES_END
 #undef DEQUE_MAX
 #undef DEQUE_T
 #undef DEQUE_NAME
-
