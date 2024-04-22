@@ -249,4 +249,6 @@ fd_txn_account_is_writable_idx( fd_txn_t const *    txn_descriptor,
 
 FD_PROTOTYPES_END
 
+#include "fd_account_old.h"
+
 #endif /* HEADER_fd_src_flamenco_runtime_fd_account_h */
