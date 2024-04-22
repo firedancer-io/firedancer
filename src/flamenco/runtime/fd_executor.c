@@ -723,7 +723,7 @@ fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_pubkey_t * tx_accs   = txn_ctx->accounts;
     for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-         ctrl < fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+         ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
       ulong i = fd_txn_acct_iter_idx( ctrl );
       fd_pubkey_t * acct = &tx_accs[i];
       int is_writable = fd_txn_account_is_writable_idx(txn_ctx->txn_descriptor, tx_accs, (int)i) &&
@@ -758,7 +758,7 @@ fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) {
     fd_pubkey_t * tx_accs   = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
     for( fd_txn_acct_iter_t ctrl = fd_txn_acct_iter_init( txn_ctx->txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
-         ctrl < fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+         ctrl != fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
       ulong i = fd_txn_acct_iter_idx( ctrl );
       if( (i == 0) || fd_pubkey_is_sysvar_id( &tx_accs[i] ) )
         continue;
