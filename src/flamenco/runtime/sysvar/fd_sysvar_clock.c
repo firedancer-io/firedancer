@@ -125,6 +125,43 @@ estimate_timestamp( fd_exec_slot_ctx_t * slot_ctx ) {
   return head->timestamp  + (long) (ns_correction / NS_IN_S) ;
 }
 
+#define CIDX_T ulong
+#define VAL_T  long
+struct stake_ts_ele {
+  CIDX_T parent_cidx;
+  CIDX_T left_cidx;
+  CIDX_T right_cidx;
+  CIDX_T prio_cidx;
+  VAL_T timestamp;
+  unsigned long stake;
+};
+
+typedef struct stake_ts_ele stake_ts_ele_t;
+
+#define POOL_NAME  stake_ts_pool
+#define POOL_T     stake_ts_ele_t
+#define POOL_IDX_T CIDX_T
+#define POOL_NEXT  parent_cidx
+#include "../../../util/tmpl/fd_pool.c"
+
+FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
+  int val = (a < b) ? -1 : 1;
+  return (a == b) ? 0 : val;
+}
+
+#define TREAP_NAME       stake_ts_treap
+#define TREAP_T          stake_ts_ele_t
+#define TREAP_QUERY_T    VAL_T
+#define TREAP_CMP(q,e)   valcmp(q, e->timestamp)
+#define TREAP_LT(e0,e1)  (((VAL_T)((e0)->timestamp)) < ((VAL_T)((e1)->timestamp)))
+#define TREAP_IDX_T      CIDX_T
+#define TREAP_PARENT     parent_cidx
+#define TREAP_LEFT       left_cidx
+#define TREAP_RIGHT      right_cidx
+#define TREAP_PRIO       prio_cidx
+#define TREAP_IMPL_STYLE 0
+#include "../../../util/tmpl/fd_treap.c"
+
 /* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
 static void
 fd_calculate_stake_weighted_timestamp(
@@ -132,16 +169,19 @@ fd_calculate_stake_weighted_timestamp(
   long * result_timestamp,
   uint fix_estimate_into_u64
  ) {
+  FD_SCRATCH_SCOPE_BEGIN {
+
   ulong slot_duration = (ulong)( slot_ctx->epoch_ctx->epoch_bank.ns_per_slot );
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( &clock, slot_ctx );
   // get the unique timestamps
   /* stake per timestamp */
-  treap_t _treap[1];
+  stake_ts_treap_t _treap[1];
   void * shmem = (void *)_treap;
-  void * shtreap = treap_new( shmem, 10240UL );
-  treap_t * treap = treap_join( shtreap );
-  ele_t * pool = pool_join( pool_new( scratch, 10240UL ) );
+  void * shtreap = stake_ts_treap_new( shmem, 10240UL );
+  stake_ts_treap_t * treap = stake_ts_treap_join( shtreap );
+  uchar * scratch = fd_scratch_alloc( stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
+  stake_ts_ele_t * pool = stake_ts_pool_join( stake_ts_pool_new( scratch, 10240UL ) );
   ulong total_stake = 0;
 
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
@@ -242,14 +282,14 @@ fd_calculate_stake_weighted_timestamp(
     long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
     /* get stake */
     total_stake += n->elem.stake;
-    ulong treap_idx = treap_idx_query( treap, estimate, pool );
+    ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
     if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
       pool[ treap_idx ].stake += n->elem.stake;
     } else {
-      ulong idx = pool_idx_acquire( pool );
+      ulong idx = stake_ts_pool_idx_acquire( pool );
       pool[ idx ].timestamp = estimate;
       pool[ idx ].stake = n->elem.stake;
-      treap_idx_insert( treap, idx, pool );
+      stake_ts_treap_idx_insert( treap, idx, pool );
     }
   }
 
@@ -260,10 +300,10 @@ fd_calculate_stake_weighted_timestamp(
 
   // FIXME: this should be a uint128
   ulong stake_accumulator = 0;
-  for (treap_fwd_iter_t iter = treap_fwd_iter_init ( treap, pool);
-       !treap_fwd_iter_done( iter );
-       iter = treap_fwd_iter_next( iter, pool ) ) {
-    ulong idx = treap_fwd_iter_idx( iter );
+  for (stake_ts_treap_fwd_iter_t iter = stake_ts_treap_fwd_iter_init ( treap, pool);
+       !stake_ts_treap_fwd_iter_done( iter );
+       iter = stake_ts_treap_fwd_iter_next( iter, pool ) ) {
+    ulong idx = stake_ts_treap_fwd_iter_idx( iter );
     stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
     // FD_LOG_WARNING(("Ts %ld Elem stake %lu Curr stake %lu Total stake cmp %lu", pool[ idx ].timestamp, pool[ idx ].stake, stake_accumulator, total_stake/2));
     if (stake_accumulator > (total_stake / 2)) {
@@ -297,6 +337,9 @@ fd_calculate_stake_weighted_timestamp(
     *result_timestamp = clock.unix_timestamp;
   }
   return;
+
+  }
+  FD_SCRATCH_SCOPE_END;
 }
 
 int
