@@ -3,7 +3,7 @@ pull_resp:
   (null): 
     - signature: '41fQjMjZF8Uw3ydc4tfSiJZGkBwFSu8SqqaqsDysiDepVrhV1QvYsqETystLsay7swYxPxDnfFVX4mxqMzoFWy4S'
       data: 
-        version_v2: 
+        version: 
           from: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
           wallclock: 1660658416907
           major: 1

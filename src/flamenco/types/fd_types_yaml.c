@@ -318,6 +318,9 @@ fd_flamenco_yaml_walk( void *       _self,
     fprintf( file, "'%s'\n", buf );
     break;
   }
+  case FD_FLAMENCO_TYPE_HASH1024:
+    fprintf( file, "'%32J%32J%32J%32J'\n", arg, ((uchar *) arg)+32, ((uchar *) arg)+64, ((uchar *) arg)+96 );
+    break;
   case FD_FLAMENCO_TYPE_SIG512: {
     char buf[ FD_BASE58_ENCODED_64_SZ ];
     fd_base58_encode_64( arg, NULL, buf );

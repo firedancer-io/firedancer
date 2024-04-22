@@ -1,7 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_h
 
-#include "context/fd_exec_instr_ctx.h"
+#include "fd_runtime.h"
+#include "../../ballet/block/fd_microblock.h"
+#include "../../ballet/poh/fd_poh.h"
 
 /* Instruction error codes */
 
@@ -78,9 +80,10 @@
 #define FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE               (-101)
 #define FD_EXECUTOR_SIGN_ERR_SIGNATURE                           (-102)
 
-FD_PROTOTYPES_BEGIN
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
-/* Instruction execution **********************************************/
+FD_PROTOTYPES_BEGIN
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
@@ -102,46 +105,38 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
-/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
-   human readable cstr.  The lifetime of the returned pointer is
-   infinite and the call itself is thread safe.  The returned pointer is
-   always to a non-NULL cstr. */
-
-FD_FN_CONST char const *
-fd_executor_instr_strerror( int err );
-
-/* Transaction execution **********************************************/
-
-/* Transaction execution phases
-   TODO(lheeger): Document this */
-
 int
 fd_execute_txn_prepare_phase1( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t *   txn_ctx,
-                               fd_txn_t const *       txn_descriptor,
+                               fd_exec_txn_ctx_t * txn_ctx,
+                               fd_txn_t const * txn_descriptor,
                                fd_rawtxn_b_t const * txn_raw );
 
 int
-fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t *  txn_ctx );
+fd_execute_txn_prepare_phase2( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx );
 int
-fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t *  txn_ctx );
+fd_execute_txn_prepare_phase3( fd_exec_slot_ctx_t *  slot_ctx,
+                               fd_exec_txn_ctx_t * txn_ctx,
+                               fd_txn_p_t * txn );
 
 int
 fd_execute_txn_prepare_phase4( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_exec_txn_ctx_t *  txn_ctx );
+                               fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_execute_txn_finalize( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_exec_txn_ctx_t *  txn_ctx,
-                         int                  exec_txn_err );
+                         fd_exec_txn_ctx_t * txn_ctx,
+                         int exec_txn_err );
 
-/* fd_execute_txn executes a transaction.  Writes back changes to
-   fd_funk.  (TODO document return code, thread safety, etc)  */
+/*
+  Execute the given transaction.
 
+  Makes changes to the Funk accounts DB. */
 int
 fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx );
+
+uint
+fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
 void
 fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
@@ -149,12 +144,12 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
 
-/* fd_executor_txn_check validates the txn after execution for
-   violations of various lamport balance and size rules */
+/*
+  Validate the txn after execution for violations of various lamport balance and size rules
+ */
 
 int
-fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,
-                       fd_exec_txn_ctx_t *  txn );
+fd_executor_txn_check( fd_exec_slot_ctx_t * slot_ctx,  fd_exec_txn_ctx_t *txn );
 
 void
 fd_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
@@ -165,35 +160,13 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
                          fd_borrowed_account_t const * rec,
                          ulong                fee );
 
-/* Consider moving these to util */
+/* fd_io_strerror converts an FD_EXECUTOR_INSTR_ERR_{...} code into a
+   human readable cstr.  The lifetime of the returned pointer is
+   infinite and the call itself is thread safe.  The returned pointer is
+   always to a non-NULL cstr. */
 
-// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
-static inline int
-fd_ulong_checked_add( ulong a, ulong b, ulong * out ) {
-  int cf = __builtin_uaddl_overflow( a, b, out );
-  return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, 0 );
-}
-
-// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
-static inline int FD_FN_UNUSED
-fd_ulong_checked_sub( ulong a, ulong b, ulong * out ) {
-  int cf = __builtin_usubl_overflow( a, b, out );
-  return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, 0 );
-}
-
-static inline ulong
-fd_ulong_checked_add_expect( ulong a, ulong b, char const * expect ) {
-  ulong out = ULONG_MAX;
-  if( FD_UNLIKELY( fd_ulong_checked_add( a, b, &out ) ) ) { FD_LOG_ERR(( "%s", expect )); }
-  return out;
-}
-
-static inline ulong
-fd_ulong_checked_sub_expect( ulong a, ulong b, char const * expect ) {
-  ulong out = ULONG_MAX;
-  if( FD_UNLIKELY( fd_ulong_checked_sub( a, b, &out ) ) ) { FD_LOG_ERR(( "%s", expect )); }
-  return out;
-}
+FD_FN_CONST char const *
+fd_executor_instr_strerror( int err );
 
 FD_PROTOTYPES_END
 

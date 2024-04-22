@@ -11,13 +11,12 @@
 #define FD_HEAP_FRAME_BYTES_GRANULARITY (1024)  /* Heap frame requests must be a multiple of this number */
 #define FD_MAX_COMPUTE_UNIT_LIMIT (1400000)     /* Max compute unit limit */
 
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
-#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
-
 FD_PROTOTYPES_BEGIN
 
 /* Entry-point for the Solana Compute Budget Program */
 int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw );
+
+int fd_executor_compute_budget_program_execute_instruction_nop( fd_exec_instr_ctx_t ctx ) ;
 
 FD_PROTOTYPES_END
 

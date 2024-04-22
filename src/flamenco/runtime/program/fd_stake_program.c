@@ -2891,6 +2891,45 @@ done:
 
 /* Public API *********************************************************/
 
+static void
+write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
+  ulong                   data_sz  = fd_stake_config_size( stake_config );
+  fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
+  fd_account_meta_t *     acc_meta = NULL;
+  uchar *                 acc_data = NULL;
+  FD_BORROWED_ACCOUNT_DECL(rec);
+  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, acc_key, 1, data_sz, rec );
+  FD_TEST( !err );
+
+  acc_meta                  = rec->meta;
+  acc_data                  = rec->data;
+  acc_meta->dlen            = data_sz;
+  acc_meta->info.lamports   = 960480UL;
+  acc_meta->info.rent_epoch = 0UL;
+  acc_meta->info.executable = 0;
+
+  fd_bincode_encode_ctx_t ctx3;
+  ctx3.data    = acc_data;
+  ctx3.dataend = acc_data + data_sz;
+  if( fd_stake_config_encode( stake_config, &ctx3 ) )
+    FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
+
+  fd_memset( acc_data, 0, data_sz );
+  fd_memcpy( acc_data, stake_config, sizeof( fd_stake_config_t ) );
+}
+
+void
+fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
+  /* Defaults taken from
+     https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L8-L11
+   */
+  fd_stake_config_t stake_config = {
+      .warmup_cooldown_rate = 0.25,
+      .slash_penalty        = 12,
+  };
+  write_stake_config( slot_ctx, &stake_config );
+}
+
 int
 fd_stake_get_state( fd_borrowed_account_t const * self,
                     fd_valloc_t const *           valloc,
@@ -2905,4 +2944,80 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
                                       ulong *                    new_rate_activation_epoch ) {
   return stake_activating_and_deactivating(
       self, target_epoch, stake_history, new_rate_activation_epoch );
+}
+
+/* Removes stake delegation from epoch stakes and updates vote account */
+static void
+fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  fd_stake_accounts_pair_t_mapnode_t key;
+  fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+  if ( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
+    FD_LOG_DEBUG(("Stake accounts pool does not exist"));
+    return;
+  }
+  fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_find(slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key);
+  if (FD_UNLIKELY( entry )) {
+    fd_stake_accounts_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, entry);
+    // TODO: do we need a release here?
+  }
+}
+
+/* Updates stake delegation in epoch stakes */
+static void
+fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  FD_TEST( stake_account->const_meta->info.lamports != 0 );
+  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+
+  fd_delegation_pair_t_mapnode_t key;
+  fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));
+
+  if ( stakes->stake_delegations_pool == NULL) {
+    FD_LOG_DEBUG(("Stake delegations pool does not exist"));
+    return;
+  }
+
+  fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
+  if ( FD_UNLIKELY( !entry ) ) {
+    fd_stake_accounts_pair_t_mapnode_t key;
+    fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+    if ( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool == NULL) {
+      FD_LOG_DEBUG(("Stake accounts pool does not exist"));
+      return;
+    }
+    fd_stake_accounts_pair_t_mapnode_t * stake_entry = fd_stake_accounts_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key );
+    if ( stake_entry ) {
+      stake_entry->elem.exists = 1;
+    } else {
+      fd_stake_accounts_pair_t_mapnode_t * new_node = fd_stake_accounts_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool );
+      ulong size = fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
+      FD_LOG_DEBUG(("Curr stake account size %lu %lx", size, slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool));
+      if ( new_node == NULL ) {
+        FD_LOG_ERR(("Stake accounts keys map full %lu", size));
+      }
+      new_node->elem.exists = 1;
+      fd_memcpy( new_node->elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
+      fd_stake_accounts_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, new_node );
+    }
+  }
+}
+
+void fd_store_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
+  fd_pubkey_t const * owner = (fd_pubkey_t const *)stake_account->const_meta->info.owner;
+
+  if (memcmp(owner->uc, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t)) != 0) {
+      return;
+  }
+
+  int is_empty  = stake_account->const_meta->info.lamports == 0;
+  int is_uninit = 1;
+  if( stake_account->const_meta->dlen >= 4 ) {
+    uint prefix = FD_LOAD( uint, stake_account->const_data );
+    is_uninit = ( prefix == fd_stake_state_v2_enum_uninitialized );
+  }
+
+  if( is_empty || is_uninit ) {
+    fd_stakes_remove_stake_delegation( slot_ctx, stake_account );
+  } else {
+    fd_stakes_upsert_stake_delegation( slot_ctx, stake_account );
+  }
 }

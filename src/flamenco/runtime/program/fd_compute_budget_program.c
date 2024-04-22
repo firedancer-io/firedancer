@@ -1,21 +1,22 @@
 #include "fd_compute_budget_program.h"
 
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_instr_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_epoch_ctx.h"
 #include "../../vm/fd_vm_context.h"
+#include "../context/fd_exec_txn_ctx.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
 #define DEFAULT_COMPUTE_UNITS                   (150UL)
 
-FD_FN_PURE static inline int
-is_compute_budget_instruction( fd_exec_txn_ctx_t const * ctx,
-                               fd_txn_instr_t const *    instr ) {
-  fd_pubkey_t const * txn_accs = ctx->accounts;
-  fd_pubkey_t const * program_pubkey = &txn_accs[instr->program_id];
+static inline int
+is_compute_budget_instruction( fd_exec_txn_ctx_t * ctx, fd_txn_instr_t const * instr ) {
+  fd_pubkey_t * txn_accs = ctx->accounts;
+  fd_pubkey_t * program_pubkey = &txn_accs[instr->program_id];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
+}
+
+// No-op as compute budget instructions are processed prior.
+int fd_executor_compute_budget_program_execute_instruction_nop( FD_FN_UNUSED fd_exec_instr_ctx_t ctx ) {
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {

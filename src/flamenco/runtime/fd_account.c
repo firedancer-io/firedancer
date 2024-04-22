@@ -176,8 +176,9 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
   } while(0);
 
-  if( new_len > old_len )
+  if( new_len > old_len ) {
     fd_memset( account->data + old_len, 0, new_len - old_len );
+  }
 
   account->meta->dlen = new_len;
 

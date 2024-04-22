@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_pubkey_utils_h
 #define HEADER_fd_src_flamenco_runtime_fd_pubkey_utils_h
 
-#include "context/fd_exec_instr_ctx.h"
-#include "context/fd_exec_txn_ctx.h"
+#include "../fd_flamenco_base.h"
 
 FD_PROTOTYPES_BEGIN
 

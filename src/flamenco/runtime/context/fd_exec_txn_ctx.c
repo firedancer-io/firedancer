@@ -1,6 +1,6 @@
 #include "fd_exec_txn_ctx.h"
-#include "fd_exec_slot_ctx.h"
-#include "../program/fd_compute_budget_program.h"
+#include "../fd_acc_mgr.h"
+#include "../fd_executor.h"
 #include "../../vm/fd_vm_context.h"
 
 void *
@@ -81,6 +81,20 @@ fd_exec_txn_ctx_delete( void * mem ) {
   FD_COMPILER_MFENCE();
 
   return mem;
+}
+
+int
+fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
+                                  uchar idx,
+                                  fd_borrowed_account_t * *  account ) {
+  if( idx >= ctx->accounts_cnt ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
+  // TODO: check if readable???
+  fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
+  *account = txn_account;
+  return FD_ACC_MGR_SUCCESS;
 }
 
 int
@@ -171,8 +185,8 @@ fd_txn_borrowed_account_modify( fd_exec_txn_ctx_t * ctx,
 }
 
 void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t *   txn_ctx,
-                       fd_txn_t const *      txn_descriptor,
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
+                       fd_txn_t const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw ) {
   txn_ctx->compute_unit_limit = 200000;
   txn_ctx->compute_unit_price = 0;
@@ -188,11 +202,16 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t *   txn_ctx,
   txn_ctx->loaded_accounts_data_size_limit = MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES;
 
   txn_ctx->txn_descriptor = txn_descriptor;
-  txn_ctx->_txn_raw = txn_raw;
+  txn_ctx->_txn_raw->raw = txn_raw->raw;
+  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
 
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   txn_ctx->return_data.len = 0;
+
+  txn_ctx->dirty_vote_acc  = 0;
+  txn_ctx->dirty_stake_acc = 0;
+  txn_ctx->failed_instr    = NULL;
 }
 
 void
@@ -208,4 +227,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
   txn_ctx->valloc = slot_ctx->valloc;
   txn_ctx->funk_txn = NULL;
   txn_ctx->acc_mgr = slot_ctx->acc_mgr;
+}
+
+void
+fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->return_data.len = 0;
 }

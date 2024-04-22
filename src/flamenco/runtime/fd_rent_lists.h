@@ -29,7 +29,6 @@ fd_rent_key_to_partition( ulong key,
   ulong  part = key / part_width;
          part = fd_ulong_if( part>=part_cnt, part_cnt-1UL, part );
   return part;
-
 }
 
 /* fd_rent_partition_to_key returns the lower bound (inclusive) of the
@@ -59,7 +58,6 @@ fd_rent_partition_to_key( ulong   partition_idx,
 
   if( opt_last_key ) *opt_last_key = key1;
   return key0;
-
 }
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_rent_lists_h */

@@ -7,12 +7,14 @@ with open('fd_types.json', 'r') as json_file:
 
 header = open(sys.argv[1], "w")
 body = open(sys.argv[2], "w")
+names = open(sys.argv[3], "w")
 
 namespace = json_object["namespace"]
 entries = json_object["entries"]
 
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=header)
 print("// This is an auto-generated file. To add entries, edit fd_types.json", file=body)
+print("// This is an auto-generated file. To add entries, edit fd_types.json", file=names)
 print("#ifndef HEADER_" + json_object["name"].upper(), file=header)
 print("#define HEADER_" + json_object["name"].upper(), file=header)
 print("", file=header)
@@ -45,6 +47,20 @@ for t,t2 in [("char","int8"),
              ("ulong","uint64")]:
     simpletypes[t] = t2
 
+# Map from type name to encoded size
+fixedsizetypes = dict()
+for t,t2 in [("bool",1),
+             ("char",1),
+             ("uchar",1),
+             ("double",8),
+             ("short",2),
+             ("ushort",2),
+             ("int",4),
+             ("uint",4),
+             ("long",8),
+             ("ulong",8),
+             ("pubkey",32)]:
+    fixedsizetypes[t] = t2
 class PrimitiveMember:
     def __init__(self, container, json):
         self.name = json["name"]
@@ -78,12 +94,58 @@ class PrimitiveMember:
         "bool" :      lambda n: print(f'  uchar {n};',     file=header),
         "uchar" :     lambda n: print(f'  uchar {n};',     file=header),
         "uchar[32]" : lambda n: print(f'  uchar {n}[32];', file=header),
+        "uchar[128]" :lambda n: print(f'  uchar {n}[128];', file=header),
+        "uchar[2048]":lambda n: print(f'  uchar {n}[2048];', file=header),
         "ulong" :     lambda n: print(f'  ulong {n};',     file=header),
         "ushort" :    lambda n: print(f'  ushort {n};',    file=header)
     }
 
     def emitMember(self):
         PrimitiveMember.emitMemberMap[self.type](self.name)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitOffsetUnionMember(self):
+        print(f'{indent}  uint {self.name}_off;', file=header)
+
+    isFixedSizeMap = {
+        "bool" :       True,
+        "char" :       True,
+        "char[32]" :   True,
+        "double" :     True,
+        "long" :       True,
+        "uint" :       True,
+        "uint128" :    True,
+        "uchar" :      True,
+        "uchar[32]" :  True,
+        "uchar[128]" : True,
+        "uchar[2048]": True,
+        "ulong" :      True,
+        "ushort" :     True
+    }
+
+    def isFixedSize(self):
+        return PrimitiveMember.isFixedSizeMap.get(self.type, False)
+
+    fixedSizeMap = {
+        "bool" :       1,
+        "char" :       1,
+        "char[32]" :   32,
+        "double" :     8,
+        "long" :       8,
+        "uint" :       4,
+        "uint128" :    16,
+        "uchar" :      1,
+        "uchar[32]" :  32,
+        "uchar[128]" : 128,
+        "uchar[2048]": 2048,
+        "ulong" :      8,
+        "ushort" :     2
+    }
+
+    def fixedSize(self):
+        return PrimitiveMember.fixedSizeMap[self.type]
 
     def string_decode_preflight(n, varint):
         print(f'{indent}  ulong slen;', file=body)
@@ -117,6 +179,8 @@ class PrimitiveMember:
         "bool" :      lambda n, varint: print(f'{indent}  err = fd_bincode_bool_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_preflight(ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(32, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[128]" :lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(128, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[2048]":lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight(2048, ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_preflight(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_preflight(n, varint),
     }
@@ -155,6 +219,8 @@ class PrimitiveMember:
         "bool" :      lambda n, varint: print(f'{indent}  fd_bincode_bool_decode_unsafe(&self->{n}, ctx);', file=body),
         "uchar" :     lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe(&self->{n}, ctx);', file=body),
         "uchar[32]" : lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
+        "uchar[128]" :lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
+        "uchar[2048]":lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe(&self->{n}[0], sizeof(self->{n}), ctx);', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_unsafe(n, varint),
     }
@@ -195,6 +261,8 @@ class PrimitiveMember:
         "bool" :      lambda n, varint: print(f'{indent}  err = fd_bincode_bool_encode( (uchar)(self->{n}), ctx );\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n} ), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[128]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n} ), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
+        "uchar[2048]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_encode( self->{n}, sizeof(self->{n} ), ctx);\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
         "ulong" :     lambda n, varint: PrimitiveMember.ulong_encode(n, varint),
         "ushort" :    lambda n, varint: print(f'{indent}  err = fd_bincode_uint16_encode( (ushort)(self->{n}), ctx );\n  if ( FD_UNLIKELY(err) ) return err;', file=body),
     }
@@ -214,6 +282,8 @@ class PrimitiveMember:
         "bool" :      lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
         "uchar" :     lambda n, varint: print(f'{indent}  size += sizeof(char);', file=body),
         "uchar[32]" : lambda n, varint: print(f'{indent}  size += sizeof(char) * 32;', file=body),
+        "uchar[128]" :lambda n, varint: print(f'{indent}  size += sizeof(char) * 128;', file=body),
+        "uchar[2048]":lambda n, varint: print(f'{indent}  size += sizeof(char) * 2048;', file=body),
         "ulong" :     lambda n, varint: print(f'{indent}  size += { ("fd_bincode_varint_size(self->" + n + ");") if varint else "sizeof(ulong);" }', file=body),
         "ushort" :    lambda n, varint: print(f'{indent}  size += { ("fd_bincode_compact_u16_size(&self->" + n + ");") if varint else "sizeof(ushort);" }', file=body),
     }
@@ -232,6 +302,8 @@ class PrimitiveMember:
         "bool" :      lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_BOOL,    "bool",      level );', file=body),
         "uchar" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR,   "uchar",     level );', file=body),
         "uchar[32]" : lambda n, inner: print(f'  fun( w,  self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+        "uchar[128]" :lambda n, inner: print(f'  fun( w,  self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );', file=body),
+        "uchar[2048]":lambda n, inner: print(f'  fun( w,  self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );', file=body),
         "ulong" :     lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",     level );', file=body),
         "ushort" :    lambda n, inner: print(f'  fun( w, &self->{inner}{n}, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",    level );', file=body)
     }
@@ -257,6 +329,18 @@ class StructMember:
     def emitMember(self):
         print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
 
+    def isFixedSize(self):
+        return self.type in fixedsizetypes
+
+    def fixedSize(self):
+        return fixedsizetypes[self.type]
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitOffsetUnionMember(self):
+        print(f'{indent}  {namespace}_{self.type}_off_t {self.name}_off;', file=header)
+
     def emitNew(self):
         print(f'{indent}  {namespace}_{self.type}_new(&self->{self.name});', file=body)
 
@@ -264,7 +348,11 @@ class StructMember:
         print(f'{indent}  {namespace}_{self.type}_destroy(&self->{self.name}, ctx);', file=body)
 
     def emitDecodePreflight(self):
-        print(f'{indent}  err = {namespace}_{self.type}_decode_preflight(ctx);', file=body)
+        if self.isFixedSize():
+            fixedsize = self.fixedSize()
+            print(f'{indent}  err = fd_bincode_bytes_decode_preflight({fixedsize}, ctx);', file=body)
+        else:
+            print(f'{indent}  err = {namespace}_{self.type}_decode_preflight(ctx);', file=body)
         print(f'{indent}  if ( FD_UNLIKELY(err) ) return err;', file=body)
 
     def emitDecodeUnsafe(self):
@@ -287,6 +375,9 @@ class VectorMember:
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
 
+    def isFixedSize(self):
+        return False
+
     def emitPreamble(self):
         pass
 
@@ -302,6 +393,9 @@ class VectorMember:
             print(f'  {self.element}* {self.name};', file=header)
         else:
             print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -464,6 +558,9 @@ class DequeMember:
     def prefix(self):
         return f'deq_{self.elem_type()}'
 
+    def isFixedSize(self):
+        return False
+
     def emitPreamble(self):
         dp = self.prefix()
         if dp in preambletypes:
@@ -505,6 +602,9 @@ class DequeMember:
     def emitMember(self):
         print(f'  {self.elem_type()} * {self.name};', file=header)
 
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
     def emitNew(self):
         pass
 
@@ -532,15 +632,21 @@ class DequeMember:
         if self.max is not None:
             print(f'  if ( {self.name}_len > {self.max} ) return FD_BINCODE_ERR_SMALL_DEQUE;', file=body)
 
-        print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
-
-        if self.element in simpletypes:
-            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+        elem_type = f"{namespace}_{self.element}"
+        if elem_type in fixedsizetypes:
+            fixedsize = fixedsizetypes[elem_type]
+            print(f'  err = fd_bincode_bytes_decode_preflight({self.name}_len * {fixedsize}, ctx);', file=body)
+            print(f'  if ( FD_UNLIKELY(err) ) return err;', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
-        print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
+            print(f'  for (ulong i = 0; i < {self.name}_len; ++i) {{', file=body)
 
-        print('  }', file=body)
+            if self.element in simpletypes:
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight(ctx);', file=body)
+            else:
+                print(f'    err = {namespace}_{self.element}_decode_preflight(ctx);', file=body)
+            print(f'    if ( FD_UNLIKELY(err) ) return err;', file=body)
+
+            print('  }', file=body)
 
     def emitDecodeUnsafe(self):
         if self.compact:
@@ -668,6 +774,9 @@ class MapMember:
         else:
             return f'{namespace}_{self.element}_t'
 
+    def isFixedSize(self):
+        return False
+
     def emitPreamble(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
@@ -720,6 +829,9 @@ class MapMember:
         element_type = self.elem_type()
         print(f'  {element_type}_mapnode_t * {self.name}_pool;', file=header)
         print(f'  {element_type}_mapnode_t * {self.name}_root;', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -859,6 +971,9 @@ class TreapMember:
         self.rev = json.get("rev", False)
         self.upsert = json.get("upsert", False)
 
+    def isFixedSize(self):
+        return False
+
     def emitPreamble(self):
         name = self.name
         treap_name = name + '_treap'
@@ -907,6 +1022,9 @@ class TreapMember:
     def emitMember(self):
         print(f'  {self.treap_t} * pool;', file=header)
         print(f'  {self.name}_treap_t * treap;', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -1076,6 +1194,9 @@ class OptionMember:
     def emitPostamble(self):
         pass
 
+    def isFixedSize(self):
+        return False
+
     def emitMember(self):
         if self.flat:
             if self.element in simpletypes:
@@ -1088,6 +1209,9 @@ class OptionMember:
                 print(f'  {self.element}* {self.name};', file=header)
             else:
                 print(f'  {namespace}_{self.element}_t* {self.name};', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         pass
@@ -1196,14 +1320,16 @@ class OptionMember:
             print('  }', file=body)
 
     emitWalkMap = {
+        "bool" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_BOOL, "char", level );', file=body),
         "char" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SCHAR, "char", level );', file=body),
-        "char*" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_CSTR, "char*", level );', file=body),
         "double" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_DOUBLE, "double", level );', file=body),
         "long" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_SLONG, "long", level );', file=body),
         "uint" :      lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT, "uint", level );', file=body),
         "uint128" :   lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
         "uchar" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
         "uchar[32]" : lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level );', file=body),
+        "uchar[128]" :lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );', file=body),
+        "uchar[2048]":lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_HASH16384, "uchar[2048]", level );', file=body),
         "ulong" :     lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_ULONG, "ulong", level );', file=body),
         "ushort" :    lambda n, p: print(f'    fun( w, {p}self->{n}, "{n}", FD_FLAMENCO_TYPE_USHORT, "ushort", level );', file=body),
     }
@@ -1235,6 +1361,12 @@ class ArrayMember:
         self.element = json["element"]
         self.length = int(json["length"])
 
+    def isFixedSize(self):
+        return self.element in fixedsizetypes
+
+    def fixedSize(self):
+        return self.length * fixedsizetypes[self.element]
+
     def emitPreamble(self):
         pass
 
@@ -1246,6 +1378,9 @@ class ArrayMember:
             print(f'  {self.element} {self.name}[{self.length}];', file=header)
         else:
             print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
 
     def emitNew(self):
         length = self.length
@@ -1369,6 +1504,12 @@ class OpaqueType:
     def emitHeader(self):
         pass
 
+    def isFixedSize(self):
+        return self.size is not None
+
+    def fixedSize(self):
+        return self.size
+
     def emitPrototypes(self):
         if not self.emitprotos:
             return
@@ -1450,12 +1591,29 @@ class StructType:
             self.attribute = f'__attribute__((aligned(8UL))) '
             self.alignment = 8
 
+    def isFixedSize(self):
+        for f in self.fields:
+            if not f.isFixedSize():
+                return False
+        return True
+
+    def fixedSize(self):
+        size = 0
+        for f in self.fields:
+            size += f.fixedSize()
+        return size
+
     def emitHeader(self):
         for f in self.fields:
             f.emitPreamble()
 
         if self.comment is not None:
             print(f'/* {self.comment} */', file=header)
+
+        if self.isFixedSize():
+            print(f'/* Encoded Size: Fixed ({self.fixedSize()} bytes) */', file=header)
+        else:
+            print(f'/* Encoded Size: Dynamic */', file=header)
 
         n = self.fullname
         # Struct type
@@ -1469,6 +1627,17 @@ class StructType:
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
+        # Offset type
+        print(f'struct {self.attribute}{n}_off {{', file=header)
+        for f in self.fields:
+            f.emitOffsetMember()
+        print("};", file=header)
+        print(f'typedef struct {n}_off {n}_off_t;', file=header)
+
+        print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
+        print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
+        print("", file=header)
+
     def emitPrototypes(self):
         if self.nomethods:
             return
@@ -1477,6 +1646,7 @@ class StructType:
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        print(f"int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
         print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
         print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
@@ -1514,6 +1684,17 @@ class StructType:
             if hasattr(f, "ignore_underflow") and f.ignore_underflow:
                 print('  if( ctx->data == ctx->dataend ) return;', file=body)
             f.emitDecodeUnsafe()
+        print("}", file=body)
+
+        print(f'int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx) {{', file=body)
+        print('  uchar const * data = ctx->data;', file=body)
+        print('  int err;', file=body)
+        for f in self.fields:
+            print(f'  self->{f.name}_off = (uint)((ulong)ctx->data - (ulong)data);', file=body)
+            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                print('  if (ctx->data == ctx->dataend) return FD_BINCODE_SUCCESS;', file=body)
+            f.emitDecodePreflight()
+        print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
         print(f'void {n}_new({n}_t* self) {{', file=body)
@@ -1563,6 +1744,7 @@ class StructType:
 class EnumType:
     def __init__(self, json):
         self.fullname = f'{namespace}_{json["name"]}'
+        self.zerocopy = (bool(json["zerocopy"]) if "zerocopy" in json else False)
         self.variants = []
         for f in json["variants"]:
             if 'type' in f:
@@ -1580,6 +1762,36 @@ class EnumType:
             self.attribute = ''
             self.alignment = 8
         self.compact = (json["compact"] if "compact" in json else False)
+
+    def isFixedSize(self):
+        all_simple = True
+        for v in self.variants:
+            if not isinstance(v, str):
+                all_simple = False
+                break
+        if all_simple:
+            return True
+
+        for v in self.variants:
+            if isinstance(v, str):
+                return False
+            if not v.isFixedSize():
+                return False
+
+        size = self.variants[0].fixedSize()
+        for v in self.variants:
+            if size != v.fixedSize():
+                return False
+
+        return True
+
+    def fixedSize(self):
+        all_simple = True
+        for v in self.variants:
+            if not isinstance(v, str):
+                all_simple = False
+        if all_simple:
+            return 4
 
     def emitHeader(self):
         for v in self.variants:
@@ -1613,6 +1825,32 @@ class EnumType:
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
+        if self.zerocopy:
+            # Offset type
+            print(f'union {self.attribute}{n}_off_inner {{', file=header)
+            empty = True
+            for v in self.variants:
+                if not isinstance(v, str):
+                    empty = False
+                    v.emitOffsetUnionMember()
+            if empty:
+                print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
+            print("};", file=header)
+            print(f"typedef union {n}_off_inner {n}_off_inner_t;\n", file=header)
+
+            if self.comment is not None:
+                print(f'/* {self.comment} */', file=header)
+
+            print(f"struct {self.attribute}{n}_off {{", file=header)
+            print('  uint discriminant;', file=header)
+            print(f'  {n}_off_inner_t inner;', file=header)
+            print("};", file=header)
+            print(f"typedef struct {n}_off {n}_off_t;", file=header)
+
+            print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
+            print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
+            print("", file=header)
+
     def emitPrototypes(self):
         n = self.fullname
         print(f"void {n}_new_disc({n}_t* self, uint discriminant);", file=header)
@@ -1620,6 +1858,8 @@ class EnumType:
         print(f"int {n}_decode({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_decode_preflight(fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"void {n}_decode_unsafe({n}_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
+        if self.zerocopy:
+            print(f"int {n}_decode_offsets({n}_off_t* self, fd_bincode_decode_ctx_t * ctx);", file=header)
         print(f"int {n}_encode({n}_t const * self, fd_bincode_encode_ctx_t * ctx);", file=header)
         print(f"void {n}_destroy({n}_t* self, fd_bincode_destroy_ctx_t * ctx);", file=header)
         print(f"void {n}_walk(void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level);", file=header)
@@ -1820,6 +2060,10 @@ def main():
         if entry['type'] == 'enum':
             alltypes.append(EnumType(entry))
 
+    for typeinfo in alltypes:
+        if typeinfo.isFixedSize():
+            name = typeinfo.fullname
+            fixedsizetypes[name] = typeinfo.fixedSize()
     for t in alltypes:
         t.emitHeader()
 
@@ -1839,6 +2083,14 @@ def main():
 
     for t in alltypes:
         t.emitPostamble()
+
+    nametypes = [t for t in alltypes if not (hasattr(t, 'nomethods') and t.nomethods)]
+    type_name_count = len(nametypes)
+    print(f'#define FD_TYPE_NAME_COUNT {type_name_count}', file=names)
+    print("static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {", file=names)
+    for t in nametypes:
+        print(f' \"{t.fullname}\",', file=names)
+    print("};", file=names)
 
 if __name__ == "__main__":
     main()

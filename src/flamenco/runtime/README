@@ -1,0 +1,128 @@
+
+# building dev on mac
+
+  brew install gh
+  gh auth login
+
+  brew install podman
+  podman machine init
+  podman machine start
+
+# notes to myself to help with debugging
+
+building our debugging version of solana with all our log messages
+
+  git clone https://github.com/firedancer-io/solana.git
+  cd solana
+  git checkout debug
+
+# grab a certificate (I had to go grab this off a linux box)
+
+  cp /etc/pki/tls/cert.pem .
+
+# Inside jump, we use podman instead of docker...
+
+  podman build -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+ or
+  podman build --no-cache -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+
+# to rebuild after changing solana
+
+  podman run --mount=type=bind,target=/solana,source=`pwd` -t solana-builder2 bash -c 'cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build'
+
+# to run
+
+  ./target/debug/solana-test-validator --reset
+
+Find specific account values at a slot...
+
+  grep hash_account_data ~/repos/solana/test-ledger/validator.log | grep 'slot: 4 '
+
+grep 'bank frozen:' ~/repos/solana/test-ledger/validator.log | grep 'solana_runtime::bank'
+
+  less -p'bank frozen: 4 ' ~/repos/solana/test-ledger/validator.log
+
+If you hate the colorization and also want to use less..
+
+   sed -r "s/\x1B\[(([0-9]+)(;[0-9]+)*)?[m,K,H,f,J]//g" ~/repos/solana/test-ledger/validator.log > q
+   less -p'bank frozen: 4 ' q
+
+
+
+
+--
+
+Starting from:  https://docs.solana.com/offline-signing/durable-nonce
+
+If you have not created these account files, you have to only do this once.
+
+  % solana-keygen new -o alice.json
+  % solana-keygen new -o nonce-keypair.json
+  % solana-keygen new -o bob.json
+
+Then, create yourself an non-account
+
+  % solana create-nonce-account nonce-keypair.json 5
+
+Air drop yourself some money
+
+  % solana airdrop -k alice.json 2
+
+Authorize alice to be able to use this nonce
+
+  % solana authorize-nonce-account nonce-keypair.json alice.json
+
+Look for the contents of that account
+
+  % solana nonce-account nonce-keypair.json 
+
+  Balance: 1 SOL
+  Minimum Balance Required: 0.00144768 SOL
+  Nonce blockhash: Fqp4kNe6bdMXsV1fzFzetxxgjJ7LKwdkQ22nqe3Lwmqe
+  Fee: 50000 lamports per signature
+  Authority: DCQzBfxgU7qSunZ4q4nFj6MZyPVZbjVLb3vwHNtKojz5
+
+Note, the fee here is 10x what it should be...
+
+Then, transfer from alice to bob..  Putting the nonce blockhash above into the request
+
+  % solana transfer -k alice.json --blockhash Fqp4kNe6bdMXsV1fzFzetxxgjJ7LKwdkQ22nqe3Lwmqe --nonce nonce-keypair.json bob.json 0.01 --allow-unfunded-recipient
+
+solana withdraw-from-nonce-account -k alice.json nonce-keypair.json ~/.config/solana/id.json 0.5
+
+
+
+
+--
+
+Reproducing nonce issue:
+
+  1) retrieve latest firedancer-testbins and extract nonce-ledger.tar.gz into solana directory
+  2) build latest debug branch of solana
+  3) run solana-ledger-tool
+      % solana-ledger-tool verify  --ledger nonce-ledger >& q
+
+  4) confirm we found a initialize nonce call
+
+      % grep -C 3 initialize_nonce q
+
+      [2023-05-09T10:44:36.607443266Z INFO  solana_runtime::system_instruction_processor] calling initialize_nonce_account
+      [2023-05-09T10:44:36.607535035Z INFO  solana_program::nonce::state::current] DurableNonce::from_blockhash = aMLLFKDjSRGHTZn9DXd71JS4TEL7LMb7e6eG8MPubES <= 6h7cdR4hvwk7PFgqNC 95DaH5VNBmJdWLXgWqJY96vuEm8fRbsEYd9V3TCAR4H4
+      [2023-05-09T10:44:36.607585470Z INFO  solana_runtime::nonce_keyed_account] initialize_nonce_account: DCQzBfxgU7qSunZ4q4nFj6MZyPVZbjVLb3vwHNtKojz5 DurableNonce(aMLLFKDjSRGHTZn9DXd71JS4TEL7LMb7e6eG8MPubES) 50000
+
+    the log message is in: ~/repos/solana/runtime/src/nonce_keyed_account.rs
+
+  5) go to firedancer, check out jsiegel/fee branch, build, and run
+
+     % test_runtime    --ledger /home/jsiegel/repos/solana/nonce-ledger --db /home/jsiegel/funk --cmd replay --accounts /home/jsiegel/repos/solana/nonce-ledger/accounts/ --pages 15 --index-max 12000000 --start-slot 0 --end-slot 100 |& grep from_blockhash
+
+   NOTICE  05-09 10:50:50.934466 3035311 f0   0    src/ballet/runtime/program/fd_system_program.c(295): from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP
+  NOTICE  05-09 10:50:50.934475 3035311 f0   0    src/ballet/runtime/program/fd_system_program.c(295): from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP from_blockhash: 5sR423vw2YmpVzGBPNiQNGMrj6SfengprcVQiC2AaeiP
+
+
+Idiot check...
+
+[2023-05-09T10:44:36.590749043Z INFO  solana_runtime::accounts_db] get_accounts_delta_hash: 12 hash: ntbiK1iNz9JreBund5qDCwwsMtNJXiGxc8VitN34yt6 hashes.len: 6
+[2023-05-09T10:44:36.590824961Z INFO  solana_runtime::bank] bank frozen: 12 hash: 7U8ZtVcopqkomckvn4DkT3anGhGFx33PQ8CTxQDBc1QQ parent_hash: BS4WUCX6ktyyodRXtRsg3FcGXwKJPxynDn7jGNmgXqiQ  accounts_delta: ntbiK1iNz9JreBund5qDCwwsMtNJXiGxc8VitN34yt6 signature_count: 2 last_blockhash: 95DaH5VNBmJdWLXgWqJY96vuEm8fRbsEYd9V3TCAR4H4 capitalization: 503000502312141656
+
+% solana feature status -u mainnet-beta --output json --display-all | jq '.features | .[] | "\( .id ) \( .status )"' -r > features.txt

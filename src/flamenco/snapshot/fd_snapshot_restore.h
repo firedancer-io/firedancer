@@ -116,6 +116,11 @@ fd_snapshot_restore_chunk( void *       restore,
                            void const * buf,
                            ulong        bufsz );
 
+/* Cleanup temporary buffers */
+
+void
+fd_snapshot_restore_discard_buf( fd_snapshot_restore_t * self );
+
 /* fd_snapshot_restore_tar_vt implements fd_tar_read_vtable_t. */
 
 extern fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt;
