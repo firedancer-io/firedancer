@@ -70,10 +70,6 @@ fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
 ulong
 fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong                data_len ) {
-  /* TODO wire up with sysvar cache */
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_rent_t * result = fd_sysvar_rent_read( &rent, slot_ctx );
-  assert( result );
-  return fd_rent_exempt_minimum_balance2( &rent, data_len );
+  fd_rent_t const * rent = &slot_ctx->epoch_ctx->epoch_bank.rent;
+  return fd_rent_exempt_minimum_balance2( rent, data_len );
 }
