@@ -34,6 +34,32 @@ fd_sysvar_rent_read( fd_rent_t *          result,
   return result;
 }
 
+static void
+write_rent( fd_exec_slot_ctx_t * slot_ctx,
+            fd_rent_t const * rent ) {
+
+  uchar enc[ 32 ];
+
+  ulong sz = fd_rent_size( rent );
+  FD_TEST( sz<=sizeof(enc) );
+  memset( enc, 0, sz );
+
+  fd_bincode_encode_ctx_t ctx;
+  ctx.data    = enc;
+  ctx.dataend = enc + sz;
+  if( fd_rent_encode( rent, &ctx ) )
+    FD_LOG_ERR(("fd_rent_encode failed"));
+
+  fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_rent_id, enc, sz, slot_ctx->slot_bank.slot, 0UL );
+}
+
+void
+fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
+  write_rent( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.rent );
+}
+
+/* TODO: handle update */
+
 ulong
 fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
                                  ulong             data_len ) {

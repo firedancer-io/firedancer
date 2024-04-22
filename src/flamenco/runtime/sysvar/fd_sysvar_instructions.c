@@ -5,8 +5,8 @@
 #include "../fd_system_ids.h"
 
 static ulong
-instructions_serialized_size( fd_instr_info_t const * instrs,
-                              ushort                  instrs_cnt ) {
+instructions_serialized_size( fd_instr_info_t const *  instrs,
+                              ushort              instrs_cnt ) {
   ulong serialized_size = 0;
 
   serialized_size += sizeof(ushort)       // num_instructions
@@ -43,7 +43,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *     txn_ctx,
   int err = fd_txn_borrowed_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
-
+  
   fd_account_meta_t * meta = fd_valloc_malloc( txn_ctx->valloc, FD_ACCOUNT_META_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
   void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
