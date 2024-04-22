@@ -193,9 +193,8 @@ ARGS=" --load test_ledger_backup \
   $END_SLOT \
   --log-level-logfile 2 \
   --log-level-stderr 2 \
-  --allocator libc"
-
-#  --tile-cpus 5-21"
+  --allocator libc \
+  --tile-cpus 5-21"
 
 if [ -e dump/$LEDGER/capitalization.csv ]
 then
