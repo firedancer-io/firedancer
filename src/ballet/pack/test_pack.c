@@ -227,16 +227,18 @@ schedule_validate_microblock( fd_pack_t * pack,
     total_rewards += rewards;
 
     fd_acct_addr_t const * acct = fd_txn_get_acct_addrs( txn, txnp->payload );
-    for( fd_txn_acct_iter_t j=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
-         j!=fd_txn_acct_iter_end(); j=fd_txn_acct_iter_next( i ) ) {
+    for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM );
+         ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+      ulong j = fd_txn_acct_iter_idx( ctrl );
       uchar b0 = acct[j].b[0]; uchar b1 = acct[j].b[1];
       if( (0x30UL<=b0) & (b0<0x70UL) & (b0==b1) ) {
         FD_TEST( !aset_test( write_accts, (ulong)b0-0x30 ) );
         write_accts = aset_insert( write_accts, (ulong)b0-0x30UL );
       }
     }
-    for( fd_txn_acct_iter_t j=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
-         j!=fd_txn_acct_iter_end(); j=fd_txn_acct_iter_next( i ) ) {
+    for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM );
+         ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+      ulong j = fd_txn_acct_iter_idx( ctrl );
       uchar b0 = acct[j].b[0]; uchar b1 = acct[j].b[1];
       if( (0x30UL<=b0) & (b0<0x70UL) & (b0==b1) )
         read_accts = aset_insert( read_accts, (ulong)b0-0x30UL );

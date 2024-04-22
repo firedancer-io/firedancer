@@ -552,9 +552,10 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
 
   int writes_to_sysvar = 0;
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-       i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
-    writes_to_sysvar |= fd_pack_unwritable_contains( accts+i );
+  for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+       ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+    ulong i = fd_txn_acct_iter_idx( ctrl );
+    writes_to_sysvar |= fd_pack_unwritable_contains( accts + i );
   }
 
   fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
@@ -599,8 +600,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
 
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-       i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+  for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+       ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+    ulong i = fd_txn_acct_iter_idx( ctrl );
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
     if( FD_UNLIKELY( q==NULL ) ) {
       q = bitset_map_insert( pack->acct_to_bitset, accts[i] );
@@ -621,8 +623,9 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     FD_PACK_BITSET_SETN( ord->w_bitset , q->bit );
   }
 
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
-       i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+  for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+       ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+    ulong i = fd_txn_acct_iter_idx( ctrl );
     if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
 
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
@@ -735,8 +738,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
     if( FD_PACK_BITSET_INTERSECT4_EMPTY( bitset_rw_in_use, bitset_w_in_use, cur->w_bitset, cur->rw_bitset ) ) {
       /* Check conflicts between this transaction's writable accounts and
          current readers */
-      for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-           i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+      for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+           ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+        ulong i = fd_txn_acct_iter_idx( ctrl );
 
         fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct[i], NULL );
         if( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > FD_PACK_MAX_WRITE_COST_PER_ACCT ) {
@@ -752,8 +756,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
 
       /* Check conflicts between this transaction's readonly accounts and
          current writers */
-      for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
-           i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+      for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+           ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+        ulong i = fd_txn_acct_iter_idx( ctrl );
         if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
 
         fd_pack_addr_use_t * use = acct_uses_query( acct_in_use,  acct[i], NULL );
@@ -782,8 +787,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
       out->flags      = cur->txn->flags;
       out++;
 
-      for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-           i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+      for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
+           ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+        ulong i = fd_txn_acct_iter_idx( ctrl );
         fd_acct_addr_t acct_addr = acct[i];
 
         fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct_addr, NULL );
@@ -809,8 +815,9 @@ fd_pack_schedule_microblock_impl( fd_pack_t  * pack,
           if( FD_LIKELY( bit<FD_PACK_BITSET_MAX ) ) pack->bitset_avail[ ++(pack->bitset_avail_cnt) ] = bit;
         }
       }
-      for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
-           i<fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+      for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+           ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+        ulong i = fd_txn_acct_iter_idx( ctrl );
         fd_acct_addr_t acct_addr = acct[i];
 
         if( fd_pack_unwritable_contains( acct+i ) ) continue; /* No need to track sysvars because they can't be writable */
@@ -1063,8 +1070,9 @@ fd_pack_delete_transaction( fd_pack_t              * pack,
 
   fd_txn_t * _txn = TXN( containing->txn );
   fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( _txn, containing->txn->payload );
-  for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
-       i!=fd_txn_acct_iter_end(); i=fd_txn_acct_iter_next( i ) ) {
+  for( fd_txn_acct_iter_t ctrl=fd_txn_acct_iter_init( _txn, FD_TXN_ACCT_CAT_READONLY & FD_TXN_ACCT_CAT_IMM );
+       ctrl!=fd_txn_acct_iter_end(); ctrl=fd_txn_acct_iter_next( ctrl ) ) {
+    ulong i = fd_txn_acct_iter_idx( ctrl );
     if( FD_UNLIKELY( fd_pack_unwritable_contains( accts+i ) ) ) continue;
 
     fd_pack_bitset_acct_mapping_t * q = bitset_map_query( pack->acct_to_bitset, accts[i], NULL );
