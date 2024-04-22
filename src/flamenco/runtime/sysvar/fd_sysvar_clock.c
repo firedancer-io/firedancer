@@ -1,8 +1,10 @@
 #include "fd_sysvar_clock.h"
+#include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_executor.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
@@ -17,7 +19,7 @@
 /* The target tick duration, derived from the target tick rate.
  https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
   */
-#define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / DEFAULT_TICKS_PER_SECOND )
+#define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK )
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2200 */
 static long
