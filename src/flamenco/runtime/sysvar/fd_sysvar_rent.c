@@ -1,7 +1,8 @@
 #include "fd_sysvar_rent.h"
+#include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../fd_executor.h"
+#include "../context/fd_exec_epoch_ctx.h"
 #include <assert.h>
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L36 */
@@ -40,15 +41,9 @@ fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
   return (ulong)( (double)((data_len + ACCOUNT_STORAGE_OVERHEAD) * rent->lamports_per_uint8_year) * (double)rent->exemption_threshold );
 }
 
-int
+ulong
 fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
-                                ulong                data_len,
-                                ulong *              out ) {
-  /* TODO wire up with sysvar cache */
-  fd_rent_t rent;
-  fd_rent_new( &rent );
-  fd_rent_t * result = fd_sysvar_rent_read( &rent, slot_ctx );
-  if( FD_UNLIKELY( !result ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
-  *out = fd_rent_exempt_minimum_balance2( &rent, data_len );
-  return 0UL;
+                                ulong                data_len ) {
+  fd_rent_t const * rent = &slot_ctx->epoch_ctx->epoch_bank.rent;
+  return fd_rent_exempt_minimum_balance2( rent, data_len );
 }
