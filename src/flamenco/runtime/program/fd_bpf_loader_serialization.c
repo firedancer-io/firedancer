@@ -1,6 +1,9 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_account.h"
 
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 /**
  * num accounts
  * serialized accounts
