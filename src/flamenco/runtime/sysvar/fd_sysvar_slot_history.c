@@ -107,7 +107,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   if( fd_slot_history_encode( history, &e_ctx ) )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
-  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &slot_ctx->epoch_ctx->epoch_bank.rent, sz );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz );
 
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );

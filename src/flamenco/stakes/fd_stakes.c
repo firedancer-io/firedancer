@@ -190,7 +190,8 @@ https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506
 void
 refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                        fd_stake_history_t const * history ) {
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   FD_SCRATCH_SCOPE_BEGIN {
 
@@ -306,8 +307,9 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong                 next_epoch ) {
-
-  fd_stakes_t * stakes = &slot_ctx->epoch_ctx->epoch_bank.stakes;
+  
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_stakes_t * stakes = &epoch_bank->stakes;
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */

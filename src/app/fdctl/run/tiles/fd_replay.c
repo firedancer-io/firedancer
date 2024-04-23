@@ -81,7 +81,7 @@ struct fd_replay_tile_ctx {
   long last_stake_weights_push_time;
 
   fd_acc_mgr_t          acc_mgr[1];
-  uchar                 epoch_ctx_mem[FD_EXEC_EPOCH_CTX_FOOTPRINT] __attribute__( ( aligned( FD_EXEC_EPOCH_CTX_ALIGN ) ) );
+  uchar               * epoch_ctx_mem;
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_exec_slot_ctx_t *  slot_ctx;
 
@@ -367,9 +367,9 @@ read_genesis( void * _ctx, char const * genesis_filepath, uchar is_snapshot ) {
   fd_hash_t genesis_hash;
   fd_sha256_hash( buf, (ulong)n, genesis_hash.uc );
   FD_LOG_NOTICE(( "Genesis Hash: %32J", &genesis_hash ));
-
-  fd_memcpy( ctx->slot_ctx->epoch_ctx->epoch_bank.genesis_hash.uc, genesis_hash.uc, 32U );
-  ctx->slot_ctx->epoch_ctx->epoch_bank.cluster_type = genesis_block.cluster_type;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
+  fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, 32U );
+  epoch_bank->cluster_type = genesis_block.cluster_type;
 
   free(buf);
   if ( !is_snapshot ) {
@@ -482,15 +482,16 @@ during_housekeeping( void * _ctx ) {
   long now = fd_log_wallclock();
   if( now - ctx->last_stake_weights_push_time > (long)5e9 ) {
     ctx->last_stake_weights_push_time = now;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
     {
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
       fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
       ulong stake_weight_idx = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes, stake_weights );
 
-      stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, ctx->slot_ctx->slot_bank.slot ) - 1; /* epoch */
+      stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, ctx->slot_ctx->slot_bank.slot ) - 1; /* epoch */
       stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
-      stake_weights_msg[2] = fd_epoch_slot0( &ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, stake_weights_msg[0] ); /* start_slot */
-      stake_weights_msg[3] = ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch; /* slot_cnt */
+      stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
+      stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
       FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -505,12 +506,12 @@ during_housekeeping( void * _ctx ) {
     {
       ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_weights_out_mem, ctx->stake_weights_out_chunk );
       fd_stake_weight_t * stake_weights = (fd_stake_weight_t *)&stake_weights_msg[4];
-      ulong stake_weight_idx = fd_stake_weights_by_node( &ctx->slot_ctx->epoch_ctx->epoch_bank.next_epoch_stakes, stake_weights );
+      ulong stake_weight_idx = fd_stake_weights_by_node( &epoch_bank->next_epoch_stakes, stake_weights );
 
-      stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, ctx->slot_ctx->slot_bank.slot ); /* epoch */
+      stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, ctx->slot_ctx->slot_bank.slot ); /* epoch */
       stake_weights_msg[1] = stake_weight_idx; /* staked_cnt */
-      stake_weights_msg[2] = fd_epoch_slot0( &ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, stake_weights_msg[0] ); /* start_slot */
-      stake_weights_msg[3] = ctx->slot_ctx->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch; /* slot_cnt */
+      stake_weights_msg[2] = fd_epoch_slot0( &epoch_bank->epoch_schedule, stake_weights_msg[0] ); /* start_slot */
+      stake_weights_msg[3] = epoch_bank->epoch_schedule.slots_per_epoch; /* slot_cnt */
       FD_LOG_WARNING(("Sending stake weights %lu %lu %lu %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -644,8 +645,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_valloc_t valloc = fd_alloc_virtual( alloc );
+  ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
   ctx->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( ctx->epoch_ctx_mem ) );
-  ctx->epoch_ctx->valloc = valloc;
   
   ctx->snapshot    = tile->replay.snapshot;
   ctx->incremental = tile->replay.incremental;

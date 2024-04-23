@@ -516,8 +516,9 @@ method_getEpochInfo(struct fd_web_replier* replier, struct json_values* values, 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_exec_slot_ctx_t * slot_ctx = get_slot_ctx(ctx);
   ulong slot_idx = 0;
-  ulong epoch = fd_slot_to_epoch( &ctx->replay->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( &ctx->replay->epoch_ctx->epoch_bank.epoch_schedule, epoch );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+  ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%lu}" CRLF,
                         slot_ctx->slot_bank.slot,
                         slot_ctx->slot_bank.block_height,
@@ -537,12 +538,13 @@ static int
 method_getEpochSchedule(struct fd_web_replier* replier, struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%lu}" CRLF,
-                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.first_normal_epoch,
-                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.first_normal_slot,
-                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.leader_schedule_slot_offset,
-                        ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.slots_per_epoch,
-                        (ctx->replay->epoch_ctx->epoch_bank.epoch_schedule.warmup ? "true" : "false"),
+                        epoch_bank->epoch_schedule.first_normal_epoch,
+                        epoch_bank->epoch_schedule.first_normal_slot,
+                        epoch_bank->epoch_schedule.leader_schedule_slot_offset,
+                        epoch_bank->epoch_schedule.slots_per_epoch,
+                        (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
                         ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -601,7 +603,8 @@ method_getGenesisHash(struct fd_web_replier* replier, struct json_values* values
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_textstream_encode_base58(ts, ctx->replay->epoch_ctx->epoch_bank.genesis_hash.uc, sizeof(fd_pubkey_t));
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+  fd_textstream_encode_base58(ts, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);
   return 0;
@@ -744,7 +747,8 @@ method_getMinimumBalanceForRentExemption(struct fd_web_replier* replier, struct 
   ulong size_sz = 0;
   const void* size = json_get_value(values, PATH_SIZE, 3, &size_sz);
   ulong sizen = (size == NULL ? 0UL : (ulong)(*(long*)size));
-  ulong min_balance = fd_rent_exempt_minimum_balance2(&ctx->replay->epoch_ctx->epoch_bank.rent, sizen);
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->replay->epoch_ctx );
+  ulong min_balance = fd_rent_exempt_minimum_balance2(&epoch_bank->rent, sizen);
 
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%lu}" CRLF,
@@ -979,7 +983,7 @@ method_getSlotLeader(struct fd_web_replier* replier, struct json_values* values,
   (void) values;
   fd_textstream_t * ts = fd_web_replier_textstream(replier);
   fd_textstream_sprintf(ts, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-  fd_pubkey_t const * leader = fd_epoch_leaders_get(ctx->replay->epoch_ctx->leaders, get_slot_ctx(ctx)->slot_bank.slot);
+  fd_pubkey_t const * leader = fd_epoch_leaders_get(fd_exec_epoch_ctx_leaders( ctx->replay->epoch_ctx ), get_slot_ctx(ctx)->slot_bank.slot);
   fd_textstream_encode_base58(ts, leader->uc, sizeof(fd_pubkey_t));
   fd_textstream_sprintf(ts, "\",\"id\":%lu}" CRLF, ctx->call_id);
   fd_web_replier_done(replier);

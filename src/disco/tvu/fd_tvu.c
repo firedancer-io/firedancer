@@ -888,7 +888,6 @@ void slot_ctx_setup( fd_valloc_t valloc,
   FD_TEST( out->exec_slot_ctx );
 
   out->exec_slot_ctx->epoch_ctx = out->exec_epoch_ctx;
-  out->exec_epoch_ctx->valloc = valloc;
   out->exec_slot_ctx->valloc  = valloc;
 
   out->exec_slot_ctx->acc_mgr      = fd_acc_mgr_new( acc_mgr, funk );
@@ -940,8 +939,9 @@ void snapshot_setup( char const * snapshot,
       FD_LOG_ERR( ( "--incremental value is badly formatted: %s", snapshot ) );
     if( i != exec_slot_ctx->slot_bank.slot )
       FD_LOG_ERR( ( "ledger slot number does not match --incremental-snapshot, %lu %lu %s", i, exec_slot_ctx->slot_bank.slot, p ) );
-    if( fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, i, NULL ) !=
-        fd_slot_to_epoch( &exec_slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, j, NULL ) )
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( exec_slot_ctx->epoch_ctx );
+    if( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) !=
+        fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) )
       FD_LOG_ERR( ( "we do not support an incremental snapshot spanning an epoch boundary" ) );
     out->snapshot_slot = j;
   } else {
@@ -994,8 +994,8 @@ snapshot_insert( fd_fork_t *       fork,
   replay->bft->snapshot_slot = snapshot_slot;
 
   /* Add snapshot slot to bash hash cmp. */
-
-  replay->epoch_ctx->bank_hash_cmp->slot = snapshot_slot;
+  fd_bank_hash_cmp_t * bank_hash_cmp = fd_exec_epoch_ctx_bank_hash_cmp( replay->epoch_ctx );
+  bank_hash_cmp->slot = snapshot_slot;
 
   /* Set the SMR on replay.*/
 
@@ -1028,7 +1028,7 @@ fd_tvu_late_incr_snap( fd_runtime_ctx_t *  runtime_ctx,
 
   snapshot_slot = replay->smr = slot_ctx->slot_bank.slot;
 
-  slot_ctx->leader = fd_epoch_leaders_get( replay->epoch_ctx->leaders, snapshot_slot );
+  slot_ctx->leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( replay->epoch_ctx ), snapshot_slot );
   slot_ctx->slot_bank.collected_fees = 0;
   slot_ctx->slot_bank.collected_rent = 0;
 
@@ -1113,7 +1113,7 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
   forks->funk = funk_setup_out.funk;
   forks->valloc = valloc;
   replay_setup_out.replay->forks = forks;
-
+  runtime_ctx->epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );
   slot_ctx_setup_t slot_ctx_setup_out = {0};
   slot_ctx_setup( valloc,
                   runtime_ctx->epoch_ctx_mem,
@@ -1270,8 +1270,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /***********************************************************************/
     /* Prepare                                                             */
     /***********************************************************************/
-    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool;
-    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = slot_ctx_setup_out.exec_epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root;
+    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx_setup_out.exec_epoch_ctx );
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
+    fd_vote_accounts_pair_t_mapnode_t * vote_accounts_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
 
     ulong stake_weights_cnt = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
     ulong stake_weight_idx = 0;
@@ -1327,12 +1328,9 @@ fd_tvu_main_setup( fd_runtime_ctx_t *    runtime_ctx,
     /* bank hash cmp */
 
     int    bank_hash_cmp_lg_slot_cnt = 10; /* max vote lag 512 => fill ratio 0.5 => 1024 */
-    void * bank_hash_cmp_mem =
-        fd_wksp_alloc_laddr( wksp,
-                             fd_bank_hash_cmp_align(),
-                             fd_bank_hash_cmp_footprint( bank_hash_cmp_lg_slot_cnt ),
-                             42UL );
-    replay_setup_out.replay->epoch_ctx->bank_hash_cmp = fd_bank_hash_cmp_join(
+    void * bank_hash_cmp_mem = fd_exec_epoch_ctx_bank_hash_cmp( replay_setup_out.replay->epoch_ctx );
+
+    fd_bank_hash_cmp_join(
         fd_bank_hash_cmp_new( bank_hash_cmp_mem, bank_hash_cmp_lg_slot_cnt ) );
 
     /* bootstrap replay with the snapshot slot */
@@ -1479,6 +1477,5 @@ fd_tvu_main_teardown( fd_runtime_ctx_t * tvu_args, fd_replay_t * replay ) {
 
   /* Some replay paths don't use frontiers */
   if( tvu_args->slot_ctx ) fd_exec_slot_ctx_free( tvu_args->slot_ctx );
-
-  fd_exec_epoch_ctx_free( tvu_args->epoch_ctx );
+  fd_wksp_free_laddr(tvu_args->epoch_ctx_mem);
 }

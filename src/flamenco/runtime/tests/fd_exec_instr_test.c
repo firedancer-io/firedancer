@@ -158,8 +158,8 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_scratch_push();
 
   /* Allocate contexts */
-
-  uchar *               epoch_ctx_mem = fd_scratch_alloc( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5, 0, "wksp", 0UL );
+  uchar *               epoch_ctx_mem = fd_wksp_alloc_laddr( wksp, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint(), FD_EXEC_EPOCH_CTX_MAGIC );;
   uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
   uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
@@ -167,16 +167,14 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
   fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_scratch_virtual() ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
-  epoch_ctx->valloc = fd_scratch_virtual();
-
   assert( epoch_ctx );
   assert( slot_ctx  );
 
   /* Set up epoch context */
-
-  epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
-  epoch_ctx->epoch_bank.rent.exemption_threshold = 2;
-  epoch_ctx->epoch_bank.rent.burn_percent = 50;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+  epoch_bank->rent.lamports_per_uint8_year = 3480;
+  epoch_bank->rent.exemption_threshold = 2;
+  epoch_bank->rent.burn_percent = 50;
 
   /* Restore feature flags */
 
@@ -280,7 +278,7 @@ _context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
 
     /* Override epoch bank settings */
-    epoch_ctx->epoch_bank.rent = *rent;
+    epoch_bank->rent = *rent;
   }
 
   /* Override most recent blockhash if given */
@@ -353,6 +351,7 @@ _context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_exec_slot_ctx_delete ( fd_exec_slot_ctx_leave ( slot_ctx  ) );
   fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( epoch_ctx ) );
+  fd_wksp_free_laddr( epoch_ctx );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );

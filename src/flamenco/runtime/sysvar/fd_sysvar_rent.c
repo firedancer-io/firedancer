@@ -55,7 +55,8 @@ write_rent( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  write_rent( slot_ctx, &slot_ctx->epoch_ctx->epoch_bank.rent );
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  write_rent( slot_ctx, &epoch_bank->rent );
 }
 
 /* TODO: handle update */
@@ -70,6 +71,7 @@ fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
 ulong
 fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong                data_len ) {
-  fd_rent_t const * rent = &slot_ctx->epoch_ctx->epoch_bank.rent;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_rent_t const * rent = &epoch_bank->rent;
   return fd_rent_exempt_minimum_balance2( rent, data_len );
 }

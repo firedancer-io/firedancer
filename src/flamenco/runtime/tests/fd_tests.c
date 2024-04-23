@@ -96,7 +96,7 @@ fd_funk_txn_xid_set_unique( fd_funk_txn_xid_t * xid ) {
 void fd_executor_test_suite_new( fd_executor_test_suite_t* suite ) {
   memset(suite, 0, sizeof(*suite));
 
-  suite->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 15, 0, "wksp", 0UL );
+  suite->wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 24, 0, "wksp", 0UL );
   if ( FD_UNLIKELY( NULL == suite->wksp ) )
     FD_LOG_ERR(( "failed to create an anonymous local workspace" ));
 
@@ -226,7 +226,7 @@ int fd_executor_run_test(
 
   /* Create a new slot_ctx context to execute this test in */
 
-  uchar * epoch_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT );
+  uchar * epoch_ctx_mem = fd_wksp_alloc_laddr( suite->wksp, FD_EXEC_EPOCH_CTX_ALIGN, FD_EXEC_EPOCH_CTX_FOOTPRINT, FD_EXEC_EPOCH_CTX_MAGIC );;
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem ) );
 
   uchar * slot_ctx_mem = (uchar *)fd_alloca_check( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
@@ -238,9 +238,11 @@ int fd_executor_run_test(
 
   int ret = 0;
 
-  epoch_ctx->epoch_bank.rent.lamports_per_uint8_year = 3480;
-  epoch_ctx->epoch_bank.rent.exemption_threshold = 2;
-  epoch_ctx->epoch_bank.rent.burn_percent = 50;
+  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
+
+  epoch_bank->rent.lamports_per_uint8_year = 3480;
+  epoch_bank->rent.exemption_threshold = 2;
+  epoch_bank->rent.burn_percent = 50;
 
   memcpy(&slot_ctx->epoch_ctx->features, &suite->features, sizeof(suite->features));
   if (test->disable_cnt > 0) {
@@ -583,6 +585,7 @@ fd_executor_run_cleanup:
   fd_funk_txn_cancel( suite->funk, slot_ctx->funk_txn, 0 );
   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = slot_ctx->valloc };
   fd_slot_bank_destroy(&slot_ctx->slot_bank, &destroy_ctx);
+  fd_wksp_free_laddr( epoch_ctx_mem );
   return ret;
 }
 

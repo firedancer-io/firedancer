@@ -21,7 +21,8 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
 
   fd_account_meta_t const * meta = account->const_meta;
 
-  fd_rent_t const * rent = &ctx->epoch_ctx->epoch_bank.rent;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
+  fd_rent_t const * rent = &epoch_bank->rent;
   if( FD_UNLIKELY( !fd_rent_exempt_minimum_balance2( rent, meta->dlen ) ) )
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
 
