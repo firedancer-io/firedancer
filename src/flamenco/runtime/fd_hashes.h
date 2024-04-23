@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_hashes_h
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
-#include "../../funk/fd_funk_txn.h"
-#include "context/fd_exec_slot_ctx.h"
-#include "context/fd_capture_ctx.h"
-
-typedef struct fd_exec_slot_ctx fd_exec_slot_ctx_t;
+#include "../fd_flamenco_base.h"
+#include "../types/fd_types.h"
+#include "../../funk/fd_funk.h"
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {

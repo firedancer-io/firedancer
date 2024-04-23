@@ -1,15 +1,20 @@
 #include "fd_hashes.h"
-#include "../../ballet/blake3/fd_blake3.h"
-#include "../../ballet/sha256/fd_sha256.h"
-#include <assert.h>
-#include <stdio.h>
-#include "../../ballet/lthash/fd_lthash.h"
-#include "../../ballet/base58/fd_base58.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 #include "fd_account.h"
 #include "context/fd_capture_ctx.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
+#include "../capture/fd_solcap_writer.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/blake3/fd_blake3.h"
+#include "../../ballet/lthash/fd_lthash.h"
+#include "../../ballet/sha256/fd_sha256.h"
+
+#include <assert.h>
+#include <stdio.h>
+
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -822,7 +827,7 @@ fd_hash_account_v0( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
+  fd_blake3_t b3[1];
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &slot,       sizeof( ulong ) );
@@ -847,7 +852,7 @@ fd_hash_account_v1( uchar                     hash[ static 32 ],
   uchar         executable = m->info.executable & 0x1;
   uchar const * owner      = (uchar const *)m->info.owner;
 
-  fd_blake3_t *b3 = fd_alloca(alignof(fd_blake3_t), sizeof(fd_blake3_t));
+  fd_blake3_t b3[1];
   fd_blake3_init  ( b3 );
   fd_blake3_append( b3, &lamports,   sizeof( ulong ) );
   fd_blake3_append( b3, &rent_epoch, sizeof( ulong ) );
