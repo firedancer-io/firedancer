@@ -165,36 +165,6 @@ fd_executor_collect_fee( fd_exec_slot_ctx_t * slot_ctx,
                          fd_borrowed_account_t const * rec,
                          ulong                fee );
 
-/* Consider moving these to util */
-
-// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
-static inline int
-fd_ulong_checked_add( ulong a, ulong b, ulong * out ) {
-  int cf = __builtin_uaddl_overflow( a, b, out );
-  return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, 0 );
-}
-
-// https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
-static inline int FD_FN_UNUSED
-fd_ulong_checked_sub( ulong a, ulong b, ulong * out ) {
-  int cf = __builtin_usubl_overflow( a, b, out );
-  return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, 0 );
-}
-
-static inline ulong
-fd_ulong_checked_add_expect( ulong a, ulong b, char const * expect ) {
-  ulong out = ULONG_MAX;
-  if( FD_UNLIKELY( fd_ulong_checked_add( a, b, &out ) ) ) { FD_LOG_ERR(( "%s", expect )); }
-  return out;
-}
-
-static inline ulong
-fd_ulong_checked_sub_expect( ulong a, ulong b, char const * expect ) {
-  ulong out = ULONG_MAX;
-  if( FD_UNLIKELY( fd_ulong_checked_sub( a, b, &out ) ) ) { FD_LOG_ERR(( "%s", expect )); }
-  return out;
-}
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */

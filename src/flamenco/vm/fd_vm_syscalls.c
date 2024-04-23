@@ -8,6 +8,7 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "fd_vm_context.h"
 #include "fd_vm_cpi.h"
+#include "../runtime/sysvar/fd_sysvar_clock.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/sysvar/fd_sysvar_fees.h"
 #include "../runtime/fd_account.h"
@@ -15,6 +16,7 @@
 #include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 /* FIXME: Temporary scaffolding */
@@ -1303,11 +1305,13 @@ fd_vm_cpi_update_callee_account( fd_vm_exec_context_t * ctx,
   return 0;
 }
 
-static bool check_id(uchar const * program_id, uchar const * loader) {
+static int
+check_id(uchar const * program_id, uchar const * loader) {
   return memcmp(program_id, loader, sizeof(fd_pubkey_t)) == 0;
 }
 
-static bool is_precompile(const uchar * program_id) {
+static int
+is_precompile(const uchar * program_id) {
   return check_id(program_id, fd_solana_keccak_secp_256k_program_id.key) ||
          check_id(program_id, fd_solana_ed25519_sig_verify_program_id.key);
 }
