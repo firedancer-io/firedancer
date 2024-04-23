@@ -2990,7 +2990,7 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
     } else {
       fd_stake_accounts_pair_t_mapnode_t * new_node = fd_stake_accounts_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool );
       ulong size = fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-      FD_LOG_DEBUG(("Curr stake account size %lu %lx", size, slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool));
+      FD_LOG_DEBUG(("Curr stake account size %lu %p", size, (void *)slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool));
       if ( new_node == NULL ) {
         FD_LOG_ERR(("Stake accounts keys map full %lu", size));
       }
