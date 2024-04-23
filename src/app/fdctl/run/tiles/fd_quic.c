@@ -9,8 +9,6 @@
 #include "../../../../waltz/ip/fd_netlink.h"
 #include "../../../../disco/quic/fd_tpu.h"
 
-#include <openssl/err.h>
-#include <openssl/ssl.h>
 #include <linux/unistd.h>
 #include <sys/random.h>
 
