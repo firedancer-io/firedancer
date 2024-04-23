@@ -3,7 +3,7 @@ pull_resp:
   (null): 
     - signature: '39P8nJ2kNPZBLkJ4YmMimiCBNSto4qBijbGNVKbbwKoQJCm1s3kEuPPijzqR52rgvrKicpDVLptQ3SeNZvKwc1p6'
       data: 
-        contact_info_v1: 
+        contact_info: 
           id: '9Diwct7c6braQnne86jutswAW4iZmPfcg6VHVp4FBrLn'
           gossip: 
             addr: 

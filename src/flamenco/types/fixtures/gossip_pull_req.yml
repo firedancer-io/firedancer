@@ -112,7 +112,7 @@ pull_req:
   value: 
     signature: '2ciwMym6Gg6h8SJhQ9TGoHWPmbjoGKR9YxRUuXvLuHev4x57yaaiHppM6md7SPzfvr118SaxcP39rAPKwvKzitQp'
     data: 
-      contact_info_v1: 
+      contact_info: 
         id: 'FtxH6Na6AJk8hM21DzsHtmGCuwgm4qWdUTosAdN9fmTD'
         gossip: 
           addr: 
