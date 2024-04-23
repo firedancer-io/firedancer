@@ -23,7 +23,8 @@ struct __attribute__((aligned(128UL))) fd_store {
   ulong smr;           /* super-majority root */
   ulong snapshot_slot; /* the snapshot slot */
   ulong first_turbine_slot;  /* the first turbine slot we received on startup */
-  ulong curr_turbine_slot; 
+  ulong curr_turbine_slot;
+  ulong curr_pack_slot;
 
   /* external joins */
   fd_blockstore_t *     blockstore;
@@ -64,6 +65,10 @@ fd_store_slot_prepare( fd_store_t *   store,
                        ulong *        repair_slot_out,
                        uchar const ** block_out,
                        ulong *        block_sz_out );
+
+int
+fd_store_set_pack_slot( fd_store_t *   store,
+                        ulong          slot );
 
 int
 fd_store_shred_insert( fd_store_t * store,
