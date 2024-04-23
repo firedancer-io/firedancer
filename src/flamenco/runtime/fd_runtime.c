@@ -872,7 +872,7 @@ fd_runtime_copy_program_data_acc_to_pruned_funk( fd_funk_t * pruned_funk,
   /* If account corresponds to bpf_upgradeable, copy over the programdata as well.
      This is necessary for executing any bpf upgradeable program. */
 
-  if ( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, program_pubkey ) != 0 ) {
+  if( fd_bpf_loader_v3_is_executable( slot_ctx, program_pubkey ) != 0 ) {
     return;
   }
 

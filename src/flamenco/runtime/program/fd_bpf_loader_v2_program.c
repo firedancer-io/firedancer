@@ -24,8 +24,8 @@ static void __attribute__((destructor)) free_buf(void) {
 }
 
 int
-fd_executor_bpf_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx,
-                                                              fd_pubkey_t const *  pubkey ) {
+fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  pubkey ) {
   FD_BORROWED_ACCOUNT_DECL(rec);
   int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
   if( read_result != FD_ACC_MGR_SUCCESS ) {
@@ -105,8 +105,8 @@ setup_program(fd_exec_instr_ctx_t * ctx, uchar * program_data, ulong program_dat
   return 0;
 }
 
-
-int fd_executor_bpf_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx ) {
+int
+fd_bpf_loader_v2_user_execute( fd_exec_instr_ctx_t ctx ) {
   // FIXME: the program account is not in the instruction accounts?
   fd_borrowed_account_t * program_acc_view = NULL;
   int read_result = fd_txn_borrowed_account_view_idx( ctx.txn_ctx, ctx.instr->program_id, &program_acc_view );
@@ -346,7 +346,8 @@ if (memcmp(signature, sig, 64) == 0) {
   return 0;
 }
 
-int fd_executor_bpf_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
+int
+fd_bpf_loader_v2_program_execute( fd_exec_instr_ctx_t ctx ) {
   if( ctx.instr->acct_cnt < 1 ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }

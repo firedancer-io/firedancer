@@ -106,7 +106,9 @@ int write_bpf_upgradeable_loader_state( fd_exec_instr_ctx_t * instr_ctx, fd_pubk
 }
 
 // This is literally called before every single instruction execution... To make it fast we are duplicating some code
-int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd_exec_slot_ctx_t * slot_ctx, fd_pubkey_t const * pubkey ) {
+int
+fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_pubkey_t const *  pubkey ) {
   int err = 0;
   fd_account_meta_t const * m = fd_acc_mgr_view_raw(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *) pubkey, NULL, &err);
   if (FD_UNLIKELY( !fd_acc_exists( m ) ) ) {
@@ -150,7 +152,8 @@ int fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( fd
   return 0;
 }
 
-int fd_executor_bpf_upgradeable_loader_program_execute_program_instruction( fd_exec_instr_ctx_t ctx ) {
+int
+fd_bpf_loader_v3_user_execute( fd_exec_instr_ctx_t ctx ) {
   /* Allocate syscalls */
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( ctx.valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
@@ -466,7 +469,8 @@ common_close_account( fd_exec_instr_ctx_t                 ctx,
   return write_bpf_upgradeable_loader_state( &ctx, close_acc, loader_state );
 }
 
-int fd_executor_bpf_upgradeable_loader_program_execute_instruction( fd_exec_instr_ctx_t ctx ) {
+int
+fd_bpf_loader_v3_program_execute( fd_exec_instr_ctx_t ctx ) {
   /* Deserialize the Stake instruction */
   uchar const * data            = ctx.instr->data;
 

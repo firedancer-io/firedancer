@@ -57,9 +57,9 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
   } else if ( !memcmp( pubkey, fd_solana_keccak_secp_256k_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_executor_secp256k1_program_execute_instruction;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_bpf_upgradeable_loader_program_execute_instruction;
+    return fd_bpf_loader_v3_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return fd_executor_bpf_loader_program_execute_instruction;
+    return fd_bpf_loader_v2_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_bpf_loader_deprecated_program_id.key, sizeof( fd_pubkey_t ) ) ) {
     return fd_bpf_loader_v1_program_execute;
   } else if ( !memcmp( pubkey, fd_solana_compute_budget_program_id.key, sizeof( fd_pubkey_t ) ) ) {
@@ -76,7 +76,7 @@ fd_executor_lookup_native_program( fd_pubkey_t const * pubkey ) {
 int
 fd_executor_lookup_program( fd_exec_slot_ctx_t * slot_ctx,
                             fd_pubkey_t const * pubkey ) {
-  if( fd_executor_bpf_upgradeable_loader_program_is_executable_program_account( slot_ctx, pubkey )==0 ) {
+  if( fd_bpf_loader_v3_is_executable( slot_ctx, pubkey )==0 ) {
     return 0;
   }
 
@@ -484,33 +484,19 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       return exec_result;
     }
 
-    /* TODO: allow instructions to be failed, and the transaction to be reverted */
-    fd_pubkey_t const * program_id_acc = &txn_accs[instr->program_id];
-
-    /* TODO: inject replay vote sending somewhere around here */
-
-    fd_exec_instr_fn_t exec_instr_func = fd_executor_lookup_native_program( program_id_acc );
+    fd_pubkey_t const * program_id = &txn_accs[ instr->program_id ];
+    fd_exec_instr_fn_t  native_prog_fn = fd_executor_lookup_native_program( program_id );
 
     fd_exec_txn_ctx_reset_return_data( txn_ctx );
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
-    if (exec_instr_func != NULL) {
-      exec_result = exec_instr_func( *ctx );
-
+    if( native_prog_fn != NULL ) {
+      exec_result = native_prog_fn( *ctx );
+    } else if( fd_bpf_loader_v3_is_executable( ctx->slot_ctx, program_id )==0 ) {
+      exec_result = fd_bpf_loader_v3_user_execute( *ctx );
+    } else if( fd_bpf_loader_v2_is_executable( ctx->slot_ctx, program_id )==0 ) {
+      exec_result = fd_bpf_loader_v2_user_execute( *ctx );
     } else {
-      if (fd_executor_lookup_program( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        // FD_LOG_WARNING(( "found BPF upgradeable executable program account - program id: %32J", program_id_acc ));
-
-        exec_result = fd_executor_bpf_upgradeable_loader_program_execute_program_instruction(*ctx);
-
-      } else if ( fd_executor_bpf_loader_program_is_executable_program_account( ctx->slot_ctx, program_id_acc ) == 0 ) {
-        // FD_LOG_WARNING(( "found BPF v2 executable program account - program id: %32J", program_id_acc ));
-
-        exec_result = fd_executor_bpf_loader_program_execute_program_instruction(*ctx);
-
-      } else {
-        FD_LOG_WARNING(( "did not find native or BPF executable program account - program id: %32J", program_id_acc ));
-        exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
-      }
+      exec_result = FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
 
     if( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) {
