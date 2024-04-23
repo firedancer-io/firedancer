@@ -78,6 +78,9 @@
 #define FD_EXECUTOR_SIGN_ERR_INSTRUCTION_DATA_SIZE               (-101)
 #define FD_EXECUTOR_SIGN_ERR_SIGNATURE                           (-102)
 
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
+#define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
+
 FD_PROTOTYPES_BEGIN
 
 /* Instruction execution **********************************************/
